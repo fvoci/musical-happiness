@@ -30,6 +30,7 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type CommentVersion,
   type DownloadedFile,
   type DownloadOptions,
   type Registration,
@@ -49,6 +50,7 @@ import {
   cardOf,
   categoryOf,
   commentOf,
+  commentVersionOf,
   memberOf,
   newCardOf,
   settingsChangeOf,
@@ -822,6 +824,15 @@ export class ServerBackend implements Backend, Account {
         return { ...before, body: write.body };
       }
     });
+  }
+
+  /** A comment's earlier texts (`getCommentVersions`), the first first. */
+  async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
+    const versions = await this.#http.request<Schemas['CommentVersion'][]>(
+      '/api/v1/boards/{boardId}/blocks/{blockId}/versions',
+      { boardId, blockId: commentId },
+    );
+    return versions.map(commentVersionOf);
   }
 
   /** A comment of this board, by its block: 404 for another block or none. */

@@ -1,0 +1,165 @@
+/**
+ * Comments in the memory backend as on the server: who may change and
+ * delete which, when a comment counts as changed, and the texts kept of it.
+ */
+import { describe, expect, it } from 'vitest';
+
+import { BackendError, type BoardRole } from '$lib/state/index.ts';
+import { COMMENT_VERSIONS_KEPT } from '$lib/state/memory/comments.ts';
+import type { MemoryBackend } from '$lib/state/memory/backend.ts';
+import type { World } from '$lib/state/memory/world.ts';
+
+import { setup, text } from './support.ts';
+
+async function onAlpha() {
+  const made = setup();
+  const [team] = await made.backend.teams();
+  const [board] = await made.backend.boards(team?.id ?? '');
+  const cards = await made.backend.cards(board?.id ?? '');
+  const alpha = cards.find((card) => card.title === 'Alpha');
+  if (!board || !alpha) throw new Error('no card');
+  return { ...made, boardId: board.id, cardId: alpha.id };
+}
+
+/** Gives `who` exactly this role on the board. */
+function setRole(world: World, boardId: string, who: MemoryBackend, role: BoardRole): void {
+  const members = world.members.get(boardId) ?? [];
+  world.members.set(
+    boardId,
+    members.map((member) =>
+      member.userId === who.userId
+        ? {
+            ...member,
+            schemeAdmin: role === 'admin',
+            schemeEditor: role === 'editor',
+            schemeCommenter: role === 'commenter',
+            schemeViewer: role === 'viewer',
+          }
+        : member,
+    ),
+  );
+}
+
+const statusOf = async (promise: Promise<unknown>): Promise<number | 'ok'> => {
+  try {
+    await promise;
+    return 'ok';
+  } catch (error) {
+    if (error instanceof BackendError) return error.status;
+    throw error;
+  }
+};
+
+describe('who changes and deletes a comment', () => {
+  it('its author with the commenter’s role changes it; only an admin changes anybody else’s', async () => {
+    const { world, backend, other, boardId, cardId } = await onAlpha();
+    const mine = await backend.createComment(boardId, cardId, text('mine'));
+    const write = async (who: MemoryBackend, words: string) => {
+      const now = world.blocks.get(mine.id)?.updateAt ?? 0;
+      return statusOf(who.patchComment(boardId, mine.id, { body: text(words), readAt: now }));
+    };
+
+    setRole(world, boardId, backend, 'commenter');
+    expect(await write(backend, 'as a commenter')).toBe('ok');
+    setRole(world, boardId, backend, 'viewer');
+    expect(await write(backend, 'as a viewer')).toBe(403);
+
+    setRole(world, boardId, other, 'editor');
+    expect(await write(other, 'by an editor')).toBe(403);
+    setRole(world, boardId, other, 'admin');
+    expect(await write(other, 'by an admin')).toBe('ok');
+    expect(world.blocks.get(mine.id)?.body).toEqual(text('by an admin'));
+  });
+
+  it('its author with the editor’s role deletes it; only an admin deletes anybody else’s', async () => {
+    const { world, backend, other, boardId, cardId } = await onAlpha();
+    const first = await backend.createComment(boardId, cardId, text('one'));
+    const second = await backend.createComment(boardId, cardId, text('two'));
+
+    setRole(world, boardId, backend, 'commenter');
+    expect(await statusOf(backend.deleteBlock(boardId, first.id))).toBe(403);
+    setRole(world, boardId, other, 'editor');
+    expect(await statusOf(other.deleteBlock(boardId, first.id))).toBe(403);
+    setRole(world, boardId, backend, 'editor');
+    expect(await statusOf(backend.deleteBlock(boardId, first.id))).toBe('ok');
+    setRole(world, boardId, other, 'admin');
+    expect(await statusOf(other.deleteBlock(boardId, second.id))).toBe('ok');
+  });
+});
+
+describe('a changed comment', () => {
+  it('says when its text was changed and by whom, and not for a write of the same text', async () => {
+    const { world, backend, other, boardId, cardId } = await onAlpha();
+    const posted = await backend.createComment(boardId, cardId, text('first'));
+    expect(posted.editedAt).toBeUndefined();
+
+    const same = await backend.patchComment(boardId, posted.id, {
+      body: text('first'),
+      readAt: posted.updateAt,
+    });
+    expect(same.editedAt).toBeUndefined();
+    expect(await backend.commentVersions(boardId, posted.id)).toEqual([]);
+
+    setRole(world, boardId, other, 'admin');
+    const changed = await other.patchComment(boardId, posted.id, {
+      body: text('second'),
+      readAt: same.updateAt,
+    });
+    expect(changed.editedAt).toBe(changed.updateAt);
+    expect(changed.modifiedBy).toBe(other.userId);
+    expect((await backend.comments(boardId, cardId)).find((one) => one.id === posted.id)).toEqual(
+      changed,
+    );
+  });
+
+  it('keeps what it said before, posted text first, the newest up to the limit', async () => {
+    const { world, backend, other, boardId, cardId } = await onAlpha();
+    const posted = await backend.createComment(boardId, cardId, text('v1'));
+    setRole(world, boardId, other, 'admin');
+    let readAt = posted.updateAt;
+    const change = async (who: MemoryBackend, words: string) => {
+      readAt = (await who.patchComment(boardId, posted.id, { body: text(words), readAt })).updateAt;
+    };
+    await change(other, 'v2');
+    await change(backend, 'v3');
+
+    const versions = await backend.commentVersions(boardId, posted.id);
+    expect(versions.map(({ writtenAt: _at, ...rest }) => rest)).toEqual([
+      { version: 1, body: text('v1'), writtenBy: backend.userId },
+      { version: 2, body: text('v2'), writtenBy: other.userId },
+    ]);
+    expect(versions[0]?.writtenAt).toBe(posted.createAt);
+    expect(versions[1]?.writtenAt).toBeGreaterThan(posted.createAt);
+
+    // Many changes later: the first and the newest, as many as the server keeps.
+    for (let at = 4; at <= 61; at += 1) await change(backend, `v${at}`);
+    const kept = await backend.commentVersions(boardId, posted.id);
+    expect(kept).toHaveLength(COMMENT_VERSIONS_KEPT);
+    expect(kept.map((version) => version.version)).toEqual([
+      1,
+      ...Array.from({ length: COMMENT_VERSIONS_KEPT - 1 }, (_, index) => 12 + index),
+    ]);
+    expect(kept.at(-1)?.body).toEqual(text('v60'));
+  });
+
+  it('shows its earlier texts to members only, also from the trash, and only of comments', async () => {
+    const { world, backend, other, boardId, cardId } = await onAlpha();
+    const posted = await backend.createComment(boardId, cardId, text('before'));
+    await backend.patchComment(boardId, posted.id, {
+      body: text('after'),
+      readAt: posted.updateAt,
+    });
+    setRole(world, boardId, other, 'viewer');
+    expect(await other.commentVersions(boardId, posted.id)).toHaveLength(1);
+
+    world.members.set(
+      boardId,
+      (world.members.get(boardId) ?? []).filter((member) => member.userId !== other.userId),
+    );
+    expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(403);
+
+    await backend.deleteBlock(boardId, posted.id);
+    expect(await backend.commentVersions(boardId, posted.id)).toHaveLength(1);
+    expect(await statusOf(backend.commentVersions(boardId, cardId))).toBe(404);
+  });
+});

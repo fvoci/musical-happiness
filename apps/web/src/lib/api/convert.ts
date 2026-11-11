@@ -27,6 +27,7 @@ import type {
   CardDetail,
   CardDraft,
   Comment,
+  CommentVersion,
   CardSummary,
   Category,
   Sharing,
@@ -192,6 +193,11 @@ export function commentOf(block: Schemas['Block']): Comment {
             ),
           }),
   };
+}
+
+/** An earlier text of a comment. */
+export function commentVersionOf(version: Schemas['CommentVersion']): CommentVersion {
+  return { ...version, body: bodyOf(version.body) };
 }
 
 /**

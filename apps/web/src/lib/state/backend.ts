@@ -229,6 +229,20 @@ export interface CardDetail extends CardSummary {
 export interface Comment extends Block {
   type: 'comment';
   body: DocNode | null;
+  /**
+   * When its text was last changed; absent while it never was. Who changed
+   * it is `modifiedBy`.
+   */
+  editedAt?: number;
+}
+
+/** A text a comment had before it was changed: the first is the one it was posted with. */
+export interface CommentVersion {
+  /** Counted from 1 for the first text; versions no longer kept leave gaps. */
+  version: number;
+  body: DocNode | null;
+  writtenBy: string;
+  writtenAt: number;
 }
 
 /** A file attached to a card. It is a child block of the card; `fileId` names the bytes. */
@@ -506,6 +520,11 @@ export interface Backend {
    * since `readAt`, and with 400 when the body is empty: a comment has a text.
    */
   patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment>;
+  /**
+   * What a comment said before each change, the first text first; empty for
+   * one never changed. For the board's members (a reader by its link has none).
+   */
+  commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]>;
   attachments(boardId: string, cardId: string): Promise<Attachment[]>;
   createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment>;
 

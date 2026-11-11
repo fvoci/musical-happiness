@@ -23,6 +23,7 @@ export {
   type Category,
   type Change,
   type Comment,
+  type CommentVersion,
   type InvalidInput,
   type Registration,
   type Sharing,

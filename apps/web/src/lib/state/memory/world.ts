@@ -12,6 +12,7 @@ import type {
   Category,
   Change,
   ChangeListener,
+  CommentVersion,
   Sharing,
   Team,
   User,
@@ -21,6 +22,8 @@ import type {
 export interface StoredBlock extends Block {
   /** Cards and comments: their text. */
   body?: DocNode | null;
+  /** Comments whose text was changed: when that last happened. */
+  editedAt?: number;
   /** Attachments. */
   file?: { fileId: string; name: string; size: number; contentType: string };
 }
@@ -73,6 +76,8 @@ export class World {
   /** Deleted blocks, by the identifier of the block the deletion was asked for. */
   readonly deletedBlocks = new Map<string, DeletedBlocks>();
   readonly deletedBoards = new Map<string, DeletedBoard>();
+  /** The texts written down of changed comments, by comment, the one it has now last. */
+  readonly commentVersions = new Map<string, CommentVersion[]>();
 
   readonly #watchers = new Set<Watcher>();
   #counter = 0;

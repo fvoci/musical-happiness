@@ -59,6 +59,7 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type CommentVersion,
   type DownloadedFile,
   type DownloadOptions,
   type ErrorStatus,
@@ -73,6 +74,13 @@ import {
 
 import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
+import {
+  earlierVersions,
+  mayChangeComment,
+  mayDeleteComment,
+  recordChange,
+  roleOn,
+} from './comments.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
 /** The limits of the server design: section 5.7 (bodies) and 4.2, 5.6 (files). */
@@ -1042,15 +1050,46 @@ export class MemoryBackend implements Backend {
   async patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
     await this.#enter('patchComment');
     const block = this.#block(boardId, commentId, 'comment');
+    const role = roleOn(this.world.members.get(boardId) ?? [], this.userId);
+    if (!mayChangeComment(role, block.createdBy === this.userId)) {
+      fail(403, "access denied to change other users' comments");
+    }
     const checked = this.#checkBody(boardId, write.body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     if (block.updateAt !== write.readAt) {
       fail(409, 'the comment changed since it was read');
     }
+    const before = block.body ?? null;
     block.body = checked;
     this.#touch(block);
+    if (JSON.stringify(before) !== JSON.stringify(checked)) {
+      block.editedAt = block.updateAt;
+      this.world.commentVersions.set(
+        commentId,
+        recordChange(
+          this.world.commentVersions.get(commentId) ?? [],
+          { body: before, by: block.createdBy, at: block.createAt },
+          { body: checked, by: this.userId, at: block.updateAt },
+        ),
+      );
+    }
     this.#tellBlocks(boardId, [block]);
     return commentOf(block);
+  }
+
+  async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
+    await this.#enter('commentVersions');
+    this.#board(boardId);
+    if (roleOn(this.world.members.get(boardId) ?? [], this.userId) === '') {
+      fail(403, 'access denied to board');
+    }
+    // Also of a comment in the trash, as on the server.
+    const trashed = [...this.world.deletedBlocks.values()]
+      .filter((deleted) => deleted.boardId === boardId)
+      .flatMap((deleted) => deleted.blocks);
+    const comment = this.world.blocks.get(commentId) ?? trashed.find((one) => one.id === commentId);
+    if (comment?.boardId !== boardId || comment.type !== 'comment') fail(404, 'no such comment');
+    return earlierVersions(this.world.commentVersions.get(commentId) ?? []);
   }
 
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
@@ -1084,6 +1123,10 @@ export class MemoryBackend implements Backend {
   async deleteBlock(boardId: string, blockId: string): Promise<void> {
     await this.#enter('deleteBlock');
     const block = this.#block(boardId, blockId);
+    const role = roleOn(this.world.members.get(boardId) ?? [], this.userId);
+    if (block.type === 'comment' && !mayDeleteComment(role, block.createdBy === this.userId)) {
+      fail(403, "access denied to delete other users' comments");
+    }
     // Everything under it goes along, at every depth.
     const gone: StoredBlock[] = [];
     const collect = (parent: StoredBlock): void => {

@@ -164,6 +164,28 @@ describe('the server backend', () => {
     expect(other.map((one) => one.method)).toEqual(['GET']);
   });
 
+  it('reads the earlier texts of a comment, and says when and by whom it was changed', async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] }],
+    };
+    const sent = serve([
+      { version: 1, body, writtenBy: 'u1', writtenAt: 5 },
+      { version: 3, body: null, writtenBy: 'u2', writtenAt: 8 },
+    ]);
+    expect(await new ServerBackend('').commentVersions('b', 'm')).toEqual([
+      { version: 1, body, writtenBy: 'u1', writtenAt: 5 },
+      { version: 3, body: null, writtenBy: 'u2', writtenAt: 8 },
+    ]);
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'GET /api/v1/boards/b/blocks/m/versions',
+    ]);
+
+    serve([{ ...BLOCK, id: 'n', type: 'comment', title: '', body, editedAt: 9, modifiedBy: 'u2' }]);
+    const [comment] = await new ServerBackend('').comments('b', 'c');
+    expect(comment).toMatchObject({ editedAt: 9, modifiedBy: 'u2' });
+  });
+
   it("reads a card's comments and attachments as blocks under it", async () => {
     const body = {
       type: 'doc',

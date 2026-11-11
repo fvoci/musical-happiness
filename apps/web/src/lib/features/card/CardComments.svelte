@@ -4,12 +4,15 @@
   writes while the card is open appears by itself (the card store follows
   the board's changes) and is announced.
 
-  The reader can change the text of their own comments in place (the same
-  plain field as a new comment: lines are paragraphs) and delete them;
-  "Undo" in the card's menu brings a deleted one back. The field for a new comment is not here: it is pinned to the
+  The text of a comment is changed in place (the same plain field as a new
+  comment: lines are paragraphs) by whom the server lets (`canEditComment`),
+  and deleted the same way; "Undo" in the card's menu brings a deleted one
+  back. A changed comment says who changed it and when, and any member can
+  open what it said before (`CommentHistory`). The field for a new comment is not here: it is pinned to the
   bottom edge of the card (CommentComposer).
 -->
 <script lang="ts">
+  import HistoryIcon from '@lucide/svelte/icons/history';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import { onMount, tick } from 'svelte';
@@ -25,6 +28,7 @@
 
   import { autosize } from './autosize.ts';
   import { commentDoc, commentText } from './comment-doc.ts';
+  import CommentHistory from './CommentHistory.svelte';
 
   interface Props {
     board: BoardStore;
@@ -58,6 +62,8 @@
    */
   let editing = $state<{ id: string; text: string; readAt: number; theirs: boolean } | undefined>();
   let saving = $state(false);
+  /** The comment whose earlier texts are open. */
+  let historyOf = $state<string | undefined>();
   const edited = $derived(editing ? commentDoc(editing.text) : null);
   /** The comment being changed, as it is stored now. */
   const current = $derived(editing ? card.comment(editing.id) : undefined);
@@ -158,6 +164,22 @@
             >
               {relativeTime(comment.createAt, workspace.locale, Math.max(now, comment.createAt))}
             </time>
+            {#if comment.editedAt}
+              <span
+                class="text-xs text-muted-foreground"
+                title={displayDateTime(comment.editedAt, context)}
+                data-testid="comment-edited"
+              >
+                {m.card_comment_edited({
+                  who: resolveUser(comment.modifiedBy),
+                  when: relativeTime(
+                    comment.editedAt,
+                    workspace.locale,
+                    Math.max(now, comment.editedAt),
+                  ),
+                })}
+              </span>
+            {/if}
           </p>
           {#if editing?.id === comment.id}
             <form
@@ -205,7 +227,31 @@
               {/snippet}
             </BodyView>
           {/if}
+          {#if historyOf === comment.id && comment.editedAt && board.role !== ''}
+            <CommentHistory
+              id="{uid}-history-{comment.id}"
+              {board}
+              commentId={comment.id}
+              editedAt={comment.editedAt}
+              {context}
+              {resolveUser}
+            />
+          {/if}
         </div>
+        {#if comment.editedAt && board.role !== ''}
+          <IconButton
+            label={m.card_comment_history({ when: displayDateTime(comment.createAt, context) })}
+            class={['shrink-0 text-muted-foreground', historyOf === comment.id && 'bg-accent']}
+            aria-expanded={historyOf === comment.id}
+            aria-controls={historyOf === comment.id ? `${uid}-history-${comment.id}` : undefined}
+            data-action="history"
+            onclick={() => {
+              historyOf = historyOf === comment.id ? undefined : comment.id;
+            }}
+          >
+            <HistoryIcon aria-hidden="true" />
+          </IconButton>
+        {/if}
         {#if text !== undefined && editing?.id !== comment.id && board.canEditComment(comment.createdBy)}
           <IconButton
             label={m.card_comment_edit_from({
