@@ -5,11 +5,13 @@
  * what the file says about the two.
  */
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { getSchema } from '@tiptap/core';
 import { Collaboration } from '@tiptap/extension-collaboration';
 import { Node } from '@tiptap/pm/model';
 import { describe, expect, it } from 'vitest';
+import * as Y from 'yjs';
 
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import { BODY_VERSION, toStoredDoc, validateDoc, type DocNode } from '$lib/editor/schema.ts';
@@ -25,6 +27,7 @@ import {
   YDOC_VECTORS_FILE,
   type YdocVectors,
 } from '../../tools/ydoc/vectors.ts';
+import { shapeOf } from '../../tools/ydoc/shape.ts';
 
 const schema = getSchema(bodyExtensions());
 const committed = readFileSync(YDOC_VECTORS_FILE, 'utf8');
@@ -113,4 +116,60 @@ describe('the vectors of a body as a Y document', () => {
       'bold and code together, which the editor never sets, are both kept',
     ]);
   });
+});
+
+/**
+ * What the server's conversion makes (`crates/collab`), written by its own
+ * test: the Y document of every body, and every repair's document after the
+ * server has repaired it.
+ */
+const made = JSON.parse(
+  readFileSync(
+    path.resolve(import.meta.dirname, '../../../../crates/collab/tests/data/made-here.json'),
+    'utf8',
+  ),
+) as Record<'documents' | 'repairs', { name: string; update: string }[]>;
+
+describe('the Y documents the server makes', () => {
+  const byName = (section: YdocVectors['documents']): Map<string, YdocVectors['documents'][0]> =>
+    new Map(section.map((one) => [one.name, one]));
+  const bodies = byName([...vectors.documents, ...vectors.bodies]);
+  const repairs = byName(vectors.repairs);
+
+  /** Reads as an editor reads, and says whether the editor deleted anything while it did. */
+  function read(update: string): { json: DocNode | null; deleted: boolean; doc: Y.Doc } {
+    const doc = readerOf(fromBase64(update));
+    const before = Y.encodeStateAsUpdate(doc);
+    const json = readStored(doc, schema);
+    const after = Y.encodeStateAsUpdate(doc);
+    const deleted = before.length !== after.length || before.some((byte, at) => byte !== after[at]);
+    return { json, deleted, doc };
+  }
+
+  it('are one for every body and every repair of the vectors', () => {
+    expect(made.documents.map((one) => one.name)).toEqual([...bodies.keys()]);
+    expect(made.repairs.map((one) => one.name)).toEqual([...repairs.keys()]);
+  });
+
+  it.each(made.documents.map((one) => [one.name, one] as const))(
+    '%s: an editor reads the same from it as from the document of its own binding, which has the same shape',
+    (name, one) => {
+      const theirs = bodies.get(name);
+      const mine = read(one.update);
+      expect(mine.json).toEqual(theirs?.json);
+      expect(mine.deleted).toBe(false);
+      expect(shapeOf(mine.doc.getXmlFragment(FIELD))).toEqual(
+        shapeOf(readerOf(fromBase64(theirs?.update ?? '')).getXmlFragment(FIELD)),
+      );
+    },
+  );
+
+  it.each(made.repairs.map((one) => [one.name, one] as const))(
+    '%s: after the repair an editor reads what its own repair leaves, and deletes nothing more',
+    (name, one) => {
+      const mine = read(one.update);
+      expect(mine.json).toEqual(repairs.get(name)?.json);
+      expect(mine.deleted).toBe(false);
+    },
+  );
 });

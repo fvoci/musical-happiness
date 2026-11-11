@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/model", "crates/store", "crates/server", "xtask"]
+members = ["crates/model", "crates/store", "crates/collab", "crates/server", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -78,6 +78,9 @@ uuid = { version = "1", features = ["v7"] }
 # Pure-Rust ZIP, DEFLATE via flate2/miniz_oxide only (no AES/bzip2/zstd/lzma), for the
 # board archive format. License: MIT.
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+# The Yjs CRDT in Rust: the Y document of a body that people edit together. Only
+# `crates/collab` uses it. License: MIT.
+yrs = "0.28"
 # Zstandard, to read compressed answers in the tests (the server's compression has it
 # already). License: MIT.
 zstd = "0.14"

@@ -17,6 +17,13 @@ ignore = [
     # opens the database file its operator configures. sqlx 0.9.0, the newest release,
     # does not accept libsqlite3-sys 0.39 yet; remove this entry when it does.
     { id = "RUSTSEC-2026-0459", reason = "no sqlx release accepts the fixed libsqlite3-sys yet; the server opens only the operator's own database file" },
+    # smallstr, a small-string type that yrs (the Y documents of crates/collab) builds
+    # on, is no longer maintained. The advisory is a notice of that and names no
+    # vulnerability (`informational = "unmaintained"`, no affected function). yrs 0.28.1,
+    # the newest release, depends on it. Remove this entry when a yrs release no longer
+    # does, or when an advisory names a vulnerability in smallstr (which gets its own
+    # identifier and fails this check again).
+    { id = "RUSTSEC-2026-0215", reason = "a notice that smallstr is unmaintained, not a vulnerability; yrs 0.28.1, the newest release, depends on it" },
 ]
 
 [licenses]
