@@ -909,6 +909,22 @@ mod tests {
             assert_eq!(schemas[name]["enum"], json!(words), "{name}");
             assert!(schemas[name]["description"].is_string(), "{name}");
         }
+        // Both the answer and the change name every setting there is.
+        let mut every: Vec<&str> = fvoci_model::SettingName::ALL
+            .iter()
+            .map(|name| name.as_str())
+            .collect();
+        every.sort_unstable();
+        for schema in ["UserSettings", "SettingsChange"] {
+            let mut members: Vec<&str> = schemas[schema]["properties"]
+                .as_object()
+                .expect("members")
+                .keys()
+                .map(String::as_str)
+                .collect();
+            members.sort_unstable();
+            assert_eq!(members, every, "{schema} names every setting");
+        }
         // And what an answer carries is among them.
         let settings = serde_json::to_value(UserSettings::default()).expect("JSON");
         for (member, set) in [

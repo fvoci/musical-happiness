@@ -1719,6 +1719,14 @@
               }
             ]
           },
+          "language": {
+            "description": "`auto`, for the language of the browser, or a language tag such as `ko` or\n`en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at most 64\ncharacters; the server keeps no list of languages, and keeps a tag as given.",
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "theme": {
             "oneOf": [
               {
@@ -2106,7 +2114,7 @@
             "description": "How the hours of a day are written."
           },
           "language": {
-            "description": "The language of the interface: `auto` for the browser's, or a language tag\n(BCP 47 in shape, such as `ko` or `en-US`; the server keeps no list of them).",
+            "description": "The language of the interface: `auto` for the browser's, or a language tag such\nas `ko` or `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at\nmost 64 characters. The server keeps no list of languages, and answers a tag as\nit was given, case and all: compare tags without regard to case.",
             "type": "string"
           },
           "theme": {

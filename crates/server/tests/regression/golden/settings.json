@@ -219,6 +219,18 @@
     }
   },
   {
+    "name": "patch: no shape of a language tag",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "language",
+      "message": "language must be \"auto\" or a language tag such as \"ko\" or \"en-US\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
     "name": "patch: a number",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,

@@ -832,6 +832,16 @@ async fn settings_are_read_changed_and_reset() {
         partly,
         "a change of nothing answers the settings"
     );
+    let reset = th
+        .client
+        .patch(SETTINGS, &json!({"language": null}))
+        .await
+        .value();
+    assert_eq!(
+        reset["language"],
+        json!("auto"),
+        "the browser's language again"
+    );
 
     th.anonymous().get(SETTINGS).await.check_unauthorized();
     th.anonymous()
@@ -869,6 +879,8 @@ async fn settings_refuse_what_is_no_setting_or_no_value_of_one() {
         (json!({"language": "Korean language"}), "language"),
         (json!({"language": ""}), "language"),
         (json!({"language": "ko_KR"}), "language"),
+        (json!({"language": "Auto"}), "language"),
+        (json!({"language": "en-US-US"}), "language"),
         (json!({"language": 82}), "language"),
         (json!({"theme": 3}), "theme"),
         (json!({"locale": "ko"}), "locale"),

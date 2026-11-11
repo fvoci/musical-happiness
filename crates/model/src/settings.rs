@@ -2,7 +2,7 @@
 //! client keeps with the account.
 //!
 //! The settings are a closed set: the server knows every one, its values and its
-//! default, and refuses anything else. They belong to the account and not to a device,
+//! default, and refuses anything else; of a language it knows only the shape of a tag. They belong to the account and not to a device,
 //! so that the same person sees the same times on every device.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -180,18 +180,23 @@ impl FromStr for TimeZone {
 
 /// The language of the interface: that of the browser, or one by its language tag.
 ///
-/// The server keeps no list of languages; it checks that a tag has the shape of one
-/// (BCP 47): subtags of 1 to 8 letters and digits joined by `-`, the first of 2 to 8
-/// letters, at most [`Language::MAX_LENGTH`] characters (`ko`, `en-US`,
-/// `zh-Hant-TW`). A tag is kept as given; which ones the interface has is the client's.
+/// The server keeps no list of languages; it checks that a tag has the shape the
+/// browsers' `Intl` reads (a Unicode BCP 47 locale identifier, `-` between subtags):
+/// a language of 2–3 or 5–8 letters, then an optional script of 4 letters, an optional
+/// region of 2 letters or 3 digits, variants of 5–8 letters and digits or a digit and 3
+/// (none twice), extensions (a letter or digit other than `x`, then subtags of 2–8) and
+/// private use (`x`, then subtags of 1–8) last. At most [`Language::MAX_LENGTH`]
+/// characters. A tag is kept as given, case and all (`en-us` stays `en-us`; tags do not
+/// differ by case).
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct Language(Option<String>);
 
 impl Language {
     /// The word for "the language of the browser".
     pub const AUTO: &'static str = "auto";
-    /// The longest tag.
-    pub const MAX_LENGTH: usize = 35;
+    /// The longest tag the server takes: room for a tag with a `-u-` extension, such as
+    /// what `Intl.Locale` writes.
+    pub const MAX_LENGTH: usize = 64;
 
     /// The setting as it is written: `auto` or the tag.
     pub fn as_str(&self) -> &str {
@@ -199,21 +204,65 @@ impl Language {
     }
 }
 
+/// Whether `tag` has the shape of a Unicode BCP 47 locale identifier.
+fn is_locale_tag(tag: &str) -> bool {
+    let letters = |s: &str, lengths: std::ops::RangeInclusive<usize>| {
+        lengths.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphabetic())
+    };
+    let alphanumerics = |s: &str, lengths: std::ops::RangeInclusive<usize>| {
+        lengths.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric())
+    };
+    let mut subtags = tag.split('-').peekable();
+    let language = subtags.next().unwrap_or_default();
+    if !(letters(language, 2..=3) || letters(language, 5..=8)) {
+        return false;
+    }
+    let _script = subtags.next_if(|s| letters(s, 4..=4));
+    let is_region =
+        |s: &&str| letters(s, 2..=2) || (s.len() == 3 && s.bytes().all(|b| b.is_ascii_digit()));
+    let _region = subtags.next_if(is_region);
+    let is_variant = |s: &&str| {
+        alphanumerics(s, 5..=8)
+            || (s.len() == 4 && s.as_bytes()[0].is_ascii_digit() && alphanumerics(s, 4..=4))
+    };
+    let mut variants = BTreeSet::new();
+    while let Some(variant) = subtags.next_if(is_variant) {
+        if !variants.insert(variant.to_ascii_lowercase()) {
+            return false;
+        }
+    }
+    let mut singletons = BTreeSet::new();
+    while let Some(singleton) = subtags.next() {
+        if !alphanumerics(singleton, 1..=1) || !singletons.insert(singleton.to_ascii_lowercase()) {
+            return false;
+        }
+        let private = singleton.eq_ignore_ascii_case("x");
+        let lengths = if private { 1..=8 } else { 2..=8 };
+        let mut any = false;
+        while subtags
+            .next_if(|s| alphanumerics(s, lengths.clone()))
+            .is_some()
+        {
+            any = true;
+        }
+        if !any {
+            return false;
+        }
+        // Private use is last: whatever follows it is part of it.
+        if private {
+            return subtags.next().is_none();
+        }
+    }
+    true
+}
+
 impl FromStr for Language {
     type Err = ParseSettingError;
 
     fn from_str(text: &str) -> Result<Self, ParseSettingError> {
         if text == Self::AUTO {
-            return Ok(Self(None));
-        }
-        let mut subtags = text.split('-');
-        let first = subtags.next().unwrap_or_default();
-        let first_fits =
-            (2..=8).contains(&first.len()) && first.bytes().all(|b| b.is_ascii_alphabetic());
-        let rest_fits = subtags.all(|subtag| {
-            (1..=8).contains(&subtag.len()) && subtag.bytes().all(|b| b.is_ascii_alphanumeric())
-        });
-        if text.len() <= Self::MAX_LENGTH && first_fits && rest_fits {
+            Ok(Self(None))
+        } else if text.len() <= Self::MAX_LENGTH && is_locale_tag(text) {
             Ok(Self(Some(text.to_owned())))
         } else {
             Err(ParseSettingError)
@@ -265,8 +314,10 @@ pub struct UserSettings {
     pub density: Density,
     /// Whether a device that can do so answers touches with a vibration.
     pub haptics: bool,
-    /// The language of the interface: `auto` for the browser's, or a language tag
-    /// (BCP 47 in shape, such as `ko` or `en-US`; the server keeps no list of them).
+    /// The language of the interface: `auto` for the browser's, or a language tag such
+    /// as `ko` or `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at
+    /// most 64 characters. The server keeps no list of languages, and answers a tag as
+    /// it was given, case and all: compare tags without regard to case.
     #[schema(value_type = String)]
     pub language: Language,
 }
@@ -591,6 +642,13 @@ mod tests {
         for flag in [true, false] {
             assert_eq!(patched(json!({"haptics": flag})).haptics, flag, "haptics");
         }
+        for tag in ["auto", "ko", "en-US", "zh-Hant-TW"] {
+            assert_eq!(
+                patched(json!({"language": tag})).language.as_str(),
+                tag,
+                "language"
+            );
+        }
     }
 
     #[test]
@@ -711,7 +769,20 @@ mod tests {
 
     #[test]
     fn a_language_is_auto_or_has_the_shape_of_a_tag() {
-        for tag in ["auto", "ko", "en-US", "zh-Hant-TW", "es-419", "de-CH-1901"] {
+        for tag in [
+            "auto",
+            "ko",
+            "en-US",
+            "en-us",
+            "zh-Hant-TW",
+            "es-419",
+            "sr-Latn",
+            "de-CH-1901",
+            "sl-rozaj-biske",
+            "en-US-u-ca-gregory-hc-h23",
+            "en-x-private",
+            "haw",
+        ] {
             let read: Language = tag.parse().expect(tag);
             assert_eq!(read.as_str(), tag, "kept as given");
         }
@@ -728,7 +799,21 @@ mod tests {
             "toolongtag",
             "en-toolongsub",
             "1a",
-            &format!("en{}", "-abcdefgh".repeat(4)),
+            &format!("en-u{}", "-abcdefgh".repeat(7)),
+            "Auto",
+            "AUTO",
+            "abcd",
+            "en-a",
+            "en-x",
+            "en-1",
+            "en-US-US",
+            "de-1901-1901",
+            "en-a-bc-a-de",
+            "en-x-ninechars",
+            "zh-yue-HK",
+            "sgn-BE-FR",
+            "i-klingon",
+            "x-private",
         ] {
             assert!(tag.parse::<Language>().is_err(), "{tag:?} is no tag");
         }
