@@ -5,7 +5,7 @@
  * It is wired one feature at a time. What is not wired yet refuses with a
  * `BackendError` of the reason `not_wired` (see `notWired`), so that a
  * screen that reaches it says that the change was not saved instead of
- * failing quietly. Which operations are wired is in `docs/handoff.md`.
+ * failing quietly. What is not wired is what calls `notWired` below.
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
@@ -499,7 +499,7 @@ export class ServerBackend implements Backend, Account {
     return commentOf(block);
   }
 
-  /** The attachments of a card, read only for now (`attachmentOf`). */
+  /** The attachments of a card (`attachmentOf`). */
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     return (await this.#children(boardId, cardId, 'attachment')).map(attachmentOf);
   }
@@ -584,9 +584,26 @@ export class ServerBackend implements Backend, Account {
   #uploading = 0;
   readonly #uploadWaiting: (() => void)[] = [];
 
+  /**
+   * Waits for a free place. One given up while waiting leaves the queue at
+   * once, so that an upload ending wakes one that still wants its turn.
+   */
   async #uploadTurn(signal: AbortSignal | undefined): Promise<void> {
     while (this.#uploading >= UPLOADS_AT_ONCE) {
-      await new Promise<void>((resolve) => this.#uploadWaiting.push(resolve));
+      signal?.throwIfAborted();
+      await new Promise<void>((resolve, reject) => {
+        const giveUp = (): void => {
+          const at = this.#uploadWaiting.indexOf(wake);
+          if (at >= 0) this.#uploadWaiting.splice(at, 1);
+          reject(signal?.reason as Error);
+        };
+        const wake = (): void => {
+          signal?.removeEventListener('abort', giveUp);
+          resolve();
+        };
+        this.#uploadWaiting.push(wake);
+        signal?.addEventListener('abort', giveUp, { once: true });
+      });
     }
     signal?.throwIfAborted();
     this.#uploading += 1;

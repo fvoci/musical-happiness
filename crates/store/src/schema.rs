@@ -74,12 +74,6 @@ const STEPS: [Step; 8] = [
     },
 ];
 
-/// Tables that only a database of the original server has: the bookkeeping of its
-/// migration engine. On PostgreSQL the name follows that server's table prefix, so
-/// there it is matched by its ending.
-const ORIGINAL_BOOKKEEPING_SQLITE: &str = "db_migrations";
-const ORIGINAL_BOOKKEEPING_POSTGRES_SUFFIX: &str = "schema_migrations";
-
 /// The table in which sqlx's migrator records what it applied.
 const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 
@@ -91,12 +85,12 @@ const A_SCHEMA_TABLE: &str = "blocks";
 ///
 /// # Errors
 ///
-/// Returns [`StoreError::Schema`] with the reason if the database was created by the
-/// original server, holds this server's tables without their migration record, was
-/// migrated by a newer server, or has a history that differs from this binary's; and
+/// Returns [`StoreError::Schema`] with the reason if the database holds this server's
+/// tables without their migration record, was migrated by a newer server, or has a
+/// history that differs from this binary's; and
 /// [`StoreError::Database`] if a statement fails.
 pub(crate) async fn migrate(store: &Store) -> Result<(), StoreError> {
-    store.with_conn(refuse_foreign_databases).await?;
+    store.with_conn(refuse_unrecorded_schemas).await?;
 
     let migrator = migrator(store.dialect());
     let result = match &store.inner.pool {
@@ -139,24 +133,11 @@ fn migrator(dialect: Dialect) -> Migrator {
     Migrator::with_migrations(migrations)
 }
 
-/// Refuses a database that has tables which are not this server's to migrate.
-async fn refuse_foreign_databases(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+/// Refuses a database that has this server's tables but no record of the migrations
+/// that made them, which the migrator would try to create again.
+async fn refuse_unrecorded_schemas(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     let tables = table_names(scope).await?;
     let has = |name: &str| tables.iter().any(|table| table == name);
-
-    let original = match scope.dialect() {
-        Dialect::Sqlite => has(ORIGINAL_BOOKKEEPING_SQLITE),
-        Dialect::Postgres => tables.iter().any(|table| {
-            table != MIGRATIONS_TABLE && table.ends_with(ORIGINAL_BOOKKEEPING_POSTGRES_SUFFIX)
-        }),
-    };
-    if original {
-        return Err(StoreError::Schema(
-            "the database was created by the original server, whose schema this server \
-             does not read; start with an empty database"
-                .to_owned(),
-        ));
-    }
     if has(A_SCHEMA_TABLE) && !has(MIGRATIONS_TABLE) {
         return Err(StoreError::Schema(format!(
             "the database has a {A_SCHEMA_TABLE} table but no record of schema migrations \

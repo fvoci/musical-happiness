@@ -272,4 +272,35 @@ describe('uploading a file to the server', () => {
     expect(most).toBe(3);
     expect(open).toBe(0);
   });
+
+  it('gives the turn of an upload given up while it waited to the next that waits', async () => {
+    uploadServer({ partSize: 4 });
+    const answer = globalThis.fetch;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      // The first three hold their part until released.
+      if (url.includes('/parts/')) await held;
+      return answer(url, init);
+    });
+    const backend = new ServerBackend('');
+    const file = (at: number): File => new File(['0123'], `f${String(at)}.txt`);
+    const running = [0, 1, 2].map((at) => backend.upload('b1', file(at)));
+    const stops = [3, 4, 5].map(() => new AbortController());
+    const given = stops.map((stop, at) =>
+      backend.upload('b1', file(at + 3), { signal: stop.signal }).then(
+        () => 'done',
+        () => 'given up',
+      ),
+    );
+    const last = backend.upload('b1', file(6));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    for (const stop of stops) stop.abort();
+    expect(await Promise.all(given)).toEqual(['given up', 'given up', 'given up']);
+    release();
+    await Promise.all(running);
+    await expect(last).resolves.toMatchObject({ fileId: 'f1.txt' });
+  });
 });

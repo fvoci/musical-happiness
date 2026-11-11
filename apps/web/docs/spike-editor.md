@@ -22,7 +22,6 @@
 | 마크다운 → 문서 노드 (한 방향, 손실 집계 포함)                             | `src/lib/editor/markdown.ts`                                                                                         |
 | 본문의 모양(CSS)                                                           | `src/lib/editor/editor.css`                                                                                          |
 | 화면: 메모리의 문서를 편집하고 저장될 JSON·검증 결과·크기를 옆에 보여 준다 | `spikes/editor/`                                                                                                     |
-| 템플릿 변환과 집계                                                         | `tools/templates/convert.ts`                                                                                         |
 | 테스트                                                                     | `tests/editor/` 64건, `tests/ui/editor.test.ts` 13건, `spikes/editor/editor.spec.ts` 10건 × 2(데스크톱, 터치 뷰포트) |
 
 판(2026-11-10 18:26 KST에 npm 레지스트리에서 확인): `@tiptap/core`와 `@tiptap/pm`, 확장 전부 **3.33.0**(2026-11-05 공개). `marked` **18.1.3**(18.2.0은 공개 10시간째여서 직전 판). 묶음(`starter-kit`)을 쓰지 않고 확장을 하나씩 넣었다. 묶음에는 밑줄처럼 목록에 없는 것이 들어 있다.
@@ -32,7 +31,6 @@
 ```bash
 pnpm --filter web run spikes        # http://127.0.0.1:5173/spikes/editor/
 pnpm --filter web run spikes:e2e
-node apps/web/tools/templates/convert.ts [--write <폴더>]
 ```
 
 ## 2. 허용 노드와 마크 (최종안, `body_version` 2)
@@ -515,7 +513,7 @@ type RenderedBody =
 | 자동 완성 목록(사람, 이모지), 이미지 올리기의 자리 표시                      | `src/lib/editor/suggestion-list.ts`, `uploads.ts`                                                          |
 | ELK 배치 엔진의 자리에 넣는 빈 모듈                                          | `src/lib/editor/no-elk.ts`, `vite.config.ts`의 `resolve.alias`                                             |
 | 라이선스: KaTeX 글꼴의 고지, 파일에만 적힌 라이선스, 실리지 않는 패키지      | `tools/licenses/katex-fonts.ts`, `OFL-1.1.txt`, `exceptions.json`, `check.ts`, `notices.ts`, `packages.ts` |
-| 메시지 21개(영어, 한국어)                                                    | `messages-own/editor/`                                                                                     |
+| 메시지 21개(영어, 한국어)                                                    | `messages/`의 `editor_*`                                                                                   |
 | 테스트                                                                       | 아래 "테스트"                                                                                              |
 
 스파이크 화면(`spikes/editor/`)은 이제 제품 부품을 쓴다. 서식 도구 모음은 부품의 `toolbar` 인자로 넘긴다. 예제는 `empty`, `plain`(수식도 다이어그램도 없음), `everything`(수식 포함), `diagrams`, `embeds`, `corners`다. 화면 언어는 주소의 `?locale=ko`로 바꾼다(없으면 영어).

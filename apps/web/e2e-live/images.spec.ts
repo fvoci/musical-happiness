@@ -122,3 +122,61 @@ test('an image pasted into the body is a file of the board, and is drawn from th
   await api.dispose();
   expect(errors).toEqual([]);
 });
+
+test('a card does not close at once while an image is still going up for its body', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('patient');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Slow pictures',
+    cards: [{ title: 'Hold on', status: 'To do' }],
+  });
+  const cardId = board.cards['Hold on'] ?? '';
+  const errors = watchErrors(page);
+  await openCard(page, `/board/${board.boardId}/${board.viewId}/${cardId}`, owner);
+  await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
+
+  // The upload's completion waits until released: the image is still going up.
+  let release: () => void = () => undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/uploads/*/complete', async (route) => {
+    await released;
+    await route.continue();
+  });
+  const editor = page.getByTestId('card-body').locator('[contenteditable]').first();
+  await editor.click();
+  await editor.evaluate((element, png) => {
+    const bytes = Uint8Array.from(atob(png), (letter) => letter.charCodeAt(0));
+    const data = new DataTransfer();
+    data.items.add(new File([bytes], 'slow.png', { type: 'image/png' }));
+    element.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+  }, PNG);
+  await page.waitForRequest('**/uploads/*/complete');
+
+  // Closing once is held: the image would be given up.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
+  release();
+  await expect
+    .poll(
+      async () =>
+        imagesIn(
+          ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'])
+            .body as unknown as Node,
+        ),
+      { timeout: 15_000 },
+    )
+    .toHaveLength(1);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('card-dialog')).toBeHidden();
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
