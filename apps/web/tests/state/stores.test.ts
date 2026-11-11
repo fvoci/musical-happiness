@@ -861,3 +861,39 @@ describe('templates', () => {
     expect(ordered.every((id) => madeCards.some((card) => card.id === id))).toBe(true);
   });
 });
+
+describe('archives', () => {
+  it('exports a board with its progress, and its import makes another board like it', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const source = workspace.sidebar[0]?.boards[0];
+    if (!source) throw new Error('unexpected seed');
+    const archive = await workspace.exportBoard(source.id);
+    expect(archive?.name).toMatch(/^archive-\d{4}-\d{2}-\d{2}\.boardarchive$/);
+    expect(workspace.transfers).toMatchObject([{ kind: 'export', finished: true }]);
+    const before = workspace.boards.length;
+    const imported = await workspace.importArchive(
+      new File([archive?.bytes ?? ''], archive?.name ?? 'a'),
+    );
+    expect(imported).toBe(true);
+    await settle();
+    expect(workspace.boards).toHaveLength(before + 1);
+    const copy = workspace.boards.find(
+      (board) => board.title === source.title && board.id !== source.id,
+    );
+    expect((await backend.cards(copy?.id ?? '')).length).toBe(
+      (await backend.cards(source.id)).length,
+    );
+  });
+
+  it('tells a file that is no archive, and makes nothing', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const before = workspace.boards.length;
+    expect(await workspace.importArchive(new File(['hello'], 'notes.txt'))).toBe(false);
+    expect(workspace.problems).toMatchObject([{ action: 'import', error: { status: 400 } }]);
+    expect(workspace.transfers).toEqual([]);
+    await settle();
+    expect(workspace.boards).toHaveLength(before);
+  });
+});

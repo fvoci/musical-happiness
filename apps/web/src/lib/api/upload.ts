@@ -1,9 +1,10 @@
 /**
- * Uploading a file to the server in parts (`docs/contract-pending.md`, 4):
- * an upload is opened with the file's name and size (`createUpload`), each
- * part is sent with the SHA-256 of its bytes (`putUploadPart`), and the
- * upload is completed into a file (`completeUpload`). Every file goes this
- * way, small ones in one part; the server says how large a part is.
+ * Uploading to the server in parts (`docs/contract-pending.md`, 4): an
+ * upload is opened with the file's name and size (`createUpload`, or
+ * `createImportUpload` for an archive), each part is sent with the SHA-256
+ * of its bytes (`putUploadPart`), and the upload is ended (`completeUpload`
+ * into a file, `importArchive` into boards). Every file goes this way, small
+ * ones in one part; the server says how large a part is.
  *
  * A part that gets no answer, or the server's own failure, is sent again a
  * few times after a pause. Giving the upload up (the signal), or a failure,
@@ -50,28 +51,24 @@ export async function contentDigest(bytes: Blob): Promise<string> {
 const worthAgain = (error: unknown): boolean =>
   error instanceof BackendError && (error.status === 0 || error.status === 500);
 
-export async function uploadInParts(
+/**
+ * Sends `file` in parts to an upload that `open` opens, and ends it with
+ * `finish`. What the two are is the caller's: a file of a board, or an
+ * archive to import.
+ */
+export async function sendInParts<T>(
   http: Http,
-  boardId: string,
   file: File,
-  options: UploadOptions = {},
-): Promise<UploadedFile> {
+  options: UploadOptions,
+  open: () => Promise<Schemas['UploadOpened']>,
+  finish: (uploadId: string, signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> {
   const { signal, onProgress } = options;
   signal?.throwIfAborted();
-  const request: Schemas['NewUpload'] = {
-    name: file.name,
-    size: file.size,
-    ...(file.type ? { contentType: file.type } : {}),
-  };
   // Not given up halfway: once the server has opened it, its identifier is
   // needed to throw it away.
-  const opened = await http.request<Schemas['UploadOpened']>(
-    '/api/v1/boards/{boardId}/uploads',
-    { boardId },
-    { method: 'POST', json: request },
-  );
-  const { uploadId, partSize, partCount } = opened;
-  let completing = false;
+  const { uploadId, partSize, partCount } = await open();
+  let finishing = false;
   try {
     let sent = 0;
     for (let number = 1; number <= partCount; number += 1) {
@@ -95,26 +92,87 @@ export async function uploadInParts(
       onProgress?.({ sentBytes: sent, totalBytes: file.size });
     }
     signal?.throwIfAborted();
-    completing = true;
-    const done = await http.request<Schemas['UploadedFile']>(
-      '/api/v1/uploads/{uploadId}/complete',
-      { uploadId },
-      { method: 'POST', signal },
-    );
+    finishing = true;
+    const done = await finish(uploadId, signal);
     if (partCount === 0) onProgress?.({ sentBytes: 0, totalBytes: 0 });
-    return {
-      fileId: done.fileId,
-      name: file.name,
-      size: file.size,
-      contentType: file.type || 'application/octet-stream',
-    };
+    return done;
   } catch (error) {
-    // No answer to the completion: the file may be made; the upload is left to end.
-    if (completing && error instanceof BackendError && error.status === 0) throw error;
-    // Given up or failed: what the server holds of it is thrown away.
+    // No answer to the end: it may have happened; the upload is left to end.
+    if (finishing && error instanceof BackendError && error.status === 0) throw error;
+    // Given up or failed: what the server holds of it is thrown away (an
+    // upload that has ended already is 404, which is no matter).
     void http
       .request('/api/v1/uploads/{uploadId}', { uploadId }, { method: 'DELETE' })
       .catch(() => undefined);
     throw error;
   }
+}
+
+/** The upload's request for a file. */
+function newUploadOf(file: File): Schemas['NewUpload'] {
+  return { name: file.name, size: file.size, ...(file.type ? { contentType: file.type } : {}) };
+}
+
+/** A file of a board: opened by `createUpload`, ended into a file by `completeUpload`. */
+export function uploadInParts(
+  http: Http,
+  boardId: string,
+  file: File,
+  options: UploadOptions = {},
+): Promise<UploadedFile> {
+  return sendInParts(
+    http,
+    file,
+    options,
+    () =>
+      http.request<Schemas['UploadOpened']>(
+        '/api/v1/boards/{boardId}/uploads',
+        { boardId },
+        { method: 'POST', json: newUploadOf(file) },
+      ),
+    async (uploadId, signal) => {
+      const done = await http.request<Schemas['UploadedFile']>(
+        '/api/v1/uploads/{uploadId}/complete',
+        { uploadId },
+        { method: 'POST', signal },
+      );
+      return {
+        fileId: done.fileId,
+        name: file.name,
+        size: file.size,
+        contentType: file.type || 'application/octet-stream',
+      };
+    },
+  );
+}
+
+/**
+ * An archive to import into a team: opened by `createImportUpload`, ended
+ * by `importArchive` (in place of `completeUpload`).
+ */
+export function importInParts(
+  http: Http,
+  teamId: string,
+  file: File,
+  options: UploadOptions = {},
+): Promise<void> {
+  return sendInParts(
+    http,
+    file,
+    options,
+    () =>
+      http.request<Schemas['UploadOpened']>(
+        '/api/v1/teams/{teamId}/archive/uploads',
+        { teamId },
+        { method: 'POST', json: newUploadOf(file) },
+      ),
+    async (uploadId, signal) => {
+      const request: Schemas['ImportRequest'] = { uploadId };
+      await http.request(
+        '/api/v1/teams/{teamId}/archive/import',
+        { teamId },
+        { method: 'POST', json: request, signal },
+      );
+    },
+  );
 }

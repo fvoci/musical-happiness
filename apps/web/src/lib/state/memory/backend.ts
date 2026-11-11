@@ -57,6 +57,8 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type DownloadedFile,
+  type DownloadOptions,
   type ErrorStatus,
   type Sharing,
   type SharingChange,
@@ -83,6 +85,9 @@ export const LIMITS = {
 const SCREEN_STATE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 
 const copy = <T>(value: T): T => structuredClone(value);
+
+/** The first line of an archive of the memory backend. */
+const MEMORY_ARCHIVE = 'fvoci-memory-1';
 
 function fail(status: ErrorStatus, message: string, extra: object = {}): never {
   throw new BackendError(status, { message, ...extra });
@@ -552,6 +557,68 @@ export class MemoryBackend implements Backend {
     }
     this.#tellBoard(board);
     return copy(board);
+  }
+
+  // ----------------------------------------------------------- archives
+
+  /**
+   * An archive of the memory backend: lines of JSON, as the server's
+   * `board.jsonl` is, but not its ZIP. Only this backend reads it back.
+   */
+  async exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    await this.#enter('exportBoard', options?.signal);
+    return this.#archiveOf([this.#board(boardId)], options);
+  }
+
+  async exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    await this.#enter('exportTeam', options?.signal);
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const boards = [...this.world.boards.values()].filter(
+      (board) => !board.isTemplate && this.#memberIds(board.id).includes(this.userId),
+    );
+    return this.#archiveOf(boards, options);
+  }
+
+  #archiveOf(boards: readonly Board[], options: DownloadOptions | undefined): DownloadedFile {
+    const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
+    for (const board of boards) {
+      lines.push(JSON.stringify({ type: 'board', data: board }));
+      for (const block of this.world.blocksOf(board.id)) {
+        lines.push(JSON.stringify({ type: 'block', data: block }));
+      }
+    }
+    const bytes = new Blob([`${lines.join('\n')}\n`], { type: 'application/octet-stream' });
+    options?.onProgress?.({ sentBytes: bytes.size, totalBytes: bytes.size });
+    const day = new Date(this.world.now()).toISOString().slice(0, 10);
+    return { bytes, name: `archive-${day}.boardarchive` };
+  }
+
+  async importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void> {
+    await this.#enter('importArchive', options?.signal);
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    let lines: { type?: string; version?: string; data?: unknown }[];
+    try {
+      lines = (await file.text())
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map((line) => JSON.parse(line) as { type?: string; version?: string; data?: unknown });
+    } catch {
+      fail(400, 'not an archive');
+    }
+    if (lines[0]?.version !== MEMORY_ARCHIVE) {
+      fail(400, 'not an archive of this app');
+    }
+    options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
+    const boards = lines.filter((line) => line.type === 'board').map((line) => line.data as Board);
+    const blocks = lines
+      .filter((line) => line.type === 'block')
+      .map((line) => line.data as StoredBlock);
+    for (const board of boards) {
+      this.#insertBoard(
+        board,
+        blocks.filter((block) => block.boardId === board.id),
+      );
+    }
   }
 
   async joinBoard(boardId: string): Promise<BoardMember> {

@@ -19,6 +19,7 @@
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import DownloadIcon from '@lucide/svelte/icons/download';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
@@ -35,6 +36,7 @@
   import { Sortable } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Board } from '$lib/logic/wire.ts';
+  import { saveBlob } from '$lib/save.ts';
   import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
 
   import BoardIcon from './BoardIcon.svelte';
@@ -200,6 +202,12 @@
     return actions;
   }
 
+  /** Saves an archive of the board, once it has all arrived. */
+  async function exportBoard(boardId: string): Promise<void> {
+    const archive = await workspace.exportBoard(boardId);
+    if (archive) saveBlob(archive.bytes, archive.name);
+  }
+
   /** Makes a template of the board and opens it, to be changed there. */
   async function templateFrom(boardId: string): Promise<void> {
     const made = await workspace.createTemplateFromBoard(boardId);
@@ -221,10 +229,16 @@
     return [
       ...moves,
       {
+        id: 'export',
+        label: m.shell_export_board(),
+        icon: DownloadIcon,
+        separated: moves.length > 0,
+        run: () => void exportBoard(board.id),
+      },
+      {
         id: 'template-from-board',
         label: m['Sidebar.template-from-board'](),
         icon: LayoutTemplateIcon,
-        separated: moves.length > 0,
         run: () => void templateFrom(board.id),
       },
       {

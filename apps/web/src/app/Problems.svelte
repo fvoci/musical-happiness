@@ -28,7 +28,22 @@
     if (problem.action === 'upload' && error?.kind === 'payload_too_large' && error.limit) {
       return m.app_problem_upload_too_large({ limit: humanFileSize(error.limit) });
     }
+    if (problem.action === 'import' && error?.kind === 'payload_too_large') {
+      return error.reason === 'over_import_limit' && error.limit
+        ? m.app_problem_import_too_large({ limit: humanFileSize(error.limit) })
+        : m.app_problem_import_too_big();
+    }
+    if (problem.action === 'import' && error?.kind === 'bad_request') {
+      return m.app_problem_import_invalid();
+    }
+    if (problem.action === 'import' && error?.kind === 'rate_limited') {
+      return m.app_problem_upload_busy();
+    }
     switch (problem.action) {
+      case 'export':
+        return m.app_problem_export();
+      case 'import':
+        return m.app_problem_import();
       case 'load':
         return m.app_problem_load();
       case 'undo':

@@ -24,12 +24,25 @@ import {
   type BoardDraft,
   type Category,
   type Change,
+  type DownloadedFile,
   type Team,
   type User,
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
 import { hiddenBoardsOf, sidebarOf, type SidebarCategory } from './order.ts';
 import { reread } from './write.ts';
+
+/** An archive on its way down or up, for the reader to watch. */
+export interface Transfer {
+  id: number;
+  kind: 'export' | 'import';
+  /** What is moved: the board's title, the team's, or the archive's file name. */
+  name: string;
+  done: number;
+  /** 0 while the length is not known. */
+  total: number;
+  finished: boolean;
+}
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut';
@@ -42,13 +55,16 @@ export interface Problem {
   error: BackendError | undefined;
 }
 
-export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'conflict';
+export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'conflict' | 'export' | 'import';
 
 export interface WorkspaceOptions {
   backend: Backend;
   /** The language the app is shown in, a BCP 47 tag. Decides alphabetical order. */
   locale: () => string;
 }
+
+/** How long a finished transfer stays in sight, in milliseconds. */
+const TRANSFER_STAYS = 6000;
 
 const DEFAULT_SETTINGS: AccountSettings = {
   ...DEFAULT_REGIONAL_SETTINGS,
@@ -69,6 +85,7 @@ export class Workspace {
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
   problems = $state.raw<Problem[]>([]);
+  transfers = $state.raw<Transfer[]>([]);
 
   /** The board that is open, if one is. */
   board = $state.raw<BoardStore | undefined>(undefined);
@@ -445,6 +462,79 @@ export class Workspace {
       // It is made; the server's message, or the next reading, shows it.
     }
     return boardId;
+  }
+
+  // ----------------------------------------------------------- archives
+
+  #transferCount = 0;
+
+  /**
+   * Runs a transfer that the reader can watch: its progress, its end. A
+   * finished one stays a moment, then goes; a failed one is told as a problem.
+   */
+  async #transfer<T>(
+    kind: Transfer['kind'],
+    name: string,
+    run: (onProgress: (progress: { sentBytes: number; totalBytes: number }) => void) => Promise<T>,
+  ): Promise<T | undefined> {
+    this.#transferCount += 1;
+    const id = this.#transferCount;
+    const change = (patch: Partial<Transfer>): void => {
+      this.transfers = this.transfers.map((one) => (one.id === id ? { ...one, ...patch } : one));
+    };
+    this.transfers = [...this.transfers, { id, kind, name, done: 0, total: 0, finished: false }];
+    try {
+      const result = await run((progress) => {
+        change({ done: progress.sentBytes, total: progress.totalBytes });
+      });
+      change({ finished: true });
+      setTimeout(() => {
+        this.dismissTransfer(id);
+      }, TRANSFER_STAYS);
+      return result;
+    } catch (error) {
+      this.dismissTransfer(id);
+      this.report(kind, error);
+      return undefined;
+    }
+  }
+
+  dismissTransfer(id: number): void {
+    this.transfers = this.transfers.filter((one) => one.id !== id);
+  }
+
+  /** An archive of the board, for the shell to save. */
+  exportBoard(boardId: string): Promise<DownloadedFile | undefined> {
+    const board = this.boards.find((one) => one.id === boardId);
+    return this.#transfer('export', board?.title ?? '', (onProgress) =>
+      this.backend.exportBoard(boardId, { onProgress }),
+    );
+  }
+
+  /** An archive of every board of the team the reader may see. */
+  exportTeam(): Promise<DownloadedFile | undefined> {
+    const team = this.team;
+    if (!team) return Promise.resolve(undefined);
+    return this.#transfer('export', team.title, (onProgress) =>
+      this.backend.exportTeam(team.id, { onProgress }),
+    );
+  }
+
+  /**
+   * Imports the boards of an archive, then reads the boards and the sidebar
+   * again: the server tells the new boards before their members exist, so
+   * nobody hears of them. Whether it went through.
+   */
+  async importArchive(file: File): Promise<boolean> {
+    const team = this.team;
+    if (!team) return false;
+    const done = await this.#transfer('import', file.name, async (onProgress) => {
+      await this.backend.importArchive(team.id, file, { onProgress });
+      return true;
+    });
+    // Even a failed import may have made some boards (one after the other).
+    void this.#refresh();
+    return done === true;
   }
 
   /** Deletes a board. It can be brought back with undo. */

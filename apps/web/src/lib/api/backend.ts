@@ -29,6 +29,8 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type DownloadedFile,
+  type DownloadOptions,
   type Registration,
   type Sharing,
   type SharingChange,
@@ -58,9 +60,10 @@ import {
   wireBody,
   type Schemas,
 } from './convert.ts';
+import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
-import { uploadInParts } from './upload.ts';
+import { importInParts, uploadInParts } from './upload.ts';
 
 /**
  * Refuses an operation that is not wired to the server yet. 405 is the
@@ -928,6 +931,53 @@ export class ServerBackend implements Backend, Account {
     }
     signal?.throwIfAborted();
     this.#uploading += 1;
+  }
+
+  /** `exportBoardArchive`, read with its progress. */
+  exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    return downloadWithProgress(
+      this.#http,
+      '/api/v1/boards/{boardId}/archive/export',
+      { boardId },
+      'archive.boardarchive',
+      options,
+    );
+  }
+
+  /** `exportTeamArchive`, read with its progress. */
+  exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    return downloadWithProgress(
+      this.#http,
+      '/api/v1/teams/{teamId}/archive/export',
+      { teamId },
+      'archive.boardarchive',
+      options,
+    );
+  }
+
+  /**
+   * Imports an archive sent in parts (`upload.ts`). An archive over the
+   * server's `maxImportSize` is refused before anything is sent, with the
+   * limit, as the server would (413). It takes a turn among the uploads: it
+   * counts toward the same open uploads of the reader.
+   */
+  async importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void> {
+    const limit = (await this.#clientConfig()).maxImportSize;
+    if (file.size > limit) {
+      // The reason is this app's: the server's 413 may count entries, this one counts bytes.
+      throw new BackendError(413, {
+        message: 'the archive is too large',
+        reason: 'over_import_limit',
+        limit,
+      });
+    }
+    await this.#uploadTurn(options?.signal);
+    try {
+      await importInParts(this.#http, teamId, file, options);
+    } finally {
+      this.#uploading -= 1;
+      this.#uploadWaiting.shift()?.();
+    }
   }
 
   /** The server's settings for clients, read once. */

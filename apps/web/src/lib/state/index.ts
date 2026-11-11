@@ -39,5 +39,6 @@ export {
   type LoadStatus,
   type Problem,
   type ProblemAction,
+  type Transfer,
   type WorkspaceOptions,
 } from './workspace.svelte.ts';

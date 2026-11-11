@@ -45,6 +45,7 @@
   import SidebarStrip from './SidebarStrip.svelte';
   import TemplatePicker from './TemplatePicker.svelte';
   import TopBar from './TopBar.svelte';
+  import Transfers from './Transfers.svelte';
   import { undoKey } from './undo-keys.ts';
 
   interface Props {
@@ -317,6 +318,8 @@
     </div>
   </main>
 </div>
+
+<Transfers {workspace} />
 
 <TemplatePicker
   bind:open={picking}

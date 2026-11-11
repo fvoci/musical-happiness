@@ -244,6 +244,18 @@ export interface UploadOptions {
   signal?: AbortSignal;
 }
 
+export interface DownloadOptions {
+  /** `sentBytes` counts what has arrived; `totalBytes` is 0 when the length is not known. */
+  onProgress?: (progress: UploadProgress) => void;
+  signal?: AbortSignal;
+}
+
+/** Bytes to be saved, under the name they come with. */
+export interface DownloadedFile {
+  bytes: Blob;
+  name: string;
+}
+
 export interface UploadedFile {
   fileId: string;
   name: string;
@@ -464,6 +476,19 @@ export interface Backend {
   fileBytes(boardId: string, fileId: string): Promise<Blob>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
   fileUrl(boardId: string, fileId: string): string | undefined;
+
+  // Archives of boards.
+  /** An archive of the board with its blocks, files and members. For its members. */
+  exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  /** An archive of every board of the team the reader may see. */
+  exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  /**
+   * Makes the boards of an archive in the team, the reader their admin. An
+   * archive over the server's limit is refused before anything is sent (413,
+   * with the limit); one that is no archive of this app is 400. The boards
+   * are made one after the other: a failure keeps those before it.
+   */
+  importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void>;
 
   // Changes as they happen.
   /** Listens to the changes of one board. Returns the function that stops listening. */
