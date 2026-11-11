@@ -30,6 +30,7 @@
   import { tick, type Snippet } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { Board } from '$lib/logic/wire.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
@@ -42,7 +43,9 @@
   import { SidebarState } from './sidebar-state.svelte.ts';
   import Sidebar from './Sidebar.svelte';
   import SidebarStrip from './SidebarStrip.svelte';
+  import TemplatePicker from './TemplatePicker.svelte';
   import TopBar from './TopBar.svelte';
+  import Transfers from './Transfers.svelte';
   import { undoKey } from './undo-keys.ts';
 
   interface Props {
@@ -60,6 +63,8 @@
     onChooseLocale?: (locale: string) => void;
     /** Signs the reader out. Without it (no accounts: the backend in memory) it is not offered. */
     onSignOut?: () => void;
+    /** Changes the reader's password. Without it (no accounts) it is not offered. */
+    onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
     /** The page: what is shown beside the sidebar. */
     children: Snippet;
   }
@@ -73,6 +78,7 @@
     locale,
     onChooseLocale,
     onSignOut,
+    onChangePassword,
     children,
   }: Props = $props();
 
@@ -179,13 +185,29 @@
     sidebar.drawerOpen = false;
   }
 
+  /** "Add board" asks: an empty board, or one from a template. */
+  let picking = $state(false);
+
+  function addBoard(): void {
+    picking = true;
+  }
+
   /**
-   * "Add board": an empty board with one view (the workspace makes the two
-   * together, because a board without a view has nothing to show), and the
-   * page goes to it. The template picker of the original is not built.
+   * An empty board with one view (the workspace makes the two together,
+   * because a board without a view has nothing to show), and the page goes
+   * to it.
    */
-  async function addBoard(): Promise<void> {
-    const made = await workspace.createBoard({ title: '' }, m['View.NewBoardTitle']());
+  async function addEmptyBoard(): Promise<void> {
+    const made = await workspace.createBoard(
+      { title: '' },
+      m['View.NewBoardTitle'](),
+      m.shell_new_board_status(),
+    );
+    if (made) openBoard(made.id);
+  }
+
+  async function addBoardFromTemplate(template: Board): Promise<void> {
+    const made = await workspace.createBoardFromTemplate(template.id);
     if (made) openBoard(made.id);
   }
 
@@ -223,7 +245,7 @@
     inert={drawerOut}
     onOpenBoard={openBoard}
     onExpand={expand}
-    onAddBoard={() => void addBoard()}
+    onAddBoard={addBoard}
     onOpenSettings={openSettings}
   />
 
@@ -274,7 +296,7 @@
       beside={layout.list === 'beside'}
       onOpenBoard={openBoard}
       onClose={closeList}
-      onAddBoard={() => void addBoard()}
+      onAddBoard={addBoard}
       onOpenSettings={openSettings}
     />
   </div>
@@ -284,12 +306,30 @@
     inert={drawerOut}
     {@attach pane.attach}
   >
-    <TopBar {workspace} {boardId} menuButton={layout.menuButton} onOpenSidebar={openDrawer} />
+    <TopBar
+      {workspace}
+      {boardId}
+      {boardHref}
+      menuButton={layout.menuButton}
+      onOpenSidebar={openDrawer}
+    />
     <div class="relative min-h-0 flex-1">
       {@render children()}
     </div>
   </main>
 </div>
+
+<Transfers {workspace} />
+
+<TemplatePicker
+  bind:open={picking}
+  {workspace}
+  onEmptyBoard={() => void addEmptyBoard()}
+  onFromTemplate={(template: Board) => void addBoardFromTemplate(template)}
+  onEditTemplate={(template: Board) => {
+    openBoard(template.id);
+  }}
+/>
 
 <SettingsDialog
   bind:open={settingsOpen}
@@ -298,6 +338,7 @@
   {locale}
   {onChooseLocale}
   {onSignOut}
+  {onChangePassword}
 />
 
 {#if devReadout.shown}

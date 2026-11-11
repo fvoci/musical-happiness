@@ -164,6 +164,81 @@ describe('the workspace', () => {
     expect(workspace.sidebar[1]?.boards.map((board) => board.title)[1]).toBe('Project Tasks');
     expect(workspace.sidebar[0]?.boards).toHaveLength(4);
   });
+
+  it('hides a board from the sidebar, and undo shows it again in its place', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const [team] = workspace.sidebar;
+    const hidden = team?.boards[1];
+    if (!team || !hidden) throw new Error('unexpected seed');
+    const before = team.boards.map((board) => board.id);
+    await workspace.hideBoard(hidden.id);
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(
+      before.filter((id) => id !== hidden.id),
+    );
+    const stored = await backend.categories(workspace.team?.id ?? '');
+    expect(stored.find((one) => one.id === team.category.id)?.hiddenBoardIds).toEqual([hidden.id]);
+    await workspace.undoLast();
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(before);
+  });
+
+  it('lists the hidden boards, and shows one in the sidebar again', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const hidden = workspace.sidebar[0]?.boards[0];
+    if (!hidden) throw new Error('unexpected seed');
+    expect(workspace.hiddenBoards).toEqual([]);
+    await workspace.hideBoard(hidden.id);
+    expect(workspace.hiddenBoards.map((board) => board.id)).toEqual([hidden.id]);
+    await workspace.unhideBoard(hidden.id);
+    expect(workspace.hiddenBoards).toEqual([]);
+    expect(workspace.sidebar[0]?.boards[0]?.id).toBe(hidden.id);
+  });
+
+  it('keeps a board hidden when its category is deleted', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const [team] = workspace.sidebar;
+    const hidden = team?.boards[0];
+    if (!team || !hidden) throw new Error('unexpected seed');
+    await workspace.hideBoard(hidden.id);
+    await workspace.deleteCategory(team.category.id);
+    const shown = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id));
+    expect(shown).not.toContain(hidden.id);
+    expect(workspace.hiddenBoards.map((board) => board.id)).toEqual([hidden.id]);
+    await settle();
+    expect(workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id))).toEqual(
+      shown,
+    );
+  });
+
+  it('shows a new category first at once', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    await workspace.createCategory('Zebra');
+    expect(workspace.sidebar[0]?.category.name).toBe('Zebra');
+  });
+
+  it('reads the sidebar again when a write of it is refused', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const reading = vi.spyOn(backend, 'categories');
+    backend.failNext('patchCategory', refused());
+    await workspace.renameCategory(workspace.sidebar[0]?.category.id ?? '', 'Renamed');
+    await settle();
+    expect(workspace.sidebar[0]?.category.name).toBe('Team');
+    expect(reading).toHaveBeenCalled();
+  });
+
+  it('shows a hidden board again when hiding it is refused', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const shown = workspace.sidebar[0]?.boards.map((board) => board.id) ?? [];
+    backend.failNext('setBoardHidden', refused());
+    await workspace.hideBoard(shown[0] ?? '');
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(shown);
+    expect(workspace.problems).toHaveLength(1);
+  });
 });
 
 describe('making and deleting boards', () => {
@@ -193,6 +268,37 @@ describe('making and deleting boards', () => {
     await workspace.undoLast();
     expect(workspace.boards).toHaveLength(1);
     expect(await backend.cards(first?.id ?? '')).toHaveLength(3);
+  });
+
+  it('brings a deleted board back at the end of the default category, and the open board with it', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const [team] = workspace.sidebar;
+    const gone = team?.boards[0];
+    if (!team || !gone) throw new Error('unexpected seed');
+    const open = await workspace.openBoard(gone.id);
+    await workspace.deleteBoard(gone.id);
+    await settle();
+    expect(open.missing).toBe(true);
+    expect(workspace.categories.some((category) => category.boardIds.includes(gone.id))).toBe(
+      false,
+    );
+    await workspace.undoLast();
+    await settle();
+    expect(workspace.sidebar.at(-1)?.boards.at(-1)?.id).toBe(gone.id);
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).not.toContain(gone.id);
+    await vi.waitFor(() => {
+      expect(open.status).toBe('ready');
+    });
+    expect(open.missing).toBe(false);
+    expect(await workspace.openBoard(gone.id)).toBe(open);
+  });
+
+  it('names the property of a new board in the words it is given', async () => {
+    const { workspace } = setup();
+    await workspace.load();
+    const made = await workspace.createBoard({ title: 'Neu' }, 'Board view', 'Zustand');
+    expect(made?.cardProperties.map((template) => template.name)).toEqual(['Zustand']);
   });
 });
 
@@ -669,5 +775,211 @@ describe('an open board the reader is no member of', () => {
     expect(board.joinable).toBe(false);
     expect(board.status).toBe('failed');
     expect(made.workspace.problems.at(-1)).toMatchObject({ action: 'load' });
+  });
+});
+
+describe('sharing a board', () => {
+  it('adds a member, changes their role and takes them off, as the backend keeps it', async () => {
+    const { board, workspace, backend } = await openFirstBoard();
+    const outsider = [...(await backend.users(workspace.team?.id ?? ''))].find(
+      (user) => !board.members.some((member) => member.userId === user.id),
+    );
+    if (!outsider) throw new Error('unexpected seed');
+    expect(board.canShare).toBe(true);
+    await board.addMember(outsider.id, 'commenter');
+    expect(board.members.find((member) => member.userId === outsider.id)?.schemeCommenter).toBe(
+      true,
+    );
+    await board.setMemberRole(outsider.id, 'viewer');
+    const stored = await backend.members(board.boardId);
+    expect(stored.find((member) => member.userId === outsider.id)?.schemeViewer).toBe(true);
+    await board.removeMember(outsider.id);
+    expect((await backend.members(board.boardId)).map((member) => member.userId)).not.toContain(
+      outsider.id,
+    );
+    expect(board.members.map((member) => member.userId)).not.toContain(outsider.id);
+  });
+
+  it('puts the last admin back when the backend refuses to demote them, and reads the members again', async () => {
+    const { board, workspace } = await openFirstBoard();
+    const me = workspace.me?.id ?? '';
+    await board.setMemberRole(me, 'editor');
+    expect(board.role).toBe('admin');
+    expect(workspace.problems).toHaveLength(1);
+    expect(workspace.problems[0]?.error).toMatchObject({
+      reason: 'last_admin',
+      type: '/problems/last-admin',
+    });
+  });
+
+  it('opens the board to the team with a minimum role', async () => {
+    const { board, backend } = await openFirstBoard();
+    await board.setOpen(true);
+    await board.setMinimumRole('commenter');
+    expect(await backend.board(board.boardId)).toMatchObject({
+      type: 'O',
+      minimumRole: 'commenter',
+    });
+  });
+
+  it('finds people of the team by name and learns them', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const someone = workspace.users.find((user) => user.id !== workspace.me?.id);
+    if (!someone) throw new Error('unexpected seed');
+    const found = await workspace.searchUsers(someone.username.slice(1, 4).toUpperCase());
+    expect(found.map((user) => user.id)).toContain(someone.id);
+    // The team's list without a search stays what it was.
+    expect(workspace.teamUsers).toEqual(workspace.users);
+  });
+});
+
+describe('templates', () => {
+  it('makes a template from a board, offers it, and makes a board from it', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const source = workspace.sidebar[0]?.boards[0];
+    if (!source) throw new Error('unexpected seed');
+    const template = await workspace.createTemplateFromBoard(source.id);
+    expect(template).toMatchObject({ isTemplate: true, title: 'New board template' });
+    // No board of the sidebar.
+    expect(workspace.boards.map((board) => board.id)).not.toContain(template?.id);
+    expect((await workspace.templates()).map((one) => one.id)).toContain(template?.id);
+
+    const made = await workspace.createBoardFromTemplate(template?.id ?? '');
+    expect(made).toMatchObject({ isTemplate: false, title: 'New board template' });
+    expect(workspace.boards.map((board) => board.id)).toContain(made?.id);
+    const [sourceCards, madeCards] = await Promise.all([
+      backend.cards(source.id),
+      backend.cards(made?.id ?? ''),
+    ]);
+    expect(madeCards.map((card) => card.title).sort()).toEqual(
+      sourceCards.map((card) => card.title).sort(),
+    );
+    expect(madeCards.some((card) => sourceCards.some((other) => other.id === card.id))).toBe(false);
+    const [sourceViews, madeViews] = await Promise.all([
+      backend.views(source.id),
+      backend.views(made?.id ?? ''),
+    ]);
+    expect(madeViews.length).toBe(sourceViews.length);
+    // A view's order of cards names the copies, as the server renames it.
+    const ordered = madeViews.flatMap((view) => view.fields.cardOrder);
+    expect(ordered.every((id) => madeCards.some((card) => card.id === id))).toBe(true);
+  });
+});
+
+describe('archives', () => {
+  it('exports a board with its progress, and its import makes another board like it', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const source = workspace.sidebar[0]?.boards[0];
+    if (!source) throw new Error('unexpected seed');
+    const archive = await workspace.exportBoard(source.id);
+    expect(archive?.name).toMatch(/^archive-\d{4}-\d{2}-\d{2}\.boardarchive$/);
+    expect(workspace.transfers).toMatchObject([{ kind: 'export', finished: true }]);
+    const before = workspace.boards.length;
+    const imported = await workspace.importArchive(
+      new File([archive?.bytes ?? ''], archive?.name ?? 'a'),
+    );
+    expect(imported).toBe(true);
+    await settle();
+    expect(workspace.boards).toHaveLength(before + 1);
+    const copy = workspace.boards.find(
+      (board) => board.title === source.title && board.id !== source.id,
+    );
+    expect((await backend.cards(copy?.id ?? '')).length).toBe(
+      (await backend.cards(source.id)).length,
+    );
+  });
+
+  it('moves one thing once at a time, and gives up a transfer that is dismissed, telling nothing', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const board = workspace.sidebar[0]?.boards[0];
+    if (!board) throw new Error('unexpected seed');
+    backend.latency = 20;
+    const first = workspace.exportTeam();
+    const again = workspace.exportTeam();
+    expect(workspace.transfers).toHaveLength(1);
+    expect(await again).toBeUndefined();
+    workspace.dismissTransfer(workspace.transfers[0]?.id ?? 0);
+    expect(await first).toBeUndefined();
+    expect(workspace.transfers).toEqual([]);
+    expect(workspace.problems).toEqual([]);
+    backend.latency = 0;
+    expect(await workspace.exportBoard(board.id)).toBeDefined();
+  });
+
+  it('tells a file that is no archive, and makes nothing', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const before = workspace.boards.length;
+    expect(await workspace.importArchive(new File(['hello'], 'notes.txt'))).toBe(false);
+    expect(workspace.problems).toMatchObject([{ action: 'import', error: { status: 400 } }]);
+    expect(workspace.transfers).toEqual([]);
+    await settle();
+    expect(workspace.boards).toHaveLength(before);
+  });
+});
+
+describe('searching boards', () => {
+  it('finds the boards with every word in the title, whatever the order and case, hidden ones too', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const target = workspace.boards.find((board) => board.title.includes(' '));
+    if (!target) throw new Error('unexpected seed');
+    const words = target.title.toUpperCase().split(' ').reverse().join(' ');
+    await workspace.hideBoard(target.id);
+    const found = await workspace.searchBoards(words);
+    expect(found.map((board) => board.id)).toContain(target.id);
+    expect(found.every((board) => !board.isTemplate)).toBe(true);
+    expect(await workspace.searchBoards('   ')).toEqual([]);
+  });
+});
+
+describe('the sidebar across the steps', () => {
+  it('hides a board brought back from the trash, filing it first, and it stays hidden', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const gone = workspace.sidebar[0]?.boards[0];
+    if (!gone) throw new Error('unexpected seed');
+    await workspace.deleteBoard(gone.id);
+    await workspace.undoLast();
+    await settle();
+    await workspace.hideBoard(gone.id);
+    await settle();
+    const shown = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id));
+    expect(shown).not.toContain(gone.id);
+    const stored = await backend.categories(workspace.team?.id ?? '');
+    const home = stored.find((category) => category.type === 'system');
+    expect(home?.boardIds).toContain(gone.id);
+    expect(home?.hiddenBoardIds).toContain(gone.id);
+  });
+
+  it('does not show a reading of the sidebar over a write under way, and reads again after it', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const [team, research] = workspace.sidebar;
+    const moved = team?.boards[0];
+    if (!moved || !research) throw new Error('unexpected seed');
+    backend.latency = 30;
+    const moving = workspace.moveBoard(moved.id, research.category.id, 0);
+    // A message has the sidebar read while the move is on its way.
+    backend.world.tellUsers([workspace.me?.id ?? ''], { kind: 'resync' });
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(workspace.sidebar[1]?.boards[0]?.id).toBe(moved.id);
+    await moving;
+    backend.latency = 0;
+    await vi.waitFor(() => {
+      expect(workspace.sidebar[1]?.boards[0]?.id).toBe(moved.id);
+    });
+  });
+
+  it('files a new board under the default category, in memory as on the server', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const made = await workspace.createBoard({ title: 'Fresh' });
+    const stored = await backend.categories(workspace.team?.id ?? '');
+    expect(stored.find((category) => category.type === 'system')?.boardIds).toContain(made?.id);
   });
 });

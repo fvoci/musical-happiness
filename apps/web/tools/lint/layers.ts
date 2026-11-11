@@ -244,6 +244,7 @@ export const LAYERS: Readonly<Record<string, number>> = {
   hooks: 0,
   utils: 0,
   'theme.svelte': 0,
+  save: 0,
   regional: 1,
   'display.svelte': 1,
   fonts: 1,

@@ -274,7 +274,10 @@ describe('the sidebar over a workspace', () => {
 
     await fireEvent.input(search, { target: { value: 'nothing like this' } });
     expect(screen.queryAllByRole('link')).toHaveLength(0);
-    expect(screen.getByRole('status')).toHaveTextContent('No board has that in its title.');
+    // Said once the backend's search has found nothing either.
+    await vi.waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('No board has that in its title.');
+    });
 
     // Escape empties the field first.
     await fireEvent.keyDown(search, { key: 'Escape' });

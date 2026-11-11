@@ -81,7 +81,12 @@ async function problemOf(response: Response): Promise<Partial<Problem> | undefin
   };
 }
 
-async function errorOf(response: Response): Promise<BackendError> {
+/**
+ * The refusal an answer that is no success stands for, read from its body.
+ * Every request reads its errors here; so does a caller that made its own
+ * request (a download read as it arrives, `download.ts`).
+ */
+export async function errorOf(response: Response): Promise<BackendError> {
   return new BackendError(errorStatus(response.status), await problemOf(response));
 }
 

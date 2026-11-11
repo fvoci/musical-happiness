@@ -7,7 +7,15 @@
  */
 import type { DocNode } from '../../editor/schema.ts';
 import type { Block, Board, BoardMember, BoardView, Card } from '../../logic/wire.ts';
-import type { AccountSettings, Category, Change, ChangeListener, Team, User } from '../backend.ts';
+import type {
+  AccountSettings,
+  Category,
+  Change,
+  ChangeListener,
+  Sharing,
+  Team,
+  User,
+} from '../backend.ts';
 
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
@@ -55,6 +63,8 @@ export class World {
   readonly users = new Map<string, User>();
   readonly boards = new Map<string, Board>();
   readonly members = new Map<string, BoardMember[]>();
+  /** Public links of boards, by board. */
+  readonly sharing = new Map<string, Sharing>();
   readonly blocks = new Map<string, StoredBlock>();
   readonly files = new Map<string, StoredFile>();
   readonly categories = new Map<string, Category[]>();

@@ -31,6 +31,7 @@ import {
   isBackendError,
   isCardBlock,
   isViewBlock,
+  type BoardRole,
   type CardDraft,
   type CardPatch,
   type CardSummary,
@@ -59,6 +60,18 @@ function roleOf(member: BoardMember | undefined): MemberRole {
   if (member.schemeEditor) return 'editor';
   if (member.schemeCommenter) return 'commenter';
   return member.schemeViewer ? 'viewer' : '';
+}
+
+/** The flags of a membership with exactly the one role. */
+function roleFlags(
+  role: BoardRole,
+): Pick<BoardMember, 'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer'> {
+  return {
+    schemeAdmin: role === 'admin',
+    schemeEditor: role === 'editor',
+    schemeCommenter: role === 'commenter',
+    schemeViewer: role === 'viewer',
+  };
 }
 
 let groupCounter = 0;
@@ -135,6 +148,8 @@ export class BoardStore {
     roleOf(this.members.find((member) => member.userId === this.workspace.me?.id)),
   );
   readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
+  /** Whether the reader decides who is on the board and how it is shared. */
+  readonly canShare = $derived(this.role === 'admin');
   readonly canComment = $derived(this.canEdit || this.role === 'commenter');
 
   /**
@@ -312,6 +327,11 @@ export class BoardStore {
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board':
+        // Deleted and brought back: everything of it is read again.
+        if (this.missing) {
+          void this.load();
+          break;
+        }
         if (!this.board || change.board.updateAt >= this.board.updateAt) this.board = change.board;
         break;
       case 'boardDeleted':
@@ -769,6 +789,68 @@ export class BoardStore {
       description,
       groupId,
     );
+  }
+
+  // ------------------------------------------------------------ sharing
+
+  /** Whether anybody of the team may find and join the board. */
+  async setOpen(open: boolean): Promise<void> {
+    await this.changeBoard((board) => ({ ...board, type: open ? 'O' : 'P' }), 'changeBoardType');
+  }
+
+  /** The role somebody gets by joining the board. Members keep theirs. */
+  async setMinimumRole(role: BoardRole): Promise<void> {
+    await this.changeBoard((board) => ({ ...board, minimumRole: role }), 'changeMinimumRole');
+  }
+
+  /** Makes a person of the team a member. Somebody who is a member already keeps their role. */
+  async addMember(userId: string, role: BoardRole): Promise<void> {
+    try {
+      const member = await this.#backend.addMember(this.boardId, userId, role);
+      this.members = [...this.members.filter((one) => one.userId !== userId), member];
+      void this.workspace.learnUsers([userId]);
+    } catch (error) {
+      this.workspace.report('save', error);
+    }
+  }
+
+  async setMemberRole(userId: string, role: BoardRole): Promise<void> {
+    await this.#memberWrite(
+      this.members.map((member) =>
+        member.userId === userId ? { ...member, ...roleFlags(role) } : member,
+      ),
+      () => this.#backend.setMemberRole(this.boardId, userId, role),
+    );
+  }
+
+  async removeMember(userId: string): Promise<void> {
+    await this.#memberWrite(
+      this.members.filter((member) => member.userId !== userId),
+      () => this.#backend.removeMember(this.boardId, userId),
+    );
+  }
+
+  /**
+   * Shows a change of the members at once. Refused, they go back and are read
+   * again: what was put back may be older than what arrived meanwhile.
+   */
+  async #memberWrite(optimistic: BoardMember[], send: () => Promise<unknown>): Promise<void> {
+    const before = this.members;
+    this.members = optimistic;
+    try {
+      await send();
+    } catch (error) {
+      this.members = before;
+      this.workspace.report('save', error);
+      const told = this.#membersTold;
+      try {
+        const members = await this.#backend.members(this.boardId);
+        // Members told meanwhile are newer than this reading.
+        if (told === this.#membersTold) this.members = members;
+      } catch {
+        // The next message, or the next reading, brings them.
+      }
+    }
   }
 
   // --------------------------------------------------------- open card

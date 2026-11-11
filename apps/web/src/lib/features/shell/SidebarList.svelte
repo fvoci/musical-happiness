@@ -19,9 +19,13 @@
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import DownloadIcon from '@lucide/svelte/icons/download';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+  import EyeIcon from '@lucide/svelte/icons/eye';
+  import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import FolderInputIcon from '@lucide/svelte/icons/folder-input';
   import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
+  import LayoutTemplateIcon from '@lucide/svelte/icons/layout-template';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
@@ -32,6 +36,7 @@
   import { Sortable } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Board } from '$lib/logic/wire.ts';
+  import { saveBlob } from '$lib/save.ts';
   import type { Category, SidebarCategory, Workspace } from '$lib/state/index.ts';
 
   import BoardIcon from './BoardIcon.svelte';
@@ -53,6 +58,10 @@
     boardHref: (boardId: string) => string;
     /** What the reader typed into the search of the sidebar. */
     query: string;
+    /** What the backend found for the query; those the list shows already are left out. */
+    found: readonly Board[];
+    /** The backend has not answered the query yet. */
+    searching: boolean;
     /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
     canDeleteOpenBoard: boolean;
     onOpenBoard: (boardId: string) => void;
@@ -67,6 +76,8 @@
     boardId,
     boardHref,
     query,
+    found,
+    searching,
     canDeleteOpenBoard,
     onOpenBoard,
     onNewCategory,
@@ -80,6 +91,23 @@
 
   const filtering = $derived(query.trim() !== '');
   const shown = $derived(filterSidebar(workspace.sidebar, query));
+  /**
+   * Found by the backend and not in the list as it is narrowed: hidden, or
+   * the words in another order. Only boards the workspace has, as it has them:
+   * the server searches every team of the reader, and a board may have been
+   * deleted or renamed since it answered.
+   */
+  const more = $derived(
+    filtering
+      ? found.flatMap((board) => {
+          const known = workspace.boards.find((one) => one.id === board.id);
+          const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
+          return known && !listed ? [known] : [];
+        })
+      : [],
+  );
+  const isHidden = (boardId: string): boolean =>
+    workspace.categories.some((category) => category.hiddenBoardIds.includes(boardId));
 
   const titleOf = (board: Board): string => board.title || m['Sidebar.untitled-board']();
   const boardOf = (id: string): Board | undefined =>
@@ -104,6 +132,9 @@
     // The reader's setting decides whether a lifted board buzzes.
     pointer: readerPointer,
   });
+
+  /** Whether the list of hidden boards is open. */
+  let hiddenOpen = $state(false);
 
   const drag = $derived(sortable.active);
   const lifted = $derived(drag ? boardOf(drag.itemId) : undefined);
@@ -139,14 +170,19 @@
     // Its place among all the categories, not among those a search has left.
     const at = workspace.sidebar.findIndex((entry) => entry.category.id === category.id);
     const actions: MenuAction[] = [
-      {
-        id: 'rename',
-        label: m['SidebarCategories.CategoryMenu.Update'](),
-        icon: PencilIcon,
-        run: () => {
-          onRenameCategory(category);
-        },
-      },
+      // The default category keeps its name: the server does not change it.
+      ...(category.type === 'system'
+        ? []
+        : [
+            {
+              id: 'rename',
+              label: m['SidebarCategories.CategoryMenu.Update'](),
+              icon: PencilIcon,
+              run: () => {
+                onRenameCategory(category);
+              },
+            },
+          ]),
       {
         id: 'move-up',
         label: m.shell_category_move_up(),
@@ -189,6 +225,18 @@
     return actions;
   }
 
+  /** Saves an archive of the board, once it has all arrived. */
+  async function exportBoard(boardId: string): Promise<void> {
+    const archive = await workspace.exportBoard(boardId);
+    if (archive) saveBlob(archive.bytes, archive.name);
+  }
+
+  /** Makes a template of the board and opens it, to be changed there. */
+  async function templateFrom(boardId: string): Promise<void> {
+    const made = await workspace.createTemplateFromBoard(boardId);
+    if (made) onOpenBoard(made.id);
+  }
+
   function boardActions(board: Board, home: Category): MenuAction[] {
     const moves = workspace.sidebar
       .filter((entry) => entry.category.id !== home.id)
@@ -204,11 +252,30 @@
     return [
       ...moves,
       {
+        id: 'export',
+        label: m.shell_export_board(),
+        icon: DownloadIcon,
+        separated: moves.length > 0,
+        run: () => void exportBoard(board.id),
+      },
+      {
+        id: 'template-from-board',
+        label: m['Sidebar.template-from-board'](),
+        icon: LayoutTemplateIcon,
+        run: () => void templateFrom(board.id),
+      },
+      {
+        id: 'hide',
+        label: m['HideBoard.MenuOption'](),
+        icon: EyeOffIcon,
+        run: () => void workspace.hideBoard(board.id),
+      },
+      {
         id: 'delete',
         label: m['Sidebar.delete-board'](),
         icon: Trash2Icon,
         destructive: true,
-        separated: moves.length > 0,
+        separated: true,
         disabled: board.id === boardId && !canDeleteOpenBoard,
         run: () => {
           onDeleteBoard(board);
@@ -319,8 +386,113 @@
     </div>
   {/each}
 
-  {#if filtering && shown.length === 0}
+  {#if more.length > 0}
+    <div class="pt-2" data-testid="search-more">
+      <p class="px-1 py-1 text-xs font-medium text-muted-foreground">{m.shell_search_more()}</p>
+      <ul aria-label={m.shell_search_more()}>
+        {#each more as board (board.id)}
+          {@const hidden = isHidden(board.id)}
+          <li class="flex items-center gap-1">
+            <a
+              href={boardHref(board.id)}
+              aria-current={board.id === boardId ? 'page' : undefined}
+              class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 hover:bg-sidebar-accent roomy:min-h-touch"
+              onclick={(event: MouseEvent) => {
+                if (
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                onOpenBoard(board.id);
+              }}
+            >
+              <BoardIcon icon={board.icon} title={titleOf(board)} locale={workspace.locale} />
+              <span class="min-w-0 flex-1 truncate">{titleOf(board)}</span>
+              {#if hidden}
+                <span class="shrink-0 pr-1 text-xs text-muted-foreground">
+                  {m.shell_search_hidden()}
+                </span>
+              {/if}
+            </a>
+            {#if hidden}
+              <IconButton
+                label={m.shell_board_unhide({ name: titleOf(board) })}
+                class="text-muted-foreground"
+                onclick={() => void workspace.unhideBoard(board.id)}
+              >
+                <EyeIcon />
+              </IconButton>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
+  {#if filtering && shown.length === 0 && more.length === 0 && !searching}
     <p class="px-2 py-3 text-muted-foreground" role="status">{m.shell_no_boards_found()}</p>
+  {/if}
+
+  {#if !filtering && workspace.hiddenBoards.length > 0}
+    <div class="pt-2" data-testid="hidden-boards">
+      <button
+        type="button"
+        aria-expanded={hiddenOpen}
+        class="flex min-h-8 w-full items-center gap-1 rounded-md py-1 pl-1 text-left text-xs font-medium text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
+        onclick={() => {
+          hiddenOpen = !hiddenOpen;
+        }}
+      >
+        <ChevronRightIcon
+          class={['size-4 shrink-0 transition-transform', hiddenOpen && 'rotate-90']}
+          aria-hidden="true"
+        />
+        <span class="min-w-0 flex-1 truncate">
+          {m.shell_hidden_boards({ count: workspace.hiddenBoards.length })}
+        </span>
+      </button>
+      {#if hiddenOpen}
+        <ul>
+          {#each workspace.hiddenBoards as board (board.id)}
+            <li class="flex items-center gap-1">
+              <a
+                href={boardHref(board.id)}
+                aria-current={board.id === boardId ? 'page' : undefined}
+                class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
+                onclick={(event: MouseEvent) => {
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  onOpenBoard(board.id);
+                }}
+              >
+                <BoardIcon icon={board.icon} title={titleOf(board)} locale={workspace.locale} />
+                <span class="min-w-0 flex-1 truncate">{titleOf(board)}</span>
+              </a>
+              <IconButton
+                label={m.shell_board_unhide({ name: titleOf(board) })}
+                class="text-muted-foreground"
+                onclick={() => void workspace.unhideBoard(board.id)}
+              >
+                <EyeIcon />
+              </IconButton>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
   {/if}
 
   {#if !filtering}
