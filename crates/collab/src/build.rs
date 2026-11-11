@@ -62,9 +62,12 @@ pub fn from_body(body: &Body) -> Doc {
 /// [`from_body`] with the identifier of the writing client given. The same body and
 /// writer give the same document, byte for byte; two documents by the same writer take
 /// each other's updates as their own, which is why [`from_body`] gives each its own.
+/// A writer is a whole number JavaScript keeps, of 53 bits: the bits above are left
+/// out, as a document by a larger one could not be read again.
 #[must_use]
 pub fn from_body_by(body: &Body, writer: u64) -> Doc {
-    let doc = doc_of_client(Some(writer));
+    const MAX_WRITER: u64 = (1 << 53) - 1;
+    let doc = doc_of_client(Some(writer & MAX_WRITER));
     {
         let root = doc.get_or_insert_xml_fragment(FIELD);
         let mut txn = doc.transact_mut();

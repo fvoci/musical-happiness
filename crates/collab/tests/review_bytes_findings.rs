@@ -153,10 +153,10 @@ fn a_repaired_document_is_the_one_its_state_reads_to() {
 /// The review found it at seed 1109793 (before the search's bodies changed): an update
 /// whose text the library places in one of two places in turn, each time the document
 /// is read from its state, so that the same stored bytes would open to two bodies.
-/// Such an update is not taken; one that is taken opens to its body every time. (Here
-/// it is taken, and opens to the same body each time.)
+/// Such an update is not taken. Here it is taken (the bodies of the search have
+/// changed since), and this holds that the document opens to the same body each time.
 #[test]
-fn a_document_that_reads_to_another_each_time_is_not_taken() {
+fn a_taken_document_opens_to_the_same_body_each_time() {
     let before = from_base64(concat!(
         "ASEHAAcBB2RlZmF1bHQDC29yZGVyZWRMaXN0BwAHAAMIbGlzdEl0ZW0HAAcBAwlwYXJhZ3JhcGhHBwED",
         "CGxpc3RJdGVtBwAHAwMJcGFyYWdyYXBoBwAHBAYEAAcFIPCfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkabt",

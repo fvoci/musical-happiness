@@ -14,8 +14,8 @@ use crate::update::copy_of;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Repair {
-    /// How many nodes and texts were deleted, each with all it held. None: the document
-    /// was a body already and is as it was.
+    /// How many nodes and texts were deleted, each with all it held. 0: the document was
+    /// a body already and is as it was.
     pub deleted: usize,
     /// The deletions as a version 1 update, for the editors that hold the document;
     /// `None` if nothing was deleted.

@@ -51,12 +51,15 @@ pub enum TakeError {
 /// The deletions of a repair ([`Repair::update`]) go to every editor that holds the
 /// document, the one that sent the update too: they did not make them.
 ///
-/// How long this takes is not bounded by the size of the update alone: the Y library
-/// places a change among the others that claim the same place by looking at each of
-/// them, so that an update made for it can take the square of its size (112 kB of
-/// changes that all claim the end of a parent of 16,000 children took 29 seconds). What
-/// calls this keeps [`UpdateLimits::update_bytes`] small and does not hold anything
-/// others wait for while it runs.
+/// How long this takes grows with the document as well as with the update: the copy
+/// and the reading again each read the whole state (17 ms for 20,000 nodes, release
+/// build), and the walk refuses the known ways to make that reading cost the square of
+/// the state (a member written over and over). And the Y library places a change among
+/// the others that claim the same place by looking at each of them, so that an update
+/// made for it can take the square of its size (112 kB of changes that all claim the
+/// end of a parent of 16,000 children took 29 seconds). What calls this keeps
+/// [`UpdateLimits::update_bytes`] and [`UpdateLimits::state_bytes`] small and does not
+/// hold anything others wait for while it runs.
 ///
 /// # Errors
 ///
@@ -87,8 +90,15 @@ pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Ta
 ///
 /// As [`take_update`].
 pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeError> {
+    if state.len() > limits.state_bytes {
+        return Err(UpdateError::DocumentTooLarge {
+            size: state.len(),
+            limit: limits.state_bytes,
+        }
+        .into());
+    }
     let limits = UpdateLimits {
-        update_bytes: limits.state_bytes,
+        update_bytes: state.len(),
         ..*limits
     };
     take_update(&new_doc(), state, &limits)

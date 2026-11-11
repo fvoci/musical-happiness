@@ -135,8 +135,8 @@ fn read(doc: &Doc, update: &[u8]) -> Result<Update, UpdateError> {
 /// refuses what cannot be taken at all. [`crate::take_update`] does all of it, and says
 /// what a server that calls it keeps in mind about time.
 ///
-/// Not everything an update may write is read by the projection: members of the root,
-/// attributes the schema does not have, attributes of a text. No editor reads them
+/// Not everything an update may write is read by the projection: attributes the schema
+/// does not have, attributes of a text. No editor reads them
 /// either. They stay in the document, and [`UpdateLimits::state_bytes`] is what bounds
 /// them.
 ///
@@ -179,14 +179,11 @@ pub(crate) fn with_update(
 }
 
 /// A document as a server that stored it reads it: its state within the limit of
-/// size, read again, and reading again to the same state at the latest the second
-/// time.
+/// size, read again, and reading again to the same changes and deletions at the latest
+/// the second time ([`same_state`]).
 ///
 /// What the library took it may write in a form it does not read: the walk keeps out
-/// what is known of that, and this is for what is not. And with changes no editor
-/// makes (origins that do not lie where the change does) the library can read a state
-/// to a document whose own state is another, which reads back to the first: the same
-/// stored bytes would open to two documents in turn. Such a document is not taken.
+/// what is known of that, and this is for what is not.
 ///
 /// # Errors
 ///
@@ -216,9 +213,13 @@ pub(crate) fn settled(doc: &Doc, limits: &UpdateLimits) -> Result<Doc, UpdateErr
     Ok(settled)
 }
 
-/// Whether two states are the same: the same bytes, or the same changes and deletions
-/// in another order (the library writes the deletions of each client in the order of
-/// a table, which differs from one document to the next).
+/// Whether two states are the same as far as can be told the same way every time: the
+/// same bytes, or the same changes by their identifiers and the same deletions, in any
+/// order (the library writes each client's deletions in the order of a table). Not
+/// their content: with changes no editor makes (origins that do not lie where the
+/// change does), the library reads one state to documents that differ from one reading
+/// to the next, so that comparing content would refuse such an update only now and
+/// then. Refusing those origins in the walk is what would close that.
 fn same_state(one: &[u8], other: &[u8]) -> bool {
     one == other
         || matches!(

@@ -183,7 +183,7 @@ fn a_stored_state_is_opened_as_an_update_to_an_empty_document_is_taken() {
     };
     assert!(matches!(
         from_state(&state, &small),
-        Err(TakeError::Update(UpdateError::TooLarge { .. }))
+        Err(TakeError::Update(UpdateError::DocumentTooLarge { .. }))
     ));
     // The state of an empty document is no body.
     let empty = from_state(&state_of(&new_doc()), &ROOMY).expect("opened");

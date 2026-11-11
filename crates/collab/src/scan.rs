@@ -20,6 +20,8 @@
 //! another version of the encoding, a hole in a client's changes, a clock past 31
 //! bits, a number JavaScript does not keep).
 
+use std::collections::HashMap;
+
 /// How deep a value in an update may nest. The values of a body are attributes:
 /// numbers, truths and texts, which do not nest at all.
 const MAX_VALUE_DEPTH: usize = 8;
@@ -36,6 +38,14 @@ const MAX_SAFE_WHOLE: u64 = MAX_CLIENT;
 /// signed numbers of 32 bits.
 const MAX_CLOCK: u64 = 0x7fff_ffff;
 
+/// How often a member of one node (an attribute) may be written without naming the
+/// value it replaces. An editor names it on every write but the first; only editors
+/// that write the first value at once write it so more than once. The library places
+/// each such write by walking every value the member had before, which a document
+/// keeps, as it is made without garbage collection: written over and over, a member
+/// would cost every later reading of the document the square of its writes.
+const MAX_FIRST_WRITES: u32 = 8;
+
 /// Why an update is not handed to the library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Refusal {
@@ -51,6 +61,9 @@ pub(crate) enum Refusal {
     Unknown,
     /// It leaves a stretch of a client's clock out, or gives a client's changes twice.
     Gap,
+    /// It writes a member of the root, or a member of a node more often than
+    /// [`MAX_FIRST_WRITES`] without the value that it replaces.
+    Member,
 }
 
 impl Refusal {
@@ -62,6 +75,7 @@ impl Refusal {
             Self::TooDeep => "a value in it nests too deep",
             Self::Unknown => "it holds content no body has",
             Self::Gap => "it leaves a gap in a client's changes",
+            Self::Member => "it writes a member no editor writes so",
         }
     }
 }
@@ -75,6 +89,7 @@ pub(crate) fn check(update: &[u8]) -> Result<Vec<(u64, u64)>, Refusal> {
     let mut walk = Walk {
         bytes: update,
         at: 0,
+        first_writes: HashMap::new(),
     };
     let length = u64::try_from(update.len()).unwrap_or(u64::MAX);
     let mut begins: Vec<(u64, u64)> = Vec::new();
@@ -113,6 +128,9 @@ pub(crate) fn check(update: &[u8]) -> Result<Vec<(u64, u64)>, Refusal> {
 struct Walk<'bytes> {
     bytes: &'bytes [u8],
     at: usize,
+    /// How often each member of a node was written without the value it replaces, by
+    /// the node's identifier and the member's name.
+    first_writes: HashMap<((u64, u64), &'bytes [u8]), u32>,
 }
 
 /// A list or a map that is being read: how many of its entries have not begun.
@@ -121,7 +139,7 @@ struct Open {
     map: bool,
 }
 
-impl Walk<'_> {
+impl<'bytes> Walk<'bytes> {
     fn byte(&mut self) -> Result<u8, Refusal> {
         let byte = *self.bytes.get(self.at).ok_or(Refusal::CutShort)?;
         self.at += 1;
@@ -167,17 +185,17 @@ impl Walk<'_> {
         Ok(count)
     }
 
-    /// A text or bytes: the length, then that many bytes.
-    fn text(&mut self) -> Result<(), Refusal> {
+    /// A text or bytes: the length, then that many bytes, which it gives.
+    fn text(&mut self) -> Result<&'bytes [u8], Refusal> {
         let length = self.number(MAX_U32)?;
-        self.skip(length)
+        let from = self.at;
+        self.skip(length)?;
+        Ok(&self.bytes[from..self.at])
     }
 
     /// The identifier of a change: the client and its clock.
-    fn id(&mut self) -> Result<(), Refusal> {
-        self.number(MAX_CLIENT)?;
-        self.number(MAX_U32)?;
-        Ok(())
+    fn id(&mut self) -> Result<(u64, u64), Refusal> {
+        Ok((self.number(MAX_CLIENT)?, self.number(MAX_U32)?))
     }
 
     /// One change: a struct of the update. Gives the length it says it has, for one
@@ -201,21 +219,33 @@ impl Walk<'_> {
             self.id()?;
         }
         if !after && !before {
-            // The parent: a root by its name, or a change by its identifier.
-            if self.number(MAX_U32)? == 1 {
+            // The parent: a root by its name, or a change by its identifier; and the
+            // member of it that is written, if it is one.
+            let parent = if self.number(MAX_U32)? == 1 {
                 self.text()?;
+                None
             } else {
-                self.id()?;
-            }
+                Some(self.id()?)
+            };
             if info & 0x20 != 0 {
-                self.text()?;
+                let member = self.text()?;
+                let Some(node) = parent else {
+                    return Err(Refusal::Member);
+                };
+                let writes = self.first_writes.entry((node, member)).or_insert(0);
+                *writes += 1;
+                if *writes > MAX_FIRST_WRITES {
+                    return Err(Refusal::Member);
+                }
             }
         }
         match info & 0x0f {
             // Deleted content: its length.
             1 => return self.number(MAX_CLOCK),
             // Bytes, a text, an embedded value written as JSON.
-            3..=5 => self.text()?,
+            3..=5 => {
+                self.text()?;
+            }
             // Formatting: the name and the value written as JSON.
             6 => {
                 self.text()?;
@@ -226,7 +256,9 @@ impl Walk<'_> {
             // it, and a type of no kind (15), which the editors' library has not, would
             // leave a document no browser can open.
             7 => match self.byte()? {
-                3 => self.text()?,
+                3 => {
+                    self.text()?;
+                }
                 0..=2 | 4 | 6 => {}
                 _ => return Err(Refusal::Unknown),
             },
@@ -287,7 +319,9 @@ impl Walk<'_> {
                 124 => self.skip(4)?,
                 123 => self.skip(8)?,
                 // Bytes and a text.
-                116 | 119 => self.text()?,
+                116 | 119 => {
+                    self.text()?;
+                }
                 tag @ (117 | 118) => {
                     if open.len() >= MAX_VALUE_DEPTH {
                         return Err(Refusal::TooDeep);
@@ -500,6 +534,27 @@ mod tests {
             shared.extend_from_slice(&[kind, 0]);
             assert_eq!(check(&shared), Err(Refusal::Unknown), "{kind}");
         }
+        // A member of the root, which no editor writes.
+        let mut member = vec![1, 1, 5, 0, 0x28, 1, 7];
+        member.extend_from_slice(b"default");
+        member.extend_from_slice(&[1, b'a', 1, 126, 0]);
+        assert_eq!(check(&member), Err(Refusal::Member));
+        // A member of a node written without the value it replaces, as often as is
+        // allowed and once more.
+        let first_writes = |times: u8| {
+            let mut bytes = vec![1, times, 5, 0];
+            for _ in 0..times {
+                bytes.extend_from_slice(&[0x28, 0, 7, 0, 1, b'a', 1, 126]);
+            }
+            bytes.push(0);
+            bytes
+        };
+        let allowed = u8::try_from(MAX_FIRST_WRITES).expect("a few");
+        assert!(
+            check(&first_writes(allowed)).is_ok(),
+            "as often as is allowed"
+        );
+        assert_eq!(check(&first_writes(allowed + 1)), Err(Refusal::Member));
         // A subdocument.
         let mut subdocument = vec![1, 1, 5, 0, 9, 1, 7];
         subdocument.extend_from_slice(b"default");
