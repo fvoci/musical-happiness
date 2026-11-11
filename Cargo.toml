@@ -136,6 +136,12 @@ must_use_candidate = "allow"
 module_inception = "allow"
 enum_glob_use = "allow"
 
+# Line tables only: backtraces and panics keep their files and lines, and a debugger
+# steps by line, while the target folder and the binaries shrink to about half
+# (docs/handoff.md 2, "빌드 크기").
+[profile.dev]
+debug = "line-tables-only"
+
 # Password hashing is deliberately slow; unoptimized it makes every test that signs a
 # user in take seconds.
 [profile.dev.package.argon2]

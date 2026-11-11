@@ -46,7 +46,7 @@
   | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | 끝 |
   | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | 다음 |
   | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | |
-  | 14 | 빌드 크기(디버그 정보 수준) | |
+  | 14 | 빌드 크기(디버그 정보 수준) | 끝 |
   | 15 | 사용자 결정 1(11:05 KST): `patchCard`가 바뀐 속성만 받아 합치고 지울 속성을 따로 받는다 | |
   | 16 | 사용자 결정 2: 저장된 옛 콘텐츠 블록을 데이터 단계로 지우고(파일은 수거의 길로) 그것을 다루던 코드를 걷는다 | |
   | 17 | 사용자 결정 3: 공유 링크의 익명 독자에게 나가는 본문의 멘션에서 사용자 ID를 비운다(HTTP와 WebSocket) | |
@@ -189,6 +189,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 - 같은 이름의 컨테이너가 다른 포트에 게시돼 있으면 xtask가 거절한다.
 - 패닉으로 끝난 테스트는 PostgreSQL에 `t_*` 스키마를 남긴다. 해는 없다. 컨테이너를 지우면 함께 없어진다.
 - `/tmp`는 RAM이다. 빌드 산출물과 큰 파일은 워크트리의 `target/` 아래에 둔다.
+- **빌드 크기.** `[profile.dev]`의 `debug = "line-tables-only"`(2026-11-11). 깨끗한 빌드에서 잰 값: 디버그 정보 전부(2) 빌드 89초·`target` 6.6 GB·서버 바이너리 317 MB, `line-tables-only` 56초·3.78 GB·124 MB, `1` 59초·4.41 GB·185 MB, `0` 57초·2.80 GB·76 MB. clippy는 어느 것이나 28–34초.
 - 태그 `parity-s5`는 이 저장소의 원격에도 있다.
 
 컨테이너를 만드는 명령과 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `~/atlas/musical-happiness-carry/server/README.md` 4–5절에 있다. 그 문서는 컨테이너를 지우기 전(03:12–03:19 KST)에 쓰였다. 컨테이너가 떠 있다는 말과 스키마의 수는 지금과 다르다.
