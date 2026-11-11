@@ -98,9 +98,9 @@ export interface paths {
         /**
          * A board
          * @description For a user who may see the board: a member of it, or for an open board anyone in
-         *     its team. With the board's read token no session is needed; who reads that way is
-         *     not told who made the board or changed it last (`createdBy` and `modifiedBy` are
-         *     empty).
+         *     its team. With the board's read token no session is needed. Who reads with the token
+         *     and is no member of the board, without a session or signed in, is not told who made
+         *     the board or changed it last (`createdBy` and `modifiedBy` are empty).
          */
         get: operations["getBoard"];
         put?: never;
@@ -137,6 +137,13 @@ export interface paths {
          *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
          *     `block` or `boardMember` per line, in the shapes of this contract, bodies included)
          *     and the files the blocks show, the images of bodies among them.
+         *
+         *     A user runs one export at a time, and the server as many as its setting
+         *     `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
+         *     `export_running` or `server_exports_busy`, and is to be asked for again later. An
+         *     export runs until its archive is sent or the client goes away; a download that takes
+         *     nothing for `export_stall_seconds` (60 unless set) is given up, and its connection
+         *     broken before the archive's end.
          */
         get: operations["exportBoardArchive"];
         put?: never;
@@ -157,9 +164,16 @@ export interface paths {
         /**
          * The blocks of a board
          * @description For the board's members, and for an open template everyone in its team. With the
-         *     board's read token no session is needed; who reads that way is not told who made a
-         *     block or changed it last (`createdBy` and `modifiedBy` are empty), nor who is
-         *     mentioned in a body (the `userId` of every mention is empty).
+         *     board's read token no session is needed. Who reads with the token and is no member
+         *     of the board, without a session or signed in, is told no user's identifier:
+         *     `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a
+         *     body, and so is each user that the board's person properties (`person`,
+         *     `multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in
+         *     the clauses of a view's `fields.filter`; a list keeps its length, so how many people
+         *     a card has still shows. A card's values of properties the board does not define are
+         *     left out, and a view grouped by a person property keeps of `visibleOptionIds`,
+         *     `hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of
+         *     the cards without a value (`""`).
          *
          *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
          *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -183,7 +197,9 @@ export interface paths {
         /**
          * Change several blocks
          * @description Applies a patch to each of several blocks of the board, all or none. A body that
-         *     names no block changes nothing and is answered 204 too. For editors.
+         *     names no block changes nothing and is answered 204 too. Each block needs what
+         *     `patchBlock` needs: the editor's role, for a comment its author's commenter role or
+         *     for the comment of somebody else the board's admin role.
          */
         patch: operations["patchBlocks"];
         trace?: never;
@@ -210,8 +226,11 @@ export interface paths {
         head?: never;
         /**
          * Change a block
-         * @description For editors, also for a comment: a commenter cannot change their own comment this
-         *     way.
+         * @description For editors. A comment is changed by its author with the commenter's role, and the
+         *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
+         *     editor may not change it. Making a comment a block of another type is for editors,
+         *     and making a block of somebody else a comment for the board's admins.
+         *     The block's `modifiedBy` and `updateAt` say who changed it and when.
          */
         patch: operations["patchBlock"];
         trace?: never;
@@ -258,6 +277,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards/{boardId}/blocks/{blockId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a comment said before
+         * @description The earlier versions of a comment's body: every version but the one it has now, with
+         *     who wrote it and when. The first one first; it is the text the comment was posted
+         *     with, by its author. The server keeps the first version and the newest ones, up to
+         *     its setting `max_comment_versions` in all, so the numbers of the versions may leave
+         *     gaps. Empty for a comment whose body was never changed; the comment's `editedAt` says
+         *     whether it was. For the board's members, also in the trash: the versions go only
+         *     when the comment is gone for good. Not for a reader by the board's read token. A
+         *     block that is no comment is not there (404).
+         */
+        get: operations["getCommentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards/{boardId}/cards": {
         parameters: {
             query?: never;
@@ -267,8 +313,17 @@ export interface paths {
         };
         /**
          * The cards of a board
-         * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
-         *     that order. A `page` or `perPage` that is no whole number is 400.
+         * @description One page of the board's cards, for the board's members, and with the board's read
+         *     token for whoever has it. Oldest first; the pages cut that order. A `page` or
+         *     `perPage` that is no whole number is 400. With `preview=true` each card has its
+         *     `preview` (the first image and the beginning of the text of its body), which a
+         *     list without it leaves out.
+         *
+         *     To a reader with the read token alone (no session, or a user who is no member of
+         *     the board) the cards name no users, as `getBlocks` gives them: `createdBy` and
+         *     `modifiedBy` are empty, the values of person properties are emptied, and values of
+         *     properties the board does not define are left out. The preview's text has no
+         *     mentions in it, and its image `getFile` gives with the same token.
          */
         get: operations["getCards"];
         put?: never;
@@ -491,6 +546,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards/{boardId}/property-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put the card properties of a board in an order
+         * @description The body names every card property of the board (`cardProperties`, by `id`) once,
+         *     in the new order, as `reorderCategories` names categories; one left out, one named
+         *     twice or one the board does not have is 400, and nothing changes. For who may manage
+         *     the board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as
+         *     for any change of the board.
+         */
+        put: operations["reorderCardProperties"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards/{boardId}/sharing": {
         parameters: {
             query?: never;
@@ -519,6 +598,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards/{boardId}/trash/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted cards of a board
+         * @description One page of the board's cards that are in the trash, each with its identifier, its
+         *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
+         *     trash is emptied of it. A card that went with the block it was on (another card, a
+         *     view) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages
+         *     cut that order. A `page` or `perPage` that is no whole number is 400.
+         */
+        get: operations["getDeletedCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards/{boardId}/undelete": {
         parameters: {
             query?: never;
@@ -530,9 +633,12 @@ export interface paths {
         put?: never;
         /**
          * Bring a deleted board back
-         * @description Restores a board from the trash with its blocks and its members. Its sharing, its
-         *     places in the sidebars and the subscriptions to its blocks ended with the deletion
-         *     and stay ended. For who was an admin of the board when it was deleted; to anybody
+         * @description Restores a board from the trash with its blocks and its members. Each user who had
+         *     filed it, and can see it again, finds it where it was in the sidebar (the same
+         *     category and place, hidden or not) or in the default category if that one was
+         *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
+         *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
+         *     the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody
          *     who was no member there is no such board.
          */
         post: operations["undeleteBoard"];
@@ -723,8 +829,9 @@ export interface paths {
          *     Registering does not sign in.
          *
          *     The name and the email address must not be blank, the email address must look like
-         *     one, and the password must have at least 8 characters and at most 1024 bytes;
-         *     otherwise the request is 400, and `field` names the member.
+         *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
+         *     and the password must have at least 8 characters and at most 1024 bytes; otherwise
+         *     the request is 400, and `field` names the member.
          */
         post: operations["register"];
         delete?: never;
@@ -852,8 +959,8 @@ export interface paths {
         /**
          * Export the boards of a team
          * @description An archive of all boards of the team that `getBoards` lists for the user, offered
-         *     as a download with its length, in the format of `exportBoardArchive`. A team that
-         *     is not there is not refused: its archive has no boards.
+         *     as a download with its length, in the format of `exportBoardArchive`, and under its
+         *     limits. A team that is not there is not refused: its archive has no boards.
          */
         get: operations["exportTeamArchive"];
         put?: never;
@@ -897,6 +1004,10 @@ export interface paths {
          *
          *     The boards are made one after the other, not all or none: when one of them fails,
          *     those before it stay.
+         *
+         *     A user runs one import at a time, and the server as many as its setting
+         *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
+         *     `import_running` or `server_imports_busy`; the upload stays open, to be named again.
          */
         post: operations["importArchive"];
         delete?: never;
@@ -1209,6 +1320,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{teamId}/trash/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted boards of a team
+         * @description One page of the team's boards that are in the trash and that the user was an admin
+         *     of when they were deleted, which is who `undeleteBoard` lets bring them back: each
+         *     with its identifier, its title, when it was deleted and by whom. The last deleted
+         *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
+         *     400. For users of the team.
+         */
+        get: operations["getDeletedBoards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams/{teamId}/users": {
         parameters: {
             query?: never;
@@ -1218,8 +1353,8 @@ export interface paths {
         };
         /**
          * The users of a team
-         * @description Up to ten users: with `search` those whose name has that text in it, whatever the
-         *     case of the letters, without it the ten oldest accounts. Oldest account first.
+         * @description Up to ten users: with `search` those whose login name or display name has that text
+         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest account first.
          */
         get: operations["getTeamUsers"];
         put?: never;
@@ -1351,7 +1486,17 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change the user's account
+         * @description Changes what the body names of the user of the session: `displayName`, the name to
+         *     be shown by. White space around it is dropped, and empty or `null` is none. At most
+         *     64 UTF-16 code units, without control characters and without characters that show
+         *     nothing, break a line or turn the text around (U+00AD, U+200B–U+200F,
+         *     U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is
+         *     no such thing, or a name that breaks these rules, is refused (400 naming it) and
+         *     changes nothing. Answers the user as `getMe` does.
+         */
+        patch: operations["patchMe"];
         trace?: never;
     };
     "/api/v1/users/me/client-state": {
@@ -1499,6 +1644,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description What a user changes of their account. A member that is left out stays as it is. */
+        AccountChange: {
+            /**
+             * @description The name to be shown by: at most 64 UTF-16 code units without control
+             *     characters. Empty or `null` for none, and the login name is shown.
+             */
+            displayName?: string | null;
+        };
         /** @description Whether a user is to be an administrator of the instance. */
         AdminChange: {
             /** @description `true` makes the user an administrator, `false` ends that. */
@@ -1521,6 +1674,14 @@ export interface components {
              * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
              */
             deleteAt: number;
+            /**
+             * Format: int64
+             * @description For a comment whose body was changed: when that last happened, in milliseconds
+             *     since the Unix epoch. Absent for a comment never changed and for every other
+             *     block. The server sets it, and ignores a client's. What the body said before is
+             *     `getCommentVersions`'.
+             */
+            editedAt?: number;
             /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
              *     comment or an attachment and 800,000 for a view or a block of another type. The
@@ -1741,8 +1902,20 @@ export interface components {
             id: string;
             /** @description Whether the card is a template. */
             isTemplate: boolean;
+            /**
+             * Format: int64
+             * @description When the card's last comment was posted (the `createAt` of the newest of its
+             *     comments, the blocks of the type `comment` directly on it), in milliseconds since
+             *     the Unix epoch; zero if it has none. Changing a comment does not change it; a
+             *     deleted comment does not count, and counts again with its time if restored. A
+             *     comment does not change the card's `updateAt`. A new comment comes as
+             *     `UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is
+             *     read again for it. A number sent here in a request is ignored.
+             */
+            lastCommentAt: number;
             /** @description The identifier of the user who last modified the card. */
             modifiedBy: string;
+            preview?: components["schemas"]["CardPreview"] | null;
             /**
              * @description Property values keyed by property identifier: a string, a list of strings, or
              *     `null`, and for a property of the type `date` a date value (`{"from":
@@ -1803,6 +1976,23 @@ export interface components {
             updatedProperties?: {
                 [key: string]: unknown;
             };
+        };
+        /** @description What a gallery shows of a card's body. */
+        CardPreview: {
+            /**
+             * @description The file the body's first image shows (`getFile` gives it, also with the board's
+             *     read token); empty if the body has no image.
+             */
+            imageFileId: string;
+            /**
+             * @description The beginning of the body's text: its plain text as it is searched (a line per
+             *     paragraph, heading, code block and formula block, separated by `\n`; a formula
+             *     gives its source, an image and a mention nothing), at most 200 UTF-16 code units,
+             *     cut between characters as they are seen (a flag or a letter with its accent stays
+             *     whole), without white space at its end. Nothing says it was cut. Empty for a card
+             *     without text.
+             */
+            text: string;
         };
         /** @description A sidebar category of one user in one team. */
         Category: {
@@ -1902,12 +2092,52 @@ export interface components {
             /** @description How other users' names are displayed. */
             teammateNameDisplay: string;
         };
+        /**
+         * @description A text a comment had before its body was changed: the body then, who wrote it and
+         *     when. The first is the comment as it was posted.
+         */
+        CommentVersion: {
+            body: components["schemas"]["Body"] | null;
+            /**
+             * Format: int64
+             * @description The place of the version among the comment's, counted from 1 for the text it was
+             *     posted with. Versions the server no longer keeps leave gaps.
+             */
+            version: number;
+            /**
+             * Format: int64
+             * @description When this version was written, in milliseconds since the Unix epoch.
+             */
+            writtenAt: number;
+            /**
+             * @description Who wrote this version: the author of the comment for the first one, and for
+             *     each later one who changed the body to it.
+             */
+            writtenBy: string;
+        };
         /** @description The identifiers of boards and blocks to delete together. */
         DeleteBoardsAndBlocks: {
             /** @description The identifiers of the blocks. */
             blocks?: string[];
             /** @description The identifiers of the boards. */
             boards: string[];
+        };
+        /**
+         * @description A card or a board in the trash, with as much as it takes to decide whether to bring
+         *     it back (`undeleteBlock`, `undeleteBoard`).
+         */
+        DeletedItem: {
+            /**
+             * Format: int64
+             * @description When it was deleted, in milliseconds since the Unix epoch.
+             */
+            deletedAt: number;
+            /** @description The identifier of who deleted it, who may no longer exist; empty if not known. */
+            deletedBy: string;
+            /** @description The identifier of the card or the board. */
+            id: string;
+            /** @description Its title when it was deleted. */
+            title: string;
         };
         /**
          * @description How much room the interface gives each thing.
@@ -2246,6 +2476,11 @@ export interface components {
         };
         /** @description A request to register a new user. */
         RegisterRequest: {
+            /**
+             * @description The name to be shown by; may be left out, `null` or empty for none. Read as
+             *     `patchMe` reads it.
+             */
+            displayName?: string;
             /** @description The email address. */
             email: string;
             /** @description The password. */
@@ -2288,6 +2523,12 @@ export interface components {
             /** @description Whether a device that can do so answers touches with a vibration. */
             haptics?: boolean | null;
             hourCycle?: components["schemas"]["HourCycle"] | null;
+            /**
+             * @description `auto`, for the language of the browser, or a language tag such as `ko` or
+             *     `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at most 64
+             *     characters; the server keeps no list of languages, and keeps a tag as given.
+             */
+            language?: string | null;
             theme?: components["schemas"]["Theme"] | null;
             /**
              * @description `auto`, for the time zone of the device, or the IANA name of a time zone, such
@@ -2476,6 +2717,11 @@ export interface components {
              * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
              */
             deleteAt: number;
+            /**
+             * @description The name the user chose to be shown by; empty for none, and then the login name
+             *     is shown. At most 64 UTF-16 code units, not unique.
+             */
+            displayName: string;
             /** @description The user's identifier. */
             id: string;
             /**
@@ -2516,6 +2762,13 @@ export interface components {
             haptics: boolean;
             /** @description How the hours of a day are written. */
             hourCycle: components["schemas"]["HourCycle"];
+            /**
+             * @description The language of the interface: `auto` for the browser's, or a language tag such
+             *     as `ko` or `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at
+             *     most 64 characters. The server keeps no list of languages, and answers a tag as
+             *     it was given, case and all: compare tags without regard to case.
+             */
+            language: string;
             /** @description The colors of the interface. */
             theme: components["schemas"]["Theme"];
             /** @description The time zone times are shown in. */
@@ -3102,13 +3355,51 @@ export interface operations {
             };
         };
     };
+    getCommentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The earlier versions, the first one first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getCards: {
         parameters: {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. */
                 page?: number;
-                /** @description How many cards a page has. Left out, 100. Zero or less asks for all cards. */
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
                 perPage?: number;
+                /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
+                preview?: boolean;
+                /** @description The read token of the board. With the token of a board that is shared, the request needs no session. */
+                readToken?: string;
             };
             header?: never;
             path: {
@@ -3557,6 +3848,42 @@ export interface operations {
             };
         };
     };
+    reorderCardProperties: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description The identifiers of the card properties in their new order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getSharing: {
         parameters: {
             query?: never;
@@ -3612,6 +3939,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Sharing"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getDeletedCards: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted cards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedItem"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
@@ -4711,6 +5075,43 @@ export interface operations {
             };
         };
     };
+    getDeletedBoards: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the team. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted boards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedItem"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getTeamUsers: {
         parameters: {
             query?: {
@@ -4958,6 +5359,39 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    patchMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountChange"];
+            };
+        };
+        responses: {
+            /** @description The user as they are now. */
             200: {
                 headers: {
                     [name: string]: unknown;
