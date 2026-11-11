@@ -4,21 +4,20 @@
   narrow box, or in a popover next to the cell (then with a button that
   closes it; question C3, answer A).
 
-  A line is a link that opens the card: its title, its time when its value
-  has one (on its first day only: the time is the start's), and for a card of several days which of them this is ("November
-  9 – 13 · Day 2 of 5"). Under it, the properties the view turned on (C5).
+  A line of it is a CardRow: the card's title, time and days, and the
+  properties the view turned on.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
 
-  import { faceProperties } from '$lib/components/card-face/face.ts';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
-  import { PropertyValue, type PropertyUser } from '$lib/components/properties/index.ts';
+  import type { PropertyUser } from '$lib/components/properties/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { daysBetween, type CalendarDate } from '$lib/logic/dates.ts';
+  import type { CalendarDate } from '$lib/logic/dates.ts';
   import { displayDayLong } from '$lib/logic/format.ts';
   import type { PropertyTemplate } from '$lib/logic/wire.ts';
 
+  import CardRow from './CardRow.svelte';
   import type { Placed } from './placed.ts';
 
   interface Props {
@@ -50,21 +49,15 @@
 
   const uid = $props.id();
   const cards = $derived(placed.on(date));
-
-  function open(event: MouseEvent, cardId: string): void {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-      return;
-    event.preventDefault();
-    onOpenCard(cardId);
-  }
-
-  /** "Day 2 of 5", for a card of several days. */
-  function dayOf(cardId: string): string | undefined {
-    const span = placed.span(cardId);
-    if (!span || span.first === span.last) return undefined;
-    const count = daysBetween(span.first, span.last) + 1;
-    return m.calendar_day_of({ nth: daysBetween(span.first, date) + 1, count });
-  }
+  const rows = $derived({
+    placed,
+    templates,
+    visiblePropertyIds,
+    users,
+    nameFormat,
+    cardHref,
+    onOpenCard,
+  });
 </script>
 
 <section
@@ -93,47 +86,7 @@
 
   <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
     {#each cards as card (card.id)}
-      {@const time = placed.span(card.id)?.first === date ? placed.time(card) : undefined}
-      {@const range = placed.range(card)}
-      {@const shown = faceProperties(card, templates, visiblePropertyIds)}
-      <li data-card={card.id} class="rounded-lg hover:bg-muted">
-        <a
-          href={cardHref(card.id)}
-          class="flex min-h-10 min-w-0 flex-col justify-center rounded-lg px-3 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-12"
-          onclick={(event) => {
-            open(event, card.id);
-          }}
-        >
-          <span class={['truncate', !card.title && 'text-muted-foreground']}>
-            {placed.title(card)}
-          </span>
-          {#if time || range}
-            <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              {#if time}<span class="shrink-0">{time}</span>{/if}
-              {#if range}<span class="truncate">{range} · {dayOf(card.id)}</span>{/if}
-            </span>
-          {/if}
-        </a>
-        {#if shown.length > 0}
-          <div class="flex min-w-0 flex-wrap items-center gap-x-1 px-1 pb-1 text-xs">
-            {#each shown as template (template.id)}
-              <div data-property={template.id} title={template.name} class="min-w-0">
-                <span class="sr-only">{template.name}:</span>
-                <PropertyValue
-                  {template}
-                  {card}
-                  value={card.fields.properties[template.id]}
-                  mode="display"
-                  {users}
-                  {nameFormat}
-                  locale={placed.locale}
-                  regional={placed.regional}
-                />
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </li>
+      <CardRow {card} {date} {...rows} />
     {:else}
       <li class="px-3 py-2 text-muted-foreground">{m.calendar_no_cards()}</li>
     {/each}

@@ -15,6 +15,8 @@ import { parseDateValue, type Card, type PropertyTemplate } from '$lib/logic/wir
 export class Placed {
   /** The cards that have days, in the order of the view. */
   readonly spans: readonly Span[];
+  /** The cards with no value for the property they are placed by, in the order of the view. */
+  readonly undated: readonly Card[];
   /** The property the cards are placed by; none: by when they were made. */
   readonly template: PropertyTemplate | undefined;
   readonly regional: Regional;
@@ -34,8 +36,10 @@ export class Placed {
     this.template = template;
     this.regional = regional;
     this.locale = locale;
-    this.spans = spansOf(cards, template, regional.timeZone).spans;
+    const { spans, undated } = spansOf(cards, template, regional.timeZone);
+    this.spans = spans;
     this.#byId = new Map(cards.map((card) => [card.id, card]));
+    this.undated = undated.flatMap((id) => this.#byId.get(id) ?? []);
     this.#spanOf = new Map(this.spans.map((span) => [span.id, span]));
     this.#byDay = cardsByDay(this.spans, days);
   }

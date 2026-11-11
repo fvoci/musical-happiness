@@ -33,6 +33,7 @@
     weeksOfMonth,
   } from '$lib/logic/calendar.ts';
   import { addDays, dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
+  import { m } from '$lib/i18n/paraglide/messages.js';
   import { displayDayLong, displayMonth } from '$lib/logic/format.ts';
   import * as Popover from '$lib/ui/popover/index.js';
 
@@ -44,6 +45,7 @@
   import { MinuteClock } from './clock.svelte.ts';
   import { Placed } from './placed.ts';
   import Toolbar from './Toolbar.svelte';
+  import Undated from './Undated.svelte';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 
@@ -66,6 +68,8 @@
    * that widens again does not bring them back unasked.
    */
   let dayOpen = $derived<boolean>(bars && false);
+  /** The cards without a date are open: a column at the right, or a sheet on a compact page. */
+  let undatedOpen = $state(false);
   /** A card chosen in the popover of a day, opened once the popover has closed. Not reactive. */
   let chosenCard: string | undefined;
 
@@ -113,6 +117,7 @@
   }
 
   function pick(date: CalendarDate): void {
+    undatedOpen = false;
     select(date);
     if (bars) dayOpen = true;
   }
@@ -124,15 +129,43 @@
     focusDay();
   }
 
-  const lists = $derived({
+  const rows = $derived({
     placed,
-    today,
     templates,
     visiblePropertyIds: view.fields.visiblePropertyIds,
     users: board.workspace.users,
     nameFormat: board.workspace.nameFormat,
     cardHref,
   });
+  const lists = $derived({ ...rows, today });
+
+  /** Opens or closes the cards without a date; the list of a day gives way to them. */
+  async function toggleUndated(): Promise<void> {
+    undatedOpen = !undatedOpen;
+    if (!undatedOpen) return;
+    dayOpen = false;
+    await tick();
+    body?.parentElement
+      ?.querySelector<HTMLElement>('[data-testid="undated-panel"] [data-testid="undated-close"]')
+      ?.focus();
+  }
+
+  /** Escape in the column of cards without a date closes it. For `{@attach}`. */
+  function closesOnEscape(element: HTMLElement): () => void {
+    const keys = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeUndated();
+    };
+    element.addEventListener('keydown', keys);
+    return () => {
+      element.removeEventListener('keydown', keys);
+    };
+  }
+
+  /** Closes the column of cards without a date, the focus back on its button. */
+  function closeUndated(): void {
+    undatedOpen = false;
+    document.querySelector<HTMLElement>('[data-testid="calendar-undated"]')?.focus();
+  }
 
   /** A card opened from the list of a day: the list closes behind it. */
   function openFromList(cardId: string): void {
@@ -154,44 +187,83 @@
   data-layout={box.measured ? (bars ? 'bars' : 'mini') : undefined}
   class="flex h-full min-h-0 flex-col"
 >
-  <Toolbar title={displayMonth(firstOf(month), locale)} onstep={step} ontoday={goToday} />
+  <Toolbar
+    title={displayMonth(firstOf(month), locale)}
+    onstep={step}
+    ontoday={goToday}
+    undated={placed.undated.length}
+    {undatedOpen}
+    onundated={() => void toggleUndated()}
+  />
 
-  <!-- A low window scrolls the small grid and its list together; the list keeps room for two cards. -->
-  <div
-    class={['relative flex min-h-0 flex-1 flex-col', !bars && 'overflow-y-auto']}
-    {@attach attachBody}
-  >
-    {#if !box.measured}
-      <!-- Measured first: what is drawn depends on the width. -->
-    {:else if bars}
-      <MonthGrid
-        {weeks}
-        {placed}
-        {month}
-        {today}
-        {selected}
-        {finger}
-        {cardHref}
-        {onOpenCard}
-        onpick={pick}
-        onmove={(by: number) => void move(by)}
-      />
-    {:else}
-      <MiniMonth
-        {weeks}
-        {placed}
-        {month}
-        {today}
-        {selected}
-        onpick={select}
-        onmove={(by: number) => void move(by)}
-      />
-      <div class="flex min-h-36 flex-1 flex-col border-t pb-(--safe-bottom)">
-        <DayList date={selected} {...lists} {onOpenCard} />
-      </div>
+  <div class="relative flex min-h-0 flex-1 flex-col">
+    <!-- A low window scrolls the small grid and its list together; the list keeps room for two cards. -->
+    <div
+      class={['relative flex min-h-0 flex-1 flex-col', !bars && 'overflow-y-auto']}
+      {@attach attachBody}
+    >
+      {#if !box.measured}
+        <!-- Measured first: what is drawn depends on the width. -->
+      {:else if bars}
+        <MonthGrid
+          {weeks}
+          {placed}
+          {month}
+          {today}
+          {selected}
+          {finger}
+          {cardHref}
+          {onOpenCard}
+          onpick={pick}
+          onmove={(by: number) => void move(by)}
+        />
+      {:else}
+        <MiniMonth
+          {weeks}
+          {placed}
+          {month}
+          {today}
+          {selected}
+          onpick={select}
+          onmove={(by: number) => void move(by)}
+        />
+        <div class="flex min-h-36 flex-1 flex-col border-t pb-(--safe-bottom)">
+          <DayList date={selected} {...lists} {onOpenCard} />
+        </div>
+      {/if}
+    </div>
+
+    {#if undatedOpen && !sheet}
+      <!--
+        Over the grid, at its right: the proposal's column stands beside the
+        grid only from a pane of 54rem, a width this step does not add.
+      -->
+      <aside
+        data-testid="undated-panel"
+        aria-label={m.calendar_undated()}
+        class="absolute inset-y-0 right-0 z-30 flex w-80 max-w-full flex-col border-l bg-background pb-(--safe-bottom) shadow-lg"
+        {@attach closesOnEscape}
+      >
+        <Undated {...rows} {onOpenCard} onclose={closeUndated} />
+      </aside>
     {/if}
   </div>
 </div>
+
+{#if sheet}
+  <BottomSheet
+    bind:open={undatedOpen}
+    title={m.calendar_undated_count({ count: placed.undated.length })}
+  >
+    <Undated
+      {...rows}
+      onOpenCard={(cardId: string) => {
+        undatedOpen = false;
+        onOpenCard(cardId);
+      }}
+    />
+  </BottomSheet>
+{/if}
 
 {#if bars && sheet}
   <BottomSheet bind:open={dayOpen} title={displayDayLong(selected, locale)}>
