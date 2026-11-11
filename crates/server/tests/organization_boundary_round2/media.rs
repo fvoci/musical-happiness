@@ -417,7 +417,6 @@ async fn s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations() 
 /// The schema refuses an upload of A that names B's board (0015), so the row names A's
 /// own board and only its path is B's: what the cancellation removes is the path.
 #[tokio::test]
-#[ignore = "files-fix: cancelling an upload removes the object at its path, whoever's it is"]
 async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
@@ -479,7 +478,6 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
 /// that lists the path of B's file must not make the purge of A's trash remove B's
 /// object. The row is stored through A's handle, below the server's checks.
 #[tokio::test]
-#[ignore = "files-fix: the purge of the trash removes every path its rows list"]
 async fn purging_a_trash_row_does_not_delete_another_orgs_file() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
