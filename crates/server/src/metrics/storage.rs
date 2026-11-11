@@ -16,7 +16,7 @@ const UPLOADS_READ_TIMEOUT: Duration = Duration::from_secs(2);
 /// The work on archives that is counted while it holds its place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ArchiveWork {
-    /// An archive is written (and sent, while its place is held for that).
+    /// An archive is written.
     Export,
     /// An archive is read and its boards are made.
     Import,

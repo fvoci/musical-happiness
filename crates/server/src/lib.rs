@@ -294,8 +294,8 @@ impl Server {
         let drain_by = std::sync::OnceLock::new();
         let drain_deadline =
             || *drain_by.get_or_init(|| tokio::time::Instant::now() + CONNECTION_DRAIN_TIMEOUT);
-        let metrics_serving =
-            metrics_listener.map(|listener| serve_metrics(listener, &self.app, stop.clone()));
+        let metrics_serving = metrics_listener
+            .map(|listener| spawn_metrics_server(listener, &self.app, stop.clone()));
         let stopped = stop.clone().cancelled_owned();
         let serving = async move {
             if let Some(tls) = tls {
@@ -402,7 +402,7 @@ impl Server {
 /// Serves the metrics from `listener` until `stop` is cancelled, in a task of its own.
 /// Plain HTTP, whatever `usessl` says, and without the request log: a scrape every few
 /// seconds would fill it.
-fn serve_metrics(
+fn spawn_metrics_server(
     listener: tokio::net::TcpListener,
     app: &App,
     stop: CancellationToken,

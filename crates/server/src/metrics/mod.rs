@@ -128,13 +128,13 @@ impl Metrics {
 /// the websocket or the web app is on it.
 pub(crate) fn router(app: App) -> Router {
     Router::new()
-        .route(PATH, get(serve_metrics))
+        .route(PATH, get(answer_scrape))
         .fallback(|| async { StatusCode::NOT_FOUND })
         .with_state(app)
 }
 
 /// Answers a scrape: reads what is measured by asking, then writes all.
-async fn serve_metrics(axum::extract::State(app): axum::extract::State<App>) -> Response {
+async fn answer_scrape(axum::extract::State(app): axum::extract::State<App>) -> Response {
     let metrics = app.metrics();
     metrics.read_storage(&app).await;
     match metrics.render() {

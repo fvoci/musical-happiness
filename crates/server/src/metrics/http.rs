@@ -44,7 +44,7 @@ impl HttpMetrics {
             HistogramOpts::new(
                 "http_request_duration_seconds",
                 "How long requests to the API's listener took until the head of their \
-                 answer, by method, route template (or unmatched) and status (or \
+                 answer, by method (or other), route template (or unmatched) and status (or \
                  abandoned, when the client went away first); its count is the number \
                  of requests.",
             )
@@ -55,7 +55,8 @@ impl HttpMetrics {
         let in_flight = IntGauge::with_opts(
             Opts::new(
                 "http_requests_in_flight",
-                "How many requests to the API's listener are being answered.",
+                "How many requests to the API's listener are being answered, until the \
+                 head of their answer.",
             )
             .namespace(PREFIX),
         )?;
