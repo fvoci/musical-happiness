@@ -283,6 +283,16 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
+  /** `searchTeamBoards` by title (the server searches every team of the reader). */
+  async searchBoards(teamId: string, query: string): Promise<Board[]> {
+    const boards = await this.#http.request<Schemas['Board'][]>(
+      '/api/v1/teams/{teamId}/boards/search',
+      { teamId },
+      { query: { q: query } },
+    );
+    return boards.map(boardOf);
+  }
+
   async templates(teamId: string): Promise<Board[]> {
     const boards = await this.#http.request<Schemas['Board'][]>(
       '/api/v1/teams/{teamId}/templates',

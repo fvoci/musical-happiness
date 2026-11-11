@@ -213,6 +213,8 @@
   "shell_category_name": "카테고리 이름",
   "shell_board_menu": "{name} 보드 메뉴",
   "shell_board_move_to": "{category} 카테고리로 이동",
+  "shell_search_more": "다른 보드",
+  "shell_search_hidden": "숨김",
   "shell_hidden_boards": "숨긴 보드 ({count})",
   "shell_board_unhide": "사이드바에 {name} 다시 보이기",
   "shell_share": "공유",

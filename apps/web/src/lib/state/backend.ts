@@ -380,6 +380,11 @@ export interface Backend {
   duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board>;
   /** Copies the welcome board for the reader; answers its identifier. Each call makes another copy. */
   onboard(teamId: string): Promise<string>;
+  /**
+   * The boards the reader may find whose title has every word of `query` in
+   * it, whatever the case: those of `boards`, hidden ones too. No templates.
+   */
+  searchBoards(teamId: string, query: string): Promise<Board[]>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
   /** Takes the board, its blocks and its members back out of the trash. */

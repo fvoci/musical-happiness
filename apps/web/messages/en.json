@@ -213,6 +213,8 @@
   "shell_category_name": "Category name",
   "shell_board_menu": "Menu of the board {name}",
   "shell_board_move_to": "Move to {category}",
+  "shell_search_more": "More boards",
+  "shell_search_hidden": "Hidden",
   "shell_hidden_boards": "Hidden boards ({count})",
   "shell_board_unhide": "Show {name} in the sidebar",
   "shell_share": "Share",

@@ -455,6 +455,26 @@ export class MemoryBackend implements Backend {
     return copy(deleted.board);
   }
 
+  /** As the server: every word of the term in the title, whatever the case; oldest first. */
+  async searchBoards(teamId: string, query: string): Promise<Board[]> {
+    await this.#enter('searchBoards');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const words = query
+      .toLowerCase()
+      .split(' ')
+      .filter((word) => word !== '');
+    if (words.length === 0) return [];
+    return [...this.world.boards.values()]
+      .filter(
+        (board) =>
+          !board.isTemplate &&
+          this.#memberIds(board.id).includes(this.userId) &&
+          words.every((word) => board.title.toLowerCase().includes(word)),
+      )
+      .sort((first, second) => first.createAt - second.createAt)
+      .map(copy);
+  }
+
   /** As the server: the team's templates, then the built-in ones, each the oldest first. */
   async templates(teamId: string): Promise<Board[]> {
     await this.#enter('templates');

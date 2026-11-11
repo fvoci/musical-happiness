@@ -1,6 +1,6 @@
 <!--
   The sidebar: the name of the app, a field that narrows the boards down by
-  title, the categories with their boards, and at the foot "Add board" and
+  title (and asks the backend for the boards it finds beyond them), the categories with their boards, and at the foot "Add board" and
   the reader's account (which opens the settings).
 
   This is the content only. Where it sits (beside the board, or over the page
@@ -11,6 +11,8 @@
   Deleting asks first. Names of categories are asked for in a small dialog.
 -->
 <script lang="ts">
+  import { onDestroy } from 'svelte';
+
   import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchIcon from '@lucide/svelte/icons/search';
@@ -24,6 +26,7 @@
   import type { Category, Workspace } from '$lib/state/index.ts';
   import { Input } from '$lib/ui/input/index.js';
 
+  import { BoardSearch } from './board-search.svelte.ts';
   import CategoryNameDialog from './CategoryNameDialog.svelte';
   import SidebarList from './SidebarList.svelte';
 
@@ -52,6 +55,16 @@
   }: Props = $props();
 
   let query = $state('');
+  /** What the backend finds for the query beyond what the sidebar shows. */
+  const boardSearch = new BoardSearch((text) => workspace.searchBoards(text));
+  onDestroy(() => {
+    boardSearch.stop();
+  });
+
+  function setQuery(text: string): void {
+    query = text;
+    boardSearch.run(text);
+  }
 
   const myName = $derived(
     (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
@@ -129,12 +142,15 @@
     aria-label={m.shell_find_board()}
     placeholder={m.shell_find_board()}
     data-testid="sidebar-search"
+    oninput={(event: Event) => {
+      boardSearch.run((event.currentTarget as HTMLInputElement).value);
+    }}
     class="bg-background pr-9 pl-8 roomy:h-touch roomy:pr-12 roomy:text-base"
     onkeydown={(event: KeyboardEvent) => {
       // The first Escape empties the field; only the next one is for what is around it.
       if (event.key !== 'Escape' || query === '') return;
       event.preventDefault();
-      query = '';
+      setQuery('');
     }}
   />
   {#if query !== ''}
@@ -142,7 +158,7 @@
       label={m.shell_find_board_clear()}
       class="absolute top-1 right-2 text-muted-foreground"
       onclick={() => {
-        query = '';
+        setQuery('');
       }}
     >
       <XIcon />
@@ -156,6 +172,7 @@
     {boardId}
     {boardHref}
     {query}
+    found={boardSearch.found}
     {canDeleteOpenBoard}
     {onOpenBoard}
     onNewCategory={() => {

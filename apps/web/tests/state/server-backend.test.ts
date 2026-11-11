@@ -912,3 +912,11 @@ describe('templates on the server', () => {
     ]);
   });
 });
+
+describe('searching boards on the server', () => {
+  it('asks the team’s search by title', async () => {
+    const sent = serveRoutes([['GET /api/v1/teams/t/boards/search', []]]);
+    expect(await new ServerBackend('').searchBoards('t', 'garden plan')).toEqual([]);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/boards/search?q=garden+plan']);
+  });
+});

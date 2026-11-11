@@ -58,6 +58,8 @@
     boardHref: (boardId: string) => string;
     /** What the reader typed into the search of the sidebar. */
     query: string;
+    /** What the backend found for the query; those the list shows already are left out. */
+    found: readonly Board[];
     /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
     canDeleteOpenBoard: boolean;
     onOpenBoard: (boardId: string) => void;
@@ -72,6 +74,7 @@
     boardId,
     boardHref,
     query,
+    found,
     canDeleteOpenBoard,
     onOpenBoard,
     onNewCategory,
@@ -85,6 +88,16 @@
 
   const filtering = $derived(query.trim() !== '');
   const shown = $derived(filterSidebar(workspace.sidebar, query));
+  /** Found by the backend and not in the list as it is narrowed: hidden, or the words in another order. */
+  const more = $derived(
+    filtering
+      ? found.filter(
+          (board) => !shown.some((entry) => entry.boards.some((one) => one.id === board.id)),
+        )
+      : [],
+  );
+  const isHidden = (boardId: string): boolean =>
+    workspace.categories.some((category) => category.hiddenBoardIds.includes(boardId));
 
   const titleOf = (board: Board): string => board.title || m['Sidebar.untitled-board']();
   const boardOf = (id: string): Board | undefined =>
@@ -363,7 +376,55 @@
     </div>
   {/each}
 
-  {#if filtering && shown.length === 0}
+  {#if more.length > 0}
+    <div class="pt-2" data-testid="search-more">
+      <p class="px-1 py-1 text-xs font-medium text-muted-foreground">{m.shell_search_more()}</p>
+      <ul aria-label={m.shell_search_more()}>
+        {#each more as board (board.id)}
+          {@const hidden = isHidden(board.id)}
+          <li class="flex items-center gap-1">
+            <a
+              href={boardHref(board.id)}
+              aria-current={board.id === boardId ? 'page' : undefined}
+              class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 hover:bg-sidebar-accent roomy:min-h-touch"
+              onclick={(event: MouseEvent) => {
+                if (
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                onOpenBoard(board.id);
+              }}
+            >
+              <BoardIcon icon={board.icon} title={titleOf(board)} locale={workspace.locale} />
+              <span class="min-w-0 flex-1 truncate">{titleOf(board)}</span>
+              {#if hidden}
+                <span class="shrink-0 pr-1 text-xs text-muted-foreground">
+                  {m.shell_search_hidden()}
+                </span>
+              {/if}
+            </a>
+            {#if hidden}
+              <IconButton
+                label={m.shell_board_unhide({ name: titleOf(board) })}
+                class="text-muted-foreground"
+                onclick={() => void workspace.unhideBoard(board.id)}
+              >
+                <EyeIcon />
+              </IconButton>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+
+  {#if filtering && shown.length === 0 && more.length === 0}
     <p class="px-2 py-3 text-muted-foreground" role="status">{m.shell_no_boards_found()}</p>
   {/if}
 

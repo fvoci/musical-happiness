@@ -407,6 +407,22 @@ export class Workspace {
     }
   }
 
+  /**
+   * The boards the reader may find by `query` (every word in the title).
+   * A failure finds nothing; a session that is over signs out.
+   */
+  async searchBoards(query: string): Promise<Board[]> {
+    const team = this.team;
+    if (!team || query.trim() === '') return [];
+    try {
+      return await this.backend.searchBoards(team.id, query.trim());
+    } catch (error) {
+      if (isBackendError(error) && error.status === 401) this.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
+      return [];
+    }
+  }
+
   /** The templates a board can be made from; none when they cannot be read (told). */
   async templates(): Promise<Board[]> {
     if (!this.team) return [];

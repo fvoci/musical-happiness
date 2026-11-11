@@ -915,3 +915,18 @@ describe('archives', () => {
     expect(workspace.boards).toHaveLength(before);
   });
 });
+
+describe('searching boards', () => {
+  it('finds the boards with every word in the title, whatever the order and case, hidden ones too', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const target = workspace.boards.find((board) => board.title.includes(' '));
+    if (!target) throw new Error('unexpected seed');
+    const words = target.title.toUpperCase().split(' ').reverse().join(' ');
+    await workspace.hideBoard(target.id);
+    const found = await workspace.searchBoards(words);
+    expect(found.map((board) => board.id)).toContain(target.id);
+    expect(found.every((board) => !board.isTemplate)).toBe(true);
+    expect(await workspace.searchBoards('   ')).toEqual([]);
+  });
+});
