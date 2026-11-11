@@ -197,7 +197,7 @@ fn block(random: &mut Random, depth: usize) -> Value {
             let entries = (0..=random.below(2))
                 .map(|_| with_content("listItem", None, entry(random, depth - 1)))
                 .collect();
-            // The start is written out: an editor gives one to a list without.
+            // The start is written out, 1 among others: the stored form leaves 1 out.
             with_content(
                 "orderedList",
                 Some(json!({"start": random.below(5)})),

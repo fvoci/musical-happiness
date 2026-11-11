@@ -7,7 +7,7 @@ use yrs::types::text::YChange;
 use yrs::types::xml::XmlOut;
 use yrs::{Any, Number, Out, ReadTxn, Text, Xml, XmlElementRef, XmlFragment, XmlTextRef};
 
-use crate::schema::{self, Fallback};
+use crate::schema::{self, AtFallback, Attribute, Fallback};
 
 /// What an element or the root holds at one place.
 #[derive(Debug)]
@@ -120,8 +120,9 @@ fn mark_name(member: &str) -> &str {
 
 /// The JSON node of an element whose content has been read already: its type, the
 /// attributes the schema has for it, and the content. An attribute the shared content
-/// does not have gets the value an editor gives it; one the schema does not have is
-/// left out, as an editor does not read it.
+/// does not have gets the value an editor gives it, unless the stored form leaves that
+/// value out (the start of an ordered list at 1); one the schema does not have is left
+/// out, as an editor does not read it.
 pub(crate) fn element_node<T: ReadTxn>(
     txn: &T,
     element: &XmlElementRef,
@@ -143,7 +144,7 @@ pub(crate) fn element_node<T: ReadTxn>(
             // A shared type as the value of an attribute: nothing an attribute may be.
             Some(_) => Some(Value::Array(Vec::new())),
         };
-        if let Some(value) = value {
+        if let Some(value) = value.filter(|value| !is_left_out(*attribute, value)) {
             attrs.insert(attribute.name.to_owned(), value);
         }
     }
@@ -154,6 +155,17 @@ pub(crate) fn element_node<T: ReadTxn>(
         node.insert("content".to_owned(), Value::Array(content));
     }
     Value::Object(node)
+}
+
+/// Whether the stored form leaves out an attribute of this value: its fallback, where
+/// that is left out.
+fn is_left_out(attribute: Attribute, value: &Value) -> bool {
+    attribute.at_fallback == AtFallback::LeftOut
+        && match attribute.fallback {
+            Fallback::None => false,
+            Fallback::Integer(number) => value.as_i64() == Some(number),
+            Fallback::Boolean(truth) => value.as_bool() == Some(truth),
+        }
 }
 
 /// A value of the shared content as it is stored in JSON; `None` for no value, which is

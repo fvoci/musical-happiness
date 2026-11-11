@@ -5,7 +5,7 @@ mod support;
 use fvoci_collab::{from_body_by, new_doc, repair, state_of, to_body, with_update};
 use fvoci_model::{BODY_MAX_BYTES, Body};
 use serde_json::{Value, json};
-use support::{ROOMY, body_of, body_vectors, json_of};
+use support::{ROOMY, body_of, body_vectors, json_of, stored_form};
 
 const MARKS: [&str; 5] = ["link", "bold", "italic", "strike", "code"];
 
@@ -30,6 +30,7 @@ fn text(letters: &str, marks: &[Value]) -> Value {
 }
 
 fn assert_round_trip(input: &Value, expected: &Value, context: &str) {
+    let expected = &stored_form(expected);
     let doc = from_body_by(&body_of(input), 41);
     let direct = to_body(&doc).unwrap_or_else(|error| panic!("{context}: {error}"));
     assert_eq!(json_of(direct.as_ref()), *expected, "{context}: direct");
@@ -203,7 +204,11 @@ fn extra_binding_vectors_agree_in_both_directions() {
         let update = support::from_base64(case["update"].as_str().expect("an update"));
         let doc = with_update(&new_doc(), &update, &ROOMY).expect("a normal binding document");
         let body = to_body(&doc).unwrap_or_else(|error| panic!("{name}: {error}"));
-        assert_eq!(json_of(body.as_ref()), case["json"], "{name}: yjs to Rust");
+        assert_eq!(
+            json_of(body.as_ref()),
+            stored_form(&case["json"]),
+            "{name}: yjs to Rust"
+        );
         let ours = from_body_by(&body_of(&case["body"]), 1);
         made.push(json!({"name": name, "update": support::to_base64(&state_of(&ours))}));
     }

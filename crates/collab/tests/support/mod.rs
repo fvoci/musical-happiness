@@ -44,8 +44,35 @@ pub(crate) struct Vector {
     pub(crate) name: String,
     /// The Y document, as a version 1 update.
     pub(crate) update: Vec<u8>,
-    /// What an editor reads from it, in the stored form; `Null` for no body.
+    /// What an editor reads from it, in the stored form ([`stored_form`]); `Null` for
+    /// no body.
     pub(crate) json: Value,
+}
+
+/// The JSON an editor reads, as the server stores it: the same, but that the start of
+/// an ordered list at 1, which an editor fills in, is left out, as a body may leave it.
+pub(crate) fn stored_form(json: &Value) -> Value {
+    match json {
+        Value::Array(items) => Value::Array(items.iter().map(stored_form).collect()),
+        Value::Object(members) => {
+            let mut stored: serde_json::Map<String, Value> = members
+                .iter()
+                .map(|(name, member)| (name.clone(), stored_form(member)))
+                .collect();
+            if stored.get("type").and_then(Value::as_str) == Some("orderedList")
+                && let Some(Value::Object(attrs)) = stored.get_mut("attrs")
+            {
+                if attrs.get("start").and_then(Value::as_i64) == Some(1) {
+                    attrs.remove("start");
+                }
+                if attrs.is_empty() {
+                    stored.remove("attrs");
+                }
+            }
+            Value::Object(stored)
+        }
+        other => other.clone(),
+    }
 }
 
 /// The cases of one section of `contracts/ydoc-vectors.json`.
@@ -63,7 +90,7 @@ pub(crate) fn vectors(section: &str) -> Vec<Vector> {
             Vector {
                 name,
                 update,
-                json: case["json"].clone(),
+                json: stored_form(&case["json"]),
             }
         })
         .collect()

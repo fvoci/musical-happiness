@@ -22,7 +22,8 @@ fn a_document_of_the_binding_projects_to_what_an_editor_reads() {
 }
 
 /// The Y document made of a body projects to the JSON an editor reads from the
-/// binding's document of that body, also after it has travelled as an update.
+/// binding's document of that body, also after it has travelled as an update, and is
+/// no larger than the body.
 #[test]
 fn a_document_made_here_projects_to_what_an_editor_reads() {
     let all = body_vectors();
@@ -32,6 +33,11 @@ fn a_document_made_here_projects_to_what_an_editor_reads() {
         let made = from_body(&body_of(&one.body));
         let direct = to_body(&made).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(json_of(direct.as_ref()), one.vector.json, "{name}");
+        let size = |json: &Value| serde_json::to_vec(json).expect("JSON").len();
+        assert!(
+            size(&one.vector.json) <= size(&one.body),
+            "{name}: no larger than the body it was made of"
+        );
         let travelled =
             to_body(&doc_of(&state_of(&made))).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(

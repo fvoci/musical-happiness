@@ -1,5 +1,5 @@
 //! Properties over bodies made from seeds: a body goes into a Y document and comes
-//! back as it went, and a Y document from which children were deleted at random, as a
+//! back as it went (in the stored form, which is no larger), and a Y document from which children were deleted at random, as a
 //! merge of edits may delete them, is repaired to a body.
 
 mod support;
@@ -7,7 +7,7 @@ mod support;
 use fvoci_collab::{FIELD, from_body, from_body_by, repair, state_of, to_body, with_update};
 use serde_json::Value;
 use support::random::{Random, document};
-use support::{ROOMY, body_of, doc_of, json_of};
+use support::{ROOMY, body_of, doc_of, json_of, stored_form};
 use yrs::types::xml::XmlOut;
 use yrs::{Doc, Transact, TransactionMut, XmlFragment};
 
@@ -22,14 +22,19 @@ fn a_body_comes_back_as_it_went() {
         let doc = from_body_by(&body, seed + 1);
         let state = state_of(&doc);
 
+        let stored = stored_form(&document);
         let back = to_body(&doc).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
-        assert_eq!(json_of(back.as_ref()), document, "seed {seed}");
+        assert_eq!(json_of(back.as_ref()), stored, "seed {seed}");
         let travelled =
             to_body(&doc_of(&state)).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(
             json_of(travelled.as_ref()),
-            document,
+            stored,
             "seed {seed}, as an update"
+        );
+        assert!(
+            size_of(&stored) <= size_of(&document),
+            "seed {seed}: no larger than it went"
         );
 
         assert_eq!(
@@ -49,6 +54,11 @@ fn a_body_comes_back_as_it_went() {
             "seed {seed}: a repair of a body changes nothing"
         );
     }
+}
+
+/// The size of a body as JSON, as its limit is measured.
+fn size_of(json: &Value) -> usize {
+    serde_json::to_vec(json).expect("JSON").len()
 }
 
 /// Every element of the document, the root's children first.
