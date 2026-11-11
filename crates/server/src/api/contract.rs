@@ -174,6 +174,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryBoardMetadata", Members::All),
     ("CategoryBoards", Members::All),
     ("ClientConfig", Members::All),
+    ("DeletedItem", Members::All),
     ("CommentVersion", Members::All),
     ("ErrorBody", Members::Only(&["error", "message"])),
     ("FileInfo", Members::All),
@@ -1065,6 +1066,14 @@ mod tests {
         ("getCards", "Oldest first; the pages cut that order"),
         ("getCategories", "by `sortOrder`, lowest first"),
         ("getCommentVersions", "The first one first"),
+        (
+            "getDeletedBoards",
+            "The last deleted first; the pages cut that order",
+        ),
+        (
+            "getDeletedCards",
+            "The last deleted first; the pages cut that order",
+        ),
         ("getMembers", "By the identifier of the user"),
         ("getMyMemberships", "By the identifier of the board"),
         (

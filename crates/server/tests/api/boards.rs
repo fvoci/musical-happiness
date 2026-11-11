@@ -3873,3 +3873,80 @@ async fn duplicate_board_is_broadcast() {
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     th.teardown().await;
 }
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The deleted boards of a team
+/// are listed for whoever was an admin of each when it was deleted, who may bring it back;
+/// a member who was no admin does not see it. The last deleted first.
+#[tokio::test]
+async fn the_deleted_boards_are_listed_for_their_former_admins() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user2 = th.client2.me().await;
+    let titled = |title: &str| Board {
+        team_id: TEST_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        title: title.to_owned(),
+        ..Board::default()
+    };
+    let mine: Board = th.client.create_board(&titled("mine")).await.created_json();
+    let theirs: Board = th
+        .client2
+        .create_board(&titled("theirs"))
+        .await
+        .created_json();
+    let also_mine: Board = th
+        .client
+        .create_board(&titled("also mine"))
+        .await
+        .created_json();
+    th.app
+        .add_member_to_board(&fvoci_model::BoardMember {
+            board_id: theirs.id.clone(),
+            user_id: th.client.me().await.id,
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
+        .await
+        .expect("user1 edits their board");
+    for (client, board) in [
+        (&th.client, &mine),
+        (&th.client2, &theirs),
+        (&th.client, &also_mine),
+    ] {
+        client
+            .delete(&format!("/boards/{}", board.id))
+            .await
+            .check_no_content();
+    }
+    let trash = format!("/teams/{TEST_TEAM_ID}/trash/boards");
+    let names_of = |listed: &[Value]| -> Vec<Value> {
+        listed.iter().map(|entry| entry["title"].clone()).collect()
+    };
+
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(
+        names_of(&listed),
+        [json!("also mine"), json!("mine")],
+        "where user1 was an admin, the last deleted first"
+    );
+    assert_eq!(listed[1]["id"], json!(mine.id));
+    assert_eq!(listed[1]["deletedBy"], json!(th.client.me().await.id));
+    let listed: Vec<Value> = th.client2.get(&trash).await.ok_json();
+    assert_eq!(names_of(&listed), [json!("theirs")]);
+    assert_eq!(listed[0]["deletedBy"], json!(user2.id));
+
+    let page: Vec<Value> = th
+        .client
+        .get(&format!("{trash}?page=1&perPage=1"))
+        .await
+        .ok_json();
+    assert_eq!(names_of(&page), [json!("mine")], "the pages cut that order");
+    th.anonymous().get(&trash).await.check_unauthorized();
+
+    // Brought back, a board is no longer listed.
+    th.client
+        .post_empty(&format!("/boards/{}/undelete", mine.id))
+        .await
+        .check_ok();
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(names_of(&listed), [json!("also mine")]);
+}

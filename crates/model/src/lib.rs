@@ -21,6 +21,7 @@ mod category;
 mod client_config;
 mod comment_version;
 mod date_value;
+mod deleted_item;
 mod error_response;
 mod file_info;
 mod id;
@@ -71,6 +72,7 @@ pub use comment_version::CommentVersion;
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
+pub use deleted_item::DeletedItem;
 pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};

@@ -19,7 +19,7 @@ use fvoci_model::{Block, Board, BoardMember, Body, FileInfo, new_id};
 use serde::de::DeserializeOwned;
 
 use crate::Store;
-use crate::blocks::{self, parents_first};
+use crate::blocks::{self, Paging, parents_first};
 use crate::boards;
 use crate::comment_versions;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
@@ -82,6 +82,49 @@ impl Store {
         .await
     }
 
+    /// Returns the cards of a board that are in the trash, the last deleted first and
+    /// then by identifier: one page of them if `paging` says so (a page size of zero is
+    /// every card).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_deleted_cards(
+        &self,
+        board_id: &str,
+        paging: Option<Paging>,
+    ) -> Result<Vec<DeletedBlock>, StoreError> {
+        self.with_conn(async |scope| {
+            // The type is in the stored block; a card is on its board, with no parent.
+            let is_card = match scope.dialect() {
+                Dialect::Sqlite => "json_extract(block, '$.type') = 'card'",
+                Dialect::Postgres => "block->>'type' = 'card'",
+            };
+            let mut sql =
+                scope.sql("SELECT block, deleted_by FROM deleted_blocks WHERE board_id = ");
+            sql.bind(Id(board_id)).push(&format!(
+                " AND parent_id IS NULL AND {is_card} ORDER BY deleted_at DESC, id"
+            ));
+            if let Some(paging) = paging.filter(|paging| paging.per_page > 0) {
+                let offset = i64::from(paging.page) * i64::from(paging.per_page);
+                sql.push_bind(" LIMIT ", i64::from(paging.per_page))
+                    .push_bind(" OFFSET ", offset);
+            }
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| {
+                    Ok(DeletedBlock {
+                        block: block_from_json(row, 0)?,
+                        deleted_by: row.id(1)?,
+                    })
+                })
+                .collect()
+        })
+        .await
+    }
+
     /// Restores a block from the trash, with every block that was deleted along with
     /// it, and returns the block. The restored blocks are marked as modified by
     /// `user_id` now.
@@ -127,6 +170,33 @@ impl Store {
                 members: from_json(&row, 1, "members")?,
                 deleted_by: row.id(2)?,
             })
+        })
+        .await
+    }
+
+    /// Returns the boards of a team that are in the trash, with the memberships they
+    /// had, the last deleted first and then by identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_deleted_boards(&self, team_id: &str) -> Result<Vec<DeletedBoard>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql =
+                scope.sql("SELECT board, members, deleted_by FROM deleted_boards WHERE team_id = ");
+            sql.bind(Id(team_id)).push(" ORDER BY deleted_at DESC, id");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| {
+                    Ok(DeletedBoard {
+                        board: from_json(row, 0, "board")?,
+                        members: from_json(row, 1, "members")?,
+                        deleted_by: row.id(2)?,
+                    })
+                })
+                .collect()
         })
         .await
     }

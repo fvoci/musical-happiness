@@ -3159,3 +3159,68 @@ async fn the_fields_of_a_block_are_limited_by_its_type() {
     assert!(!stored.fields.contains_key("more"), "the card is as it was");
     th.teardown().await;
 }
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The deleted cards of a board
+/// are listed for its editors, the last deleted first, with what it takes to decide on
+/// bringing one back; a viewer is refused, and for anybody else the board is not there.
+#[tokio::test]
+async fn the_deleted_cards_of_a_board_are_listed_for_its_editors() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let board_id = &boards.board.id;
+    let editor = boards.editor.me().await;
+    let first = insert_one(&th.client, &new_block(board_id, BlockType::Card, "first")).await;
+    let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
+    insert_one(&th.client, &new_block(board_id, BlockType::Card, "kept")).await;
+    let view = insert_one(&th.client, &new_block(board_id, BlockType::View, "view")).await;
+    delete(&th.client, &first).await;
+    delete(&boards.editor, &second).await;
+    delete(&th.client, &view).await;
+    let trash = format!("/boards/{board_id}/trash/cards");
+
+    let listed = boards.editor.get(&trash).await.value();
+    let entries: Vec<(Value, Value)> = listed
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|entry| (entry["title"].clone(), entry["deletedBy"].clone()))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (json!("second"), json!(editor.id)),
+            (json!("first"), json!(th.client.me().await.id)),
+        ],
+        "cards only, the last deleted first"
+    );
+    let members: Vec<&String> = listed[0].as_object().expect("an entry").keys().collect();
+    assert_eq!(members, ["deletedAt", "deletedBy", "id", "title"]);
+    assert_eq!(listed[0]["id"], json!(second.id));
+    assert!(listed[0]["deletedAt"].as_i64().unwrap_or(0) > 0, "{listed}");
+
+    let page: Vec<Value> = boards
+        .editor
+        .get(&format!("{trash}?page=1&perPage=1"))
+        .await
+        .ok_json();
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0]["title"], json!("first"), "the pages cut that order");
+
+    boards.viewer.get(&trash).await.check_error(
+        StatusCode::FORBIDDEN,
+        "access denied to the trash of the board",
+    );
+    th.client2
+        .get(&trash)
+        .await
+        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
+    th.anonymous().get(&trash).await.check_unauthorized();
+
+    // Brought back, a card is no longer listed.
+    th.client
+        .post_empty(&format!("{}/undelete", block_path(board_id, &second.id)))
+        .await
+        .check_ok();
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}

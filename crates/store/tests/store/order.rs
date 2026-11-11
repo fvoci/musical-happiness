@@ -481,3 +481,81 @@ async fn subscription_ties_fall_back_to_identifiers() {
 
     test.teardown().await;
 }
+
+/// The lists of the trash come the last deleted first, and by identifier where two
+/// were deleted at once.
+#[tokio::test]
+async fn the_trash_comes_the_last_deleted_first() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
+    let board_id = stored_board(store, &team_id, &user_id, Board::default()).await;
+    let mut cards: Vec<Block> = (0..3)
+        .map(|_| Block {
+            id: new_id(),
+            board_id: board_id.clone(),
+            block_type: BlockType::Card,
+            ..Block::default()
+        })
+        .collect();
+    common::insert_blocks(store, &mut cards, &user_id).await;
+    let mut boards = Vec::new();
+    for _ in 0..3 {
+        boards.push(stored_board(store, &team_id, &user_id, Board::default()).await);
+    }
+    for (card, board) in cards.iter().zip(&boards) {
+        store
+            .delete_block(&card.id, &user_id)
+            .await
+            .expect("the card is deleted");
+        store
+            .delete_board(board, &user_id)
+            .await
+            .expect("the board is deleted");
+    }
+    // The first two at one time, after the third; the identifiers decide between them.
+    for (table, ids) in [
+        (
+            "deleted_blocks",
+            cards.iter().map(|card| card.id.clone()).collect::<Vec<_>>(),
+        ),
+        ("deleted_boards", boards.clone()),
+    ] {
+        for (id, deleted_at) in ids.iter().zip([200, 200, 100]) {
+            common::execute_raw(
+                &test.dbconfig(),
+                &format!("UPDATE {table} SET deleted_at = {deleted_at} WHERE id = '{id}'"),
+            )
+            .await;
+        }
+    }
+    let by_id = |mut ids: Vec<String>| {
+        let third = ids.remove(2);
+        ids.sort();
+        ids.push(third);
+        ids
+    };
+
+    let listed: Vec<String> = store
+        .get_deleted_cards(&board_id, None)
+        .await
+        .expect("the deleted cards")
+        .into_iter()
+        .map(|deleted| deleted.block.id)
+        .collect();
+    assert_eq!(
+        listed,
+        by_id(cards.iter().map(|card| card.id.clone()).collect())
+    );
+    let listed: Vec<String> = store
+        .get_deleted_boards(&team_id)
+        .await
+        .expect("the deleted boards")
+        .into_iter()
+        .map(|deleted| deleted.board.id)
+        .collect();
+    assert_eq!(listed, by_id(boards));
+
+    test.teardown().await;
+}

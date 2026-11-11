@@ -896,6 +896,35 @@
         ],
         "type": "object"
       },
+      "DeletedItem": {
+        "description": "A card or a board in the trash, with as much as it takes to decide whether to bring\nit back (`undeleteBlock`, `undeleteBoard`).",
+        "properties": {
+          "deletedAt": {
+            "description": "When it was deleted, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deletedBy": {
+            "description": "Who deleted it; empty if nobody known.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The identifier of the card or the board.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Its title when it was deleted.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deletedAt",
+          "deletedBy",
+          "id",
+          "title"
+        ],
+        "type": "object"
+      },
       "Density": {
         "description": "How much room the interface gives each thing.",
         "enum": [
@@ -3086,7 +3115,7 @@
             }
           },
           {
-            "description": "How many cards a page has. Left out, 100. Zero or less asks for all cards.",
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -3843,6 +3872,72 @@
         "summary": "Share a board, or stop sharing it",
         "tags": [
           "sharing"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/trash/cards": {
+      "get": {
+        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. For the board's editors. The last deleted first; the pages\ncut that order. A `page` or `perPage` that is no whole number is 400.",
+        "operationId": "getDeletedCards",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted cards of the page."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The deleted cards of a board",
+        "tags": [
+          "cards"
         ]
       }
     },
@@ -5413,6 +5508,72 @@
           }
         },
         "summary": "The templates of a team",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/trash/boards": {
+      "get": {
+        "description": "One page of the team's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the team who are not guests.",
+        "operationId": "getDeletedBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted boards of the page."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The deleted boards of a team",
         "tags": [
           "boards"
         ]

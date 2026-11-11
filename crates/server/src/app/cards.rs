@@ -12,7 +12,7 @@ use crate::error::AppError;
 
 /// Which cards of a board a `page` and `per_page` pair asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CardRange {
+pub(super) enum CardRange {
     /// Every card.
     All,
     /// One page of the cards.
@@ -30,7 +30,7 @@ impl CardRange {
     /// with a page size of zero or less is every card (the original's SQLite refuses an
     /// offset without a limit), and an offset beyond the range of the database's
     /// integers finds nothing (the original's arithmetic wraps around).
-    fn new(page: i64, per_page: i64) -> Self {
+    pub(super) fn new(page: i64, per_page: i64) -> Self {
         if per_page <= 0 {
             return Self::All;
         }
