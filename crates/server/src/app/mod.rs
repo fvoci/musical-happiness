@@ -3,6 +3,7 @@
 //! [`App`] holds the server's shared state. Its operations are spread over the modules of
 //! this directory by area, mirroring the original's `server/app` package.
 
+mod audience;
 mod auth;
 mod blocks;
 mod boards;
@@ -30,6 +31,7 @@ mod trash;
 mod uploads;
 mod users;
 
+pub use audience::Audience;
 pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
@@ -156,7 +158,12 @@ impl App {
         );
         let ping_interval = (config.websocket_ping_seconds > 0)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
-        let ws = Hub::new(store.clone(), auth.clone(), ping_interval, metrics.clone());
+        let ws = Hub::new(
+            Audience::new(store.clone()),
+            auth.clone(),
+            ping_interval,
+            metrics.clone(),
+        );
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;

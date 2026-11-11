@@ -16,11 +16,11 @@ use fvoci_model::{
     Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig,
     PersonProperties, Session,
 };
-use fvoci_store::Store;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::app::Audience;
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
 use crate::metrics::{Disconnect, Metrics};
@@ -247,7 +247,7 @@ pub struct Hub {
 #[derive(Debug)]
 struct HubInner {
     listeners: Mutex<Listeners>,
-    store: Store,
+    audience: Audience,
     auth: Authenticator,
     ping_interval: Option<Duration>,
     metrics: Metrics,
@@ -257,7 +257,7 @@ impl Hub {
     /// Creates a hub. `ping_interval` is how often each connection is pinged, if at all;
     /// the connections, the messages and why connections end are counted in `metrics`.
     pub fn new(
-        store: Store,
+        audience: Audience,
         auth: Authenticator,
         ping_interval: Option<Duration>,
         metrics: Metrics,
@@ -265,7 +265,7 @@ impl Hub {
         Self {
             inner: Arc::new(HubInner {
                 listeners: Mutex::new(Listeners::default()),
-                store,
+                audience,
                 auth,
                 ping_interval,
                 metrics,
@@ -554,10 +554,10 @@ impl Hub {
         }
         let mut board_id = String::new();
         for block_id in &command.block_ids {
-            let block = self.inner.store.get_block(block_id).await.ok()?;
+            let of_block = self.inner.audience.board_of_block(block_id).await.ok()?;
             if board_id.is_empty() {
-                board_id = block.board_id;
-            } else if board_id != block.board_id {
+                board_id = of_block;
+            } else if board_id != of_block {
                 return None;
             }
         }
@@ -590,12 +590,7 @@ impl Hub {
         if followers.is_empty() && !self.listeners().by_team.contains_key(team_id) {
             return;
         }
-        let members = match self
-            .inner
-            .store
-            .get_members_for_board(&block.board_id)
-            .await
-        {
+        let members = match self.inner.audience.members(&block.board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board's members failed");
@@ -631,11 +626,7 @@ impl Hub {
         let people = if block.fields.is_empty() {
             Ok(PersonProperties::default())
         } else {
-            self.inner
-                .store
-                .get_board(&block.board_id)
-                .await
-                .map(|board| board.person_properties())
+            self.inner.audience.person_properties(&block.board_id).await
         };
         let people = match people {
             Ok(people) => people,
@@ -871,7 +862,7 @@ impl Hub {
         if !self.listeners().by_team.contains_key(team_id) {
             return Vec::new();
         }
-        let members = match self.inner.store.get_members_for_board(board_id).await {
+        let members = match self.inner.audience.members(board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id, "websocket: reading the board's members failed");

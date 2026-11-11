@@ -58,6 +58,3 @@ crates/server/src/lib.rs             fvoci_store::DbType                        
 crates/server/src/lib.rs             fvoci_store::Store                                   2
 crates/server/src/lib.rs             fvoci_store::Store::connect                          1
 crates/server/src/lib.rs             fvoci_store::StoreError::Database                    1
-crates/server/src/ws.rs              .store.get_block                                     1
-crates/server/src/ws.rs              .store.get_members_for_board                         1
-crates/server/src/ws.rs              fvoci_store::Store                                   3
