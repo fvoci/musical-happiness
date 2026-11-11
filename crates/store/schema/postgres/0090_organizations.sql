@@ -1,4 +1,5 @@
--- Organizations, and the wall between them.
+-- Organizations, their members, the members of workspaces, and the wall between
+-- organizations.
 --
 -- An organization is who a workspace (the table `teams`, until it is renamed) and
 -- everything in it belongs to. The server decides who reaches what. Below that, as a
@@ -32,6 +33,38 @@ CREATE TABLE organizations (
     delete_at BIGINT NOT NULL DEFAULT 0
 );
 
+-- Who belongs to an organization, and whether they administer it.
+CREATE TABLE organization_members (
+    org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+    create_at BIGINT NOT NULL,
+    PRIMARY KEY (org_id, user_id)
+);
+CREATE INDEX organization_members_user_id_idx ON organization_members (user_id);
+
+-- Who is in a workspace. Nobody else knows the workspace is there.
+CREATE TABLE workspace_members (
+    workspace_id UUID NOT NULL REFERENCES teams (id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'member', 'guest')),
+    -- Whether an administrator of the organization is here as one, having stepped in,
+    -- and the role they had in the workspace before, if any, to go back to.
+    via_org_admin BOOLEAN NOT NULL DEFAULT false,
+    prior_role TEXT CHECK (prior_role IN ('admin', 'member', 'guest')),
+    create_at BIGINT NOT NULL,
+    PRIMARY KEY (workspace_id, user_id)
+);
+CREATE INDEX workspace_members_user_id_idx ON workspace_members (user_id);
+
+-- A workspace is an organization's, has a name (empty for none yet), and goes to the
+-- trash like a board (delete_at; zero while it is in use).
+ALTER TABLE teams ADD COLUMN org_id UUID REFERENCES organizations (id);
+ALTER TABLE teams ADD COLUMN name TEXT NOT NULL DEFAULT '';
+-- The workspace of the system organization, which holds the built-in templates.
+ALTER TABLE teams ADD COLUMN is_system BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE teams ADD COLUMN delete_at BIGINT NOT NULL DEFAULT 0;
+
 -- What was stored before there were organizations is one organization's: the oldest
 -- team is its default workspace. The identifier is a version 7 UUID, as the server
 -- makes them: the time, the version, and random bits.
@@ -41,22 +74,106 @@ SELECT (lpad(to_hex(now.millis), 12, '0') || '7'
        '', oldest.id, '{}', now.millis, now.millis
 FROM (SELECT id FROM teams ORDER BY create_at, id LIMIT 1) AS oldest,
      (SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT AS millis) AS now;
+UPDATE teams SET org_id = (SELECT id FROM organizations WHERE NOT is_system);
+ALTER TABLE teams ALTER COLUMN org_id SET NOT NULL;
 
--- The organization of a row, in the tables whose statements do not name it: the
--- organization of the transaction that stores the row. Only PostgreSQL has these
--- columns. The server never reads or writes them; a row stored by a transaction that
--- names no organization is refused, as the column takes no NULL.
-ALTER TABLE boards ADD COLUMN org_id UUID;
-UPDATE boards SET org_id = (SELECT id FROM organizations WHERE NOT is_system);
-ALTER TABLE boards ALTER COLUMN org_id SET NOT NULL;
-ALTER TABLE boards ALTER COLUMN org_id
-    SET DEFAULT (NULLIF(current_setting('fvoci.org', true), ''))::uuid;
+-- Every user is a member of it and of its workspaces, and an administrator of the
+-- instance administers both.
+INSERT INTO organization_members (org_id, user_id, role, create_at)
+SELECT o.id, u.id, CASE WHEN u.is_admin THEN 'admin' ELSE 'member' END, u.create_at
+FROM users AS u, organizations AS o WHERE NOT o.is_system;
+INSERT INTO workspace_members (workspace_id, user_id, role, create_at)
+SELECT t.id, u.id, CASE WHEN u.is_admin THEN 'admin' ELSE 'member' END, u.create_at
+FROM users AS u, teams AS t;
 
--- The wall. The role that owns the tables is the one the server connects as, so the
--- policies are forced on the owner too. No policy calls a function or reads a table.
-ALTER TABLE boards ENABLE ROW LEVEL SECURITY;
-ALTER TABLE boards FORCE ROW LEVEL SECURITY;
-CREATE POLICY org_wall ON boards USING (
-    org_id = (SELECT NULLIF(current_setting('fvoci.org', true), '')::uuid)
-    OR (SELECT current_setting('fvoci.system', true)) = 'on'
+-- The system organization and its workspace, with identifiers the server knows
+-- (crates/store/src/directory.rs). The built-in templates are theirs, not a team's.
+INSERT INTO organizations (id, name, is_system, settings, create_at, update_at)
+VALUES ('00000000-0000-7000-8000-00000000a000', '', true, '{}', 0, 0);
+INSERT INTO teams (id, org_id, is_system, signup_token, settings, create_at, update_at)
+VALUES ('00000000-0000-7000-8000-00000000a001', '00000000-0000-7000-8000-00000000a000',
+        true, '', '{}', 0, 0);
+UPDATE organizations SET default_workspace_id = '00000000-0000-7000-8000-00000000a001'
+WHERE id = '00000000-0000-7000-8000-00000000a000';
+UPDATE boards SET team_id = '00000000-0000-7000-8000-00000000a001' WHERE is_builtin;
+
+-- From here on PostgreSQL only: the organization of every row, and the wall.
+--
+-- The tables below get `org_id` here. The server's statements never name it in them:
+-- a row gets the organization of the transaction that stores it, and one stored by a
+-- transaction that names no organization is refused, as the column takes no NULL. (In
+-- `teams` and `organization_members` the server writes the organization itself, on
+-- both databases.)
+--
+-- The role that owns the tables is the one the server connects as, so the policies
+-- are forced on the owner too. No policy calls a function of the schema or reads a
+-- table.
+DO $$
+DECLARE
+    by_default CONSTANT TEXT[] := ARRAY[
+        'workspace_members', 'boards', 'board_members', 'blocks', 'deleted_boards',
+        'deleted_blocks', 'categories', 'category_boards', 'file_info', 'file_refs',
+        'sharing', 'subscriptions', 'uploads', 'upload_parts', 'comment_versions'];
+    walled CONSTANT TEXT[] := by_default || ARRAY['teams', 'organization_members'];
+    system_org CONSTANT UUID := '00000000-0000-7000-8000-00000000a000';
+    the_org UUID;
+    tbl TEXT;
+BEGIN
+    SELECT id INTO the_org FROM organizations WHERE NOT is_system;
+
+    FOREACH tbl IN ARRAY by_default LOOP
+        EXECUTE format('ALTER TABLE %I ADD COLUMN org_id UUID', tbl);
+    END LOOP;
+
+    -- Whose the rows stored so far are: the one organization's, but for the built-in
+    -- templates and what hangs on them, which are the system's.
+    UPDATE boards SET org_id = CASE WHEN is_builtin THEN system_org ELSE the_org END;
+    UPDATE workspace_members SET org_id = the_org;
+    UPDATE board_members AS m SET org_id = b.org_id FROM boards AS b WHERE b.id = m.board_id;
+    UPDATE blocks AS k SET org_id = b.org_id FROM boards AS b WHERE b.id = k.board_id;
+    UPDATE file_info AS f SET org_id = b.org_id FROM boards AS b WHERE b.id = f.board_id;
+    UPDATE sharing AS s SET org_id = b.org_id FROM boards AS b WHERE b.id = s.board_id;
+    UPDATE subscriptions AS s SET org_id = k.org_id FROM blocks AS k WHERE k.id = s.block_id;
+    -- Without a key to a board or a block: a row of a board in the trash, or of one
+    -- that is gone, is the organization's.
+    UPDATE file_refs AS r
+    SET org_id = COALESCE((SELECT b.org_id FROM boards AS b WHERE b.id = r.board_id), the_org);
+    UPDATE comment_versions AS v
+    SET org_id = COALESCE((SELECT k.org_id FROM blocks AS k WHERE k.id = v.block_id), the_org);
+    UPDATE deleted_blocks AS d
+    SET org_id = COALESCE((SELECT b.org_id FROM boards AS b WHERE b.id = d.board_id), the_org);
+    UPDATE deleted_boards SET org_id = the_org;
+    UPDATE categories SET org_id = the_org;
+    UPDATE category_boards SET org_id = the_org;
+    UPDATE uploads SET org_id = the_org;
+    UPDATE upload_parts SET org_id = the_org;
+
+    FOREACH tbl IN ARRAY by_default LOOP
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN org_id SET NOT NULL', tbl);
+        EXECUTE format(
+            'ALTER TABLE %I ALTER COLUMN org_id '
+            'SET DEFAULT (NULLIF(current_setting(''fvoci.org'', true), ''''))::uuid', tbl);
+    END LOOP;
+
+    FOREACH tbl IN ARRAY walled LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tbl);
+        EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', tbl);
+        EXECUTE format(
+            'CREATE POLICY org_wall ON %I USING ('
+            'org_id = (SELECT NULLIF(current_setting(''fvoci.org'', true), '''')::uuid) '
+            'OR (SELECT current_setting(''fvoci.system'', true)) = ''on'')', tbl);
+    END LOOP;
+END $$;
+
+-- The built-in templates are read by every organization: their boards and blocks,
+-- which are all the system organization holds. Reading only, and only by a transaction
+-- that names an organization; the wall above keeps everybody but the system
+-- organization from changing them.
+CREATE POLICY org_templates ON boards FOR SELECT USING (
+    org_id = '00000000-0000-7000-8000-00000000a000'
+    AND (SELECT NULLIF(current_setting('fvoci.org', true), '')) IS NOT NULL
+);
+CREATE POLICY org_templates ON blocks FOR SELECT USING (
+    org_id = '00000000-0000-7000-8000-00000000a000'
+    AND (SELECT NULLIF(current_setting('fvoci.org', true), '')) IS NOT NULL
 );

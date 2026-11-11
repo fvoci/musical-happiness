@@ -154,18 +154,14 @@ impl Authenticator {
         if !self.public_shared_boards {
             return Ok(false);
         }
-        let sharing = match self.store.get_sharing(board_id).await {
-            Ok(sharing) => sharing,
-            Err(error) if error.is_not_found() => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-        // A board that is not shared has no token; nothing matches that, not even
-        // nothing.
-        Ok(
-            sharing.enabled
-                && !sharing.token.is_empty()
-                && tokens_match(&sharing.token, read_token),
-        )
+        // Whose board it is, is not known here, and need not be: the store hands the
+        // organization of a shared board to whoever holds its token, and to nobody
+        // else.
+        Ok(self
+            .store
+            .org_of_shared_board(board_id, read_token)
+            .await?
+            .is_some())
     }
 }
 

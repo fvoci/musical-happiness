@@ -15,6 +15,7 @@ use sqlx::sqlite::{SqliteConnection, SqliteRow};
 use sqlx::types::Uuid;
 use sqlx::{AssertSqlSafe, Row as _};
 
+use crate::Tenant;
 use crate::error::StoreError;
 
 /// The SQL dialect of the connected database.
@@ -254,6 +255,9 @@ pub(crate) enum ConnRef<'c> {
 #[derive(Debug)]
 pub(crate) struct Scope<'c> {
     conn: ConnRef<'c>,
+    /// Whose rows the operation reaches. On PostgreSQL the transaction was told so when
+    /// it began.
+    tenant: Tenant,
     /// Whether a statement ran that may have changed something: anything but a plain
     /// `SELECT`.
     wrote: bool,
@@ -293,9 +297,10 @@ fn postgres_id(uuid: Uuid) -> Uuid {
 }
 
 impl<'c> Scope<'c> {
-    pub(crate) fn new(conn: ConnRef<'c>, comment_versions_kept: usize) -> Self {
+    pub(crate) fn new(conn: ConnRef<'c>, tenant: Tenant, comment_versions_kept: usize) -> Self {
         Self {
             conn,
+            tenant,
             wrote: false,
             comment_versions_kept,
         }
@@ -305,6 +310,25 @@ impl<'c> Scope<'c> {
     /// only read has nothing to commit.
     pub(crate) fn wrote(&self) -> bool {
         self.wrote
+    }
+
+    /// The organization whose rows the operation reaches, as a query parameter: for
+    /// the statements that name the organization themselves.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the store's handle names none.
+    pub(crate) fn org(&self) -> Result<Param, StoreError> {
+        if let Tenant::Org(org_id) = self.tenant {
+            Ok(Param::Id(Some(org_id)))
+        } else {
+            Err(StoreError::NoOrganization)
+        }
+    }
+
+    /// Whether the store's handle names an organization.
+    pub(crate) fn has_org(&self) -> bool {
+        matches!(self.tenant, Tenant::Org(_))
     }
 
     /// How many earlier versions of a comment are kept, at least one.

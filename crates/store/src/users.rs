@@ -12,6 +12,7 @@ use fvoci_model::{
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
+use crate::members;
 use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
@@ -174,6 +175,11 @@ impl Store {
     /// Who is first is decided with the insertion, in one transaction: of two users who
     /// register at once into an empty instance, one is the administrator.
     ///
+    /// Through a handle that names an organization the user joins it and its default
+    /// workspace, in the same transaction, as an administrator of both if the user is
+    /// one of the instance. That stands in for signing up and being invited, until
+    /// there are those.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::Conflict`] if another user, deleted or not, has the name or
@@ -219,6 +225,10 @@ impl Store {
     /// The check and the write are one step: of two administrators who give up the role
     /// at once, one is refused.
     ///
+    /// Through a handle that names an organization the user's role in it, and in its
+    /// workspaces where the user is no guest, follows: the instance's administrators
+    /// are the organization's, for now.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
@@ -257,6 +267,9 @@ impl Store {
                     .push_bind(", update_at = ", now_millis())
                     .push_bind(" WHERE id = ", Id(user_id));
                 scope.execute(sql).await?;
+                if scope.has_org() {
+                    members::follow_instance_role(scope, user_id, role).await?;
+                }
             }
             let user = get_user_by_id(scope, user_id).await?;
             Ok(AdminChange::Done(Box::new(user)))
@@ -631,10 +644,21 @@ async fn create_user(
         .push_bind(", ", &user.display_name)
         .push(")");
     match scope.execute(sql).await {
-        Ok(_) => Ok(()),
-        Err(StoreError::Database(error)) => Err(unique_violation(error)),
-        Err(error) => Err(error),
+        Ok(_) => {}
+        Err(StoreError::Database(error)) => return Err(unique_violation(error)),
+        Err(error) => return Err(error),
     }
+    // Whoever registers joins the organization there is (`members::join_organization`).
+    // A handle that names none stores the user alone.
+    if scope.has_org() {
+        let role = if user.is_admin {
+            InstanceRole::Administrator
+        } else {
+            InstanceRole::User
+        };
+        members::join_organization(scope, &user.id, role).await?;
+    }
+    Ok(())
 }
 
 /// Reads the violation of one of the two unique indexes of the users as a conflict.

@@ -6,6 +6,16 @@
 //! refuses a database that holds a migration this binary does not know; and on
 //! PostgreSQL it takes an advisory lock, so two servers starting on one empty database
 //! do not both create it. Migrations only go forward.
+//!
+//! The two files of a migration describe one change and differ in the column types
+//! only, as the tests of the baselines hold them to. The migration of the organizations
+//! is the exception, and the only one, on two counts. PostgreSQL keeps the rows of the
+//! organizations apart with row-level security, which SQLite does not have: there the
+//! tables whose statements do not name the organization get the column `org_id`, with
+//! the organization of the transaction as its default, and every table of an
+//! organization gets its policy; SQLite holds one organization and gets neither. And
+//! SQLite adds no column that both takes no NULL and refers to another table, so where
+//! PostgreSQL alters `teams`, SQLite makes the table again.
 
 use sqlx::SqlSafeStr as _;
 use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
@@ -92,6 +102,25 @@ const STEPS: [Step; 11] = [
     },
 ];
 
+/// The migration that makes the organizations and, on PostgreSQL, puts up the wall
+/// between them.
+pub(crate) const ORGANIZATIONS_VERSION: i64 = 90;
+
+/// The tables that are no organization's: the accounts, what is true of the
+/// installation, and the organizations themselves. Every other table of the schema
+/// holds rows of organizations and, on PostgreSQL, is behind the wall: row-level
+/// security enabled and forced, with the policy `org_wall`. A test of the store reads
+/// the catalog to see that it is so.
+pub(crate) const GLOBAL_TABLES: [&str; 7] = [
+    "_sqlx_migrations",
+    "data_steps",
+    "instance",
+    "organizations",
+    "preferences",
+    "sessions",
+    "users",
+];
+
 /// Tables that only a database of the original server has: the bookkeeping of its
 /// migration engine. On PostgreSQL the name follows that server's table prefix, so
 /// there it is matched by its ending.
@@ -105,7 +134,8 @@ const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 /// migration record is told from an empty one.
 const A_SCHEMA_TABLE: &str = "blocks";
 
-/// Applies the migrations the database does not have yet.
+/// Applies the migrations the database does not have yet, all of them or, for a test,
+/// those up to a version.
 ///
 /// # Errors
 ///
@@ -113,10 +143,10 @@ const A_SCHEMA_TABLE: &str = "blocks";
 /// original server, holds this server's tables without their migration record, was
 /// migrated by a newer server, or has a history that differs from this binary's; and
 /// [`StoreError::Database`] if a statement fails.
-pub(crate) async fn migrate(store: &Store) -> Result<(), StoreError> {
+pub(crate) async fn migrate(store: &Store, up_to: Option<i64>) -> Result<(), StoreError> {
     store.with_conn(refuse_foreign_databases).await?;
 
-    let migrator = migrator(store.dialect());
+    let migrator = migrator(store.dialect(), up_to);
     let result = match &store.inner.pool {
         Pool::Sqlite(pool) => migrator.run(pool).await,
         Pool::Postgres(pool) => migrator.run(pool).await,
@@ -137,9 +167,12 @@ pub(crate) async fn migrate(store: &Store) -> Result<(), StoreError> {
     })
 }
 
-fn migrator(dialect: Dialect) -> Migrator {
+/// The migrator of every migration, or of those up to a version: a database as an
+/// older server left it, for the tests of what a migration makes of one.
+fn migrator(dialect: Dialect, up_to: Option<i64>) -> Migrator {
     let migrations = STEPS
         .iter()
+        .filter(|step| up_to.is_none_or(|version| step.version <= version))
         .map(|step| {
             let sql = match dialect {
                 Dialect::Sqlite => step.sqlite,
@@ -199,4 +232,132 @@ async fn table_names(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
         .iter()
         .map(|row| row.text(0))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a PostgreSQL migration after the wall begins with if it reads or changes
+    /// rows of an organization's table: the migrator's transaction names no
+    /// organization, so without it the statements find no row, and say nothing.
+    const SYSTEM_SCOPE: &str = "SELECT set_config('fvoci.system', 'on', true);";
+
+    /// The lines of a migration without their comments, the blank ones left out. (No
+    /// string in the schema holds `--`.)
+    fn statement_lines(sql: &str) -> impl Iterator<Item = &str> {
+        sql.lines()
+            .map(|line| line.split("--").next().unwrap_or_default().trim())
+            .filter(|line| !line.is_empty())
+    }
+
+    /// The tables whose rows a migration reads or changes: what follows `FROM`, `JOIN`,
+    /// `UPDATE` and `INTO`. A subquery or a function call there names no table.
+    fn tables_read_or_changed(sql: &str) -> Vec<String> {
+        let words: Vec<&str> = statement_lines(sql)
+            .flat_map(str::split_whitespace)
+            .collect();
+        words
+            .windows(2)
+            .filter(|pair| {
+                ["FROM", "JOIN", "UPDATE", "INTO"]
+                    .iter()
+                    .any(|keyword| pair[0].eq_ignore_ascii_case(keyword))
+            })
+            .map(|pair| pair[1])
+            .filter(|word| !word.contains('('))
+            .map(|word| {
+                word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                    .to_ascii_lowercase()
+            })
+            .filter(|word| !word.is_empty())
+            .collect()
+    }
+
+    /// The tables of organizations among those a migration reads or changes.
+    fn walled_tables(sql: &str) -> Vec<String> {
+        tables_read_or_changed(sql)
+            .into_iter()
+            .filter(|table| !GLOBAL_TABLES.contains(&table.as_str()))
+            .collect()
+    }
+
+    fn begins_in_the_system_scope(sql: &str) -> bool {
+        statement_lines(sql).next() == Some(SYSTEM_SCOPE)
+    }
+
+    /// After the wall is up, a PostgreSQL migration that reads or changes rows of an
+    /// organization's table begins by reaching the rows of all: forced on the owner,
+    /// the policies would otherwise leave its `UPDATE` and `DELETE` without a row and
+    /// its `INSERT ... SELECT` without a source, with no error.
+    #[test]
+    fn a_migration_after_the_wall_that_touches_an_organizations_rows_begins_in_the_system_scope() {
+        for step in STEPS
+            .iter()
+            .filter(|step| step.version > ORGANIZATIONS_VERSION)
+        {
+            let walled = walled_tables(step.postgres);
+            assert!(
+                walled.is_empty() || begins_in_the_system_scope(step.postgres),
+                "migration {} ({}) reads or changes rows of {walled:?}; its PostgreSQL file \
+                 must begin with the line: {SYSTEM_SCOPE}",
+                step.version,
+                step.description
+            );
+        }
+    }
+
+    /// The check sees what it is there to see: statements of every kind that touch a
+    /// table of an organization, also in a subquery, and not those that touch none or
+    /// only change the shape of a table.
+    #[test]
+    fn the_check_of_later_migrations_sees_what_it_is_there_to_see() {
+        for touching in [
+            "UPDATE boards SET title = ''",
+            "DELETE FROM deleted_blocks WHERE deleted_at < 5;",
+            "INSERT INTO file_refs (block_id) VALUES ('x')",
+            "INSERT INTO data_steps (name) SELECT title FROM boards;",
+            "update users set display_name = (select title from boards limit 1)",
+            "CREATE TABLE copies AS SELECT b.id FROM blocks AS b JOIN teams t ON true",
+            "-- a comment\nUPDATE users SET email = '' WHERE id IN (SELECT user_id FROM board_members)",
+        ] {
+            assert!(!walled_tables(touching).is_empty(), "{touching}");
+            assert!(!begins_in_the_system_scope(touching), "{touching}");
+        }
+        for not_touching in [
+            "ALTER TABLE boards ADD COLUMN color TEXT NOT NULL DEFAULT '';",
+            "CREATE INDEX blocks_title_idx ON blocks (title);",
+            "INSERT INTO data_steps (name) VALUES ('later');",
+            "UPDATE users SET display_name = '' -- not from boards",
+            "UPDATE users SET update_at = (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT;",
+            "DELETE FROM sessions WHERE user_id IN (SELECT id FROM (SELECT id FROM users) AS u)",
+        ] {
+            assert_eq!(
+                walled_tables(not_touching),
+                Vec::<String>::new(),
+                "{not_touching}"
+            );
+        }
+        let scoped = format!("-- why\n{SYSTEM_SCOPE}\nUPDATE boards SET title = '';");
+        assert!(begins_in_the_system_scope(&scoped), "comments come first");
+        assert!(
+            !begins_in_the_system_scope(&format!("UPDATE boards SET title = '';\n{SYSTEM_SCOPE}")),
+            "the first statement, not a later one"
+        );
+    }
+
+    /// The migration of the organizations is in the list under the version the rest of
+    /// the crate knows it by.
+    #[test]
+    fn the_migration_of_the_organizations_is_the_one_the_crate_names() {
+        let step = STEPS
+            .iter()
+            .find(|step| step.version == ORGANIZATIONS_VERSION)
+            .expect("the migration is in the list");
+        assert_eq!(step.description, "organizations");
+        assert!(
+            step.postgres.contains("CREATE POLICY org_wall"),
+            "it puts up the wall"
+        );
+    }
 }

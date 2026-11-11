@@ -2,8 +2,18 @@
 //! whatever a query asks for, and the role the tests connect as, which the policies
 //! hold. SQLite has one organization and no such wall.
 
-use fvoci_model::{Board, BoardType, new_id};
-use fvoci_store::{DbType, Store, Tenant};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use fvoci_model::{
+    BlockType, Board, BoardMember, BoardType, Category, OrgRole, SubscriberType, Subscription,
+    Team, Upload, UploadPart, User, WorkspaceRole, is_id, new_id,
+};
+use fvoci_store::testing::GLOBAL_TABLES;
+use fvoci_store::{
+    DbType, InstanceRole, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharingChange, Store, StoreError,
+    Tenant,
+};
 use sqlx::Connection as _;
 
 use crate::common;
@@ -79,10 +89,7 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     }
     let test = common::setup().await;
     let unset = test.scoped(Tenant::Unset);
-    let other_org = unset
-        .create_organization("the other")
-        .await
-        .expect("a second organization is made");
+    let (other_org, _) = common::organization(&unset, "the other").await;
     let ours = &test.store;
     let theirs = test.for_org(&other_org).expect("an identifier");
 
@@ -180,10 +187,7 @@ async fn nothing_of_an_organization_stays_on_a_pooled_connection() {
     }
     let test = common::setup().await;
     let unset = test.scoped(Tenant::Unset);
-    let other_org = unset
-        .create_organization("the other")
-        .await
-        .expect("a second organization is made");
+    let (other_org, _) = common::organization(&unset, "the other").await;
     let theirs = test.for_org(&other_org).expect("an identifier");
     let user_id = common::user(&test, "anybody").await;
     let team_id = common::team(&test).await;
@@ -212,5 +216,950 @@ async fn nothing_of_an_organization_stays_on_a_pooled_connection() {
         assert_eq!(counted, expected, "round {round}, {tenant:?}");
     }
 
+    // And the connections themselves, looked at past the store's transactions, which
+    // would set the organization anew: none carries one, or the system's reach.
+    let left = test.settings_left_on_the_connections().await;
+    assert!(!left.is_empty(), "the pool has connections to look at");
+    for (org, system) in &left {
+        assert_eq!(org, "", "an organization stayed on a connection: {left:?}");
+        assert!(
+            system.is_empty() || system == "off",
+            "the system's reach stayed on a connection: {left:?}"
+        );
+    }
+
     test.teardown().await;
+}
+
+/// The tables of the test's schema, by name.
+async fn tables(dbconfig: &str) -> Vec<String> {
+    let mut conn = common::connect_past_the_store(dbconfig).await;
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT table_name::text FROM information_schema.tables \
+         WHERE table_schema = current_schema() ORDER BY table_name",
+    )
+    .fetch_all(&mut conn)
+    .await
+    .expect("the tables are listed");
+    conn.close().await.expect("the connection closes");
+    tables
+}
+
+/// A policy as the catalog has it: its command, whether it is permissive, its
+/// condition, and its condition for new rows.
+type Policy = (String, String, Option<String>, Option<String>);
+
+/// A row of `pg_policies`: the table and the name of a policy, and the policy.
+type PolicyRow = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+/// The policies of the test's schema, by table and name.
+async fn policies(conn: &mut sqlx::postgres::PgConnection) -> BTreeMap<(String, String), Policy> {
+    let rows: Vec<PolicyRow> = sqlx::query_as(
+        "SELECT tablename::text, policyname::text, cmd::text, permissive::text, qual, \
+         with_check FROM pg_policies WHERE schemaname = current_schema()",
+    )
+    .fetch_all(conn)
+    .await
+    .expect("the policies are read");
+    rows.into_iter()
+        .map(|(table, policy, cmd, permissive, qual, check)| {
+            ((table, policy), (cmd, permissive, qual, check))
+        })
+        .collect()
+}
+
+/// Checks that a table is behind the wall: row-level security enabled and forced on
+/// the owner, the policy `org_wall` as `wall` is, and a column `org_id` that takes no
+/// NULL and, where the server does not write it, defaults to the organization of the
+/// transaction.
+async fn assert_behind_the_wall(
+    conn: &mut sqlx::postgres::PgConnection,
+    table: &str,
+    wall: &Policy,
+    policies: &BTreeMap<(String, String), Policy>,
+) {
+    let (enabled, forced): (bool, bool) = sqlx::query_as(
+        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = to_regclass($1)",
+    )
+    .bind(table)
+    .fetch_one(&mut *conn)
+    .await
+    .expect("the table is in the catalog");
+    assert!(enabled, "{table}: row-level security is enabled");
+    assert!(forced, "{table}: and forced on the owner");
+    let policy = policies
+        .get(&(table.to_owned(), "org_wall".to_owned()))
+        .unwrap_or_else(|| panic!("{table} has the policy org_wall"));
+    assert_eq!(policy, wall, "{table}: the policy is the one of boards");
+    let (nullable, default): (String, Option<String>) = sqlx::query_as(
+        "SELECT is_nullable::text, column_default::text FROM information_schema.columns \
+         WHERE table_schema = current_schema() AND table_name = $1 AND column_name = 'org_id'",
+    )
+    .bind(table)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap_or_else(|error| panic!("{table} has the column org_id: {error}"));
+    assert_eq!(nullable, "NO", "{table}: a row is some organization's");
+    // The server names the organization itself in two tables; elsewhere a row gets
+    // the organization of the transaction that stores it.
+    if ["teams", "organization_members"].contains(&table) {
+        assert_eq!(default, None, "{table}: the server writes the organization");
+    } else {
+        let default = default.unwrap_or_default();
+        assert!(default.contains("fvoci.org"), "{table}: {default}");
+    }
+}
+
+/// Every table of the schema is one of the few that are no organization's, or is
+/// behind the wall: its row-level security is enabled and forced on its owner, and its
+/// policy `org_wall` is the one policy that lets rows be changed, the same on every
+/// table. A table that a later migration adds and forgets here fails this test.
+#[tokio::test]
+async fn every_table_is_no_organizations_or_behind_the_wall() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let all = tables(&test.dbconfig()).await;
+    for global in GLOBAL_TABLES {
+        assert!(
+            all.iter().any(|table| table == global),
+            "{global} is a table"
+        );
+    }
+    let walled: Vec<&String> = all
+        .iter()
+        .filter(|table| !GLOBAL_TABLES.contains(&table.as_str()))
+        .collect();
+    assert_eq!(walled.len(), 17, "the tables of organizations: {walled:?}");
+
+    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let policies = policies(&mut conn).await;
+    let wall = policies
+        .get(&("boards".to_owned(), "org_wall".to_owned()))
+        .expect("boards has the policy")
+        .clone();
+    let (command, permissive, using, check) = &wall;
+    let using = using.as_deref().expect("the policy has a condition");
+    assert!(
+        using.contains("fvoci.org") && using.contains("fvoci.system") && using.contains("org_id"),
+        "{using}"
+    );
+    assert_eq!(command, "ALL", "for every command");
+    assert_eq!(permissive, "PERMISSIVE");
+    assert_eq!(check, &None, "new rows are held to the same condition");
+    for table in &walled {
+        assert_behind_the_wall(&mut conn, table, &wall, &policies).await;
+    }
+
+    // Besides the wall, only the reading of the system organization's templates.
+    for ((table, policy), (command, permissive, using, _)) in &policies {
+        if policy == "org_wall" {
+            continue;
+        }
+        assert_eq!(policy, "org_templates", "{table} has the policy {policy}");
+        assert!(
+            ["boards", "blocks"].contains(&table.as_str()),
+            "{table} lets the templates be read"
+        );
+        assert_eq!(
+            (command.as_str(), permissive.as_str()),
+            ("SELECT", "PERMISSIVE")
+        );
+        assert!(
+            using.as_deref().unwrap_or_default().contains(SYSTEM_ORG_ID),
+            "{table}: {using:?}"
+        );
+    }
+    for global in GLOBAL_TABLES {
+        let enabled: bool =
+            sqlx::query_scalar("SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass($1)")
+                .bind(global)
+                .fetch_one(&mut conn)
+                .await
+                .expect("the table is in the catalog");
+        assert!(!enabled, "{global} is nobody's and has no wall");
+    }
+    conn.close().await.expect("the connection closes");
+    test.teardown().await;
+}
+
+/// Stores, through `store`, something in every table of an organization: a team, a
+/// board with a member, a card and a comment whose text was changed, files, sharing, a
+/// subscription, a category with the board in it, an upload with a part, and a board
+/// and a card in the trash. The user is made through `store` too, and so joins its
+/// organization. Returns the identifiers of the card that went to the trash and of the
+/// user.
+async fn something_in_every_table(store: &Store, username: &str) -> (String, String) {
+    let user_id = common::user(store, username).await;
+    let comment = crate::file_info::posted_comment(store, &user_id).await;
+    let board_id = comment.board_id.clone();
+    let board = store.get_board(&board_id).await.expect("the board");
+    store
+        .patch_block(
+            &comment.id,
+            &crate::file_info::title_and_body(Some("v2")),
+            &user_id,
+        )
+        .await
+        .expect("the comment is changed");
+    store
+        .save_member(&BoardMember {
+            board_id: board_id.clone(),
+            user_id: user_id.clone(),
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
+        .await
+        .expect("a member is stored");
+    store
+        .set_sharing(&board_id, SharingChange::On, &new_id(), &user_id)
+        .await
+        .expect("the board is shared");
+    store
+        .create_subscription(Subscription {
+            block_type: BlockType::Card,
+            block_id: comment.parent_id.clone(),
+            subscriber_type: SubscriberType::User,
+            subscriber_id: user_id.clone(),
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
+        })
+        .await
+        .expect("a subscription is stored");
+    let category = Category {
+        id: new_id(),
+        name: "a category".to_owned(),
+        user_id: user_id.clone(),
+        team_id: board.team_id.clone(),
+        ..Category::default()
+    };
+    store
+        .create_category(&category)
+        .await
+        .expect("a category is stored");
+    store
+        .add_update_category_board(&user_id, &category.id, std::slice::from_ref(&board_id))
+        .await
+        .expect("the board is filed");
+    let upload = Upload {
+        id: new_id(),
+        user_id: user_id.clone(),
+        board_id: board_id.clone(),
+        name: "upload.bin".to_owned(),
+        size: 1,
+        part_size: 1,
+        create_at: 1,
+        expires_at: i64::MAX,
+        ..Upload::default()
+    };
+    store
+        .create_upload(&upload)
+        .await
+        .expect("an upload is opened");
+    store
+        .put_upload_part(
+            &upload.id,
+            &UploadPart {
+                number: 1,
+                size: 1,
+                part_id: String::new(),
+            },
+        )
+        .await
+        .expect("a part is recorded");
+    // The trash: a card of the live board, and a whole board.
+    let mut card = fvoci_model::Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: BlockType::Card,
+        ..fvoci_model::Block::default()
+    };
+    common::insert_blocks(store, std::slice::from_mut(&mut card), &user_id).await;
+    store
+        .delete_block(&card.id, &user_id)
+        .await
+        .expect("a card goes to the trash");
+    let gone = common::create_test_boards(store, &board.team_id, &user_id, 1).await;
+    store
+        .delete_board(&gone[0].id, &user_id)
+        .await
+        .expect("a board goes to the trash");
+    (card.id, user_id)
+}
+
+/// What two organizations store stays apart in every table of theirs, whatever the
+/// statement asks for: counted with no condition, each handle reaches its own rows, one
+/// that names no organization reaches none, and the system's reaches all.
+#[tokio::test]
+async fn what_two_organizations_store_stays_apart_in_every_table() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let (other_org, _) = common::organization(&unset, "the other").await;
+    let ours = &test.store;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    let system_org = test.for_org(SYSTEM_ORG_ID).expect("an identifier");
+
+    something_in_every_table(ours, "ours").await;
+    // Twice as much of everything for them, so that no count is the same by chance.
+    something_in_every_table(&theirs, "theirs").await;
+    something_in_every_table(&theirs, "theirs.too").await;
+
+    let walled: Vec<String> = tables(&test.dbconfig())
+        .await
+        .into_iter()
+        .filter(|table| !GLOBAL_TABLES.contains(&table.as_str()))
+        .collect();
+    for table in &walled {
+        let count = async |store: &Store| store.count_rows(table).await.expect("counted");
+        let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
+        assert!(our_rows > 0, "{table}: the test stores a row of ours");
+        assert!(
+            their_rows > our_rows,
+            "{table}: theirs are more ({their_rows}) than ours ({our_rows})"
+        );
+        assert_eq!(count(&unset).await, 0, "{table}: no organization named");
+        assert_eq!(
+            count(&test.system()).await,
+            our_rows + their_rows + count(&system_org).await,
+            "{table}: the system's handle reaches all, and nothing is nobody's"
+        );
+    }
+
+    test.teardown().await;
+}
+
+/// The trash of one organization is not purged by another: what is not there for a
+/// handle is not gone. The server purges as the system, which reaches all of it.
+#[tokio::test]
+async fn one_organization_does_not_purge_the_trash_of_another() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let (other_org, _) = common::organization(&unset, "the other").await;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    let (our_card, _) = something_in_every_table(&test, "ours").await;
+    let (their_card, _) = something_in_every_table(&theirs, "theirs").await;
+
+    // Everything in the trash is old enough to go.
+    let whenever = i64::MAX;
+    let purged = unset.purge_trash(whenever).await.expect("purged");
+    assert_eq!(
+        purged.records, 0,
+        "a handle of no organization purges nothing"
+    );
+    let purged = test.purge_trash(whenever).await.expect("purged");
+    assert!(purged.records > 0, "ours is purged: {purged:?}");
+    let gone = test
+        .get_deleted_block(&our_card)
+        .await
+        .expect_err("our card is gone for good");
+    assert!(gone.is_not_found(), "got {gone:?}");
+    theirs
+        .get_deleted_block(&their_card)
+        .await
+        .expect("their card is still in their trash");
+    assert!(
+        theirs.count_rows("file_refs").await.expect("counted") > 0,
+        "and what their blocks show is still put down"
+    );
+
+    let purged = test.system().purge_trash(whenever).await.expect("purged");
+    assert!(purged.records > 0, "the system purges theirs: {purged:?}");
+    let gone = theirs
+        .get_deleted_block(&their_card)
+        .await
+        .expect_err("their card is gone for good");
+    assert!(gone.is_not_found(), "got {gone:?}");
+
+    test.teardown().await;
+}
+
+/// Whoever registers through a handle of an organization joins it and its default
+/// workspace, the first user as an administrator of both; an administrator of the
+/// instance made later becomes one of both, and stops being one with it. A user stored
+/// through a handle that names no organization is in none.
+#[tokio::test]
+async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let second_workspace = common::team(&test).await;
+    let first = common::user(&test, "first").await;
+    let second = common::user(&test, "second").await;
+    let outside = common::user(&unset, "outside").await;
+
+    let access = async |user_id: &str, workspace_id: &str| {
+        unset
+            .resolve_workspace(user_id, workspace_id)
+            .await
+            .expect("the workspace is resolved")
+            .map(|access| {
+                assert_eq!(access.org_id, test.org_id, "whose the workspace is");
+                (access.org_role, access.workspace_role)
+            })
+    };
+    let admin = Some((Some(OrgRole::Admin), WorkspaceRole::Admin));
+    let member = Some((Some(OrgRole::Member), WorkspaceRole::Member));
+    assert_eq!(
+        access(&first, &test.workspace_id).await,
+        admin,
+        "the first user"
+    );
+    assert_eq!(access(&second, &test.workspace_id).await, member);
+    assert_eq!(
+        access(&second, &second_workspace).await,
+        None,
+        "the default workspace only"
+    );
+    assert_eq!(access(&outside, &test.workspace_id).await, None);
+    assert_eq!(access(&first, &new_id()).await, None, "no such workspace");
+    assert_eq!(access(&first, "no identifier").await, None);
+    assert_eq!(
+        unset
+            .workspaces_of_user(&outside)
+            .await
+            .expect("the workspaces are listed"),
+        [],
+        "a user of no organization has no workspace"
+    );
+
+    // A member is let into the second workspace, as a guest.
+    test.add_workspace_member(&second_workspace, &second, WorkspaceRole::Guest)
+        .await
+        .expect("the member is added");
+    let listed = unset
+        .workspaces_of_user(&second)
+        .await
+        .expect("the workspaces are listed");
+    let listed: Vec<(&str, WorkspaceRole)> = listed
+        .iter()
+        .map(|workspace| {
+            assert_eq!(workspace.org_id, test.org_id);
+            (workspace.id.as_str(), workspace.role)
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (test.workspace_id.as_str(), WorkspaceRole::Member),
+            (second_workspace.as_str(), WorkspaceRole::Guest)
+        ],
+        "oldest workspace first"
+    );
+    let missing = test
+        .add_workspace_member(&new_id(), &second, WorkspaceRole::Member)
+        .await
+        .expect_err("no such workspace");
+    assert!(missing.is_not_found(), "got {missing:?}");
+
+    // The roles follow the instance's administrators, but a guest stays a guest.
+    test.set_user_admin(&second, InstanceRole::Administrator)
+        .await
+        .expect("the user is made an administrator");
+    assert_eq!(access(&second, &test.workspace_id).await, admin);
+    assert_eq!(
+        access(&second, &second_workspace).await,
+        Some((Some(OrgRole::Admin), WorkspaceRole::Guest))
+    );
+    test.set_user_admin(&second, InstanceRole::User)
+        .await
+        .expect("the user is an administrator no more");
+    assert_eq!(access(&second, &test.workspace_id).await, member);
+
+    // Somebody the organization takes in without a workspace is in none of them.
+    test.add_organization_member(&outside, OrgRole::Member)
+        .await
+        .expect("the user is added");
+    assert_eq!(access(&outside, &test.workspace_id).await, None);
+
+    test.teardown().await;
+}
+
+/// The schema makes the system organization and its workspace under the identifiers
+/// the server knows, and nothing lists them among an organization's own.
+#[tokio::test]
+async fn the_schema_makes_the_system_organization_and_its_workspace() {
+    let test = common::setup().await;
+    assert!(
+        is_id(SYSTEM_ORG_ID) && is_id(SYSTEM_WORKSPACE_ID),
+        "identifiers"
+    );
+    let system_org = test.for_org(SYSTEM_ORG_ID).expect("an identifier");
+    let workspaces = system_org.get_teams().await.expect("the teams");
+    let ids: Vec<&str> = workspaces.iter().map(|team| team.id.as_str()).collect();
+    assert_eq!(ids, [SYSTEM_WORKSPACE_ID], "the system organization's one");
+
+    let ours = test.get_teams().await.expect("the teams");
+    assert!(
+        ours.iter().all(|team| team.id != SYSTEM_WORKSPACE_ID),
+        "it is not ours: {ours:?}"
+    );
+    let missing = test
+        .get_team(SYSTEM_WORKSPACE_ID)
+        .await
+        .expect_err("nor is it found by its identifier");
+    assert!(missing.is_not_found(), "got {missing:?}");
+    // It is not the organization the server works in, old as it is.
+    let found = test
+        .scoped(Tenant::Unset)
+        .only_organization(&Team::default())
+        .await
+        .expect("the organization");
+    assert_eq!(found, test.org_id);
+
+    test.teardown().await;
+}
+
+/// An SQLite database holds one organization besides the system's: a second is refused
+/// by the database itself.
+#[tokio::test]
+async fn an_sqlite_database_holds_one_organization() {
+    if common::db_type() != DbType::Sqlite {
+        return;
+    }
+    let test = common::setup().await;
+    let second = Team {
+        id: new_id(),
+        signup_token: "signup-token".to_owned(),
+        ..Team::default()
+    };
+    let refused = test
+        .scoped(Tenant::Unset)
+        .create_organization("a second", &second)
+        .await
+        .expect_err("a second organization is refused");
+    assert!(
+        matches!(&refused, StoreError::Database(error)
+            if error.to_string().contains("holds one organization")),
+        "got {refused:?}"
+    );
+    let missing = test
+        .get_team(&second.id)
+        .await
+        .expect_err("nothing of it is stored");
+    assert!(missing.is_not_found(), "got {missing:?}");
+    let refused = common::try_execute_raw(
+        &test.dbconfig(),
+        "UPDATE organizations SET is_system = NOT is_system",
+    )
+    .await
+    .expect_err("an organization stays what it is");
+    assert!(refused.to_string().contains("the system"), "{refused}");
+
+    test.teardown().await;
+}
+
+/// The files that may ask for the system's reach, by which a handle reaches the rows of
+/// every organization: the store itself, the directory, the changes of the data after
+/// a migration, and the server's start, where its housekeeping is set going. Anywhere
+/// else, a request would be let past the wall it is there to be held by.
+#[test]
+fn the_systems_reach_is_asked_for_in_few_places() {
+    const ALLOWED: [&str; 4] = [
+        "store/src/lib.rs",
+        "store/src/directory.rs",
+        "store/src/data_steps.rs",
+        "server/src/lib.rs",
+    ];
+    fn sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(directory).expect("a source directory") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                sources(&path, found);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                found.push(path);
+            }
+        }
+    }
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory");
+    let mut files = Vec::new();
+    for source in ["store/src", "server/src"] {
+        sources(&crates.join(source), &mut files);
+    }
+    assert!(files.len() > 50, "the sources are found: {}", files.len());
+    let mut asking = Vec::new();
+    for file in files {
+        let name = file
+            .strip_prefix(crates)
+            .expect("under the crates directory")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let text = std::fs::read_to_string(&file).expect("a source file");
+        let asks = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .any(|line| line.contains("Tenant::System") || line.contains(".system()"));
+        // The test support is compiled into no server.
+        if asks && name != "store/src/testing.rs" {
+            asking.push(name);
+        }
+    }
+    asking.sort();
+    let mut allowed = ALLOWED.map(str::to_owned).to_vec();
+    allowed.sort();
+    assert_eq!(asking, allowed, "the files that ask for the system's reach");
+}
+
+/// What a server that knew nothing of organizations left in every table: three users
+/// (an administrator, a member, and one who left), two teams, boards of both and a
+/// built-in template, and something in every other table, some of it hanging on the
+/// template, some on a board in the trash, some on nothing that is still there. The
+/// words that begin with a colon stand for identifiers.
+const BEFORE_ORGANIZATIONS: &str = r#"
+INSERT INTO users (id, username, email, password_hash, create_at, update_at, delete_at,
+                   is_admin, display_name) VALUES
+    (':admin', 'admin', 'admin@example.com', '', 10, 10, 0, true, ''),
+    (':member', 'member', 'member@example.com', '', 20, 20, 0, false, ''),
+    (':left', 'left', 'left@example.com', '', 30, 30, 40, false, '');
+UPDATE instance SET bootstrapped = true;
+INSERT INTO teams (id, signup_token, settings, modified_by, create_at, update_at) VALUES
+    (':younger_team', 'token-2', '{}', NULL, 200, 200),
+    (':older_team', 'token-1', '{"kept": 1}', ':admin', 100, 100);
+INSERT INTO boards (id, team_id, created_by, modified_by, type, title, description, icon,
+                    show_description, is_template, is_builtin, template_version, properties,
+                    card_properties, create_at, update_at) VALUES
+    (':board', ':older_team', ':admin', ':admin', 'O', 'a board', '', '', false, false, false,
+     0, '{}', '[]', 1, 1),
+    (':template', ':older_team', NULL, NULL, 'O', 'a template', '', '', false, true, true, 7,
+     '{}', '[]', 1, 1),
+    (':other_board', ':younger_team', ':member', ':member', 'P', 'another', '', '', false,
+     false, false, 0, '{}', '[]', 2, 2);
+INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, scheme_commenter,
+                           scheme_viewer) VALUES
+    (':board', ':admin', true, true, false, false),
+    (':other_board', ':member', true, true, false, false);
+INSERT INTO blocks (id, board_id, parent_id, created_by, modified_by, "schema", type, title,
+                    fields, create_at, update_at) VALUES
+    (':card', ':board', NULL, ':admin', ':admin', 1, 'card', 'a card', '{}', 1, 1),
+    (':template_card', ':template', NULL, NULL, NULL, 1, 'card', 'of the template', '{}', 1, 1);
+INSERT INTO blocks (id, board_id, parent_id, created_by, modified_by, "schema", type, title,
+                    fields, create_at, update_at) VALUES
+    (':comment', ':board', ':card', ':member', ':member', 1, 'comment', '', '{}', 2, 2);
+INSERT INTO deleted_boards (id, team_id, deleted_at, deleted_by, deletion_id, board, members,
+                            files) VALUES
+    (':deleted_board', ':older_team', 5, ':admin', ':deletion', '{}', '[]', '[]');
+INSERT INTO deleted_blocks (id, board_id, parent_id, deleted_at, deleted_by, deletion_id,
+                            block) VALUES
+    (':deleted_card', ':board', NULL, 5, ':admin', ':other_deletion', '{"type": "card"}'),
+    (':card_of_deleted_board', ':deleted_board', NULL, 5, ':admin', ':deletion',
+     '{"type": "card"}');
+INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, collapsed, type,
+                        sort_order) VALUES
+    (':category', 'mine', ':admin', ':older_team', 1, 1, false, 'custom', 0),
+    (':other_category', 'theirs', ':member', ':older_team', 1, 1, false, 'custom', 0);
+INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, update_at,
+                             sort_order, hidden) VALUES
+    (':filed', ':admin', ':category', ':board', 1, 1, 0, false),
+    (':filed_template', ':member', ':other_category', ':template', 1, 1, 0, false);
+INSERT INTO file_info (id, board_id, name, original_name, extension, size, path, create_at)
+VALUES (':file', ':board', '7shown.png', 'shown.png', '.png', 1, 'somewhere', 1);
+INSERT INTO file_refs (block_id, board_id, name) VALUES
+    (':card', ':board', '7shown.png'),
+    (':card_of_deleted_board', ':deleted_board', '7gone.png');
+INSERT INTO sharing (board_id, enabled, token, modified_by, update_at)
+VALUES (':board', true, 'the-read-token', ':admin', 1);
+INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, notified_at,
+                           create_at) VALUES
+    ('card', ':card', 'user', ':member', 0, 1),
+    ('card', ':template_card', 'user', ':admin', 0, 1);
+INSERT INTO uploads (id, user_id, board_id, name, size, content_type, part_size, create_at,
+                     expires_at, closed_at, multipart_id)
+VALUES ('an-upload', ':admin', ':board', 'upload.bin', 1, '', 1, 1, 9000000000000, 0, '');
+INSERT INTO upload_parts (upload_id, number, size, part_id) VALUES ('an-upload', 1, 1, '');
+INSERT INTO comment_versions (block_id, version, body, files, written_by, written_at) VALUES
+    (':comment', 1, NULL, '[]', ':admin', 1),
+    (':comment_that_is_gone', 1, NULL, '[]', ':admin', 1);
+"#;
+
+/// The identifiers of [`BEFORE_ORGANIZATIONS`], by their names there.
+struct Before(BTreeMap<&'static str, String>);
+
+impl Before {
+    const NAMES: [&'static str; 22] = [
+        "admin",
+        "member",
+        "left",
+        "younger_team",
+        "older_team",
+        "board",
+        "template",
+        "other_board",
+        "card",
+        "template_card",
+        "comment",
+        "deleted_board",
+        "deletion",
+        "other_deletion",
+        "deleted_card",
+        "card_of_deleted_board",
+        "category",
+        "other_category",
+        "filed",
+        "filed_template",
+        "file",
+        "comment_that_is_gone",
+    ];
+
+    fn new() -> Self {
+        Self(Self::NAMES.iter().map(|name| (*name, new_id())).collect())
+    }
+
+    fn id(&self, name: &str) -> &str {
+        &self.0[name]
+    }
+
+    /// The statements, with the identifiers in the places of their names: the longest
+    /// name first, as some names begin with another.
+    fn statements(&self) -> String {
+        let mut names: Vec<&&str> = self.0.keys().collect();
+        names.sort_by_key(|name| std::cmp::Reverse(name.len()));
+        let mut statements = BEFORE_ORGANIZATIONS.to_owned();
+        for name in names {
+            statements = statements.replace(&format!(":{name}"), &self.0[*name]);
+        }
+        assert!(!statements.contains("':"), "a name without an identifier");
+        statements
+    }
+}
+
+/// The two teams are the organization's workspaces as they were, every user is in
+/// both, and who registers now gets into the oldest.
+async fn assert_the_teams_are_its_workspaces(
+    unset: &Store,
+    ours: &Store,
+    before: &Before,
+    org_id: &str,
+) {
+    // Both teams are its workspaces, as they were, the oldest first.
+    let teams = ours.get_teams().await.expect("the teams");
+    let ids: Vec<&str> = teams.iter().map(|team| team.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [before.id("older_team"), before.id("younger_team")],
+        "the oldest first"
+    );
+    assert_eq!(teams[0].signup_token, "token-1", "{:?}", teams[0]);
+    assert_eq!(teams[0].modified_by, before.id("admin"), "{:?}", teams[0]);
+    assert_eq!(teams[0].settings["kept"], 1, "{:?}", teams[0]);
+    assert_eq!(teams[0].title, "", "no name yet");
+
+    // Every user is in both, the one who left too; the administrator administers.
+    for (user, org_role, role) in [
+        ("admin", OrgRole::Admin, WorkspaceRole::Admin),
+        ("member", OrgRole::Member, WorkspaceRole::Member),
+        ("left", OrgRole::Member, WorkspaceRole::Member),
+    ] {
+        let listed = unset
+            .workspaces_of_user(before.id(user))
+            .await
+            .expect("the workspaces are listed");
+        let listed: Vec<(&str, &str, WorkspaceRole)> = listed
+            .iter()
+            .map(|workspace| {
+                (
+                    workspace.id.as_str(),
+                    workspace.org_id.as_str(),
+                    workspace.role,
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (before.id("older_team"), org_id, role),
+                (before.id("younger_team"), org_id, role)
+            ],
+            "{user}"
+        );
+        let access = unset
+            .resolve_workspace(before.id(user), before.id("younger_team"))
+            .await
+            .expect("the workspace is resolved")
+            .expect("a member");
+        assert_eq!(access.org_role, Some(org_role), "{user}");
+    }
+    // The default workspace is the oldest team: who registers now gets into it.
+    let mut newcomer = User {
+        id: new_id(),
+        username: "newcomer".to_owned(),
+        email: "newcomer@example.com".to_owned(),
+        ..User::default()
+    };
+    ours.create_user(&mut newcomer)
+        .await
+        .expect("a user registers");
+    assert!(!newcomer.is_admin, "the instance had its first user");
+    let listed = unset
+        .workspaces_of_user(&newcomer.id)
+        .await
+        .expect("the workspaces are listed");
+    let ids: Vec<&str> = listed
+        .iter()
+        .map(|workspace| workspace.id.as_str())
+        .collect();
+    assert_eq!(ids, [before.id("older_team")], "the default workspace");
+}
+
+/// The built-in template is the system organization's and is still read by ours; the
+/// boards of the teams are where they were.
+async fn assert_the_template_is_the_systems(
+    unset: &Store,
+    ours: &Store,
+    before: &Before,
+    org_id: &str,
+) {
+    // The built-in template is the system organization's, in its workspace, and is
+    // still read by ours; the boards of the teams are where they were.
+    let system_org = unset.for_org(SYSTEM_ORG_ID).expect("an identifier");
+    let templates = system_org
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates");
+    let found: Vec<(&str, &str)> = templates
+        .iter()
+        .map(|board| (board.id.as_str(), board.team_id.as_str()))
+        .collect();
+    assert_eq!(
+        found,
+        [(before.id("template"), SYSTEM_WORKSPACE_ID)],
+        "in the system's workspace"
+    );
+    let read = ours
+        .get_board(before.id("template"))
+        .await
+        .expect("ours reads the template");
+    assert!(read.is_builtin, "{read:?}");
+    ours.get_block(before.id("template_card"))
+        .await
+        .expect("and its card");
+    assert_eq!(
+        ours.get_board(before.id("board"))
+            .await
+            .expect("a board")
+            .team_id,
+        before.id("older_team"),
+        "a board stays in its team"
+    );
+    assert_eq!(
+        unset
+            .org_of_shared_board(before.id("board"), "the-read-token")
+            .await
+            .expect("the shared board is looked up"),
+        Some(org_id.to_owned()),
+        "whose a shared board is"
+    );
+}
+
+/// On PostgreSQL every row that was stored is some organization's and behind the wall.
+async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
+    let system_org = unset.for_org(SYSTEM_ORG_ID).expect("an identifier");
+    // Every row is the organization's, but what hangs on the template, which
+    // is the system's; ours reads the template's board and card besides.
+    let expected = [
+        ("teams", 2, 1),
+        ("organization_members", 4, 0),
+        ("workspace_members", 7, 0),
+        ("boards", 2, 1),
+        ("board_members", 2, 0),
+        ("blocks", 2, 1),
+        ("deleted_boards", 1, 0),
+        ("deleted_blocks", 2, 0),
+        ("categories", 2, 0),
+        ("category_boards", 2, 0),
+        ("file_info", 1, 0),
+        ("file_refs", 2, 0),
+        ("sharing", 1, 0),
+        ("subscriptions", 1, 1),
+        ("uploads", 1, 0),
+        ("upload_parts", 1, 0),
+        ("comment_versions", 2, 0),
+    ];
+    for (table, of_ours, of_the_system) in expected {
+        let count = async |store: &Store| store.count_rows(table).await.expect("counted");
+        let read_besides = if ["boards", "blocks"].contains(&table) {
+            of_the_system
+        } else {
+            0
+        };
+        assert_eq!(count(ours).await, of_ours + read_besides, "{table}: ours");
+        assert_eq!(
+            count(&system_org).await,
+            of_the_system,
+            "{table}: the system's"
+        );
+        assert_eq!(
+            count(&unset.system()).await,
+            of_ours + of_the_system,
+            "{table}: all"
+        );
+        assert_eq!(count(unset).await, 0, "{table}: no organization named");
+    }
+}
+
+/// A database that a server left which knew nothing of organizations becomes one
+/// organization, whose default workspace is the oldest team; every user is a member of
+/// it and of each of its workspaces, an administrator of the instance of both as an
+/// administrator; and the built-in template is the system organization's. On
+/// PostgreSQL every row that was stored is some organization's and behind the wall.
+#[tokio::test]
+async fn a_database_from_before_organizations_becomes_one_organization() {
+    let database = common::empty_database().await;
+    fvoci_store::testing::migrate_to_before_organizations(&database).await;
+    let before = Before::new();
+    common::execute_raw(&common::raw_dbconfig(&database), &before.statements()).await;
+
+    let unset = Store::connect(database.db_type(), database.dbconfig())
+        .await
+        .expect("the store migrates the database");
+    // The one organization: found, not made.
+    let org_id = unset
+        .only_organization(&Team::default())
+        .await
+        .expect("the organization");
+    assert!(is_id(&org_id), "{org_id}");
+    assert_eq!(org_id.as_bytes()[14], b'7', "a version 7 UUID: {org_id}");
+    assert!(
+        b"89ab".contains(&org_id.as_bytes()[19]),
+        "of the usual variant: {org_id}"
+    );
+    let ours = unset.for_org(&org_id).expect("an identifier");
+
+    assert_the_teams_are_its_workspaces(&unset, &ours, &before, &org_id).await;
+    assert_the_template_is_the_systems(&unset, &ours, &before, &org_id).await;
+    match database.db_type() {
+        DbType::Postgres => assert_every_row_is_behind_the_wall(&unset, &ours).await,
+        DbType::Sqlite => {
+            // The table of the teams was made again: every row that refers to a team
+            // still finds it.
+            unset.close().await;
+            let path = database.sqlite_path().expect("an SQLite file");
+            let mut conn = sqlx::sqlite::SqliteConnection::connect(&path.display().to_string())
+                .await
+                .expect("the database file opens");
+            let broken = sqlx::query("PRAGMA foreign_key_check")
+                .fetch_all(&mut conn)
+                .await
+                .expect("the keys are checked");
+            conn.close().await.expect("the connection closes");
+            assert!(broken.is_empty(), "{} rows refer to nothing", broken.len());
+        }
+    }
+
+    unset.close().await;
+    database.remove().await;
 }

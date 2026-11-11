@@ -371,7 +371,13 @@ async fn handle_duplicate_board(
             .await?;
     }
     if to_team.is_empty() {
-        to_team.clone_from(&board.team_id);
+        // A copy stays in the board's team. A built-in template is in no team of the
+        // user's organization: its copy goes to the root team.
+        to_team = if board.is_builtin {
+            app.root_team().await?.id
+        } else {
+            board.team_id.clone()
+        };
     }
     // A board without a team, copied to no team, fails here too.
     require_team_access(&app, user_id, &to_team, "access denied to team").await?;

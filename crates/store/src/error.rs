@@ -100,6 +100,12 @@ pub enum StoreError {
         update_at: i64,
     },
 
+    /// The operation is about one organization and the store's handle names none
+    /// ([`Tenant`](crate::Tenant)). A mistake of the caller: the HTTP layer answers it
+    /// as a server error.
+    #[error("the operation needs an organization, and the store was given none")]
+    NoOrganization,
+
     /// The database configuration cannot be used.
     #[error("invalid database configuration: {0}")]
     Config(String),

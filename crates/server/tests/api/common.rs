@@ -212,7 +212,7 @@ impl Setup {
     }
 }
 
-/// Stores the two teams of a test server, the root team first.
+/// Stores the organization of a test server and its two teams, the root team first.
 async fn seed_teams(config: &Configuration) {
     let db_type = config
         .db_type
@@ -221,17 +221,21 @@ async fn seed_teams(config: &Configuration) {
     let store = Store::connect(db_type, &config.db_config)
         .await
         .expect("the test database takes the schema");
-    for team_id in [ROOT_TEAM_ID, TEST_TEAM_ID] {
-        let team = Team {
-            id: team_id.to_owned(),
-            signup_token: new_secret(),
-            ..Team::default()
-        };
-        store
-            .create_team(&team)
-            .await
-            .expect("a team of the test server is stored");
-    }
+    let team = |team_id: &str| Team {
+        id: team_id.to_owned(),
+        signup_token: new_secret(),
+        ..Team::default()
+    };
+    let org_id = store
+        .create_organization("", &team(ROOT_TEAM_ID))
+        .await
+        .expect("the organization of the test server is stored");
+    store
+        .for_org(&org_id)
+        .expect("an identifier")
+        .create_team(&team(TEST_TEAM_ID))
+        .await
+        .expect("the second team of the test server is stored");
     store.close().await;
 }
 
@@ -280,6 +284,15 @@ impl TestServer {
             })
             .await
             .clone()
+    }
+
+    /// The store as the system organization reaches it: where the built-in templates
+    /// are, which no other organization changes.
+    pub(crate) fn system_store(&self) -> Store {
+        self.app
+            .store()
+            .for_org(fvoci_store::SYSTEM_ORG_ID)
+            .expect("the system organization's identifier")
     }
 
     /// A client without a session.

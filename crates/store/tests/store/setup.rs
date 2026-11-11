@@ -145,6 +145,8 @@ async fn in_memory_sqlite_databases_are_private_to_their_store() {
         .expect("another in-memory database");
 
     // A block of a board of a team, by a user, all in the first store only.
+    let (org_id, _) = common::organization(&first, "").await;
+    let first = first.for_org(&org_id).expect("an identifier");
     let user_id = common::user(&first, "only-in-first").await;
     let team_id = common::team(&first).await;
     let boards = common::create_test_boards(&first, &team_id, &user_id, 1).await;
@@ -826,6 +828,18 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
         "DELETE FROM _sqlx_migrations WHERE version = 3",
     ] {
         common::execute_raw(&test.dbconfig(), statement).await;
+    }
+    // The migration ran before there was a wall between organizations, and reads rows
+    // as their owner did then: the policies of the tables it reads are not forced on
+    // the owner for this run.
+    if common::db_type() == DbType::Postgres {
+        for table in ["blocks", "deleted_blocks", "file_info"] {
+            common::execute_raw(
+                &test.dbconfig(),
+                &format!("ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY"),
+            )
+            .await;
+        }
     }
     let migrated_at = crate::blocks::now_millis();
 

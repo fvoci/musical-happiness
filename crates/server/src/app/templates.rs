@@ -8,6 +8,7 @@
 use fvoci_model::{
     Block, BlockType, Board, BoardType, BoardsAndBlocks, renew_boards_and_blocks_ids,
 };
+use fvoci_store::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Tenant};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -197,18 +198,19 @@ impl App {
     ///
     /// Returns the store's error if the templates cannot be read, removed or stored.
     pub async fn init_templates(&self) -> Result<bool, AppError> {
-        if initialization_reason(&self.store().get_builtin_templates().await?).is_none() {
+        // The built-in templates are the system organization's, in its workspace:
+        // offered to every organization, and nobody's to change.
+        let system = self.scoped(Tenant::org(SYSTEM_ORG_ID)?);
+        if initialization_reason(&system.store().get_builtin_templates().await?).is_none() {
             tracing::debug!("Template import not needed, skipping");
             return Ok(false);
         }
 
-        // A built-in template is offered to every team; it is filed under the root
-        // team because a board has to be some team's.
-        let mut templates = builtin_templates(&self.root_team().await?.id)?;
+        let mut templates = builtin_templates(SYSTEM_WORKSPACE_ID)?;
         // One transaction that decides again: of two servers, or onboarding requests,
         // that found the templates missing, one stores them. What is stored on behalf of
         // nobody is the system's own.
-        let replaced = self
+        let replaced = system
             .store()
             .replace_builtin_templates(&mut templates, |stored| {
                 initialization_reason(stored)
@@ -228,7 +230,7 @@ impl App {
                 tracing::warn!(%error, path = file.path, "a file of a removed built-in template could not be removed");
             }
         }
-        self.announce_created(&templates, &[]).await;
+        system.announce_created(&templates, &[]).await;
         Ok(true)
     }
 

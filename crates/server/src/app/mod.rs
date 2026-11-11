@@ -43,7 +43,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 
 use fvoci_model::{BoardMember, ClientConfig};
-use fvoci_store::Store;
+use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
 
@@ -64,19 +64,24 @@ use crate::ws::Hub;
 pub const SERVER_VERSION: &str = "8.0.0";
 
 /// The shared state of the server. Cloning is cheap; every clone is the same server.
+///
+/// A handle reaches the rows of one organization, the one its store names
+/// ([`Tenant`]). [`App::scoped`] gives a handle to the same server that reaches other
+/// rows; work that goes on after a request takes its handle along, and with it the
+/// organization.
 #[derive(Debug, Clone)]
 pub struct App {
     inner: Arc<Inner>,
+    store: Store,
+    ws: Hub,
 }
 
 #[derive(Debug)]
 struct Inner {
     config: Configuration,
-    store: Store,
     auth: Authenticator,
     login_limiter: LoginLimiter,
     password_work: HashQueue,
-    ws: Hub,
     files: FileBackend,
     web: WebRoot,
     webhook: Webhook,
@@ -152,13 +157,13 @@ impl App {
         let exports = slots(config.max_concurrent_exports);
         let imports = slots(config.max_concurrent_imports);
         Ok(Self {
+            store,
+            ws,
             inner: Arc::new(Inner {
                 config,
-                store,
                 auth,
                 login_limiter,
                 password_work,
-                ws,
                 files,
                 web,
                 webhook,
@@ -178,9 +183,22 @@ impl App {
         &self.inner.config
     }
 
-    /// The database.
+    /// The same server, reaching the rows of `tenant`: of the organization a request
+    /// names, of the system organization that holds the built-in templates, or of all
+    /// ([`Tenant::System`], for the work the server does on nobody's behalf).
+    #[must_use]
+    pub fn scoped(&self, tenant: Tenant) -> Self {
+        let store = self.store.scoped(tenant);
+        Self {
+            inner: Arc::clone(&self.inner),
+            ws: self.ws.scoped(store.clone()),
+            store,
+        }
+    }
+
+    /// The database, as this handle reaches it.
     pub fn store(&self) -> &Store {
-        &self.inner.store
+        &self.store
     }
 
     /// The session and read-token checks.
@@ -200,7 +218,7 @@ impl App {
 
     /// The websocket hub.
     pub fn ws(&self) -> &Hub {
-        &self.inner.ws
+        &self.ws
     }
 
     /// The file storage.

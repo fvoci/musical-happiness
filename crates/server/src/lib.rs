@@ -30,7 +30,7 @@ use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Ve
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use fvoci_store::{DbType, Store};
+use fvoci_store::{DbType, Store, Tenant};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 use tower_http::compression::predicate::{DefaultPredicate, Predicate};
@@ -111,8 +111,9 @@ impl Server {
         let app = App::new(config, store, files)?;
         app.root_team().await.context("unable to get root team")?;
         // Before any request: what is left over from a run that stopped is nobody's.
-        clean_up_uploads(&app).await;
-        match app.sweep_temporary_files().await {
+        let housekeeping = housekeeping(&app);
+        clean_up_uploads(&housekeeping).await;
+        match housekeeping.sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
             Err(error) => tracing::error!(%error, "unable to sweep the temporary files"),
@@ -239,9 +240,10 @@ impl Server {
             .local_addr()
             .context("reading the listener's address")?;
         let admin_socket = self.start_admin_socket()?;
-        let clean_up = start_session_clean_up(&self.app);
-        let purge = start_trash_purge(&self.app);
-        let uploads = start_upload_clean_up(&self.app);
+        let housekeeping = housekeeping(&self.app);
+        let clean_up = start_session_clean_up(&housekeeping);
+        let purge = start_trash_purge(&housekeeping);
+        let uploads = start_upload_clean_up(&housekeeping);
 
         let service = self.router().into_make_service_with_connect_info::<Peer>();
         let stop = CancellationToken::new();
@@ -368,20 +370,35 @@ async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
 }
 
 /// A handle to the store that reaches the rows of the one organization the server
-/// works in: the oldest, made now if the database has none.
+/// works in: the oldest, made now, with its first workspace, if the database has none.
 ///
 /// TEMPORARY. Every route that names no workspace works in this organization, as do
 /// the websocket connections. A route that names its workspace gets its organization
 /// from there; when all do, this function and its one call go, and what is left
 /// without an organization shows by reaching nothing.
 async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
+    // The first workspace of an organization that is made now: the root team, with a
+    // fresh signup token.
+    let workspace = fvoci_model::Team {
+        id: fvoci_model::new_id(),
+        signup_token: auth::secret::new_secret(),
+        ..fvoci_model::Team::default()
+    };
     let org_id = store
-        .only_organization()
+        .only_organization(&workspace)
         .await
         .context("unable to get the organization")?;
     store
         .for_org(&org_id)
         .context("the organization's identifier")
+}
+
+/// The server as its housekeeping uses it: reaching the rows of every organization.
+/// What the server throws away on nobody's behalf (sessions, uploads and temporary
+/// files that ended, what was in the trash too long) is looked for in all of them; as
+/// one organization, a clean-up would take what it does not see of the others for gone.
+fn housekeeping(app: &App) -> App {
+    app.scoped(Tenant::System)
 }
 
 /// Tells browsers not to say where a request comes from when a page of this server

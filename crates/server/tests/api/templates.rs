@@ -226,8 +226,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
         deleted_properties: vec!["onboarding".to_owned()],
         ..fvoci_model::BoardPatch::default()
     };
-    ts.app
-        .store()
+    ts.system_store()
         .patch_board(&marked_before[0], &unmark, "")
         .await
         .expect("the mark is removed");
@@ -503,8 +502,7 @@ async fn templates_stored_again_remove_the_old_files() {
         .write(&file.path, &mut &b"png"[..])
         .await
         .expect("the file is stored");
-    ts.app
-        .store()
+    ts.system_store()
         .save_file_info(&file)
         .await
         .expect("the file is recorded");
@@ -513,8 +511,7 @@ async fn templates_stored_again_remove_the_old_files() {
         deleted_properties: vec!["onboarding".to_owned()],
         ..fvoci_model::BoardPatch::default()
     };
-    ts.app
-        .store()
+    ts.system_store()
         .patch_board(&old.id, &unmark, "")
         .await
         .expect("the mark is removed");

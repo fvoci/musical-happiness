@@ -154,7 +154,62 @@ async fn refuse_a_role_the_policies_pass(connection: &mut PgConnection) {
     );
 }
 
+/// The tables that are no organization's; every other table of the schema is behind
+/// the wall between organizations.
+pub const GLOBAL_TABLES: [&str; 7] = crate::schema::GLOBAL_TABLES;
+
+/// Brings a test database to the schema as a server left it that knew nothing of
+/// organizations: every migration before theirs, and none of the changes of the data
+/// that follow the migrations.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_organizations(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION - 1))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 impl Store {
+    /// What the idle connections of a PostgreSQL store carry of an organization, read
+    /// past the store's own transactions: for each connection the settings `fvoci.org`
+    /// and `fvoci.system` as it has them, empty for none. Empty on SQLite.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a connection cannot be taken or read.
+    pub async fn settings_left_on_the_connections(&self) -> Vec<(String, String)> {
+        let crate::Pool::Postgres(pool) = &self.inner.pool else {
+            return Vec::new();
+        };
+        // All of them at once, so that each is looked at.
+        let mut connections = Vec::new();
+        for _ in 0..pool.size() {
+            let connection = pool
+                .acquire()
+                .await
+                .unwrap_or_else(|error| panic!("taking a connection: {error}"));
+            connections.push(connection);
+        }
+        let mut settings = Vec::new();
+        for connection in &mut connections {
+            let left: (String, String) = sqlx::query_as(
+                "SELECT COALESCE(current_setting('fvoci.org', true), ''), \
+                 COALESCE(current_setting('fvoci.system', true), '')",
+            )
+            .fetch_one(&mut **connection)
+            .await
+            .unwrap_or_else(|error| panic!("reading the settings of a connection: {error}"));
+            settings.push(left);
+        }
+        settings
+    }
+
     /// How many rows of a table this handle reaches, with no condition: for the tests
     /// of the wall between organizations.
     ///

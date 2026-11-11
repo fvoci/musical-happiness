@@ -15,6 +15,8 @@ pub(crate) struct TestStore {
     pub(crate) store: Store,
     /// The organization of the test.
     pub(crate) org_id: String,
+    /// The first workspace of that organization, its default one.
+    pub(crate) workspace_id: String,
     database: TestDatabase,
 }
 
@@ -44,16 +46,28 @@ pub(crate) async fn setup() -> TestStore {
     let store = Store::connect(database.db_type(), database.dbconfig())
         .await
         .expect("a store connects to a fresh database");
-    let org_id = store
-        .create_organization("")
-        .await
-        .expect("the organization of the test is made");
+    let (org_id, workspace_id) = organization(&store, "").await;
     let store = store.for_org(&org_id).expect("an identifier");
     TestStore {
         store,
         org_id,
+        workspace_id,
         database,
     }
+}
+
+/// Makes an organization with its first workspace and returns the identifiers of both.
+pub(crate) async fn organization(store: &Store, name: &str) -> (String, String) {
+    let workspace = Team {
+        id: new_id(),
+        signup_token: "signup-token".to_owned(),
+        ..Team::default()
+    };
+    let org_id = store
+        .create_organization(name, &workspace)
+        .await
+        .expect("the organization is made");
+    (org_id, workspace.id)
 }
 
 /// Creates a fresh database without connecting a store to it, for tests of what

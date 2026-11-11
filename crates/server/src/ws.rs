@@ -203,15 +203,19 @@ fn remove_from(index: &mut HashMap<String, Vec<ListenerId>>, key: &str, id: List
 }
 
 /// The set of open websocket connections and what each is subscribed to.
+///
+/// A handle reads the store as it was given it: the connections are the same for every
+/// handle, and whose rows a handle reaches when it looks up who is to be told is the
+/// organization of the [`App`](crate::app::App) it belongs to.
 #[derive(Debug, Clone)]
 pub struct Hub {
     inner: Arc<HubInner>,
+    store: Store,
 }
 
 #[derive(Debug)]
 struct HubInner {
     listeners: Mutex<Listeners>,
-    store: Store,
     auth: Authenticator,
     ping_interval: Option<Duration>,
 }
@@ -222,10 +226,19 @@ impl Hub {
         Self {
             inner: Arc::new(HubInner {
                 listeners: Mutex::new(Listeners::default()),
-                store,
                 auth,
                 ping_interval,
             }),
+            store,
+        }
+    }
+
+    /// The same hub, reading `store`.
+    #[must_use]
+    pub fn scoped(&self, store: Store) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            store,
         }
     }
 
@@ -483,7 +496,7 @@ impl Hub {
         }
         let mut board_id = String::new();
         for block_id in &command.block_ids {
-            let block = self.inner.store.get_block(block_id).await.ok()?;
+            let block = self.store.get_block(block_id).await.ok()?;
             if board_id.is_empty() {
                 board_id = block.board_id;
             } else if board_id != block.board_id {
@@ -519,12 +532,7 @@ impl Hub {
         if followers.is_empty() && !self.listeners().by_team.contains_key(team_id) {
             return;
         }
-        let members = match self
-            .inner
-            .store
-            .get_members_for_board(&block.board_id)
-            .await
-        {
+        let members = match self.store.get_members_for_board(&block.board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board's members failed");
@@ -560,8 +568,7 @@ impl Hub {
         let people = if block.fields.is_empty() {
             Ok(PersonProperties::default())
         } else {
-            self.inner
-                .store
+            self.store
                 .get_board(&block.board_id)
                 .await
                 .map(|board| board.person_properties())
@@ -800,7 +807,7 @@ impl Hub {
         if !self.listeners().by_team.contains_key(team_id) {
             return Vec::new();
         }
-        let members = match self.inner.store.get_members_for_board(board_id).await {
+        let members = match self.store.get_members_for_board(board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id, "websocket: reading the board's members failed");

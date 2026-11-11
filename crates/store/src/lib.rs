@@ -20,6 +20,7 @@ mod directory;
 mod error;
 mod file_info;
 mod file_refs;
+mod members;
 mod schema;
 mod sessions;
 mod sharing;
@@ -43,6 +44,7 @@ pub use category_boards::BoardVisibility;
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use db::Dialect;
+pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
 pub use error::{StoreError, Taken};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
@@ -139,6 +141,11 @@ struct Inner {
     comment_versions_kept: std::sync::atomic::AtomicUsize,
 }
 
+/// The connections. Nothing takes one but [`Store::with_conn`] and
+/// [`Store::transaction`], which begin by telling PostgreSQL whose rows the transaction
+/// reaches, and the migrator at the start. A transaction that was left open on a
+/// connection (a request that went away while its `BEGIN` was under way) is therefore
+/// harmless: the next operation on it sets both settings anew before anything else.
 #[derive(Debug)]
 enum Pool {
     Sqlite(SqlitePool),
@@ -161,6 +168,14 @@ impl Store {
     /// migrated by a newer server), and [`StoreError::Database`] if the database cannot
     /// be reached.
     pub async fn connect(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
+        let store = Self::open(db_type, dbconfig).await?;
+        schema::migrate(&store, None).await?;
+        data_steps::run(&store).await?;
+        Ok(store)
+    }
+
+    /// Connects to the database and leaves its schema as it is.
+    async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
@@ -187,7 +202,7 @@ impl Store {
             }
         };
 
-        let store = Self {
+        Ok(Self {
             tenant: Tenant::Unset,
             inner: Arc::new(Inner {
                 pool,
@@ -197,10 +212,7 @@ impl Store {
                         .unwrap_or(usize::MAX),
                 ),
             }),
-        };
-        schema::migrate(&store).await?;
-        data_steps::run(&store).await?;
-        Ok(store)
+        })
     }
 
     /// A handle to the same database that reaches the rows of `tenant`.
@@ -292,11 +304,16 @@ impl Store {
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(ConnRef::Sqlite(&mut conn), kept)).await
+                operation(&mut Scope::new(
+                    ConnRef::Sqlite(&mut conn),
+                    self.tenant,
+                    kept,
+                ))
+                .await
             }
             Pool::Postgres(pool) => {
                 let mut tx = pool.begin_with(self.tenant.begin_on_postgres()).await?;
-                let mut scope = Scope::new(ConnRef::Postgres(&mut tx), kept);
+                let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept);
                 let result = operation(&mut scope).await;
                 if scope.wrote() {
                     finish(result, tx).await
@@ -333,12 +350,18 @@ impl Store {
                 // then tries to write fails with SQLITE_BUSY as soon as another one does
                 // the same, and no busy timeout can resolve that.
                 let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-                let result = operation(&mut Scope::new(ConnRef::Sqlite(&mut tx), kept)).await;
+                let result =
+                    operation(&mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)).await;
                 finish(result, tx).await
             }
             Pool::Postgres(pool) => {
                 let mut tx = pool.begin_with(self.tenant.begin_on_postgres()).await?;
-                let result = operation(&mut Scope::new(ConnRef::Postgres(&mut tx), kept)).await;
+                let result = operation(&mut Scope::new(
+                    ConnRef::Postgres(&mut tx),
+                    self.tenant,
+                    kept,
+                ))
+                .await;
                 finish(result, tx).await
             }
         }
@@ -360,6 +383,48 @@ async fn finish<T, DB: sqlx::Database>(
                 tracing::error!(error = %rollback_error, "transaction rollback failed");
             }
             Err(error)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What PostgreSQL is told at the start of a transaction, for each kind of handle:
+    /// both settings every time, for the transaction only.
+    #[test]
+    fn a_transaction_begins_by_saying_whose_rows_it_reaches() {
+        let begin = |tenant: Tenant| tenant.begin_on_postgres().0;
+        assert_eq!(
+            begin(Tenant::Unset),
+            "BEGIN; SELECT set_config('fvoci.org', '', true), \
+             set_config('fvoci.system', 'off', true)"
+        );
+        assert_eq!(
+            begin(Tenant::org("01890000-0000-7000-8000-000000000001").expect("an identifier")),
+            "BEGIN; SELECT set_config('fvoci.org', '01890000-0000-7000-8000-000000000001', true), \
+             set_config('fvoci.system', 'off', true)"
+        );
+        assert_eq!(
+            begin(Tenant::System),
+            "BEGIN; SELECT set_config('fvoci.org', '', true), \
+             set_config('fvoci.system', 'on', true)"
+        );
+    }
+
+    #[test]
+    fn only_an_identifier_names_an_organization() {
+        for text in [
+            "",
+            "o1",
+            "00000000-0000-0000-0000-000000000000",
+            "'; DROP TABLE boards; --",
+        ] {
+            assert!(
+                matches!(Tenant::org(text), Err(StoreError::InvalidId(_))),
+                "{text:?}"
+            );
         }
     }
 }

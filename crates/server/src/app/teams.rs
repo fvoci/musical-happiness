@@ -1,39 +1,26 @@
-//! Teams. A server has one for now, the root team, which is made at the first start.
+//! Teams: the workspaces of the organization. The first, the root team, is made with it.
 
-use fvoci_model::{Team, new_id};
+use fvoci_model::Team;
 
 use super::App;
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
 impl App {
-    /// Returns the root team: the oldest team, created with a fresh signup token when
-    /// there is none yet.
+    /// Returns the root team: the oldest team of the organization, its first workspace,
+    /// which is made with the organization.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the team can be neither read nor created.
+    /// Returns the store's error if the teams cannot be read, and a server error if the
+    /// organization has none.
     pub async fn root_team(&self) -> Result<Team, AppError> {
-        // Only a team that is not there is created. A read that fails is an error, not
-        // "no team yet": taken for that, it would end in a second team.
-        if let Some(team) = self.store().get_teams().await?.into_iter().next() {
-            return Ok(team);
-        }
-        let team = Team {
-            id: new_id(),
-            signup_token: new_secret(),
-            ..Team::default()
-        };
-        self.store().create_team(&team).await?;
-        tracing::info!(team_id = %team.id, "created the root team");
-        // Read back: two servers that start on one empty database each create a team,
-        // and both must agree on which one is the root.
         self.store()
             .get_teams()
             .await?
             .into_iter()
             .next()
-            .ok_or_else(|| AppError::internal("the root team is not there after its creation"))
+            .ok_or_else(|| AppError::internal("the organization has no team"))
     }
 
     /// Returns the team with the given identifier.

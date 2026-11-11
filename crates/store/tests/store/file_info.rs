@@ -611,7 +611,7 @@ async fn version_texts(store: &fvoci_store::Store, comment_id: &str) -> Vec<(i64
 }
 
 /// A patch of a comment's title that sets its body to the text, or keeps the body.
-fn title_and_body(body: Option<&str>) -> fvoci_model::BlockPatch {
+pub(crate) fn title_and_body(body: Option<&str>) -> fvoci_model::BlockPatch {
     fvoci_model::BlockPatch {
         title: Some("title".to_owned()),
         body: body.map_or(fvoci_model::BodyChange::Keep, |words| {
@@ -623,7 +623,7 @@ fn title_and_body(body: Option<&str>) -> fvoci_model::BlockPatch {
 
 /// A board with the files `7first.png` and `7second.png`, and a comment on a card of it,
 /// posted by `author`, whose body says `v1` and shows the first file.
-async fn posted_comment(store: &fvoci_store::Store, author: &str) -> Block {
+pub(crate) async fn posted_comment(store: &fvoci_store::Store, author: &str) -> Block {
     let team_id = common::team(store).await;
     let boards = common::create_test_boards(store, &team_id, author, 1).await;
     let board_id = &boards[0].id;
