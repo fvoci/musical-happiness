@@ -36,19 +36,26 @@ impl Store {
         before: i64,
     ) -> Result<Vec<FileInfo>, StoreError> {
         self.transaction(async |scope| {
-            // One statement decides and deletes: a file that a block shows again by the
-            // time its row is deleted keeps its row (PostgreSQL checks the condition
-            // again against the row as committed).
-            // A record that a block shows is not taken, whatever its mark says: a write
-            // that showed it while another took the mark away may have left one behind.
+            // One statement decides and deletes. A record that a block shows is not
+            // taken, whatever its mark says (a write that showed it while another took
+            // the mark away may have left one behind): any reference of the board keeps
+            // it, of whichever organization the row says it is. On PostgreSQL a record
+            // that a write holds (`hold_new_images`) or changes is skipped, not waited
+            // for: left to the next run when unsure, and no two transactions wait for
+            // each other's records. A record whose mark a write took away since the
+            // statement began is looked at again as committed, and kept.
             let org = loose_objects::org_column(scope);
+            let skip_held = match scope.dialect() {
+                Dialect::Postgres => " FOR UPDATE SKIP LOCKED",
+                Dialect::Sqlite => "",
+            };
             let mut sql = scope.sql(
-                "DELETE FROM file_info WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
+                "DELETE FROM file_info WHERE id IN (SELECT id FROM file_info \
+                 WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
             );
             sql.bind(before).push(&format!(
                 " AND NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
-                 AND r.name = file_info.name{}) RETURNING {FILE_INFO_COLUMNS}{}",
-                scope.same_organization(&[("r", "file_info")]),
+                 AND r.name = file_info.name){skip_held}) RETURNING {FILE_INFO_COLUMNS}{}",
                 org.map_or(String::new(), |column| format!(", {column}"))
             ));
             let rows = scope.fetch_all(sql).await?;
@@ -125,9 +132,10 @@ pub(crate) async fn refresh(
 
 /// Holds the records of the files that the images of a block's body show and that it
 /// did not show before (`before`), until the transaction ends; refuses the block if
-/// its board has no record of one. On PostgreSQL the lock keeps the collector from
-/// deleting a record while the write goes on, and a record it deleted is not found;
-/// on SQLite the transaction is the only writer.
+/// its board has no record of one. On PostgreSQL the collector skips a record this
+/// lock holds ([`Store::collect_unreferenced_files`]), and a record it deleted first is
+/// not found here once its transaction ended; on SQLite the transaction is the only
+/// writer.
 async fn hold_new_images(
     scope: &mut Scope<'_>,
     block: &Block,

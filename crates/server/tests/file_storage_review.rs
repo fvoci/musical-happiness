@@ -68,7 +68,7 @@ async fn a_body_checked_before_collection_cannot_commit_a_missing_image() {
         .app
         .create_card(
             Card {
-                body: Some(body),
+                body: Some(body.clone()),
                 ..Card::default()
             },
             &file.board_id,
@@ -77,9 +77,18 @@ async fn a_body_checked_before_collection_cannot_commit_a_missing_image() {
         )
         .await;
     let still_present = ts.app.files().exists(&file.path).await.expect("read");
+    // The refusal is the one the handlers' check gives once the file is gone.
+    let checked_now = ts
+        .app
+        .check_body_files(&file.board_id, Some(&body))
+        .await
+        .expect_err("the image's file is gone");
     ts.teardown().await;
     assert!(
         created.is_err() || still_present,
         "a successful card creation must retain the validated image: {created:?}"
     );
+    if let Err(refused) = created {
+        assert_eq!(refused.body(), checked_now.body(), "{refused:?}");
+    }
 }

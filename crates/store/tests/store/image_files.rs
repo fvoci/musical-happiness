@@ -186,10 +186,11 @@ async fn the_collector_takes_no_record_that_a_block_shows() {
     test.teardown().await;
 }
 
-/// PostgreSQL: the lock a write takes on the record of an image it shows newly keeps
-/// the collector from deleting the record until the write ends.
+/// PostgreSQL: the collector skips the record of an image that a write holds, without
+/// waiting for the write, and takes it in a later run once no write holds it and no
+/// block shows it.
 #[tokio::test]
-async fn the_collector_waits_for_a_write_that_holds_an_images_record() {
+async fn the_collector_skips_a_record_that_a_write_holds() {
     if common::db_type() != DbType::Postgres {
         return;
     }
@@ -198,9 +199,11 @@ async fn the_collector_waits_for_a_write_that_holds_an_images_record() {
     let workspace_id = common::workspace(&test).await;
     let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = boards[0].id.clone();
-    test.save_file_info(&record_of(&board_id, "7held.png"))
-        .await
-        .expect("a file of the board");
+    for name in ["7held.png", "7free.png"] {
+        test.save_file_info(&record_of(&board_id, name))
+            .await
+            .expect("a file of the board");
+    }
 
     // The statement of the write, on a connection of the test's own.
     let mut writer = common::connect_past_the_store(&test.dbconfig()).await;
@@ -212,22 +215,30 @@ async fn the_collector_waits_for_a_write_that_holds_an_images_record() {
     .await
     .expect("the record is held");
     let system = test.system();
-    let collector = tokio::spawn(async move { system.collect_unreferenced_files(i64::MAX).await });
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(
-        !collector.is_finished(),
-        "the collector waits for the write"
+    let names = |files: Vec<FileInfo>| -> Vec<String> {
+        files.into_iter().map(|file| file.stored_name).collect()
+    };
+    let collected = tokio::time::timeout(
+        Duration::from_secs(10),
+        system.collect_unreferenced_files(i64::MAX),
+    )
+    .await
+    .expect("the collector does not wait for the write")
+    .expect("collected");
+    assert_eq!(
+        names(collected),
+        ["7free.png"],
+        "the held record is skipped"
     );
     sqlx::raw_sql("COMMIT")
         .execute(&mut writer)
         .await
         .expect("the write ends");
-    let collected = tokio::time::timeout(Duration::from_secs(10), collector)
+    let collected = system
+        .collect_unreferenced_files(i64::MAX)
         .await
-        .expect("the collector goes on once the write ended")
-        .expect("the collector finishes")
         .expect("collected");
-    assert_eq!(collected.len(), 1, "no block shows it: {collected:?}");
+    assert_eq!(names(collected), ["7held.png"], "no block shows it");
 
     test.teardown().await;
 }
