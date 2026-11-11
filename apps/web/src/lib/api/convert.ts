@@ -39,17 +39,14 @@ import type { components } from './contract.ts';
 export type Schemas = components['schemas'];
 
 /**
- * A user. The contract's user has a name to log in with and nothing else:
- * no nickname, first or last name, and no email address (it is never
- * answered). The screens show the name to log in with.
+ * A user: a name to log in with and one to be shown by, and no email
+ * address (it is never answered).
  */
 export function userOf(user: Schemas['User']): User {
   return {
     id: user.id,
     username: user.username,
-    nickname: '',
-    firstname: '',
-    lastname: '',
+    displayName: user.displayName,
     email: '',
     isAdmin: user.isAdmin,
     createAt: user.createAt,

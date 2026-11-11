@@ -316,6 +316,8 @@ export interface Registration {
   username: string;
   email: string;
   password: string;
+  /** The name to be shown by; empty or left out for none. */
+  displayName?: string;
   /** The team's invitation; the first account of a server needs none. */
   token?: string;
 }
@@ -380,6 +382,12 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 export interface Backend {
   // The reader and the people around them.
   me(): Promise<User>;
+  /**
+   * Changes the reader's display name; empty or `null` is none. The name is
+   * kept without the white space around it. One that is too long or holds a
+   * character that shows nothing is refused (400, `errors` at `/displayName`).
+   */
+  patchMe(patch: { displayName: string | null }): Promise<User>;
   teams(): Promise<Team[]>;
   /** The people of a team: who can be mentioned or set as a person. */
   users(teamId: string): Promise<User[]>;

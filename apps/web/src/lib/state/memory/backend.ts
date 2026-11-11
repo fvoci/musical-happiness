@@ -29,6 +29,7 @@ import {
   isTimeZone,
   readRegionalSettings,
 } from '../../logic/regional.ts';
+import { readDisplayName } from '../../logic/users.ts';
 import {
   createBoard,
   createBoardView,
@@ -296,6 +297,19 @@ export class MemoryBackend implements Backend {
   async me(): Promise<User> {
     await this.#enter('me');
     return copy(this.world.users.get(this.userId) ?? fail(401, 'no session'));
+  }
+
+  /** As the server: the name trimmed, refused with the reason the server gives. */
+  async patchMe(patch: { displayName: string | null }): Promise<User> {
+    await this.#enter('patchMe');
+    const user = this.world.users.get(this.userId) ?? fail(401, 'no session');
+    const read = readDisplayName(patch.displayName ?? '');
+    if ('refused' in read) {
+      fail(400, 'the display name is refused', { field: 'displayName', reason: read.refused });
+    }
+    user.displayName = read.name;
+    user.updateAt = this.world.now();
+    return copy(user);
   }
 
   async teams(): Promise<Team[]> {
@@ -780,12 +794,14 @@ export class MemoryBackend implements Backend {
     return copy(sharing);
   }
 
-  /** As the server: whatever the case, the oldest first, ten at most. */
+  /** As the server: in either name, whatever the case, the oldest first, ten at most. */
   async searchUsers(teamId: string, query: string): Promise<User[]> {
     await this.#enter('searchUsers');
     const wanted = query.trim().toLowerCase();
     return (await this.users(teamId))
-      .filter((user) => user.username.toLowerCase().includes(wanted))
+      .filter((user) =>
+        [user.username, user.displayName].some((name) => name.toLowerCase().includes(wanted)),
+      )
       .sort((first, second) => first.createAt - second.createAt)
       .slice(0, 10);
   }

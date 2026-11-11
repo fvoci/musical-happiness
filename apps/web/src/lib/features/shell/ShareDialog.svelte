@@ -25,6 +25,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
+  import { userDisplayName } from '$lib/logic/users.ts';
   import {
     isBackendError,
     type BoardRole,
@@ -292,7 +293,7 @@
         {#if candidates.length > 0}
           <ul class="grid gap-1" data-testid="share-candidates">
             {#each candidates as user (user.id)}
-              {@const name = user.username}
+              {@const name = userDisplayName(user)}
               <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
                 <Avatar {name} colorKey={user.id} locale={workspace.locale} decorative />
                 <span class="min-w-0 flex-1 truncate">{name}</span>

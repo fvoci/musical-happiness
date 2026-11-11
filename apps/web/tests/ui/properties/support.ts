@@ -42,9 +42,9 @@ export const BERLIN: Regional = { timeZone: 'Europe/Berlin', weekStart: 1, hourC
 export const NOW = at('Asia/Seoul', 2026, 3, 10, 12, 0);
 
 export const USERS: PropertyUser[] = [
-  { id: 'user-1', username: 'jisoo', nickname: '', firstname: '지수', lastname: '김' },
-  { id: 'user-2', username: 'minho', nickname: 'Mino', firstname: 'Minho', lastname: 'Lee' },
-  { id: 'user-3', username: 'ada', nickname: '', firstname: 'Ada', lastname: 'Lovelace' },
+  { id: 'user-1', username: 'jisoo', displayName: '' },
+  { id: 'user-2', username: 'minho', displayName: 'Mino' },
+  { id: 'user-3', username: 'ada', displayName: '' },
 ];
 
 export const OPTIONS: PropertyOption[] = [

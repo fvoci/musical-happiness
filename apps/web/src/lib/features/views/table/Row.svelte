@@ -255,7 +255,6 @@
           startOpen
           locale={reader.locale}
           regional={reader.regional}
-          nameFormat={reader.nameFormat}
           users={reader.people}
           presentation={reader.presentation}
           onChange={(value: StoredValue | undefined) => {
@@ -272,7 +271,6 @@
             mode="display"
             locale={reader.locale}
             regional={reader.regional}
-            nameFormat={reader.nameFormat}
             users={reader.users}
             innerTabindex={-1}
           />

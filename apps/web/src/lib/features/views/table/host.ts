@@ -14,7 +14,6 @@ import type { Card, PropertyTemplate, PropertyType, PropertyValue } from '$lib/l
 export interface TableReader {
   locale: string;
   regional: Regional;
-  nameFormat: string;
   /** Everybody a card may name, to show a name by. */
   users: readonly PropertyUser[];
   /** Who a person property can be set to: the members of the board. */

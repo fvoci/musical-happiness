@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { mount, screen, testCard } from './support.ts';
 
-// The card of the tests was last changed by user-2 (minho, nickname Mino).
+// The card of the tests was last changed by user-2 (minho, shown as Mino).
 
 describe('an updated by property', () => {
   it('shows who last changed the card', () => {
@@ -12,9 +12,9 @@ describe('an updated by property', () => {
     expect(container).not.toHaveTextContent('jisoo');
   });
 
-  it('shows the name the way names are set to be shown', () => {
-    const { container } = mount('updatedBy', undefined, { nameFormat: 'nickname_full_name' });
-    expect(container).toHaveTextContent('Mino');
+  it('shows the display name with the login name', () => {
+    const { container } = mount('updatedBy', undefined);
+    expect(container).toHaveTextContent('Mino (@minho)');
   });
 
   it('follows the card when someone else changes it', async () => {

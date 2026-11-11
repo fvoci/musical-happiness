@@ -35,7 +35,7 @@ import {
   sanitizeFilename,
 } from '$lib/logic/text.ts';
 import { fillPath, normalizeBasePath } from '$lib/logic/urls.ts';
-import { fullName } from '$lib/logic/users.ts';
+import { readDisplayName, userDisplayName } from '$lib/logic/users.ts';
 describe('calendar dates', () => {
   it('are written year-month-day and compare as text', () => {
     expect(calendarDate(2026, 3, 5)).toBe('2026-03-05');
@@ -249,10 +249,24 @@ describe('small helpers', () => {
     ]);
   });
 
-  it('joins the names a user has', () => {
-    const names = { username: 'u', nickname: '' };
-    expect(fullName({ ...names, firstname: 'Ada', lastname: 'Lovelace' })).toBe('Ada Lovelace');
-    expect(fullName({ ...names, firstname: '', lastname: 'Lovelace' })).toBe('Lovelace');
-    expect(fullName({ ...names, firstname: '', lastname: '' })).toBe('');
+  it('shows a user by display name and login name, or the login name alone', () => {
+    expect(userDisplayName({ username: 'ada', displayName: 'Ada Lovelace' })).toBe(
+      'Ada Lovelace (@ada)',
+    );
+    expect(userDisplayName({ username: 'ada', displayName: '' })).toBe('ada');
+  });
+
+  it('reads a display name as the server does', () => {
+    expect(readDisplayName('  Ada \u3000')).toEqual({ name: 'Ada' });
+    expect(readDisplayName(' \n ')).toEqual({ name: '' });
+    expect(readDisplayName('가'.repeat(64))).toEqual({ name: '가'.repeat(64) });
+    // 64 UTF-16 code units: an emoji is two.
+    expect(readDisplayName('😀'.repeat(33))).toEqual({ refused: 'too_long' });
+    for (const refused of ['a\u0000b', 'a\u200bb', 'a\u202eb', 'a\u2028b', '\u00ad', 'a\u0085b']) {
+      expect(readDisplayName(refused)).toEqual({ refused: 'invalid_characters' });
+    }
+    // The server trims White_Space, which has U+0085 and not U+FEFF.
+    expect(readDisplayName('\u0085Ada')).toEqual({ name: 'Ada' });
+    expect(readDisplayName('\ufeffAda')).toEqual({ refused: 'invalid_characters' });
   });
 });

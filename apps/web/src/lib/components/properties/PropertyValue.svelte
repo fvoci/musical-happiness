@@ -31,7 +31,6 @@
     showEmptyPlaceholder = false,
     startOpen = false,
     users = [],
-    nameFormat = '',
     locale,
     regional,
     now,
@@ -133,7 +132,6 @@
     ids={type === 'person' ? one : many}
     multiple={type === 'multiPerson'}
     {users}
-    {nameFormat}
     {editable}
     placeholder={empty(m['ConfirmPerson.empty'])}
     {presentation}
@@ -149,7 +147,6 @@
     ids={person === '' ? [] : [person]}
     multiple={false}
     {users}
-    {nameFormat}
     editable={false}
     placeholder=""
   />

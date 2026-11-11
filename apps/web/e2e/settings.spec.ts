@@ -54,12 +54,12 @@ test('the settings open from the account, fill a compact screen, and close with 
   // The account is named for a screen reader by the reader's name.
   if (stage === 'medium') {
     await expect(strip(page).getByTestId('strip-open-settings')).toHaveAccessibleName(
-      '김하나: account and settings',
+      '김하나 (@hana): account and settings',
     );
   } else {
     await showSidebar(page);
     await expect(sidebar(page).getByTestId('open-settings')).toHaveAccessibleName(
-      '김하나: account and settings',
+      '김하나 (@hana): account and settings',
     );
   }
 

@@ -11,7 +11,7 @@ import { setDisplaySettings } from '../display.svelte.ts';
 import { DEFAULT_DISPLAY_SETTINGS } from '../logic/display.ts';
 import { DEFAULT_REGIONAL_SETTINGS, resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
-import { SHOW_NICKNAME_FULL_NAME, userDisplayName } from '../logic/users.ts';
+import { userDisplayName } from '../logic/users.ts';
 import { createBoard as createEmptyBoard, createBoardView, type Board } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
@@ -131,17 +131,17 @@ export class Workspace {
     return this.#locale();
   }
 
-  /** How names are shown. The server will say; until its contract does, nickname first. */
-  readonly nameFormat = SHOW_NICKNAME_FULL_NAME;
-
   user(userId: string): User | undefined {
     return this.#usersById[userId];
   }
 
-  /** The name to show for a user; undefined for someone the reader cannot see. */
+  /**
+   * The name to show for a user, "Display name (@login)" or the login name
+   * alone; undefined for someone the reader cannot see.
+   */
   userName(userId: string): string | undefined {
     const user = this.#usersById[userId];
-    return user ? userDisplayName(user, this.nameFormat) : undefined;
+    return user ? userDisplayName(user) : undefined;
   }
 
   /** Reads everything the shell needs. Call once; call again to retry after a failure. */
@@ -340,6 +340,19 @@ export class Workspace {
   }
 
   // ----------------------------------------------------------- settings
+
+  /**
+   * Changes the reader's display name; empty is none. A refusal is thrown,
+   * for the field to say what is wrong (`errors` at `/displayName`).
+   */
+  async changeDisplayName(displayName: string): Promise<void> {
+    const changed = await this.backend.patchMe({ displayName });
+    const replace = (users: User[]): User[] =>
+      users.map((user) => (user.id === changed.id ? changed : user));
+    this.me = changed;
+    this.users = this.#usersById[changed.id] ? replace(this.users) : [...this.users, changed];
+    this.teamUsers = replace(this.teamUsers);
+  }
 
   /** Changes settings. They apply at once and go back if the server refuses them. */
   async changeSettings(patch: AccountSettingsPatch): Promise<void> {

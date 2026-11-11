@@ -122,6 +122,7 @@ export class ServerBackend implements Backend, Account {
       username: registration.username,
       email: registration.email,
       password: registration.password,
+      ...(registration.displayName ? { displayName: registration.displayName } : {}),
       ...(registration.token ? { token: registration.token } : {}),
     };
     await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
@@ -141,6 +142,17 @@ export class ServerBackend implements Backend, Account {
 
   async me(): Promise<User> {
     return userOf(await this.#http.request<Schemas['User']>('/api/v1/users/me'));
+  }
+
+  async patchMe(patch: { displayName: string | null }): Promise<User> {
+    const change: Schemas['AccountChange'] = patch;
+    return userOf(
+      await this.#http.request<Schemas['User']>(
+        '/api/v1/users/me',
+        {},
+        { method: 'PATCH', json: change },
+      ),
+    );
   }
 
   async teams(): Promise<Team[]> {

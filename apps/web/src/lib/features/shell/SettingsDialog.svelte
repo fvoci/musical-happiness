@@ -14,6 +14,7 @@
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
   - Archives: every board of the team exported, an archive imported; the
     progress shows at the foot of the page (`Transfers.svelte`).
+  - The display name (`DisplayNameField.svelte`).
   - Who is signed in, signing out and changing the password: only where the
     backend has accounts.
 
@@ -52,6 +53,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import { devReadout } from './dev.svelte.ts';
+  import DisplayNameField from './DisplayNameField.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import SettingChoice from './SettingChoice.svelte';
   import SettingPicker from './SettingPicker.svelte';
@@ -328,6 +330,12 @@
         <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
       </section>
 
+      {#if workspace.me}
+        <div class="border-t pt-4">
+          <DisplayNameField {workspace} />
+        </div>
+      {/if}
+
       {#if onChangePassword}
         <PasswordChange onChange={onChangePassword} />
       {/if}
@@ -335,7 +343,9 @@
       {#if onSignOut}
         <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
           <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="signed-in-as">
-            {m.account_signed_in_as({ name: workspace.me?.username ?? '' })}
+            {m.account_signed_in_as({
+              name: (workspace.me && workspace.userName(workspace.me.id)) ?? '',
+            })}
           </span>
           <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>
             {m.account_sign_out()}
