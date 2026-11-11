@@ -188,7 +188,7 @@ D절과 G절부터는 설계 문서(`docs/s6-design.md`)의 "구현 순서"를 �
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| 오류 본문은 RFC 9457의 `Problem`이다: `type`(`/problems/<이름>`), `title`, `status`, `detail`, `instance`, 그리고 `reason`?, `errors`?, `limit`?, `retry_after`?, `request_id` | 화면이 문구가 아니라 `status`와 `reason`으로 분기하게 하고, 사용자가 본 오류를 로그의 한 줄과 잇는다(설계 1.2). 응답 헤더 `x-request-id`가 같은 값을 싣고 요청 로그에도 남는다 | `fvoci_model::Problem`, `server::error`, `request_log` |
+| 오류 본문은 RFC 9457의 `Problem`이다: `type`(`/problems/<이름>`), `title`, `status`, `detail`, `instance`, 그리고 `reason`?, `errors`?, `limit`?, `retryAfter`?, `requestId` | 화면이 문구가 아니라 `status`와 `reason`으로 분기하게 하고, 사용자가 본 오류를 로그의 한 줄과 잇는다(설계 1.2). 응답 헤더 `x-request-id`가 같은 값을 싣고 요청 로그에도 남는다 | `fvoci_model::Problem`, `server::error`, `request_log` |
 | 상태 코드가 한 표를 따른다: 400·401·403·404·405·409·412·413·416·429·500(412와 416은 `getFile`). 501과 "분류되지 않아 500"은 없다 | 같은 종류의 잘못이 라우트마다 다른 코드를 받고 있었다(설계 1.3). 429는 로그인 제한이 더했다(I절) | `ErrorKind`, 핸들러 전반 |
 | 볼 수 없는 것은 없는 것과 같은 404, 볼 수는 있는데 못 하는 것은 403이다 | 403과 404의 차이로 남의 보드·블록·카테고리·구독·파일의 존재를 알 수 있었다(결정 대기 S6·S9·S11, 설계 1.4의 규칙 B) | `api::access`, `App::user_category`, 테스트 `visibility.rs` |
 | 검사 순서는 세션(401) → 볼 수 있나(404) → 권한(403) → 본문(400) → 충돌(409)이다 | 권한 없는 사용자가 본문을 바꿔 가며 검증 문구를 읽을 수 없게 한다. 예외는 표 아래 (1) | 핸들러 전반 |
@@ -486,7 +486,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | **없는 계정도 같다.** 같은 기록, 같은 응답(401 `invalid_credentials`), 같은 양의 일(아무도 모르는 값의 해시에 대해 한 번 검증)이다. 기록의 키는 계정을 찾기 전에, 요청이 적은 이름(사용자 이름과 이메일 각각)에서 만든다. 그래서 한 계정을 이름으로도 이메일로도 시도하면 실패 한도가 따로 센다 | 설계 5.2의 2번. 응답 시간이 계정의 존재를 드러냈다(J절의 리뷰 S6). 키를 사용자 ID로 두면 누가 기다리는지가 계정의 존재를 드러낸다(P절) | `app/auth.rs`의 `login`, `auth::password::verify_against_no_account` |
 | **주소의 제한.** 주소당 로그인·가입 시도 분당 20회(`login_address_attempts_per_minute`, 성공 포함), 한 번에 하나. IPv6는 /64로 묶는다. 0이면 주소별 제한을 끈다(모든 사용자가 한 주소에서 오고 그것을 풀어 줄 프록시가 없는 배치). 토큰이 없거나 틀려서 해시 전에 거절되는 가입은 시도로 세지 않는다 | 설계 5.2의 3번 | `LoginLimiter::{admit_login, admit_registration}` |
 | **해시 대기열.** 동시 4(`password_hash_concurrency`), 대기 16칸(`password_hash_queue`), 대기 5초(`password_hash_queue_seconds`). 자리가 없거나 차례가 제때 오지 않으면 해시하지 않고 429다. 로그인, 가입, 비밀번호 변경, 관리자 소켓의 재설정이 모두 이 대기열을 쓴다. 프로세스 전체의 정적 세마포어를 앱마다의 대기열로 바꿨다. 차례는 일이 끝날 때까지 잡고 있다(요청이 끊겨도) | 설계 5.2의 4번. J절의 리뷰 S13 | `auth::hash_queue::HashQueue` |
-| **거절은 429(`/problems/rate-limited`)**, `Retry-After` 헤더와 본문의 `retry_after`(초, 올림, 1 이상) | 설계 5.2의 5번 | `AppError::rate_limited`, `fvoci_model::Problem::retry_after` |
+| **거절은 429(`/problems/rate-limited`)**, `Retry-After` 헤더와 본문의 `retryAfter`(초, 올림, 1 이상) | 설계 5.2의 5번 | `AppError::rate_limited`, `fvoci_model::Problem::retry_after` |
 | **`trusted_proxies`.** 믿는 프록시의 주소·범위 목록. 연결의 상대가 목록에 있을 때만 `X-Forwarded-For`를 오른쪽부터 읽어 목록에 없는 첫 주소를 클라이언트로 본다. 비어 있으면 연결의 상대가 클라이언트다. 요청 로그와 로그인 제한이 같은 주소를 쓴다. `trust_forwarded_for`는 설정이 아니다(값이 있으면 시작 오류). 전에는 켜면 가장 왼쪽(클라이언트가 지어낼 수 있는 쪽)을 읽었다 | 설계 5.2의 6번 | `client_address::{TrustedProxies, ClientAddress}`, `request_log.rs` |
 | 기록은 메모리에 둔다. 종류마다 10만 개까지이고, 넘치면 더 말할 것이 없는 기록(대기가 끝나고 오래된 것)부터, 그래도 넘치면 가장 오래 건드리지 않은 10분의 1을 버린다(P절). 계정 이름은 SHA-256으로 줄여 둔다 | 설계 5.2의 7번 | `auth::limiter` |
 | **비밀번호 바꾸기도 같은 기록을 쓴다.** `changePassword`의 틀린 옛 비밀번호는 그 계정 이름의 로그인 실패로 센다. 넘으면 429와 `Retry-After`다 | 세션을 가진 쪽이 옛 비밀번호를 한도 없이 찍을 수 있었다(P절) | `App::change_password` |
@@ -652,7 +652,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 | 웹소켓 카테고리 보드 순서 | `CategoryId`, `BoardOrder` | `categoryId`, `boardOrder` |
 | 웹소켓 클라이언트 설정 | `clientconfig` | `clientConfig` |
 
-오류 본문의 `errors`도 새 표기를 가리킨다(`userId`, `teamId`, `blockIds`, `perPage`). 오류 본문 자체의 `retry_after`, `request_id`는 설계 1.2가 정한 모양이라 그대로다.
+오류 본문의 `errors`도 새 표기를 가리킨다(`userId`, `teamId`, `blockIds`, `perPage`). 오류 본문 자체의 `retryAfter`, `requestId`도 camelCase다(2026-11-11에 `retry_after`, `request_id`에서 바꿨다).
 
 **내 판단으로 한 것.** 설계가 하나씩 정하지 않은 것이다. 모두 serde 속성 한 줄이나 라우트 한 줄로 되돌릴 수 있다.
 

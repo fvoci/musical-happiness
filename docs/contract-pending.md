@@ -243,8 +243,6 @@
 | 동작을 경로 끝에 붙인 라우트 | `duplicate`, `undelete`, `join`, `leave`, `hide`, `unhide`, `onboard` |
 | 구독의 경로 | `DELETE /subscriptions/{blockId}/{subscriberId}`, `GET /subscriptions/{subscriberId}`. 아래 (1) |
 | 구독자의 종류 `channel` | 스키마 `SubscriberType`에 있으나 서버는 `user`만 받는다 |
-| 오류 본문의 `retry_after`, `request_id` | snake_case다(설계 1.2가 정한 모양) |
-| 오류 본문의 선택 멤버 | 스키마에는 `null`도 되는 것으로 적혀 있으나 서버는 `null`을 보내지 않고 멤버를 뺀다 |
 | `deleteAt` | 있는 것에서는 늘 0이다(지운 것은 휴지통에 있다). WebSocket의 삭제 알림이 쓴다 |
 | 팀의 `title`, `settings` | 값을 정하는 라우트가 없다 |
 | `ping`의 멤버 이름 | `db_type`, `build_number` 등 snake_case다. 주소는 아래 (2) |

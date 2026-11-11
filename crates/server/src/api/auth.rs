@@ -82,7 +82,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
         ),
         (
             status = 429,
-            description = "Too many attempts. `retry_after`, and the `Retry-After` header, say how long to wait; there is no `reason`.",
+            description = "Too many attempts. `retryAfter`, and the `Retry-After` header, say how long to wait; there is no `reason`.",
             body = Problem,
             content_type = "application/problem+json",
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),

@@ -10,7 +10,7 @@
 //!   `<secret:N>`, numbered the same way, so that a file name is recognized where it
 //!   comes up again;
 //! * millisecond timestamps become `<ts>`;
-//! * the seconds to wait of a 429 (`retry_after`, `Retry-After`) become `<seconds>`;
+//! * the seconds to wait of a 429 (`retryAfter`, `Retry-After`) become `<seconds>`;
 //! * values of members named like secrets (`token`, `signupToken`) become `<secret>`, and
 //!   the identifier of the request in an error body becomes `<request-id>`, in its
 //!   `instance` too.
@@ -40,13 +40,13 @@ const PASSWORD: &str = "test-password";
 const SECRET_KEYS: [&str; 3] = ["token", "signupToken", "signup_token"];
 
 /// The member of an error body that identifies the request; different in every run.
-const REQUEST_ID_KEY: &str = "request_id";
+const REQUEST_ID_KEY: &str = "requestId";
 /// The member of an error body that names the request as a URN of its identifier.
 const INSTANCE_KEY: &str = "instance";
 
 /// The member of an error body, and the response header, that say how many seconds to
 /// wait: a clock's reading, a second more or less from run to run.
-const RETRY_AFTER_KEY: &str = "retry_after";
+const RETRY_AFTER_KEY: &str = "retryAfter";
 const RETRY_AFTER_HEADER: &str = "Retry-After";
 
 /// Anything after 2017 in milliseconds; smaller numbers are counts, sort orders and so on.

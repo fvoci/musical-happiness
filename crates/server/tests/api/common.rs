@@ -791,19 +791,21 @@ impl ApiResponse {
             Some(reason) => reason.as_str().expect("a reason is text").replace('_', "-"),
             None => of_status.to_owned(),
         };
-        assert_eq!(
-            body["type"],
-            format!("/problems/{name}"),
-            "the type: {body}"
-        );
+        // Under the path the server is served at, which a test may have set.
+        let address = body["type"].as_str().unwrap_or_default();
         assert!(
-            body["title"]
-                .as_str()
-                .is_some_and(|title| !title.is_empty()),
-            "the title: {body}"
+            address.ends_with(&format!("/problems/{name}")),
+            "the type is of the reason, or else of the status: {body}"
+        );
+        let kind = fvoci_server::problems::find(&name);
+        assert!(kind.is_some(), "a kind of problem the server lists: {body}");
+        assert_eq!(
+            body["title"],
+            kind.map(|kind| kind.title).unwrap_or_default(),
+            "the title of the type: {body}"
         );
         assert!(body["detail"].is_string(), "the detail: {body}");
-        let request_id = body["request_id"].as_str().unwrap_or_default();
+        let request_id = body["requestId"].as_str().unwrap_or_default();
         assert!(!request_id.is_empty(), "the request identifier: {body}");
         assert_eq!(
             body["instance"],
@@ -815,7 +817,7 @@ impl ApiResponse {
             request_id,
             "the header repeats the identifier"
         );
-        for old in ["error", "message", "field"] {
+        for old in ["error", "message", "field", "request_id", "retry_after"] {
             assert!(body.get(old).is_none(), "no member {old}: {body}");
         }
         self.refused_places();

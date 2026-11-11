@@ -10,6 +10,7 @@ pub mod client_address;
 pub mod config;
 pub mod error;
 pub mod permissions;
+pub mod problems;
 pub mod scheduler;
 pub mod storage;
 pub mod web;
@@ -165,6 +166,12 @@ impl Server {
         let routes = Router::new()
             .nest(api::PREFIX, api)
             .route("/ws", get(handle_websocket))
+            // What the `type` of a problem points at.
+            .route(error::PROBLEMS_PATH, get(problems::handle_problems))
+            .route(
+                &format!("{}/{{name}}", error::PROBLEMS_PATH),
+                get(problems::handle_problem),
+            )
             .route("/static/{*path}", get(handle_static))
             .fallback(handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
@@ -205,7 +212,10 @@ impl Server {
             .layer(middleware::from_fn(send_no_referrer))
             .layer(middleware::from_fn(request_log::contain_panics))
             .layer(middleware::from_fn_with_state(
-                Arc::new(proxies),
+                Arc::new(request_log::Served {
+                    proxies,
+                    base_path: self.base_path.clone(),
+                }),
                 request_log::log_request,
             ))
     }

@@ -642,8 +642,8 @@ fn config_error_and_request_json_members() {
                 { "parameter": "page", "detail": "no number", "reason": "invalid" },
             ],
             "limit": 4_194_304,
-            "retry_after": 30,
-            "request_id": "id",
+            "retryAfter": 30,
+            "requestId": "id",
         })
     );
 

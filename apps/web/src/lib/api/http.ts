@@ -65,7 +65,7 @@ async function problemOf(response: Response): Promise<Partial<Problem> | undefin
     return undefined;
   }
   if (typeof body !== 'object' || body === null) return undefined;
-  const { type, title, detail, reason, errors, limit, retry_after } = body as Record<
+  const { type, title, detail, reason, errors, limit, retryAfter } = body as Record<
     string,
     unknown
   >;
@@ -76,7 +76,7 @@ async function problemOf(response: Response): Promise<Partial<Problem> | undefin
     ...(isText(reason) ? { reason } : {}),
     errors: invalidInputs(errors),
     ...(isCount(limit) ? { limit } : {}),
-    ...(isCount(retry_after) ? { retry_after } : {}),
+    ...(isCount(retryAfter) ? { retryAfter } : {}),
   };
 }
 

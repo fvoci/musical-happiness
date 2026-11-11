@@ -366,7 +366,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -440,7 +440,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -454,7 +454,7 @@
     "body": {
       "detail": "access denied to board",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -468,7 +468,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -489,7 +489,7 @@
     "body": {
       "detail": "invalid type: map, expected a sequence at line 1 column 0",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -510,7 +510,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -531,7 +531,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -552,7 +552,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -573,7 +573,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -587,7 +587,7 @@
     "body": {
       "detail": "error validating block <id:8>: block title size limit exceeded",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -601,7 +601,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -615,7 +615,7 @@
     "body": {
       "detail": "access denied to make board changes",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -681,7 +681,7 @@
     "body": {
       "detail": "access denied to make board changes",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -695,7 +695,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -709,7 +709,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -723,7 +723,7 @@
     "body": {
       "detail": "EOF while parsing an object at line 1 column 1",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -737,7 +737,7 @@
     "body": {
       "detail": "error validating block <id:6>: block title size limit exceeded",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -757,7 +757,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -771,7 +771,7 @@
     "body": {
       "detail": "access denied to make board changes",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -966,7 +966,7 @@
     "body": {
       "detail": "access denied to modify board cards",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -980,7 +980,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -994,7 +994,7 @@
     "body": {
       "detail": "access denied to make board changes",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -1008,7 +1008,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -1028,7 +1028,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -1042,7 +1042,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -1063,7 +1063,7 @@
     "body": {
       "detail": "access denied to make board changes",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -1100,7 +1100,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -1114,7 +1114,7 @@
     "body": {
       "detail": "block not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"

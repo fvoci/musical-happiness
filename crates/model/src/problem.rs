@@ -13,11 +13,11 @@ pub const PROBLEM_MEDIA_TYPE: &str = "application/problem+json";
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct Problem {
-    /// What kind of problem this is: `/problems/<name>`, a reference relative to the
-    /// server, where the server describes the kind. The same kind of problem has the
-    /// same `type` every time. The name is that of the `reason` where there is one,
-    /// else that of the status, written with hyphens: `/problems/last-admin`,
-    /// `/problems/not-found`.
+    /// What kind of problem this is: `/problems/<name>` under the path the server is
+    /// served at, the address of a page of text where the server describes the kind.
+    /// The same kind of problem has the same `type` every time. The name is that of the
+    /// `reason` where there is one, else that of the status, written with hyphens:
+    /// `/problems/last-admin`, `/problems/not-found`.
     #[serde(rename = "type")]
     pub problem_type: String,
     /// The name of the `type`, in English; the same for every problem of the type.
@@ -27,7 +27,7 @@ pub struct Problem {
     /// What went wrong this time, in English. Not for showing to users, and without
     /// internals.
     pub detail: String,
-    /// The request this answer is to: `urn:uuid:` and the `request_id`.
+    /// The request this answer is to: `urn:uuid:` and the `requestId`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub instance: Option<String>,
@@ -44,12 +44,12 @@ pub struct Problem {
     #[schema(nullable = false)]
     pub limit: Option<u64>,
     /// How many seconds to wait before trying again, as in the `Retry-After` header.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "retryAfter", skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub retry_after: Option<u64>,
     /// The identifier of the request, the same as in the `x-request-id` response header
     /// and in the server's request log.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "requestId", skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub request_id: Option<String>,
 }

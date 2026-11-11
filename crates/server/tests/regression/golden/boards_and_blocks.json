@@ -89,7 +89,7 @@
     "body": {
       "detail": "at least one board is required",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -110,7 +110,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -124,7 +124,7 @@
     "body": {
       "detail": "cannot create boards for multiple teams",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -138,7 +138,7 @@
     "body": {
       "detail": "invalid-board-type",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -152,7 +152,7 @@
     "body": {
       "detail": "EOF while parsing an object at line 1 column 1",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -166,7 +166,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -264,7 +264,7 @@
     "body": {
       "detail": "board ids and patches need to match",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -278,7 +278,7 @@
     "body": {
       "detail": "at least one board is required",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -292,7 +292,7 @@
     "body": {
       "detail": "the request names a block that is not on its boards",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -306,7 +306,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -320,7 +320,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -385,7 +385,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -399,7 +399,7 @@
     "body": {
       "detail": "at least one board is required",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -413,7 +413,7 @@
     "body": {
       "detail": "the request names a block that is not on its boards",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -427,7 +427,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -447,7 +447,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"

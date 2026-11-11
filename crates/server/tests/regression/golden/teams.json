@@ -42,7 +42,7 @@
     "body": {
       "detail": "team not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -56,7 +56,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -117,7 +117,7 @@
     "body": {
       "detail": "User IDs are empty",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"

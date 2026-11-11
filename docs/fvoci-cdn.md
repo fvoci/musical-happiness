@@ -257,7 +257,7 @@ curl -si --http1.1 --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket'
 
 - 웹 앱을 열어 둔 채 CDN의 유휴 타임아웃보다 오래 기다린 뒤, 다른 브라우저에서 보드를 고쳐 변경이 실시간으로 보이는지 본다.
 - 한도에 가까운 크기의 파일을 UI에서 올려 본다. 실패하면 응답 헤더로 CDN이 답했는지 서버가 답했는지 구분한다.
-- `POST /api/v1/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다. CDN의 규칙보다 서버의 제한이 먼저 걸리면 429와 `Retry-After`가 서버에서 온다(응답에 `request_id`가 든 JSON 본문이 있다).
+- `POST /api/v1/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다. CDN의 규칙보다 서버의 제한이 먼저 걸리면 429와 `Retry-After`가 서버에서 온다(응답에 `requestId`가 든 JSON 본문이 있다).
 - 서버의 요청 로그에 찍히는 클라이언트 주소가 CDN의 주소가 아니라 실제 클라이언트의 주소인지 본다. CDN의 주소면 `trusted_proxies`가 비었거나 범위가 틀렸다.
 
 ## 6. 자주 생기는 문제

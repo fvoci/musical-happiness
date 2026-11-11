@@ -108,7 +108,7 @@ async fn check_path_rules(origin: &str, base: &str) {
         );
         assert_eq!(
             answer.problem_type(),
-            "/problems/method-not-allowed",
+            format!("{base}/problems/method-not-allowed"),
             "{method} {path}"
         );
         assert_eq!(
@@ -148,7 +148,7 @@ async fn check_path_rules(origin: &str, base: &str) {
             );
             assert_eq!(
                 answer.problem_type(),
-                "/problems/not-found",
+                format!("{base}/problems/not-found"),
                 "{method} {path}"
             );
             assert_eq!(
@@ -164,7 +164,7 @@ async fn check_path_rules(origin: &str, base: &str) {
     assert_eq!(answer.status, StatusCode::METHOD_NOT_ALLOWED, "POST /ws");
     assert_eq!(
         answer.problem_type(),
-        "/problems/method-not-allowed",
+        format!("{base}/problems/method-not-allowed"),
         "POST /ws"
     );
     let answer = ask(origin, Method::GET, &format!("{base}/ws")).await;
@@ -174,7 +174,11 @@ async fn check_path_rules(origin: &str, base: &str) {
         "GET /ws without a handshake: {}",
         answer.body
     );
-    assert_eq!(answer.problem_type(), "/problems/bad-request", "GET /ws");
+    assert_eq!(
+        answer.problem_type(),
+        format!("{base}/problems/bad-request"),
+        "GET /ws"
+    );
     assert_eq!(answer.content_type, "application/problem+json", "GET /ws");
 
     // Static files: the file, or 404; no listing of the directory.

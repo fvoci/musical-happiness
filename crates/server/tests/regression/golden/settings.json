@@ -22,7 +22,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -133,7 +133,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -154,7 +154,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -175,7 +175,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -196,7 +196,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -217,7 +217,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -238,7 +238,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -259,7 +259,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -280,7 +280,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -301,7 +301,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -322,7 +322,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -343,7 +343,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -357,7 +357,7 @@
     "body": {
       "detail": "the request body is not a JSON object",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -371,7 +371,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -442,7 +442,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -463,7 +463,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -484,7 +484,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -506,7 +506,7 @@
       ],
       "instance": "urn:uuid:<request-id>",
       "limit": 100,
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"

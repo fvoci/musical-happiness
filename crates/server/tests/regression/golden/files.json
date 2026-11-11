@@ -73,7 +73,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -87,7 +87,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -101,7 +101,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -115,7 +115,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -129,7 +129,7 @@
     "body": {
       "detail": "request Content-Type isn't multipart/form-data",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -143,7 +143,7 @@
     "body": {
       "detail": "route not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -157,7 +157,7 @@
     "body": {
       "detail": "route not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -171,7 +171,7 @@
     "body": {
       "detail": "route not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -238,7 +238,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 416,
       "title": "Range not satisfiable",
       "type": "/problems/range-not-satisfiable"
@@ -252,7 +252,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -266,7 +266,7 @@
     "body": {
       "detail": "access denied to board",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -280,7 +280,7 @@
     "body": {
       "detail": "file not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -294,7 +294,7 @@
     "body": {
       "detail": "file not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -321,7 +321,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -335,7 +335,7 @@
     "body": {
       "detail": "file not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -370,7 +370,7 @@
     "body": {
       "detail": "access denied to board",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"

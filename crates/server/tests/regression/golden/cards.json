@@ -95,7 +95,7 @@
     "body": {
       "detail": "access denied to create card",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -109,7 +109,7 @@
     "body": {
       "detail": "EOF while parsing an object at line 1 column 1",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -123,7 +123,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -233,7 +233,7 @@
           }
         ],
         "instance": "urn:uuid:<request-id>",
-        "request_id": "<request-id>",
+        "requestId": "<request-id>",
         "status": 400,
         "title": "Bad request",
         "type": "/problems/bad-request"
@@ -249,7 +249,7 @@
     "body": {
       "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -313,7 +313,7 @@
     "body": {
       "detail": "card not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -353,7 +353,7 @@
     "body": {
       "detail": "access denied to patch card",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Forbidden",
       "type": "/problems/forbidden"
@@ -367,7 +367,7 @@
     "body": {
       "detail": "card not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -381,7 +381,7 @@
     "body": {
       "detail": "EOF while parsing an object at line 1 column 1",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -500,7 +500,7 @@
     "body": {
       "detail": "route not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"

@@ -20,7 +20,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -35,7 +35,7 @@
       "detail": "the X-Requested-With: XMLHttpRequest header is required",
       "instance": "urn:uuid:<request-id>",
       "reason": "csrf",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Cross-site request check failed",
       "type": "/problems/csrf"
@@ -50,7 +50,7 @@
       "detail": "requests from this origin are not accepted",
       "instance": "urn:uuid:<request-id>",
       "reason": "foreign_origin",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Request from another origin",
       "type": "/problems/foreign-origin"
@@ -109,7 +109,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -123,7 +123,7 @@
     "body": {
       "detail": "invalid session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -137,7 +137,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -152,7 +152,7 @@
       "detail": "the X-Requested-With: XMLHttpRequest header is required",
       "instance": "urn:uuid:<request-id>",
       "reason": "csrf",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Cross-site request check failed",
       "type": "/problems/csrf"
@@ -245,7 +245,7 @@
       "detail": "requests from this origin are not accepted",
       "instance": "urn:uuid:<request-id>",
       "reason": "foreign_origin",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Request from another origin",
       "type": "/problems/foreign-origin"
@@ -260,7 +260,7 @@
       "detail": "requests from this origin are not accepted",
       "instance": "urn:uuid:<request-id>",
       "reason": "foreign_origin",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Request from another origin",
       "type": "/problems/foreign-origin"
@@ -275,7 +275,7 @@
       "detail": "requests from this origin are not accepted",
       "instance": "urn:uuid:<request-id>",
       "reason": "foreign_origin",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Request from another origin",
       "type": "/problems/foreign-origin"
@@ -289,7 +289,7 @@
     "body": {
       "detail": "invalid session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -304,7 +304,7 @@
       "detail": "the X-Requested-With: XMLHttpRequest header is required",
       "instance": "urn:uuid:<request-id>",
       "reason": "csrf",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Cross-site request check failed",
       "type": "/problems/csrf"
@@ -327,7 +327,7 @@
     "body": {
       "detail": "invalid session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"

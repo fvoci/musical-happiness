@@ -8,7 +8,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -23,7 +23,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -38,7 +38,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -53,7 +53,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -68,7 +68,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -83,7 +83,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -100,8 +100,8 @@
     "body": {
       "detail": "too many attempts; try again later",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
-      "retry_after": "<seconds>",
+      "requestId": "<request-id>",
+      "retryAfter": "<seconds>",
       "status": 429,
       "title": "Too many requests",
       "type": "/problems/rate-limited"
@@ -116,7 +116,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -131,7 +131,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -146,7 +146,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -161,7 +161,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -176,7 +176,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -191,7 +191,7 @@
       "detail": "incorrect login",
       "instance": "urn:uuid:<request-id>",
       "reason": "invalid_credentials",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "Invalid credentials",
       "type": "/problems/invalid-credentials"
@@ -208,8 +208,8 @@
     "body": {
       "detail": "too many attempts; try again later",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
-      "retry_after": "<seconds>",
+      "requestId": "<request-id>",
+      "retryAfter": "<seconds>",
       "status": 429,
       "title": "Too many requests",
       "type": "/problems/rate-limited"
@@ -226,8 +226,8 @@
     "body": {
       "detail": "too many attempts; try again later",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
-      "retry_after": "<seconds>",
+      "requestId": "<request-id>",
+      "retryAfter": "<seconds>",
       "status": 429,
       "title": "Too many requests",
       "type": "/problems/rate-limited"
@@ -241,8 +241,8 @@
     "body": {
       "detail": "too many attempts; try again later",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
-      "retry_after": "<seconds>",
+      "requestId": "<request-id>",
+      "retryAfter": "<seconds>",
       "status": 429,
       "title": "Too many requests",
       "type": "/problems/rate-limited"
@@ -277,8 +277,8 @@
     "body": {
       "detail": "too many attempts; try again later",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
-      "retry_after": "<seconds>",
+      "requestId": "<request-id>",
+      "retryAfter": "<seconds>",
       "status": 429,
       "title": "Too many requests",
       "type": "/problems/rate-limited"
@@ -292,8 +292,8 @@
     "body": {
       "detail": "too many attempts; try again later",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
-      "retry_after": "<seconds>",
+      "requestId": "<request-id>",
+      "retryAfter": "<seconds>",
       "status": 429,
       "title": "Too many requests",
       "type": "/problems/rate-limited"

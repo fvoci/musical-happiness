@@ -150,6 +150,83 @@ async fn api_responses_are_not_cacheable() {
     th.teardown().await;
 }
 
+/// The `type` of a problem is the address of a page of text about its kind, under the
+/// path the server is served at, and every kind the contract lists has its page.
+#[tokio::test]
+async fn the_type_of_a_problem_is_the_address_of_a_page_about_its_kind() {
+    let contract: Value = serde_json::from_str(include_str!("../../../../contracts/openapi.json"))
+        .expect("the contract is JSON");
+    let listed = contract["components"]["schemas"]["Problem"]["x-problem-types"]
+        .as_array()
+        .expect("the kinds of problem of the contract");
+    assert!(listed.len() > 20, "{} kinds", listed.len());
+
+    for base_path in ["", "/boards"] {
+        let th = Setup::native().base_path(base_path).start().await;
+        let origin = th
+            .base_url
+            .strip_suffix(base_path)
+            .expect("the address ends with the base path");
+        let http = reqwest::Client::new();
+        let page_at = |address: String| Client::send(http.get(format!("{origin}{address}")));
+
+        // An error answer points at the page of its kind.
+        let refused = th.anonymous().get("/users/me").await;
+        refused.check_unauthorized();
+        let address = refused.problem_type();
+        assert_eq!(address, format!("{base_path}/problems/unauthorized"));
+        let page = page_at(address.clone()).await;
+        page.check_ok();
+        assert_eq!(page.header("content-type"), "text/plain; charset=utf-8");
+        assert!(
+            page.text().starts_with(&format!(
+                "No valid session\n\ntype: {address}\nstatus: 401\n\n"
+            )),
+            "{}",
+            page.text()
+        );
+
+        // Every kind the contract lists has its page, and the list names each.
+        let list = page_at(format!("{base_path}/problems")).await;
+        list.check_ok();
+        let list = list.text();
+        for kind in listed {
+            let title = kind["title"].as_str().expect("a title");
+            let address = format!("{base_path}{}", kind["type"].as_str().expect("a type"));
+            let page = page_at(address.clone()).await;
+            page.check_ok();
+            let page = page.text();
+            assert!(
+                page.starts_with(&format!("{title}\n\ntype: {address}\n")),
+                "{page}"
+            );
+            if let Some(reason) = kind["reason"].as_str() {
+                assert!(page.contains(&format!("\nreason: {reason}\n")), "{page}");
+            }
+            assert!(
+                list.contains(&format!("\n{address}  {title}\n")),
+                "the list names {address}: {list}"
+            );
+        }
+        assert_eq!(
+            list.lines()
+                .filter(|line| line.contains("/problems/"))
+                .count(),
+            listed.len(),
+            "the list has no kind the contract does not: {list}"
+        );
+
+        // A name of no kind is not found, as a problem.
+        let missing = page_at(format!("{base_path}/problems/no-such-kind")).await;
+        missing.check_error(StatusCode::NOT_FOUND, "problem type not found");
+        assert_eq!(
+            missing.problem_type(),
+            format!("{base_path}/problems/not-found")
+        );
+        th.teardown().await;
+    }
+}
+
 /// What the framework refuses before a handler runs is answered in the API's format
 /// too: a parameter of the path that is no text.
 #[tokio::test]

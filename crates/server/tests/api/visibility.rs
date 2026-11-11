@@ -604,7 +604,7 @@ fn told(response: &ApiResponse) -> (StatusCode, Value) {
     let mut body = response.value();
     if let Some(body) = body.as_object_mut() {
         // Every request has its own identifier.
-        body.remove("request_id");
+        body.remove("requestId");
         body.remove("instance");
     }
     (response.status, body)

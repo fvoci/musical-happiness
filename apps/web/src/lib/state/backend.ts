@@ -69,9 +69,9 @@ export interface Problem {
   /** What of the request was refused, one entry for each. */
   errors?: InvalidInput[];
   limit?: number;
-  request_id?: string;
+  requestId?: string;
   /** Seconds, with 429. */
-  retry_after?: number;
+  retryAfter?: number;
 }
 
 /** The problems of the statuses as the server names them: the last part of `type`, and the title. */
@@ -120,7 +120,7 @@ export class BackendError extends Error {
     this.reason = problem?.reason;
     this.errors = problem?.errors ?? [];
     this.limit = problem?.limit;
-    this.retryAfter = problem?.retry_after;
+    this.retryAfter = problem?.retryAfter;
   }
 
   /** The entry of `errors` about the member of the request body at this JSON Pointer, if there is one. */

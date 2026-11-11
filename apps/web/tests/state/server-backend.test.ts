@@ -404,8 +404,8 @@ describe('writing a card’s body on the server', () => {
           'nothing',
         ],
         limit: 7,
-        retry_after: 3,
-        request_id: 'r1',
+        retryAfter: 3,
+        requestId: 'r1',
       },
       409,
     );

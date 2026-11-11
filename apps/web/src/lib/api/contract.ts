@@ -2329,7 +2329,7 @@ export interface components {
             detail: string;
             /** @description What of the request was refused, one entry for each. */
             errors?: components["schemas"]["InvalidInput"][];
-            /** @description The request this answer is to: `urn:uuid:` and the `request_id`. */
+            /** @description The request this answer is to: `urn:uuid:` and the `requestId`. */
             instance?: string;
             /**
              * Format: int64
@@ -2345,12 +2345,12 @@ export interface components {
              * @description The identifier of the request, the same as in the `x-request-id` response header
              *     and in the server's request log.
              */
-            request_id?: string;
+            requestId?: string;
             /**
              * Format: int64
              * @description How many seconds to wait before trying again, as in the `Retry-After` header.
              */
-            retry_after?: number;
+            retryAfter?: number;
             /**
              * Format: int32
              * @description The HTTP status of the answer.
@@ -2359,11 +2359,11 @@ export interface components {
             /** @description The name of the `type`, in English; the same for every problem of the type. */
             title: string;
             /**
-             * @description What kind of problem this is: `/problems/<name>`, a reference relative to the
-             *     server, where the server describes the kind. The same kind of problem has the
-             *     same `type` every time. The name is that of the `reason` where there is one,
-             *     else that of the status, written with hyphens: `/problems/last-admin`,
-             *     `/problems/not-found`.
+             * @description What kind of problem this is: `/problems/<name>` under the path the server is
+             *     served at, the address of a page of text where the server describes the kind.
+             *     The same kind of problem has the same `type` every time. The name is that of the
+             *     `reason` where there is one, else that of the status, written with hyphens:
+             *     `/problems/last-admin`, `/problems/not-found`.
              */
             type: string;
         };
@@ -4026,7 +4026,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Too many attempts. `retry_after`, and the `Retry-After` header, say how long to wait; there is no `reason`. */
+            /** @description Too many attempts. `retryAfter`, and the `Retry-After` header, say how long to wait; there is no `reason`. */
             429: {
                 headers: {
                     /** @description How many seconds to wait before trying again. */

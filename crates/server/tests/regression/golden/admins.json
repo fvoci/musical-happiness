@@ -126,7 +126,7 @@
       "detail": "only an administrator of the instance may do this",
       "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Administrator required",
       "type": "/problems/admin-required"
@@ -140,7 +140,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -154,7 +154,7 @@
     "body": {
       "detail": "team not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -168,7 +168,7 @@
     "body": {
       "detail": "route not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -204,7 +204,7 @@
       ],
       "instance": "urn:uuid:<request-id>",
       "reason": "signup_token_invalid",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Signup token not valid",
       "type": "/problems/signup-token-invalid"
@@ -226,7 +226,7 @@
       ],
       "instance": "urn:uuid:<request-id>",
       "reason": "signup_token_required",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Signup token required",
       "type": "/problems/signup-token-required"
@@ -241,7 +241,7 @@
       "detail": "only an administrator of the instance may do this",
       "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Administrator required",
       "type": "/problems/admin-required"
@@ -256,7 +256,7 @@
       "detail": "only an administrator of the instance may do this",
       "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Administrator required",
       "type": "/problems/admin-required"
@@ -270,7 +270,7 @@
     "body": {
       "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 401,
       "title": "No valid session",
       "type": "/problems/unauthorized"
@@ -291,7 +291,7 @@
         }
       ],
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -305,7 +305,7 @@
     "body": {
       "detail": "invalid type: string \"yes\", expected a boolean",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 400,
       "title": "Bad request",
       "type": "/problems/bad-request"
@@ -319,7 +319,7 @@
     "body": {
       "detail": "user not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -333,7 +333,7 @@
     "body": {
       "detail": "user not found",
       "instance": "urn:uuid:<request-id>",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 404,
       "title": "Not found",
       "type": "/problems/not-found"
@@ -348,7 +348,7 @@
       "detail": "the instance must keep an administrator",
       "instance": "urn:uuid:<request-id>",
       "reason": "last_admin",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 409,
       "title": "Last administrator",
       "type": "/problems/last-admin"
@@ -422,7 +422,7 @@
       "detail": "only an administrator of the instance may do this",
       "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 403,
       "title": "Administrator required",
       "type": "/problems/admin-required"
@@ -450,7 +450,7 @@
       "detail": "the instance must keep an administrator",
       "instance": "urn:uuid:<request-id>",
       "reason": "last_admin",
-      "request_id": "<request-id>",
+      "requestId": "<request-id>",
       "status": 409,
       "title": "Last administrator",
       "type": "/problems/last-admin"

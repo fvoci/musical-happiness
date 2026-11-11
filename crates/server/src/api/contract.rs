@@ -108,13 +108,14 @@ An operation answers 200 with a body, 201 with what it made, or 204 with no body
 other status comes with a `Problem`, the problem details of RFC 9457, as \
 `application/problem+json`: `type` names the kind of the problem and is the same for every \
 problem of the kind, `title` is its name, `status` repeats the status and `detail` says what \
-went wrong this time. `type` is `/problems/<name>`, a reference relative to the server, \
-which describes the kind there. `reason` tells apart causes a client must tell apart; a \
+went wrong this time. `type` is `/problems/<name>` under the path the server is served at, \
+the address of a page of text about the kind; `/problems` lists them, and so does \
+`x-problem-types` of the schema `Problem`. `reason` tells apart causes a client must tell apart; a \
 problem with a `reason` has the `type` of that name, written with hyphens, and any other the \
 `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer \
 into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or \
 the name of a header (`header`). `limit` is the number of bytes a body that was too large \
-(413) may have. `instance` is the request, `urn:uuid:` and its `request_id`. A session that \
+(413) may have. `instance` is the request, `urn:uuid:` and its `requestId`. A session that \
 is missing or over is 401. What the user may not see is 404, as if it were not there; what \
 they may see but not do is 403. A path that is no operation is 404 too, and a method an \
 operation's path does not have is 405.
@@ -365,6 +366,7 @@ fn finish_schemas(document: &mut Value) -> Result<(), ContractError> {
             .map_err(|error| ContractError(format!("{name} has no schema: {error}")))?;
         schemas.insert(name.to_owned(), schema);
     }
+    schemas["Problem"]["x-problem-types"] = problem_types();
 
     let listed: BTreeSet<&str> = SCHEMAS.iter().map(|(name, _)| *name).collect();
     if let Some(unlisted) = schemas.keys().find(|name| !listed.contains(name.as_str())) {
@@ -383,6 +385,27 @@ fn finish_schemas(document: &mut Value) -> Result<(), ContractError> {
         require_members(name, schema, *members)?;
     }
     Ok(())
+}
+
+/// Every kind of problem, as the contract lists them: the `type` on a server at the
+/// root of its host, the `title`, and the `status` or the `reason` the kind is of.
+fn problem_types() -> Value {
+    crate::problems::all()
+        .into_iter()
+        .map(|problem| {
+            let mut listed = json!({
+                "type": problem.type_reference(),
+                "title": problem.title,
+            });
+            if let Some(status) = problem.status {
+                listed["status"] = json!(status);
+            }
+            if let Some(reason) = problem.reason {
+                listed["reason"] = json!(reason);
+            }
+            listed
+        })
+        .collect()
 }
 
 /// Does for the schemas that are written where they are used, in the parameters, the
@@ -739,6 +762,49 @@ mod tests {
             }
         }
         assert!(operations > 70, "the document has {operations} operations");
+    }
+
+    /// The contract lists the kinds of problem the code has, and names every `reason` in
+    /// the description of the API or of an operation: no reason comes without a word of
+    /// when.
+    #[test]
+    fn the_contract_lists_every_kind_of_problem_and_says_when_each_reason_comes() {
+        let text = document().expect("the document");
+        let document: Value = serde_json::from_str(&text).expect("JSON");
+        let listed = document["components"]["schemas"]["Problem"]["x-problem-types"]
+            .as_array()
+            .expect("the kinds of problem");
+        let kinds = crate::problems::all();
+        assert_eq!(listed.len(), kinds.len(), "one entry for each kind");
+        for (entry, kind) in listed.iter().zip(&kinds) {
+            assert_eq!(entry["type"], kind.type_reference());
+            assert_eq!(entry["title"], kind.title);
+            assert_eq!(
+                entry.get("status").and_then(Value::as_u64),
+                kind.status.map(u64::from)
+            );
+            assert_eq!(entry.get("reason").and_then(Value::as_str), kind.reason);
+        }
+
+        let mut descriptions = vec![document["info"]["description"].as_str().expect("text")];
+        for item in document["paths"].as_object().expect("paths").values() {
+            for operation in item.as_object().expect("a path item").values() {
+                descriptions.extend(operation["description"].as_str());
+                let responses = operation["responses"].as_object().expect("responses");
+                descriptions.extend(
+                    responses
+                        .values()
+                        .filter_map(|response| response["description"].as_str()),
+                );
+            }
+        }
+        for reason in crate::error::Reason::ALL {
+            let name = format!("`{}`", reason.as_str());
+            assert!(
+                descriptions.iter().any(|text| text.contains(&name)),
+                "no description says when the reason {name} comes"
+            );
+        }
     }
 
     /// The operations that need no session at all.
