@@ -32,7 +32,7 @@
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter web run check     # paraglide 컴파일 → svelte-check → eslint → prettier --check → 라이선스 검사 → 이름 검사 → 메시지 파일 최신 여부 → 로케일 키 집합 검사
+pnpm --filter web run check     # paraglide 컴파일 → svelte-check → eslint → prettier --check → 라이선스 검사 → 이름 검사 → 로케일 키 집합 검사
 pnpm --filter web run test      # paraglide 컴파일 → vitest를 TZ=UTC, Asia/Seoul, Pacific/Kiritimati 로 세 번
 pnpm --filter web run build     # paraglide 컴파일 → 글꼴 도구 → vite build
 pnpm --filter web run e2e       # Playwright. 먼저 build 가 있어야 한다
@@ -44,7 +44,7 @@ pnpm --filter web run spikes:e2e
 - `e2e`는 `FVOCI_E2E_URL`이 있으면 그 서버를, 없으면 `tools/preview.ts`를 띄워 대상으로 삼는다. `preview.ts`에는 API가 없다. 제품 시나리오는 브라우저 안의 메모리 구현 위에서 돈다.
 - `e2e`의 프로젝트는 셋이다: `desktop`, `mobile`, `middle`(626×890, 터치). 글꼴 측정 7건은 `desktop`에서만 돈다.
 - 스파이크용: `spikes`(개발 서버), `spikes:build`, `spikes:e2e`.
-- 번역: `i18n:convert`(옮겨 온 번역에서 메시지를 다시 만든다), `i18n:keys`(키 집합 검사).
+- 번역: `i18n:keys`(키 집합 검사).
 - 보조 스크립트: `i18n`(메시지 컴파일), `fonts`(글꼴 도구), `licenses`, `names`, `lint`, `format`, `preview`(빌드 결과를 서버 규칙대로 서빙), `storybook`, `build-storybook`, `look`(앱·스파이크·Storybook을 한 포트에서 본다. `docs/handoff.md`).
 
 ## 마지막 검증
@@ -66,8 +66,6 @@ pnpm --filter web run spikes:e2e
 
 - `e2e`가 건너뛴 179건은 다른 크기의 몫인 테스트와, `FVOCI_SCREENS`가 있어야 도는 그림이다.
 - 고친 뒤 전체를 두 번씩 돌려(`--repeat-each 2`) 1,064건이 통과하는 것을 보고 위의 마지막 실행을 했다. 그 앞의 실행에서 실패한 한 건은 "합친 뒤에 드러나 고친 것"의 방문 기록이다.
-- **원본의 폴더를 뺀 사본에서도 통과했다**(2026-11-11 01:39–01:47 KST, 추적 파일 1,126개). 명령은 `node apps/web/tools/detached/verify.ts target/detached/final --port 18322 --fonts target/fonts-snapshot`이다. install, check, test, build, e2e 다섯이 모두 통과했다.
-  - 원본이 없어 건너뛴 것은 도구가 스스로 적는다. check에서는 "원본의 번역을 다시 변환해 견주기" 1건을 건너뛴다(메시지 파일끼리의 검사가 대신한다). test에서는 번역 변환과 템플릿 아카이브 변환의 테스트 41건을 건너뛴다(2,373건 통과).
   - e2e는 532건 통과·179건 건너뜀으로 원본이 있을 때와 같다.
 - 확인하지 못한 것과 가끔 실패하는 테스트는 `docs/handoff.md`의 "가끔 실패하는 것, 확인하지 못한 것"에 있다. 종단 테스트는 Chromium의 세 크기다.
 
@@ -90,13 +88,12 @@ apps/web/
   src/lib/theme.svelte.ts  밝은·어두운 화면 상태
   src/styles/app.css       디자인 토큰
   src/styles/fonts/        글꼴 도구의 산출물 (git 무시)
-  messages/                메시지 18 로케일 (생성물)
-  messages-own/, messages-fill/, messages-override/   메시지의 원천
+  messages/                메시지 18 로케일 (손으로 고치는 원천)
   tests/                   vitest: logic, state, editor, tokens, tools (node), ui (jsdom)
   e2e/                     Playwright (제품)
   spikes/                  스파이크 화면과 그 Playwright
   stories/                 Storybook
-  tools/                   build, detached, emoji, fonts, i18n, licenses, lint, math, names, templates, preview, serve
+  tools/                   build, emoji, fonts, i18n, licenses, lint, math, names, preview, serve
   docs/                    문서와 그림
 ```
 
@@ -466,7 +463,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 
 - **브라우저의 시간대를 읽는 곳은 `src/lib/regional.ts` 하나다**(`browserTimeZone()`). 같은 파일의 `regional(locale)`이 설정을 풀어서 주고, `setRegionalSettings`로 설정을 바꾼다. 작업 공간 저장소(`src/lib/state/workspace.svelte.ts`)가 `Backend`에서 받은 설정으로 그 함수를 부른다. `src` 전체에서 기기의 시간대를 묻는 표현(`resolvedOptions().timeZone`, `getLocalTimeZone`, `getTimezoneOffset`)이 이 파일에만 있다는 것을 `tests/tools/layers.test.ts`의 한 건이 고정한다. 그러려고 shadcn 달력의 머리글 두 파일도 고쳤다(`src/lib/ui/README.md`의 표).
 - **테스트**(`tests/logic/time-zones.test.ts` 20건, `regional.test.ts` 9건): 서머타임으로 하루가 23시간·25시간인 날(뉴욕 2026-03-08, 2026-11-01)의 시작과 끝, 그날의 마지막 순간과 다음 날의 첫 순간이 필터에서 갈리는 것, 자정이 건너뛰어지는 날(아바나), 30분만 바뀌는 곳(로드하우), 날짜 변경선 양쪽(키리티마티 UTC+14, 파고파고 UTC−11, `Etc/GMT+12`)에서 같은 시각이 세 날짜로 갈리는 것과 같은 날짜가 26시간 차이로 시작하는 것, 달력에서 빠진 날(사모아 2011-12-30), "올해"가 보는 사람의 달력으로 정해지는 것. 날짜만 있는 값은 열 개 시간대에서 덮는 날·표시·필터·정렬이 모두 같다는 것(속성 기반 300회 포함). 임의의 시각과 시간대에 대해 "시각은 자기 날의 시작과 끝 사이에 있다"(속성 기반 500회).
-- 서버 쪽 설계(5.8절): 설정은 `GET`·`PATCH /users/me/settings`로 오가고 응답은 늘 세 멤버를 모두 싣는다. 브라우저가 아는 시간대 이름을 서버가 모르면(시간대 자료의 판 차이) 서버가 거절한다. 그때 저장소가 되돌리고 사용자에게 알린다(`docs/contract-assumptions.md`의 "작업 공간의 틀" 9번).
+- 서버 쪽 설계(5.8절): 설정은 `GET`·`PATCH /users/me/settings`로 오가고 응답은 늘 세 멤버를 모두 싣는다. 브라우저가 아는 시간대 이름을 서버가 모르면(시간대 자료의 판 차이) 서버가 거절한다. 그때 저장소가 되돌리고 사용자에게 알린다(서버의 답은 `docs/contract-pending.md` 9절).
 - 확인하지 못한 것: 브라우저가 가진 시간대 자료(ICU)의 판이 서로 다를 때의 차이, `Intl.Locale`의 주 정보가 없는 오래된 브라우저(그때는 월요일로 떨어진다).
 
 ### 날짜 속성 값의 와이어 모양
@@ -508,13 +505,13 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | 카드 상세: 세 가지 틀, 속성과 그 정의, 본문, 첨부, 댓글                       | `src/lib/features/card/`                                                                                           | `docs/card-test-mapping.md`, `docs/screens/card/`                     |
 | 편집기의 제품 부품, 수식(KaTeX), 다이어그램(Mermaid), 이모지 목록(CLDR)       | `src/lib/editor/`                                                                                                  | `docs/spike-editor.md` 10절                                           |
 | 조립: 주소, 보드 페이지, 카드 대화상자                                        | `src/app/`                                                                                                         | `docs/decisions.md`의 "주소와 언어"                                   |
-| 빌드의 `.zst`, 원본 폴더에서 떼어 내기, 템플릿의 주소                         | `tools/build/`, `tools/original.ts`, `tools/detached/verify.ts`, `tools/templates/`                                | `docs/build-notes.md`                                                 |
+| 빌드의 `.zst`, 원본 폴더에서 떼어 내기, 템플릿의 주소                         | `tools/build/`, 저장소 루트의 `crates/server/assets/templates/`                                                    | `docs/build-notes.md`                                                 |
 | 캘린더 뷰의 화면 안(구현은 하지 않았다)                                       | `spikes/calendar/`, `docs/calendar/`(그림 61장)                                                                    | `docs/calendar-proposal.md`(질문 24개)                                |
 
 - **모바일 안의 결정 36건**은 `docs/mobile-proposal.md`의 "결정" 절에 답마다 "바꾸려면 어디를"과 함께 있다. 권고와 다르게 만든 곳은 그 표에 굵게 적었다: 모바일 안의 Q16의 "보이는 열에 만들기"(만들지 않았다), Q22의 표의 "열기", Q24의 터치 드래그 범위, Q34의 단계가 바뀔 때. 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동)도 그때 정해졌고, 설정은 `src/lib/logic/display.ts`와 설정 대화상자에 있다.
 - **스스로 정한 것**은 `docs/decisions.md` 한 곳에 있다: 맨 앞의 번호 매긴 항목 58개, 화면별 절 일곱(틀, 뷰 머리글, 칸반과 갤러리, 테이블, 카드 상세, 편집기, 빌드), 검토에서 나온 것과 그 처리.
-- **서버에 대해 가정한 것과 물을 것**은 `docs/contract-assumptions.md`에 있다. 서버 쪽에 그대로 넘기는 문서다. 본문의 허용 목록이 판 2가 된 것(수식 노드 둘)이 그 4절이다.
-- **화면의 그림**은 `docs/screens/<화면>/`에 있다. 조립된 앱에서 세 단계(좁음·중간·넓음), 밝음과 어두움으로 찍었다. 다시 찍는 명령: `FVOCI_SCREENS=1 pnpm exec playwright test e2e/<화면>.spec.ts -g "pictures|screens|screenshots"`(`apps/web`에서, `build` 뒤에). 다음부터는 커밋하지 않는 폴더에 찍기로 정해졌다(`docs/handoff.md`).
+- **서버에 대해 가정한 것과 물을 것**은 `docs/contract-assumptions.md`에 있다. 답이 난 것은 지웠고, 아직 열린 것만 남았다.
+- **화면의 그림**은 `docs/screens/<화면>/`에 있다. 조립된 앱에서 세 단계(좁음·중간·넓음), 밝음과 어두움으로 찍었다. 다시 찍으면 커밋하지 않는 `target/screens/<화면>/`(저장소의 맨 위, `e2e/screens.ts`)에 생긴다. 문서의 그림을 바꾸려면 거기서 옮긴다. 다시 찍는 명령: `FVOCI_SCREENS=1 pnpm exec playwright test e2e/<화면>.spec.ts -g "pictures|screens|screenshots"`(`apps/web`에서, `build` 뒤에).
 - **만들지 않은 것**(범위 밖으로 정해진 것): 서버를 실제로 부르는 구현, 로그인·가입 화면의 서버 연결, 캘린더 뷰의 구현, 공유 대화상자, 템플릿 선택기, 아카이브 가져오기·내보내기, 온보딩 투어.
 
 조립된 앱을 띄워 보는 법은 `docs/handoff.md`의 "화면을 띄우는 법과 포트"에 있다.
@@ -577,8 +574,8 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 날짜 값의 와이어, 지역 설정의 값, 파일 주소의 전제 | `src/lib/logic/wire.ts`, `regional.ts`, `src/lib/editor/files.ts`                 | 위 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대" |
 | 글꼴: 한국어 세 파일, 한국어·일본어는 CJK 먼저     | `tools/fonts/`, `src/styles/app.css`, `e2e/fonts.spec.ts`                         | 위 "글꼴"                                             |
-| 번역 결정, 한국어 검수 표                          | `messages-override/`, `docs/ko-review.md`                                         | 아래 "번역"                                           |
-| 템플릿 산출물                                      | `tools/templates/output/`                                                         | 아래 "내장 템플릿의 변환 산출물"                      |
+| 번역 결정, 한국어 검수 표                          | `messages/`, `docs/ko-review.md`                                                  | 아래 "번역"                                           |
+| 내장 템플릿                                        | 저장소 루트의 `crates/server/assets/templates/`                                   | 아래 "내장 템플릿의 변환 산출물"                      |
 | 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 64장), `docs/mobile-proposal.md`(질문 36개) | 그 문서                                               |
 | 본문 읽기 전용 표시기                              | `src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`                       | `docs/spike-editor.md` 9절                            |
 | 속성 편집기 15종                                   | `src/lib/components/properties/`, `stories/properties/`, `tests/ui/properties/`   | 아래, `docs/properties-test-mapping.md`               |
@@ -605,7 +602,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
   - 질문 8개.
 - 이 크기들은 어림값이고 실제 기기에서 확인하지 않았다.
 - 한가운데 세로선 점검의 결과로, 카드 상세의 넓은 화면 권고(가운데 대화상자)를 거두고 질문으로 돌렸다(모바일 안의 Q8). 가운데 대화상자는 속성 값과 댓글 입력 칸이 모두 접히는 자리(가정)에 온다. 그 뒤의 결정은 A(가운데 대화상자)다. 접히는 자리에 걸리는 것(모바일 안의 Q35)은 받아들이고, 실제 기기에서 본 뒤 다시 정하기로 했다.
-- 그림을 다시 찍는 명령: `FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop`. 약 1분 25초가 걸리고, 평소의 `spikes:e2e`에서는 건너뛴다. 같은 입력이면 같은 바이트가 나온다.
+- 그림을 다시 찍는 명령: `FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop`. 그림은 커밋하지 않는 `target/screens/spikes/mobile/`에 생긴다. 약 1분 25초가 걸리고, 평소의 `spikes:e2e`에서는 건너뛴다. 같은 입력이면 같은 바이트가 나온다.
 
 ### 본문 읽기 전용 표시기
 
@@ -681,13 +678,12 @@ W0 때 남긴 것 가운데 아직 열려 있는 것이다. `{{.BaseURL}}`을 �
 
 2026-11-10 19:00 KST에 변환했고 20:30 KST에 결정을 반영했다.
 
-원본 `webapp/i18n/*.json`을 paraglide 메시지로 바꾸는 스크립트가 `tools/i18n/`에 있고 결과가 `messages/`에 있다. 통계, ICU 조사, 뺀 메시지, 덮어쓴 문구의 목록은 `docs/i18n-conversion.md`에, 고친 한국어와 채운 한국어의 검수 표는 `docs/ko-review.md`에 있다.
+원본 `webapp/i18n/*.json`을 paraglide 메시지로 바꿨다. 변환 도구는 2026-11-11에 지웠고, 그 결과인 `messages/<태그>.json`이 원천이다. 통계, ICU 조사, 뺀 메시지, 덮어쓴 문구의 목록은 `docs/i18n-conversion.md`에, 고친 한국어와 채운 한국어의 검수 표는 `docs/ko-review.md`에 있다.
 
 - 원본이 번들하는 로케일은 17개이고 **한국어는 거기에 없다**(`webapp/src/i18n.tsx`). 변환한 것은 그 17개와 `ko`, 모두 18개다.
 - 메시지 ID는 그대로다. 점과 하이픈이 든 ID는 `m['BoardComponent.add-a-group']()`처럼 부른다.
-- `messages/*.json`은 생성물이다. 원천은 넷이다: 이 앱만의 키는 `messages-own/`, 원본에 없던 한국어는 `messages-fill/ko.json`, **원본의 문구를 손으로 고친 것은 `messages-override/<태그>.json`**(고치기 전의 원본 문구를 함께 적어, 원본이 달라지면 도구가 멈춘다), 포팅하지 않는 id는 `tools/i18n/removed.json`. `pnpm --filter web run i18n:convert`로 다시 만든다. 한국어를 고친 뒤에는 `node tools/i18n/review.ts`로 `ko-review.md`의 표도 다시 쓴다(테스트가 표와 메시지가 같은지 본다).
-- `check`가 생성물이 최신인지(`convert.ts --check`)와 키 집합(`check-keys.ts`)을 본다. 원본이 없을 때는 `messages/`를 원천으로 삼아 같은 검사를 한다(`docs/decisions.md`의 D1–D5).
-- 키 집합 검사: `en`에 없는 키가 어느 로케일에든 있으면 실패, `ko`에 빠진 키가 있으면 실패. 다른 로케일의 빠진 키는 영어로 떨어지므로 개수와 이름만 보고한다. `en`과 `ko`는 384개다(결정 반영 전 390개).
+- **문구를 고치는 곳은 `messages/<태그>.json` 하나다.** 이 앱만의 키도, 원본에서 온 문구도 거기에 있다. `check`가 키 집합(`check-keys.ts`)을, `test`(`tests/tools/i18n.test.ts`)가 번역이 영어 메시지의 인자·태그만 쓰고 괄호와 태그를 닫았는지를 본다.
+- 키 집합 검사: `en`에 없는 키가 어느 로케일에든 있으면 실패, `ko`에 빠진 키가 있으면 실패. 다른 로케일의 빠진 키는 영어로 떨어지므로 개수와 이름만 보고한다.
 
 사용자 결정(2026-11-10)을 반영한 것(`docs/i18n-conversion.md`, `docs/ko-review.md`에 상세):
 
@@ -704,17 +700,14 @@ W0 때 남긴 것 가운데 아직 열려 있는 것이다. `{{.BaseURL}}`을 �
 
 ### 내장 템플릿의 변환 산출물
 
-2026-11-10 20:09 KST에 만들었다. 서버 설계 5.7절의 "3.10의 갱신"대로, 내장 템플릿은 서버에서 다시 변환하지 않고 이쪽 변환기의 산출물을 서버가 받아 쓴다. `node tools/templates/convert.ts --write tools/templates/output`이 만들고, 결과는 `tools/templates/output/`에 커밋되어 있다(파일 17개: `index.json`, 템플릿 13개, `changes.json`, `CHANGES.md`, 손으로 쓴 `README.md`). 모양과 건수의 설명은 그 폴더의 `README.md`에 있다.
+2026-11-10 20:09 KST에 원본의 템플릿 아카이브에서 변환했고, 변환기는 2026-11-11에 지웠다. 내장 템플릿 13개는 저장소 루트의 `crates/server/assets/templates/`에만 있다. 서버가 그 파일을 바이너리에 넣고, 메모리 구현(`src/lib/state/memory/seed.ts`)이 같은 파일을 읽는다. **글은 그 폴더의 템플릿 파일에서 고친다.** 모양과 고치는 법은 그 폴더의 `README.md`에 있다.
 
-- 도구는 셋으로 나뉜다: `archive.ts`(아카이브를 읽어 카드마다 문서 하나로), `rewrite.ts`(글을 바꾸는 규칙), `output.ts`(산출물의 모양과 조립). `convert.ts`는 집계를 찍고 `--write`·`--check`를 받는다.
 - 템플릿마다 보드, 뷰, 카드(본문 문서 포함)가 한 파일이다. 템플릿 13, 뷰 38, 카드 77, 본문 58.
-- **글에서 바뀐 곳은 47곳**이고 목록이 `CHANGES.md`·`changes.json`에 있다: 원본의 두 이름 → `fvoci` 9, 제품을 가리키는 "Boards" → `fvoci` 5, 본문의 바깥 링크와 그 문장 1, 바깥 주소인 링크 속성 값 32. 바깥 주소의 대부분은 본문이 아니라 `url` 속성의 값에 있었다. 링크 값을 지우거나 옮기는 규칙은 `docs/decisions.md`의 42번과 T1–T7에 있다.
-- "Boards" 다섯 곳은 계획의 결정 14의 글자보다 한 걸음 나간 판단이다(번역의 같은 결정을 따랐다). 목록에서 규칙이 따로 표시되어 있다.
-- 날짜 속성 값 19건은 새 와이어 모양(`{"from": "2022-11-22"}`)으로 바꿨다.
-- **타입은 임시다.** `output.ts`의 타입은 설계 문서와 아카이브를 보고 손으로 적었다. 계약에서 생성한 타입에 맞춘 뒤 다시 만든다.
-- 테스트: `tests/tools/templates.test.ts` 20건(이름 바꾸기, 문장 빼기와 빈 것의 정리, 산출물의 수와 참조의 온전함, 원본 이름·바깥 주소가 남지 않음, 커밋된 폴더가 최신인지).
-- **서버 쪽에 전달할 것** 넷은 `docs/contract-assumptions.md`의 5절 "내장 템플릿의 산출물"에 있다. 첫째가 온보딩 보드를 제목이 아니라 `onboarding` 표식으로 찾는 일이다.
-- 미결: 그림을 넣을지, 템플릿 수를 줄일지(서버 설계 3.10), 글의 검수(바뀐 47곳과 `reviewNotes`의 28건), 온보딩의 "Share cards on Channels" 카드처럼 이 제품에 없는 기능을 설명하는 카드를 둘지.
+- **변환이 글에서 바꾼 곳은 47곳**이고 목록이 그 폴더의 `CHANGES.md`에 있다: 원본의 두 이름 → `fvoci` 9, 제품을 가리키는 "Boards" → `fvoci` 5, 본문의 바깥 링크와 그 문장 1, 바깥 주소인 링크 속성 값 32. 링크 값을 지우거나 옮긴 규칙은 `docs/decisions.md`의 42번과 T1–T7에 있다.
+- 날짜 속성 값 19건은 새 와이어 모양(`{"from": "2022-11-22"}`)이다.
+- 테스트: `tests/tools/builtin-templates.test.ts`(수, 본문의 검증, 원본 이름·바깥 주소가 남지 않음, 날짜 값, 참조의 온전함).
+- 서버는 온보딩 보드를 제목이 아니라 템플릿 파일의 `onboarding` 표식으로 찾는다(저장소 루트의 `docs/contract-pending.md` 5절).
+- 미결: 그림을 넣을지, 템플릿 수를 줄일지(서버 설계 3.10), 글의 검수(바뀐 47곳과 `CHANGES.md`의 "바꾸지 않았지만 검수할 때 볼 것"), 온보딩의 "Share cards on Channels" 카드처럼 이 제품에 없는 기능을 설명하는 카드를 둘지.
 
 ## 원본과 견준 것
 

@@ -4,8 +4,7 @@
 //! tasks. Every method that writes more than one statement runs in a transaction on both
 //! databases.
 //!
-//! The schema is this server's own: a list of migrations applied by sqlx's migrator. A
-//! database of the original server is refused.
+//! The schema is this server's own: a list of migrations applied by sqlx's migrator.
 
 mod blocks;
 mod boards;
@@ -164,9 +163,9 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, [`StoreError::Schema`]
-    /// if the database is not this server's to open (one of the original server, one
-    /// migrated by a newer server), and [`StoreError::Database`] if the database cannot
-    /// be reached.
+    /// if the database is not this server's to open (one with this server's tables but
+    /// no migration record, one migrated by a newer server), and [`StoreError::Database`]
+    /// if the database cannot be reached.
     pub async fn connect(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let store = Self::open(db_type, dbconfig).await?;
         schema::migrate(&store, None).await?;

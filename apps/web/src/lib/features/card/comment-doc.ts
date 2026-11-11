@@ -19,3 +19,23 @@ export function commentDoc(text: string): DocNode | null {
     .map((line): DocNode => ({ type: 'paragraph', content: [{ type: 'text', text: line }] }));
   return paragraphs.length === 0 ? null : { type: 'doc', content: paragraphs };
 }
+
+/**
+ * The text to edit a stored comment as, back in the plain comment field: a
+ * line per paragraph. Undefined for a comment that is more than paragraphs
+ * of plain text (it came from elsewhere): the field would lose the rest.
+ */
+export function commentText(doc: DocNode | null): string | undefined {
+  if (!doc) return undefined;
+  const lines: string[] = [];
+  for (const block of doc.content ?? []) {
+    if (block.type !== 'paragraph') return undefined;
+    let line = '';
+    for (const inline of block.content ?? []) {
+      if (inline.type !== 'text' || inline.marks?.length) return undefined;
+      line += inline.text ?? '';
+    }
+    lines.push(line);
+  }
+  return lines.join('\n');
+}

@@ -15,9 +15,10 @@
  *   store holds both (`conflict`) and the screen asks the reader which to
  *   keep.
  */
-import type { DocNode } from '../editor/schema.ts';
+import { validateDoc, type DocNode } from '../editor/schema.ts';
 
 import {
+  BackendError,
   isBackendError,
   isConflict,
   type Attachment,
@@ -28,7 +29,7 @@ import {
 import type { BoardStore } from './board.svelte.ts';
 import { byCreation } from './order.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
-import { take } from './write.ts';
+import { reread, take } from './write.ts';
 
 export interface BodyConflict {
   /** What the reader wrote. */
@@ -36,6 +37,9 @@ export interface BodyConflict {
   /** The card as it is stored now. */
   theirs: CardDetail;
 }
+
+/** How a change of a comment ended: stored, refused for a newer version, or failed (and told). */
+export type CommentEdit = 'saved' | 'conflict' | 'failed';
 
 export interface Upload {
   id: number;
@@ -47,6 +51,9 @@ export interface Upload {
   cancel: () => void;
 }
 
+/** How many times a body is sent on a newer version when only something else of the card changed. */
+const MAX_TRIES = 4;
+
 const sameDoc = (first: DocNode | null, second: DocNode | null): boolean =>
   JSON.stringify(first) === JSON.stringify(second);
 
@@ -55,6 +62,8 @@ export class CardStore {
   readonly cardId: string;
 
   status = $state<LoadStatus>('idle');
+  /** Readings again (`refresh`) begun: the latest is the one that counts. */
+  #refreshing = 0;
   /** The card is gone (deleted here or by somebody else), or never was. */
   missing = $state(false);
   /** The body as it is stored, as far as this store knows. */
@@ -124,11 +133,13 @@ export class CardStore {
   close(): void {
     this.#closed = true;
     for (const upload of this.uploads) upload.cancel();
+    for (const upload of this.#imageUploads) upload.abort();
   }
 
   #takeDetail(detail: CardDetail): void {
     const { body, ...summary } = detail;
     this.#readAt = detail.updateAt;
+    this.missing = false;
     this.board.receiveCard(summary);
     if (!sameDoc(body, this.body) || this.bodyRevision === 0) {
       this.body = body;
@@ -167,6 +178,7 @@ export class CardStore {
     this.#writing ??= this.#drain().finally(() => {
       this.#writing = undefined;
       this.saving = false;
+      this.#catchUp();
     });
     await this.#writing;
   }
@@ -176,7 +188,7 @@ export class CardStore {
       const { body } = this.#unsaved;
       this.#unsaved = undefined;
       try {
-        await this.#write(body, false);
+        await this.#write(body);
       } catch (error) {
         // Not stored: it stays unsaved, and the next `saveBody` sends it again.
         this.#unsaved ??= { body };
@@ -187,12 +199,19 @@ export class CardStore {
     this.dirty = this.#unsaved !== undefined || this.conflict !== undefined;
   }
 
-  async #write(body: DocNode | null, retried: boolean): Promise<void> {
+  async #write(body: DocNode | null, tries = 1): Promise<void> {
     // Always the version the body was read at, never a newer one the card
     // list has heard of: that one may carry somebody else's body. When the
-    // newer version is only the reader's own change of a property, the write
-    // is refused once and sent again below.
+    // newer version is only a change of something else (a property, the
+    // reader's own or not), the write is refused and sent again below, as
+    // long as the body stays what this store knows, a few times at most.
     const readAt = this.#readAt;
+    // A body the server would refuse is not sent (one with a mention that
+    // names nobody, as a body read anonymously has them).
+    const problems = body ? validateDoc(body) : [];
+    if (problems.length > 0) {
+      throw new BackendError(400, { message: problems[0], field: 'body' });
+    }
     try {
       const stored = await this.#backend.writeCardBody(this.#boardId, this.cardId, {
         body,
@@ -205,12 +224,12 @@ export class CardStore {
     } catch (error) {
       if (!isConflict(error)) throw error;
       const theirs = await this.#backend.card(this.#boardId, this.cardId);
-      if (!retried && sameDoc(theirs.body, this.body)) {
+      if (tries < MAX_TRIES && sameDoc(theirs.body, this.body)) {
         // Only something else about the card changed. Same body, new version: send again.
         const { body: _body, ...summary } = theirs;
         this.#readAt = theirs.updateAt;
         this.board.receiveCard(summary);
-        await this.#write(body, true);
+        await this.#write(body, tries + 1);
         return;
       }
       this.conflict = { mine: body, theirs };
@@ -234,6 +253,7 @@ export class CardStore {
       this.#unsaved = undefined;
       this.dirty = false;
       this.bodyRevision += 1;
+      this.#catchUp();
       return;
     }
     await this.saveBody(conflict.mine);
@@ -245,17 +265,45 @@ export class CardStore {
    * writing shows up while the card is open.
    */
   cardChanged(card: CardSummary): void {
-    if (card.id !== this.cardId || card.updateAt <= this.#readAt) return;
-    if (this.dirty || this.saving || this.#closed) return;
+    // A card that was deleted and is back (restored) is read again whatever its time.
+    const back = this.missing;
+    if (card.id !== this.cardId || (!back && card.updateAt <= this.#readAt)) return;
+    if (this.#busy()) {
+      this.#news = card;
+      return;
+    }
     void this.#backend
       .card(this.#boardId, this.cardId)
       .then((detail) => {
-        if (this.dirty || this.saving || this.#closed || detail.updateAt <= this.#readAt) return;
+        if (this.#busy()) {
+          this.#news = card;
+          return;
+        }
+        if (!back && detail.updateAt <= this.#readAt) return;
         this.#takeDetail(detail);
       })
       .catch(() => {
         // The next change, or the next write, will tell.
       });
+  }
+
+  /**
+   * The latest news of the card heard while the body could not be read again
+   * (`#busy`): it is read once the store is idle again (`#catchUp`), so that
+   * somebody else's writing is not missed until the reader next types.
+   */
+  #news: CardSummary | undefined;
+
+  /** The reader's body is unsaved or on its way, or an image is going up for it. */
+  #busy(): boolean {
+    return this.dirty || this.saving || this.#closed || this.#imageUploads.length > 0;
+  }
+
+  #catchUp(): void {
+    const news = this.#news;
+    if (!news || this.#busy()) return;
+    this.#news = undefined;
+    this.cardChanged(news);
   }
 
   // ------------------------------------------- comments and attachments
@@ -265,6 +313,39 @@ export class CardStore {
     if (block.parentId !== this.cardId) return;
     if (block.type === 'comment') this.#comments = take(this.#comments, block);
     else this.#attachments = take(this.#attachments, block);
+  }
+
+  /**
+   * Reads the comments and attachments again, after changes may have been
+   * missed (the board's `resync`), merged with what is shown. The body is
+   * the board's to read again (`cardChanged`), which minds what the reader
+   * has not saved. A card that is gone is missing.
+   */
+  async refresh(): Promise<void> {
+    if (this.status !== 'ready' || this.#closed) return;
+    this.#refreshing += 1;
+    const reading = this.#refreshing;
+    const commentsBefore = this.#comments.map((comment) => comment.id);
+    const attachmentsBefore = this.#attachments.map((attachment) => attachment.id);
+    try {
+      const [comments, attachments] = await Promise.all([
+        this.#backend.comments(this.#boardId, this.cardId),
+        this.#backend.attachments(this.#boardId, this.cardId),
+      ]);
+      // Closed meanwhile, or a later reading has begun (asked again: the
+      // check above was before the wait, which TypeScript does not see).
+      if (this.#isClosed() || reading !== this.#refreshing) return;
+      this.#comments = reread(this.#comments, comments, commentsBefore);
+      this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
+    } catch (error) {
+      if (this.#isClosed() || reading !== this.#refreshing) return;
+      if (isBackendError(error) && error.status === 404) this.missing = true;
+      // Otherwise the next change, or the next opening, brings them.
+    }
+  }
+
+  #isClosed(): boolean {
+    return this.#closed;
   }
 
   /** Blocks were deleted; they may be this card or things of it. */
@@ -282,6 +363,31 @@ export class CardStore {
       this.board.workspace.report('save', error);
       return false;
     }
+  }
+
+  /**
+   * Changes the text of a comment, written over the version `readAt` (the
+   * one the reader began from). When somebody changed it since (409) nothing
+   * is overwritten: the comments are read again, so that the caller can show
+   * theirs, and the reader's text stays with the caller to be saved again.
+   */
+  async editComment(commentId: string, body: DocNode, readAt: number): Promise<CommentEdit> {
+    try {
+      this.receive(await this.#backend.patchComment(this.#boardId, commentId, { body, readAt }));
+      return 'saved';
+    } catch (error) {
+      if (!isConflict(error)) {
+        this.board.workspace.report('save', error);
+        return 'failed';
+      }
+      await this.refresh();
+      return 'conflict';
+    }
+  }
+
+  /** A comment as this store has it now. */
+  comment(commentId: string): Comment | undefined {
+    return this.#comments.find((existing) => existing.id === commentId);
   }
 
   async #deleteChild(blockId: string, description: string): Promise<void> {
@@ -371,11 +477,47 @@ export class CardStore {
     }
   }
 
-  /** Uploads an image for the body and gives the identifier an image node names. */
+  /**
+   * Uploads an image for the body and gives the identifier an image node
+   * names. The editor shows its place meanwhile (not the list of uploads),
+   * and that place is no part of the body: so while an image goes up, the
+   * body is not replaced by somebody else's (`cardChanged`), which would take
+   * the place away and lose the image. A body written meanwhile meets the
+   * reader's when the image is in (409, then the reader chooses).
+   */
   async uploadImage(file: File): Promise<string> {
-    const uploaded = await this.#upload(file);
-    if (!uploaded) throw new Error('the image was not uploaded');
-    return uploaded.fileId;
+    const controller = new AbortController();
+    this.#imageUploads = [...this.#imageUploads, controller];
+    try {
+      const uploaded = await this.#backend.upload(this.#boardId, file, {
+        signal: controller.signal,
+      });
+      return uploaded.fileId;
+    } catch (error) {
+      if (!controller.signal.aborted) this.board.workspace.report('upload', error);
+      throw error;
+    } finally {
+      this.#imageUploads = this.#imageUploads.filter((other) => other !== controller);
+      this.#catchUp();
+    }
+  }
+
+  /** The uploads of images for the body under way. */
+  #imageUploads = $state.raw<AbortController[]>([]);
+
+  /** An image is going up for the body: closing the card now would give it up. */
+  get imagesGoingUp(): boolean {
+    return this.#imageUploads.length > 0;
+  }
+
+  /** The bytes of a file of this board; undefined (and told) when they could not be read. */
+  async fileBytes(fileId: string): Promise<Blob | undefined> {
+    try {
+      return await this.#backend.fileBytes(this.#boardId, fileId);
+    } catch (error) {
+      this.board.workspace.report('load', error);
+      return undefined;
+    }
   }
 
   /** Where the bytes of a file of this board are. */

@@ -1,5 +1,5 @@
 /**
- * The brightness is on the page before the app's script has run: a reader
+ * The theme is on the page before the app's script has run: a reader
  * who chose the dark screen never sees a light one first. The script at the
  * top of index.html does it from what the device remembers.
  */
@@ -26,13 +26,13 @@ async function remember(page: Page, settings: object): Promise<void> {
 }
 
 test('a remembered dark screen is dark before the app starts', async ({ page }) => {
-  await remember(page, { brightness: 'dark' });
+  await remember(page, { theme: 'dark' });
   expect(await beforeTheApp(page)).toMatchObject({ dark: true, scheme: 'dark', bar: '#0a0a0a' });
 });
 
 test('a remembered light screen stays light on a device set to dark', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
-  await remember(page, { brightness: 'light' });
+  await remember(page, { theme: 'light' });
   expect(await beforeTheApp(page)).toMatchObject({ dark: false, scheme: 'light', bar: '#ffffff' });
 });
 
@@ -67,7 +67,7 @@ test('once the app runs, the account decides, and what it says is remembered for
 }) => {
   // The account (kept between visits by the in-memory backend) says dark.
   await page.addInitScript(() => {
-    localStorage.setItem('fvoci:memory-settings', JSON.stringify({ brightness: 'dark' }));
+    localStorage.setItem('fvoci:memory-settings', JSON.stringify({ theme: 'dark' }));
   });
   await page.goto('/');
   await expect(page.getByTestId('app-shell')).toBeVisible();
@@ -76,7 +76,7 @@ test('once the app runs, the account decides, and what it says is remembered for
   expect(background).not.toBe('rgb(255, 255, 255)');
   // And the device now remembers it for the script that runs before the app.
   const remembered = await page.evaluate(() => localStorage.getItem('fvoci:display'));
-  expect(JSON.parse(remembered ?? '{}')).toMatchObject({ brightness: 'dark' });
+  expect(JSON.parse(remembered ?? '{}')).toMatchObject({ theme: 'dark' });
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0a0a0a');
 });
 
@@ -106,9 +106,9 @@ test('the page runs under a content security policy that allows its one inline s
   expect(violations).toHaveLength(1);
 });
 
-test('under the policy, the inline script still sets the brightness before the app', async ({
+test('under the policy, the inline script still sets the theme before the app', async ({
   page,
 }) => {
-  await remember(page, { brightness: 'dark' });
+  await remember(page, { theme: 'dark' });
   expect(await beforeTheApp(page)).toMatchObject({ dark: true, bar: '#0a0a0a' });
 });

@@ -7,6 +7,8 @@
   `view-header`, the views (`kanban`, `table`, `gallery`), and `card`.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+
   import CardDialog from '$lib/features/card/CardDialog.svelte';
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
   import Gallery from '$lib/features/views/gallery/Gallery.svelte';
@@ -15,6 +17,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
   import type { Workspace } from '$lib/state/index.ts';
+  import { Button } from '$lib/ui/button/index.js';
 
   import type { Router } from './router.svelte.ts';
 
@@ -30,6 +33,15 @@
     workspace.board?.boardId === router.route.boardId ? workspace.board : undefined,
   );
   const view = $derived(board?.view(router.route.viewId));
+
+  let page = $state<HTMLElement>();
+
+  /** Joins the open board shown, then puts the focus on the board, where the button was. */
+  async function join(): Promise<void> {
+    if (!board || !(await board.join())) return;
+    await tick();
+    page?.focus();
+  }
 
   // An address without a view, or with one that is gone, shows the first view.
   $effect(() => {
@@ -82,12 +94,33 @@
       <p class="mt-1 text-muted-foreground">{m.app_board_not_found_hint()}</p>
     </div>
   </div>
+{:else if board.joinable && board.board}
+  <div class="grid h-full place-items-center p-6 text-center" data-testid="board-join">
+    <div class="flex max-w-md flex-col items-center gap-3">
+      <h2 class="text-lg font-medium">
+        {board.board.icon ? `${board.board.icon} ` : ''}{board.board.title ||
+          m['Sidebar.untitled-board']()}
+      </h2>
+      {#if board.board.description}
+        <p class="whitespace-pre-wrap text-muted-foreground">{board.board.description}</p>
+      {/if}
+      <p class="text-muted-foreground">{m.app_board_join_hint()}</p>
+      <Button aria-disabled={board.joining} aria-busy={board.joining} onclick={() => void join()}
+        >{m.app_board_join()}</Button
+      >
+    </div>
+  </div>
 {:else if board.status === 'failed'}
   <div class="grid h-full place-items-center p-6 text-center">
     <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
   </div>
 {:else if view}
-  <div class="relative flex h-full min-h-0 flex-col" data-testid="board-page">
+  <div
+    bind:this={page}
+    class="relative flex h-full min-h-0 flex-col outline-none"
+    tabindex="-1"
+    data-testid="board-page"
+  >
     <ViewHeader
       {board}
       {view}

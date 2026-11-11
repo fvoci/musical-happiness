@@ -7,14 +7,6 @@ playwright-report/
 src/lib/i18n/paraglide/
 src/styles/fonts/
 
-# Written by tools/i18n/convert.ts, which decides their formatting. `check`
-# fails when they are not what that tool writes.
-messages/
-
-# Written by tools/templates/convert.ts --write; a test fails when they are stale.
-tools/templates/output/*.json
-tools/templates/output/CHANGES.md
-
 # Code emitted by the shadcn-svelte CLI keeps the generator's formatting, so that
 # a regenerated file can be compared with the one here. See src/lib/ui/README.md.
 src/lib/ui/**/*.svelte
@@ -22,3 +14,6 @@ src/lib/ui/**/*.ts
 src/lib/hooks/
 src/lib/utils.ts
 components.json
+
+# Made from contracts/openapi.json by `pnpm run api:types`; `check` fails when it is stale.
+src/lib/api/contract.ts

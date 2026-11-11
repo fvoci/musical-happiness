@@ -3,11 +3,13 @@
  * is taken back when it is refused, undo takes it back on purpose, and what
  * other people do arrives by itself.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { BackendError } from '$lib/state/index.ts';
+import type { ChangeListener } from '$lib/state/backend.ts';
 import { droppedCardOrder, placeAmongAll } from '$lib/state/card-order.ts';
 import { sidebarOf } from '$lib/state/order.ts';
+import { reread } from '$lib/state/write.ts';
 
 import { loadTemplates, openFirstBoard, settle, setup, STATUS } from './support.ts';
 
@@ -81,10 +83,10 @@ describe('the workspace', () => {
   it('applies a setting at once and takes it back when the server refuses it', async () => {
     const { workspace, backend } = setup();
     await workspace.load();
-    const changing = workspace.changeSettings({ brightness: 'dark' });
-    expect(workspace.settings.brightness).toBe('dark');
+    const changing = workspace.changeSettings({ theme: 'dark' });
+    expect(workspace.settings.theme).toBe('dark');
     await changing;
-    expect(workspace.settings.brightness).toBe('dark');
+    expect(workspace.settings.theme).toBe('dark');
 
     backend.failNext('patchSettings', new BackendError(400, { field: 'timeZone' }));
     const failing = workspace.changeSettings({ timeZone: 'Asia/Seoul' });
@@ -95,6 +97,58 @@ describe('the workspace', () => {
       action: 'save',
       error: { field: 'timeZone' },
     });
+  });
+
+  it('is signed out, with nothing to tell, when the backend says the session is over', async () => {
+    const { workspace, backend } = setup();
+    backend.failNext('me', new BackendError(401, { message: 'no session' }));
+    await workspace.load();
+    expect(workspace.status).toBe('signedOut');
+    expect(workspace.problems).toEqual([]);
+
+    await workspace.load();
+    expect(workspace.status).toBe('ready');
+    backend.failNext('patchSettings', new BackendError(401, { message: 'session over' }));
+    await workspace.changeSettings({ theme: 'dark' });
+    expect(workspace.status).toBe('signedOut');
+    expect(workspace.problems).toEqual([]);
+  });
+
+  it('stops listening when the session is over, and listens again once read afresh', async () => {
+    const { workspace, backend } = setup();
+    const stopped = vi.fn();
+    const listen = backend.watchSelf.bind(backend);
+    const watchSelf = vi.spyOn(backend, 'watchSelf').mockImplementation((listener) => {
+      const stop = listen(listener);
+      return () => {
+        stopped();
+        stop();
+      };
+    });
+    await workspace.load();
+    const first = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const board = await workspace.openBoard(first.id);
+    const stopBoard = vi.spyOn(board, 'close');
+
+    workspace.report('save', new BackendError(401, { message: 'session over' }));
+    expect(workspace.status).toBe('signedOut');
+    expect(stopped).toHaveBeenCalledOnce();
+    expect(stopBoard).toHaveBeenCalled();
+    expect(workspace.board).toBeUndefined();
+
+    await workspace.load();
+    expect(workspace.status).toBe('ready');
+    expect(watchSelf).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the names of people the list of the team did not bring, once', async () => {
+    const { workspace } = setup();
+    await workspace.load();
+    const everyone = workspace.users.map((user) => user.id);
+    workspace.users = workspace.users.slice(0, 1);
+    await workspace.learnUsers([...everyone, ...everyone]);
+    expect(workspace.users.map((user) => user.id).sort()).toEqual([...everyone].sort());
   });
 
   it('files a board under another category and keeps the order the reader gave', async () => {
@@ -478,5 +532,139 @@ describe('what other people do', () => {
     await other.patchCard(board.boardId, beta?.id ?? '', { title: 'unseen' });
     await settle();
     expect(board.card(beta?.id)?.title).toBe('Beta');
+  });
+});
+
+describe('reading again after changes may have been missed', () => {
+  it('takes what was missed into an open board, and keeps it on screen meanwhile', async () => {
+    const made = setup();
+    const listeners: ChangeListener[] = [];
+    const watch = made.backend.watchBoard.bind(made.backend);
+    vi.spyOn(made.backend, 'watchBoard').mockImplementation((boardId, listener) => {
+      listeners.push(listener);
+      return watch(boardId, listener);
+    });
+    const { world, board } = await openFirstBoard(made);
+    const card = board.cards.find((each) => each.title === 'Alpha');
+    const gone = board.cards.find((each) => each.title === 'Gamma');
+    if (!card || !gone) throw new Error('the seed changed');
+
+    // Changed and deleted behind the store's back: no message came.
+    world.blocks.set(card.id, {
+      ...world.blocks.get(card.id),
+      title: 'Changed while away',
+      updateAt: card.updateAt + 1000,
+    } as never);
+    world.blocks.delete(gone.id);
+    for (const listener of listeners) listener({ kind: 'resync' });
+    expect(board.status).toBe('ready');
+    await settle();
+    await vi.waitFor(() => {
+      expect(board.card(card.id)?.title).toBe('Changed while away');
+    });
+    expect(board.card(gone.id)).toBeUndefined();
+  });
+});
+
+describe('a list read again', () => {
+  const item = (id: string, updateAt: number) => ({ id, updateAt });
+
+  it('takes what was read, keeps what is newer on screen or held by a write, and what came meanwhile', () => {
+    // 'e' was shown, then deleted while the list was read: the older reading still has it.
+    const shown = [item('a', 5), item('b', 1), item('c', 1), item('d', 1), item('new', 1)];
+    const before = ['a', 'b', 'c', 'd', 'e'];
+    const read = [item('a', 3), item('b', 2), item('c', 2), item('e', 1)];
+    const next = reread(shown, read, before, (one) => one.id !== 'c');
+    expect(next).toEqual([item('a', 5), item('b', 2), item('c', 1), item('new', 1)]);
+  });
+});
+
+describe('an open board the reader is no member of', () => {
+  it('is shown to join, not opened, and opens once joined', async () => {
+    const made = setup();
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const stored = made.world.boards.get(first.id);
+    if (!stored) throw new Error('no stored board');
+    made.world.boards.set(first.id, { ...stored, type: 'O' });
+    const readerId = (await made.backend.me()).id;
+    made.world.members.set(
+      first.id,
+      (made.world.members.get(first.id) ?? []).filter((member) => member.userId !== readerId),
+    );
+    // As the server answers a team member who is no member of an open board.
+    made.backend.failNext('views', new BackendError(403));
+
+    const board = await made.workspace.openBoard(first.id);
+    expect(board.joinable).toBe(true);
+    expect(board.missing).toBe(false);
+    expect(board.board?.title).toBe(stored.title);
+    expect(made.workspace.problems).toHaveLength(0);
+
+    expect(await board.join()).toBe(true);
+    expect(board.joinable).toBe(false);
+    expect(board.status).toBe('ready');
+    expect(board.members.some((member) => member.userId === readerId)).toBe(true);
+  });
+
+  it('is shown to join again when the reader is taken off it while it is open', async () => {
+    const made = setup();
+    const listeners: ChangeListener[] = [];
+    const watch = made.backend.watchBoard.bind(made.backend);
+    vi.spyOn(made.backend, 'watchBoard').mockImplementation((boardId, listener) => {
+      listeners.push(listener);
+      return watch(boardId, listener);
+    });
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const stored = made.world.boards.get(first.id);
+    if (!stored) throw new Error('no stored board');
+    made.world.boards.set(first.id, { ...stored, type: 'O' });
+    const board = await made.workspace.openBoard(first.id);
+    expect(board.status).toBe('ready');
+
+    // Taken off it: the members read on the message are refused (the live
+    // connection tells that as the board gone), and so are its views.
+    made.backend.failNext('views', new BackendError(403));
+    // Over a copy, as the live connection tells: reading again listens again.
+    for (const listener of [...listeners]) listener({ kind: 'boardDeleted', boardId: first.id });
+    await vi.waitFor(() => {
+      expect(board.joinable).toBe(true);
+    });
+    expect(board.missing).toBe(false);
+  });
+
+  it('is gone when joining finds it no longer open, and is not read once left', async () => {
+    const made = setup();
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const board = await made.workspace.openBoard(first.id);
+    board.joinable = true;
+    made.backend.failNext('joinBoard', new BackendError(404));
+    expect(await board.join()).toBe(false);
+    expect(board).toMatchObject({ joinable: false, missing: true, joining: false });
+
+    const again = await made.workspace.openBoard(first.id);
+    const load = vi.spyOn(again, 'load');
+    made.backend.latency = 5;
+    const joining = again.join();
+    again.close();
+    expect(await joining).toBe(false);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('is not offered to join when the board refused is a private one', async () => {
+    const made = setup();
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    made.backend.failNext('views', new BackendError(403));
+    const board = await made.workspace.openBoard(first.id);
+    expect(board.joinable).toBe(false);
+    expect(board.status).toBe('failed');
+    expect(made.workspace.problems.at(-1)).toMatchObject({ action: 'load' });
   });
 });

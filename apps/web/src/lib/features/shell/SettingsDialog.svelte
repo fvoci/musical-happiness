@@ -3,7 +3,7 @@
   (`workspace.changeSettings`): it shows immediately and goes back, with a
   line telling so, if the server refuses it.
 
-  - Brightness, density, vibration: how the app looks and feels here.
+  - Theme, density, haptics: how the app looks and feels here.
   - How a card opens: only the dialog in the middle is built. The other two
     answers are shown, so that the place is known, and cannot be chosen.
   - Time zone, first day of the week, way of writing hours: `Automatic`
@@ -12,6 +12,7 @@
     the chosen one. The list and the function that changes it come from the
     app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
+  - Who is signed in, and signing out: only where the backend has accounts.
 
   A dialog in the middle of the page; on a compact page it fills the screen,
   clear of the edges the device keeps. The back button closes it.
@@ -24,11 +25,11 @@
   import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import {
-    BRIGHTNESS_SETTINGS,
+    THEME_SETTINGS,
     CARD_OPEN_BUILT,
     CARD_OPEN_SETTINGS,
     DENSITY_SETTINGS,
-    type BrightnessSetting,
+    type ThemeSetting,
     type CardOpenSetting,
     type DensitySetting,
   } from '$lib/logic/display.ts';
@@ -40,6 +41,7 @@
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
   import type { Workspace } from '$lib/state/index.ts';
+  import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
@@ -63,9 +65,18 @@
     locale?: string;
     /** Changes the language; the page is loaded again in it. */
     onChooseLocale?: (locale: string) => void;
+    /** Signs the reader out. Without it there is no account to leave (the backend in memory). */
+    onSignOut?: () => void;
   }
 
-  let { open = $bindable(), workspace, locales = [], locale, onChooseLocale }: Props = $props();
+  let {
+    open = $bindable(),
+    workspace,
+    locales = [],
+    locale,
+    onChooseLocale,
+    onSignOut,
+  }: Props = $props();
 
   closeOnBack(
     () => open,
@@ -77,10 +88,10 @@
   const settings = $derived(workspace.settings);
   const compact = $derived(page.stage === 'compact');
 
-  const BRIGHTNESS_LABELS: Record<BrightnessSetting, () => string> = {
+  const THEME_LABELS: Record<ThemeSetting, () => string> = {
     auto: m.shell_settings_auto,
-    light: m.shell_settings_brightness_light,
-    dark: m.shell_settings_brightness_dark,
+    light: m.shell_settings_theme_light,
+    dark: m.shell_settings_theme_dark,
   };
   const CARD_OPEN_LABELS: Record<CardOpenSetting, () => string> = {
     center: m.shell_settings_card_open_center,
@@ -170,11 +181,11 @@
 
     <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
       <SettingChoice
-        name="brightness"
-        label={m.shell_settings_brightness()}
-        value={settings.brightness}
-        options={BRIGHTNESS_SETTINGS.map((value) => ({ value, label: BRIGHTNESS_LABELS[value]() }))}
-        onChange={(brightness: BrightnessSetting) => void workspace.changeSettings({ brightness })}
+        name="theme"
+        label={m.shell_settings_theme()}
+        value={settings.theme}
+        options={THEME_SETTINGS.map((value) => ({ value, label: THEME_LABELS[value]() }))}
+        onChange={(theme: ThemeSetting) => void workspace.changeSettings({ theme })}
       />
       <SettingChoice
         name="density"
@@ -198,14 +209,14 @@
         })}
         onChange={(cardOpen: CardOpenSetting) => void workspace.changeSettings({ cardOpen })}
       />
-      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="vibration">
+      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="haptics">
         <span class="grid min-w-0 flex-1 gap-0.5">
-          <span class="font-medium">{m.shell_settings_vibration()}</span>
-          <span class="text-xs text-muted-foreground">{m.shell_settings_vibration_hint()}</span>
+          <span class="font-medium">{m.shell_settings_haptics()}</span>
+          <span class="text-xs text-muted-foreground">{m.shell_settings_haptics_hint()}</span>
         </span>
         <Switch
-          checked={settings.vibration}
-          onCheckedChange={(vibration: boolean) => void workspace.changeSettings({ vibration })}
+          checked={settings.haptics}
+          onCheckedChange={(haptics: boolean) => void workspace.changeSettings({ haptics })}
         />
       </label>
 
@@ -258,6 +269,17 @@
           }}
         />
       </label>
+
+      {#if onSignOut}
+        <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
+          <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="signed-in-as">
+            {m.account_signed_in_as({ name: workspace.me?.username ?? '' })}
+          </span>
+          <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>
+            {m.account_sign_out()}
+          </Button>
+        </div>
+      {/if}
     </div>
   </Dialog.Content>
 </Dialog.Root>

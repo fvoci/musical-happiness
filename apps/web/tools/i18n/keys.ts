@@ -6,6 +6,9 @@
  * a message. The locales named as complete may not lack any key either.
  */
 
+/** The locales that have to have every key the base locale has. */
+export const COMPLETE_LOCALES = ['ko'];
+
 export interface KeyDifference {
   /** In the base locale, not in the other. */
   missing: string[];

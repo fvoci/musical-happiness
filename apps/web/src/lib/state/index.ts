@@ -9,6 +9,7 @@ export {
   BackendError,
   isBackendError,
   isConflict,
+  type Account,
   type AccountSettings,
   type AccountSettingsPatch,
   type Attachment,
@@ -22,13 +23,14 @@ export {
   type Change,
   type Comment,
   type ErrorKind,
+  type Registration,
   type Team,
   type UploadedFile,
   type User,
   type ViewDraft,
 } from './backend.ts';
 export { BoardStore, newUndoGroup, type CardDrop } from './board.svelte.ts';
-export { CardStore, type BodyConflict, type Upload } from './card.svelte.ts';
+export { CardStore, type BodyConflict, type CommentEdit, type Upload } from './card.svelte.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export {
   Workspace,

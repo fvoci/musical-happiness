@@ -1,6 +1,8 @@
 /**
  * The pictures of docs/mobile-proposal.md. Not a test: it writes PNG files
- * into docs/mobile/, and runs only when asked for.
+ * into `target/screens/spikes/mobile/` at the top of the repository (not
+ * committed; the pictures in docs/mobile/ stay as they are), and runs only
+ * when asked for.
  *
  *   FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop
  *
@@ -23,7 +25,7 @@ import { SCREENS, SIZES, addressOf, type ScreenId, type Variant } from './params
 import { DESKTOP, NOW, PAGE, settled } from './support.ts';
 
 const ENABLED = process.env.FVOCI_MOBILE_SHOTS === '1';
-const OUT = path.resolve(import.meta.dirname, '../../docs/mobile');
+const OUT = path.resolve(import.meta.dirname, '../../../../target/screens/spikes/mobile');
 
 type Size = keyof typeof SIZES;
 

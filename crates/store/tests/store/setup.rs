@@ -45,25 +45,6 @@ async fn refusal_of_a_database_with(prepare: &str) -> String {
 }
 
 #[tokio::test]
-async fn a_database_of_the_original_server_is_refused_with_the_reason() {
-    // The bookkeeping table of the original's migration engine: a fixed name on SQLite,
-    // the table prefix and `schema_migrations` on PostgreSQL.
-    let bookkeeping = match common::db_type() {
-        DbType::Sqlite => "db_migrations",
-        DbType::Postgres => "boards_schema_migrations",
-    };
-    let refusal = refusal_of_a_database_with(&format!(
-        "CREATE TABLE {bookkeeping} (version BIGINT NOT NULL PRIMARY KEY, name VARCHAR NOT NULL); \
-         CREATE TABLE blocks (id VARCHAR(36) PRIMARY KEY);"
-    ))
-    .await;
-    assert!(
-        refusal.contains("created by the original server"),
-        "the refusal says why: {refusal}"
-    );
-}
-
-#[tokio::test]
 async fn tables_without_a_migration_record_are_refused() {
     let refusal =
         refusal_of_a_database_with("CREATE TABLE blocks (id VARCHAR(36) PRIMARY KEY);").await;

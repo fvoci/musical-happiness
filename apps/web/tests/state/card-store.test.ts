@@ -2,7 +2,7 @@
  * An open card: its body is written whole with the version it was read at,
  * and a refused write never overwrites what somebody else wrote.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { BackendError } from '$lib/state/index.ts';
 
@@ -90,6 +90,42 @@ describe('an open card', () => {
     expect(stored.title).toBe('Alpha, renamed');
   });
 
+  it('keeps sending the body when something else changes again while it is sent again', async () => {
+    const { card, other, backend, board, cardId } = await openAlpha();
+    card.editBody(text('mine'));
+    await other.patchCard(board.boardId, cardId, { title: 'Renamed once' });
+    // Right after the store reads the card again, the title changes once more.
+    const read = backend.card.bind(backend);
+    let reads = 0;
+    vi.spyOn(backend, 'card').mockImplementation(async (...args) => {
+      const found = await read(...args);
+      reads += 1;
+      if (reads === 1) await other.patchCard(board.boardId, cardId, { title: 'Renamed twice' });
+      return found;
+    });
+    await card.saveBody();
+    expect(reads).toBe(2);
+    expect(card.conflict).toBeUndefined();
+    const stored = await read(board.boardId, cardId);
+    expect(stored).toMatchObject({ body: text('mine'), title: 'Renamed twice' });
+  });
+
+  it('does not send a body the server would refuse: a mention that names nobody', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    const write = vi.spyOn(backend, 'writeCardBody');
+    const anonymous = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'mention', attrs: { userId: '' } }] }],
+    };
+    await card.saveBody(anonymous);
+    expect(write).not.toHaveBeenCalled();
+    expect(card.dirty).toBe(true);
+    expect(workspace.problems.at(-1)).toMatchObject({
+      action: 'save',
+      error: { status: 400, field: 'body' },
+    });
+  });
+
   it('holds both sides when somebody else wrote the body, and overwrites nothing', async () => {
     const { card, other, backend, board, workspace, cardId } = await openAlpha();
     const theirs = await other.card(board.boardId, cardId);
@@ -170,6 +206,39 @@ describe('comments and attachments', () => {
     expect(card.comments).toHaveLength(4);
   });
 
+  it('changes the text of a comment from the version it was begun on, and refuses to write over a newer one', async () => {
+    const { card, other, board } = await openAlpha();
+    expect(await card.addComment(text('mine'))).toBe(true);
+    const mine = card.comments.at(-1);
+    if (!mine) throw new Error('no comment');
+    expect(await card.editComment(mine.id, text('mine, changed'), mine.updateAt)).toBe('saved');
+    expect(card.comment(mine.id)?.body).toEqual(text('mine, changed'));
+
+    // The reader begins on this version; somebody else changes it, and that is heard.
+    const begun = card.comment(mine.id)?.updateAt ?? 0;
+    await other.patchComment(board.boardId, mine.id, { body: text('theirs'), readAt: begun });
+    await settle();
+    expect(card.comment(mine.id)?.body).toEqual(text('theirs'));
+    // Saved on the version begun from: refused, theirs stays.
+    const refresh = vi.spyOn(card, 'refresh');
+    expect(await card.editComment(mine.id, text('again'), begun)).toBe('conflict');
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(card.comment(mine.id)?.body).toEqual(text('theirs'));
+    // On the version shown now it goes.
+    const now = card.comment(mine.id)?.updateAt ?? 0;
+    expect(await card.editComment(mine.id, text('again'), now)).toBe('saved');
+    expect(card.comment(mine.id)?.body).toEqual(text('again'));
+  });
+
+  it('tells a comment change that failed for another reason', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    const first = card.comments[0];
+    if (!first) throw new Error('no comment');
+    backend.failNext('patchComment', new BackendError(500));
+    expect(await card.editComment(first.id, text('x'), first.updateAt)).toBe('failed');
+    expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 500 } });
+  });
+
   it('uploads a file, shows its progress, and attaches it', async () => {
     const { card, backend } = await openAlpha();
     backend.latency = 2;
@@ -182,6 +251,59 @@ describe('comments and attachments', () => {
       'hello.txt',
     ]);
     expect(card.fileUrl(card.attachments[1]?.fileId ?? '')).toMatch(/^blob:/);
+  });
+
+  it('uploads an image for the body out of the list, and keeps the body while it goes up', async () => {
+    const { card, other, backend, board, cardId } = await openAlpha();
+    backend.latency = 5;
+    const uploading = card.uploadImage(new File(['png'], 'a.png', { type: 'image/png' }));
+    expect(card.uploads).toHaveLength(0);
+    // Somebody else writes the body meanwhile: it does not replace the one shown.
+    const theirs = await other.card(board.boardId, cardId);
+    await other.writeCardBody(board.boardId, cardId, {
+      body: text('theirs'),
+      readAt: theirs.updateAt,
+    });
+    await settle();
+    expect(card.body).toEqual(text('first body'));
+    expect(card.imagesGoingUp).toBe(true);
+    expect(await uploading).toMatch(/./);
+    // Once the image is in, what was heard meanwhile is read: the reader does not miss it.
+    expect(card.imagesGoingUp).toBe(false);
+    await vi.waitFor(() => {
+      expect(card.body).toEqual(text('theirs'));
+    });
+  });
+
+  it('reads the body somebody else wrote while a save of the reader was under way, once it ends', async () => {
+    const { card, other, backend, board, cardId } = await openAlpha();
+    const write = backend.writeCardBody.bind(backend);
+    // The reader's body is stored; somebody else writes after it, and that
+    // news comes before the answer to the reader's write.
+    vi.spyOn(backend, 'writeCardBody').mockImplementationOnce(async (...args) => {
+      const stored = await write(...args);
+      await other.writeCardBody(board.boardId, cardId, {
+        body: text('theirs'),
+        readAt: stored.updateAt,
+      });
+      await settle();
+      return stored;
+    });
+    await card.saveBody(text('mine'));
+    await vi.waitFor(() => {
+      expect(card.body).toEqual(text('theirs'));
+    });
+    expect(card.dirty).toBe(false);
+  });
+
+  it('gives up an image upload when the card is closed, telling nothing', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    backend.latency = 5;
+    const told = workspace.problems.length;
+    const uploading = card.uploadImage(new File(['png'], 'a.png', { type: 'image/png' }));
+    card.close();
+    await expect(uploading).rejects.toThrow();
+    expect(workspace.problems).toHaveLength(told);
   });
 
   it('keeps a failed upload in the list until it is dismissed, and drops one that was given up', async () => {
@@ -206,5 +328,65 @@ describe('comments and attachments', () => {
     await other.deleteBlock(board.boardId, cardId);
     await settle();
     expect(card.missing).toBe(true);
+  });
+});
+
+describe('deleted and brought back', () => {
+  it('an open card deleted by somebody else is missing, and is there again once restored', async () => {
+    const { card, other, board, cardId } = await openAlpha();
+    await other.deleteBlock(board.boardId, cardId);
+    await settle();
+    expect(card.missing).toBe(true);
+    await other.restoreBlock(board.boardId, cardId);
+    await settle();
+    await vi.waitFor(() => {
+      expect(card.missing).toBe(false);
+    });
+    expect(card.summary?.title).toBe('Alpha');
+  });
+
+  it('undo of a delete counts once the card is restored, even if reading it fails', async () => {
+    const { board, workspace, backend, cardId } = await openAlpha();
+    await board.deleteCards([cardId]);
+    vi.spyOn(backend, 'card').mockRejectedValueOnce(new BackendError(500, { message: 'down' }));
+    await workspace.undoLast();
+    expect(workspace.problems).toHaveLength(1);
+    // Not undone again: the next undo would restore it twice.
+    expect(workspace.undo.canUndo).toBe(false);
+    await settle();
+    expect(board.card(cardId)?.title).toBe('Alpha');
+  });
+
+  it('undo of a card made goes on when somebody else deleted it first', async () => {
+    const { board, workspace, other } = await openAlpha();
+    const made = await board.createCard({ title: 'Brief', fields: {} } as never);
+    if (!made) throw new Error('not made');
+    await other.deleteBlock(board.boardId, made.id);
+    await settle();
+    await workspace.undoLast();
+    expect(workspace.problems).toHaveLength(0);
+    expect(board.card(made.id)).toBeUndefined();
+  });
+});
+
+describe('who deletes a comment', () => {
+  it('an admin anyone’s, an editor their own, a commenter none', async () => {
+    const { board, workspace } = await openAlpha();
+    const me = workspace.me?.id ?? '';
+    const as = (
+      role: Partial<Record<'schemeAdmin' | 'schemeEditor' | 'schemeCommenter', boolean>>,
+    ) => {
+      board.members = board.members.map((member) =>
+        member.userId === me
+          ? { ...member, schemeAdmin: false, schemeEditor: false, schemeCommenter: false, ...role }
+          : member,
+      );
+    };
+    expect(board.role).toBe('admin');
+    expect(board.canDeleteComment('someone')).toBe(true);
+    as({ schemeEditor: true });
+    expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
+    as({ schemeCommenter: true });
+    expect(board.canDeleteComment(me)).toBe(false);
   });
 });

@@ -26,8 +26,15 @@ type Change = { add: { id: number; position: number; label: string } } | { remov
 
 const key = new PluginKey<DecorationSet>('imageUpload');
 
+/**
+ * The kinds of picture taken. The server serves every file as bytes of no
+ * kind (`application/octet-stream`, `nosniff`); a browser still draws these
+ * by what they are, but not an SVG, nor kinds it does not draw at all.
+ */
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif']);
+
 const imagesIn = (files: FileList | null | undefined): File[] =>
-  Array.from(files ?? []).filter((file) => file.type.startsWith('image/'));
+  Array.from(files ?? []).filter((file) => IMAGE_TYPES.has(file.type));
 
 export const ImageUpload = Extension.create<ImageUploadOptions>({
   name: 'imageUpload',
@@ -54,7 +61,9 @@ export const ImageUpload = Extension.create<ImageUploadOptions>({
           } satisfies Change),
         );
         options.onProgress(pending, false);
-        const finish = (fileId: string | undefined): void => {
+        const finish = (uploaded: string | undefined): void => {
+          // An editor locked meanwhile (a conflict to settle) takes nothing in.
+          const fileId = view.isDestroyed || view.editable ? uploaded : undefined;
           pending -= 1;
           options.onProgress(pending, fileId === undefined);
           if (view.isDestroyed) return;

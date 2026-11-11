@@ -65,12 +65,12 @@ export function setDisplaySettings(next: DisplaySettings): void {
 
 function apply(resolved: Display, settings: DisplaySettings): void {
   const root = document.documentElement;
-  applyTheme(settings.brightness === 'auto' ? 'system' : settings.brightness);
+  applyTheme(settings.theme === 'auto' ? 'system' : settings.theme);
   root.dataset.density = resolved.density;
-  root.style.colorScheme = resolved.brightness;
+  root.style.colorScheme = resolved.theme;
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', THEME_COLORS[resolved.brightness]);
+    ?.setAttribute('content', THEME_COLORS[resolved.theme]);
 }
 
 /** Starts keeping the root element in step with the settings. Returns the function that stops. */

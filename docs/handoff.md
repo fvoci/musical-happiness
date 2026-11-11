@@ -15,8 +15,8 @@
   | 서버 | `cargo xtask check`, `cargo xtask test` | 이 문서의 1절 |
   | 웹앱 | `pnpm install --frozen-lockfile` 뒤에 `pnpm --filter web run check`, `test`, `build`, `e2e` | `apps/web/PORTING.md`의 "검증 명령"과 "마지막 검증". `pnpm`을 놓는 법은 `apps/web/docs/handoff.md`의 "도구가 있는 곳" |
 
-- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브 없이 컴파일되고(템플릿은 저장소의 산출물이다), 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
-- **무시 규칙.** 저장소 루트의 `.gitignore`가 `target/`, `node_modules/`, 템플릿 아카이브를 무시한다. 웹앱의 빌드 산출물과 글꼴은 `apps/web/.gitignore`가 맡는다.
+- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브 없이 컴파일되고(템플릿은 `crates/server/assets/templates/`에 있다), 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
+- **무시 규칙.** 저장소 루트의 `.gitignore`가 `target/`, `node_modules/`를 무시한다. 웹앱의 빌드 산출물과 글꼴은 `apps/web/.gitignore`가 맡는다.
 - **컨테이너.** 필요할 때 만들고 그 일이 끝나면 닫는다. `cargo xtask test`가 PostgreSQL과 S3 컨테이너를 스스로 준비하고, 돌린 세션이 일을 마칠 때 멈춘다(2절). 웹앱의 검증은 컨테이너를 쓰지 않는다.
 
 ## 지금 상태
@@ -43,7 +43,7 @@
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
-- **내장 템플릿은 저장소 안에 있다.** 웹앱 변환기의 산출물(`apps/web/tools/templates/output/`) 가운데 `index.json`이 적은 템플릿 파일 13개를 서버 크레이트의 `assets/templates/`에 복사해 바이너리에 넣는다. 새 워크트리에서도 그대로 컴파일된다. 옛 아카이브는 더 쓰지 않는다. 산출물을 다시 만들면 그 파일들을 다시 복사한다. 두 쪽이 다르면 `templates::the_server_copy_of_the_templates_is_the_converter_output`이 실패한다. `index.json`은 복사하지 않는다(테스트가 변환기 쪽의 것을 읽는다. 그 안의 원본 아카이브 경로는 웹앱의 테스트가 고정한다).
+- **내장 템플릿은 `crates/server/assets/templates/` 한 곳에 있다.** 서버가 바이너리에 넣고 웹앱의 메모리 구현도 같은 파일을 읽는다. 글은 그 파일에서 고친다(그 폴더의 `README.md`). 새 워크트리에서도 그대로 컴파일된다. 변환기와 옛 아카이브는 더 없다.
 - **CI.** 이 저장소에는 워크플로 파일이 없다. 검증은 1절의 명령을 손으로 돌린다.
 
 ## 이 문서가 담는 것
@@ -238,7 +238,6 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 | `review-todo.md`, `review-final/todo.md` | 리뷰의 지적을 모은 목록. `PORTING.md` J절의 번호(M1, S1 등)가 앞의 것이다 | 지적의 원문을 볼 때 |
 
 - `research/raw/`에 든 것: 쿠키 규격 초안 6265bis, RFC 6455·7239, WHATWG WebSockets·Fetch, OWASP 문서 넷과 ASVS V7, NIST 800-63B, SQLite·PostgreSQL의 외래 키와 부분 색인, S3·R2의 멀티파트, Cloudflare와 CloudFront의 한도, tus, IETF 재개 업로드 초안, `chrono-tz`·`jiff`의 레지스트리 정보.
-- 보관 폴더로 옮기지 않은 것 가운데 다시 쓸 만한 것은 하나다. 내장 템플릿 아카이브를 푼 `tpl/`이고, 템플릿 산출물을 받을 때 대조하는 데 쓴다(설계 5.7). `python3 -m zipfile -e server/assets/templates.boardarchive target/s6/tpl`로 다시 만든다. 주인 없는 블록과 끊어진 참조를 센 스크립트는 남기지 않았다. 세는 법은 설계 문서 맨 끝 "원본과 견준 것"의 표에 적은 정의 그대로다.
 - 그 밖에 옮기지 않은 것은 지워도 되는 것들이다: 계약에서 `openapi-typescript`로 뽑아 본 타입(`7d/ts/api.d.ts`), 단계 앞의 스냅샷 사본(`golden-*`), 요청 크기를 재려고 임시로 고친 빌드(`fvoci-server-measure`, 설계 4.1), 작업 중의 사본(`final/`, `s4/`).
 
 ## 6. 다음 세션이 먼저 볼 것

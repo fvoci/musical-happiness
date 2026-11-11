@@ -58,6 +58,8 @@
     locale?: string;
     /** Changes the language; the page is loaded again in it. */
     onChooseLocale?: (locale: string) => void;
+    /** Signs the reader out. Without it (no accounts: the backend in memory) it is not offered. */
+    onSignOut?: () => void;
     /** The page: what is shown beside the sidebar. */
     children: Snippet;
   }
@@ -70,6 +72,7 @@
     locales,
     locale,
     onChooseLocale,
+    onSignOut,
     children,
   }: Props = $props();
 
@@ -288,7 +291,14 @@
   </main>
 </div>
 
-<SettingsDialog bind:open={settingsOpen} {workspace} {locales} {locale} {onChooseLocale} />
+<SettingsDialog
+  bind:open={settingsOpen}
+  {workspace}
+  {locales}
+  {locale}
+  {onChooseLocale}
+  {onSignOut}
+/>
 
 {#if devReadout.shown}
   <DevReadout />

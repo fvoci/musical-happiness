@@ -31,7 +31,7 @@ describe('the inline scripts of a page', () => {
     );
   });
 
-  it('finds exactly one in index.html: the one that sets the brightness before the first paint', () => {
+  it('finds exactly one in index.html: the one that sets the theme before the first paint', () => {
     const html = readFileSync(path.resolve(import.meta.dirname, '../../index.html'), 'utf8');
     const scripts = inlineScripts(html);
     expect(scripts).toHaveLength(1);
