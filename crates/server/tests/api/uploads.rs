@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fvoci_model::BoardType;
+use bytes::Bytes;
+use futures_util::StreamExt as _;
+use fvoci_model::{BoardMember, BoardType};
+use fvoci_server::auth::now_millis;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -376,5 +379,117 @@ async fn opening_an_upload_is_checked() {
         ),
         "{}",
         response.status
+    );
+}
+
+/// A user who may no longer upload to the board cannot complete the upload, and it is
+/// thrown away.
+#[tokio::test]
+async fn a_completion_without_the_permission_throws_the_upload_away() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let editor = ts.client2.me().await;
+    ts.client
+        .add_member(&BoardMember {
+            board_id: board.id.clone(),
+            user_id: editor.id.clone(),
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
+        .await
+        .check_ok();
+    let upload_id = opened(&ts.client2, &board.id, "a.txt", 3).await;
+    put_part(&ts.client2, &upload_id, 1, b"abc")
+        .await
+        .check_no_content();
+
+    ts.client
+        .delete(&format!("/boards/{}/members/{}", board.id, editor.id))
+        .await
+        .check_no_content();
+    let response = ts
+        .client2
+        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .await;
+    assert!(response.status.is_client_error(), "{}", response.status);
+    assert!(!parts_dir(&ts, &upload_id).exists(), "the parts are gone");
+    ts.client2
+        .get(&format!("/uploads/{upload_id}"))
+        .await
+        .check_not_found();
+}
+
+/// An upload that is closed, as it is while it is completed, takes no part, no
+/// abandonment and no second completion.
+#[tokio::test]
+async fn a_closed_upload_is_left_to_whoever_closed_it() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
+    put_part(&ts.client, &upload_id, 1, b"abc")
+        .await
+        .check_no_content();
+    assert!(
+        ts.app
+            .store()
+            .close_upload(&upload_id, now_millis())
+            .await
+            .expect("the upload is closed")
+    );
+
+    let conflicts = [
+        put_part(&ts.client, &upload_id, 1, b"abc").await,
+        ts.client.delete(&format!("/uploads/{upload_id}")).await,
+        ts.client
+            .post_empty(&format!("/uploads/{upload_id}/complete"))
+            .await,
+    ];
+    for response in conflicts {
+        assert_eq!(response.status, StatusCode::CONFLICT, "{}", response.text());
+    }
+    assert_eq!(
+        files_in(&parts_dir(&ts, &upload_id)),
+        ["1"],
+        "what is there is left to whoever closed the upload"
+    );
+}
+
+/// A part that is still coming in when the upload is closed is not kept: it would
+/// otherwise stay behind once the upload is gone.
+#[tokio::test]
+async fn a_part_that_ends_after_the_upload_closed_is_not_kept() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
+    let me = ts.client.me().await;
+    let (upload, _) = ts
+        .app
+        .upload(&upload_id, &me.id)
+        .await
+        .expect("the upload is there");
+
+    // The first byte comes in, then the upload is closed, then the rest comes.
+    let app = &ts.app;
+    let id = upload.id.as_str();
+    let chunks = futures_util::stream::iter([&b"a"[..], &b"bc"[..]])
+        .enumerate()
+        .then(|(index, chunk)| async move {
+            if index == 1 {
+                let closed = app.store().close_upload(id, now_millis()).await;
+                assert_eq!(closed.ok(), Some(true), "the upload is closed in between");
+            }
+            Ok::<_, std::io::Error>(Bytes::from_static(chunk))
+        });
+    let digest: [u8; 32] = Sha256::digest(b"abc").into();
+    let refused = ts
+        .app
+        .put_upload_part(&upload, 1, 3, &digest, Box::pin(chunks))
+        .await
+        .expect_err("the part is refused");
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    assert!(
+        !parts_dir(&ts, &upload_id).exists(),
+        "nothing is left of the part: {:?}",
+        files_in(&parts_dir(&ts, &upload_id))
     );
 }

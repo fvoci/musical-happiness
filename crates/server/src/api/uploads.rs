@@ -15,7 +15,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId};
+use super::contract::params::{BoardId, ContentDigest, ContentLength, PartNumber, UploadId};
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
@@ -61,7 +61,7 @@ struct UploadOpened {
     /// How many parts the file comes in, numbered from 1: none for an empty file.
     part_count: i64,
     /// When the upload ends, in milliseconds since the Unix epoch: 24 hours after it was
-    /// opened. An upload that has ended is 404, and its parts are gone.
+    /// opened. An upload that has ended is 404.
     expires_at: i64,
 }
 
@@ -218,15 +218,17 @@ async fn handle_get_upload(
 ///
 /// Sends part `partNumber` of the upload as the body, `application/octet-stream`.
 /// `Content-Length` is required and must be the part's size: `partSize`, or the rest
-/// for the last part. `Content-Digest` carries the part's SHA-256. A part whose length
-/// or digest differs is 400 and is not kept; a part sent again replaces the one
-/// received. An upload that is being completed is 409.
+/// for the last part; another length is refused with 400 before the body is looked at
+/// (what is sent of it is read and thrown away, so that the client reads the answer).
+/// `Content-Digest` carries the part's SHA-256. A part whose length or digest differs
+/// is 400 and is not kept; a part sent again replaces the one received. An upload that
+/// is being completed or abandoned is 409.
 #[utoipa::path(
     put,
     path = "/uploads/{uploadId}/parts/{partNumber}",
     operation_id = "putUploadPart",
     tag = tag::FILES,
-    params(UploadId, PartNumber, ContentDigest),
+    params(UploadId, PartNumber, ContentLength, ContentDigest),
     request_body(content = inline(Binary), content_type = "application/octet-stream"),
     responses((status = 204, description = "The part is received.")),
 )]
@@ -264,7 +266,8 @@ async fn handle_put_upload_part(
 /// Makes the file of the upload from its parts and ends the upload. Every part must
 /// have been received; a part missing is 400, and the upload stays open for it. The
 /// answer is the one of `uploadFile`. For editors of the board, at completion as when
-/// the upload was opened.
+/// the upload was opened: a user who may not upload to the board any more is refused,
+/// and the upload is thrown away. An upload that is being completed is 409.
 #[utoipa::path(
     post,
     path = "/uploads/{uploadId}/complete",
@@ -280,21 +283,30 @@ async fn handle_complete_upload(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let (upload, _) = app.upload(&upload_id, user_id).await?;
-    require_board_permission(
+    if let Err(refusal) = require_board_permission(
         &app,
         user_id,
         &upload.board_id,
         BoardPermission::ManageBoardCards,
         DENIAL,
     )
-    .await?;
+    .await
+    {
+        // The user left the board, or it is gone: the upload cannot be completed any
+        // more, and is thrown away (design 5.6, 2).
+        if refusal.status().is_client_error() {
+            app.discard_upload(&upload).await;
+        }
+        return Err(refusal);
+    }
     let file_id = app.complete_upload(&upload).await?;
     Ok(created(&UploadedFile { file_id }))
 }
 
 /// Abandon an upload
 ///
-/// Ends the upload and throws its parts away.
+/// Ends the upload and throws its parts away. An upload that is being completed is
+/// 409.
 #[utoipa::path(
     delete,
     path = "/uploads/{uploadId}",
@@ -309,7 +321,7 @@ async fn handle_delete_upload(
     Path(upload_id): Path<String>,
 ) -> ApiResult {
     let (upload, _) = app.upload(&upload_id, &session.user_id).await?;
-    app.discard_upload(&upload).await;
+    app.abandon_upload(&upload).await?;
     Ok(no_content())
 }
 

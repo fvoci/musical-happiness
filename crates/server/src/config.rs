@@ -410,6 +410,9 @@ const DEFAULT_UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
 /// The smallest part an S3 multipart upload takes, and so the smallest part size.
 pub const MIN_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024;
 
+/// The largest part an S3 multipart upload takes, and so the largest part size.
+pub const MAX_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+
 /// Keys of the original server's configuration that this server no longer has, each with
 /// what to do instead. A file or an environment that sets one to something is refused:
 /// a server that silently ignored it would run differently from what its operator wrote.
@@ -573,9 +576,12 @@ impl Configuration {
         if self.trash_retention_days == 0 {
             bail!("trash_retention_days must be at least 1");
         }
-        // An S3 multipart upload takes no smaller part but the last.
-        if self.upload_part_bytes < MIN_UPLOAD_PART_BYTES {
-            bail!("upload_part_bytes must be at least {MIN_UPLOAD_PART_BYTES} (5 MiB)");
+        // An S3 multipart upload takes no smaller part but the last, and none larger.
+        if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
+            bail!(
+                "upload_part_bytes must be {MIN_UPLOAD_PART_BYTES} (5 MiB) to \
+                 {MAX_UPLOAD_PART_BYTES} (5 GiB)"
+            );
         }
         if !self.prometheus_address.is_empty() {
             bail!("prometheusaddress is set, but this server has no metrics endpoint");
@@ -889,6 +895,7 @@ mod tests {
         assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
         assert!(error(r#"{"trash_retention_days": 0}"#).contains("trash_retention_days"));
         assert!(error(r#"{"upload_part_bytes": 5242879}"#).contains("upload_part_bytes"));
+        assert!(error(r#"{"upload_part_bytes": 5368709121}"#).contains("upload_part_bytes"));
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(

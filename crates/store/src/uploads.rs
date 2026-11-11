@@ -116,16 +116,17 @@ impl Store {
             if scope.fetch_optional(sql).await?.is_none() {
                 return Ok(false);
             }
-            let mut sql = scope.sql("DELETE FROM upload_parts WHERE upload_id = ");
-            sql.bind(upload_id).push_bind(" AND number = ", part.number);
-            scope.execute(sql).await?;
+            // Two requests for one number at once both get here; the later one wins.
             let mut sql =
                 scope.sql("INSERT INTO upload_parts (upload_id, number, size, part_id) VALUES (");
             sql.bind(upload_id)
                 .push_bind(", ", part.number)
                 .push_bind(", ", part.size)
                 .push_bind(", ", &part.part_id)
-                .push(")");
+                .push(
+                    ") ON CONFLICT (upload_id, number) DO UPDATE \
+                     SET size = EXCLUDED.size, part_id = EXCLUDED.part_id",
+                );
             scope.execute(sql).await?;
             Ok(true)
         })

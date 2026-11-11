@@ -55,7 +55,7 @@
 |---|---|---|---|---|
 | `filesdriver` | `FVOCI_FILESDRIVER` | 문자열 | `"local"` | `local`(디스크) 또는 `amazons3`(S3와 S3 호환 저장소). 그 밖의 값이면 시작하지 않는다 |
 | `filespath` | `FVOCI_FILESPATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리 |
-| `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(바이트) | `0` | 올릴 수 있는 파일의 가장 큰 크기. 0 이하면 한도가 없다 |
+| `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(바이트) | `0` | 올릴 수 있는 파일의 가장 큰 크기. 0 이하면 요청 하나로 올리는 파일(`uploadFile`)에는 한도가 없고, 청크로 올리는 파일(`createUpload`)은 `upload_part_bytes` × 10,000까지다 |
 | `filess3config.accesskeyid` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `filess3config.secretaccesskey` | — | 문자열 | `""` | 비밀 키. `accesskeyid`가 있을 때만 쓴다. 로그에 남기지 않는다 |
 | `filess3config.bucket` | — | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다 |
@@ -126,7 +126,7 @@ AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… fvoci-server --config config.jso
 |---|---|---|---|---|
 | `max_request_bytes` | `FVOCI_MAX_REQUEST_BYTES` | 정수(1 이상, 바이트) | `4194304` | JSON을 받는 API 요청 본문의 가장 큰 크기(4 MiB). 넘으면 413. 파일 올리기(`maxfilesize`)와 아카이브 가져오기에는 쓰지 않는다. 세션 없는 요청(64 KiB)과 WebSocket 메시지(64 KiB)의 한도는 설정이 아니다 |
 | `trash_retention_days` | `FVOCI_TRASH_RETENTION_DAYS` | 정수(1 이상) | `30` | 지운 보드와 블록이 휴지통에 남아 되살릴 수 있는 날. 지나면 영구히 지운다. 어느 블록도(휴지통의 것까지) 가리키지 않는 파일도 그렇게 된 지 이만큼 지나면 지운다 |
-| `upload_part_bytes` | `FVOCI_UPLOAD_PART_BYTES` | 정수(5242880 이상, 바이트) | `8388608` | 청크로 올릴 때(`createUpload`) 마지막을 뺀 부분 하나의 크기(8 MiB). S3 멀티파트가 받는 가장 작은 부분이 5 MiB라서 그보다 작으면 시작하지 않는다 |
+| `upload_part_bytes` | `FVOCI_UPLOAD_PART_BYTES` | 정수(5242880–5368709120, 바이트) | `8388608` | 청크로 올릴 때(`createUpload`) 마지막을 뺀 부분 하나의 크기(8 MiB). S3 멀티파트가 받는 부분이 5 MiB에서 5 GiB라서 그 밖이면 시작하지 않는다. 서버 앞의 프록시가 받는 요청 본문보다 작아야 한다(Cloudflare의 Free와 Pro는 100 MB) |
 | `tmp_path` | `FVOCI_TMP_PATH` | 문자열 | `""` | 서버의 임시 파일을 두는 디렉터리. 지금은 끝나지 않은 업로드의 부분(`uploads/<uploadId>/`)을 둔다. 비우면 `filespath` 아래 `.tmp`다. 시스템의 임시 디렉터리는 메모리에 있을 수 있어 쓰지 않는다 |
 
 ## 키: 공유와 보이는 것

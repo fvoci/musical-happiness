@@ -6,7 +6,11 @@ CREATE TABLE uploads (
     -- request is checked against the user too.
     id TEXT NOT NULL PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    board_id TEXT NOT NULL REFERENCES boards (id) ON DELETE CASCADE,
+    -- No foreign key: a board that is purged from the trash would take the row with it,
+    -- and with the row what the clean-up needs to throw the parts away (the directory, the
+    -- object store's upload). A session of a board that is gone is refused at completion
+    -- and thrown away then, or when it expires.
+    board_id TEXT NOT NULL,
     -- The name of the file as the client gave it.
     name TEXT NOT NULL,
     -- The size of the file in bytes, as declared when the session was opened.

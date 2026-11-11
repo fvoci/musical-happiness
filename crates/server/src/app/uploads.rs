@@ -198,7 +198,17 @@ impl App {
                 },
             )
             .await?;
-        if recorded { Ok(()) } else { Err(closed()) }
+        if recorded {
+            return Ok(());
+        }
+        // The session was closed while the part came in, and whoever closed it owns what
+        // is left of the directory or has moved it away: this part must not stay behind.
+        remove_quietly(&part).await;
+        if let Err(error) = fs::remove_dir(&directory).await {
+            // Not empty: another part's request is in the same position, and removes it.
+            tracing::debug!(%error, "the directory of a closed upload is left to its last part");
+        }
+        Err(closed())
     }
 
     /// Completes an upload: checks that every part is there, makes the file of the
@@ -212,6 +222,31 @@ impl App {
     /// as it is; a conflict if the session is being completed or thrown away already;
     /// and a server error if the file cannot be made, with the session thrown away.
     pub async fn complete_upload(&self, upload: &Upload) -> Result<String, AppError> {
+        let parts = self.check_parts(upload).await?;
+        if !self.store().close_upload(&upload.id, now_millis()).await? {
+            return Err(closed());
+        }
+        // The parts are moved out of the way first: a part that is still coming in, or an
+        // abandonment, finds no directory to change under the completion.
+        let directory = self.upload_dir(&upload.id);
+        let working = directory.with_extension(format!("completing-{}", new_secret()));
+        // An empty file has no part, and so no directory yet.
+        let moved = match fs::create_dir_all(&directory).await {
+            Ok(()) => fs::rename(&directory, &working).await,
+            Err(error) => Err(error),
+        };
+        let saved = match moved {
+            Ok(()) => self.save_parts(upload, &parts, &working).await,
+            Err(error) => Err(part_error(&error)),
+        };
+        self.discard_upload(upload).await;
+        remove_dir_quietly(&working).await;
+        saved
+    }
+
+    /// Checks that every part of an upload was received with its size, and returns the
+    /// parts by number.
+    async fn check_parts(&self, upload: &Upload) -> Result<Vec<UploadPart>, AppError> {
         let parts = self.store().get_upload_parts(&upload.id).await?;
         let missing: Vec<i64> = (1..=upload.part_count())
             .filter(|number| {
@@ -232,24 +267,55 @@ impl App {
                 shown.join(", ")
             )));
         }
-        if !self.store().close_upload(&upload.id, now_millis()).await? {
-            return Err(closed());
-        }
+        // By number, as the store reads them, and none but these: a part of another
+        // number is refused before it is recorded.
+        Ok(parts)
+    }
 
-        let directory = self.upload_dir(&upload.id);
-        let paths: Vec<PathBuf> = (1..=upload.part_count())
-            .map(|number| directory.join(number.to_string()))
-            .collect();
+    /// Makes the file of an upload from its parts in `directory`, which must be the size
+    /// they were received with.
+    async fn save_parts(
+        &self,
+        upload: &Upload,
+        parts: &[UploadPart],
+        directory: &Path,
+    ) -> Result<String, AppError> {
+        let mut paths = Vec::with_capacity(parts.len());
+        for part in parts {
+            let path = directory.join(part.number.to_string());
+            let on_disk = fs::metadata(&path)
+                .await
+                .map_err(|error| part_error(&error))?
+                .len();
+            if Some(on_disk) != u64::try_from(part.size).ok() {
+                return Err(AppError::internal(format_args!(
+                    "part {} of an upload has {on_disk} bytes on the disk, not {}",
+                    part.number, part.size
+                )));
+            }
+            paths.push(path);
+        }
         let bytes = futures_util::stream::iter(paths)
             .then(|path| async move { fs::File::open(path).await })
             .map_ok(ReaderStream::new)
             .try_flatten();
         let mut reader = StreamReader::new(Box::pin(bytes));
-        let saved = self
-            .save_file(&mut reader, &upload.board_id, &upload.name)
-            .await;
+        self.save_file(&mut reader, &upload.board_id, &upload.name)
+            .await
+    }
+
+    /// Abandons a session at the request of its user, and throws it away.
+    ///
+    /// # Errors
+    ///
+    /// Returns a conflict if the session is being completed or thrown away already, and
+    /// the store's error.
+    pub async fn abandon_upload(&self, upload: &Upload) -> Result<(), AppError> {
+        if !self.store().close_upload(&upload.id, now_millis()).await? {
+            return Err(closed());
+        }
         self.discard_upload(upload).await;
-        saved
+        Ok(())
     }
 
     /// Throws a session away: its record, and the parts on the disk. What is gone
@@ -262,14 +328,7 @@ impl App {
         if let Err(error) = self.store().delete_upload(&upload.id).await {
             tracing::error!(%error, "the record of an upload could not be removed");
         }
-        let directory = self.upload_dir(&upload.id);
-        match fs::remove_dir_all(&directory).await {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => {
-                tracing::error!(%error, "the parts of an upload could not be removed");
-            }
-        }
+        remove_dir_quietly(&self.upload_dir(&upload.id)).await;
     }
 
     /// The directory that holds the parts of an upload.
@@ -332,6 +391,15 @@ fn closed() -> AppError {
 /// A part that cannot be written: the server's failure.
 fn part_error(error: &io::Error) -> AppError {
     AppError::internal(format_args!("the part could not be stored: {error}"))
+}
+
+/// Removes a directory of parts that is not to be kept, if it is there.
+async fn remove_dir_quietly(directory: &Path) {
+    match fs::remove_dir_all(directory).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => tracing::error!(%error, "the parts of an upload could not be removed"),
+    }
 }
 
 /// Removes a file that is not to be kept, if it is there.

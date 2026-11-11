@@ -20,6 +20,18 @@ pub struct LocalFiles {
     root: PathBuf,
 }
 
+/// Writes everything `reader` yields to a new file at `path`, and returns the number of
+/// bytes written.
+async fn write_file(
+    path: &Path,
+    reader: &mut (dyn AsyncRead + Send + Unpin),
+) -> std::io::Result<u64> {
+    let mut file = fs::File::create(path).await?;
+    let written = tokio::io::copy(reader, &mut file).await?;
+    file.flush().await?;
+    Ok(written)
+}
+
 impl LocalFiles {
     /// Creates a backend rooted at `directory`. The directory is created on first write.
     pub fn new(directory: impl AsRef<Path>) -> Self {
@@ -55,10 +67,24 @@ impl LocalFiles {
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).await?;
         }
-        let mut file = fs::File::create(&target).await?;
-        let written = tokio::io::copy(reader, &mut file).await?;
-        file.flush().await?;
-        Ok(written)
+        // The file is written beside its place and renamed into it, which on one file
+        // system is atomic: a reader never finds half a file, and a write that fails
+        // leaves nothing at the path.
+        let mut partial = target.clone().into_os_string();
+        partial.push(format!(".{}.partial", crate::auth::secret::new_secret()));
+        let partial = PathBuf::from(partial);
+        let written = match write_file(&partial, reader).await {
+            Ok(written) => fs::rename(&partial, &target).await.map(|()| written),
+            Err(error) => Err(error),
+        };
+        if written.is_err() {
+            match fs::remove_file(&partial).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => tracing::warn!(%error, "a partial file could not be removed"),
+            }
+        }
+        Ok(written?)
     }
 
     pub(super) async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {

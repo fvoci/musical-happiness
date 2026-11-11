@@ -1784,7 +1784,7 @@
         "description": "An upload that is open.",
         "properties": {
           "expiresAt": {
-            "description": "When the upload ends, in milliseconds since the Unix epoch: 24 hours after it was\nopened. An upload that has ended is 404, and its parts are gone.",
+            "description": "When the upload ends, in milliseconds since the Unix epoch: 24 hours after it was\nopened. An upload that has ended is 404.",
             "format": "int64",
             "type": "integer"
           },
@@ -5278,7 +5278,7 @@
     },
     "/api/v1/uploads/{uploadId}": {
       "delete": {
-        "description": "Ends the upload and throws its parts away.",
+        "description": "Ends the upload and throws its parts away. An upload that is being completed is\n409.",
         "operationId": "deleteUpload",
         "parameters": [
           {
@@ -5355,7 +5355,7 @@
     },
     "/api/v1/uploads/{uploadId}/complete": {
       "post": {
-        "description": "Makes the file of the upload from its parts and ends the upload. Every part must\nhave been received; a part missing is 400, and the upload stays open for it. The\nanswer is the one of `uploadFile`. For editors of the board, at completion as when\nthe upload was opened.",
+        "description": "Makes the file of the upload from its parts and ends the upload. Every part must\nhave been received; a part missing is 400, and the upload stays open for it. The\nanswer is the one of `uploadFile`. For editors of the board, at completion as when\nthe upload was opened: a user who may not upload to the board any more is refused,\nand the upload is thrown away. An upload that is being completed is 409.",
         "operationId": "completeUpload",
         "parameters": [
           {
@@ -5398,7 +5398,7 @@
     },
     "/api/v1/uploads/{uploadId}/parts/{partNumber}": {
       "put": {
-        "description": "Sends part `partNumber` of the upload as the body, `application/octet-stream`.\n`Content-Length` is required and must be the part's size: `partSize`, or the rest\nfor the last part. `Content-Digest` carries the part's SHA-256. A part whose length\nor digest differs is 400 and is not kept; a part sent again replaces the one\nreceived. An upload that is being completed is 409.",
+        "description": "Sends part `partNumber` of the upload as the body, `application/octet-stream`.\n`Content-Length` is required and must be the part's size: `partSize`, or the rest\nfor the last part; another length is refused with 400 before the body is looked at\n(what is sent of it is read and thrown away, so that the client reads the answer).\n`Content-Digest` carries the part's SHA-256. A part whose length or digest differs\nis 400 and is not kept; a part sent again replaces the one received. An upload that\nis being completed or abandoned is 409.",
         "operationId": "putUploadPart",
         "parameters": [
           {
@@ -5414,6 +5414,16 @@
             "description": "The number of the part, from 1 to the `partCount` of the upload.",
             "in": "path",
             "name": "partNumber",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The length of the body: the size of the part.",
+            "in": "header",
+            "name": "Content-Length",
             "required": true,
             "schema": {
               "format": "int64",
