@@ -7,12 +7,27 @@
 
 use std::fmt::Write as _;
 
+use axum::Router;
 use axum::extract::{OriginalUri, Path};
-use axum::http::HeaderValue;
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
+use axum::http::{HeaderValue, Uri};
+use axum::middleware;
 use axum::response::{IntoResponse, Response};
+use axum::routing::get;
 
-use crate::error::{AppError, ErrorKind, PROBLEMS_PATH, Reason};
+use crate::error::{AppError, ErrorKind, PROBLEMS_PATH, Reason, problems_only, type_reference};
+
+/// What a kind of problem is the kind of: every error either has a reason, and is the
+/// problem of that reason whatever its status, or has none and is the problem of its
+/// status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Basis {
+    /// The errors of this status that have no reason.
+    Status(u16),
+    /// The errors with this `reason`; the description says which statuses they come
+    /// with.
+    Reason(&'static str),
+}
 
 /// One kind of problem.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,11 +36,8 @@ pub struct ProblemType {
     pub name: String,
     /// The `title` of every problem of the kind.
     pub title: &'static str,
-    /// The status every problem of the kind has; `None` for the kind of a `reason`,
-    /// whose description says which statuses it comes with.
-    pub status: Option<u16>,
-    /// The `reason` every problem of the kind has; `None` for the kind of a status.
-    pub reason: Option<&'static str>,
+    /// What the kind is the kind of.
+    pub basis: Basis,
     /// What the kind means and what a client can do about it, in English.
     pub description: &'static str,
 }
@@ -33,19 +45,21 @@ pub struct ProblemType {
 impl ProblemType {
     /// The `type` of the problems of this kind, on a server at the root of its host.
     pub fn type_reference(&self) -> String {
-        format!("{PROBLEMS_PATH}/{}", self.name)
+        type_reference(&self.name)
     }
 
-    /// The page about the kind, for a server that sends `type_reference` as its `type`.
-    fn page(&self, type_reference: &str) -> String {
-        let mut page = format!("{}\n\ntype: {type_reference}\n", self.title);
+    /// The page about the kind, on a server that is served under `base_path`.
+    fn page(&self, base_path: &str) -> String {
+        let mut page = format!(
+            "{}\n\ntype: {base_path}{}\n",
+            self.title,
+            self.type_reference()
+        );
         // Writing to a string cannot fail.
-        if let Some(status) = self.status {
-            let _ = writeln!(page, "status: {status}");
-        }
-        if let Some(reason) = self.reason {
-            let _ = writeln!(page, "reason: {reason}");
-        }
+        let _ = match self.basis {
+            Basis::Status(status) => writeln!(page, "status: {status}"),
+            Basis::Reason(reason) => writeln!(page, "reason: {reason}"),
+        };
         let _ = writeln!(page, "\n{}", self.description);
         page
     }
@@ -56,8 +70,7 @@ impl From<ErrorKind> for ProblemType {
         Self {
             name: kind.name().to_owned(),
             title: kind.title(),
-            status: Some(kind.status().as_u16()),
-            reason: None,
+            basis: Basis::Status(kind.status().as_u16()),
             description: describe_kind(kind),
         }
     }
@@ -68,8 +81,7 @@ impl From<Reason> for ProblemType {
         Self {
             name: reason.name(),
             title: reason.title(),
-            status: None,
-            reason: Some(reason.as_str()),
+            basis: Basis::Reason(reason.as_str()),
             description: describe_reason(reason),
         }
     }
@@ -79,7 +91,7 @@ impl From<Reason> for ProblemType {
 /// reasons.
 pub fn all() -> Vec<ProblemType> {
     let kinds = ErrorKind::ALL.into_iter().map(ProblemType::from);
-    let reasons = Reason::ALL.into_iter().map(ProblemType::from);
+    let reasons = Reason::ALL.iter().copied().map(ProblemType::from);
     kinds.chain(reasons).collect()
 }
 
@@ -97,8 +109,10 @@ fn describe_kind(kind: ErrorKind) -> &'static str {
              check of the request's shape lists everything it refuses at once."
         }
         ErrorKind::Unauthorized => {
-            "The request has no session, or its session is over. Sign in and send the request \
-             again."
+            "The request has no session, or its session is over: sign in and send the request \
+             again. What a shared board lets be read without a session answers so to a \
+             request without the board's read token, and the websocket endpoint to a \
+             handshake that has no `Origin` header and no bearer token."
         }
         ErrorKind::Forbidden => {
             "The user can see what the request is about, but may not do this with it."
@@ -159,10 +173,11 @@ fn describe_reason(reason: Reason) -> &'static str {
         }
         Reason::SignupTokenRequired => {
             "Status 403. Only the first user of a server registers without the signup token, \
-             and this registration has none."
+             and this registration has none. `errors` names `/token`."
         }
         Reason::SignupTokenInvalid => {
-            "Status 403. The signup token of the registration is not the team's."
+            "Status 403. The signup token of the registration is not the team's. `errors` \
+             names `/token`."
         }
         Reason::UsernameTaken => {
             "Status 409. Another user has the user name. `errors` names `/username`."
@@ -192,8 +207,8 @@ fn describe_reason(reason: Reason) -> &'static str {
              server lets them. Try again later."
         }
         Reason::UploadInParts => {
-            "Status 413. The file is larger than one request takes (`limit`), but not larger \
-             than a file may be: send it as an upload in parts."
+            "Status 413. The file is larger than one request takes (`limit`): send it as an \
+             upload in parts, which takes a file up to the largest the server stores."
         }
         Reason::ExportRunning => {
             "Status 429. The user has an export running, and runs one at a time. Try again \
@@ -212,6 +227,9 @@ fn describe_reason(reason: Reason) -> &'static str {
     }
 }
 
+/// How long a cache may keep a page: the pages change with a release of the server.
+const PAGE_CACHE_CONTROL: &str = "public, max-age=3600";
+
 /// A page of plain text that anyone may read and a cache may keep for a while.
 fn text_page(text: String) -> Response {
     (
@@ -221,31 +239,52 @@ fn text_page(text: String) -> Response {
                 HeaderValue::from_static("text/plain; charset=utf-8"),
             ),
             (X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")),
-            (CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+            (CACHE_CONTROL, HeaderValue::from_static(PAGE_CACHE_CONTROL)),
         ],
         text,
     )
         .into_response()
 }
 
+/// The path the server is served under, from the address a page of this module was
+/// asked at: what comes before [`PROBLEMS_PATH`].
+fn base_path_of(asked: &Uri) -> &str {
+    let path = asked.path();
+    path.rfind(PROBLEMS_PATH).map_or("", |at| &path[..at])
+}
+
+/// The routes of the pages: the list at [`PROBLEMS_PATH`] and a page for each kind
+/// below it. A name that is no text is refused as a problem, like any other error.
+pub(crate) fn routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
+    Router::new()
+        .route(PROBLEMS_PATH, get(handle_problems))
+        .route(&format!("{PROBLEMS_PATH}/{{name}}"), get(handle_problem))
+        .layer(middleware::from_fn(problems_only))
+}
+
 /// The page about the kind of problem `name`: what the `type` of a problem points at.
-/// The address it was asked at, under the path the server is served at, is that `type`.
-pub(crate) async fn handle_problem(
+async fn handle_problem(
     OriginalUri(asked): OriginalUri,
     Path(name): Path<String>,
 ) -> Result<Response, AppError> {
     let problem = find(&name).ok_or_else(|| AppError::not_found("problem type"))?;
-    Ok(text_page(problem.page(asked.path())))
+    Ok(text_page(problem.page(base_path_of(&asked))))
 }
 
 /// The list of every kind of problem, a line for each: its `type` and its title.
-pub(crate) async fn handle_problems(OriginalUri(asked): OriginalUri) -> Response {
+async fn handle_problems(OriginalUri(asked): OriginalUri) -> Response {
+    let base_path = base_path_of(&asked);
     let mut page =
         "The kinds of problem this API answers with (RFC 9457). Each is described at its type.\n\n"
             .to_owned();
     for problem in all() {
         // Writing to a string cannot fail.
-        let _ = writeln!(page, "{}/{}  {}", asked.path(), problem.name, problem.title);
+        let _ = writeln!(
+            page,
+            "{base_path}{}  {}",
+            problem.type_reference(),
+            problem.title
+        );
     }
     text_page(page)
 }
@@ -278,21 +317,13 @@ mod tests {
                 problem.name
             );
             assert!(!problem.title.is_empty() && !problem.description.is_empty());
-            assert_ne!(
-                problem.status.is_some(),
-                problem.reason.is_some(),
-                "of a status or of a reason: {}",
-                problem.name
-            );
         }
         assert_eq!(find("nothing"), None);
     }
 
     #[test]
     fn the_page_of_a_kind_says_its_type_title_and_what_it_means() {
-        let page = find("last-admin")
-            .expect("a kind")
-            .page("/problems/last-admin");
+        let page = find("last-admin").expect("a kind").page("");
         assert!(
             page.starts_with("Last administrator\n\ntype: /problems/last-admin\n"),
             "{page}"
@@ -302,9 +333,7 @@ mod tests {
             page.ends_with("\n\nStatus 409. The change would leave the board, or the server, without an administrator. Make somebody else one first.\n"),
             "{page}"
         );
-        let page = find("not-found")
-            .expect("a kind")
-            .page("/base/problems/not-found");
+        let page = find("not-found").expect("a kind").page("/base");
         assert!(
             page.contains("type: /base/problems/not-found\nstatus: 404\n"),
             "{page}"

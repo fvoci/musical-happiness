@@ -228,8 +228,12 @@ async fn register_user_cases() {
     // checked before a user is created.
     let cases = [
         (
-            json!({"username": "", "email": "", "password": ""}),
+            json!({"username": "", "email": "new@example.com", "password": "testPassword"}),
             "username is required",
+        ),
+        (
+            json!({"username": "", "email": "", "password": ""}),
+            "3 members of the request were refused",
         ),
         (
             json!({"username": "newUsername", "email": "", "password": "testPassword"}),
@@ -969,7 +973,12 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
     for name in ["", "with space", "키", "a/b", &"n".repeat(65)] {
         let response = set(json!({name: "v"})).await;
         response.check_bad_request();
-        assert_eq!(response.refused_at(), "/updatedFields", "{name:?}");
+        // The entry itself, its name written as a JSON Pointer writes it.
+        assert_eq!(
+            response.refused_at(),
+            format!("/updatedFields/{}", name.replace('/', "~1")),
+            "{name:?}"
+        );
     }
     set(json!({"n".repeat(64): "v".repeat(4096)}))
         .await

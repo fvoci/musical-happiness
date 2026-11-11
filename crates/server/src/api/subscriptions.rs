@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use fvoci_model::{BlockType, SubscriberType, Subscription};
+use fvoci_model::{BlockType, RefusalReason, SubscriberType, Subscription, SubscriptionError};
 use serde::Deserialize;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -82,12 +82,20 @@ impl SubscriptionRequest {
             create_at: self.create_at,
             delete_at: self.delete_at,
         };
-        subscription.validate().map_err(AppError::bad_request)?;
+        // Every member that is refused, the type among them.
+        let mut refused = subscription
+            .validate()
+            .err()
+            .map(SubscriptionError::into_refusals)
+            .unwrap_or_default();
         if subscriber_type.is_none() {
-            return Err(
-                AppError::bad_request("invalid subscriber type").with_field("subscriberType")
+            refused.refuse(
+                "subscriberType",
+                RefusalReason::Invalid,
+                "invalid subscriber type",
             );
         }
+        refused.into_result()?;
         Ok(subscription)
     }
 }

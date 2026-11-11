@@ -36,7 +36,9 @@ pub struct Problem {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub reason: Option<String>,
-    /// What of the request was refused, one entry for each.
+    /// What of the request was refused, one entry for each. A check of the request's
+    /// own shape lists every member it refuses; a check that needs what is stored, and
+    /// the check of a document (`body`), tell of the first alone.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<InvalidInput>,
     /// The limit that was exceeded.
@@ -76,7 +78,9 @@ pub struct InvalidInput {
     /// What is wrong with it, in English. Not for showing to users.
     pub detail: String,
     /// Why it was refused, stable: the `reason` of the problem where it has one, else
-    /// `invalid`.
+    /// what the check found: `required` (missing or blank), `too_short`, `too_long`,
+    /// `invalid_format` (not the form the member has), `invalid_characters`, `unknown`
+    /// (the request has no such member), or `invalid` where no finer cause is told.
     pub reason: String,
 }
 

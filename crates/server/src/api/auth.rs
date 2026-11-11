@@ -160,7 +160,9 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
 /// and the password must have at least 8 characters and at most 1024 bytes; otherwise
-/// the request is 400, and `errors` names the member.
+/// the request is 400, and `errors` names every member that is refused, each with
+/// its `reason`: `required`, `invalid_format`, `too_short`, `too_long` or
+/// `invalid_characters`.
 #[utoipa::path(
     post,
     path = "/register",
@@ -187,7 +189,11 @@ async fn handle_register(
     let mut register: RegisterRequest = decode_object(&body)?;
     register.email = register.email.trim().to_owned();
     register.username = register.username.trim().to_owned();
-    register.display_name = display_name(&register.display_name)?;
+    // The name as it is stored. One that is refused stays as it was sent, and is
+    // refused below with whatever else is.
+    if let Ok(name) = display_name(&register.display_name) {
+        register.display_name = name;
+    }
 
     // The first user needs no signup token; everyone after needs the team's. Asked
     // here so that a request without one costs no password hash; whether it really is
@@ -250,7 +256,8 @@ async fn handle_regenerate_signup_token(
 /// A wrong old password is 400 (not 401: the session is good) with the reason
 /// `invalid_credentials`, and `errors` names `oldPassword`. Wrong ones are counted with the
 /// failed logins to the account by its name, and too many are 429, also for a login.
-/// The new password must have at least 8 characters and at most 1024 bytes. A password
+/// The new password must have at least 8 characters and at most 1024 bytes; `errors`
+/// names every member that is refused. A password
 /// that was changed by somebody else while this request was under way is 409.
 #[utoipa::path(
     post,

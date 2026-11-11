@@ -96,7 +96,7 @@
         {
           "detail": "the server makes the read token; a request cannot set it",
           "pointer": "/token",
-          "reason": "invalid"
+          "reason": "unknown"
         }
       ],
       "instance": "urn:uuid:<request-id>",
@@ -117,7 +117,7 @@
         {
           "detail": "enabled must be true or false",
           "pointer": "/enabled",
-          "reason": "invalid"
+          "reason": "required"
         }
       ],
       "instance": "urn:uuid:<request-id>",

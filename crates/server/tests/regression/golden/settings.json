@@ -346,7 +346,7 @@
         {
           "detail": "there is no setting \"locale\"",
           "pointer": "/locale",
-          "reason": "invalid"
+          "reason": "unknown"
         }
       ],
       "instance": "urn:uuid:<request-id>",
@@ -467,8 +467,8 @@
       "errors": [
         {
           "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
-          "pointer": "/updatedFields",
-          "reason": "invalid"
+          "pointer": "/updatedFields/with space",
+          "reason": "invalid_format"
         }
       ],
       "instance": "urn:uuid:<request-id>",
@@ -488,8 +488,8 @@
       "errors": [
         {
           "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
-          "pointer": "/updatedFields",
-          "reason": "invalid"
+          "pointer": "/updatedFields/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+          "reason": "invalid_format"
         }
       ],
       "instance": "urn:uuid:<request-id>",
@@ -509,8 +509,8 @@
       "errors": [
         {
           "detail": "the value of an entry is at most 4096 bytes",
-          "pointer": "/updatedFields",
-          "reason": "invalid"
+          "pointer": "/updatedFields/big",
+          "reason": "too_long"
         }
       ],
       "instance": "urn:uuid:<request-id>",

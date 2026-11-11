@@ -14,7 +14,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{
     AuthParamError, BlockError, BoardError, CardError, CategoryError, InvalidInput,
-    PROBLEM_MEDIA_TYPE, Problem, SubscriptionError, json_pointer,
+    PROBLEM_MEDIA_TYPE, Problem, Refusal, Refusals, SubscriptionError, json_pointer,
 };
 use fvoci_store::StoreError;
 
@@ -125,124 +125,90 @@ impl ErrorKind {
     }
 }
 
-/// Why a request was refused, where clients must tell causes of one kind apart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reason {
+/// Defines [`Reason`] with, for each variant, the value of the `reason` member and the
+/// `title` of its problem, and the list of every variant made from the same lines: a
+/// reason cannot be there without being listed and titled.
+macro_rules! reasons {
+    ($($(#[$doc:meta])* $variant:ident => $value:literal, $title:literal;)+) => {
+        /// Why a request was refused, where clients must tell causes of one kind apart.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum Reason {
+            $($(#[$doc])* $variant,)+
+        }
+
+        impl Reason {
+            /// Every reason, in the order they are defined in.
+            pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
+
+            /// The value of the body's `reason` member.
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $value,)+
+                }
+            }
+
+            /// The `title` of the problem an error with this reason is.
+            pub fn title(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $title,)+
+                }
+            }
+        }
+    };
+}
+
+reasons! {
     /// The request lacks the header of the cross-site request check.
-    Csrf,
+    Csrf => "csrf", "Cross-site request check failed";
     /// The request, or the websocket handshake, comes from a page of another origin.
-    ForeignOrigin,
+    ForeignOrigin => "foreign_origin", "Request from another origin";
     /// The user name, email address or password of a login is wrong.
-    InvalidCredentials,
+    InvalidCredentials => "invalid_credentials", "Invalid credentials";
     /// Registration needs the signup token, and the request has none.
-    SignupTokenRequired,
+    SignupTokenRequired => "signup_token_required", "Signup token required";
     /// The signup token of a registration is not the server's.
-    SignupTokenInvalid,
+    SignupTokenInvalid => "signup_token_invalid", "Signup token not valid";
     /// The user name is taken.
-    UsernameTaken,
+    UsernameTaken => "username_taken", "User name taken";
     /// The email address is taken.
-    EmailTaken,
+    EmailTaken => "email_taken", "Email address taken";
     /// The change would leave the board, or the instance, without an administrator.
-    LastAdmin,
+    LastAdmin => "last_admin", "Last administrator";
     /// Only an administrator of the instance may do this.
-    AdminRequired,
+    AdminRequired => "admin_required", "Administrator required";
     /// Public sharing is turned off in the server's configuration.
-    SharingDisabled,
+    SharingDisabled => "sharing_disabled", "Public sharing turned off";
     /// The user has as many uploads in parts open as one may.
-    TooManyUploads,
+    TooManyUploads => "too_many_uploads", "Too many open uploads";
     /// The user's open uploads in parts hold back as many bytes as one user's may.
-    UploadsPending,
+    UploadsPending => "uploads_pending", "Open uploads hold too much";
     /// The open uploads in parts of the whole server hold back as many bytes as they may.
-    ServerUploadsPending,
+    ServerUploadsPending => "server_uploads_pending", "The server's open uploads hold too much";
     /// The file is larger than one request takes; it is to be sent in parts.
-    UploadInParts,
+    UploadInParts => "upload_in_parts", "File to be uploaded in parts";
     /// The user has an export running.
-    ExportRunning,
+    ExportRunning => "export_running", "An export is running";
     /// The server runs as many exports as it may.
-    ServerExportsBusy,
+    ServerExportsBusy => "server_exports_busy", "The server is busy exporting";
     /// The user has an import running.
-    ImportRunning,
+    ImportRunning => "import_running", "An import is running";
     /// The server runs as many imports as it may.
-    ServerImportsBusy,
+    ServerImportsBusy => "server_imports_busy", "The server is busy importing";
 }
 
 impl Reason {
-    /// Every reason. A reason that is not listed here has no page under
-    /// [`PROBLEMS_PATH`]; an error with it panics in a debug build, as the tests are.
-    pub const ALL: [Self; 18] = [
-        Self::Csrf,
-        Self::ForeignOrigin,
-        Self::InvalidCredentials,
-        Self::SignupTokenRequired,
-        Self::SignupTokenInvalid,
-        Self::UsernameTaken,
-        Self::EmailTaken,
-        Self::LastAdmin,
-        Self::AdminRequired,
-        Self::SharingDisabled,
-        Self::TooManyUploads,
-        Self::UploadsPending,
-        Self::ServerUploadsPending,
-        Self::UploadInParts,
-        Self::ExportRunning,
-        Self::ServerExportsBusy,
-        Self::ImportRunning,
-        Self::ServerImportsBusy,
-    ];
-
     /// The name of the problem an error with this reason is, the last part of its
     /// `type`: the reason, written with hyphens.
     pub fn name(self) -> String {
         self.as_str().replace('_', "-")
     }
+}
 
-    /// The `title` of that problem.
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::Csrf => "Cross-site request check failed",
-            Self::ForeignOrigin => "Request from another origin",
-            Self::InvalidCredentials => "Invalid credentials",
-            Self::SignupTokenRequired => "Signup token required",
-            Self::SignupTokenInvalid => "Signup token not valid",
-            Self::UsernameTaken => "User name taken",
-            Self::EmailTaken => "Email address taken",
-            Self::LastAdmin => "Last administrator",
-            Self::AdminRequired => "Administrator required",
-            Self::SharingDisabled => "Public sharing turned off",
-            Self::TooManyUploads => "Too many open uploads",
-            Self::UploadsPending => "Open uploads hold too much",
-            Self::ServerUploadsPending => "The server's open uploads hold too much",
-            Self::UploadInParts => "File to be uploaded in parts",
-            Self::ExportRunning => "An export is running",
-            Self::ServerExportsBusy => "The server is busy exporting",
-            Self::ImportRunning => "An import is running",
-            Self::ServerImportsBusy => "The server is busy importing",
-        }
-    }
-
-    /// The value of the body's `reason` member.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Csrf => "csrf",
-            Self::ForeignOrigin => "foreign_origin",
-            Self::InvalidCredentials => "invalid_credentials",
-            Self::SignupTokenRequired => "signup_token_required",
-            Self::SignupTokenInvalid => "signup_token_invalid",
-            Self::UsernameTaken => "username_taken",
-            Self::EmailTaken => "email_taken",
-            Self::LastAdmin => "last_admin",
-            Self::AdminRequired => "admin_required",
-            Self::SharingDisabled => "sharing_disabled",
-            Self::TooManyUploads => "too_many_uploads",
-            Self::UploadsPending => "uploads_pending",
-            Self::ServerUploadsPending => "server_uploads_pending",
-            Self::UploadInParts => "upload_in_parts",
-            Self::ExportRunning => "export_running",
-            Self::ServerExportsBusy => "server_exports_busy",
-            Self::ImportRunning => "import_running",
-            Self::ServerImportsBusy => "server_imports_busy",
-        }
-    }
+/// The `type` of the problems of the kind `name`, on a server at the root of its host:
+/// the path of the page about the kind. A server under a base path has the base path
+/// before it, which the request log adds.
+pub fn type_reference(name: &str) -> String {
+    format!("{PROBLEMS_PATH}/{name}")
 }
 
 /// The text every server error is answered with; what went wrong is in the log.
@@ -450,6 +416,41 @@ impl AppError {
         self.refusing(Place::Header(name.to_owned()))
     }
 
+    /// One error for everything of a request that a check refuses, where the check looks
+    /// at several things and has an error for each that names what it refuses: the
+    /// entries of all of them, each with the words and the reason of its own error.
+    ///
+    /// # Errors
+    ///
+    /// Returns nothing if `errors` is empty, the one error if there is one, and else an
+    /// error of the kind of the first that says how many things were refused.
+    pub fn all(errors: impl IntoIterator<Item = Self>) -> Result<(), Self> {
+        let mut errors: Vec<Self> = errors.into_iter().collect();
+        if errors.len() <= 1 {
+            return errors.pop().map_or(Ok(()), Err);
+        }
+        let kind = errors.first().map_or(ErrorKind::BadRequest, Self::kind);
+        let refused: Vec<Refused> = errors.into_iter().flat_map(Self::settled).collect();
+        let mut error = Self::new(
+            kind,
+            format_args!("{} things of the request were refused", refused.len()),
+        );
+        error.refused = refused;
+        Err(error)
+    }
+
+    /// What the error refuses, each entry with the error's words and reason where it
+    /// has none of its own.
+    fn settled(self) -> impl Iterator<Item = Refused> {
+        let reason = self.reason.map(Reason::as_str);
+        let message = self.message;
+        self.refused.into_iter().map(move |refused| Refused {
+            detail: refused.detail.or_else(|| Some(message.clone())),
+            reason: refused.reason.or(reason),
+            ..refused
+        })
+    }
+
     /// Says that what was refused in the body is under `prefix`, a JSON Pointer: for a
     /// request that carries a list of what the error is about, `/blocks/2`.
     #[must_use]
@@ -549,18 +550,14 @@ impl AppError {
         self.kind.status()
     }
 
-    /// The body this error is reported with, without the identifier of the request.
+    /// The body this error is reported with, as it is before the request log has it:
+    /// without the identifier of the request, and with its `type` as on a server at the
+    /// root of its host.
     pub fn body(&self) -> Problem {
         let (name, title) = match self.reason {
             Some(reason) => (reason.name(), reason.title()),
             None => (self.kind.name().to_owned(), self.kind.title()),
         };
-        debug_assert!(
-            self.reason
-                .is_none_or(|reason| Reason::ALL.contains(&reason)),
-            "{:?} is not in Reason::ALL",
-            self.reason
-        );
         let reason = self.reason.map(Reason::as_str);
         let errors = self
             .refused
@@ -580,7 +577,7 @@ impl AppError {
             })
             .collect();
         Problem {
-            problem_type: format!("{PROBLEMS_PATH}/{name}"),
+            problem_type: type_reference(&name),
             title: title.to_owned(),
             status: self.status().as_u16(),
             detail: self.message.clone(),
@@ -648,9 +645,9 @@ impl From<StoreError> for AppError {
             }
             | StoreError::InvalidBoard(BoardError::InvalidCardProperty(_))
             | StoreError::InvalidBoardsAndBlocks(_)
-            | StoreError::BlockNotInDeletedBoards { .. }
-            | StoreError::InvalidCategory(_)
-            | StoreError::InvalidSubscription(_) => Self::bad_request(error),
+            | StoreError::BlockNotInDeletedBoards { .. } => Self::bad_request(error),
+            StoreError::InvalidCategory(refused) => Self::from(refused),
+            StoreError::InvalidSubscription(refused) => Self::from(refused),
             StoreError::InvalidBoard(BoardError::NulCharacter { member }) => {
                 let mut error = Self::bad_request(error).with_field(member);
                 error.subject = Some(Subject::Board);
@@ -689,16 +686,32 @@ impl From<StoreError> for AppError {
     }
 }
 
+impl From<Refusals> for AppError {
+    /// A bad request that lists every member the check refused, each with its own
+    /// words and cause.
+    fn from(refusals: Refusals) -> Self {
+        let mut error = Self::bad_request(&refusals);
+        error.refused = refusals
+            .into_iter()
+            .map(|refusal| Refused {
+                place: Place::Body(refusal.pointer),
+                detail: Some(refusal.detail),
+                reason: Some(refusal.reason.as_str()),
+            })
+            .collect();
+        error
+    }
+}
+
 impl From<AuthParamError> for AppError {
     fn from(error: AuthParamError) -> Self {
-        let field = error.field();
-        Self::bad_request(error).with_field(field)
+        Self::from(Refusals::from(Refusal::from(error)))
     }
 }
 
 impl From<CategoryError> for AppError {
     fn from(error: CategoryError) -> Self {
-        Self::bad_request(error)
+        Self::from(error.into_refusals())
     }
 }
 
@@ -736,7 +749,7 @@ impl From<CardError> for AppError {
 
 impl From<SubscriptionError> for AppError {
     fn from(error: SubscriptionError) -> Self {
-        Self::bad_request(error)
+        Self::from(error.into_refusals())
     }
 }
 
@@ -916,7 +929,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_error_with_a_reason_is_the_problem_of_that_reason() {
-        for reason in Reason::ALL {
+        for &reason in Reason::ALL {
             let forbidden = AppError::forbidden("x").with_reason(reason);
             let conflict = AppError::conflict("y").with_reason(reason);
             let (status, body) = reported(forbidden).await;

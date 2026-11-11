@@ -75,9 +75,15 @@ pub(crate) fn objects_mut<'v>(
         .map(Value::as_object_mut)
 }
 
-/// The refusal of a body that may not be stored, naming `body`.
+/// The refusal of a body that may not be stored, naming `body`: the node of the
+/// document that is refused, where it is one node (the first; a document may have
+/// thousands), else the document.
 fn body_refused(error: BodyError) -> AppError {
-    AppError::bad_request(error).with_field("body")
+    let pointer = match &error {
+        BodyError::InvalidNode { path, .. } => format!("/body{path}"),
+        _ => "/body".to_owned(),
+    };
+    AppError::bad_request(error).with_pointer(pointer)
 }
 
 /// The JSON Pointer to the block at `index` of a request: empty if the request body is
@@ -185,8 +191,7 @@ pub(crate) fn decode_with_document<T: DeserializeOwned>(
     let (decoded, document) = decode_object_with(body, |members| members.remove("body"))?;
     let change = match document {
         None => BodyChange::Keep,
-        Some(value) => BodyChange::parse(value)
-            .map_err(|error| AppError::bad_request(error).with_field("body"))?,
+        Some(value) => BodyChange::parse(value).map_err(body_refused)?,
     };
     Ok((decoded, change))
 }

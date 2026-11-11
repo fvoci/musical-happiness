@@ -113,6 +113,13 @@
     "content_type": "application/problem+json",
     "body": {
       "detail": "missing block id",
+      "errors": [
+        {
+          "detail": "missing block id",
+          "pointer": "/blockId",
+          "reason": "required"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

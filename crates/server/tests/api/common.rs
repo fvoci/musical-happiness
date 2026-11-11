@@ -404,6 +404,8 @@ pub(crate) const SESSION_COOKIE: &str = "fvoci_session";
 /// What the server answered.
 #[derive(Debug)]
 pub(crate) struct ApiResponse {
+    /// The path the request was sent to, the server's base path first.
+    pub(crate) path: String,
     pub(crate) status: StatusCode,
     pub(crate) headers: reqwest::header::HeaderMap,
     pub(crate) body: Vec<u8>,
@@ -534,6 +536,7 @@ impl Client {
     /// Sends a request and reads the whole answer.
     pub(crate) async fn send(request: reqwest::RequestBuilder) -> ApiResponse {
         let response = request.send().await.expect("the server answers");
+        let path = response.url().path().to_owned();
         let status = response.status();
         let headers = response.headers().clone();
         let body = response
@@ -542,6 +545,7 @@ impl Client {
             .expect("the answer has a body")
             .to_vec();
         ApiResponse {
+            path,
             status,
             headers,
             body,
@@ -791,10 +795,15 @@ impl ApiResponse {
             Some(reason) => reason.as_str().expect("a reason is text").replace('_', "-"),
             None => of_status.to_owned(),
         };
-        // Under the path the server is served at, which a test may have set.
-        let address = body["type"].as_str().unwrap_or_default();
-        assert!(
-            address.ends_with(&format!("/problems/{name}")),
+        // Under the path the server is served at, which a test may have set: what
+        // comes before the API's prefix, or the pages of the problems, in the path asked.
+        let base_path = ["/api/v1", "/problems"]
+            .iter()
+            .find_map(|marker| self.path.find(marker))
+            .map_or("", |at| &self.path[..at]);
+        assert_eq!(
+            body["type"],
+            format!("{base_path}/problems/{name}"),
             "the type is of the reason, or else of the status: {body}"
         );
         let kind = fvoci_server::problems::find(&name);

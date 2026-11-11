@@ -793,7 +793,9 @@ export interface paths {
          *     The name and the email address must not be blank, the email address must look like
          *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
          *     and the password must have at least 8 characters and at most 1024 bytes; otherwise
-         *     the request is 400, and `errors` names the member.
+         *     the request is 400, and `errors` names every member that is refused, each with
+         *     its `reason`: `required`, `invalid_format`, `too_short`, `too_long` or
+         *     `invalid_characters`.
          */
         post: operations["register"];
         delete?: never;
@@ -1524,7 +1526,8 @@ export interface paths {
          *     A wrong old password is 400 (not 401: the session is good) with the reason
          *     `invalid_credentials`, and `errors` names `oldPassword`. Wrong ones are counted with the
          *     failed logins to the account by its name, and too many are 429, also for a login.
-         *     The new password must have at least 8 characters and at most 1024 bytes. A password
+         *     The new password must have at least 8 characters and at most 1024 bytes; `errors`
+         *     names every member that is refused. A password
          *     that was changed by somebody else while this request was under way is 409.
          */
         post: operations["changePassword"];
@@ -2139,7 +2142,9 @@ export interface components {
             pointer?: string;
             /**
              * @description Why it was refused, stable: the `reason` of the problem where it has one, else
-             *     `invalid`.
+             *     what the check found: `required` (missing or blank), `too_short`, `too_long`,
+             *     `invalid_format` (not the form the member has), `invalid_characters`, `unknown`
+             *     (the request has no such member), or `invalid` where no finer cause is told.
              */
             reason: string;
         };
@@ -2394,7 +2399,11 @@ export interface components {
              *     internals.
              */
             detail: string;
-            /** @description What of the request was refused, one entry for each. */
+            /**
+             * @description What of the request was refused, one entry for each. A check of the request's
+             *     own shape lists every member it refuses; a check that needs what is stored, and
+             *     the check of a document (`body`), tell of the first alone.
+             */
             errors?: components["schemas"]["InvalidInput"][];
             /** @description The request this answer is to: `urn:uuid:` and the `requestId`. */
             instance?: string;

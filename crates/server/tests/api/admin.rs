@@ -413,6 +413,20 @@ mod socket {
             let response = socket_request(&socket, "GET", target, "").await;
             response.check_error(404, "not-found", "route not found");
         }
+
+        // The `type` of such an answer is the address of a page on this socket too,
+        // whatever path the server's other listener is served under.
+        let response = socket_request(&socket, "GET", "/problems/not-found", "").await;
+        assert_eq!(response.status, 200, "{}", response.body);
+        assert!(
+            response
+                .body
+                .starts_with("Not found\n\ntype: /problems/not-found\nstatus: 404\n"),
+            "{}",
+            response.body
+        );
+        let response = socket_request(&socket, "GET", "/problems/%FF", "").await;
+        response.check_error(400, "bad-request", "the request is malformed");
         th.teardown().await;
     }
 

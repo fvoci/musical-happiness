@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::id::new_id;
+use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 
 /// The spacing between the sort orders of consecutive boards in a category.
@@ -32,10 +33,17 @@ impl CategoryType {
     }
 }
 
-/// Reason a [`Category`] is rejected before it is stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+/// Why a [`Category`] is rejected before it is stored: every member that is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{0}")]
-pub struct CategoryError(&'static str);
+pub struct CategoryError(Refusals);
+
+impl CategoryError {
+    /// The members that were refused.
+    pub fn into_refusals(self) -> Refusals {
+        self.0
+    }
+}
 
 /// A sidebar category of one user in one team.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
@@ -101,21 +109,26 @@ impl Category {
     ///
     /// # Errors
     ///
-    /// Returns a [`CategoryError`] if the identifier, name, user or team is blank.
+    /// Returns a [`CategoryError`] with every one of the identifier, name, user and team
+    /// that is blank.
     pub fn validate(&self) -> Result<(), CategoryError> {
         let required = [
-            (&self.id, "category ID cannot be empty"),
-            (&self.name, "category name cannot be empty"),
-            (&self.user_id, "category user ID cannot be empty"),
-            (&self.team_id, "category team id ID cannot be empty"),
+            (&self.id, "id", "category ID cannot be empty"),
+            (&self.name, "name", "category name cannot be empty"),
+            (&self.user_id, "userId", "category user ID cannot be empty"),
+            (
+                &self.team_id,
+                "teamId",
+                "category team id ID cannot be empty",
+            ),
         ];
-        match required
-            .into_iter()
-            .find(|(value, _)| value.trim().is_empty())
-        {
-            Some((_, message)) => Err(CategoryError(message)),
-            None => Ok(()),
+        let mut refused = Refusals::new();
+        for (value, member, message) in required {
+            if value.trim().is_empty() {
+                refused.refuse(member, RefusalReason::Required, message);
+            }
         }
+        refused.into_result().map_err(CategoryError)
     }
 }
 

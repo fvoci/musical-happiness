@@ -21,6 +21,7 @@ use utoipa::PartialSchema;
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::app::App;
+use crate::problems::Basis;
 
 /// The names operations are grouped under.
 pub(crate) mod tag {
@@ -110,7 +111,8 @@ other status comes with a `Problem`, the problem details of RFC 9457, as \
 problem of the kind, `title` is its name, `status` repeats the status and `detail` says what \
 went wrong this time. `type` is `/problems/<name>` under the path the server is served at, \
 the address of a page of text about the kind; `/problems` lists them, and so does \
-`x-problem-types` of the schema `Problem`. `reason` tells apart causes a client must tell apart; a \
+`x-problem-types` of the schema `Problem`, as they are on a server at the root of its host \
+(a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a \
 problem with a `reason` has the `type` of that name, written with hyphens, and any other the \
 `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer \
 into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or \
@@ -389,7 +391,8 @@ fn finish_schemas(document: &mut Value) -> Result<(), ContractError> {
 }
 
 /// Every kind of problem, as the contract lists them: the `type` on a server at the
-/// root of its host, the `title`, and the `status` or the `reason` the kind is of.
+/// root of its host (a server under a base path has the base path before it), the
+/// `title`, and the `status` or the `reason` the kind is of.
 fn problem_types() -> Value {
     crate::problems::all()
         .into_iter()
@@ -398,11 +401,9 @@ fn problem_types() -> Value {
                 "type": problem.type_reference(),
                 "title": problem.title,
             });
-            if let Some(status) = problem.status {
-                listed["status"] = json!(status);
-            }
-            if let Some(reason) = problem.reason {
-                listed["reason"] = json!(reason);
+            match problem.basis {
+                Basis::Status(status) => listed["status"] = json!(status),
+                Basis::Reason(reason) => listed["reason"] = json!(reason),
             }
             listed
         })
@@ -765,28 +766,14 @@ mod tests {
         assert!(operations > 70, "the document has {operations} operations");
     }
 
-    /// The contract lists the kinds of problem the code has, and names every `reason` in
-    /// the description of the API or of an operation: no reason comes without a word of
-    /// when.
+    /// Every `reason` is named in the description of the API or of an operation: no
+    /// reason comes without a word of when. (That the committed contract lists the
+    /// kinds the code has is checked where the file is held against this document, and
+    /// by the API test that asks the server for the page of every kind it lists.)
     #[test]
-    fn the_contract_lists_every_kind_of_problem_and_says_when_each_reason_comes() {
+    fn the_contract_says_when_each_reason_comes() {
         let text = document().expect("the document");
         let document: Value = serde_json::from_str(&text).expect("JSON");
-        let listed = document["components"]["schemas"]["Problem"]["x-problem-types"]
-            .as_array()
-            .expect("the kinds of problem");
-        let kinds = crate::problems::all();
-        assert_eq!(listed.len(), kinds.len(), "one entry for each kind");
-        for (entry, kind) in listed.iter().zip(&kinds) {
-            assert_eq!(entry["type"], kind.type_reference());
-            assert_eq!(entry["title"], kind.title);
-            assert_eq!(
-                entry.get("status").and_then(Value::as_u64),
-                kind.status.map(u64::from)
-            );
-            assert_eq!(entry.get("reason").and_then(Value::as_str), kind.reason);
-        }
-
         let mut descriptions = vec![document["info"]["description"].as_str().expect("text")];
         for item in document["paths"].as_object().expect("paths").values() {
             for operation in item.as_object().expect("a path item").values() {
@@ -804,6 +791,20 @@ mod tests {
             assert!(
                 descriptions.iter().any(|text| text.contains(&name)),
                 "no description says when the reason {name} comes"
+            );
+        }
+
+        // The causes an entry of `errors` can have are named where the entry is
+        // described.
+        let entry_reason = document["components"]["schemas"]["InvalidInput"]["properties"]
+            ["reason"]["description"]
+            .as_str()
+            .expect("the description of the reason of an entry");
+        for reason in fvoci_model::RefusalReason::ALL {
+            assert!(
+                entry_reason.contains(&format!("`{}`", reason.as_str())),
+                "the contract does not name the cause {}",
+                reason.as_str()
             );
         }
     }

@@ -145,6 +145,13 @@
     "content_type": "application/problem+json",
     "body": {
       "detail": "category name cannot be empty",
+      "errors": [
+        {
+          "detail": "category name cannot be empty",
+          "pointer": "/name",
+          "reason": "required"
+        }
+      ],
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,

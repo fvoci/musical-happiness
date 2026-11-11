@@ -25,6 +25,7 @@ mod deleted_item;
 mod file_info;
 mod id;
 mod problem;
+mod refusal;
 mod serde_util;
 mod settings;
 mod sharing;
@@ -59,9 +60,9 @@ pub use body::{
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{
-    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, clear_values_of_another_kind,
-    validate_block_properties, validate_card_property_definitions, validate_card_property_kinds,
-    validate_card_property_values,
+    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, check_card_property_values,
+    clear_values_of_another_kind, validate_block_properties, validate_card_property_definitions,
+    validate_card_property_kinds, validate_card_property_values,
 };
 pub use category::{
     BoardCategoryWebsocketData, CATEGORY_BOARDS_SORT_ORDER_GAP, Category, CategoryBoardMetadata,
@@ -76,6 +77,7 @@ pub use deleted_item::DeletedItem;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
+pub use refusal::{Refusal, RefusalReason, Refusals};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
     ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,

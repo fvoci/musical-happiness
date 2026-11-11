@@ -4,7 +4,7 @@ use std::num::IntErrorKind;
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use fvoci_model::{BlockType, Card, CardError, CardPatch};
+use fvoci_model::{BlockType, Card, CardError, CardPatch, check_card_property_values};
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -108,6 +108,8 @@ async fn handle_create_card(
     )
     .await?;
     let (mut card, document): (Card, _) = decode_with_document(&body)?;
+    // Every value that has not the shape of one, before the store refuses the first.
+    check_card_property_values(&card.properties, "properties")?;
     card.body = document.into_body();
     app.check_body_files(&board_id, card.body.as_ref()).await?;
     if !card.board_id.is_empty() && card.board_id != board_id {
@@ -153,8 +155,18 @@ async fn handle_get_cards(
     )
     .await?;
 
-    let page = int_query_param(query, "page", DEFAULT_PAGE)?;
-    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE)?;
+    // Both parameters are read, so that a request with both wrong is told of both.
+    let page = int_query_param(query, "page", DEFAULT_PAGE);
+    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE);
+    let (page, per_page) = match (page, per_page) {
+        (Ok(page), Ok(per_page)) => (page, per_page),
+        (page, per_page) => {
+            AppError::all([page.err(), per_page.err()].into_iter().flatten())?;
+            return Err(AppError::internal(
+                "a parameter was refused without an error",
+            ));
+        }
+    };
 
     let cards = app.cards_for_board(&board_id, page, per_page).await?;
     tracing::debug!(
@@ -200,6 +212,8 @@ async fn handle_patch_card(
     )
     .await?;
     let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
+    // Every value that has not the shape of one, before the store refuses the first.
+    check_card_property_values(&patch.updated_properties, "updatedProperties")?;
     app.check_body_files(&card.board_id, document.new_body())
         .await?;
     patch.body = document;

@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use fvoci_model::Sharing;
+use fvoci_model::{RefusalReason, Refusals, Sharing};
 use fvoci_store::SharingChange;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -69,24 +69,31 @@ async fn handle_get_sharing(
 /// makes it.
 fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     let mut members = json_object(decode_json(body)?)?;
+    // Every member that is refused, not the first alone.
+    let mut refused = Refusals::new();
     if members.contains_key("token") {
-        return Err(AppError::bad_request(
+        refused.refuse(
+            "token",
+            RefusalReason::Unknown,
             "the server makes the read token; a request cannot set it",
-        )
-        .with_field("token"));
+        );
     }
     members.retain(|_, member| !member.is_null());
-    let flag = |name: &'static str, absent: Option<bool>| match members.get(name) {
-        Some(Value::Bool(flag)) => Ok(*flag),
-        None | Some(Value::Null) => absent.ok_or_else(|| {
-            AppError::bad_request(format!("{name} must be true or false")).with_field(name)
-        }),
-        Some(_) => {
-            Err(AppError::bad_request(format!("{name} must be true or false")).with_field(name))
+    let mut flag = |name: &'static str, absent: Option<bool>| {
+        let (read, reason) = match members.get(name) {
+            Some(Value::Bool(flag)) => (Some(*flag), RefusalReason::Invalid),
+            None | Some(Value::Null) => (absent, RefusalReason::Required),
+            Some(_) => (None, RefusalReason::Invalid),
+        };
+        if read.is_none() {
+            refused.refuse(name, reason, format!("{name} must be true or false"));
         }
+        // What a refused member is read as is never used: the request is refused.
+        read.unwrap_or_default()
     };
-    let enabled = flag("enabled", None)?;
-    let regenerate = flag("regenerate", Some(false))?;
+    let enabled = flag("enabled", None);
+    let regenerate = flag("regenerate", Some(false));
+    refused.into_result()?;
     Ok(match (enabled, regenerate) {
         (false, _) => SharingChange::Off,
         (true, false) => SharingChange::On,

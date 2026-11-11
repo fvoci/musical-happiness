@@ -981,7 +981,6 @@ async fn get_cards_permissions_and_malformed_paging() {
     let cases = [
         ("?page=x", "page", "not a whole number"),
         ("?perPage=x", "perPage", "not a whole number"),
-        ("?page=x&perPage=y", "page", "not a whole number"),
         ("?perPage=1.5", "perPage", "not a whole number"),
         ("?perPage=%202", "perPage", "not a whole number"),
         ("?page=99999999999999999999", "page", "out of range"),
@@ -995,6 +994,30 @@ async fn get_cards_permissions_and_malformed_paging() {
             "{query}"
         );
     }
+    // Both wrong: both are told, each with its own words.
+    let response = th.client.get(&format!("{path}?page=x&perPage=y")).await;
+    check_error(
+        &response,
+        StatusCode::BAD_REQUEST,
+        "2 things of the request were refused",
+    );
+    assert_eq!(
+        response.refused_places(),
+        ["parameter page", "parameter perPage"]
+    );
+    let details: Vec<String> = response.value()["errors"]
+        .as_array()
+        .expect("errors")
+        .iter()
+        .map(|entry| entry["detail"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        details,
+        [
+            invalid("page", "not a whole number"),
+            invalid("perPage", "not a whole number")
+        ]
+    );
     // Whether the board can be seen comes first.
     let response = outsider.get(&format!("{path}?page=x")).await;
     check_error(&response, StatusCode::NOT_FOUND, "board not found");

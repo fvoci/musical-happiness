@@ -168,11 +168,7 @@ impl Server {
             .nest(api::PREFIX, api)
             .route("/ws", get(handle_websocket))
             // What the `type` of a problem points at.
-            .route(error::PROBLEMS_PATH, get(problems::handle_problems))
-            .route(
-                &format!("{}/{{name}}", error::PROBLEMS_PATH),
-                get(problems::handle_problem),
-            )
+            .merge(problems::routes())
             .route("/static/{*path}", get(handle_static))
             .fallback(handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
@@ -191,22 +187,26 @@ impl Server {
                 .merge(root)
                 .fallback(|| async { web::not_found() })
         };
-        self.with_request_layers(routes)
+        self.with_request_layers(routes, &self.base_path)
     }
 
     /// The router of the administration socket. It must never be served on a TCP
     /// listener; its routes refuse requests that did not arrive through a Unix socket.
     pub fn admin_router(&self) -> Router {
+        // The socket has no base path: its routes are at their full paths, and so are
+        // the pages its error answers point at.
         self.with_request_layers(
             api::admin_router()
                 .layer(middleware::from_fn(error::problems_only))
-                .with_state(self.app.clone()),
+                .with_state(self.app.clone())
+                .merge(problems::routes()),
+            "",
         )
     }
 
     /// Wraps `router` in the layers every listener has: outermost the request log, then
     /// the containment of handler panics, so that a contained panic is logged as a 500.
-    fn with_request_layers(&self, router: Router) -> Router {
+    fn with_request_layers(&self, router: Router, base_path: &str) -> Router {
         // The configuration was checked when the application was put together.
         let proxies = TrustedProxies::parse(&self.app.config().trusted_proxies).unwrap_or_default();
         router
@@ -215,7 +215,7 @@ impl Server {
             .layer(middleware::from_fn_with_state(
                 Arc::new(request_log::Served {
                     proxies,
-                    base_path: self.base_path.clone(),
+                    base_path: base_path.to_owned(),
                 }),
                 request_log::log_request,
             ))

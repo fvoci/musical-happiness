@@ -152,7 +152,16 @@ async fn create_subscription_create_invalid_subscription() {
         )
         .await;
 
-    check_error(&response, StatusCode::BAD_REQUEST, "missing block id");
+    // Everything it lacks is told at once.
+    check_error(
+        &response,
+        StatusCode::BAD_REQUEST,
+        "3 members of the request were refused",
+    );
+    assert_eq!(
+        response.refused_places(),
+        ["/blockId", "/blockType", "/subscriberType"]
+    );
     th.teardown().await;
 }
 
@@ -179,7 +188,15 @@ async fn create_subscription_create_subscription_for_another_user() {
 
     // As in the original, the subscription is refused for what it lacks before the
     // subscriber is compared with the session's user.
-    check_error(&response, StatusCode::BAD_REQUEST, "missing block id");
+    check_error(
+        &response,
+        StatusCode::BAD_REQUEST,
+        "3 members of the request were refused",
+    );
+    assert_eq!(
+        response.refused_places(),
+        ["/blockId", "/blockType", "/subscriberType"]
+    );
     th.teardown().await;
 }
 
@@ -284,15 +301,24 @@ async fn create_subscription_validation() {
             "invalid subscriber type",
         ),
         (with("blockId", json!("")), "missing block id"),
-        // Nothing at all, also as `null` members: the first thing missing is reported.
-        (json!({}), "missing block id"),
-        (all_null, "missing block id"),
-        (json!({"subscriberId": other}), "missing block id"),
+        // Nothing at all, also as `null` members: everything missing is reported.
+        (json!({}), "4 members of the request were refused"),
+        (all_null, "4 members of the request were refused"),
+        (
+            json!({"subscriberId": other}),
+            "3 members of the request were refused",
+        ),
     ];
     for (body, message) in &bad_requests {
         let response = th.client.post(PATH, body).await;
         check_error(&response, StatusCode::BAD_REQUEST, message);
     }
+    let response = th.client.post(PATH, &json!({})).await;
+    assert_eq!(
+        response.refused_places(),
+        ["/blockId", "/blockType", "/subscriberId", "/subscriberType"],
+        "each member that is missing, the type after the others"
+    );
 
     // Complete, but for someone else; whether the block exists is not looked at.
     for block_id in [card.id.as_str(), UNKNOWN_ID, "nope"] {

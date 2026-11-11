@@ -204,7 +204,8 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
     th.teardown().await;
 }
 
-/// A body that may not be stored is a 400 that names `body`, on both routes.
+/// A body that may not be stored is a 400 that names `body`, or the node of it that is
+/// refused, on both routes.
 #[tokio::test]
 async fn a_body_that_is_no_document_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
@@ -213,13 +214,16 @@ async fn a_body_that_is_no_document_is_refused() {
         .await
         .created_json();
 
-    for body in [
-        json!("text"),
-        json!({"type": "doc", "content": []}),
-        json!({"type": "doc", "content": [{"type": "paragraph", "extra": true}]}),
+    for (body, place) in [
+        (json!("text"), "body"),
+        (json!({"type": "doc", "content": []}), "body"),
+        (
+            json!({"type": "doc", "content": [{"type": "paragraph", "extra": true}]}),
+            "body/content/0",
+        ),
     ] {
         let response = new_card(&th.client, &board.id, &json!({"body": body})).await;
-        check_refused_member(&response, "body");
+        check_refused_member(&response, place);
         let response = th
             .client
             .patch(
@@ -227,7 +231,7 @@ async fn a_body_that_is_no_document_is_refused() {
                 &json!({"body": body, "readAt": created.update_at}),
             )
             .await;
-        check_refused_member(&response, "body");
+        check_refused_member(&response, place);
     }
     assert_eq!(
         card(&th.client, &created.id).await,
@@ -563,7 +567,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
                 &board.id,
                 &json!({"type": "doc", "content": [{"type": "table"}]}),
             ),
-            "0/body",
+            "0/body/content/0",
         ),
         (
             json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "attachment",
@@ -835,7 +839,7 @@ async fn a_comment_has_a_body() {
                 &comment(&json!({"type": "doc", "content": [{"type": "table"}]})),
             )
             .await,
-        "0/body",
+        "0/body/content/0",
     );
     let made: Vec<Value> = th
         .client

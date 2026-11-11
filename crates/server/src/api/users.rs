@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use fvoci_model::{
-    BoardMember, User, UserPreferencesPatch, UserSettings, UserSettingsPatch, display_name,
+    BoardMember, RefusalReason, Refusals, User, UserPreferencesPatch, UserSettings,
+    UserSettingsPatch, display_name,
 };
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
@@ -131,29 +132,30 @@ async fn handle_patch_me(
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
     let mut requested = None;
+    // Every member that is refused, not the first alone.
+    let mut refused = Refusals::new();
     for (name, value) in &members {
         match (name.as_str(), value) {
             ("displayName", serde_json::Value::Null) => requested = Some(String::new()),
-            ("displayName", serde_json::Value::String(name)) => requested = Some(name.clone()),
-            ("displayName", _) => {
-                return Err(
-                    AppError::bad_request("displayName must be a string or null")
-                        .with_field("displayName"),
-                );
-            }
-            (other, _) => {
-                return Err(
-                    AppError::bad_request(format_args!("there is no member {other:?}"))
-                        .with_field(other),
-                );
-            }
+            ("displayName", serde_json::Value::String(name)) => match display_name(name) {
+                Ok(name) => requested = Some(name),
+                Err(error) => refused.push(error.into()),
+            },
+            ("displayName", _) => refused.refuse(
+                "displayName",
+                RefusalReason::Invalid,
+                "displayName must be a string or null",
+            ),
+            (other, _) => refused.refuse(
+                other,
+                RefusalReason::Unknown,
+                format!("there is no member {other:?}"),
+            ),
         }
     }
+    refused.into_result()?;
     let mut user = match requested {
-        Some(name) => {
-            let name = display_name(&name)?;
-            app.set_display_name(&session.user_id, &name).await?
-        }
+        Some(name) => app.set_display_name(&session.user_id, &name).await?,
         None => app.user(&session.user_id).await?,
     };
     crate::app::sanitize(&mut user);
@@ -286,9 +288,7 @@ async fn handle_patch_client_state(
     body: Bytes,
 ) -> ApiResult {
     let patch: UserPreferencesPatch = decode_object(&body)?;
-    patch
-        .validate()
-        .map_err(|error| AppError::bad_request(error).with_field("updatedFields"))?;
+    patch.validate()?;
     let entries = app.update_user_config(&session.user_id, &patch).await?;
     Ok(json_response(&client_state(entries)))
 }
@@ -330,10 +330,7 @@ async fn handle_patch_user_settings(
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
-    let patch = UserSettingsPatch::from_members(&members).map_err(|error| {
-        let field = error.field().to_owned();
-        AppError::bad_request(error).with_field(&field)
-    })?;
+    let patch = UserSettingsPatch::from_members(&members)?;
     Ok(json_response(
         &app.patch_user_settings(&session.user_id, &patch).await?,
     ))
