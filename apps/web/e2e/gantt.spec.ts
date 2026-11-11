@@ -1,7 +1,7 @@
 /**
  * The Gantt view on the in-memory backend: making one, cards as bars on
- * their days, the line of today, the keys that walk the bars, and a narrow
- * page.
+ * their days, the line of today, the keys that walk the bars, the arrows of
+ * a card relation, what is out of order or on a loop, and a narrow page.
  *
  * The clock of the page is fixed at 2026-11-10 01:00 in Seoul (still the
  * 9th in UTC, so that a day taken from UTC would show), and so is its time
@@ -35,6 +35,8 @@ interface Store {
   cards: { id: string; title: string }[];
   views: { id: string; title: string; fields: Record<string, unknown> }[];
   setCardProperty(cardId: string, propertyId: string, value: unknown): Promise<void>;
+  changeBoard(change: (board: Store['board']) => Store['board']): Promise<void>;
+  deleteCards(cardIds: string[]): Promise<void>;
 }
 interface Dev {
   workspace: { board: Store };
@@ -253,6 +255,299 @@ test('the title of a row opens its card too', async ({ page }, info) => {
   await gantt(page).locator('[data-row-title]', { hasText: 'Share a board' }).click();
   await expect(dialog(page)).toBeVisible();
   await expect(dialog(page).locator('[data-card-title]')).toHaveValue('Share a board');
+});
+
+// ------------------------------------------------------- dependencies
+
+const arrows = (page: Page): Locator => gantt(page).locator('[data-arrow]');
+
+/** Gives the board a card relation "After" (identifier `after`). */
+async function addRelation(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    await store.changeBoard((board) => ({
+      ...board,
+      cardProperties: [
+        ...board.cardProperties,
+        { id: 'after', name: 'After', type: 'relation', options: [] },
+      ],
+    }));
+  });
+}
+
+/** Writes on each card named the cards it comes after, by their titles; other text is kept as an identifier. */
+async function setAfter(page: Page, values: Record<string, string[]>): Promise<void> {
+  await page.evaluate(async (wanted) => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const idOf = (title: string): string =>
+      store.cards.find((each) => each.title === title)?.id ?? title;
+    for (const [title, before] of Object.entries(wanted)) {
+      await store.setCardProperty(idOf(title), 'after', before.map(idOf));
+    }
+  }, values);
+}
+
+/** Chooses a line of "dependencies" in the header, whichever way the header is laid out. */
+async function chooseDependencies(page: Page, action: string): Promise<void> {
+  const header = page.getByTestId('view-header');
+  if ((await header.getAttribute('data-layout')) === 'row') {
+    await header.locator('[data-tool="dependencies"]').click();
+  } else {
+    await header.locator('[data-tool="more"]').click();
+    await page.locator('[role="menuitem"][data-action="dependencies"]').click();
+  }
+  await page.locator(`[role="menuitem"][data-action="${action}"]`).click();
+}
+
+/** What "dependencies" says it reads. */
+async function expectDependencies(page: Page, name: string): Promise<void> {
+  const header = page.getByTestId('view-header');
+  if ((await header.getAttribute('data-layout')) === 'row') {
+    await expect(header.locator('[data-tool="dependencies"]')).toHaveAccessibleName(
+      `Dependencies: ${name}`,
+    );
+    return;
+  }
+  await header.locator('[data-tool="more"]').click();
+  await expect(page.locator('[role="menuitem"][data-action="dependencies"]')).toContainText(name);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[role="menuitem"][data-action="dependencies"]')).toHaveCount(0);
+}
+
+/** A Gantt view of the welcome board with dated cards and a relation between them. */
+async function openRelated(page: Page, info: TestInfo): Promise<void> {
+  await page.clock.setFixedTime(NOW);
+  await openView(page, info, ...WELCOME);
+  await setDates(page, {
+    'Drag cards': { from: '2026-11-12' },
+    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
+    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
+    'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
+  });
+  await addRelation(page);
+  await setAfter(page, {
+    // After two cards, one of them deleted since, and after itself.
+    'Share a board': ['Create a new card', 'a-card-that-is-gone', 'Share a board'],
+    'Filter and sort cards': ['Share a board', 'Drag cards'],
+    // A card without a date: it has no bar for an arrow to reach.
+    'Create a new view': ['Drag cards'],
+  });
+  await addGantt(page);
+  await expect(bars(page)).toHaveCount(4);
+}
+
+test('a new Gantt view reads the first card relation, and draws one arrow for each edge', async ({
+  page,
+}, info) => {
+  await openRelated(page, info);
+  await expectDependencies(page, 'After');
+  expect((await storedFields(page)).dependencyPropertyId).toBe('after');
+  // Three edges between cards that have a bar; the deleted card, the card
+  // itself and the card without a date give none.
+  await expect(gantt(page)).toHaveAttribute('data-edges', '3');
+  await expect(arrows(page)).toHaveCount(3);
+  const ends = await arrows(page).evaluateAll((drawn) =>
+    drawn.map((arrow) => [arrow.getAttribute('data-from'), arrow.getAttribute('data-to')]),
+  );
+  const ids = await page.evaluate(() => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    return Object.fromEntries(store.cards.map((card) => [card.title, card.id]));
+  });
+  expect(ends).toEqual([
+    [ids['Create a new card'], ids['Share a board']],
+    [ids['Share a board'], ids['Filter and sort cards']],
+    [ids['Drag cards'], ids['Filter and sort cards']],
+  ]);
+  // A bar says which cards it comes after.
+  await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
+    'Filter and sort cards, December 3 – 4. After Share a board and Drag cards.',
+  );
+  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('Drag cards, November 12');
+});
+
+test('an arrow goes from the end of the card that comes first to the start of the one after', async ({
+  page,
+}, info) => {
+  await openRelated(page, info);
+  await expect(arrows(page)).toHaveCount(3);
+  await bar(page, 'Share a board').scrollIntoViewIfNeeded();
+  /** The first and the last point of the line of an arrow, on the page. */
+  const line = await arrows(page)
+    .first()
+    .locator('path')
+    .first()
+    .evaluate((path) => {
+      const drawn = path as SVGPathElement;
+      const matrix = drawn.getScreenCTM();
+      if (!matrix) throw new Error('the arrow is not drawn');
+      const at = (length: number): { x: number; y: number } => {
+        const point = drawn.getPointAtLength(length).matrixTransform(matrix);
+        return { x: point.x, y: point.y };
+      };
+      return { start: at(0), end: at(drawn.getTotalLength()) };
+    });
+  const from = await bar(page, 'Create a new card').boundingBox();
+  const to = await bar(page, 'Share a board').boundingBox();
+  if (!from || !to) throw new Error('no bars to measure');
+  expect(Math.abs(line.start.x - (from.x + from.width))).toBeLessThan(1.5);
+  expect(Math.abs(line.start.y - (from.y + from.height / 2))).toBeLessThan(1.5);
+  expect(Math.abs(line.end.x - to.x)).toBeLessThan(1.5);
+  expect(Math.abs(line.end.y - (to.y + to.height / 2))).toBeLessThan(1.5);
+});
+
+test('"dependencies" in the header turns the arrows off and on, and the view keeps the choice', async ({
+  page,
+}, info) => {
+  await openRelated(page, info);
+  await expect(arrows(page)).toHaveCount(3);
+  await chooseDependencies(page, 'none');
+  await expect(arrows(page)).toHaveCount(0);
+  await expect(page.getByTestId('gantt-arrows')).toHaveCount(0);
+  await expectDependencies(page, 'None');
+  expect((await storedFields(page)).dependencyPropertyId).toBe('');
+  await chooseDependencies(page, 'after');
+  await expect(arrows(page)).toHaveCount(3);
+  expect((await storedFields(page)).dependencyPropertyId).toBe('after');
+});
+
+test('a Gantt view made on a board without a card relation has no arrows until one is chosen', async ({
+  page,
+}, info) => {
+  await openGantt(page, info);
+  await expectDependencies(page, 'None');
+  expect((await storedFields(page)).dependencyPropertyId).toBeUndefined();
+  await addRelation(page);
+  await setAfter(page, { 'Share a board': ['Create a new card'] });
+  await expect(arrows(page)).toHaveCount(0);
+  await chooseDependencies(page, 'after');
+  await expect(arrows(page)).toHaveCount(1);
+  await expect(gantt(page)).toHaveAttribute('data-edges', '1');
+});
+
+test('the arrows of a card go with it when it is deleted', async ({ page }, info) => {
+  await openRelated(page, info);
+  await expect(arrows(page)).toHaveCount(3);
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const gone = store.cards.find((card) => card.title === 'Share a board');
+    if (!gone) throw new Error('no card to delete');
+    await store.deleteCards([gone.id]);
+  });
+  // The value of "Filter and sort cards" still names the deleted card: no arrow for it.
+  await expect(bars(page)).toHaveCount(3);
+  await expect(arrows(page)).toHaveCount(1);
+  await expect(gantt(page)).toHaveAttribute('data-edges', '1');
+});
+
+// ------------------------------------------- out of order, and loops
+
+/** The dashes of the line of an arrow between two cards, by their titles; null for a solid line. */
+async function dashes(page: Page, from: string, to: string): Promise<string | null> {
+  const ids = await page.evaluate(() => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    return Object.fromEntries(store.cards.map((card) => [card.title, card.id]));
+  });
+  return gantt(page)
+    .locator(`[data-arrow][data-from="${ids[from] ?? ''}"][data-to="${ids[to] ?? ''}"] path`)
+    .first()
+    .getAttribute('stroke-dasharray');
+}
+
+test('a card that starts before a card it comes after has ended is marked, counted and said', async ({
+  page,
+}, info) => {
+  await openRelated(page, info);
+  // "Share a board" starts on the day "Drag cards" ends: that is in order.
+  await setAfter(page, { 'Share a board': ['Create a new card', 'Drag cards'] });
+  await expect(arrows(page)).toHaveCount(4);
+  await expect(gantt(page)).toHaveAttribute('data-late', '0');
+  await expect(page.getByTestId('gantt-late')).toHaveCount(0);
+  await expect(gantt(page).locator('[data-mark]')).toHaveCount(0);
+
+  // "Filter and sort cards" now starts three days before "Share a board" ends.
+  await setDates(page, { 'Filter and sort cards': { from: '2026-11-20', to: '2026-11-21' } });
+  await expect(gantt(page)).toHaveAttribute('data-late', '1');
+  await expect(arrows(page)).toHaveCount(4);
+  await expect(gantt(page).locator('[data-arrow][data-late]')).toHaveCount(1);
+  // Not by colour alone: the line is dashed, the others are not.
+  expect(await dashes(page, 'Share a board', 'Filter and sort cards')).toBe('6 4');
+  expect(await dashes(page, 'Drag cards', 'Filter and sort cards')).toBeNull();
+  // A mark next to the title and one after the bar.
+  const row = gantt(page)
+    .locator('[data-row]')
+    .filter({ has: page.locator('[data-row-title]', { hasText: 'Filter and sort cards' }) });
+  await expect(row.locator('[data-mark="late"]')).toHaveCount(2);
+  await expect(gantt(page).locator('[data-mark]')).toHaveCount(2);
+  await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
+    'Filter and sort cards, November 20 – 21. After Share a board and Drag cards. Out of order: starts before the end of Share a board.',
+  );
+  // The row above the chart counts them, and goes to the card.
+  const count = page.getByTestId('gantt-late');
+  await expect(count).toHaveAccessibleName('Out of order: 1. Show the next.');
+  await expect(count.locator('[data-count]')).toHaveText('1');
+  await count.click();
+  await expect(bar(page, 'Filter and sort cards')).toBeFocused();
+  await expect(bar(page, 'Filter and sort cards')).toBeInViewport();
+
+  // Dates are not moved for the reader: the card is where its value says.
+  const stored = await page.evaluate(() => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const card = store.cards.find((each) => each.title === 'Filter and sort cards');
+    return (card as unknown as { fields: { properties: Record<string, unknown> } }).fields
+      .properties[due?.id ?? ''];
+  });
+  expect(stored).toEqual({ from: '2026-11-20', to: '2026-11-21' });
+
+  // Put back in order, nothing is marked.
+  await setDates(page, { 'Filter and sort cards': { from: '2026-11-23', to: '2026-11-24' } });
+  await expect(page.getByTestId('gantt-late')).toHaveCount(0);
+  await expect(gantt(page).locator('[data-mark]')).toHaveCount(0);
+});
+
+test('cards on a loop are marked, counted and said, the arrows between them dotted', async ({
+  page,
+}, info) => {
+  await openRelated(page, info);
+  await expect(page.getByTestId('gantt-loops')).toHaveCount(0);
+  // "Create a new card" → "Share a board" → "Filter and sort cards" → "Create a new card".
+  await setAfter(page, { 'Create a new card': ['Filter and sort cards'] });
+  await expect(arrows(page)).toHaveCount(4);
+  await expect(gantt(page).locator('[data-arrow][data-loop]')).toHaveCount(3);
+  // In order and on the loop: dotted. The one that closes it runs backwards in time: dashed.
+  expect(await dashes(page, 'Create a new card', 'Share a board')).toBe('0.1 4.5');
+  expect(await dashes(page, 'Filter and sort cards', 'Create a new card')).toBe('6 4');
+  expect(await dashes(page, 'Drag cards', 'Filter and sort cards')).toBeNull();
+  await expect(gantt(page).locator('[data-bar][data-loop]')).toHaveCount(3);
+  await expect(bar(page, 'Drag cards')).not.toHaveAttribute('data-loop');
+  await expect(bar(page, 'Share a board')).toHaveAccessibleName(
+    'Share a board, November 12 – 23. After Create a new card. On a loop: following what it comes after leads back to it.',
+  );
+  const count = page.getByTestId('gantt-loops');
+  await expect(count).toHaveAccessibleName('On a loop: 3. Show the next.');
+  await expect(page.getByTestId('gantt-late')).toHaveAccessibleName(
+    'Out of order: 1. Show the next.',
+  );
+  // The button walks the cards of the loop, from the top and round again.
+  const onLoop = gantt(page).locator('[data-bar][data-loop]');
+  for (const at of [0, 1, 2, 0]) {
+    await count.click();
+    await expect(onLoop.nth(at)).toBeFocused();
+  }
+});
+
+test('a loop through a card without a date still marks the cards that have a bar', async ({
+  page,
+}, info) => {
+  await openRelated(page, info);
+  // "Drag cards" ↔ "Create a new view", which has no date and so no bar and no arrow.
+  await setAfter(page, { 'Drag cards': ['Create a new view'] });
+  await expect(arrows(page)).toHaveCount(3);
+  await expect(gantt(page).locator('[data-arrow][data-loop]')).toHaveCount(0);
+  await expect(bar(page, 'Drag cards')).toHaveAttribute('data-loop', '');
+  await expect(page.getByTestId('gantt-loops')).toHaveAccessibleName(
+    'On a loop: 1. Show the next.',
+  );
 });
 
 /**
