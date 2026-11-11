@@ -12,7 +12,7 @@
 mod scan;
 mod walk;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
@@ -35,6 +35,13 @@ pub(crate) struct Layer {
     /// The accessors and fields through which other code holds this layer: `.store()`
     /// and `.store` are the database, whatever the type is called where they are used.
     handles: &'static [&'static str],
+}
+
+impl Layer {
+    /// Whether code of this layer may name `other`.
+    fn may_name(&self, other: &Layer) -> bool {
+        self.name == other.name || self.may_use.contains(&other.name)
+    }
 }
 
 /// The layers, from the top. A request comes in through HTTP, which asks the logic,
@@ -65,6 +72,11 @@ pub(crate) const LAYERS: &[Layer] = &[
             "tower_layer",
             "tower_service",
             "utoipa_axum",
+            // The HTTP types that the client of the webhooks hands on under its name.
+            "reqwest::header",
+            "reqwest::Method",
+            "reqwest::StatusCode",
+            "reqwest::Version",
         ],
         may_use: &["logic", "model"],
         handles: &[],
@@ -134,7 +146,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let listed = parse_exceptions(&text).with_context(|| format!("reading {EXCEPTIONS}"))?;
-    let mut problems = sources.unfollowed();
+    let mut problems = sources.stale_layers();
+    problems.extend(sources.refused());
     problems.extend(judge(&sources.violations(), &listed));
     if problems.is_empty() {
         steps::say(&format!(
@@ -161,6 +174,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
 struct Sources {
     /// Each file, as the list and the messages write it, with what it names.
     files: Vec<(String, Vec<Reference>)>,
+    /// The modules that were read.
+    modules: BTreeSet<String>,
     /// The names given to paths, in any module: who names the key names the values.
     aliases: BTreeMap<String, Vec<String>>,
     /// The modules that import everything of a path (`use path::*`): who names
@@ -195,6 +210,7 @@ impl Sources {
             .flat_map(|layer| layer.handles.iter().copied())
             .collect();
         let read = scan::read_source(module, source, &handles)?;
+        self.modules.insert(module.join("::"));
         for alias in read.aliases {
             self.aliases
                 .entry(alias.name)
@@ -202,7 +218,7 @@ impl Sources {
                 .push(alias.target);
         }
         for reference in &read.references {
-            if let Target::Path(path) = &reference.target
+            if let Target::Path { path, .. } = &reference.target
                 && let Some(everything_of) = path.strip_suffix("::*")
             {
                 self.globs
@@ -217,6 +233,7 @@ impl Sources {
 
     /// Everything a path may stand for: itself, and what the names on its way were
     /// given to. A re-export, a renamed import and a type alias lead on from here.
+    /// At most [`MOST_FORMS`]: that many means names given in a circle.
     fn reached(&self, path: &str) -> Vec<String> {
         let mut reached = vec![path.to_owned()];
         let mut at = 0;
@@ -224,37 +241,68 @@ impl Sources {
             && reached.len() < MOST_FORMS
         {
             at += 1;
-            let ends = current
+            let ends: Vec<usize> = current
                 .match_indices("::")
                 .map(|(end, _)| end)
-                .chain([current.len()]);
-            for end in ends {
-                let (prefix, rest) = current.split_at(end);
+                .chain([current.len()])
+                .collect();
+            let mut next = Vec::new();
+            // What a name was given to comes before what an import of everything may
+            // have brought: the first is known, the second is a guess that only counts
+            // where it leads on to a given name or to another layer.
+            for end in &ends {
+                let (prefix, rest) = current.split_at(*end);
                 let named = self.aliases.get(prefix).into_iter().flatten();
-                // What is named inside a module that imports everything of a path may
-                // be what that path holds.
-                let held = self
-                    .globs
-                    .get(prefix)
-                    .into_iter()
-                    .flatten()
-                    .filter(|_| !rest.is_empty());
-                for target in named.chain(held) {
-                    let next = format!("{target}{rest}");
-                    if !reached.contains(&next) {
-                        reached.push(next);
-                    }
+                next.extend(named.map(|target| format!("{target}{rest}")));
+            }
+            for end in &ends {
+                let (prefix, rest) = current.split_at(*end);
+                let held = self.globs.get(prefix).into_iter().flatten();
+                next.extend(
+                    held.filter(|_| !rest.is_empty())
+                        .map(|target| format!("{target}{rest}")),
+                );
+            }
+            for form in next {
+                if !reached.contains(&form) && reached.len() < MOST_FORMS {
+                    reached.push(form);
                 }
             }
         }
         reached
     }
 
+    /// Every way to read the path of a reference: as written, and, where its first
+    /// name is none the file knows, as a name that an import of everything brought
+    /// into the module. One name alone that the file does not know is a local, unless
+    /// such an import brought it.
+    fn readings(&self, reference: &Reference) -> Vec<String> {
+        let Target::Path { path, open } = &reference.target else {
+            return Vec::new();
+        };
+        let mut readings = Vec::new();
+        if !open || path.contains("::") {
+            readings.push(path.clone());
+        }
+        if *open {
+            // Everything of another layer is refused as such; its names are not guessed.
+            let own = layer_of(&reference.module).map(|layer| layer.name);
+            let everything_of = self
+                .globs
+                .get(&reference.module)
+                .into_iter()
+                .flatten()
+                .filter(|target| layer_of(target).is_none_or(|layer| Some(layer.name) == own));
+            readings.extend(everything_of.map(|target| format!("{target}::{path}")));
+        }
+        readings
+    }
+
     /// The layer `from` may not name and `path` leads to, with the path as it is there.
     fn broken_by(&self, from: &Layer, path: &str) -> Option<(&'static Layer, String)> {
         self.reached(path).into_iter().find_map(|form| {
             let to = layer_of(&form)?;
-            (from.name != to.name && !from.may_use.contains(&to.name)).then_some((to, form))
+            (!from.may_name(to)).then_some((to, form))
         })
     }
 
@@ -267,12 +315,15 @@ impl Sources {
                     continue;
                 };
                 let broken = match &reference.target {
-                    Target::Path(path) => self.broken_by(from, path),
-                    Target::Handle { name, written } => LAYERS
+                    Target::Path { path, .. } => self
+                        .readings(reference)
                         .iter()
-                        .find(|layer| layer.handles.contains(&name.as_str()))
-                        .filter(|to| from.name != to.name && !from.may_use.contains(&to.name))
-                        .map(|to| (to, written.clone())),
+                        .find_map(|reading| self.broken_by(from, reading))
+                        .or_else(|| handle_by_path(from, path)),
+                    Target::Handle { name, written } => {
+                        handle_layer(from, name).map(|to| (to, written.clone()))
+                    }
+                    Target::Included => None,
                 };
                 if let Some((to, named)) = broken {
                     violations.push(Violation {
@@ -288,14 +339,23 @@ impl Sources {
         violations
     }
 
-    /// The imports of everything of another layer (`use fvoci_store::*`). They are
-    /// refused, listed or not: what such an import brings in has no name to follow.
-    fn unfollowed(&self) -> Vec<String> {
+    /// What is refused, listed or not, because the reading cannot follow it: an import
+    /// of everything of another layer (`use fvoci_store::*`), `include!`, and names
+    /// given in a circle.
+    fn refused(&self) -> Vec<String> {
         let mut problems = Vec::new();
         for (file, references) in &self.files {
             for reference in references {
-                let Target::Path(path) = &reference.target else {
-                    continue;
+                let place = format!("{file}:{}", reference.line);
+                let path = match &reference.target {
+                    Target::Path { path, .. } => path,
+                    Target::Handle { .. } => continue,
+                    Target::Included => {
+                        problems.push(format!(
+                            "{place}: include! brings in code that is not read. Make it a module"
+                        ));
+                        continue;
+                    }
                 };
                 let layers = (layer_of(&reference.module), layer_of(path));
                 if let (Some(from), Some(to)) = layers
@@ -303,14 +363,58 @@ impl Sources {
                     && from.name != to.name
                 {
                     problems.push(format!(
-                        "{file}:{}: {} imports everything of {}: {path}. Name what is imported",
-                        reference.line, from.name, to.name
+                        "{place}: {} imports everything of {}: {path}. Name what is imported",
+                        from.name, to.name
+                    ));
+                }
+                for reading in self.readings(reference) {
+                    if self.reached(&reading).len() >= MOST_FORMS {
+                        problems.push(format!(
+                            "{place}: {reading} leads through names that are given in a circle"
+                        ));
+                    }
+                }
+            }
+        }
+        problems
+    }
+
+    /// The entries of [`LAYERS`] that name a module of a read crate which is not
+    /// there: a module that was renamed would otherwise become HTTP without a word.
+    fn stale_layers(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        for layer in LAYERS {
+            for owned in layer.owns {
+                let of_a_read_crate = CRATES
+                    .iter()
+                    .any(|(name, _)| owned.starts_with(&format!("{name}::")));
+                if of_a_read_crate && !self.modules.contains(*owned) {
+                    problems.push(format!(
+                        "{owned} is listed as {} and is no module: correct the table in \
+                         xtask/src/layers.rs",
+                        layer.name
                     ));
                 }
             }
         }
         problems
     }
+}
+
+/// The layer whose handle `name` is, if `from` may not name that layer.
+fn handle_layer(from: &Layer, name: &str) -> Option<&'static Layer> {
+    LAYERS
+        .iter()
+        .find(|layer| layer.handles.contains(&name))
+        .filter(|to| !from.may_name(to))
+}
+
+/// A handle that is taken by the path of its accessor instead of a call on a value:
+/// `App::store(&app)`, `.map(App::store)`.
+fn handle_by_path(from: &Layer, path: &str) -> Option<(&'static Layer, String)> {
+    let mut names = path.rsplit("::");
+    let (accessor, owner) = (names.next()?, names.next()?);
+    handle_layer(from, accessor).map(|to| (to, format!("{owner}::{accessor}")))
 }
 
 /// How many forms of one path are followed: more than any real chain of names, and an

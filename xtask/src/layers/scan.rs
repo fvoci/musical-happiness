@@ -25,12 +25,17 @@ pub(crate) struct Reference {
 /// What a [`Reference`] names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Target {
-    /// A path, made absolute: `fvoci_store::Store`, `fvoci_server::ws::Hub`. Where its
-    /// first name is one the file gave with `use` or `type`, it starts with that name
-    /// (`fvoci_server::api::Database::connect`). A path whose first name is neither in
-    /// sight nor `crate`, `self` or `super` is kept as written: it starts at another
-    /// crate.
-    Path(String),
+    /// A path.
+    Path {
+        /// The path, made absolute: `fvoci_store::Store`, `fvoci_server::ws::Hub`.
+        /// Where its first name is one the file gave with `use` or `type`, it starts
+        /// with that name (`fvoci_server::api::Database::connect`).
+        path: String,
+        /// Whether the first name is none the file knows, so that the path is kept as
+        /// written: it starts at another crate, at a local, or at a name that an
+        /// import of everything (`use super::*`) brought in.
+        open: bool,
+    },
     /// A handle taken from a value: `.store()` or the field `.store`, with the method
     /// called on it where there is one (`.store().get_block`).
     Handle {
@@ -39,6 +44,8 @@ pub(crate) enum Target {
         /// How the code reads, without the receiver and the arguments.
         written: String,
     },
+    /// `include!`: code of this module that is in a file the reading does not open.
+    Included,
 }
 
 /// A name a module gives to a path, with `use` or `type`: `fvoci_server::app::Database`
@@ -71,18 +78,18 @@ pub(crate) struct Source {
 /// Reads the source of the module `module` (its path from the crate's name on).
 ///
 /// Seen: every path in `use` (renamed, grouped, globbed), in expressions, types,
-/// patterns, bounds and attributes, and what looks like a path of two names or more
-/// among the tokens of a macro. `crate`, `self`, `super`, the modules declared in the
-/// file and the names the file gives with `use` and `type` are resolved; an inline
-/// module also sees those of the modules around it, as a test module does through
-/// `use super::*`. A handle is seen as `.name()` without arguments or as the field
-/// `.name`, anywhere in the file, macros included.
+/// patterns, bounds and attributes, a path written as the text of an attribute's
+/// argument (`#[serde(with = "a::b")]`), and what reads like a path among the tokens of
+/// a macro. `crate`, `self`, `super`, the modules declared in the file and the names
+/// the file gives with `use` and `type` are resolved, a name used alone included
+/// (`Store`, after `use fvoci_store::Store`); an inline module also sees those of the
+/// modules around it, as a test module does through `use super::*`. A handle is seen as
+/// `.name()` without arguments or as the field `.name`, anywhere in the file, macros
+/// included.
 ///
-/// Not seen: an imported name used alone (`Store`, after `use fvoci_store::Store`: the
-/// import counts, and every path of two names or more that starts at it); a type that
-/// arrives without being named, as the result of a function or inside another type; a
-/// handle kept in a variable and used from there, or reached under another name; code
-/// that a macro writes or `include!` brings in.
+/// Not seen: a type that arrives without being named, as the result of a function or
+/// inside another type; a handle kept in a variable and used from there, taken out of
+/// a struct by a pattern, or reached under another name; code that a macro writes.
 ///
 /// # Errors
 ///
@@ -117,17 +124,37 @@ impl Start {
     }
 }
 
+/// Whether a text among tokens may be a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Text {
+    /// In the arguments of an attribute: `with = "a::b"`.
+    MayBePath,
+    /// In the input of a macro: a message, a format.
+    IsText,
+}
+
+/// The words of the language that no path among tokens starts with: after one of them
+/// a path begins (`as ::a::B`, `impl ::a::B`).
+const KEYWORDS: &[&str] = &[
+    "as", "async", "await", "box", "break", "const", "continue", "do", "dyn", "else", "enum",
+    "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "macro", "match", "mod",
+    "move", "mut", "pub", "ref", "return", "static", "struct", "trait", "true", "try", "type",
+    "unsafe", "use", "where", "while", "yield",
+];
+
 /// A module whose items are being read, with the names of the modules declared in it.
 struct Scope {
     module: Vec<String>,
     children: BTreeSet<String>,
+    /// Which of [`Reader::sights`] is this module's.
+    sight: usize,
 }
 
 /// A path as the file writes it, resolved as far as the modules tell.
 struct Written {
     line: usize,
-    /// The module of the code, then the modules around it in the file, outwards.
-    modules: Vec<String>,
+    /// Which of [`Reader::sights`] the path is written in.
+    sight: usize,
     /// The path: absolute, or as written where its first name is not known yet.
     names: Vec<String>,
     /// Whether the first name may be one the file gave with `use` or `type`.
@@ -140,7 +167,12 @@ struct Written {
 struct Reader {
     /// The module of the file, then the inline modules down to the code being read.
     scopes: Vec<Scope>,
+    /// For every module of the file: the module, then the modules around it in the
+    /// file, outwards. The names given in any of them are in sight in the first.
+    sights: Vec<Vec<String>>,
     written: Vec<Written>,
+    /// The lines of `include!`.
+    included: Vec<usize>,
     declared: Vec<Declared>,
     /// The name the paths being read are given: inside `type Name = …`.
     naming: Option<String>,
@@ -160,7 +192,19 @@ impl Reader {
                 _ => None,
             })
             .collect();
-        self.scopes.push(Scope { module, children });
+        let mut sight = vec![module.join("::")];
+        sight.extend(
+            self.scopes
+                .iter()
+                .rev()
+                .map(|scope| scope.module.join("::")),
+        );
+        self.sights.push(sight);
+        self.scopes.push(Scope {
+            module,
+            children,
+            sight: self.sights.len() - 1,
+        });
         for attribute in attributes {
             self.visit_attribute(attribute);
         }
@@ -179,7 +223,7 @@ impl Reader {
     /// first name is still open. `None` for a path that leads nowhere outside what it
     /// is written in (`Self::…`, more `super` than there are modules).
     fn resolve(&self, start: Start, names: &[String]) -> Option<(Vec<String>, bool)> {
-        let (first, rest) = names.split_first()?;
+        let (first, mut rest) = names.split_first()?;
         if start == Start::Crates {
             return Some((names.to_vec(), false));
         }
@@ -190,15 +234,7 @@ impl Reader {
             "super" => {
                 let mut path = self.module().to_vec();
                 path.pop()?;
-                let mut rest = rest;
-                while let Some((next, after)) = rest.split_first()
-                    && next == "super"
-                {
-                    path.pop()?;
-                    rest = after;
-                }
-                path.extend(rest.iter().cloned());
-                return (!path.is_empty()).then_some((path, false));
+                path
             }
             // A module declared here, or around an inline module.
             _ => match self
@@ -215,6 +251,18 @@ impl Reader {
                 None => return Some((names.to_vec(), true)),
             },
         };
+        if matches!(first.as_str(), "self" | "super") {
+            // `super::super::a`, and `self::super::a`.
+            while let Some((next, after)) = rest.split_first()
+                && next == "super"
+            {
+                path.pop()?;
+                rest = after;
+            }
+            if path.is_empty() {
+                return None;
+            }
+        }
         path.extend(rest.iter().cloned());
         Some((path, false))
     }
@@ -229,16 +277,21 @@ impl Reader {
             .or_else(|| self.naming.clone());
         self.written.push(Written {
             line,
-            modules: self
-                .scopes
-                .iter()
-                .rev()
-                .map(|scope| scope.module.join("::"))
-                .collect(),
+            sight: self.scopes.last().map_or(0, |scope| scope.sight),
             names,
             open,
             alias,
         });
+    }
+
+    /// Notes the path of an import. One name alone is a crate there, where it is no
+    /// module in sight: `use fvoci_store as database;`.
+    fn record_import(&mut self, start: Start, names: &[String], line: usize, alias: Option<&str>) {
+        let start = match self.resolve(start, names) {
+            Some((_, true)) if names.len() == 1 => Start::Crates,
+            _ => start,
+        };
+        self.record(start, names, line, alias);
     }
 
     fn read_use(&mut self, start: Start, prefix: &mut Vec<String>, tree: &syn::UseTree) {
@@ -249,28 +302,10 @@ impl Reader {
                 prefix.pop();
             }
             syn::UseTree::Name(syn::UseName { ident }) => {
-                let line = ident.span().start().line;
-                // `use a::{self}` names `a`, and gives it the name `a`.
-                if ident == "self" && !prefix.is_empty() {
-                    let alias = prefix.last().cloned();
-                    self.record(start, prefix, line, alias.as_deref());
-                } else {
-                    let name = ident.unraw().to_string();
-                    prefix.push(name.clone());
-                    self.record(start, prefix, line, Some(&name));
-                    prefix.pop();
-                }
+                self.record_used(start, prefix, ident, Some(ident));
             }
             syn::UseTree::Rename(syn::UseRename { ident, rename, .. }) => {
-                let alias = (rename != "_").then(|| rename.unraw().to_string());
-                let line = ident.span().start().line;
-                if ident == "self" && !prefix.is_empty() {
-                    self.record(start, prefix, line, alias.as_deref());
-                } else {
-                    prefix.push(ident.unraw().to_string());
-                    self.record(start, prefix, line, alias.as_deref());
-                    prefix.pop();
-                }
+                self.record_used(start, prefix, ident, (rename != "_").then_some(rename));
             }
             syn::UseTree::Glob(glob) => {
                 prefix.push("*".to_owned());
@@ -285,44 +320,155 @@ impl Reader {
         }
     }
 
-    /// Finds what reads like a path of two names or more among tokens that are not
-    /// parsed: the input of a macro, the arguments of an attribute.
-    fn read_tokens(&mut self, tokens: TokenStream) {
+    /// Notes the last name of a `use`: `prefix::name`, given the name `alias`.
+    fn record_used(
+        &mut self,
+        start: Start,
+        prefix: &mut Vec<String>,
+        name: &proc_macro2::Ident,
+        alias: Option<&proc_macro2::Ident>,
+    ) {
+        let line = name.span().start().line;
+        // `use a::{self}` names `a`, and gives it the name `a`.
+        if name == "self" && !prefix.is_empty() {
+            let alias = match alias {
+                Some(alias) if alias != "self" => Some(alias.unraw().to_string()),
+                Some(_) => prefix.last().cloned(),
+                None => None,
+            };
+            self.record_import(start, prefix, line, alias.as_deref());
+        } else {
+            let alias = alias.map(|alias| alias.unraw().to_string());
+            prefix.push(name.unraw().to_string());
+            self.record_import(start, prefix, line, alias.as_deref());
+            prefix.pop();
+        }
+    }
+
+    /// Finds what reads like a path among tokens that are not parsed: the input of a
+    /// macro, the arguments of an attribute.
+    fn read_tokens(&mut self, tokens: TokenStream, text: Text) {
         let trees: Vec<TokenTree> = tokens.into_iter().collect();
         let mut at = 0;
         while let Some(tree) = trees.get(at) {
+            let here = at;
+            at += 1;
             match tree {
-                TokenTree::Group(group) => {
-                    self.read_tokens(group.stream());
-                    at += 1;
+                TokenTree::Group(group) => self.read_tokens(group.stream(), text),
+                TokenTree::Literal(literal) if text == Text::MayBePath => {
+                    self.read_text(&literal.to_string(), literal.span().start().line);
                 }
-                TokenTree::Ident(first) => {
+                TokenTree::Ident(first) if !KEYWORDS.contains(&first.to_string().as_str()) => {
                     let mut names = vec![first.unraw().to_string()];
-                    let mut end = at;
+                    let mut end = here;
                     while is_path_separator(&trees, end + 1)
                         && let Some(TokenTree::Ident(next)) = trees.get(end + 3)
                     {
                         names.push(next.unraw().to_string());
                         end += 3;
                     }
-                    let after_separator = at >= 2 && is_path_separator(&trees, at - 2);
-                    // `<T as Trait>::name` and `Vec::<T>::new` go on from what is before.
-                    let continues = after_separator
-                        && matches!(at.checked_sub(3).and_then(|before| trees.get(before)),
-                            Some(TokenTree::Punct(punct)) if punct.as_char() == '>');
-                    let member = at >= 1 && is_punct(&trees, at - 1, '.');
-                    let start = if after_separator {
+                    at = end + 1;
+                    if is_member(&trees, here) {
+                        continue;
+                    }
+                    // After `::` with no name before it: `::a::b`, and what goes on
+                    // from `<T as Trait>::`, which leads to no layer.
+                    let start = if here >= 2 && is_path_separator(&trees, here - 2) {
                         Start::Crates
                     } else {
                         Start::Scope
                     };
-                    if names.len() >= 2 && !continues && !member {
-                        self.record(start, &names, first.span().start().line, None);
+                    // `Vec::<T>::new`: one name after `>::` is no path of its own.
+                    if start == Start::Crates && names.len() < 2 {
+                        continue;
                     }
-                    at = end + 1;
+                    let line = first.span().start().line;
+                    let after = trees
+                        .get(end + 3)
+                        .filter(|_| is_path_separator(&trees, end + 1));
+                    match after {
+                        // `use a::{b, c::d};` inside a macro.
+                        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
+                            self.read_used_tokens(start, &mut names, group.stream(), line);
+                            at = end + 4;
+                        }
+                        Some(TokenTree::Punct(star)) if star.as_char() == '*' => {
+                            names.push("*".to_owned());
+                            self.record(start, &names, line, None);
+                        }
+                        // `use a;` and `use a as b;` inside a macro.
+                        _ if is_ident(&trees, here.wrapping_sub(1), "use") => {
+                            self.record_import(start, &names, line, None);
+                        }
+                        _ => self.record(start, &names, line, None),
+                    }
                 }
-                TokenTree::Punct(_) | TokenTree::Literal(_) => at += 1,
+                TokenTree::Ident(_) | TokenTree::Punct(_) | TokenTree::Literal(_) => {}
             }
+        }
+    }
+
+    /// Reads the braces of a `use` among tokens: `prefix::{…}`.
+    fn read_used_tokens(
+        &mut self,
+        start: Start,
+        prefix: &mut Vec<String>,
+        tokens: TokenStream,
+        line: usize,
+    ) {
+        let trees: Vec<TokenTree> = tokens.into_iter().collect();
+        let is_comma =
+            |tree: &TokenTree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == ',');
+        for item in trees.split(is_comma) {
+            let depth = prefix.len();
+            let mut alias = None;
+            let mut nested = false;
+            let mut tokens = item.iter();
+            while let Some(tree) = tokens.next() {
+                match tree {
+                    TokenTree::Ident(word) if word == "as" => {
+                        alias = tokens.next().map(ToString::to_string);
+                    }
+                    TokenTree::Ident(word) if word == "self" && prefix.len() == depth => {}
+                    TokenTree::Ident(name) => prefix.push(name.unraw().to_string()),
+                    TokenTree::Punct(star) if star.as_char() == '*' => prefix.push("*".to_owned()),
+                    TokenTree::Group(group) => {
+                        self.read_used_tokens(start, prefix, group.stream(), line);
+                        nested = true;
+                    }
+                    TokenTree::Punct(_) | TokenTree::Literal(_) => {}
+                }
+            }
+            if !nested && !item.is_empty() {
+                let alias = alias
+                    .or_else(|| prefix.last().cloned())
+                    .filter(|name| name != "*" && name != "_");
+                self.record(start, prefix, line, alias.as_deref());
+            }
+            prefix.truncate(depth);
+        }
+    }
+
+    /// Notes the text of an attribute's argument if it is a path of two names or more.
+    fn read_text(&mut self, literal: &str, line: usize) {
+        let Some(text) = literal
+            .strip_prefix('"')
+            .and_then(|text| text.strip_suffix('"'))
+        else {
+            return;
+        };
+        let (start, text) = match text.strip_prefix("::") {
+            Some(rest) => (Start::Crates, rest),
+            None => (Start::Scope, text),
+        };
+        let names: Vec<String> = text.split("::").map(str::to_owned).collect();
+        let is_name = |name: &String| {
+            !name.is_empty()
+                && !name.starts_with(|first: char| first.is_ascii_digit())
+                && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        };
+        if names.len() >= 2 && names.iter().all(is_name) {
+            self.record(start, &names, line, None);
         }
     }
 
@@ -339,18 +485,21 @@ impl Reader {
             ..Source::default()
         };
         for written in &self.written {
+            let sight = self
+                .sights
+                .get(written.sight)
+                .map_or(&[][..], Vec::as_slice);
             let starts_at = written
                 .names
                 .first()
                 .filter(|_| written.open)
                 .and_then(|first| {
-                    written
-                        .modules
+                    sight
                         .iter()
                         .map(|module| format!("{module}::{first}"))
                         .find(|name| given.contains(name.as_str()))
                 })
-                // A name is not given to itself: `use a::b; use b::c;`.
+                // A name is not given to itself: `use a::a;`.
                 .filter(|name| written.alias.as_ref() != Some(name));
             let path = match &starts_at {
                 Some(name) => {
@@ -368,8 +517,19 @@ impl Reader {
             }
             source.references.push(Reference {
                 line: written.line,
-                module: written.modules.first().cloned().unwrap_or_default(),
-                target: Target::Path(path),
+                module: sight.first().cloned().unwrap_or_default(),
+                target: Target::Path {
+                    path,
+                    open: written.open && starts_at.is_none(),
+                },
+            });
+        }
+        let module = self.sights.first().and_then(|sight| sight.first());
+        for line in self.included {
+            source.references.push(Reference {
+                line,
+                module: module.cloned().unwrap_or_default(),
+                target: Target::Included,
             });
         }
         source
@@ -415,7 +575,12 @@ impl<'ast> Visit<'ast> for Reader {
             _ => name.clone(),
         };
         let line = node.ident.span().start().line;
-        self.record(Start::Crates, &[name], line, Some(&alias));
+        if name == "self" {
+            // `extern crate self as name;` gives the crate itself a name.
+            self.record(Start::Scope, &["crate".to_owned()], line, Some(&alias));
+        } else {
+            self.record(Start::Crates, &[name], line, Some(&alias));
+        }
     }
 
     /// `type Name = …` gives `Name` to every path of the type it stands for.
@@ -427,16 +592,12 @@ impl<'ast> Visit<'ast> for Reader {
     }
 
     fn visit_path(&mut self, node: &'ast syn::Path) {
-        let names: Vec<String> = node
-            .segments
-            .iter()
-            .map(|segment| segment.ident.unraw().to_string())
-            .collect();
-        // One name alone is a local or a type in sight; it counts where it is given
-        // a name (`type Database = Store;`), as the given name may be used elsewhere.
-        if let Some(first) = node.segments.first()
-            && (names.len() >= 2 || self.naming.is_some())
-        {
+        if let Some(first) = node.segments.first() {
+            let names: Vec<String> = node
+                .segments
+                .iter()
+                .map(|segment| segment.ident.unraw().to_string())
+                .collect();
             let start = Start::of(node.leading_colon.as_ref());
             self.record(start, &names, first.ident.span().start().line, None);
         }
@@ -448,12 +609,15 @@ impl<'ast> Visit<'ast> for Reader {
 
     fn visit_macro(&mut self, node: &'ast syn::Macro) {
         self.visit_path(&node.path);
-        self.read_tokens(node.tokens.clone());
+        if node.path.is_ident("include") {
+            self.included.push(node.bang_token.span.start().line);
+        }
+        self.read_tokens(node.tokens.clone(), Text::IsText);
     }
 
     fn visit_meta_list(&mut self, node: &'ast syn::MetaList) {
         self.visit_path(&node.path);
-        self.read_tokens(node.tokens.clone());
+        self.read_tokens(node.tokens.clone(), Text::MayBePath);
     }
 }
 
@@ -475,6 +639,10 @@ fn path_attribute(attribute: &syn::Attribute) -> Option<String> {
     }
 }
 
+fn is_ident(trees: &[TokenTree], at: usize, word: &str) -> bool {
+    matches!(trees.get(at), Some(TokenTree::Ident(ident)) if ident == word)
+}
+
 fn is_punct(trees: &[TokenTree], at: usize, character: char) -> bool {
     matches!(trees.get(at), Some(TokenTree::Punct(punct)) if punct.as_char() == character)
 }
@@ -484,6 +652,12 @@ fn is_path_separator(trees: &[TokenTree], at: usize) -> bool {
     matches!(trees.get(at), Some(TokenTree::Punct(punct))
         if punct.as_char() == ':' && punct.spacing() == Spacing::Joint)
         && is_punct(trees, at + 1, ':')
+}
+
+/// Whether the token at `at` comes after the dot of a member (`value.name`), which is
+/// not the second dot of a range (`a..name`).
+fn is_member(trees: &[TokenTree], at: usize) -> bool {
+    at >= 1 && is_punct(trees, at - 1, '.') && !(at >= 2 && is_punct(trees, at - 2, '.'))
 }
 
 /// Finds `.name()` and `.name` for the names in `handles`, at any depth.
@@ -497,10 +671,7 @@ fn read_handles(tokens: TokenStream, handles: &[&str], module: &str, found: &mut
             continue;
         };
         let name = ident.unraw().to_string();
-        // The dot of a member, not the second dot of a range (`a..name`).
-        let member =
-            at >= 1 && is_punct(&trees, at - 1, '.') && !(at >= 2 && is_punct(&trees, at - 2, '.'));
-        if !member || !handles.contains(&name.as_str()) {
+        if !is_member(&trees, at) || !handles.contains(&name.as_str()) {
             continue;
         }
         let (mut written, next) = match trees.get(at + 1) {

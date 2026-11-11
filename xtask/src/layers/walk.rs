@@ -51,7 +51,12 @@ pub(crate) fn walk_crate(
     }
     while let Some((module_file, children_directory)) = waiting.pop() {
         if !reached.insert(module_file.file.clone()) {
-            continue;
+            // It would be read as one of the two, and checked by the rules of that one.
+            bail!(
+                "{} is declared as a module twice; the second time as {}",
+                module_file.file.display(),
+                module_file.module.join("::")
+            );
         }
         let file_directory = module_file.file.parent().unwrap_or(source_directory);
         for declared in read(&module_file)? {

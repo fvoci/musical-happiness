@@ -32,7 +32,7 @@ fn broken(module: &str, source: &str) -> Vec<String> {
     broken_in(&[(module, source)], module)
 }
 
-/// The paths `source` names, resolved, as the module `module`.
+/// The paths of two names or more that `source` names, resolved, as the module `module`.
 fn paths(module: &str, source: &str) -> Vec<String> {
     let module: Vec<String> = module.split("::").map(str::to_owned).collect();
     read_source(&module, source, &[])
@@ -40,9 +40,11 @@ fn paths(module: &str, source: &str) -> Vec<String> {
         .references
         .into_iter()
         .map(|Reference { target, .. }| match target {
-            Target::Path(path) => path,
+            Target::Path { path, .. } => path,
             Target::Handle { written, .. } => written,
+            Target::Included => "include!".to_owned(),
         })
+        .filter(|path| path.contains("::"))
         .collect()
 }
 
@@ -307,7 +309,7 @@ fn an_import_of_everything_of_another_layer_is_refused() {
         ("fvoci_store::boards", "use fvoci_model::*;"),
     ]);
     assert_eq!(
-        sources.unfollowed(),
+        sources.refused(),
         [
             "fvoci_server::app::boards.rs:1: logic imports everything of store: fvoci_store::*. \
              Name what is imported",
@@ -315,6 +317,228 @@ fn an_import_of_everything_of_another_layer_is_refused() {
              Name what is imported",
         ],
         "allowed or not; a layer's own modules and what is in no layer are not refused"
+    );
+}
+
+#[test]
+fn a_name_that_an_import_of_everything_brought_is_followed() {
+    let files = [
+        (
+            "fvoci_server::api",
+            "mod planted; use fvoci_store::DuplicateAs; use crate::app::App;",
+        ),
+        (
+            "fvoci_server::api::planted",
+            "use super::*; fn f(app: App, how: DuplicateAs) { let _ = DuplicateAs::Copy; let local = 1; g(local); }",
+        ),
+    ];
+    assert_eq!(
+        broken_in(&files, "fvoci_server::api::planted"),
+        [
+            "http>store fvoci_store::DuplicateAs",
+            "http>store fvoci_store::DuplicateAs::Copy"
+        ],
+        "the name alone and a path that starts at it; the logic's type and a local are fine"
+    );
+}
+
+#[test]
+fn an_imported_name_counts_wherever_it_is_used_alone() {
+    assert_eq!(
+        broken(
+            "fvoci_server::ws",
+            "use fvoci_store::Store; struct Hub { store: Store } fn g(store: &Store) -> Option<Store> { None }"
+        ),
+        ["http>store fvoci_store::Store"; 4],
+        "the import and three uses: a new parameter of that type is a new use"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_server::app::planted",
+            "use axum::http::StatusCode; fn f(status: StatusCode) { m!(StatusCode, other); }"
+        ),
+        ["logic>http axum::http::StatusCode"; 3],
+        "also among the tokens of a macro"
+    );
+}
+
+#[test]
+fn a_path_among_the_tokens_of_a_macro_is_found_in_every_shape() {
+    let found = |source| broken("fvoci_server::api::planted", source);
+    assert_eq!(
+        found("fn f() { tokio::select! { x = a() => ::fvoci_store::connect(), } }"),
+        ["http>store fvoci_store::connect"],
+        "after the arrow of an arm"
+    );
+    assert_eq!(
+        found("fn f(n: usize) { assert!(n > ::fvoci_store::LIMIT); }"),
+        ["http>store fvoci_store::LIMIT"],
+        "after a comparison"
+    );
+    assert_eq!(
+        found("fn f(x: u8) { m!(x as ::fvoci_store::Id, return ::fvoci_store::open()); }"),
+        ["http>store fvoci_store::Id", "http>store fvoci_store::open"],
+        "after a keyword"
+    );
+    assert_eq!(
+        found(
+            "fn f() { vec![0..fvoci_store::LIMIT]; m!(A { x: 1, ..fvoci_store::Options::default() }); }"
+        ),
+        [
+            "http>store fvoci_store::LIMIT",
+            "http>store fvoci_store::Options::default"
+        ],
+        "after the dots of a range"
+    );
+    assert_eq!(
+        found(
+            "cfg_if::cfg_if! { if #[cfg(unix)] { use fvoci_store::{Store, boards::{Board as B, self}, sharing::*}; \
+             use fvoci_store as database; fn f(b: B) {} } }"
+        ),
+        [
+            "http>store fvoci_store::Store",
+            "http>store fvoci_store::boards::Board",
+            "http>store fvoci_store::boards",
+            "http>store fvoci_store::sharing::*",
+            "http>store fvoci_store",
+            "http>store fvoci_store::boards::Board",
+        ],
+        "an import with braces, and one of a crate alone; the name it gives counts after it"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_server::app::planted",
+            "macro_rules! handler { ($n:ident) => { fn $n() -> impl ::axum::response::IntoResponse { \
+             <T as Trait>::name::call(Vec::<u8>::new()) } }; }"
+        ),
+        ["logic>http axum::response::IntoResponse"],
+        "after the arrow of a result and after `impl`; what goes on from `>::` leads nowhere"
+    );
+}
+
+#[test]
+fn a_path_written_as_the_text_of_an_attribute_is_found() {
+    assert_eq!(
+        broken(
+            "fvoci_server::api::planted",
+            "#[derive(Deserialize)] struct S { #[serde(with = \"fvoci_store::serde_helpers\", rename = \"a::b\")] x: u8 } \
+             fn f() { tracing::info!(\"fvoci_store::Store\"); }"
+        ),
+        ["http>store fvoci_store::serde_helpers"],
+        "the text of a message is no path"
+    );
+}
+
+#[test]
+fn the_handle_of_the_store_is_found_by_the_path_of_its_accessor() {
+    assert_eq!(
+        broken(
+            "fvoci_server::api::planted",
+            "use crate::app::App; async fn f(app: App, apps: Option<&App>) { \
+             App::store(&app).get_block(1).await; apps.map(App::store); }"
+        ),
+        ["http>store App::store"; 2]
+    );
+    assert!(
+        broken(
+            "fvoci_server::app::planted",
+            "fn f(app: &App) { App::store(app); }"
+        )
+        .is_empty(),
+        "the logic may take it"
+    );
+}
+
+#[test]
+fn self_and_super_lead_where_the_language_says() {
+    let found = |source| broken("fvoci_server::app::planted", source);
+    assert_eq!(
+        found("fn f() { self::super::super::ws::Hub::new(); }"),
+        ["logic>http fvoci_server::ws::Hub::new"]
+    );
+    assert_eq!(
+        found("extern crate self as server; fn f() { server::ws::Hub::new(); }"),
+        [
+            "logic>http fvoci_server",
+            "logic>http fvoci_server::ws::Hub::new"
+        ],
+        "the crate under a name of its own"
+    );
+}
+
+#[test]
+fn what_the_reading_cannot_follow_is_refused() {
+    let sources = sources(&[
+        (
+            "fvoci_server::api::planted",
+            "include!(\"handlers.inc\");\nconst TEXT: &str = include_str!(\"text.txt\");",
+        ),
+        (
+            "fvoci_server::app::planted",
+            "use b::x as a;\nuse a::y as b;",
+        ),
+    ]);
+    let refused = sources.refused();
+    assert_eq!(
+        refused.first().map(String::as_str),
+        Some(
+            "fvoci_server::api::planted.rs:1: include! brings in code that is not read. Make it a module"
+        ),
+        "code that is included, not a text: {refused:?}"
+    );
+    assert!(
+        refused[1..]
+            .iter()
+            .all(|problem| problem.contains("leads through names that are given in a circle"))
+            && refused.len() > 1,
+        "names that lead to each other without end: {refused:?}"
+    );
+}
+
+#[test]
+fn an_entry_of_the_table_that_is_no_module_is_noticed() {
+    let logic: Vec<(&str, &str)> = LAYERS
+        .iter()
+        .filter(|layer| layer.name == "logic")
+        .flat_map(|layer| layer.owns.iter().map(|module| (*module, "")))
+        .collect();
+    assert_eq!(
+        sources(&logic).stale_layers(),
+        Vec::<String>::new(),
+        "every module of the table is there"
+    );
+    assert_eq!(
+        sources(&logic[1..]).stale_layers(),
+        [
+            "fvoci_server::app is listed as logic and is no module: correct the table in \
+          xtask/src/layers.rs"
+        ],
+        "a module that was renamed or removed"
+    );
+}
+
+#[test]
+fn the_crates_that_are_read_are_the_members_of_the_workspace() {
+    let root = crate::workspace_root();
+    let manifest =
+        std::fs::read_to_string(root.join("Cargo.toml")).expect("the manifest is readable");
+    let members = manifest
+        .lines()
+        .find_map(|line| line.strip_prefix("members = ["))
+        .expect("the members are on one line");
+    let mut expected: Vec<String> = members
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .filter(|member| *member != "xtask")
+        .map(|member| format!("{member}/src"))
+        .collect();
+    expected.sort();
+    let mut read: Vec<&str> = CRATES.iter().map(|(_, directory)| *directory).collect();
+    read.sort_unstable();
+    assert_eq!(
+        read, expected,
+        "a crate that is added to the workspace is added to CRATES and to a layer"
     );
 }
 
@@ -569,6 +793,18 @@ fn the_modules_of_a_crate_are_found_along_their_declarations() {
     );
 
     std::fs::remove_file(root.join("b/forgotten.rs")).expect("the file is removed");
+    write(
+        &root,
+        "a.rs",
+        "mod inner; #[path = \"elsewhere.rs\"] mod again;",
+    );
+    let error = walked(&root).expect_err("a file that is two modules");
+    assert!(
+        error.to_string().contains("declared as a module twice"),
+        "a file is checked as one module, so it is one: {error}"
+    );
+    write(&root, "a.rs", "mod inner;");
+
     std::fs::remove_file(root.join("b/c.rs")).expect("the file is removed");
     let error = walked(&root).expect_err("a module without a file");
     assert!(
@@ -612,5 +848,49 @@ fn a_planted_violation_is_found_in_a_workspace() {
             "crates/server/src/app.rs:2 axum::response::Response",
         ]
     );
+
+    // The step itself, against the list on disk: both ways.
+    for module in [
+        "auth",
+        "config",
+        "error",
+        "permissions",
+        "scheduler",
+        "storage",
+        "webhook",
+    ] {
+        write(&root, &format!("crates/server/src/{module}.rs"), "");
+    }
+    write(
+        &root,
+        "crates/server/src/lib.rs",
+        "pub mod api; pub mod app; mod auth; mod config; mod error; mod permissions; \
+         mod scheduler; mod storage; mod webhook;",
+    );
+    let exact = "crates/server/src/api/mod.rs .store().purge 1\n\
+                 crates/server/src/app.rs axum::response::Response 1\n";
+    write(&root, EXCEPTIONS, exact);
+    run(&root).expect("the code and the list agree");
+    write(
+        &root,
+        EXCEPTIONS,
+        "crates/server/src/app.rs axum::response::Response 1\n",
+    );
+    run(&root).expect_err("a use that is not listed fails the step");
+    write(
+        &root,
+        EXCEPTIONS,
+        &format!("{exact}crates/server/src/app.rs axum::Json 1\n"),
+    );
+    run(&root).expect_err("a listed use that is gone fails the step");
+    std::fs::remove_file(root.join("crates/server/src/webhook.rs")).expect("the file is removed");
+    write(
+        &root,
+        "crates/server/src/lib.rs",
+        "pub mod api; pub mod app; mod auth; mod config; mod error; mod permissions; \
+         mod scheduler; mod storage;",
+    );
+    write(&root, EXCEPTIONS, exact);
+    run(&root).expect_err("a module of the table that is gone fails the step");
     let _ = std::fs::remove_dir_all(&root);
 }
