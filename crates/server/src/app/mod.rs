@@ -11,6 +11,7 @@ mod cards;
 mod category;
 mod category_boards;
 mod doomed;
+mod download;
 mod export;
 mod files;
 mod import;
@@ -18,6 +19,7 @@ mod onboarding;
 mod search;
 mod slots;
 
+pub(crate) use download::download;
 use slots::Busy;
 pub use slots::Slot;
 mod sharing;

@@ -32,14 +32,16 @@ pub(crate) const EXPORTS_DIR: &str = "exports";
 /// How much of an entry is gathered before it is handed to the archive writer.
 const WRITE_CHUNK_BYTES: usize = 1024 * 1024;
 
-/// An archive written to a temporary file, ready to be sent: the file is open, and gone
-/// from its directory.
+/// An archive written to a temporary file, ready to be sent. The file is removed when
+/// this is dropped.
 #[derive(Debug)]
 pub struct ExportedArchive {
     /// The archive, read from its start.
     pub file: fs::File,
     /// Its size in bytes.
     pub size: u64,
+    /// Where the file is; held only to remove it.
+    _path: Doomed,
 }
 
 impl App {
@@ -72,20 +74,23 @@ impl App {
         fs::create_dir_all(&directory)
             .await
             .map_err(|error| io_error(&error))?;
-        // Removed however the export ends, also when its request is dropped meanwhile;
-        // what is sent is read from the file opened before.
+        // Removed however the export ends, also when its request is dropped meanwhile: the
+        // file stays while it is sent, and goes with the archive.
         let path = Doomed::file(directory.join(format!("{}.boardarchive", new_secret())));
         self.write_archive(path.path(), team_id, &boards).await?;
         let file = fs::File::open(path.path())
             .await
             .map_err(|error| io_error(&error))?;
-        path.remove().await;
         let size = file
             .metadata()
             .await
             .map_err(|error| io_error(&error))?
             .len();
-        Ok(ExportedArchive { file, size })
+        Ok(ExportedArchive {
+            file,
+            size,
+            _path: path,
+        })
     }
 
     /// Writes the archive of `boards` to a new file at `path`.

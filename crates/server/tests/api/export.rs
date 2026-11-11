@@ -757,7 +757,8 @@ async fn a_large_file_is_whole_in_the_archive() {
 
 /// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one export at a
 /// time and the server `max_concurrent_exports` (2): over either, an export of a board or
-/// of a team is 429 with a reason. An export holds its place until it is sent.
+/// of a team is 429 with a reason. An export holds its place until it is sent
+/// (`a_download_that_takes_nothing_is_given_up`).
 #[tokio::test]
 async fn exports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -788,4 +789,164 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
     // The place of a sent export is given back.
     export_board(&ts.client, &board.id).await.check_ok();
     ts.client2.get(&team_export).await.check_ok();
+}
+
+/// A board with three attachments of 6 MiB that do not compress (a request takes 8 MiB at
+/// most), so that its archive is larger than what the connection's buffers take in.
+async fn board_with_large_archive(ts: &TestServer) -> Board {
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+    let mut attachments = Vec::new();
+    for index in 0..3 {
+        let data: Vec<u8> = (0..6 * 1024 * 1024)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state.to_le_bytes()[0]
+            })
+            .collect();
+        let response =
+            crate::files::upload(&ts.client, &board.id, &format!("noise{index}.bin"), &data).await;
+        response.check_created();
+        attachments.push(Block {
+            id: new_id(),
+            parent_id: board.id.clone(),
+            board_id: board.id.clone(),
+            block_type: BlockType::Attachment,
+            fields: serde_json::json!({"fileId": crate::files::uploaded_id(&response)})
+                .as_object()
+                .expect("an object")
+                .clone(),
+            create_at: 1,
+            update_at: 1,
+            ..Block::default()
+        });
+    }
+    ts.client
+        .insert_blocks(&board.id, &attachments)
+        .await
+        .check_created();
+    board
+}
+
+/// Starts the download of a board's archive and returns it with its length, unread.
+async fn start_download(ts: &TestServer, board_id: &str) -> (reqwest::Response, usize) {
+    let response = ts
+        .client
+        .request(Method::GET, &format!("/boards/{board_id}/archive/export"))
+        .send()
+        .await
+        .expect("the export is answered");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "the export is let through"
+    );
+    let length = response
+        .content_length()
+        .and_then(|length| usize::try_from(length).ok())
+        .expect("the archive has its length");
+    (response, length)
+}
+
+/// The temporary archives in the exports directory.
+fn temporary_archives(ts: &TestServer) -> usize {
+    std::fs::read_dir(ts.app.config().tmp_dir().join("exports")).map_or(0, Iterator::count)
+}
+
+/// Not in the original (coordinator's decision 2026-11-11 16:20 KST). An export holds its
+/// place and its temporary file while it is sent; a client that takes nothing for
+/// `export_stall_seconds` has both taken away, and the rest of its download is broken.
+#[tokio::test]
+async fn a_download_that_takes_nothing_is_given_up() {
+    let ts = Setup::native()
+        .configure(|config| config.export_stall_seconds = 1)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = board_with_large_archive(&ts).await;
+    let me = ts.client.me().await;
+
+    let (mut stalled, length) = start_download(&ts, &board.id).await;
+    assert!(
+        ts.app.start_export(&me.id).is_err(),
+        "the place is held while it is sent"
+    );
+    assert_eq!(temporary_archives(&ts), 1, "and so is the file");
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while ts.app.start_export(&me.id).is_err() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the place is given back"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    while temporary_archives(&ts) > 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the file is removed"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let mut received = 0;
+    let broken = loop {
+        match stalled.chunk().await {
+            Ok(Some(piece)) => received += piece.len(),
+            Ok(None) => break false,
+            Err(_) => break true,
+        }
+    };
+    assert!(
+        broken && received < length,
+        "{received} of {length} bytes, broken: {broken}"
+    );
+}
+
+/// Not in the original (coordinator's decision 2026-11-11 16:20 KST). A client that takes
+/// its download slowly, with pauses shorter than `export_stall_seconds`, gets it whole
+/// however long it takes; then the place and the file are given back.
+#[tokio::test]
+async fn a_download_taken_slowly_is_not_given_up() {
+    let ts = Setup::native()
+        .configure(|config| config.export_stall_seconds = 1)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = board_with_large_archive(&ts).await;
+    let me = ts.client.me().await;
+    let started = tokio::time::Instant::now();
+
+    let (mut slow, length) = start_download(&ts, &board.id).await;
+    let mut received = 0;
+    let mut next_pause = 0;
+    while let Some(piece) = slow.chunk().await.expect("the download is not broken") {
+        received += piece.len();
+        if received >= next_pause {
+            next_pause += 2 * 1024 * 1024;
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        }
+    }
+    assert_eq!(received, length, "the archive is whole");
+    assert!(
+        started.elapsed() > std::time::Duration::from_secs(2),
+        "the download took longer than the stall time"
+    );
+    drop(
+        ts.app
+            .start_export(&me.id)
+            .expect("the place is given back"),
+    );
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while temporary_archives(&ts) > 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the file is removed"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }

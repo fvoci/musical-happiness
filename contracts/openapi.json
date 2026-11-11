@@ -2516,7 +2516,7 @@
     },
     "/api/v1/boards/{boardId}/archive/export": {
       "get": {
-        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a ZIP of version\n3: `version.json`, and per board a directory with `board.jsonl` (one `board`,\n`block` or `boardMember` per line, in the shapes of this contract, bodies included)\nand the files the blocks show, the images of bodies among them.\n\nA user runs one export at a time, and the server as many as its setting\n`max_concurrent_exports` (2 unless set); an export runs until its archive is written,\nand its download does not count. Over either it is 429 with the reason `export_running` or `server_exports_busy`, and\nis to be asked for again later.",
+        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a ZIP of version\n3: `version.json`, and per board a directory with `board.jsonl` (one `board`,\n`block` or `boardMember` per line, in the shapes of this contract, bodies included)\nand the files the blocks show, the images of bodies among them.\n\nA user runs one export at a time, and the server as many as its setting\n`max_concurrent_exports` (2 unless set). Over either it is 429 with the reason\n`export_running` or `server_exports_busy`, and is to be asked for again later. An\nexport runs until its archive is sent or the client goes away; a download that takes\nnothing for `export_stall_seconds` (60 unless set) is given up, and its connection\nbroken before the archive's end.",
         "operationId": "exportBoardArchive",
         "parameters": [
           {
