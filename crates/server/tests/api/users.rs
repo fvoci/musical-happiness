@@ -1496,16 +1496,24 @@ async fn a_user_has_a_display_name_of_their_choosing() {
         .patch("/users/me", &json!({"displayName": longest}))
         .await
         .check_ok();
-    for body in [
-        json!({"displayName": format!("{}🎉", "가".repeat(63))}),
-        json!({"displayName": "two\nlines"}),
-        json!({"displayName": 1}),
-        json!({"username": "renamed"}),
+    for (body, field) in [
+        (
+            json!({"displayName": format!("{}🎉", "가".repeat(63))}),
+            "displayName",
+        ),
+        (json!({"displayName": "two\nlines"}), "displayName"),
+        (json!({"displayName": "a\u{0}b"}), "displayName"),
+        (json!({"displayName": "\u{200B}"}), "displayName"),
+        (json!({"displayName": "\u{202E}evil"}), "displayName"),
+        (json!({"displayName": "line\u{2028}break"}), "displayName"),
+        (json!({"displayName": 1}), "displayName"),
+        (json!({"username": "renamed"}), "username"),
     ] {
         let response = th.client.patch("/users/me", &body).await;
         response.check_bad_request();
-        assert!(
-            !response.value()["field"].is_null(),
+        assert_eq!(
+            response.value()["field"],
+            json!(field),
             "{body}: {}",
             response.text()
         );
@@ -1525,9 +1533,25 @@ async fn a_user_has_a_display_name_of_their_choosing() {
         .await;
     response.check_bad_request();
     assert_eq!(response.value()["field"], json!("displayName"));
+    // Left out or null at registration: none.
+    for (username, extra) in [("dwight", None), ("angela", Some(Value::Null))] {
+        let mut body = json!({"username": username, "email": format!("{username}@sample.com"),
+                              "password": PASSWORD, "token": team.signup_token});
+        if let Some(value) = extra {
+            body["displayName"] = value;
+        }
+        let made = th.anonymous().post("/register", &body).await;
+        made.check_created();
+        assert_eq!(made.value()["displayName"], json!(""), "{username}");
+    }
 
-    // Empty or null: none.
-    for cleared in [json!(""), Value::Null] {
+    // White space around a name goes; empty, blank or null: none.
+    let trimmed: User = jim
+        .patch("/users/me", &json!({"displayName": "  Jim  "}))
+        .await
+        .ok_json();
+    assert_eq!(trimmed.display_name, "Jim");
+    for cleared in [json!(""), json!("   "), Value::Null] {
         let user: User = jim
             .patch("/users/me", &json!({"displayName": cleared}))
             .await

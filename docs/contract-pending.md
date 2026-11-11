@@ -279,7 +279,7 @@
 3. **요청 스키마와 서버의 해석.**
    - 만들기와 고치기의 요청은 계약에 따로 적었다: `NewBoard`, `NewBlock`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`.
    - 서버는 이보다 너그럽게 읽는다. 모르는 멤버를 대부분 버린다.
-   - 예외로 400을 답하는 곳이 있다. `patchUserSettings`는 모르는 멤버를 거절한다. `createBoard`와 `createCategory`는 `id`를, `setSharing`은 `token`을 거절한다.
+   - 예외로 400을 답하는 곳이 있다. `patchUserSettings`와 `patchMe`는 모르는 멤버를 거절한다. `createBoard`와 `createCategory`는 `id`를, `setSharing`은 `token`을 거절한다.
    - 스키마가 필수로 적은 멤버가 빠져도 거절하지 않고 빈 값으로 읽는 곳이 있다. `login`의 `password`가 없으면 401이고, `patchBlocks`의 목록이 없으면 204다.
    - 그러니 클라이언트는 계약에 없는 멤버를 보내지 않는다.
 4. **카테고리 요청의 `userId`, `teamId`.** 세션과 경로가 이미 말하는 값이다. 세션과 다른 `userId`는 만들 때 403, 고칠 때 400이다.

@@ -40,24 +40,44 @@ impl Doomed {
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Removes the path now, and waits for it: the end of work that went as planned.
+    /// If the waiting is dropped, the drop removes the path as ever.
+    pub(crate) async fn remove(mut self) {
+        let removed = match self.kind {
+            Kind::File => tokio::fs::remove_file(&self.path).await,
+            Kind::Directory => tokio::fs::remove_dir_all(&self.path).await,
+        };
+        report(&self.path, removed);
+        self.path = PathBuf::new();
+    }
+}
+
+/// Logs a removal that failed for another reason than the path being gone already.
+fn report(path: &Path, removed: std::io::Result<()>) {
+    match removed {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "a temporary file could not be removed");
+        }
+    }
 }
 
 impl Drop for Doomed {
     fn drop(&mut self) {
         let path = std::mem::take(&mut self.path);
+        // Removed already.
+        if path.as_os_str().is_empty() {
+            return;
+        }
         let kind = self.kind;
         let remove = move || {
             let removed = match kind {
                 Kind::File => std::fs::remove_file(&path),
                 Kind::Directory => std::fs::remove_dir_all(&path),
             };
-            match removed {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    tracing::warn!(%error, path = %path.display(), "a temporary file could not be removed");
-                }
-            }
+            report(&path, removed);
         };
         match tokio::runtime::Handle::try_current() {
             Ok(runtime) => {

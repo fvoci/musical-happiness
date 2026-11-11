@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use fvoci_model::{
-    BoardMember, User, UserPreferencesPatch, UserSettings, UserSettingsPatch, check_display_name,
+    BoardMember, User, UserPreferencesPatch, UserSettings, UserSettingsPatch, display_name,
 };
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
@@ -110,8 +110,11 @@ async fn handle_get_me(
 /// Change the user's account
 ///
 /// Changes what the body names of the user of the session: `displayName`, the name to
-/// be shown by (empty or `null` for none). A member that is no such thing, or a name
-/// that is too long or holds a control character, is refused (400 naming it) and
+/// be shown by. White space around it is dropped, and empty or `null` is none. At most
+/// 64 UTF-16 code units, without control characters and without characters that show
+/// nothing, break a line or turn the text around (U+00AD, U+200B–U+200F,
+/// U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is
+/// no such thing, or a name that breaks these rules, is refused (400 naming it) and
 /// changes nothing. Answers the user as `getMe` does.
 #[utoipa::path(
     patch,
@@ -127,11 +130,11 @@ async fn handle_patch_me(
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
-    let mut display_name = None;
+    let mut requested = None;
     for (name, value) in &members {
         match (name.as_str(), value) {
-            ("displayName", serde_json::Value::Null) => display_name = Some(String::new()),
-            ("displayName", serde_json::Value::String(name)) => display_name = Some(name.clone()),
+            ("displayName", serde_json::Value::Null) => requested = Some(String::new()),
+            ("displayName", serde_json::Value::String(name)) => requested = Some(name.clone()),
             ("displayName", _) => {
                 return Err(
                     AppError::bad_request("displayName must be a string or null")
@@ -146,9 +149,9 @@ async fn handle_patch_me(
             }
         }
     }
-    let mut user = match display_name {
+    let mut user = match requested {
         Some(name) => {
-            check_display_name(&name)?;
+            let name = display_name(&name)?;
             app.set_display_name(&session.user_id, &name).await?
         }
         None => app.user(&session.user_id).await?,

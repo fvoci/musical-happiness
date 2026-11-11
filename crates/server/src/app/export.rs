@@ -79,7 +79,7 @@ impl App {
         let file = fs::File::open(path.path())
             .await
             .map_err(|error| io_error(&error))?;
-        drop(path);
+        path.remove().await;
         let size = file
             .metadata()
             .await

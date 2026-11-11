@@ -133,7 +133,7 @@ be `null`. A member the schema marks as required is one the request cannot do wi
 where the server takes a missing one as empty instead of refusing the request, the result \
 is that of the empty value (a login without a password is a failed login). A body with \
 members the schema does not list is mostly not refused for them. The exceptions: \
-`patchUserSettings` refuses every member it does not know, `createBoard` and \
+`patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and \
 `createCategory` refuse an `id`, and `setSharing` refuses a `token`.";
 
 /// What an operation's `default` response says.

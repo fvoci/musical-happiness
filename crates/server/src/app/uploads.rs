@@ -719,7 +719,7 @@ impl App {
             }
             Err(error) => Err(error),
         };
-        drop(working);
+        working.remove().await;
         imported
     }
 

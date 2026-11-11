@@ -106,7 +106,8 @@ impl App {
         Ok(true)
     }
 
-    /// Returns the team's users whose name matches `search_query`, at most ten.
+    /// Returns the team's users whose login name or display name matches
+    /// `search_query`, at most ten.
     ///
     /// # Errors
     ///

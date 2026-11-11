@@ -151,7 +151,7 @@ fn mark_spec(name: &str) -> Option<&'static [Attribute]> {
 }
 
 /// The length of a text as the web app counts it: in UTF-16 code units.
-fn utf16_len(text: &str) -> usize {
+pub(crate) fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
 

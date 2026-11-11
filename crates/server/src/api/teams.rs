@@ -76,8 +76,8 @@ async fn handle_get_team(
 
 /// The users of a team
 ///
-/// Up to ten users: with `search` those whose name has that text in it, whatever the
-/// case of the letters, without it the ten oldest accounts. Oldest account first.
+/// Up to ten users: with `search` those whose login name or display name has that text
+/// in it, whatever the case of the letters, without it the ten oldest accounts. Oldest account first.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/users",

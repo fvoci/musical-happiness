@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::allowlist::utf16_len;
 use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -16,28 +17,44 @@ pub const MAXIMUM_PASSWORD_BYTES: usize = 1024;
 /// The longest display name, in UTF-16 code units as the web app counts text.
 pub const DISPLAY_NAME_MAX_LENGTH: usize = 64;
 
-/// Checks a display name a user chooses: empty for none, else at most
-/// [`DISPLAY_NAME_MAX_LENGTH`] UTF-16 code units without control characters (a line
-/// break or U+0000 has no place in a name, and PostgreSQL stores no U+0000).
+/// Characters that a display name refuses beside the control characters: those that
+/// show nothing, break a line or turn the direction of the text around, with which a
+/// name could look empty, or like another.
+const INVISIBLE: [std::ops::RangeInclusive<char>; 6] = [
+    '\u{00AD}'..='\u{00AD}',
+    '\u{200B}'..='\u{200F}',
+    '\u{2028}'..='\u{202E}',
+    '\u{2060}'..='\u{206F}',
+    '\u{FEFF}'..='\u{FEFF}',
+    '\u{FFF9}'..='\u{FFFB}',
+];
+
+/// Reads a display name a user chooses: without the white space around it, empty for
+/// none; else at most [`DISPLAY_NAME_MAX_LENGTH`] UTF-16 code units without control
+/// characters (PostgreSQL stores no U+0000) and without characters that show nothing,
+/// break a line or turn the text around. Returns the name to store.
 ///
 /// # Errors
 ///
 /// Returns an [`AuthParamError`] for `displayName` if the name is too long or holds a
-/// control character.
-pub fn check_display_name(name: &str) -> Result<(), AuthParamError> {
-    if name.encode_utf16().count() > DISPLAY_NAME_MAX_LENGTH {
+/// character it may not.
+pub fn display_name(raw: &str) -> Result<String, AuthParamError> {
+    let name = raw.trim();
+    if utf16_len(name) > DISPLAY_NAME_MAX_LENGTH {
         return Err(AuthParamError::new(
             "displayName",
             format!("a display name has at most {DISPLAY_NAME_MAX_LENGTH} characters"),
         ));
     }
-    if name.chars().any(char::is_control) {
+    let refused = |c: char| c.is_control() || INVISIBLE.iter().any(|range| range.contains(&c));
+    if name.chars().any(refused) {
         return Err(AuthParamError::new(
             "displayName",
-            "a display name has no control characters",
+            "a display name has no control characters, and none that show nothing or turn \
+             the text around",
         ));
     }
-    Ok(())
+    Ok(name.to_owned())
 }
 
 /// A request parameter of an authentication request is missing or malformed.
@@ -113,7 +130,8 @@ pub struct RegisterRequest {
     /// The team's signup token; may be empty while no user exists yet.
     #[serde(deserialize_with = "null_as_default")]
     pub token: String,
-    /// The name to be shown by; may be left out or empty for none.
+    /// The name to be shown by; may be left out, `null` or empty for none. Read as
+    /// `patchMe` reads it.
     #[serde(rename = "displayName", deserialize_with = "null_as_default")]
     pub display_name: String,
 }
@@ -124,8 +142,8 @@ impl RegisterRequest {
     /// # Errors
     ///
     /// Returns an [`AuthParamError`] if the user name or email is blank, the email is not
-    /// well formed, or the password is empty or shorter than
-    /// [`MINIMUM_PASSWORD_LENGTH`].
+    /// well formed, the display name is not one ([`display_name`]), or the password is
+    /// empty or shorter than [`MINIMUM_PASSWORD_LENGTH`].
     pub fn validate(&self) -> Result<(), AuthParamError> {
         if self.username.trim().is_empty() {
             return Err(AuthParamError::new("username", "username is required"));
@@ -136,7 +154,7 @@ impl RegisterRequest {
         if !is_email_valid(&self.email) {
             return Err(AuthParamError::new("email", "invalid email format"));
         }
-        check_display_name(&self.display_name)?;
+        display_name(&self.display_name)?;
         check_new_password(&self.password)
     }
 }
