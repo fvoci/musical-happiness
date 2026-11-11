@@ -270,8 +270,11 @@ export interface paths {
          * Bring a deleted block back
          * @description Restores a block of the board from the trash, with the blocks that went there with
          *     it. A block whose parent is gone has nowhere to come back to: 404. For who may
-         *     delete it, as `deleteBlock` has it: editors, and a comment of somebody else the
-         *     board's admins only (403, `access denied to undelete other users' comments`).
+         *     delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
+         *     else the board's admins only (403, `access denied to undelete other users'
+         *     comments`). What decides is the block that was deleted, which took the others along:
+         *     a block below somebody else's comment is brought back by the admins only, and a
+         *     comment that went with its card by whoever may bring back the card.
          */
         post: operations["undeleteBlock"];
         delete?: never;

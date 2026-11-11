@@ -126,6 +126,29 @@ pub(crate) async fn require_block_patch_permission(
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
 }
 
+/// Checks, for deleting a block or bringing it back, that a comment of somebody else is
+/// the board admins' to do (`ManageOthersComments`); refused with `denial`. Any other
+/// block, and the user's own comment, need nothing more than the editor's role the
+/// caller asked for.
+pub(crate) async fn require_comment_owner_or_admin(
+    app: &App,
+    user_id: &str,
+    block: &Block,
+    denial: &str,
+) -> Result<(), AppError> {
+    if block.block_type != BlockType::Comment || block.created_by == user_id {
+        return Ok(());
+    }
+    require_board_permission(
+        app,
+        user_id,
+        &block.board_id,
+        BoardPermission::ManageOthersComments,
+        denial,
+    )
+    .await
+}
+
 /// The permission that changing a comment, or making the block one, needs, and the
 /// refusal without it.
 fn comment_permission<'a>(

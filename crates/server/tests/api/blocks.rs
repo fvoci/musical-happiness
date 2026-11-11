@@ -2817,6 +2817,61 @@ async fn delete_comment_by_its_author_or_by_an_admin_works() {
     );
 }
 
+/// Not in the original (user decision 2026-11-11 21:00 KST). What comes back is the
+/// whole deletion, so the block that was deleted decides: a block below somebody else's
+/// comment, deleted with it, does not bring the comment back for an editor, and a
+/// comment of somebody else that went with its card comes back with the card, which an
+/// editor may delete and bring back.
+#[tokio::test]
+async fn a_deletion_comes_back_as_its_top_block_allows() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let others = &content.comment;
+
+    // The editor's reply below the commenter's comment, deleted with it by the admin.
+    let reply = insert_one(
+        &boards.editor,
+        &child_of(others, BlockType::Comment, "a reply"),
+    )
+    .await;
+    delete(&th.client, others).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &reply.id), &json!({}))
+        .await
+        .check_error(
+            StatusCode::FORBIDDEN,
+            "access denied to undelete other users' comments",
+        );
+    th.client
+        .post(&undelete_path(board_id, &reply.id), &json!({}))
+        .await
+        .check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"comment") && titles(&read).contains(&"a reply"),
+        "both back by the admin: {:?}",
+        titles(&read)
+    );
+
+    // The card, deleted by the editor with the commenter's comment on it: the editor
+    // brings it back, naming the card or the comment.
+    delete(&boards.editor, &content.card).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &others.id), &json!({}))
+        .await
+        .check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"card") && titles(&read).contains(&"comment"),
+        "{:?}",
+        titles(&read)
+    );
+}
+
 /// Not in the original (user decision 2026-11-11 21:00 KST). A deleted comment is
 /// brought back only by who may delete it: its author with the editor's role, and the
 /// comment of somebody else the board's admins only. An editor is refused another's;
