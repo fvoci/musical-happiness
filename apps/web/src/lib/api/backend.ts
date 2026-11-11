@@ -7,6 +7,7 @@
  * screen that reaches it says that the change was not saved instead of
  * failing quietly. What is not wired is what calls `notWired` below.
  */
+import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
 import { applyViewPatch } from '../state/patches.ts';
@@ -53,6 +54,7 @@ import {
   commentVersionOf,
   memberOf,
   newCardOf,
+  previewsOf,
   settingsChangeOf,
   rolesOf,
   settingsOf,
@@ -664,6 +666,16 @@ export class ServerBackend implements Backend, Account {
       { query: { perPage: 0 } },
     );
     return cards.map(cardOf);
+  }
+
+  /** The previews of the cards (`getCards` with `preview=true`); a card without one has none. */
+  async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
+    const cards = await this.#http.request<Schemas['Card'][]>(
+      '/api/v1/boards/{boardId}/cards',
+      { boardId },
+      { query: { perPage: 0, preview: 'true' } },
+    );
+    return previewsOf(cards);
   }
 
   /** A card with its body. */

@@ -1,7 +1,9 @@
 <!--
   The face of a card: its icon and title, the properties the view turned on,
   and what its body holds (that there is one, how its tasks stand). A kanban
-  column and a gallery draw the same face, the gallery a larger one.
+  column and a gallery draw the same face, the gallery a larger one with a
+  preview of the body: its first picture and the beginning of its text.
+  The picture is fetched once it comes near the screen (`loading="lazy"`).
 
   This is only what a card looks like. What makes it a thing to press, drag
   or select is on the element around it. So is its menu: the caller lays the
@@ -44,6 +46,10 @@
     selected?: boolean;
     /** How many cards travel with this one, itself included. Shown when more than one. */
     count?: number;
+    /** The address of the body's first picture, for a gallery. */
+    previewImage?: string;
+    /** The beginning of the body's text, for a gallery. */
+    previewText?: string;
     /** A menu button lies over the top corner at the end of the title. */
     menuRoom?: boolean;
     /** Classes for the box of the face, such as a height to fill. */
@@ -67,6 +73,8 @@
     lifted = false,
     selected = false,
     count = 1,
+    previewImage,
+    previewText,
     menuRoom = false,
     class: className,
   }: Props = $props();
@@ -103,6 +111,26 @@
     {/if}
     <span data-slot="card-title-text" class="min-w-0">{title}</span>
   </p>
+
+  {#if previewImage || previewText}
+    <div data-slot="card-preview" class="mt-2 flex flex-col gap-2">
+      {#if previewImage}
+        <!-- The title names the card; the picture adds nothing a screen reader needs. -->
+        <img
+          src={previewImage}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          class="aspect-video w-full rounded-sm bg-muted object-cover"
+        />
+      {/if}
+      {#if previewText}
+        <p class="line-clamp-4 text-sm whitespace-pre-line text-muted-foreground">
+          {previewText}
+        </p>
+      {/if}
+    </div>
+  {/if}
 
   {#if shown.length > 0}
     <!-- The kinds bring their own side padding; pulled out so that the values line up with the title. -->

@@ -6,6 +6,7 @@
  * Where the two differ the screens' shape stays and the difference is
  * settled here; what is still open is listed in `docs/contract-assumptions.md`.
  */
+import { cardPreviewOf, type CardPreview } from '../editor/card-preview.ts';
 import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
 import { readRegionalSettings } from '../logic/regional.ts';
@@ -123,6 +124,7 @@ export function cardOfBlock(block: Schemas['Block']): CardSummary {
     hasBody: body !== null,
     tasksTotal: tasks.total,
     tasksDone: tasks.checked,
+    preview: cardPreviewOf(body),
   };
 }
 
@@ -148,6 +150,17 @@ export function cardOf(card: Schemas['Card']): CardSummary {
     tasksDone: card.tasksDone,
     lastCommentAt: card.lastCommentAt,
   };
+}
+
+/** The previews of a card list asked for them, by card. */
+export function previewsOf(cards: readonly Schemas['Card'][]): Map<string, CardPreview> {
+  return new Map(
+    cards.flatMap((card) =>
+      card.preview
+        ? [[card.id, { imageFileId: card.preview.imageFileId, text: card.preview.text }]]
+        : [],
+    ),
+  );
 }
 
 /** A card read alone, with its body (a list of cards carries none). */

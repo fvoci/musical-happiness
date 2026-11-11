@@ -12,6 +12,7 @@
  * development page: `as` (the same world seen by another user), `failNext`
  * and `latency`.
  */
+import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
 import {
   countTasks,
   MAX_BODY_BYTES,
@@ -162,7 +163,8 @@ function wireOf(block: StoredBlock): BoardView | CardSummary | Comment | Attachm
     case 'view':
       return viewOf(block);
     case 'card':
-      return summaryOf(block as StoredCard);
+      // A change message carries the body, which the preview is made from (as on the server).
+      return { ...summaryOf(block as StoredCard), preview: cardPreviewOf(block.body) };
     case 'comment':
       return commentOf(block);
     default:
@@ -1003,6 +1005,13 @@ export class MemoryBackend implements Backend {
     this.#board(boardId);
     const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
     return scramble(cards).map((card) => this.#commented(summaryOf(card as StoredCard)));
+  }
+
+  async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
+    await this.#enter('cardPreviews');
+    this.#board(boardId);
+    const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
+    return new Map(cards.map((card) => [card.id, cardPreviewOf(card.body)]));
   }
 
   async card(boardId: string, cardId: string): Promise<CardDetail> {

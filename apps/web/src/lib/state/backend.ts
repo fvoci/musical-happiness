@@ -16,6 +16,7 @@
  * No method promises an order. Whatever is shown in an order is sorted by
  * the client (`order.ts`).
  */
+import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
 import type { DisplaySettings } from '../logic/display.ts';
 import type { RegionalSettings } from '../logic/regional.ts';
@@ -219,6 +220,12 @@ export interface CardSummary extends Card {
   hasBody: boolean;
   tasksTotal: number;
   tasksDone: number;
+  /**
+   * What a gallery shows of the body: only on a card that came in a change
+   * message, which carries the body it is made from (`cardPreviews` reads it
+   * for a list).
+   */
+  preview?: CardPreview;
 }
 
 /** A card read on its own: with its body. */
@@ -506,6 +513,12 @@ export interface Backend {
 
   // Cards.
   cards(boardId: string): Promise<CardSummary[]>;
+  /**
+   * What a gallery shows of each card's body, by card: the first image and
+   * the beginning of the text (`getCards` with `preview`). Asked only for a
+   * gallery that is shown.
+   */
+  cardPreviews(boardId: string): Promise<Map<string, CardPreview>>;
   card(boardId: string, cardId: string): Promise<CardDetail>;
   createCard(boardId: string, draft: CardDraft): Promise<CardSummary>;
   patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary>;
