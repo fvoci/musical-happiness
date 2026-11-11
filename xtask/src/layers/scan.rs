@@ -95,8 +95,10 @@ pub(crate) struct Source {
 ///
 /// Fails if the source is not Rust that parses.
 pub(crate) fn read_source(module: &[String], source: &str, handles: &[&str]) -> Result<Source> {
-    let file = syn::parse_file(source)
-        .map_err(|error| anyhow!("line {}: {error}", error.span().start().line))?;
+    let file = syn::parse_file(source).map_err(|error| {
+        let line = error.span().start().line;
+        anyhow::Error::new(error).context(format!("line {line}"))
+    })?;
     let mut reader = Reader::default();
     reader.read_items(module.to_vec(), &file.items, &file.attrs);
     let tokens: TokenStream = source

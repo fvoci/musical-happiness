@@ -1,32 +1,54 @@
 //! Measures one Rust source: the lines of the file and of every function in it.
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result};
+use proc_macro2::{TokenStream, TokenTree};
+use quote::ToTokens as _;
 use syn::ext::IdentExt as _;
+use syn::spanned::Spanned as _;
 use syn::visit::{self, Visit};
 
-use super::{Length, Subject};
+use super::{Length, Measured, Subject, TEST_MODULE, is_test_file};
 
 /// The length of the file `file` and of the functions written in it.
 ///
 /// A function is measured from the line of its `fn` to the line of its closing brace,
 /// with everything in between: comments, empty lines, closures, and the functions
-/// inside it, which are measured on their own as well. Functions that a macro writes
-/// are not seen.
+/// inside it, which are measured on their own as well.
+///
+/// Not measured as functions: a function written inside the call or the definition of
+/// a macro, and a closure that is no part of a function (the value of a `static`).
+/// Their lines count in the file.
+///
+/// Refused, whatever the lengths: `rustfmt::skip`, under which a line holds as much as
+/// one likes; and, outside the test directory of a crate, a module named `tests` that
+/// is not `#[cfg(test)]` and a function, a type or a trait of that name, because that
+/// name is what gives a function the limit of tests.
 ///
 /// # Errors
 ///
 /// Fails if the source is not Rust that parses.
-pub(crate) fn measure_source(file: &str, source: &str) -> Result<Vec<Length>> {
-    let parsed = syn::parse_file(source)
-        .map_err(|error| anyhow!("line {}: {error}", error.span().start().line))?;
+pub(crate) fn measure_source(file: &str, source: &str) -> Result<Measured> {
+    let parsed = syn::parse_file(source).map_err(|error| {
+        let line = error.span().start().line;
+        anyhow::Error::new(error).context(format!("line {line}"))
+    })?;
+    // A line ends with a line feed; a lone carriage return would hide the ones after.
+    if source.replace("\r\n", "\n").contains('\r') {
+        return Err(anyhow::anyhow!("a line ends with a carriage return alone"))
+            .context("counting the lines");
+    }
     let mut meter = Meter {
         file,
+        test_names_are_free: is_test_file(file) && !file.ends_with("/tests.rs"),
         around: Vec::new(),
-        measured: vec![Length {
-            subject: Subject::File(file.to_owned()),
-            lines: source.lines().count(),
-            at: 1,
-        }],
+        measured: Measured {
+            lengths: vec![Length {
+                subject: Subject::File(file.to_owned()),
+                lines: source.lines().count(),
+                at: 1,
+            }],
+            refused: Vec::new(),
+        },
     };
     meter.visit_file(&parsed);
     Ok(meter.measured)
@@ -34,10 +56,13 @@ pub(crate) fn measure_source(file: &str, source: &str) -> Result<Vec<Length>> {
 
 struct Meter<'a> {
     file: &'a str,
+    /// Whether the file is in the test directory of a crate, where everything has the
+    /// limits of tests and the name `tests` decides nothing.
+    test_names_are_free: bool,
     /// The names around the code being read: inline modules, the type of an `impl`,
     /// a trait, functions.
     around: Vec<String>,
-    measured: Vec<Length>,
+    measured: Measured,
 }
 
 impl Meter<'_> {
@@ -46,8 +71,11 @@ impl Meter<'_> {
         let last = body.brace_token.span.close().start().line;
         let mut name = self.around.clone();
         name.push(signature.ident.unraw().to_string());
-        self.measured.push(Length {
-            subject: Subject::Function(self.file.to_owned(), name.join("::")),
+        self.measured.lengths.push(Length {
+            subject: Subject::Function {
+                file: self.file.to_owned(),
+                name: name.join("::"),
+            },
             lines: last.saturating_sub(first) + 1,
             at: first,
         });
@@ -59,28 +87,85 @@ impl Meter<'_> {
         read(self);
         self.around.pop();
     }
+
+    /// Refuses the name of the test module on something that is no test module.
+    fn keep_for_tests(&mut self, what: &str, name: &proc_macro2::Ident) {
+        if name == TEST_MODULE && !self.test_names_are_free {
+            self.measured.refused.push(format!(
+                "{}:{}: a {what} is named `{TEST_MODULE}`: the name is kept for the \
+                 #[cfg(test)] module, whose functions get the limit of tests",
+                self.file,
+                name.span().start().line
+            ));
+        }
+    }
 }
 
 impl<'ast> Visit<'ast> for Meter<'_> {
+    fn visit_attribute(&mut self, node: &'ast syn::Attribute) {
+        let mut names = Vec::new();
+        collect_names(node.to_token_stream(), &mut names);
+        if names
+            .windows(2)
+            .any(|pair| pair[0] == "rustfmt" && pair[1] == "skip")
+        {
+            self.measured.refused.push(format!(
+                "{}:{}: rustfmt::skip: lengths are counted in lines, so the lines are \
+                 the formatter's",
+                self.file,
+                node.span().start().line
+            ));
+        }
+        visit::visit_attribute(self, node);
+    }
+
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if !node.attrs.iter().any(is_cfg_test) {
+            self.keep_for_tests("module that is not #[cfg(test)]", &node.ident);
+        }
         self.inside(node.ident.unraw().to_string(), |meter| {
             visit::visit_item_mod(meter, node);
         });
     }
 
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
-        self.inside(type_name(&node.self_ty), |meter| {
-            visit::visit_item_impl(meter, node);
-        });
+        let of = type_name(&node.self_ty);
+        if of == TEST_MODULE && !self.test_names_are_free {
+            self.measured.refused.push(format!(
+                "{}:{}: a type is named `{TEST_MODULE}`: the name is kept for the \
+                 #[cfg(test)] module, whose functions get the limit of tests",
+                self.file,
+                node.impl_token.span.start().line
+            ));
+        }
+        // `<Type as Trait<Argument>>`, so that the `from` of one conversion is not
+        // taken for the `from` of another.
+        let name = match &node.trait_ {
+            Some((_, path, _)) => format!("<{of} as {}>", without_spaces(path)),
+            None => of,
+        };
+        self.inside(name, |meter| visit::visit_item_impl(meter, node));
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {
+        self.keep_for_tests("trait", &node.ident);
         self.inside(node.ident.unraw().to_string(), |meter| {
             visit::visit_item_trait(meter, node);
         });
     }
 
+    fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
+        self.keep_for_tests("type", &node.ident);
+        visit::visit_item_struct(self, node);
+    }
+
+    fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
+        self.keep_for_tests("type", &node.ident);
+        visit::visit_item_enum(self, node);
+    }
+
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        self.keep_for_tests("function", &node.sig.ident);
         self.measure(&node.sig, &node.block);
         self.inside(node.sig.ident.unraw().to_string(), |meter| {
             visit::visit_item_fn(meter, node);
@@ -88,6 +173,7 @@ impl<'ast> Visit<'ast> for Meter<'_> {
     }
 
     fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
+        self.keep_for_tests("function", &node.sig.ident);
         self.measure(&node.sig, &node.block);
         self.inside(node.sig.ident.unraw().to_string(), |meter| {
             visit::visit_impl_item_fn(meter, node);
@@ -95,6 +181,7 @@ impl<'ast> Visit<'ast> for Meter<'_> {
     }
 
     fn visit_trait_item_fn(&mut self, node: &'ast syn::TraitItemFn) {
+        self.keep_for_tests("function", &node.sig.ident);
         if let Some(body) = &node.default {
             self.measure(&node.sig, body);
         }
@@ -102,6 +189,47 @@ impl<'ast> Visit<'ast> for Meter<'_> {
             visit::visit_trait_item_fn(meter, node);
         });
     }
+}
+
+/// Whether an attribute is `#[cfg(test)]`, or a `cfg` that asks for `test` among other
+/// things (`all(test, unix)`). A `test` inside `not(…)` does not count.
+fn is_cfg_test(attribute: &syn::Attribute) -> bool {
+    fn asks_for_test(tokens: TokenStream) -> bool {
+        let mut negated = false;
+        tokens.into_iter().any(|tree| match tree {
+            TokenTree::Ident(word) => {
+                negated = word == "not";
+                word == "test"
+            }
+            TokenTree::Group(group) => {
+                !std::mem::take(&mut negated) && asks_for_test(group.stream())
+            }
+            TokenTree::Punct(_) | TokenTree::Literal(_) => false,
+        })
+    }
+    match &attribute.meta {
+        syn::Meta::List(list) if list.path.is_ident("cfg") => asks_for_test(list.tokens.clone()),
+        _ => false,
+    }
+}
+
+/// Every name among `tokens`, at any depth, in the order they are written.
+fn collect_names(tokens: TokenStream, names: &mut Vec<String>) {
+    for tree in tokens {
+        match tree {
+            TokenTree::Ident(name) => names.push(name.to_string()),
+            TokenTree::Group(group) => collect_names(group.stream(), names),
+            TokenTree::Punct(_) | TokenTree::Literal(_) => {}
+        }
+    }
+}
+
+/// A trait as it is written, without the spaces the tokens are printed with.
+fn without_spaces(path: &syn::Path) -> String {
+    path.to_token_stream()
+        .to_string()
+        .split_whitespace()
+        .collect()
 }
 
 /// The name of the type an `impl` is for, without its path and its arguments; `_` for a

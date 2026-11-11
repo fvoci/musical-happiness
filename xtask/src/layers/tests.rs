@@ -1,8 +1,7 @@
-use std::path::PathBuf;
-
 use super::scan::read_source;
 use super::walk::walk_crate;
 use super::*;
+use crate::files::testing::{scratch, write};
 
 /// The sources of a workspace made of `files`: each a module and its source.
 fn sources(files: &[(&str, &str)]) -> Sources {
@@ -46,24 +45,6 @@ fn paths(module: &str, source: &str) -> Vec<String> {
         })
         .filter(|path| path.contains("::"))
         .collect()
-}
-
-/// A directory for one test's files, under the workspace's `target/`.
-fn scratch(name: &str) -> PathBuf {
-    let directory = crate::workspace_root()
-        .join("target")
-        .join("tmp")
-        .join("xtask")
-        .join(name);
-    let _ = std::fs::remove_dir_all(&directory);
-    directory
-}
-
-fn write(root: &Path, file: &str, text: &str) {
-    let path = root.join(file);
-    std::fs::create_dir_all(path.parent().expect("the file is in a directory"))
-        .expect("the directory is created");
-    std::fs::write(path, text).expect("the file is written");
 }
 
 #[test]

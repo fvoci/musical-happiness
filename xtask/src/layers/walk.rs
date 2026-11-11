@@ -92,6 +92,17 @@ fn locate(
     directory.extend(&declared.inline_parents);
     let module = declared.module.clone();
     if let Some(path) = &declared.path_attribute {
+        // The checks read the `.rs` files of a crate; a module kept under another
+        // extension would be code that only the compiler reads.
+        if Path::new(path)
+            .extension()
+            .is_none_or(|extension| extension != "rs")
+        {
+            bail!(
+                "the module {} is kept in {path}, which is no .rs file",
+                module.join("::")
+            );
+        }
         // Next to the declaring file; inside inline modules, in their directory.
         let base = if declared.inline_parents.is_empty() {
             file_directory

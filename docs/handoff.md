@@ -98,7 +98,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(줄어들 수만 있다) |
+| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이고, 손으로 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
 | `cargo xtask test` | SQLite 1,095건, PostgreSQL 956건, S3 7건, 실패 0(2026-11-11, `fvoci/server-next`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
