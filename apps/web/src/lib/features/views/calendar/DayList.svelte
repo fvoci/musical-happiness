@@ -117,23 +117,23 @@
     {:else}
       <li class="px-3 py-2 text-muted-foreground">{m.calendar_no_cards()}</li>
     {/each}
-  </ul>
-  {#if oncreate}
-    {@const create = oncreate}
-    <div class="shrink-0 px-1 pb-1">
-      <button
-        type="button"
-        data-testid="day-new-card"
-        class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-12"
-        onclick={() => {
-          create(date);
-        }}
-      >
-        <PlusIcon class="size-4 shrink-0" aria-hidden="true" />
-        <span class="truncate"
-          >{m.calendar_new_card_on({ day: displayDay(date, placed.locale) })}</span
+    {#if oncreate}
+      {@const create = oncreate}
+      <li>
+        <button
+          type="button"
+          data-testid="day-new-card"
+          class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-12"
+          onclick={() => {
+            create(date);
+          }}
         >
-      </button>
-    </div>
-  {/if}
+          <PlusIcon class="size-4 shrink-0" aria-hidden="true" />
+          <span class="truncate"
+            >{m.calendar_new_card_on({ day: displayDay(date, placed.locale) })}</span
+          >
+        </button>
+      </li>
+    {/if}
+  </ul>
 </section>

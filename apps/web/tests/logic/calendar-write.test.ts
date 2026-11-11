@@ -1,7 +1,7 @@
 /**
  * Writing on the calendar (lib/logic/calendar.ts): which calendars let a
- * date be changed, the values of a card made on a day, and a value moved whole to another first day,
- * keeping its length in days and the time of day of a moment on the
+ * date be changed, the values of a card made on a day, and a value moved
+ * whole to another first day, keeping its length in days and the time of day of a moment on the
  * reader's clock, over the edges of months and years and the nights the
  * clocks change.
  *

@@ -14,8 +14,9 @@
   - With a mouse, the number of a day opens the cards of the day, a bar
     opens its card, "+N" opens the cards of the day. A "+" at the top right
     of a cell, there while it is pointed at, makes a card on that day
-    (question C11, answer B); it is no stop of the Tab key, as the cards of
-    the day end with "New card on …".
+    (question C11, answer B), and while the day's number has the focus. It
+    is no stop of the Tab key and hidden from screen readers: the cards of
+    the day end with "New card on …", which every reader reaches.
   - With a finger, the whole cell is one button that opens the cards of the
     day. A bar is a picture.
 
@@ -181,10 +182,11 @@
                 <button
                   type="button"
                   tabindex={-1}
+                  aria-hidden="true"
                   data-new-card={date}
                   aria-label={m.calendar_new_card_on({ day: displayDay(date, locale) })}
                   title={m.calendar_new_card_on({ day: displayDay(date, locale) })}
-                  class="ml-auto flex size-6 items-center justify-center rounded-sm text-muted-foreground opacity-0 group-hover/day:opacity-100 hover:bg-muted hover:text-foreground"
+                  class="ml-auto flex size-6 items-center justify-center rounded-sm text-muted-foreground opacity-0 group-focus-within/day:opacity-100 group-hover/day:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100"
                   onclick={() => {
                     create(date);
                   }}

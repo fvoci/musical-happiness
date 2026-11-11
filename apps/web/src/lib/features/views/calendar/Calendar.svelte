@@ -33,7 +33,6 @@
   import {
     datesWritable,
     displayProperty,
-    newCardProperties,
     firstOf,
     inMonth,
     monthOf,
@@ -49,6 +48,7 @@
 
   import DayList from './DayList.svelte';
   import DayPicker from './DayPicker.svelte';
+  import { CardMaker } from './making.svelte.ts';
   import MiniMonth from './MiniMonth.svelte';
   import MonthGrid from './MonthGrid.svelte';
   import { MinuteClock } from './clock.svelte.ts';
@@ -249,21 +249,14 @@
   /** Cards can be made on a day: by someone who may edit, where the day is a date to set. */
   const creatable = $derived(writable && board.canEdit);
 
-  /**
-   * Makes a card on a day (question C11): the values the view's filter asks
-   * for, and the day. It opens, as a card made on a board does (C12); the
-   * calendar goes to its day.
-   */
-  async function createOn(date: CalendarDate): Promise<void> {
-    const properties = newCardProperties(view.fields.filter, templates, template, date);
-    const card = await board.createCard({ properties });
-    if (!card) return;
-    // The focus on the day first: where the card gives it back, unless it has a bar to go to.
-    select(date);
-    await tick();
-    focusDay();
-    onOpenCard(card.id);
-  }
+  const maker = new CardMaker(() => ({ board, view, templates, template }), {
+    select,
+    focusDay,
+    onOpenCard: (cardId: string) => {
+      onOpenCard(cardId);
+    },
+  });
+  const createOn = (date: CalendarDate): Promise<void> => maker.on(date);
 
   /** "New card on …" in the popover of a day: made once the popover has closed. */
   function createFromList(date: CalendarDate): void {
@@ -366,7 +359,13 @@
           onpick={pick}
           onmove={(by: number) => void move(by)}
         />
-        <div class="flex min-h-36 flex-1 flex-col border-t pb-(--safe-bottom)">
+        <!-- Room at the bottom for the round "New" of a folded header, which would cover the last line. -->
+        <div
+          class={[
+            'flex min-h-36 flex-1 flex-col border-t',
+            board.canEdit ? 'pb-[calc(var(--safe-bottom)+5rem)]' : 'pb-(--safe-bottom)',
+          ]}
+        >
           <DayList
             date={selected}
             {...lists}

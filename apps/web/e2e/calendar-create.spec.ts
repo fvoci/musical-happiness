@@ -25,7 +25,7 @@ import { dialog, touch } from './kanban.support.ts';
 
 test.use(CALENDAR_PAGE);
 
-/** The cards of the open board with a title, as the board store has them. */
+/** How many cards the open board has, as the board store has them. */
 async function cardCount(page: Page): Promise<number> {
   return page.evaluate(
     () =>
@@ -73,10 +73,8 @@ test('a card is made on an empty day with the keys alone, and one undo takes it 
   await expect(dialog(page)).toBeHidden();
   await expect(dayButton(page, '2026-11-25')).toHaveAccessibleName(/November 25, 1 card$/);
 
-  // With a mouse the card gives the focus back to its new bar. Elsewhere it has none to go to:
-  // the title it asked for took the focus before the card noted where it came from
-  // (card/CardTitle.svelte, outside the calendar). Ctrl+Z takes the card away either way.
-  if (!touch(info) && wide(info)) await expect(focused(page)).toHaveAccessibleName(/November 25/);
+  // Back on the new bar with a mouse; elsewhere, on the day, where the card has no bar to go to.
+  await expect(focused(page)).toHaveAccessibleName(/November 25/);
   await page.keyboard.press('Control+z');
   await expect.poll(() => cardCount(page)).toBe(before);
   await expect(dayButton(page, '2026-11-25')).toHaveAccessibleName(/^Wednesday, November 25$/);
@@ -97,7 +95,8 @@ test('with a mouse the "+" of a day makes a card there; under a finger the day i
   await expect(plus).toHaveCSS('opacity', '0');
   await cell.hover();
   await expect(plus).toHaveCSS('opacity', '1');
-  await plus.click();
+  // A double click makes one card: the second press comes while the first is being made.
+  await plus.dblclick();
   await expect(dialog(page)).toBeVisible();
   await expect.poll(() => cardCount(page)).toBe(before + 1);
   await expect.poll(() => dueOf(page, '')).toEqual({ from: '2026-11-26' });
