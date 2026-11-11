@@ -353,9 +353,12 @@ enum EnvKind {
     List,
 }
 
-/// The configuration keys that an environment variable can override. The variable is the
-/// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
-const ENV_KEYS: [(&str, EnvKind); 41] = [
+/// The configuration keys that an environment variable can override, a key of
+/// `filess3config` as `filess3config.<key>`. The variable is [`env_name`] of the key, for
+/// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
+/// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
+/// empty.
+const ENV_KEYS: [(&str, EnvKind); 49] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -365,6 +368,14 @@ const ENV_KEYS: [(&str, EnvKind); 41] = [
     ("webpath", EnvKind::Text),
     ("filesdriver", EnvKind::Text),
     ("filespath", EnvKind::Text),
+    ("filess3config.bucket", EnvKind::Text),
+    ("filess3config.pathprefix", EnvKind::Text),
+    ("filess3config.region", EnvKind::Text),
+    ("filess3config.endpoint", EnvKind::Text),
+    ("filess3config.ssl", EnvKind::Flag),
+    ("filess3config.signv2", EnvKind::Flag),
+    ("filess3config.sse", EnvKind::Flag),
+    ("filess3config.timeout", EnvKind::Number),
     ("maxfilesize", EnvKind::Number),
     ("prometheusaddress", EnvKind::Text),
     ("webhook_update", EnvKind::List),
@@ -467,15 +478,38 @@ const REMOVED_KEYS: [(&str, &str); 10] = [
     ),
 ];
 
-/// The value of a key of [`REMOVED_KEYS`] in the file's keys, and the name of its
-/// environment variable: `FVOCI_` and the key in capitals, a dot as `_`.
-fn removed_key<'a>(keys: &'a Map<String, Value>, key: &str) -> (Option<&'a Value>, String) {
-    let name = format!("{ENV_PREFIX}{}", key.to_uppercase().replace('.', "_"));
-    let value = match key.split_once('.') {
+/// The environment variable of a key: [`ENV_PREFIX`] and the key in capitals, a dot as
+/// `_`.
+fn env_name(key: &str) -> String {
+    format!("{ENV_PREFIX}{}", key.to_uppercase().replace('.', "_"))
+}
+
+/// The value of a key in the file's keys, a key of `filess3config` named
+/// `filess3config.<key>`.
+fn value_of<'a>(keys: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
+    match key.split_once('.') {
         Some((outer, inner)) => keys.get(outer).and_then(|outer| outer.get(inner)),
         None => keys.get(key),
-    };
-    (value, name)
+    }
+}
+
+/// Sets a key in the file's keys, a key of `filess3config` named `filess3config.<key>`;
+/// a `filess3config` that is missing or `null` becomes an object first.
+fn set_value(keys: &mut Map<String, Value>, key: &str, value: Value) {
+    match key.split_once('.') {
+        Some((outer, inner)) => {
+            let outer = keys.entry(outer).or_insert(Value::Null);
+            if !outer.is_object() {
+                *outer = Value::Object(Map::new());
+            }
+            if let Value::Object(outer) = outer {
+                outer.insert(inner.to_owned(), value);
+            }
+        }
+        None => {
+            keys.insert(key.to_owned(), value);
+        }
+    }
 }
 
 /// Whether a configuration value says nothing: what a removed key may still hold.
@@ -529,16 +563,15 @@ impl Configuration {
         }
 
         for (key, kind) in ENV_KEYS {
-            let name = format!("{ENV_PREFIX}{}", key.to_uppercase());
+            let name = env_name(key);
             if let Some(text) = env(&name) {
-                keys.insert(key.to_owned(), env_value(&name, &text, kind)?);
+                set_value(&mut keys, key, env_value(&name, &text, kind)?);
             }
         }
 
         for (key, instead) in REMOVED_KEYS {
-            let (value, name) = removed_key(&keys, key);
-            let from_env = env(&name).is_some_and(|text| !text.trim().is_empty());
-            if from_env || value.is_some_and(|value| !is_unset(value)) {
+            let from_env = env(&env_name(key)).is_some_and(|text| !text.trim().is_empty());
+            if from_env || value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
                 bail!("{key} is no longer a setting: {instead}");
             }
         }
@@ -916,6 +949,44 @@ mod tests {
         assert_eq!(config.session_idle_days, 3);
     }
 
+    /// The settings of S3 that differ between deployments come from the environment too
+    /// (user decision 2026-11-11 11:05 KST); the credentials do not.
+    #[test]
+    fn the_environment_overrides_the_s3_settings_but_not_the_credentials() {
+        let env = |name: &str| match name {
+            "FVOCI_FILESS3CONFIG_BUCKET" => Some("from-env".to_owned()),
+            "FVOCI_FILESS3CONFIG_SSL" => Some("on".to_owned()),
+            "FVOCI_FILESS3CONFIG_TIMEOUT" => Some("5000".to_owned()),
+            "FVOCI_FILESS3CONFIG_ACCESSKEYID" | "FVOCI_FILESS3CONFIG_SECRETACCESSKEY" => {
+                Some("not-read".to_owned())
+            }
+            _ => None,
+        };
+        let file = r#"{"FilesS3Config": {"Bucket": "from-file", "Region": "eu-west-1"}}"#;
+        for text in [file, "{}", r#"{"filess3config": null}"#] {
+            let s3 = Configuration::parse(text, env)
+                .expect("valid")
+                .files_s3_config;
+            assert_eq!(s3.bucket, "from-env", "{text}");
+            assert!(s3.ssl, "{text}");
+            assert_eq!(s3.timeout, 5000, "{text}");
+            assert!(s3.access_key_id.is_empty(), "{text}");
+            assert!(s3.secret_access_key.is_empty(), "{text}");
+        }
+        let s3 = Configuration::parse(file, env)
+            .expect("valid")
+            .files_s3_config;
+        assert_eq!(
+            s3.region, "eu-west-1",
+            "the keys the environment leaves stay"
+        );
+        let bad = |name: &str| (name == "FVOCI_FILESS3CONFIG_SSE").then(|| "maybe".to_owned());
+        assert!(
+            Configuration::parse("{}", bad).is_err(),
+            "an unreadable flag"
+        );
+    }
+
     #[test]
     fn bad_input_is_an_error() {
         assert!(Configuration::parse("[]", no_env).is_err(), "not an object");
@@ -1194,12 +1265,7 @@ mod tests {
         }
         let env: BTreeMap<String, String> = ENV_KEYS
             .iter()
-            .map(|(key, _)| {
-                (
-                    (*key).to_owned(),
-                    format!("{ENV_PREFIX}{}", key.to_uppercase()),
-                )
-            })
+            .map(|(key, _)| ((*key).to_owned(), env_name(key)))
             .collect();
         assert_eq!(
             documented.env, env,

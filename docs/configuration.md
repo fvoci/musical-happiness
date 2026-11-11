@@ -19,7 +19,7 @@
    - 키는 대소문자를 가리지 않는다(`serverRoot`와 `serverroot`는 같다). `filess3config` 안의 키도 같다.
    - 모르는 키는 말없이 무시한다(원본 서버의 설정 파일을 그대로 쓸 수 있게).
    - 값의 타입이 틀리면 서버가 시작하지 않는다(`filess3config`가 객체도 `null`도 아닌 것도).
-2. **환경 변수.** `FVOCI_`에 키를 대문자로 이은 이름이다(예: `FVOCI_SESSION_IDLE_DAYS`). 아래 표의 "환경 변수" 칸에 이름이 있는 키만 바꿀 수 있다.
+2. **환경 변수.** `FVOCI_`에 키를 대문자로 이은 이름이다(예: `FVOCI_SESSION_IDLE_DAYS`. `filess3config` 안의 키는 점을 `_`로 써서 `FVOCI_FILESS3CONFIG_BUCKET`). 아래 표의 "환경 변수" 칸에 이름이 있는 키만 바꿀 수 있다.
    - 수는 정수로 읽는다.
    - 참·거짓은 `true`·`1`·`t`·`yes`·`on`과 `false`·`0`·`f`·`no`·`off`로 읽는다.
    - 목록은 쉼표로 나눈다.
@@ -61,14 +61,14 @@
 | `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(1 이상, 바이트) | `104857600` | 올릴 수 있는 파일의 가장 큰 크기(100 MiB). 0이나 음수는 시작 오류다(예전에는 0이 "한도 없음"이었다). `upload_part_bytes` × 10,000(S3 멀티파트의 부분 수 한도)을 넘어도 시작 오류다. 요청 하나로 올리는 파일(`uploadFile`)은 그에 더해 `upload_part_bytes`까지다. 사용자 한 명이 열린 업로드에 걸어 둘 수 있는 크기는 이 한도와 `max_import_bytes` 가운데 큰 것의 두 배다 |
 | `filess3config.accesskeyid` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `filess3config.secretaccesskey` | — | 문자열 | `""` | 비밀 키. `accesskeyid`가 있을 때만 쓴다. 로그에 남기지 않는다 |
-| `filess3config.bucket` | — | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다 |
-| `filess3config.pathprefix` | — | 문자열 | `""` | 모든 객체 키 앞에 붙는 접두어. 앞뒤의 `/`는 떼고 쓴다 |
-| `filess3config.region` | — | 문자열 | `""` | 버킷의 리전. 비우면 S3 클라이언트의 기본값이다 |
-| `filess3config.endpoint` | — | 문자열 | `""` | AWS가 아닌 S3 호환 저장소의 호스트(포트 포함, 스킴 없이). 있으면 경로 방식(`호스트/버킷/키`)으로 부른다. 비우면 AWS다 |
-| `filess3config.ssl` | — | 참·거짓 | `false` | `endpoint`에 HTTPS로 닿는지. 거짓이면 HTTP도 허락한다 |
-| `filess3config.signv2` | — | 참·거짓 | `false` | 옛 서명 방식 v2. **받지 않는다**: `filesdriver`가 `amazons3`인데 참이면 시작하지 않는다(요청은 v4로 서명한다) |
-| `filess3config.sse` | — | 참·거짓 | `false` | 참이면 저장하는 객체에 서버 쪽 암호화(SSE-S3, `AES256`)를 청한다 |
-| `filess3config.timeout` | — | 정수(밀리초) | `0` | S3 요청의 시간 제한. 0 이하면 클라이언트의 기본값이다 |
+| `filess3config.bucket` | `FVOCI_FILESS3CONFIG_BUCKET` | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다 |
+| `filess3config.pathprefix` | `FVOCI_FILESS3CONFIG_PATHPREFIX` | 문자열 | `""` | 모든 객체 키 앞에 붙는 접두어. 앞뒤의 `/`는 떼고 쓴다 |
+| `filess3config.region` | `FVOCI_FILESS3CONFIG_REGION` | 문자열 | `""` | 버킷의 리전. 비우면 S3 클라이언트의 기본값이다 |
+| `filess3config.endpoint` | `FVOCI_FILESS3CONFIG_ENDPOINT` | 문자열 | `""` | AWS가 아닌 S3 호환 저장소의 호스트(포트 포함, 스킴 없이). 있으면 경로 방식(`호스트/버킷/키`)으로 부른다. 비우면 AWS다 |
+| `filess3config.ssl` | `FVOCI_FILESS3CONFIG_SSL` | 참·거짓 | `false` | `endpoint`에 HTTPS로 닿는지. 거짓이면 HTTP도 허락한다 |
+| `filess3config.signv2` | `FVOCI_FILESS3CONFIG_SIGNV2` | 참·거짓 | `false` | 옛 서명 방식 v2. **받지 않는다**: `filesdriver`가 `amazons3`인데 참이면 시작하지 않는다(요청은 v4로 서명한다) |
+| `filess3config.sse` | `FVOCI_FILESS3CONFIG_SSE` | 참·거짓 | `false` | 참이면 저장하는 객체에 서버 쪽 암호화(SSE-S3, `AES256`)를 청한다 |
+| `filess3config.timeout` | `FVOCI_FILESS3CONFIG_TIMEOUT` | 정수(밀리초) | `0` | S3 요청의 시간 제한. 0 이하면 클라이언트의 기본값이다 |
 
 **S3의 예.** MinIO 같은 호환 저장소에 HTTP로 닿는다.
 
@@ -91,7 +91,7 @@
 AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… fvoci-server --config config.json
 ```
 
-`filess3config`의 키는 `FVOCI_*` 환경 변수로 바꿀 수 없다. 다만 `accesskeyid`를 비우면 위처럼 표준 `AWS_*` 변수를 읽는다.
+`filess3config`의 키 가운데 자격(`accesskeyid`, `secretaccesskey`)이 아닌 것은 `FVOCI_FILESS3CONFIG_`에 키를 대문자로 이은 환경 변수로도 바꾼다(표의 "환경 변수" 칸). 컨테이너 하나를 여러 환경에 띄울 때 쓴다. 자격은 `FVOCI_*`로 받지 않는다. `accesskeyid`를 비우고 위처럼 표준 `AWS_*` 변수로 준다.
 
 청크로 올리는 파일(`createUpload`)은 S3에서 멀티파트 업로드가 된다. 세션을 열 때 최종 자리에 멀티파트 업로드를 시작하고, 부분마다 확인한 뒤 버킷으로 보내고, 완료할 때 객체로 만든다. 버리거나 끝난 세션은 서버가 중단(abort)하고, 그 자리에 파일의 기록이 없는 객체가 있으면(완료의 답을 잃었거나 기록하기 전에 서버가 멈춘 것) 그것도 지운다. 서버가 멈춰 세션이 남으면 다음 정리에서 그렇게 한다. 서버가 그 사이에 멈추면 중단하지 못한 멀티파트 업로드가 버킷에 남아 저장 요금이 나가므로(S3의 멀티파트 업로드에는 만료가 없다), 버킷에 수명 주기 규칙 `AbortIncompleteMultipartUpload`를 둔다. 세션은 24시간까지이므로 2일이면 넉넉하다. AWS CLI로는:
 
