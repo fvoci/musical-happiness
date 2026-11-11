@@ -697,12 +697,17 @@ async fn with_a_token_set_a_scrape_must_send_it() {
             StatusCode::UNAUTHORIZED,
             "{authorization:?}"
         );
+        let challenge = if authorization.is_some() {
+            "Bearer realm=\"metrics\", error=\"invalid_token\""
+        } else {
+            "Bearer realm=\"metrics\""
+        };
         assert_eq!(
             response
                 .headers()
                 .get("www-authenticate")
                 .and_then(|value| value.to_str().ok()),
-            Some("Bearer realm=\"metrics\"")
+            Some(challenge)
         );
         let body = response.text().await.expect("a body");
         let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");

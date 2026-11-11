@@ -13,8 +13,8 @@
 # directory named by WEB_BUNDLE, relative to the context, or mount one at /opt/fvoci/web;
 # without one the server answers every non-API path with a placeholder page.
 #
-# Metrics are off. To serve them, set FVOCI_PROMETHEUSADDRESS=:9092 and publish that
-# port to the monitoring network only: the metrics listener has no authentication.
+# Metrics are off. To serve them, set FVOCI_PROMETHEUSADDRESS=:9092, publish that port to
+# the monitoring network only, and set FVOCI_PROMETHEUSTOKEN: the listener is plain HTTP.
 
 ARG RUST_VERSION=1
 ARG WEB_BUNDLE=docker/fvoci/web

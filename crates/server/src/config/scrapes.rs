@@ -4,7 +4,28 @@
 use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
 
+use serde_json::{Map, Value};
+
 use super::Configuration;
+
+/// The key of the token, as the file and the environment have it.
+const TOKEN_KEY: &str = "prometheustoken";
+
+/// Whether the environment's `text` for `key` leaves the key as the file has it: an
+/// empty token. A variable set to nothing (a template whose value is missing) would
+/// otherwise turn the token of the file off, and the listener would ask for none.
+pub(super) fn is_unset_token(key: &str, text: &str) -> bool {
+    key == TOKEN_KEY && text.is_empty()
+}
+
+/// Checks that the token, if the file has one, is text. The error of a value of
+/// another type would repeat it (a number, a flag).
+pub(super) fn check_token_is_text(keys: &Map<String, Value>) -> anyhow::Result<()> {
+    match keys.get(TOKEN_KEY) {
+        None | Some(Value::String(_) | Value::Null) => Ok(()),
+        Some(_) => anyhow::bail!("{TOKEN_KEY} must be a string, in quotes"),
+    }
+}
 
 /// Where the metrics listener listens: `prometheusaddress` read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +78,8 @@ impl MetricsToken {
 
     /// Whether `presented` is the token. Both are compared as their digests, in time
     /// that depends on neither, so that the time of an answer tells nothing of how
-    /// much of a guess was right, nor of the token's length.
+    /// much of a guess was right, nor of the token's length. The comparison is to stay
+    /// `ct_eq`: no test can tell `==` from it.
     pub fn admits(&self, presented: &str) -> bool {
         let presented: [u8; 32] = Sha256::digest(presented.as_bytes()).into();
         presented.ct_eq(&self.digest).into()

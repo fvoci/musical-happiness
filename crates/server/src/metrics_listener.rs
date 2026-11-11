@@ -45,18 +45,19 @@ async fn require_token(
     request: Request,
     next: Next,
 ) -> Response {
-    let admitted = match &token {
-        None => true,
-        Some(token) => bearer(request.headers()).is_some_and(|presented| token.admits(presented)),
-    };
-    if admitted {
+    let Some(token) = &token else {
         return next.run(request).await;
-    }
+    };
+    let challenge = match bearer(request.headers()) {
+        Some(presented) if token.admits(presented) => return next.run(request).await,
+        // A token was sent, and is not this one (RFC 6750, 3.1).
+        Some(_) => "Bearer realm=\"metrics\", error=\"invalid_token\"",
+        None => "Bearer realm=\"metrics\"",
+    };
     let mut refused = AppError::unauthorized("a scrape needs the bearer token").into_response();
-    refused.headers_mut().insert(
-        WWW_AUTHENTICATE,
-        HeaderValue::from_static("Bearer realm=\"metrics\""),
-    );
+    refused
+        .headers_mut()
+        .insert(WWW_AUTHENTICATE, HeaderValue::from_static(challenge));
     refused
 }
 
@@ -175,9 +176,14 @@ mod tests {
             .expect("an answer");
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED {
-            assert_eq!(
-                response.headers().get(WWW_AUTHENTICATE),
-                Some(&HeaderValue::from_static("Bearer realm=\"metrics\"")),
+            let challenge = response
+                .headers()
+                .get(WWW_AUTHENTICATE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            assert!(
+                challenge.starts_with("Bearer realm=\"metrics\""),
+                "{challenge}"
             );
         }
         let log = String::from_utf8_lossy(&captured.0.lock().expect("lock poisoned")).into_owned();

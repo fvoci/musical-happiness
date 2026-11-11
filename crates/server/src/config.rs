@@ -622,7 +622,9 @@ impl Configuration {
 
         for (key, kind) in ENV_KEYS {
             let name = env_name(key);
-            if let Some(text) = env(&name) {
+            if let Some(text) = env(&name)
+                && !scrapes::is_unset_token(key, &text)
+            {
                 set_value(&mut keys, key, env_value(&name, &text, kind)?);
             }
         }
@@ -645,6 +647,7 @@ impl Configuration {
             }
         }
 
+        scrapes::check_token_is_text(&keys)?;
         serde_json::from_value(Value::Object(keys)).context("a key has a value of the wrong type")
     }
 
@@ -829,6 +832,12 @@ impl Configuration {
                  trusted_proxies is empty: behind a reverse proxy every client is seen at the \
                  proxy's address, and the login limits then count all clients as one; set \
                  trusted_proxies to the proxy's addresses"
+                    .to_owned(),
+            );
+        }
+        if !self.prometheus_token.is_empty() && self.prometheus_address.is_empty() {
+            warnings.push(
+                "prometheustoken is set but prometheusaddress is empty: no metrics are served"
                     .to_owned(),
             );
         }
