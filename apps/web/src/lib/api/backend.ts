@@ -272,8 +272,24 @@ export class ServerBackend implements Backend, Account {
     return blocks.map(viewOf);
   }
 
-  createView(_boardId: string, _draft: ViewDraft): Promise<BoardView> {
-    return notWired('createView');
+  /** A view is a block of the board (`createBlocks`). */
+  async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
+    // A block right on its board has no parent (the server's way).
+    const block: Schemas['NewBlock'] = {
+      boardId,
+      type: 'view',
+      title: draft.title,
+      fields: draft.fields,
+      createAt: 1,
+      updateAt: 1,
+    };
+    const [made] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { method: 'POST', json: [block] },
+    );
+    if (!made) throw new BackendError(500, { message: 'the server made no view' });
+    return viewOf(made);
   }
 
   /**

@@ -6,7 +6,7 @@
 
 ## 지금 상태
 
-- **화면은 끝까지 조립돼 있고, 바뀐 서버에 붙었다.** 서버가 서빙하는 앱은 서버를 부르는 구현(`src/lib/api/`)으로 돌고, 서버 없이 빌드를 보는 도구(`preview`, `look`)와 개발 서버는 메모리 구현으로 돈다(`docs/decisions.md`의 연결 1번). 서버에 붙은 것: 로그인, 보드 읽기와 열린 보드의 참여, 카드 만들기·고치기(속성 단위)·옮기기·지우기, 카드의 본문(409 포함), 댓글 쓰기·고치기·지우기, 첨부(올리기 세션)와 본문의 이미지, 실시간. 나머지 조작은 `not_wired`로 거절한다(연결 3번).
+- **화면은 끝까지 조립돼 있고, 바뀐 서버에 붙었다.** 서버가 서빙하는 앱은 서버를 부르는 구현(`src/lib/api/`)으로 돌고, 서버 없이 빌드를 보는 도구(`preview`, `look`)와 개발 서버는 메모리 구현으로 돈다(`docs/decisions.md`의 연결 1번). 서버에 붙은 것: 로그인, 보드 읽기와 열린 보드의 참여, 카드 만들기·고치기(속성 단위)·옮기기·지우기, 카드의 본문(409 포함), 댓글 쓰기·고치기·지우기, 첨부(올리기 세션)와 본문의 이미지, 실시간, 뷰 만들기(`createView`, `fvoci/web-rest`와 같은 코드). 나머지 조작은 `not_wired`로 거절한다(연결 3번).
 - **계약**은 저장소 루트의 `contracts/`(`openapi.json`, `websocket.md`, `body-vectors.json`)와 `docs/contract-pending.md`다. 아직 열린 가정과 질문, 계약의 빈틈은 `docs/contract-assumptions.md`에 있다.
 - **사용자 결정을 기다리는 것**은 `docs/contract-assumptions.md` 1절에 있다.
 - **서버와 한 브랜치에 있다.** 저장소는 `fvoci/musical-happiness`(비공개)이고, 브랜치 `master`에 서버(저장소 루트)와 웹앱(`apps/web`)이 함께 있다. 일마다 `master`에서 워크트리를 새로 갈라 일하고, 끝나면 `master`에 합친다. 양쪽에 걸친 안내는 저장소 루트의 `docs/handoff.md` 맨 앞에 있다.
@@ -68,11 +68,11 @@
 
 ## 다음에 할 일
 
-1. **서버에 붙이는 일을 잇는다.** `not_wired`로 남은 조작(보드·뷰·카테고리 만들기와 고치기, 구성원 관리 등)이다(`docs/decisions.md`의 연결 3). 카테고리와 새 보드를 붙일 때 볼 것은 `docs/contract-assumptions.md` 4절에 있다. 타입은 계약에서 만든다(`pnpm --filter web run api:types`).
+1. **서버에 붙이는 일을 잇는다.** `not_wired`로 남은 조작(보드·카테고리 만들기와 고치기, 구성원 관리 등)이다(`docs/decisions.md`의 연결 3). 카테고리와 새 보드를 붙일 때 볼 것은 `docs/contract-assumptions.md` 4절에 있다. 타입은 계약에서 만든다(`pnpm --filter web run api:types`).
 2. **익명 독자의 화면이 없다.** 공유 보드를 읽기 토큰으로 보는 화면이 없어, 빈 `userId`의 멘션은 그리는 쪽과 쓰기의 거절까지만 붙었다(`e2e-live/anonymous.spec.ts`는 서버의 답을 직접 읽는다). 파일 주소에 `readToken`을 싣는 일도 그 화면과 함께다.
 3. **손으로 적은 임시 타입이 남아 있다**(`src/lib/state/memory/seed.ts`의 템플릿 파일). 화면의 카드에는 옛 `contentOrder`가 남아 있지만(`logic/wire.ts`) 서버로 가지 않는다.
 4. **검토에서 남긴 것을 본다.** 화면 조립 때의 것은 `docs/decisions.md`의 "검토에서 나온 것과 처리"에, 이 묶음의 것은 각 리뷰 커밋의 본문("Not taken")에 있다.
-5. **캘린더 뷰는 읽기까지 있다**(`features/views/calendar/`, 권고대로). 주 보기(C17), 날짜 바꾸기·카드 만들기(V2), 끌기(V5)가 남았고, 서버에서 뷰를 만드는 `createView`는 아직 `not_wired`다.
+5. **캘린더 뷰는 읽기까지 있다**(`features/views/calendar/`, 권고대로). 주 보기(C17), 날짜 바꾸기·카드 만들기(V2), 끌기(V5)가 남았다.
 6. **가끔 실패하는 드래그 테스트의 원인을 가른다**(아래).
 7. **실제 기기에서 본다.** 터치 드래그, 한글 조합 입력, 진동, 접기·회전, 안전 영역은 아직 실제 기기에서 본 적이 없다.
 
