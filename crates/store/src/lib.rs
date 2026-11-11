@@ -360,6 +360,20 @@ impl Store {
         .await
     }
 
+    /// Asks the database for nothing, to see that it answers: one connection, one
+    /// statement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if no connection comes or the statement fails.
+    pub async fn ping(&self) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql("SELECT 1");
+            scope.fetch_optional(sql).await.map(|_| ())
+        })
+        .await
+    }
+
     /// The name of the role the store connects as, if the wall between organizations
     /// does not hold it: a PostgreSQL superuser, or a role with `BYPASSRLS`, passes
     /// every row-level security policy. `None` for a role the wall holds, and on

@@ -20,6 +20,7 @@ mod accounts;
 mod background;
 mod database;
 mod files;
+mod ready;
 mod requests;
 mod scrape_read;
 mod storage;
@@ -29,6 +30,7 @@ pub(crate) use accounts::LoginOutcome;
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
+pub(crate) use ready::ReadyCheck;
 pub(crate) use requests::{ABANDONED, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
 pub(crate) use storage::{OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;
@@ -58,6 +60,7 @@ struct Kept {
     files: files::FilesMetrics,
     background: background::BackgroundMetrics,
     accounts: accounts::AccountMetrics,
+    ready: ready::ReadyMetrics,
 }
 
 impl Metrics {
@@ -98,6 +101,7 @@ impl Metrics {
         let files = files::FilesMetrics::register(&registry)?;
         let background = background::BackgroundMetrics::register(&registry)?;
         let accounts = accounts::AccountMetrics::register(&registry)?;
+        let ready = ready::ReadyMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
@@ -108,6 +112,7 @@ impl Metrics {
                 files,
                 background,
                 accounts,
+                ready,
             })),
         })
     }

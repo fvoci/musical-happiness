@@ -1,24 +1,29 @@
-//! `hello` and `ping`, which say that the server is there and what it is. They are under
-//! `/api/v1` like the rest of the API and need no session.
+//! `hello`, `ready` and `ping`, which say that the server is there, that it can serve,
+//! and what it is. They are under `/api/v1` like the rest of the API and need no
+//! session.
 
 use axum::extract::State;
+use fvoci_model::Problem;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::tag;
 
 use super::{ApiResult, json_response};
-use crate::app::{App, ServerMetadata};
+use crate::app::{App, Readiness, ServerMetadata};
+use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_hello))
+        .routes(routes!(handle_ready))
         .routes(routes!(handle_ping))
 }
 
 /// Whether the server is there
 ///
-/// Answers the text `Hello`.
+/// Answers the text `Hello`, and asks nothing of what the server depends on: the check
+/// that the process is alive. Whether it can serve is `ready`'s.
 #[utoipa::path(
     get,
     path = "/hello",
@@ -29,6 +34,41 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_hello() -> &'static str {
     "Hello"
+}
+
+/// Whether the server can serve
+///
+/// The check that the server is ready: the database answers a statement, and the file
+/// storage can be used, each within two seconds. The checks are made at most every
+/// five seconds; who asks in between gets the last answer. Neither answer says why a
+/// check failed: the log does.
+#[utoipa::path(
+    get,
+    path = "/ready",
+    operation_id = "ready",
+    tag = tag::SYSTEM,
+    security(()),
+    responses(
+        (status = 200, description = "The server is ready: every check is `ok`.", body = Readiness),
+        (
+            status = 503,
+            description = "The server is not ready. `detail` names the checks that are failing: `not ready: database`, `not ready: files`, `not ready: database, files`.",
+            body = Problem,
+            content_type = "application/problem+json",
+        ),
+    ),
+)]
+async fn handle_ready(State(app): State<App>) -> ApiResult {
+    let readiness = app.readiness().await;
+    if readiness.is_ready() {
+        return Ok(json_response(&readiness));
+    }
+    let failing: Vec<&str> = readiness.failing().collect();
+    Err(AppError::service_unavailable(match failing.as_slice() {
+        ["database"] => "not ready: database",
+        ["files"] => "not ready: files",
+        _ => "not ready: database, files",
+    }))
 }
 
 /// What the server is

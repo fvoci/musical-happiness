@@ -18,6 +18,7 @@ mod files;
 mod housekeeping;
 mod import;
 mod onboarding;
+mod readiness;
 mod search;
 mod slots;
 
@@ -43,6 +44,7 @@ pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
+pub use readiness::{Readiness, ReadinessCheck};
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,
@@ -113,6 +115,8 @@ struct Inner {
     /// The memory the parts of uploads to the object store may take while they are
     /// received, in KiB (`uploads::PARTS_IN_MEMORY`).
     part_memory: Arc<tokio::sync::Semaphore>,
+    /// The last answer of the readiness checks.
+    readiness: readiness::Kept,
     /// The exports that run.
     exports: slots::Slots,
     /// The imports that run.
@@ -209,6 +213,7 @@ impl App {
                 opening_upload: tokio::sync::Mutex::new(()),
                 upload_turns: uploads::UploadTurns::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
+                readiness: readiness::Kept::default(),
                 exports,
                 imports,
             }),

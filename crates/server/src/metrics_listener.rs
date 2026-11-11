@@ -34,6 +34,7 @@ pub(crate) fn router(app: App) -> Router {
 
 /// Answers a scrape: reads what is measured by asking, then writes all.
 async fn answer_scrape(axum::extract::State(app): axum::extract::State<App>) -> Response {
+    app.readiness().await;
     // Two reads of the database side by side make a large future: on the heap.
     Box::pin(app.read_storage_metrics()).await;
     match app.metrics().render() {

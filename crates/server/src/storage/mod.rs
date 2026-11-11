@@ -44,6 +44,10 @@ pub enum StorageError {
     ObjectStore(#[source] object_store::Error),
 }
 
+/// The key the readiness check looks at in the object store. Nothing stores a file at
+/// it (no stored path begins with a dot); that the look is answered is what counts.
+const READY_KEY: &str = ".fvoci-ready";
+
 /// The bytes of a stored file, as a stream of chunks.
 pub type FileStream = BoxStream<'static, Result<Bytes, StorageError>>;
 
@@ -238,6 +242,20 @@ impl FileBackend {
             }
         })
         .await
+    }
+
+    /// Whether the storage can be used, for the readiness check, unmeasured: on the local
+    /// disk, that the directory is one or is still to be made; on the object store, that
+    /// the bucket answers a look at a key that need not be there, with the credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns the backend's error if the look fails.
+    pub async fn check(&self) -> Result<(), StorageError> {
+        match self {
+            Self::Local(files) => files.check().await,
+            Self::S3(files) => files.size(READY_KEY).await.map(|_| ()),
+        }
     }
 
     /// The object store that takes uploads part by part across requests, if the backend

@@ -74,6 +74,19 @@ impl LocalFiles {
         }
     }
 
+    /// Whether the directory can be used: it is a directory, or is not there yet and is
+    /// made on the first write.
+    pub(super) async fn check(&self) -> Result<(), StorageError> {
+        match fs::metadata(&self.root).await {
+            Ok(metadata) if metadata.is_dir() => Ok(()),
+            Ok(_) => Err(StorageError::Config(
+                "filespath is not a directory".to_owned(),
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub(super) async fn write(
         &self,
         path: &str,

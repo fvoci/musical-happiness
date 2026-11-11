@@ -177,6 +177,12 @@ mod tests {
                 "internal",
                 "internal server error",
             ),
+            (
+                AppError::service_unavailable("not ready: database"),
+                503,
+                "service-unavailable",
+                "not ready: database",
+            ),
         ];
         assert_eq!(cases.len(), ErrorKind::ALL.len(), "a case for every kind");
         for (error, status, name, detail) in cases {
