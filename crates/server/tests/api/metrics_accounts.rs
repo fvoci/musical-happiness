@@ -48,12 +48,13 @@ async fn logins_registrations_and_live_sessions_are_counted() {
     assert_eq!(logins(&body, "invalid_credentials"), Some(2.0), "{body}");
     assert_eq!(logins(&body, "limited"), Some(0.0), "{body}");
     assert_eq!(logins(&body, "failed"), Some(0.0), "{body}");
+    assert_eq!(logins(&body, "abandoned"), Some(0.0), "{body}");
     assert_eq!(
         body.lines()
             .filter(|line| line.starts_with("fvoci_logins_total{"))
             .count(),
-        4,
-        "four outcomes, whatever was asked: {body}"
+        5,
+        "five outcomes, whatever was asked: {body}"
     );
     assert_eq!(
         sample(&body, "fvoci_registrations_total", &[]),
@@ -77,18 +78,28 @@ async fn logins_registrations_and_live_sessions_are_counted() {
         assert!(!body.contains(named), "{named} is in no metric: {body}");
     }
 
-    // A session that ends is live no more.
-    let response = server.client2.post_empty("/logout").await;
-    assert_eq!(response.status, StatusCode::NO_CONTENT);
-    let body = scrape(&server).await;
-    assert_eq!(
-        sample(&body, "fvoci_sessions_live", &[]),
-        Some(1.0),
-        "{body}"
-    );
     assert_eq!(
         sample(&body, "fvoci_sessions_read_failures_total", &[]),
         Some(0.0),
+        "{body}"
+    );
+
+    // A registration that stores no user is not counted.
+    let response = server
+        .anonymous()
+        .post(
+            "/register",
+            &serde_json::json!({
+                "username": USER1_USERNAME, "email": "another@example.com",
+                "password": PASSWORD, "token": "",
+            }),
+        )
+        .await;
+    assert!(response.status.is_client_error(), "{}", response.status);
+    let body = scrape(&server).await;
+    assert_eq!(
+        sample(&body, "fvoci_registrations_total", &[]),
+        Some(2.0),
         "{body}"
     );
     server.teardown().await;

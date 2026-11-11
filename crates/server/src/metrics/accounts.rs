@@ -5,6 +5,10 @@ use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
 
 use super::{Metrics, PREFIX, ScrapeRead};
 
+/// How long a count of the live sessions stays fresh: it goes through the whole table
+/// of sessions, which has no index of their times, so a scrape before then reads none.
+const SESSIONS_FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// How an attempt to sign in ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoginOutcome {
@@ -17,14 +21,17 @@ pub(crate) enum LoginOutcome {
     Limited,
     /// The server could not check it: the database or the password work failed.
     Failed,
+    /// Its request went away before it ended.
+    Abandoned,
 }
 
 impl LoginOutcome {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Succeeded,
         Self::InvalidCredentials,
         Self::Limited,
         Self::Failed,
+        Self::Abandoned,
     ];
 
     /// The value of the `outcome` label.
@@ -34,6 +41,7 @@ impl LoginOutcome {
             Self::InvalidCredentials => "invalid_credentials",
             Self::Limited => "limited",
             Self::Failed => "failed",
+            Self::Abandoned => "abandoned",
         }
     }
 
@@ -44,6 +52,7 @@ impl LoginOutcome {
             Self::InvalidCredentials => 1,
             Self::Limited => 2,
             Self::Failed => 3,
+            Self::Abandoned => 4,
         }
     }
 }
@@ -52,7 +61,7 @@ impl LoginOutcome {
 #[derive(Debug)]
 pub(super) struct AccountMetrics {
     /// The counter of each outcome, in the order of [`LoginOutcome::ALL`].
-    logins: [IntCounter; 4],
+    logins: [IntCounter; 5],
     registrations: IntCounter,
     sessions_live: IntGauge,
     /// The scrapes' reads of the live sessions.
@@ -68,8 +77,9 @@ impl AccountMetrics {
                 "How many attempts to sign in with a password ended, by outcome: \
                  succeeded, invalid_credentials (no such account or a wrong password, \
                  which are not told apart), limited (a login limit, or the password work \
-                 was too busy), failed (the server could not check it). An attempt the \
-                 server could not read is not counted.",
+                 was too busy), failed (the server could not check it), abandoned (its \
+                 request went away first). An attempt the server could not read is not \
+                 counted.",
             )
             .namespace(PREFIX),
             &["outcome"],
@@ -92,8 +102,9 @@ impl AccountMetrics {
         let sessions_live = IntGauge::with_opts(
             Opts::new(
                 "sessions_live",
-                "How many sessions are live, as a scrape counts them: not past their end, \
-                 used within session_idle_days, of a user who is not deactivated.",
+                "How many sessions are live, as a scrape counts them at most once a \
+                 minute: not past their end, used within session_idle_days, of a user who \
+                 is not deactivated.",
             )
             .namespace(PREFIX),
         )?;
@@ -103,6 +114,7 @@ impl AccountMetrics {
             "sessions_read_failures_total",
             "How many scrapes could not count the live sessions (the database failed or \
              took over two seconds) and gave the value counted before.",
+            SESSIONS_FRESH_FOR,
         )?;
         Ok(Self {
             logins,
@@ -129,17 +141,32 @@ impl Metrics {
     }
 
     /// Sets the live sessions to what `read` answers, for a scrape, as
-    /// [`Metrics::read_open_uploads`] sets the open uploads.
-    pub(crate) async fn read_live_sessions<E: std::fmt::Display>(
+    /// [`Metrics::read_open_uploads`] sets the open uploads; but not more often than
+    /// once a minute, as the count goes through the whole table of sessions.
+    pub(crate) async fn read_live_sessions<E: std::fmt::Display + Send + 'static>(
         &self,
-        read: impl Future<Output = Result<i64, E>>,
+        read: impl Future<Output = Result<i64, E>> + Send + 'static,
     ) {
         let Some(kept) = &self.kept else {
             return;
         };
         let accounts = &kept.accounts;
-        if let Some(live) = accounts.sessions_read.read("the live sessions", read).await {
-            accounts.sessions_live.set(live);
+        let live = accounts.sessions_live.clone();
+        accounts
+            .sessions_read
+            .read("live_sessions", read, move |count| live.set(count))
+            .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_outcome_has_its_own_counter() {
+        for (place, outcome) in LoginOutcome::ALL.into_iter().enumerate() {
+            assert_eq!(outcome.index(), place, "{outcome:?}");
         }
     }
 }

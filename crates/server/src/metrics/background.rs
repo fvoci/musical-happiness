@@ -237,6 +237,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_limit_has_its_own_counter() {
+        for (place, limit) in LoginLimit::ALL.into_iter().enumerate() {
+            assert_eq!(limit.index(), place, "{limit:?}");
+        }
+    }
+
+    #[test]
     fn a_failed_run_is_a_run_and_no_success() {
         let metrics = Metrics::kept().expect("the metrics register");
         metrics.job_ran(Job::PurgeTrash, JobOutcome::Done);

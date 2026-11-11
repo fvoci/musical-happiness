@@ -793,6 +793,14 @@ async fn the_live_sessions_are_those_that_would_be_found() {
     assert_eq!(live(T0 + 1, T0 - 1).await, 3, "all in use");
     assert_eq!(live(T0 + 101, T0 + 50).await, 1, "one used after the limit");
     assert_eq!(live(T0 + 1000, T0 - 1).await, 0, "all at their end time");
+    assert_eq!(live(T0 + 999, T0 - 1).await, 3, "the moment before");
+    assert_eq!(
+        live(T0 + 1, T0).await,
+        1,
+        "used at the limit is idle, as get_session has it"
+    );
+    assert!(!is_valid(&test, "digest-1", T0 + 1, T0).await);
+    assert!(is_valid(&test, "digest-2", T0 + 1, T0).await);
     common::execute_raw(
         &test.dbconfig(),
         &format!("UPDATE users SET delete_at = {T0} WHERE id = '{leaving_id}'"),

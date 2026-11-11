@@ -414,15 +414,17 @@ impl App {
             max_connections: pool.max_connections,
         });
         let now = crate::auth::now_millis();
-        let open_uploads = async {
-            let open = self.store().open_uploads(now).await?;
+        let store = self.store().clone();
+        let open_uploads = async move {
+            let open = store.open_uploads(now).await?;
             Ok::<_, fvoci_store::StoreError>(OpenUploads {
                 sessions: open.sessions,
                 bytes: open.bytes,
             })
         };
         let idle_since = now.saturating_sub(self.config().session_idle_millis());
-        let live_sessions = self.store().count_live_sessions(now, idle_since);
+        let store = self.store().clone();
+        let live_sessions = async move { store.count_live_sessions(now, idle_since).await };
         tokio::join!(
             metrics.read_open_uploads(open_uploads),
             metrics.read_live_sessions(live_sessions),

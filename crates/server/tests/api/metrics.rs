@@ -616,6 +616,11 @@ async fn attempts_the_login_limits_refuse_are_counted_by_limit() {
         |body: &str, limit: &str| sample(body, "fvoci_login_refusals_total", &[("limit", limit)]);
     let body = scrape(&server).await;
     assert_eq!(refusals(&body, "pair_delay"), Some(1.0), "{body}");
+    assert_eq!(
+        sample(&body, "fvoci_logins_total", &[("outcome", "limited")]),
+        Some(1.0),
+        "and the login is counted as limited: {body}"
+    );
     for limit in ["account_lock", "address_busy", "address_rate"] {
         assert_eq!(refusals(&body, limit), Some(0.0), "{limit}: {body}");
     }

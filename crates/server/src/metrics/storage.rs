@@ -2,6 +2,7 @@
 //! and the exports and imports of archives that hold their place.
 
 use std::fmt::Display;
+use std::time::Duration;
 
 use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
 
@@ -95,6 +96,7 @@ impl StorageMetrics {
             "uploads_read_failures_total",
             "How many scrapes could not count the open uploads (the database failed or \
              took over two seconds) and gave the values counted before.",
+            Duration::ZERO,
         )?;
         let archives = IntGaugeVec::new(
             Opts::new(
@@ -152,20 +154,25 @@ impl Metrics {
     }
 
     /// Sets the open uploads to what `read` answers, for a scrape. `read` is what asks
-    /// the database; it is not polled if no metrics are kept or another scrape is
-    /// reading. The uploads stay as they were then, and if `read` fails or does not
-    /// answer in time, which is counted.
-    pub(crate) async fn read_open_uploads<E: Display>(
+    /// the database; it is not polled if no metrics are kept or a read is under way.
+    /// The uploads stay as they were then, and if `read` fails or does not answer in
+    /// two seconds, which is counted; a read that answers late is kept then.
+    pub(crate) async fn read_open_uploads<E: Display + Send + 'static>(
         &self,
-        read: impl Future<Output = Result<OpenUploads, E>>,
+        read: impl Future<Output = Result<OpenUploads, E>> + Send + 'static,
     ) {
         let Some(kept) = &self.kept else {
             return;
         };
         let storage = &kept.storage;
-        if let Some(open) = storage.uploads_read.read("the open uploads", read).await {
-            storage.uploads_open.set(open.sessions);
-            storage.uploads_open_bytes.set(open.bytes);
-        }
+        let (sessions, bytes) = (
+            storage.uploads_open.clone(),
+            storage.uploads_open_bytes.clone(),
+        );
+        let keep = move |open: OpenUploads| {
+            sessions.set(open.sessions);
+            bytes.set(open.bytes);
+        };
+        storage.uploads_read.read("open_uploads", read, keep).await;
     }
 }

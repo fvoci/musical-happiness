@@ -13,7 +13,7 @@ use crate::auth::now_millis;
 use crate::auth::password::{Verdict, hash_password, verify_against_no_account, verify_password};
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, ErrorKind, Reason};
-use crate::metrics::LoginOutcome;
+use crate::metrics::{LoginOutcome, Metrics};
 
 /// What a registration came with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,10 +48,14 @@ impl App {
         user_agent: &str,
         address: Option<IpAddr>,
     ) -> Result<String, AppError> {
+        let mut ending = LoginEnding {
+            metrics: self.metrics(),
+            outcome: LoginOutcome::Abandoned,
+        };
         let result = self
             .check_login(username, email, password, user_agent, address)
             .await;
-        self.metrics().login_ended(login_outcome(&result));
+        ending.outcome = login_outcome(&result);
         result
     }
 
@@ -78,16 +82,7 @@ impl App {
             .admit_login(&names, address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
 
-        // The name the account was found by, for the limiter: the one a success is for.
-        let mut found_by = username;
-        let mut user: Option<User> = None;
-        if !username.is_empty() {
-            user = self.find_user_for_login(Lookup::Username(username)).await?;
-        }
-        if user.is_none() && !email.is_empty() {
-            user = self.find_user_for_login(Lookup::Email(email)).await?;
-            found_by = email;
-        }
+        let (user, found_by) = self.find_account(username, email).await?;
 
         // Nothing this long was ever set as a password; it is not worth a hash.
         if password.len() > MAXIMUM_PASSWORD_BYTES {
@@ -134,7 +129,14 @@ impl App {
                 .store()
                 .get_user_by_id(&user.id)
                 .await
-                .map_err(|error| AppError::from(error).context("reading the user after login"))?;
+                .map_err(|error| {
+                    // Deactivated meanwhile: the login is refused as any other.
+                    if error.is_not_found() {
+                        incorrect_login()
+                    } else {
+                        AppError::from(error).context("reading the user after login")
+                    }
+                })?;
             if self.verify(&current.password_hash, password).await? != Verdict::Mismatch {
                 seen_hash = current.password_hash;
                 stored = self.create_session(&session, &token, &seen_hash).await?;
@@ -163,6 +165,33 @@ impl App {
             .create_session(session, &token_digest(token), seen_hash)
             .await
             .map_err(|error| AppError::from(error).context("unable to create session"))
+    }
+
+    /// The account a login names, by its name or else by its email address, and the
+    /// one of the two it was found by (the name if none): for the limiter, the one a
+    /// success is for.
+    ///
+    /// The email address is looked up whenever it is given, also after the name found
+    /// an account: the work of a login, which the metrics of the database count, must
+    /// not tell whether there is an account of that name.
+    async fn find_account<'n>(
+        &self,
+        username: &'n str,
+        email: &'n str,
+    ) -> Result<(Option<User>, &'n str), AppError> {
+        let by_name = match username {
+            "" => None,
+            name => self.find_user_for_login(Lookup::Username(name)).await?,
+        };
+        let by_email = match email {
+            "" => None,
+            email => self.find_user_for_login(Lookup::Email(email)).await?,
+        };
+        Ok(match (by_name, by_email) {
+            (Some(user), _) => (Some(user), username),
+            (None, Some(user)) => (Some(user), email),
+            (None, None) => (None, username),
+        })
     }
 
     /// Looks a user up for a login; a user who is not there is `None`.
@@ -386,7 +415,6 @@ enum Lookup<'a> {
     Email(&'a str),
 }
 
-/// The refusal of a login, whatever was wrong.
 /// How a login that answered `result` ended, for the metrics: by the kind of its error,
 /// which is the same for an unknown account and a wrong password.
 fn login_outcome<T>(result: &Result<T, AppError>) -> LoginOutcome {
@@ -400,6 +428,20 @@ fn login_outcome<T>(result: &Result<T, AppError>) -> LoginOutcome {
     }
 }
 
+/// Counts a login into the metrics when it is dropped: as it ended, or as given up if
+/// its request went away first.
+struct LoginEnding<'m> {
+    metrics: &'m Metrics,
+    outcome: LoginOutcome,
+}
+
+impl Drop for LoginEnding<'_> {
+    fn drop(&mut self) {
+        self.metrics.login_ended(self.outcome);
+    }
+}
+
+/// The refusal of a login, whatever was wrong.
 fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
 }
