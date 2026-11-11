@@ -28,7 +28,5 @@ function 209 src/lib/drag/pointer-drag.ts pointerDrag
 function 139 src/lib/editor/math-editing.ts editMath
 function 148 src/lib/editor/math-nodes.ts mathNode
 function 203 src/lib/editor/render.ts draw
-function 114 src/lib/editor/schema.ts validateDoc
-function 104 src/lib/editor/schema.ts validateDoc/visit
 function 223 src/lib/state/memory/seed.ts seedWorld
 function 139 src/lib/state/memory/seed.ts seedWorld/forEach()

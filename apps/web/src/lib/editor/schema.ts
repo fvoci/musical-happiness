@@ -221,6 +221,36 @@ export interface ValidateOptions {
   shown?: boolean;
 }
 
+/** The problems with a text node's marks, in their stored order. */
+function checkTextMarks(marks: readonly unknown[], at: string): string[] {
+  const problems: string[] = [];
+  const names: string[] = [];
+  for (const mark of marks) {
+    if (typeof mark !== 'object' || mark === null || Array.isArray(mark)) {
+      problems.push(`${at}: a mark is not an object`);
+      continue;
+    }
+    const {
+      type: markType,
+      attrs: markAttrs,
+      ...others
+    } = mark as DocMark & Record<string, unknown>;
+    const markName = typeof markType === 'string' ? markType : '(no type)';
+    names.push(markName);
+    const markSpec =
+      typeof markType === 'string' && Object.hasOwn(MARK_SPECS, markType)
+        ? MARK_SPECS[markType]
+        : undefined;
+    if (!markSpec) problems.push(`${at}: unknown mark "${markName}"`);
+    else checkAttributes(`${at}@${markName}`, markAttrs, markSpec, problems);
+    for (const key of Object.keys(others)) {
+      problems.push(`${at}@${markName}: unknown member "${key}"`);
+    }
+  }
+  if (new Set(names).size !== names.length) problems.push(`${at}: a mark is given twice`);
+  return problems;
+}
+
 /**
  * Everything that is wrong with a document; an empty list means the server
  * will take it. Checked are the kinds of nodes and marks, their attributes,
@@ -282,30 +312,7 @@ export function validateDoc(doc: unknown, options: ValidateOptions = {}): string
         problems.push(`${at}: marks is not a list`);
         return;
       }
-      const names: string[] = [];
-      for (const mark of given as unknown[]) {
-        if (typeof mark !== 'object' || mark === null || Array.isArray(mark)) {
-          problems.push(`${at}: a mark is not an object`);
-          continue;
-        }
-        const {
-          type: markType,
-          attrs: markAttrs,
-          ...others
-        } = mark as DocMark & Record<string, unknown>;
-        const markName = typeof markType === 'string' ? markType : '(no type)';
-        names.push(markName);
-        const markSpec =
-          typeof markType === 'string' && Object.hasOwn(MARK_SPECS, markType)
-            ? MARK_SPECS[markType]
-            : undefined;
-        if (!markSpec) problems.push(`${at}: unknown mark "${markName}"`);
-        else checkAttributes(`${at}@${markName}`, markAttrs, markSpec, problems);
-        for (const key of Object.keys(others)) {
-          problems.push(`${at}@${markName}: unknown member "${key}"`);
-        }
-      }
-      if (new Set(names).size !== names.length) problems.push(`${at}: a mark is given twice`);
+      for (const problem of checkTextMarks(given, at)) problems.push(problem);
     } else {
       if (text !== undefined) problems.push(`${at}: only text nodes have text`);
       if (marks !== undefined) problems.push(`${at}: only text nodes have marks`);
