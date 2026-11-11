@@ -30,5 +30,7 @@
   "account_password_save": "비밀번호 바꾸기",
   "account_password_changed": "비밀번호를 바꿨습니다. 다른 곳의 로그인은 모두 끝났습니다.",
   "account_password_wrong": "지금 비밀번호가 맞지 않습니다.",
-  "account_password_too_short": "새 비밀번호는 8자 이상이어야 합니다."
+  "account_password_too_short": "새 비밀번호는 8자 이상이어야 합니다.",
+  "account_password_too_long": "새 비밀번호가 너무 깁니다.",
+  "account_password_changed_elsewhere": "그사이 다른 곳에서 비밀번호가 바뀌었습니다. 새 비밀번호로 다시 로그인하세요."
 }

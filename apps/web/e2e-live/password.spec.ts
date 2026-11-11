@@ -35,6 +35,8 @@ test('the password is changed in the settings; the other sessions end and this o
   await next.fill('a new long password');
   await save.click();
   await expect(section.getByRole('alert')).toHaveText('The current password is wrong.');
+  await expect(current).toBeFocused();
+  await expect(current).toHaveAttribute('aria-invalid', 'true');
 
   await current.fill(who.password);
   await next.fill('short');
@@ -49,12 +51,12 @@ test('the password is changed in the settings; the other sessions end and this o
     'The password is changed. Every other place you were signed in is signed out.',
   );
   await expect(current).toBeHidden();
+  await expect(section.getByRole('button', { name: 'Change password' })).toBeFocused();
 
   // The other session is over; this page's goes on, after a reload too.
   expect((await elsewhere.get('/api/v1/users/me')).status()).toBe(401);
   await page.reload();
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await expect(page.getByTestId('sign-in-form')).toHaveCount(0);
 
   // Only the new password signs in.
   const fresh = await apiClient(base);

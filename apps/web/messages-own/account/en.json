@@ -30,5 +30,7 @@
   "account_password_save": "Change password",
   "account_password_changed": "The password is changed. Every other place you were signed in is signed out.",
   "account_password_wrong": "The current password is wrong.",
-  "account_password_too_short": "The new password needs at least 8 characters."
+  "account_password_too_short": "The new password needs at least 8 characters.",
+  "account_password_too_long": "The new password is too long.",
+  "account_password_changed_elsewhere": "The password was changed somewhere else meanwhile. Sign in again with the new one."
 }
