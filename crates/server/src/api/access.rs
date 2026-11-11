@@ -70,7 +70,8 @@ const OTHERS_COMMENTS_DENIED: &str = "access denied to change other users' comme
 /// Checks that the user may change the block, of a board the request names: a comment
 /// is its author's to change with the commenter's role, and somebody else's only the
 /// board's admins change (as only they delete it); any other block is the editors'.
-/// [`require_block_type_change_permission`] checks the patch itself.
+/// A refusal says `denial`, except for the comment of somebody else, whose refusal says
+/// so. [`require_block_type_change_permission`] checks the patch itself.
 pub(crate) async fn require_block_change_permission(
     app: &App,
     user_id: &str,
@@ -78,20 +79,17 @@ pub(crate) async fn require_block_change_permission(
     denial: &str,
 ) -> Result<(), AppError> {
     let (permission, denial) = match block.block_type {
-        BlockType::Comment if block.created_by == user_id => {
-            (BoardPermission::CommentBoardCards, denial)
-        }
-        BlockType::Comment => (
-            BoardPermission::ManageOthersComments,
-            OTHERS_COMMENTS_DENIED,
-        ),
+        BlockType::Comment => comment_permission(user_id, block, denial),
         _ => (BoardPermission::ManageBoardCards, denial),
     };
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
 }
 
-/// Checks that a patch which makes a comment a block of another type comes from an
-/// editor: a commenter may change their comment, not make a card of it.
+/// Checks the change of a block's type that a patch makes: making a comment a block of
+/// another type is for editors (the commenter's role makes no card), and making a block
+/// a comment is for who may change that comment, so that nobody makes a comment that
+/// says somebody else wrote it. A refusal says what
+/// [`require_block_change_permission`]'s says.
 pub(crate) async fn require_block_type_change_permission(
     app: &App,
     user_id: &str,
@@ -99,22 +97,33 @@ pub(crate) async fn require_block_type_change_permission(
     patch: &BlockPatch,
     denial: &str,
 ) -> Result<(), AppError> {
-    let leaves_comments = block.block_type == BlockType::Comment
-        && patch
-            .block_type
-            .as_ref()
-            .is_some_and(|block_type| *block_type != BlockType::Comment);
-    if leaves_comments {
-        require_board_permission(
-            app,
-            user_id,
-            &block.board_id,
-            BoardPermission::ManageBoardCards,
-            denial,
+    let Some(new_type) = patch.block_type.as_ref() else {
+        return Ok(());
+    };
+    let (permission, denial) = match (&block.block_type, new_type) {
+        (BlockType::Comment, BlockType::Comment) => return Ok(()),
+        (BlockType::Comment, _) => (BoardPermission::ManageBoardCards, denial),
+        (_, BlockType::Comment) => comment_permission(user_id, block, denial),
+        _ => return Ok(()),
+    };
+    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+}
+
+/// The permission that changing a comment, or making the block one, needs, and the
+/// refusal without it.
+fn comment_permission<'a>(
+    user_id: &str,
+    block: &Block,
+    denial: &'a str,
+) -> (BoardPermission, &'a str) {
+    if block.created_by == user_id {
+        (BoardPermission::CommentBoardCards, denial)
+    } else {
+        (
+            BoardPermission::ManageOthersComments,
+            OTHERS_COMMENTS_DENIED,
         )
-        .await?;
     }
-    Ok(())
 }
 
 /// Checks that the user has the permission on a board that the request does not name

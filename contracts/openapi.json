@@ -2764,7 +2764,7 @@
         ]
       },
       "patch": {
-        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. Making a comment a block of another type is for editors.\nThe block's `modifiedBy` and `updateAt` say who changed it and when.",
+        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. Making a comment a block of another type is for editors,\nand making a block of somebody else a comment for the board's admins.\nThe block's `modifiedBy` and `updateAt` say who changed it and when.",
         "operationId": "patchBlock",
         "parameters": [
           {

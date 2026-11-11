@@ -306,7 +306,7 @@
 | A4 | 409의 기준은 블록의 `updateAt` 하나다. 본문만의 판은 없다. **사용자 결정 필요**(권고: 두고, 웹앱의 "다시 읽고 같으면 한 번 다시 보내기"를 쓴다) |
 | A5 | 된다. `createCard`의 `NewCard`에 `body`가 있다 |
 | A8 | 댓글은 카드의 `updateAt`을 올리지 않고, 목록에 마지막 댓글의 시각이 없다. **사용자 결정 필요** |
-| B1, H4 | 댓글은 `type=comment`, `parentId`=카드인 블록이고 `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 허용 목록의 `body`(문서)를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`·`patchBlocks`(`readAt`과 함께). **결정됨(14:25 KST), 구현됨**: 자기 댓글은 댓글 권한으로, 남의 댓글은 보드 관리자만 고친다(편집자는 403, `access denied to change other users' comments`). `patchBoardsAndBlocks`도 같다. 댓글을 다른 종류로 바꾸는 패치는 편집자부터다. 고친 사람과 시각은 댓글의 `modifiedBy`·`updateAt`이다 |
+| B1, H4 | 댓글은 `type=comment`, `parentId`=카드인 블록이고 `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 허용 목록의 `body`(문서)를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`·`patchBlocks`(`readAt`과 함께). **결정됨(14:25 KST), 구현됨**: 자기 댓글은 댓글 권한으로, 남의 댓글은 보드 관리자만 고친다(편집자는 403, `access denied to change other users' comments`). `patchBoardsAndBlocks`도 같다. 댓글을 다른 종류로 바꾸는 패치는 편집자부터, 남이 만든 블록을 댓글로 바꾸는 패치는 관리자만이다. 고친 사람과 시각은 댓글의 `modifiedBy`·`updateAt`이다 |
 | B2 | 블록에는 `fileId`뿐이다. 이름·크기·확장자는 `getFileInfo`(`FileInfo`). 종류(MIME)는 없다 |
 | B3 | 아니다. `completeUpload`·`uploadFile`은 파일만 만들고(`UploadedFile`의 `fileId`) 첨부 블록은 클라이언트가 만든다 |
 | B4 | 답(`UploadedFile`)은 `fileId`뿐이다. 이름·크기는 `getFileInfo` |

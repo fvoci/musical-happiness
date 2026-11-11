@@ -449,7 +449,8 @@ async fn handle_undelete_block(
 ///
 /// For editors. A comment is changed by its author with the commenter's role, and the
 /// comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-/// editor may not change it. Making a comment a block of another type is for editors.
+/// editor may not change it. Making a comment a block of another type is for editors,
+/// and making a block of somebody else a comment for the board's admins.
 /// The block's `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,
@@ -531,10 +532,6 @@ async fn handle_patch_blocks(
         take_patch_bodies(objects_mut(batch, "blockPatches"))
     })?;
     put_patch_bodies(&mut batch.block_patches, changes?)?;
-    for patch in &batch.block_patches {
-        app.check_body_files(&board_id, patch.body.new_body())
-            .await?;
-    }
     if batch.block_ids.len() != batch.block_patches.len() {
         return Err(
             AppError::bad_request("blockIds and blockPatches differ in length")
@@ -554,6 +551,10 @@ async fn handle_patch_blocks(
         let block = block_on_board(&app, block_id, &board_id).await?;
         require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
         require_block_type_change_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
+    }
+    for patch in &batch.block_patches {
+        app.check_body_files(&board_id, patch.body.new_body())
+            .await?;
     }
 
     app.patch_blocks(&board.team_id, &batch, user_id, notification)

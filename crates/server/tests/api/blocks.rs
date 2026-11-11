@@ -2866,6 +2866,20 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
         .patch(&many, &batch(&[(comment, "again by its author")]))
         .await
         .check_no_content();
+    th.client
+        .patch(&many, &batch(&[(comment, "by the admin, many")]))
+        .await
+        .check_no_content();
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(
+        read.modified_by, admin.id,
+        "patchBlocks says who changed it"
+    );
+    boards
+        .commenter
+        .patch(&many, &batch(&[(comment, "again by its author")]))
+        .await
+        .check_no_content();
 
     // An editor is refused, on every route, and nothing changes.
     let response = boards
@@ -2950,6 +2964,14 @@ async fn a_commenter_changes_no_card_and_makes_none() {
         )
         .await
         .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    boards
+        .commenter
+        .patch(
+            &many,
+            &json!({"blockIds": [own.id], "blockPatches": [{"type": "card"}]}),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
     // A viewer changes nothing.
     boards
         .viewer
@@ -2962,6 +2984,47 @@ async fn a_commenter_changes_no_card_and_makes_none() {
         "nothing changed: {:?}",
         titles(&read)
     );
+}
+
+/// A block of somebody else is made a comment by the board's admins only: a comment
+/// says who wrote it, and an editor makes nobody else say anything. The author of a
+/// block makes it a comment with the editor's role.
+#[tokio::test]
+async fn a_block_of_somebody_else_is_made_a_comment_by_an_admin() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let into_comment = json!({"type": "comment", "title": "I approve"});
+    let refused = "access denied to change other users' comments";
+
+    boards
+        .editor
+        .patch(&block_path(board_id, &content.text.id), &into_comment)
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    boards
+        .editor
+        .patch(
+            &format!("/boards/{board_id}/blocks"),
+            &json!({"blockIds": [content.text.id], "blockPatches": [into_comment]}),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    let own = insert_one(
+        &boards.editor,
+        &child_of(&content.card, BlockType::Attachment, "the editor's"),
+    )
+    .await;
+    boards
+        .editor
+        .patch(&block_path(board_id, &own.id), &into_comment)
+        .await
+        .check_no_content();
+    th.client
+        .patch(&block_path(board_id, &content.text.id), &into_comment)
+        .await
+        .check_no_content();
 }
 
 // -- the types of new blocks and the limits of their fields ------------------------------
