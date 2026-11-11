@@ -496,6 +496,10 @@ export class MemoryBackend implements Backend {
 
   async reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]> {
     await this.#enter('reorderCardProperties');
+    const role = this.#memberRole(boardId);
+    if (role !== 'admin' && role !== 'editor') {
+      fail(403, 'access denied to modifying board properties');
+    }
     const stored = this.#board(boardId);
     const ids = stored.cardProperties.map((template) => template.id);
     // As the server: every property of the board once, or nothing changes.

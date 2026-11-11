@@ -117,6 +117,7 @@
   "card_property_move_down": "아래로 옮기기",
   "view_property_move_up": "{name} 위로 옮기기",
   "view_property_move_down": "{name} 아래로 옮기기",
+  "view_property_moved": "{name}: {count}개 가운데 {place}번째",
   "card_body": "설명",
   "card_body_placeholder": "설명 추가…",
   "card_body_empty": "설명이 없습니다.",

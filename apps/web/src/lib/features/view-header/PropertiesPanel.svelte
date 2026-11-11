@@ -5,15 +5,17 @@
 
   Each switch is saved as it is flipped. The list stays open: a reader
   usually flips several. Who may change the board's properties can move one
-  up or down: that is the board's order, which every view and card follows.
+  up or down: that is the board's order, which the cards of a board and a
+  gallery and the card's own page follow (a table has its columns' order).
+  The focus stays with the moved property, and its new place is told.
 -->
 <script lang="ts">
   import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
+  import { tick } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { movedProperty } from '$lib/logic/property-order.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Switch } from '$lib/ui/switch/index.js';
@@ -25,9 +27,32 @@
   const toggles = $derived(propertyToggles(board.board?.cardProperties ?? []));
   const order = $derived(board.board?.cardProperties.map((template) => template.id) ?? []);
 
+  let list = $state<HTMLElement>();
+  /** The property moved last, and which way: the focus follows it. */
+  let moved = $state<{ id: string; step: -1 | 1 } | undefined>();
+  /** Its new place, for a screen reader. */
+  let told = $state('');
+
   function move(propertyId: string, step: -1 | 1): void {
-    void board.reorderProperties(movedProperty(order, propertyId, step));
+    moved = { id: propertyId, step };
+    void board.moveProperty(propertyId, step);
   }
+
+  // Once the order shows the move: the moved row's button keeps the focus, or the other one at an end.
+  $effect(() => {
+    const at = moved ? order.indexOf(moved.id) : -1;
+    if (!moved || at < 0) return;
+    const { id, step } = moved;
+    const name = toggles.find((toggle) => toggle.id === id)?.template.name ?? '';
+    told = m.view_property_moved({ name, place: at + 1, count: order.length });
+    void tick().then(() => {
+      const row = list?.querySelector(`[data-row="${CSS.escape(id)}"]`);
+      const buttons = row?.querySelectorAll<HTMLButtonElement>('button[data-action^="move-"]');
+      const [up, down] = buttons ?? [];
+      const wanted = step === -1 ? up : down;
+      (wanted?.disabled ? (step === -1 ? down : up) : wanted)?.focus();
+    });
+  });
 
   function nameOf(toggle: PropertyToggle): string {
     return toggle.template.name;
@@ -48,10 +73,11 @@
   }
 </script>
 
-<ul class="m-0 flex list-none flex-col p-1" data-testid="properties-panel">
+<p class="sr-only" aria-live="polite">{told}</p>
+<ul bind:this={list} class="m-0 flex list-none flex-col p-1" data-testid="properties-panel">
   {#each toggles as toggle (toggle.id)}
     {@const name = nameOf(toggle)}
-    <li class="flex items-center gap-1">
+    <li class="flex items-center gap-1" data-row={toggle.id}>
       <label
         class="flex min-h-8 min-w-0 flex-1 cursor-default items-center justify-between gap-4 rounded-md px-2 text-sm hover:bg-muted roomy:min-h-touch roomy:text-base"
       >
@@ -67,7 +93,7 @@
           }
         />
       </label>
-      {#if board.canEdit && order.includes(toggle.id)}
+      {#if board.canEdit}
         {@const place = order.indexOf(toggle.id)}
         <IconButton
           label={m.view_property_move_up({ name })}

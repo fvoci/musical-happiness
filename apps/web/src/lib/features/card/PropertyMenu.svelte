@@ -12,7 +12,8 @@
   - Changing the kind asks first when cards have a value: it says how many
     values stay and how many are removed (property-change.ts has the rules).
   - Moving it up or down changes the order of the board's properties, which
-    every card and the view's panel show (`BoardStore.reorderProperties`).
+    every card and the view's panel show (`BoardStore.moveProperty`). At an
+    end the button that cannot move it gives the focus to the other one.
   - Deleting always asks.
 -->
 <script lang="ts">
@@ -30,7 +31,6 @@
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { SELECTABLE_PROPERTY_TYPES } from '$lib/logic/properties.ts';
-  import { movedProperty } from '$lib/logic/property-order.ts';
   import type { PropertyTemplate, PropertyType } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -68,9 +68,24 @@
   const order = $derived(board.board?.cardProperties.map((each) => each.id) ?? []);
   const place = $derived(order.indexOf(template.id));
 
+  let moveUp = $state<HTMLButtonElement>();
+  let moveDown = $state<HTMLButtonElement>();
+
+  /** The move button pressed last, while the focus is to stay on the moves. */
+  let pressed = $state<-1 | 1 | undefined>();
+
   function move(step: -1 | 1): void {
-    void board.reorderProperties(movedProperty(order, template.id, step));
+    pressed = step;
+    void board.moveProperty(template.id, step);
   }
+
+  // At an end now, the button pressed is off and would lose the focus: the other one takes it.
+  $effect(() => {
+    const atTop = place <= 0;
+    const atBottom = place >= order.length - 1;
+    if (pressed === -1 && atTop) moveDown?.focus();
+    else if (pressed === 1 && atBottom) moveUp?.focus();
+  });
 
   // A name that changes elsewhere replaces the text, unless the menu is open on it.
   $effect(() => {
@@ -217,6 +232,7 @@
       <button
         type="button"
         data-action="move-up"
+        bind:this={moveUp}
         class={[ROW, 'disabled:opacity-50']}
         disabled={place <= 0}
         onclick={() => {
@@ -229,6 +245,7 @@
       <button
         type="button"
         data-action="move-down"
+        bind:this={moveDown}
         class={[ROW, 'disabled:opacity-50']}
         disabled={place < 0 || place >= order.length - 1}
         onclick={() => {

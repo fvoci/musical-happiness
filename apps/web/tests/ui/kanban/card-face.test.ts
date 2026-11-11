@@ -67,10 +67,16 @@ describe('which properties a card shows', () => {
     expect(hasFaceValue(card, MADE)).toBe(true);
   });
 
-  it('follows the order of the view, and skips what is no property of the board', () => {
+  it('follows the board’s order of its properties, and skips what is no property of the board', () => {
     const card = cardWith({ status: 'todo', hours: '8' });
     expect(
       faceProperties(card, TEMPLATES, ['hours', 'gone', '__title', 'status']).map(
+        (template) => template.id,
+      ),
+    ).toEqual(['status', 'hours']);
+    // Moved on the board, it moves on the face.
+    expect(
+      faceProperties(card, [HOURS, STATUS, TAGS, DONE, MADE], ['status', 'hours']).map(
         (template) => template.id,
       ),
     ).toEqual(['hours', 'status']);
@@ -97,13 +103,13 @@ describe('the face of a card', () => {
     expect(container.querySelector('#the-title')).toHaveTextContent('Write the report');
   });
 
-  it('shows the properties the view turned on, in the order of the view, each with its name', () => {
+  it('shows the properties the view turned on, in the board’s order, each with its name', () => {
     const { container } = show(cardWith({ status: 'done', hours: '8' }), ['hours', 'status']);
     const rows = [...container.querySelectorAll('[data-property]')];
-    expect(rows.map((row) => row.getAttribute('data-property'))).toEqual(['hours', 'status']);
-    expect(rows[0]).toHaveTextContent('Hours: 8');
-    expect(rows[1]).toHaveTextContent('Status: Done');
-    expect(rows[1]?.querySelector('[data-slot="option-chip"]')).toHaveAttribute(
+    expect(rows.map((row) => row.getAttribute('data-property'))).toEqual(['status', 'hours']);
+    expect(rows[1]).toHaveTextContent('Hours: 8');
+    expect(rows[0]).toHaveTextContent('Status: Done');
+    expect(rows[0]?.querySelector('[data-slot="option-chip"]')).toHaveAttribute(
       'data-color',
       'propColorGreen',
     );

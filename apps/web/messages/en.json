@@ -117,6 +117,7 @@
   "card_property_move_down": "Move down",
   "view_property_move_up": "Move {name} up",
   "view_property_move_down": "Move {name} down",
+  "view_property_moved": "{name} is now {place} of {count}",
   "card_body": "Description",
   "card_body_placeholder": "Add a description…",
   "card_body_empty": "No description.",

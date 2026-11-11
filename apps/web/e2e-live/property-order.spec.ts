@@ -90,7 +90,7 @@ test('a property moved on a card is the board’s order, seen by another member,
   expect(watched.flat()).toEqual([]);
 });
 
-test('a property moved in the view’s properties panel is the board’s order', async ({
+test('a property moved in the view’s properties panel is the board’s order, which the cards follow', async ({
   page,
   baseURL,
 }) => {
@@ -100,21 +100,31 @@ test('a property moved in the view’s properties panel is the board’s order',
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
     title: 'Panel',
-    cards: [{ title: 'One', status: 'To do' }],
+    cards: [{ title: 'One', status: 'To do', note: 'remember' }],
   });
   const stored = async () =>
     (
       (await (await api.get(`/api/v1/boards/${board.boardId}`)).json()) as Schemas['Board']
     ).cardProperties.map((template) => template.name);
+  const face = page.locator(`[data-card="${board.cards.One ?? ''}"] [data-property]`);
+  const faceOrder = () =>
+    face.evaluateAll((all) => all.map((one) => one.getAttribute('data-property')));
   const errors = watchErrors(page);
   await page.goto(`/board/${board.boardId}/${board.viewId}`);
   await signInOnPage(page, owner);
   await page.locator('[data-tool="properties"]').click();
   const panel = page.getByTestId('properties-panel');
+  await panel.getByRole('switch', { name: 'Status' }).click();
+  await panel.getByRole('switch', { name: 'Note' }).click();
+  await expect.poll(faceOrder).toEqual(['status', 'note']);
+  await expect(panel.getByRole('switch', { name: 'Status' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+
   await expect(panel.getByRole('button', { name: 'Move Status up' })).toBeDisabled();
   await panel.getByRole('button', { name: 'Move Status down' }).click();
   await expect.poll(stored).toEqual(['Note', 'Status', 'Due']);
-  await expect(panel.getByRole('switch')).toHaveCount(3);
   await expect
     .poll(() =>
       panel
@@ -122,11 +132,14 @@ test('a property moved in the view’s properties panel is the board’s order',
         .evaluateAll((all) => all.map((one) => one.getAttribute('aria-label'))),
     )
     .toEqual(['Note', 'Status', 'Due']);
-  // Moving it does not flip its switch.
+  // The cards of the view follow; the switch stays as it was, and the focus with the property.
+  await expect.poll(faceOrder).toEqual(['note', 'status']);
   await expect(panel.getByRole('switch', { name: 'Status' })).toHaveAttribute(
     'aria-checked',
-    'false',
+    'true',
   );
+  await expect(panel.getByRole('button', { name: 'Move Status down' })).toBeFocused();
+  await expect(page.getByText('Status is now 2 of 3')).toBeAttached();
   await api.dispose();
   expect(errors).toEqual([]);
 });

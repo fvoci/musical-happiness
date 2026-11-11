@@ -52,15 +52,28 @@ describe('the memory backend', () => {
       STATUS,
     ]);
     expect(ids(await backend.board(board.boardId))).toEqual([OWNER, STATUS]);
+    // Only who may change the properties: an editor or an admin.
+    expect(await refused([STATUS, OWNER])).toBe('taken');
+    const commenter = backend.as(
+      (backend.world.members.get(board.boardId) ?? []).find(
+        (member) => member.schemeCommenter && !member.schemeEditor && !member.schemeAdmin,
+      )?.userId ?? '',
+    );
+    const asCommenter = await commenter
+      .reorderCardProperties(board.boardId, [OWNER, STATUS])
+      .catch((e: unknown) => e);
+    expect(asCommenter instanceof BackendError && asCommenter.status).toBe(403);
   });
 });
 
 describe('an open board', () => {
-  it('shows a new order at once, sends it by itself, and undo puts the old one back', async () => {
+  it('shows a move at once, sends it by itself, and undo moves it back', async () => {
     const { board, backend, workspace } = await openFirstBoard();
     const reorder = vi.spyOn(backend, 'reorderCardProperties');
     const patch = vi.spyOn(backend, 'patchBoard');
-    const done = board.reorderProperties([OWNER, STATUS]);
+    const done = board.moveProperty(OWNER, -1);
+    await Promise.resolve();
+    await Promise.resolve();
     expect(ids(board.board)).toEqual([OWNER, STATUS]);
     await done;
     expect(reorder).toHaveBeenCalledWith(board.boardId, [OWNER, STATUS]);
@@ -70,22 +83,63 @@ describe('an open board', () => {
     await workspace.undoLast();
     expect(ids(board.board)).toEqual([STATUS, OWNER]);
     expect(ids(await backend.board(board.boardId))).toEqual([STATUS, OWNER]);
+    // At an end it does not move, and its undo moves nothing back.
+    await board.moveProperty(STATUS, -1);
+    expect(reorder).toHaveBeenCalledTimes(2);
+    await workspace.undoLast();
+    expect(reorder).toHaveBeenCalledTimes(2);
+    expect(ids(board.board)).toEqual([STATUS, OWNER]);
   });
 
-  it('puts the order back and tells the reader when it is refused', async () => {
+  it('undoes a move after somebody else added a property', async () => {
+    const { board, backend, other, workspace } = await openFirstBoard();
+    await board.moveProperty(OWNER, -1);
+    const stored = await other.board(board.boardId);
+    await other.patchBoard(board.boardId, {
+      updatedCardProperties: [
+        ...stored.cardProperties,
+        { id: 'later', name: 'Later', type: 'text', options: [] },
+      ],
+    });
+    await settle();
+    await workspace.undoLast();
+    expect(workspace.problems).toEqual([]);
+    expect(ids(await backend.board(board.boardId))).toEqual([STATUS, OWNER, 'later']);
+  });
+
+  it('sends two quick moves one after the other, each on the order the one before left', async () => {
+    const { board, backend } = await openFirstBoard();
+    backend.latency = 10;
+    const first = board.moveProperty(OWNER, -1);
+    const second = board.moveProperty(OWNER, 1);
+    await Promise.all([first, second]);
+    expect(ids(await backend.board(board.boardId))).toEqual([STATUS, OWNER]);
+    expect(ids(board.board)).toEqual([STATUS, OWNER]);
+  });
+
+  it('shows the board as the server has it when a move is refused, and tells the reader', async () => {
     const { board, backend, workspace } = await openFirstBoard();
     backend.failNext('reorderCardProperties', new BackendError(403));
-    await board.reorderProperties([OWNER, STATUS]);
+    await board.moveProperty(OWNER, -1);
     expect(ids(board.board)).toEqual([STATUS, OWNER]);
     expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 403 } });
   });
 
-  it('follows an order put by somebody else', async () => {
+  it('follows a move made by somebody else', async () => {
     const made = await openFirstBoard();
+    // Somebody who may change the properties: an editor.
+    made.world.members.set(
+      made.board.boardId,
+      (made.world.members.get(made.board.boardId) ?? []).map((member) =>
+        member.userId === made.other.userId
+          ? { ...member, schemeEditor: true, schemeCommenter: true }
+          : member,
+      ),
+    );
     const elsewhere = new Workspace({ backend: made.other, locale: () => 'en' });
     await elsewhere.load();
     const theirs = await elsewhere.openBoard(made.board.boardId);
-    await theirs.reorderProperties([OWNER, STATUS]);
+    await theirs.moveProperty(OWNER, -1);
     await settle();
     expect(ids(made.board.board)).toEqual([OWNER, STATUS]);
   });
@@ -107,8 +161,14 @@ describe('the server backend', () => {
         }),
       );
     });
-    expect(await new ServerBackend('').reorderCardProperties('x', ['b', 'a'])).toEqual(['b', 'a']);
-    vi.unstubAllGlobals();
+    try {
+      expect(await new ServerBackend('').reorderCardProperties('x', ['b', 'a'])).toEqual([
+        'b',
+        'a',
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
     expect(sent).toEqual([
       { url: '/api/v1/boards/x/property-order', method: 'PUT', body: ['b', 'a'] },
     ]);

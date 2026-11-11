@@ -11,7 +11,6 @@
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
-import { sameOrder, withPropertyOrder } from '../logic/property-order.ts';
 import { manualComparator } from '../logic/sort.ts';
 import {
   createBoardView,
@@ -42,6 +41,7 @@ import {
 import { droppedCardOrder, placeAmongAll } from './card-order.ts';
 import { CardStore } from './card.svelte.ts';
 import { LastComments } from './last-comments.ts';
+import { PropertyMoves } from './property-moves.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -828,36 +828,33 @@ export class BoardStore {
   }
 
   /**
-   * Puts the board's card properties in an order (`reorderCardProperties`),
-   * shown at once and put back if refused; undo puts the order before back.
+   * Moves a card property of the board a place up (`-1`) or down (`1`): its
+   * own request (`reorderCardProperties`), shown at once; undo moves it back.
    */
-  async reorderProperties(order: readonly string[]): Promise<void> {
-    const before = this.board?.cardProperties.map((template) => template.id);
-    if (!before || sameOrder(before, order)) return;
+  async moveProperty(propertyId: string, step: -1 | 1): Promise<void> {
+    // A move that found the property at an end moved nothing: its undo moves nothing back.
+    let moved = false;
     await this.#perform(
-      () => this.#sendPropertyOrder(order, before),
-      () => this.#sendPropertyOrder(before, order),
-      'reorderProperties',
+      async () => {
+        moved = await this.#propertyMoves.move(propertyId, step);
+      },
+      async () => {
+        if (moved) await this.#propertyMoves.move(propertyId, step === 1 ? -1 : 1);
+      },
+      'moveProperty',
     );
   }
 
-  async #sendPropertyOrder(order: readonly string[], reverse: readonly string[]): Promise<void> {
-    if (!this.board) return;
-    this.board = withPropertyOrder(this.board, order);
-    try {
-      await this.#backend.reorderCardProperties(this.boardId, [...order]);
-    } catch (error) {
-      // The board as it is now: a message may have brought a newer one meanwhile.
-      const now = this.#boardNow();
-      if (now) this.board = withPropertyOrder(now, reverse);
-      throw error;
-    }
-  }
-
-  /** The board as it is now (read after a wait, when it may have changed). */
-  #boardNow(): Board | undefined {
-    return this.board;
-  }
+  readonly #propertyMoves = new PropertyMoves({
+    board: () => this.board,
+    show: (board) => {
+      this.board = board;
+    },
+    send: (order) => this.#backend.reorderCardProperties(this.boardId, order),
+    reread: async () => {
+      this.board = await this.#backend.board(this.boardId);
+    },
+  });
 
   // ------------------------------------------------------------ sharing
 
