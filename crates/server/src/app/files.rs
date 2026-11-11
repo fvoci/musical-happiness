@@ -28,6 +28,49 @@ pub(crate) const FILE: &str = "file";
 /// The directory uploads are stored under.
 const UPLOADS_ROOT: &str = "boards";
 
+/// Where a new file of a board goes in the file storage, and what its record says of
+/// its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FilePlace {
+    /// The place in the file storage.
+    pub(crate) path: String,
+    /// The name blocks refer to the file by: the last part of `path`.
+    stored_name: String,
+    /// The name the client gave, without directories.
+    name: String,
+    /// The extension of the stored name, with its dot, or empty.
+    extension: String,
+}
+
+impl FilePlace {
+    /// A new place for a file of `board_id` that the client calls `filename`: a secret
+    /// with the lower-cased extension of `filename` (`.jpeg` becomes `.jpg`), under the
+    /// day's directory. Nothing of the client's name ends up in the path.
+    pub(crate) fn new(board_id: &str, filename: &str) -> Self {
+        let name = base_name(filename);
+        let extension = stored_extension(name);
+        let stored_name = new_stored_name(&extension);
+        Self {
+            path: destination_path(board_id, &stored_name),
+            stored_name,
+            name: name.to_owned(),
+            extension,
+        }
+    }
+
+    /// The place chosen with [`FilePlace::new`] at `path`, for the file the client calls
+    /// `filename`.
+    pub(crate) fn at(path: &str, filename: &str) -> Self {
+        let name = base_name(filename);
+        Self {
+            path: path.to_owned(),
+            stored_name: path.rsplit('/').next().unwrap_or(path).to_owned(),
+            name: name.to_owned(),
+            extension: stored_extension(name),
+        }
+    }
+}
+
 impl App {
     /// Stores an uploaded file for a board and returns the name it is stored under,
     /// which is what blocks refer to it by.
@@ -45,29 +88,43 @@ impl App {
         board_id: &str,
         filename: &str,
     ) -> Result<String, AppError> {
-        let base = base_name(filename);
-        let extension = stored_extension(base);
-        let stored_name = new_stored_name(&extension);
-        let path = destination_path(board_id, &stored_name);
+        let place = FilePlace::new(board_id, filename);
+        let size = self
+            .files()
+            .write(&place.path, reader)
+            .await
+            .map_err(|error| {
+                AppError::internal(format_args!(
+                    "unable to store the file in the files storage: {error}"
+                ))
+            })?;
+        self.record_file(board_id, place, size).await
+    }
 
-        let size = self.files().write(&path, reader).await.map_err(|error| {
-            AppError::internal(format_args!(
-                "unable to store the file in the files storage: {error}"
-            ))
-        })?;
-
+    /// Records the file of `size` bytes stored at `place` as a file of `board_id`, and
+    /// returns its stored name.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the record cannot be written.
+    pub(crate) async fn record_file(
+        &self,
+        board_id: &str,
+        place: FilePlace,
+        size: u64,
+    ) -> Result<String, AppError> {
         let info = FileInfo {
             id: new_id(),
             board_id: board_id.to_owned(),
-            stored_name: stored_name.clone(),
-            path,
+            stored_name: place.stored_name.clone(),
+            path: place.path,
             size: size_to_i64(size),
-            name: base.to_owned(),
-            extension,
+            name: place.name,
+            extension: place.extension,
             create_at: now_millis(),
         };
         self.store().save_file_info(&info).await?;
-        Ok(stored_name)
+        Ok(place.stored_name)
     }
 
     /// Returns the record of the file a board has under a stored name, or `None` if the

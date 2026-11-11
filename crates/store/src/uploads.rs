@@ -23,7 +23,7 @@ pub enum PartRecord {
 }
 
 const UPLOAD_COLUMNS: &str = "id, user_id, board_id, name, size, content_type, part_size, \
-                              create_at, expires_at, closed_at, multipart_id";
+                              create_at, expires_at, closed_at, multipart_id, path";
 
 /// What the open upload sessions hold back, for the limits on opening another.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -135,6 +135,7 @@ impl Store {
                 .push_bind(", ", upload.expires_at)
                 .push_bind(", ", upload.closed_at)
                 .push_bind(", ", &upload.multipart_id)
+                .push_bind(", ", &upload.path)
                 .push(")");
             scope.execute(sql).await?;
             Ok(())
@@ -260,6 +261,25 @@ impl Store {
         .await
     }
 
+    /// Records the object store's identifier of the multipart upload a session sends its
+    /// parts to. Returns whether the session was there to take it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn set_upload_multipart(
+        &self,
+        upload_id: &str,
+        multipart_id: &str,
+    ) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE uploads SET multipart_id = ");
+            sql.bind(multipart_id).push_bind(" WHERE id = ", upload_id);
+            Ok(scope.execute(sql).await? == 1)
+        })
+        .await
+    }
+
     /// Deletes an upload session and the record of its parts. One that is gone already
     /// is left gone.
     ///
@@ -293,5 +313,6 @@ fn upload_from_row(row: &Row) -> Result<Upload, StoreError> {
         expires_at: row.int(8)?,
         closed_at: row.int(9)?,
         multipart_id: row.text(10)?,
+        path: row.text(11)?,
     })
 }

@@ -1,15 +1,21 @@
 //! Uploads in parts (`docs/s6-design.md` 5.6).
 //!
 //! A user opens a session for a file of a board, sends the file in numbered parts of a
-//! size the server sets, and completes the session, which makes the file. The parts are
-//! kept on the local disk under the temporary directory, `uploads/<session>/`, each in a
-//! file of its own that the record of the part names (`<number>.<random>`), until the
-//! session is completed or thrown away; nothing of them is a file before.
+//! size the server sets, and completes the session, which makes the file. Nothing of the
+//! parts is a file before.
+//!
+//! With the local file storage, the parts are kept on the local disk under the temporary
+//! directory, `uploads/<session>/`, each in a file of its own that the record of the
+//! part names (`<number>.<random>`), until the session is completed or thrown away. With
+//! S3, a session that has bytes to send is a multipart upload of the object store, made
+//! at the file's final place when the session is opened: each part goes to the bucket as
+//! it comes in, held in memory until it is checked, and the record of the part names the
+//! object store's identifier of it (`docs/s6-design.md` 5.6, 6).
 
 use std::io;
 use std::path::{Path, PathBuf};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
 use fvoci_model::{Upload, UploadPart};
 use fvoci_store::PartRecord;
@@ -19,10 +25,11 @@ use tokio::io::AsyncWriteExt as _;
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use super::App;
+use super::files::FilePlace;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
-use crate::storage::WRITING_DIR;
+use crate::storage::{S3Files, StorageError, WRITING_DIR};
 
 /// How long a session lasts after it is opened (`docs/s6-design.md` 5.6, 7).
 pub const UPLOAD_LIFETIME_MILLIS: i64 = 24 * 60 * 60 * 1000;
@@ -97,7 +104,7 @@ impl App {
 
         // One server serves a database (`docs/configuration.md`): a lock in it is
         // enough to keep the check and the insertion together.
-        let _turn = self.opening_upload_turn().await;
+        let turn = self.opening_upload_turn().await;
         let now = now_millis();
         let usage = self.store().upload_usage(user_id, now).await?;
         if usage.user_sessions >= MAX_OPEN_UPLOADS {
@@ -125,6 +132,11 @@ impl App {
             ));
         }
         let part_size = i64::try_from(self.config().upload_part_bytes).unwrap_or(i64::MAX);
+        // An empty file has no part to send; its parts, none, are kept as on the disk.
+        let multipart = self.files().multipart().filter(|_| new.size > 0);
+        let path = multipart
+            .map(|_| FilePlace::new(board_id, &new.name).path)
+            .unwrap_or_default();
         let upload = Upload {
             id: new_secret(),
             user_id: user_id.to_owned(),
@@ -137,9 +149,50 @@ impl App {
             expires_at: now.saturating_add(UPLOAD_LIFETIME_MILLIS),
             closed_at: 0,
             multipart_id: String::new(),
+            path,
         };
         self.store().create_upload(&upload).await?;
-        Ok(upload)
+        drop(turn);
+        match multipart {
+            Some(files) => self.start_multipart(upload, files).await,
+            None => Ok(upload),
+        }
+    }
+
+    /// Starts the multipart upload of a session in the object store and records it. Done
+    /// once the session is stored, out of the turn of opening: the object store may be
+    /// slow to answer, and the session holds its place in the limits meanwhile. A session
+    /// that cannot be started is thrown away.
+    async fn start_multipart(
+        &self,
+        mut upload: Upload,
+        files: &S3Files,
+    ) -> Result<Upload, AppError> {
+        let multipart_id = match files.create_multipart(&upload.path).await {
+            Ok(multipart_id) => multipart_id,
+            Err(error) => {
+                self.discard_upload(&upload).await;
+                return Err(AppError::internal(format_args!(
+                    "the upload could not be started in the files storage: {error}"
+                )));
+            }
+        };
+        upload.multipart_id = multipart_id;
+        let recorded = self
+            .store()
+            .set_upload_multipart(&upload.id, &upload.multipart_id)
+            .await;
+        match recorded {
+            Ok(true) => Ok(upload),
+            Ok(false) => {
+                self.discard_upload(&upload).await;
+                Err(AppError::internal("the upload went away as it was started"))
+            }
+            Err(error) => {
+                self.discard_upload(&upload).await;
+                Err(error.into())
+            }
+        }
     }
 
     /// Returns the user's session and the parts it has received.
@@ -205,6 +258,11 @@ impl App {
         if upload.closed_at != 0 {
             return Err(closed());
         }
+        if !upload.multipart_id.is_empty() {
+            return self
+                .put_multipart_part(upload, number, size, digest, body)
+                .await;
+        }
 
         let directory = self.upload_dir(&upload.id);
         fs::create_dir_all(&directory)
@@ -253,6 +311,69 @@ impl App {
         }
     }
 
+    /// Receives a part of a multipart upload into memory, checks it, and sends it to the
+    /// object store, where it replaces what was sent under its number.
+    async fn put_multipart_part<E>(
+        &self,
+        upload: &Upload,
+        number: i64,
+        size: u64,
+        digest: &PartDigest,
+        body: impl Stream<Item = Result<Bytes, E>> + Unpin,
+    ) -> Result<(), AppError>
+    where
+        E: std::fmt::Display,
+    {
+        let Some(files) = self.files().multipart() else {
+            return Err(AppError::internal(
+                "the upload is in an object store that is not configured",
+            ));
+        };
+        let mut sink = PartSink::Memory(BytesMut::new());
+        read_part(&mut sink, size, digest, body).await?;
+        let PartSink::Memory(bytes) = sink else {
+            unreachable!("the sink is the memory it was made as");
+        };
+        // Numbers start at 1, the object store's indexes at 0.
+        let index = usize::try_from(number.saturating_sub(1)).unwrap_or_default();
+        let part_id = match files
+            .put_part(&upload.path, &upload.multipart_id, index, bytes.freeze())
+            .await
+        {
+            Ok(part_id) => part_id,
+            Err(error) => return Err(self.multipart_part_error(upload, &error).await),
+        };
+        let part = UploadPart {
+            number,
+            size: i64::try_from(size).unwrap_or(i64::MAX),
+            part_id,
+        };
+        match self.store().put_upload_part(&upload.id, &part).await? {
+            PartRecord::Recorded { .. } => Ok(()),
+            // The part is in the object store all the same. Whoever closed the session
+            // completes it with the parts recorded, or throws them all away.
+            PartRecord::Closed => Err(closed()),
+        }
+    }
+
+    /// What to answer for a part the object store did not take: a conflict if the
+    /// session was closed or thrown away meanwhile, as the object store refuses parts of
+    /// an upload that is completed or aborted; the server's failure otherwise.
+    async fn multipart_part_error(&self, upload: &Upload, error: &StorageError) -> AppError {
+        match self
+            .store()
+            .get_upload(&upload.id, &upload.user_id, now_millis())
+            .await
+        {
+            Ok(current) if current.closed_at == 0 => AppError::internal(format_args!(
+                "the part could not be stored in the files storage: {error}"
+            )),
+            Ok(_) => closed(),
+            Err(lookup) if lookup.is_not_found() => closed(),
+            Err(lookup) => lookup.into(),
+        }
+    }
+
     /// Completes an upload: checks that every part is there, makes the file of the
     /// board from the parts in order, and throws the session away. Returns the file's
     /// identifier. The caller has checked again that the user may upload files to the
@@ -264,9 +385,21 @@ impl App {
     /// as it is; a conflict if the session is being completed or thrown away already;
     /// and a server error if the file cannot be made, with the session thrown away.
     pub async fn complete_upload(&self, upload: &Upload) -> Result<String, AppError> {
-        let parts = self.check_parts(upload).await?;
+        self.check_parts(upload).await?;
         if !self.store().close_upload(&upload.id, now_millis()).await? {
             return Err(closed());
+        }
+        // Read again once closed: a part recorded in between replaced one read above,
+        // and none is recorded now.
+        let parts = match self.check_parts(upload).await {
+            Ok(parts) => parts,
+            Err(error) => {
+                self.discard_upload(upload).await;
+                return Err(error);
+            }
+        };
+        if !upload.multipart_id.is_empty() {
+            return self.complete_multipart(upload, &parts).await;
         }
         // The parts are moved out of the way first: a part that is still coming in, or an
         // abandonment, finds no directory to change under the completion.
@@ -284,6 +417,46 @@ impl App {
         self.discard_upload(upload).await;
         remove_dir_quietly(&working).await;
         saved
+    }
+
+    /// Completes the multipart upload of a closed session in the object store, which
+    /// makes the file at its place, and records the file.
+    async fn complete_multipart(
+        &self,
+        upload: &Upload,
+        parts: &[UploadPart],
+    ) -> Result<String, AppError> {
+        let Some(files) = self.files().multipart() else {
+            self.discard_upload(upload).await;
+            return Err(AppError::internal(
+                "the upload is in an object store that is not configured",
+            ));
+        };
+        let part_ids = parts.iter().map(|part| part.part_id.clone()).collect();
+        if let Err(error) = files
+            .complete_multipart(&upload.path, &upload.multipart_id, part_ids)
+            .await
+        {
+            self.discard_upload(upload).await;
+            return Err(AppError::internal(format_args!(
+                "the file could not be made from its parts: {error}"
+            )));
+        }
+        // The upload is the file now: there is nothing left to abort.
+        self.forget_upload(upload).await;
+        let size = u64::try_from(upload.size).unwrap_or_default();
+        let place = FilePlace::at(&upload.path, &upload.name);
+        match self.record_file(&upload.board_id, place, size).await {
+            Ok(stored_name) => Ok(stored_name),
+            Err(error) => {
+                // A file without a record is given out through no board; it is removed
+                // rather than left in the bucket.
+                if let Err(error) = self.files().delete(&upload.path).await {
+                    tracing::warn!(%error, "an uploaded file without a record could not be removed");
+                }
+                Err(error)
+            }
+        }
     }
 
     /// Checks that every part of an upload was received with its size, and returns the
@@ -360,13 +533,28 @@ impl App {
         Ok(())
     }
 
-    /// Throws a session away: its record, and the parts on the disk. What is gone
-    /// already is left gone; what cannot be removed is logged, and found again by the
-    /// clean-up of the temporary directory.
+    /// Throws a session away: its record, and the parts on the disk or in the object
+    /// store. What is gone already is left gone; what cannot be removed is logged, and
+    /// found again by the clean-up of the temporary directory, or by the bucket's rule
+    /// for incomplete multipart uploads (`docs/fvoci-cdn.md`).
     pub async fn discard_upload(&self, upload: &Upload) {
+        // Closed first: a part still coming in is refused rather than recorded.
         if let Err(error) = self.store().close_upload(&upload.id, now_millis()).await {
             tracing::warn!(%error, "an upload could not be closed before it was thrown away");
         }
+        if !upload.multipart_id.is_empty()
+            && let Some(files) = self.files().multipart()
+            && let Err(error) = files
+                .abort_multipart(&upload.path, &upload.multipart_id)
+                .await
+        {
+            tracing::warn!(%error, "the parts of an upload could not be thrown away in the files storage");
+        }
+        self.forget_upload(upload).await;
+    }
+
+    /// Removes the record of a closed session and its directory of parts.
+    async fn forget_upload(&self, upload: &Upload) {
         if let Err(error) = self.store().delete_upload(&upload.id).await {
             tracing::error!(%error, "the record of an upload could not be removed");
         }
@@ -440,12 +628,12 @@ async fn receive_part<E>(
     path: &Path,
     size: u64,
     digest: &PartDigest,
-    mut body: impl Stream<Item = Result<Bytes, E>> + Unpin,
+    body: impl Stream<Item = Result<Bytes, E>> + Unpin,
 ) -> Result<(), AppError>
 where
     E: std::fmt::Display,
 {
-    let mut file = fs::File::create(path).await.map_err(|error| {
+    let file = fs::File::create(path).await.map_err(|error| {
         // The directory went away under the request: the upload was closed meanwhile.
         if error.kind() == io::ErrorKind::NotFound {
             closed()
@@ -453,6 +641,48 @@ where
             part_error(&error)
         }
     })?;
+    let mut sink = PartSink::File(file);
+    read_part(&mut sink, size, digest, body).await?;
+    if let PartSink::File(file) = &mut sink {
+        file.flush().await.map_err(|error| part_error(&error))?;
+        file.sync_all().await.map_err(|error| part_error(&error))?;
+    }
+    Ok(())
+}
+
+/// Where a part is received into.
+enum PartSink {
+    /// A file of the local disk.
+    File(fs::File),
+    /// Memory, for a part that goes to the object store once it is checked.
+    Memory(BytesMut),
+}
+
+impl PartSink {
+    async fn write(&mut self, chunk: &[u8]) -> Result<(), AppError> {
+        match self {
+            Self::File(file) => file
+                .write_all(chunk)
+                .await
+                .map_err(|error| part_error(&error)),
+            Self::Memory(bytes) => {
+                bytes.extend_from_slice(chunk);
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Reads the body of a part into `sink`, checking its length and digest as it goes.
+async fn read_part<E>(
+    sink: &mut PartSink,
+    size: u64,
+    digest: &PartDigest,
+    mut body: impl Stream<Item = Result<Bytes, E>> + Unpin,
+) -> Result<(), AppError>
+where
+    E: std::fmt::Display,
+{
     let mut hasher = Sha256::new();
     let mut received: u64 = 0;
     while let Some(chunk) = body.next().await {
@@ -466,9 +696,7 @@ where
             )));
         }
         hasher.update(&chunk);
-        file.write_all(&chunk)
-            .await
-            .map_err(|error| part_error(&error))?;
+        sink.write(&chunk).await?;
     }
     if received != size {
         return Err(AppError::bad_request(format_args!(
@@ -481,8 +709,6 @@ where
         )
         .with_field("Content-Digest"));
     }
-    file.flush().await.map_err(|error| part_error(&error))?;
-    file.sync_all().await.map_err(|error| part_error(&error))?;
     Ok(())
 }
 

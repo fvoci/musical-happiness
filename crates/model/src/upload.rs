@@ -29,6 +29,9 @@ pub struct Upload {
     pub closed_at: i64,
     /// The object store's identifier of the multipart upload, or empty.
     pub multipart_id: String,
+    /// Where the file goes in the object store, for a multipart upload; empty where the
+    /// parts are kept on the local disk.
+    pub path: String,
 }
 
 impl Upload {

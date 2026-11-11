@@ -11,6 +11,7 @@ use futures_util::StreamExt as _;
 use fvoci_model::{BoardMember, BoardType};
 use fvoci_server::app::{CLOSED_UPLOAD_GRACE_MILLIS, UPLOAD_LIFETIME_MILLIS};
 use fvoci_server::auth::now_millis;
+use fvoci_server::config::AmazonS3Config;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -881,4 +882,130 @@ async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
         "refused, not asked to continue: {answer}"
     );
     assert!(answer.contains("upload_in_parts"), "{answer}");
+}
+
+/// A server whose files go to the S3-compatible server of `FVOCI_S3_TEST_ENDPOINT` and
+/// `FVOCI_S3_TEST_BUCKET`, as the storage tests use it (`tests/storage.rs`).
+async fn s3_server() -> TestServer {
+    Setup::native()
+        .configure(|config| {
+            let var = |name: &str| std::env::var(name).unwrap_or_default();
+            let or = |name: &str, default: &str| {
+                std::env::var(name).unwrap_or_else(|_| default.to_owned())
+            };
+            config.upload_part_bytes = 5 * 1024 * 1024;
+            "amazons3".clone_into(&mut config.files_driver);
+            config.files_s3_config = AmazonS3Config {
+                access_key_id: or("FVOCI_S3_TEST_ACCESS_KEY", "any"),
+                secret_access_key: or("FVOCI_S3_TEST_SECRET_KEY", "any"),
+                bucket: var("FVOCI_S3_TEST_BUCKET"),
+                path_prefix: "upload-tests".to_owned(),
+                region: or("FVOCI_S3_TEST_REGION", "us-east-1"),
+                endpoint: var("FVOCI_S3_TEST_ENDPOINT"),
+                ssl: var("FVOCI_S3_TEST_SSL") == "true",
+                ..AmazonS3Config::default()
+            };
+        })
+        .start()
+        .await
+        .init_basic()
+        .await
+}
+
+/// With S3, the parts go to the bucket as a multipart upload, not to the disk: a file
+/// sent out of order and once again completes into the file it was, an empty file
+/// completes too, and an abandoned upload takes no more parts.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_the_parts_go_to_the_bucket() {
+    assert!(
+        std::env::var("FVOCI_S3_TEST_ENDPOINT").is_ok()
+            && std::env::var("FVOCI_S3_TEST_BUCKET").is_ok(),
+        "set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET to run this test"
+    );
+    let ts = s3_server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let data = file_of(PART + 1000);
+
+    let upload_id = opened(&ts.client, &board.id, "Report.PDF", data.len()).await;
+    put_part(&ts.client, &upload_id, 2, &data[PART..])
+        .await
+        .check_no_content();
+    let mut wrong = data[..PART].to_vec();
+    wrong[0] ^= 1;
+    put_part(&ts.client, &upload_id, 1, &wrong)
+        .await
+        .check_no_content();
+    put_part(&ts.client, &upload_id, 1, &data[..PART])
+        .await
+        .check_no_content();
+    assert!(
+        !parts_dir(&ts, &upload_id).exists(),
+        "nothing of the parts is on the disk"
+    );
+    let state = ts.client.get(&format!("/uploads/{upload_id}")).await;
+    state.check_ok();
+    assert_eq!(
+        state.value()["parts"],
+        json!([{"number": 1, "size": PART}, {"number": 2, "size": 1000}])
+    );
+    // A part that fails its check does not reach the bucket, nor replace what did.
+    let response = put_part_with(&ts.client, &upload_id, "2", &data[PART..], &digest(b"x")).await;
+    response.check_bad_request();
+
+    let response = ts
+        .client
+        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .await;
+    response.check_created();
+    let file_id = response.value()["fileId"]
+        .as_str()
+        .expect("a file identifier")
+        .to_owned();
+    assert_eq!(Path::new(&file_id).extension(), Some("pdf".as_ref()));
+    let download = ts
+        .client
+        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .await;
+    download.check_ok();
+    assert!(download.body == data, "the file is the parts in order");
+    ts.client
+        .get(&format!("/uploads/{upload_id}"))
+        .await
+        .check_not_found();
+
+    // An empty file has no part to send to the bucket, and completes at once.
+    let empty = opened(&ts.client, &board.id, "empty.txt", 0).await;
+    let response = ts
+        .client
+        .post_empty(&format!("/uploads/{empty}/complete"))
+        .await;
+    response.check_created();
+    let file_id = response.value()["fileId"]
+        .as_str()
+        .expect("a file identifier")
+        .to_owned();
+    let download = ts
+        .client
+        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .await;
+    download.check_ok();
+    assert_eq!(download.body.len(), 0, "an empty file");
+
+    // An abandoned upload is aborted in the bucket; what comes after is not found.
+    let abandoned = opened(&ts.client, &board.id, "a.txt", 3).await;
+    put_part(&ts.client, &abandoned, 1, b"abc")
+        .await
+        .check_no_content();
+    ts.client
+        .delete(&format!("/uploads/{abandoned}"))
+        .await
+        .check_no_content();
+    put_part(&ts.client, &abandoned, 1, b"abc")
+        .await
+        .check_not_found();
+    ts.client
+        .post_empty(&format!("/uploads/{abandoned}/complete"))
+        .await
+        .check_not_found();
 }

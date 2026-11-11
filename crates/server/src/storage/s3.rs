@@ -4,11 +4,15 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use futures_util::{StreamExt as _, TryStreamExt as _};
-use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
+use object_store::aws::{AmazonS3, AmazonS3Builder, AmazonS3ConfigKey};
 use object_store::buffered::BufWriter;
+use object_store::multipart::{MultipartStore, PartId};
 use object_store::path::Path;
-use object_store::{ClientOptions, GetOptions, GetRange, ObjectStore, ObjectStoreExt as _};
+use object_store::{
+    ClientOptions, GetOptions, GetRange, ObjectStore, ObjectStoreExt as _, PutPayload,
+};
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
 use super::{FileStream, StorageError};
@@ -21,6 +25,8 @@ use crate::config::AmazonS3Config;
 #[derive(Debug, Clone)]
 pub struct S3Files {
     store: Arc<dyn ObjectStore>,
+    /// The same bucket, for uploads made part by part across requests.
+    multipart: Arc<AmazonS3>,
     prefix: String,
 }
 
@@ -83,8 +89,11 @@ impl S3Files {
         let store = builder
             .build()
             .map_err(|error| StorageError::Config(error.to_string()))?;
+        let multipart = Arc::new(store);
+        let store: Arc<dyn ObjectStore> = Arc::<AmazonS3>::clone(&multipart);
         Ok(Self {
-            store: Arc::new(store),
+            store,
+            multipart,
             prefix: config.path_prefix.trim_matches('/').to_owned(),
         })
     }
@@ -174,6 +183,91 @@ impl S3Files {
             .rename(&self.key(from)?, &self.key(to)?)
             .await
             .map_err(|error| convert(error, from))
+    }
+}
+
+/// Uploads made part by part across requests (`docs/s6-design.md` 5.6, 6). The object
+/// is not there until the upload is completed.
+impl S3Files {
+    /// Starts an upload of the file at `path`, and returns its identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
+    /// root, or the object store's error.
+    pub async fn create_multipart(&self, path: &str) -> Result<String, StorageError> {
+        self.multipart
+            .create_multipart(&self.key(path)?)
+            .await
+            .map_err(StorageError::ObjectStore)
+    }
+
+    /// Sends part `index` (from 0) of the upload, replacing what was sent under it, and
+    /// returns the part's identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
+    /// root, or the object store's error.
+    pub async fn put_part(
+        &self,
+        path: &str,
+        upload_id: &str,
+        index: usize,
+        bytes: Bytes,
+    ) -> Result<String, StorageError> {
+        let part = self
+            .multipart
+            .put_part(
+                &self.key(path)?,
+                &upload_id.to_owned(),
+                index,
+                PutPayload::from_bytes(bytes),
+            )
+            .await
+            .map_err(StorageError::ObjectStore)?;
+        Ok(part.content_id)
+    }
+
+    /// Completes the upload from its parts, whose identifiers are given in order, and
+    /// makes the object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
+    /// root, or the object store's error.
+    pub async fn complete_multipart(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<String>,
+    ) -> Result<(), StorageError> {
+        let parts = parts
+            .into_iter()
+            .map(|content_id| PartId { content_id })
+            .collect();
+        self.multipart
+            .complete_multipart(&self.key(path)?, &upload_id.to_owned(), parts)
+            .await
+            .map(|_| ())
+            .map_err(StorageError::ObjectStore)
+    }
+
+    /// Throws the upload away with the parts sent. One that is gone is left gone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
+    /// root, or the object store's error.
+    pub async fn abort_multipart(&self, path: &str, upload_id: &str) -> Result<(), StorageError> {
+        match self
+            .multipart
+            .abort_multipart(&self.key(path)?, &upload_id.to_owned())
+            .await
+        {
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(error) => Err(StorageError::ObjectStore(error)),
+        }
     }
 }
 
