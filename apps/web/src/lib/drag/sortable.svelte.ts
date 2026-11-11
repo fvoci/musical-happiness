@@ -48,167 +48,33 @@ import {
   keyboardDestination,
   locateItem,
   sameDestination,
-  type Axis,
   type Destination,
-  type DropTarget,
   type KeyboardStep,
-  type ListOrder,
-  type Placement,
   type Point,
   type Rect,
   windowChanged,
   type WindowSize,
 } from '$lib/logic/drop-target.ts';
 
-import { AutoScroller, type AutoScrollOptions, type ScrollBox } from './auto-scroll.ts';
-import {
-  pointerDrag,
-  type PointerDragHandle,
-  type PointerDragOptions,
-  type PointerDragSession,
-} from './pointer-drag.ts';
+import { AutoScroller, type ScrollBox } from './auto-scroll.ts';
+import { pointerDrag, type PointerDragHandle, type PointerDragSession } from './pointer-drag.ts';
 import { DRAG_SETTINGS } from './settings.ts';
 
-const ITEM = 'data-drag-item';
-const LIST = 'data-drag-list';
-const ZONE = 'data-drag-zone';
-const SCROLL = 'data-drag-scroll';
-const HANDLE = 'data-drag-handle';
-const CARRIED = 'data-drag-carried';
-const SCOPE = 'data-drag-scope';
+import { sortableWords } from './sortable-announcement.ts';
+import { CARRIED, HANDLE, ITEM, LIST, ZONE, SortableDom } from './sortable-dom.ts';
+import type { SortableActive, SortableOptions } from './sortable-types.ts';
 
-/** Controls inside an item keep their own presses. */
-const CONTROLS =
-  'input, textarea, select, button, a[href], [contenteditable]:not([contenteditable="false"])';
+export type {
+  SortableActive,
+  SortableMessages,
+  SortableMove,
+  SortableOptions,
+  SortablePlace,
+  SortableZonePlace,
+} from './sortable-types.ts';
 
 /** A space that is not shown and not trimmed away: it makes the same announcement a new one. */
 const NO_BREAK_SPACE = String.fromCodePoint(0xa0);
-
-/**
- * A drop that changed something.
- *
- * `to` says what the drop means, and only a drop at a place has an index:
- * into a list that places items itself (`kind: 'list'`) and onto a zone
- * (`kind: 'zone'`) there is none, and where the items end up is for the
- * caller to decide.
- */
-export interface SortableMove {
-  /** The item that was grabbed. */
-  itemId: string;
-  /**
-   * Everything that was dropped, in the order of the data: the grabbed item
-   * alone, or the selection it was part of. `moveItems` takes it as it is.
-   */
-  itemIds: readonly string[];
-  /** Where the grabbed item was, counted without the other dropped items. */
-  from: DropTarget;
-  to: Destination;
-}
-
-/** What is on its way. */
-export interface SortableActive {
-  /** The item that was grabbed. */
-  itemId: string;
-  /** Everything on its way, in the order of the data. One id unless a selection is dragged. */
-  itemIds: readonly string[];
-  mode: 'pointer' | 'keyboard';
-  /** Who places the item in a list: the pointer or keys (`free`), or the list (`list`). */
-  placement: Placement;
-  /** Where the grabbed item was, counted without the others on their way. */
-  from: DropTarget;
-  /** What letting go now would do. Undefined while the pointer is outside the root: nothing, the drag is cancelled. */
-  to: Destination | undefined;
-  /**
-   * Where the page shows the gap: at the place of the drop; where the list's
-   * order would put the item when the list places items itself; where the
-   * item came from while the pointer is outside. Undefined over a zone.
-   */
-  gap: DropTarget | undefined;
-  /** The pointer is outside the root: letting go cancels. */
-  outside: boolean;
-  /** The size of the grabbed item when it was picked up, for the gap and the overlay. */
-  width: number;
-  height: number;
-}
-
-/** A place in words: for the announcements. `position` starts at 1. */
-export interface SortablePlace {
-  /** The name of the grabbed item. */
-  item: string;
-  /** How many items are on their way: 1 unless a selection is dragged. */
-  items: number;
-  list: string;
-  position: number;
-  count: number;
-}
-
-/** A zone in words. */
-export interface SortableZonePlace {
-  item: string;
-  items: number;
-  zone: string;
-}
-
-/**
- * The texts. The first four are read out to a screen reader; `sorted` and
- * `outside` are also shown on the page while they apply (`notice`).
- */
-export interface SortableMessages {
-  pickedUp(place: SortablePlace): string;
-  moved(place: SortablePlace): string;
-  dropped(place: SortablePlace): string;
-  cancelled(place: SortablePlace): string;
-  /**
-   * That the view is sorted, so a dropped item goes where the order puts it
-   * and only the list can be chosen. Needed where `placement` can be `list`.
-   */
-  sorted?(): string;
-  /** That letting go now cancels: the pointer is outside the root. */
-  outside?(): string;
-  /** Needed where there are zones. */
-  movedToZone?(place: SortableZonePlace): string;
-  droppedInZone?(place: SortableZonePlace): string;
-}
-
-export interface SortableOptions {
-  /** The order as data, as the page shows it, at the time of the call. */
-  order: () => readonly ListOrder[];
-  /** Called once per drop that changes something. */
-  onDrop: (move: SortableMove) => void;
-  messages: SortableMessages;
-  /** Names for the announcements. Default: the ids. */
-  itemLabel?: (itemId: string) => string;
-  listLabel?: (listId: string) => string;
-  zoneLabel?: (zoneId: string) => string;
-  /** The direction in which each list stacks its items. Default `y`. */
-  axis?: Axis;
-  /**
-   * Which of the marked elements under the root are this instance's: those
-   * with `data-drag-scope="<scope>"`. Without a scope, those that have no
-   * such attribute.
-   */
-  scope?: string;
-  /**
-   * Who places a dropped item in its list, asked when an item is picked up.
-   * `list`: the view is sorted, so only the list can be chosen. Default `free`.
-   */
-  placement?: () => Placement;
-  /**
-   * With `placement` `list`: the index, counted without the items on their
-   * way (`carried`), at which the order of that list would put the grabbed
-   * item. The gap is drawn there. Without it the gap is at the end of the list.
-   */
-  sortedIndex?: (itemId: string, listId: string, carried: readonly string[]) => number | undefined;
-  /**
-   * The items selected now. When the grabbed item is one of them the drag
-   * carries them all; otherwise it carries the grabbed item alone.
-   */
-  selection?: () => readonly string[];
-  /** The ids of the zones the keyboard can reach, in order: they come after the last list. */
-  zones?: () => readonly string[];
-  pointer?: Partial<PointerDragOptions>;
-  scroll?: Partial<AutoScrollOptions>;
-}
 
 function viewport(): Rect {
   return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
@@ -223,7 +89,7 @@ export class Sortable {
 
   readonly #options: SortableOptions;
   readonly #scroller: AutoScroller;
-  #root: HTMLElement | undefined;
+  readonly #page: SortableDom;
   #pointer: PointerDragHandle | undefined;
   /** The size of the window when nothing was being dragged: the size a drag began in. */
   #window: WindowSize = { width: 0, height: 0 };
@@ -242,6 +108,7 @@ export class Sortable {
 
   constructor(options: SortableOptions) {
     this.#options = options;
+    this.#page = new SortableDom(options);
     this.#scroller = new AutoScroller(options.scroll);
   }
 
@@ -275,7 +142,7 @@ export class Sortable {
 
   /** Attaches to the element that holds the lists: `{@attach sortable.attach}`. */
   readonly attach = (root: HTMLElement): (() => void) => {
-    this.#root = root;
+    this.#page.root = root;
     const pointer = pointerDrag(root, this.#press, this.#options.pointer);
     this.#pointer = pointer;
     root.addEventListener('keydown', this.#onKeyDown);
@@ -287,7 +154,7 @@ export class Sortable {
       root.removeEventListener('keydown', this.#onKeyDown);
       window.removeEventListener('resize', this.#onResize);
       this.#pointer = undefined;
-      this.#root = undefined;
+      this.#page.root = undefined;
     };
   };
 
@@ -316,65 +183,6 @@ export class Sortable {
   }
 
   // ------------------------------------------------------------ the page
-
-  /** Matches the elements of this instance that carry `attribute`, with `value` when given. */
-  #selector(attribute: string, value?: string): string {
-    const marked = value === undefined ? `[${attribute}]` : `[${attribute}="${CSS.escape(value)}"]`;
-    const scope = this.#options.scope;
-    return scope === undefined
-      ? `${marked}:not([${SCOPE}])`
-      : `${marked}[${SCOPE}="${CSS.escape(scope)}"]`;
-  }
-
-  /**
-   * This instance's elements that carry any of the attributes, the root
-   * included, in the order of the document. One walk through the root,
-   * however many attributes are asked for.
-   */
-  #all(...attributes: string[]): HTMLElement[] {
-    const root = this.#root;
-    if (!root) return [];
-    const selector = attributes.map((attribute) => this.#selector(attribute)).join(', ');
-    const inside = [...root.querySelectorAll<HTMLElement>(selector)];
-    return root.matches(selector) ? [root, ...inside] : inside;
-  }
-
-  /** The first of this instance's elements with that attribute and value: the root, or one in it. */
-  #first(attribute: string, value?: string): HTMLElement | undefined {
-    const root = this.#root;
-    if (!root) return undefined;
-    const selector = this.#selector(attribute, value);
-    return root.matches(selector) ? root : (root.querySelector<HTMLElement>(selector) ?? undefined);
-  }
-
-  /**
-   * The items of a list: those of this scope whose nearest list is this one,
-   * not those of a list within. `nested` says whether there is a list within
-   * at all: this runs on every frame of a drag, over every item of a long
-   * list, and the walk up from each item is only made when it has to be.
-   */
-  #itemsOf(list: HTMLElement, nested: boolean): HTMLElement[] {
-    const items = [...list.querySelectorAll<HTMLElement>(this.#selector(ITEM))];
-    if (!nested) return items;
-    const lists = this.#selector(LIST);
-    return items.filter((item) => item.closest(lists) === list);
-  }
-
-  /** The handles of an item: not those of items within it. */
-  #handlesOf(item: HTMLElement): HTMLElement[] {
-    return [...item.querySelectorAll<HTMLElement>(`[${HANDLE}]`)].filter(
-      (handle) => handle.closest(`[${ITEM}]`) === item,
-    );
-  }
-
-  #isMine(element: Element): boolean {
-    return (element.getAttribute(SCOPE) ?? undefined) === this.#options.scope;
-  }
-
-  /** Right to left: a row of items runs against the x coordinate, and the arrow keys swap. */
-  #rtl(): boolean {
-    return this.#root !== undefined && getComputedStyle(this.#root).direction === 'rtl';
-  }
 
   // -------------------------------------------------------------- pick up
 
@@ -416,7 +224,7 @@ export class Sortable {
 
   readonly #press = (event: PointerEvent): PointerDragSession | undefined => {
     if (this.#active) return undefined;
-    const item = this.#itemAt(event.target);
+    const item = this.#page.itemAt(event.target);
     const itemId = item?.getAttribute(ITEM);
     if (!item || !itemId) return undefined;
     if (!locateItem(this.#options.order(), itemId)) return undefined;
@@ -427,12 +235,15 @@ export class Sortable {
       start: (point) => {
         const active = this.#pickUp(itemId, 'pointer', item);
         if (!active) return;
-        this.#focused = this.#focusOn(item);
+        this.#focused = this.#page.focusOn(item);
         this.#grab = grab;
         this.#point = point;
         this.#active = active;
         this.#overlay = { x: point.x - grab.x, y: point.y - grab.y };
-        this.#root?.addEventListener('scroll', this.#onScroll, { capture: true, passive: true });
+        this.#page.root?.addEventListener('scroll', this.#onScroll, {
+          capture: true,
+          passive: true,
+        });
         this.#stale = true;
         this.#frameTime = performance.now();
         this.#frame = requestAnimationFrame(this.#onFrame);
@@ -456,31 +267,13 @@ export class Sortable {
     };
   };
 
-  /**
-   * The item a press on `target` would drag, if it is this instance's. The
-   * press belongs to the innermost item around it, of whatever scope.
-   */
-  #itemAt(target: EventTarget | null): HTMLElement | undefined {
-    if (!(target instanceof Element)) return undefined;
-    const item = target.closest<HTMLElement>(`[${ITEM}]`);
-    if (!item || !this.#root?.contains(item) || !this.#isMine(item)) return undefined;
-    const control = target.closest(CONTROLS);
-    if (control && control !== item && item.contains(control)) return undefined;
-    const handles = this.#handlesOf(item);
-    if (handles.length > 0 && !handles.some((handle) => handle.contains(target))) return undefined;
-    return item;
-  }
-
-  /** Whether the focus is on the item or on its handle now. */
-  #focusOn(item: HTMLElement): 'item' | 'handle' | undefined {
-    const focused = document.activeElement;
-    if (focused === item) return 'item';
-    return this.#handlesOf(item).some((handle) => handle === focused) ? 'handle' : undefined;
-  }
-
   readonly #onScroll = (): void => {
     this.#stale = true;
   };
+
+  #scrollBoxes(): ScrollBox[] {
+    return this.#page.scrollBoxes(this.#active?.to);
+  }
 
   /**
    * Once per frame while a pointer drags: the destination follows the
@@ -498,7 +291,7 @@ export class Sortable {
 
   /** Works out the destination from where the pointer and the items are now. */
   #retarget(): void {
-    const root = this.#root;
+    const root = this.#page.root;
     const active = this.#active;
     if (!root || !active) return;
     this.#stale = false;
@@ -510,7 +303,7 @@ export class Sortable {
     const axis = this.#options.axis;
     const lists: { element: HTMLElement; id: string; rect: DOMRect }[] = [];
     const zones: { id: string; rect: DOMRect }[] = [];
-    for (const element of this.#all(LIST, ZONE)) {
+    for (const element of this.#page.all(LIST, ZONE)) {
       const rect = element.getBoundingClientRect();
       const listId = element.getAttribute(LIST);
       if (listId === null) zones.push({ id: element.getAttribute(ZONE) ?? '', rect });
@@ -530,32 +323,14 @@ export class Sortable {
       const nested = lists.some(
         (other) => other.element !== element && element.contains(other.element),
       );
-      const items = this.#itemsOf(element, nested)
+      const items = this.#page
+        .itemsOf(element, nested)
         .filter((item) => !active.itemIds.includes(item.getAttribute(ITEM) ?? ''))
         .map((item) => item.getBoundingClientRect());
-      const reversed = axis === 'x' && this.#rtl();
+      const reversed = axis === 'x' && this.#page.rtl();
       const place = dropTarget(this.#point, [{ id, rect, items }], { axis, bounds, reversed });
       if (place) this.#aim({ kind: 'index', ...place });
     }
-  }
-
-  /**
-   * The boxes that may scroll now: those around the list or zone the item
-   * would land in. None while the pointer is outside the root: there a
-   * release cancels, and a board that kept scrolling would say otherwise.
-   */
-  #scrollBoxes(): ScrollBox[] {
-    const root = this.#root;
-    const to = this.#active?.to;
-    if (!root || !to) return [];
-    const boxes: ScrollBox[] = [];
-    let element = to.kind === 'zone' ? this.#first(ZONE, to.zoneId) : this.#first(LIST, to.listId);
-    while (element && root.contains(element)) {
-      const axis = element.getAttribute(SCROLL);
-      if (axis === 'x' || axis === 'y') boxes.push({ element, axis });
-      element = element.parentElement ?? undefined;
-    }
-    return boxes;
   }
 
   // ------------------------------------------------------------ keyboard
@@ -568,7 +343,7 @@ export class Sortable {
     if (!(target instanceof HTMLElement)) return;
     const onHandle = !target.hasAttribute(ITEM) && target.hasAttribute(HANDLE);
     const item = onHandle ? target.closest<HTMLElement>(`[${ITEM}]`) : target;
-    if (!item?.hasAttribute(ITEM) || !this.#isMine(item)) return;
+    if (!item?.hasAttribute(ITEM) || !this.#page.isMine(item)) return;
     const active = this.#pickUp(item.getAttribute(ITEM) ?? '', 'keyboard', item);
     if (!active) return;
 
@@ -630,7 +405,7 @@ export class Sortable {
         return vertical ? 'next' : 'nextList';
       case 'ArrowLeft':
       case 'ArrowRight': {
-        const forward = (key === 'ArrowRight') !== this.#rtl();
+        const forward = (key === 'ArrowRight') !== this.#page.rtl();
         if (vertical) return forward ? 'nextList' : 'previousList';
         return forward ? 'next' : 'previous';
       }
@@ -646,7 +421,7 @@ export class Sortable {
   /** Moves the focus to the stand-in once the page has drawn it at its new place. */
   async #focusCarried(): Promise<void> {
     await tick();
-    const carried = this.#first(CARRIED);
+    const carried = this.#page.first(CARRIED);
     if (!carried) return;
     if (document.activeElement !== carried) carried.focus();
     carried.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -661,7 +436,7 @@ export class Sortable {
 
     if (this.#frame !== undefined) cancelAnimationFrame(this.#frame);
     this.#frame = undefined;
-    this.#root?.removeEventListener('scroll', this.#onScroll, { capture: true });
+    this.#page.root?.removeEventListener('scroll', this.#onScroll, { capture: true });
     window.removeEventListener('keydown', this.#onCarryKey, true);
     window.removeEventListener('pointerdown', this.#onCarryPointer, true);
 
@@ -692,42 +467,15 @@ export class Sortable {
     preventScroll: boolean,
   ): Promise<void> {
     await tick();
-    const item = this.#first(ITEM, itemId);
+    const item = this.#page.first(ITEM, itemId);
     if (!item) return;
-    const target = part === 'handle' ? (this.#handlesOf(item)[0] ?? item) : item;
+    const target = part === 'handle' ? (this.#page.handlesOf(item)[0] ?? item) : item;
     target.focus({ preventScroll });
   }
 
   /** The words for what just happened to the drag. */
   #words(kind: 'pickedUp' | 'moved' | 'dropped' | 'cancelled', active: SortableActive): string {
-    const { messages } = this.#options;
-    const order = this.#options.order();
-    const item = this.#options.itemLabel?.(active.itemId) ?? active.itemId;
-    const items = active.itemIds.length;
-
-    if (kind !== 'cancelled' && active.to?.kind === 'zone') {
-      const place: SortableZonePlace = {
-        item,
-        items,
-        zone: this.#options.zoneLabel?.(active.to.zoneId) ?? active.to.zoneId,
-      };
-      const words =
-        kind === 'dropped' ? messages.droppedInZone?.(place) : messages.movedToZone?.(place);
-      return words ?? '';
-    }
-
-    // A cancelled item is back where it is in the data, among all the items there.
-    const home = kind === 'cancelled' ? locateItem(order, active.itemId) : undefined;
-    const at = home ?? active.gap ?? active.from;
-    const list = order.find((candidate) => candidate.id === at.listId);
-    const staying = list ? list.items.filter((id) => !active.itemIds.includes(id)).length : 0;
-    return messages[kind]({
-      item,
-      items,
-      list: this.#options.listLabel?.(at.listId) ?? at.listId,
-      position: at.index + 1,
-      count: home ? (list?.items.length ?? 0) : staying + items,
-    });
+    return sortableWords(this.#options, kind, active);
   }
 
   /**

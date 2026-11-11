@@ -15,7 +15,6 @@
 # function <lines> <path> <name>
 
 file 1030 src/lib/api/backend.ts
-file 741 src/lib/drag/sortable.svelte.ts
 file 533 src/lib/features/shell/SidebarList.svelte
 file 903 src/lib/logic/wire.ts
 file 548 src/lib/state/backend.ts
