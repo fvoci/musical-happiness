@@ -641,3 +641,34 @@ async fn an_archive_with_a_refused_board_stores_nothing() {
     }
     ts.teardown().await;
 }
+
+/// An archive is written whole to a temporary file before it is sent, so the answer
+/// says its length; nothing of the file is left once it is sent.
+#[tokio::test]
+async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = board_with_card(&ts, TEST_TEAM_ID).await;
+
+    let exported = export_board(&ts.client, &board.id).await;
+    exported.check_ok();
+    assert_eq!(
+        exported.header("Content-Length"),
+        exported.body.len().to_string(),
+        "the length of the archive"
+    );
+    let exports = ts.app.config().tmp_dir().join("exports");
+    let left = std::fs::read_dir(&exports).map_or(0, Iterator::count);
+    assert_eq!(left, 0, "no temporary archive is left");
+
+    // What a stopped server left is removed when it starts.
+    std::fs::create_dir_all(&exports).expect("the directory is made");
+    std::fs::write(exports.join("stopped.boardarchive"), b"half").expect("written");
+    let removed = ts
+        .app
+        .sweep_temporary_files()
+        .await
+        .expect("the sweep runs");
+    assert_eq!(removed, 1);
+    let left = std::fs::read_dir(&exports).map_or(0, Iterator::count);
+    assert_eq!(left, 0, "the left-over archive is gone");
+}

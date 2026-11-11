@@ -25,6 +25,7 @@ mod users;
 pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
+pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,

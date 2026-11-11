@@ -1,6 +1,6 @@
 # 서버 인수인계
 
-고친 때: 2026-11-11 10:47 KST(서버의 다음 묶음이 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+고친 때: 2026-11-11 10:55 KST(서버의 다음 묶음이 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
 
 ## 저장소가 하나로 합쳐졌다
 
@@ -40,7 +40,8 @@
   | 7 | 파일 하나를 청크로 올리고 받는다(올리기 세션, 로컬 저장소): `createUpload`, `putUploadPart`, `getUpload`, `completeUpload`, `deleteUpload`, 설정 `upload_part_bytes`와 `tmp_path` | 끝 |
   | 8 | 업로드의 한도(429, 설정 `max_pending_upload_bytes`), 만료와 정리(한 시간마다와 시작할 때), 시작할 때 남은 임시 파일 지우기, `uploadFile`의 스트리밍과 부분 하나 한도(413 `upload_in_parts`), `maxfilesize` 기본 100 MiB | 끝 |
   | 8b | S3 멀티파트: S3 설정에서 부분을 S3에 바로 올리고(`MultipartStore`), 버리거나 끝나면 `abort_multipart`. 운영 문서에 버킷의 `AbortIncompleteMultipartUpload` 규칙(설계 5.6의 7) | 끝 |
-  | 9 | 가져오기·내보내기의 스트리밍(디스크의 임시 파일), 가져오기를 올리기 세션으로 | 다음 |
+  | 9a | 내보내기를 임시 파일에 쓰고 길이와 함께 흘려 보낸다. 시작할 때 남은 것을 지운다 | 끝 |
+  | 9b | 가져오기를 올리기 세션(용도 `import`)으로, 아카이브를 디스크에서 읽고 한도(256 MiB, 풀린 합계 1 GiB, 항목 수, `board.jsonl`, 파일 항목) | 다음 |
   | 10 | 응답 압축(정적 `.zst`, API의 gzip·brotli·zstd) | |
   | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | |
   | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | |

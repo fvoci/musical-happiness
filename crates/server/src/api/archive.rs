@@ -8,6 +8,7 @@ use axum::extract::multipart::MultipartRejection;
 use axum::extract::{Multipart, Path, State};
 use axum::response::{IntoResponse, Response};
 use fvoci_store::PublicBoards;
+use tokio_util::io::ReaderStream;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -18,7 +19,7 @@ use super::contract::tag;
 use super::files::NOT_MULTIPART;
 use super::{ApiResult, RequiredSession, no_content};
 use super::{require_board_permission, require_team_access, user_is_guest};
-use crate::app::App;
+use crate::app::{App, ExportedArchive};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
@@ -38,7 +39,7 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 /// Export a board
 ///
 /// An archive of the board with its blocks, its files and its members, offered as a
-/// download. For the board's members. The archive is a ZIP of version 3: `version.json`,
+/// download with its length. For the board's members. The archive is a ZIP of version 3: `version.json`,
 /// and per board a directory with `board.jsonl` (one `board`, `block` or `boardMember`
 /// per line, in the shapes of this contract, bodies included) and the files the blocks
 /// show, the images of bodies among them.
@@ -67,16 +68,16 @@ async fn handle_export_board(
     )
     .await?;
     let board = app.board(&board_id).await?;
-    let bytes = app
+    let archive = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
         .await?;
-    Ok(archive_response(bytes))
+    Ok(archive_response(archive))
 }
 
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download, in the format of `exportBoardArchive`. A team that is not there is not
+/// as a download with its length, in the format of `exportBoardArchive`. A team that is not there is not
 /// refused: its archive has no boards.
 #[utoipa::path(
     get,
@@ -101,8 +102,8 @@ async fn handle_export_team(
         .boards_for_user_and_team(user_id, &team_id, public)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
-    let bytes = app.export_archive(&team_id, &ids).await?;
-    Ok(archive_response(bytes))
+    let archive = app.export_archive(&team_id, &ids).await?;
+    Ok(archive_response(archive))
 }
 
 /// Import an archive
@@ -169,8 +170,9 @@ async fn read_field(multipart: &mut Multipart) -> Result<Bytes, String> {
     }
 }
 
-/// Wraps archive bytes in the download response the original sends.
-fn archive_response(bytes: Vec<u8>) -> Response {
+/// Sends an archive, written whole before, as the download the original sends, with its
+/// length.
+fn archive_response(archive: ExportedArchive) -> Response {
     let filename = export_filename(crate::auth::now_millis());
     (
         [
@@ -180,8 +182,9 @@ fn archive_response(bytes: Vec<u8>) -> Response {
                 format!("attachment; filename={filename}"),
             ),
             ("content-transfer-encoding", "binary".to_owned()),
+            ("content-length", archive.size.to_string()),
         ],
-        Body::from(bytes),
+        Body::from_stream(ReaderStream::new(archive.file)),
     )
         .into_response()
 }

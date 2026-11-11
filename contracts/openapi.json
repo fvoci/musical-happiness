@@ -2373,7 +2373,7 @@
     },
     "/api/v1/boards/{boardId}/archive/export": {
       "get": {
-        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload. For the board's members. The archive is a ZIP of version 3: `version.json`,\nand per board a directory with `board.jsonl` (one `board`, `block` or `boardMember`\nper line, in the shapes of this contract, bodies included) and the files the blocks\nshow, the images of bodies among them.",
+        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a ZIP of version 3: `version.json`,\nand per board a directory with `board.jsonl` (one `board`, `block` or `boardMember`\nper line, in the shapes of this contract, bodies included) and the files the blocks\nshow, the images of bodies among them.",
         "operationId": "exportBoardArchive",
         "parameters": [
           {
@@ -4342,7 +4342,7 @@
     },
     "/api/v1/teams/{teamId}/archive/export": {
       "get": {
-        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download, in the format of `exportBoardArchive`. A team that is not there is not\nrefused: its archive has no boards.",
+        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download with its length, in the format of `exportBoardArchive`. A team that is not there is not\nrefused: its archive has no boards.",
         "operationId": "exportTeamArchive",
         "parameters": [
           {

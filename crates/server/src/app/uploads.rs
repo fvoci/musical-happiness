@@ -727,10 +727,11 @@ impl App {
     }
 
     /// Removes what the temporary directories hold that nothing will use: the parts of
-    /// sessions that are gone, the directories of completions that were cut off, and the
-    /// files the local storage was writing. Only for when no request is under way, as
-    /// at the start, and only with one server to the files directory and the temporary
-    /// directory (`docs/configuration.md`). Returns how many it removed.
+    /// sessions that are gone, the directories of completions that were cut off, the
+    /// archives being exported, and the files the local storage was writing. Only for
+    /// when no request is under way, as at the start, and only with one server to the
+    /// files directory and the temporary directory (`docs/configuration.md`). Returns
+    /// how many it removed.
     ///
     /// # Errors
     ///
@@ -744,6 +745,13 @@ impl App {
             // A session's directory is named by its identifier; anything else, such as a
             // directory a completion moved aside, is left over.
             if !sessions.contains(&name) && remove_entry(&path).await {
+                removed += 1;
+            }
+        }
+        // Archives being written when the server stopped.
+        let exports = self.config().tmp_dir().join(super::export::EXPORTS_DIR);
+        for (_, path) in entries(&exports).await {
+            if remove_entry(&path).await {
                 removed += 1;
             }
         }
