@@ -151,9 +151,11 @@ impl Store {
                 pool.options().get_max_connections(),
             ),
         };
+        // Read one after the other, the two can pass each other: no more are idle than
+        // there are.
         PoolStatus {
             connections: size,
-            idle: u32::try_from(idle).unwrap_or(u32::MAX),
+            idle: u32::try_from(idle).unwrap_or(u32::MAX).min(size),
             max_connections: max,
         }
     }

@@ -3,13 +3,22 @@
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use axum::body::{Body, Bytes, HttpBody};
+use axum::extract::{MatchedPath, Request, State};
+use axum::middleware::Next;
+use axum::response::Response;
 use http_body::{Frame, SizeHint};
-use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
+use prometheus::{IntCounter, IntGauge, IntGaugeVec, Opts, Registry};
 
 use super::{Metrics, PREFIX};
 use crate::app::App;
+
+/// How long a scrape waits for the database to count the open uploads. Shorter than
+/// Prometheus's own timeout of a scrape (10 s by default), so that a pool that is
+/// exhausted, which the pool's metrics are there to show, does not cost the scrape.
+const UPLOADS_READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The work on archives that is counted while it is under way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +67,10 @@ pub(super) struct StorageMetrics {
     pool_max: IntGauge,
     uploads_open: IntGauge,
     uploads_open_bytes: IntGauge,
+    uploads_read_failures: IntCounter,
+    /// Held while a scrape counts the open uploads: one at a time, and a scrape that
+    /// finds it held answers with the values counted before.
+    reading_uploads: tokio::sync::Mutex<()>,
     archives: IntGaugeVec,
 }
 
@@ -90,6 +103,15 @@ impl StorageMetrics {
             "The sizes of the open uploads together, in bytes: what they hold back of \
              max_pending_upload_bytes.",
         )?;
+        let uploads_read_failures = IntCounter::with_opts(
+            Opts::new(
+                "uploads_read_failures_total",
+                "How many scrapes could not count the open uploads (the database failed \
+                 or took over two seconds) and gave the values counted before.",
+            )
+            .namespace(PREFIX),
+        )?;
+        registry.register(Box::new(uploads_read_failures.clone()))?;
         let archives = IntGaugeVec::new(
             Opts::new(
                 "archives_in_progress",
@@ -110,6 +132,8 @@ impl StorageMetrics {
             pool_max,
             uploads_open,
             uploads_open_bytes,
+            uploads_read_failures,
+            reading_uploads: tokio::sync::Mutex::new(()),
             archives,
         })
     }
@@ -171,7 +195,8 @@ impl Metrics {
     }
 
     /// Reads what is measured by asking, for a scrape: the pool and the open uploads.
-    /// The uploads stay as they were if the database cannot be read.
+    /// The uploads stay as they were if the database cannot be read in time, which is
+    /// counted, or another scrape is reading them.
     pub(super) async fn read_storage(&self, app: &App) {
         let Some(kept) = &self.kept else {
             return;
@@ -181,19 +206,166 @@ impl Metrics {
         storage.pool_connections.set(i64::from(pool.connections));
         storage.pool_idle.set(i64::from(pool.idle));
         storage.pool_max.set(i64::from(pool.max_connections));
-        match app.store().open_uploads(crate::auth::now_millis()).await {
-            Ok(open) => {
+        let Ok(_reading) = storage.reading_uploads.try_lock() else {
+            return;
+        };
+        let read = tokio::time::timeout(
+            UPLOADS_READ_TIMEOUT,
+            app.store().open_uploads(crate::auth::now_millis()),
+        )
+        .await;
+        match read {
+            Ok(Ok(open)) => {
                 storage.uploads_open.set(open.sessions);
                 storage.uploads_open_bytes.set(open.bytes);
             }
-            Err(error) => tracing::warn!(%error, "a scrape could not read the open uploads"),
+            Ok(Err(error)) => {
+                storage.uploads_read_failures.inc();
+                tracing::warn!(%error, "a scrape could not count the open uploads");
+            }
+            Err(_) => {
+                storage.uploads_read_failures.inc();
+                tracing::warn!("a scrape could not count the open uploads in time");
+            }
         }
+    }
+}
+
+/// Counts the export or import of an archive as under way while it is: an import for
+/// its request, an export until its answer is sent. A layer of the API's routes inside
+/// [`crate::api::run_to_completion`], so that the count lives in the task that does the
+/// work, which goes on when the client goes away.
+pub(crate) async fn count_archives(
+    State(metrics): State<Metrics>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let work = request
+        .extensions()
+        .get::<MatchedPath>()
+        .and_then(|path| ArchiveWork::of_route(path.as_str()));
+    let Some(work) = work else {
+        return next.run(request).await;
+    };
+    let in_progress = metrics.archive_started(work);
+    let response = next.run(request).await;
+    if work == ArchiveWork::Export && response.status().is_success() {
+        let (parts, body) = response.into_parts();
+        Response::from_parts(parts, in_progress.hold_until_sent(body))
+    } else {
+        response
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use axum::Router;
+    use axum::http::StatusCode;
+    use axum::middleware;
+    use axum::routing::{get, post};
+    use tower::ServiceExt as _;
+
     use super::*;
+
+    /// Each route of [`ArchiveWork::ROUTES`] is a route of the contract with the
+    /// method of its work, so that a route that is renamed is not silently never
+    /// counted.
+    #[test]
+    fn the_archive_routes_are_routes_of_the_contract() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contracts/openapi.json");
+        let text = std::fs::read_to_string(&path).expect("the contract is read");
+        let contract: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+        for (route, work) in ArchiveWork::ROUTES {
+            let method = match work {
+                ArchiveWork::Export => "get",
+                ArchiveWork::Import => "post",
+            };
+            let path = format!("{}{route}", crate::api::PREFIX);
+            assert!(
+                contract["paths"][path.as_str()][method].is_object(),
+                "{method} {path} is in the contract"
+            );
+        }
+    }
+
+    /// Runs the rest of the request as a task of its own, as `run_to_completion` does.
+    async fn in_a_task(request: Request, next: Next) -> Response {
+        tokio::spawn(next.run(request))
+            .await
+            .expect("the request's task ends")
+    }
+
+    fn archives(metrics: &Metrics, work: &str) -> String {
+        let text = metrics
+            .render()
+            .expect("the metrics are kept")
+            .expect("the metrics encode");
+        let text = String::from_utf8(text).expect("UTF-8");
+        let series = format!("fvoci_archives_in_progress{{work=\"{work}\"}} ");
+        text.lines()
+            .find_map(|line| line.strip_prefix(&series))
+            .expect("the series is there")
+            .to_owned()
+    }
+
+    fn router(metrics: &Metrics, started: tokio::sync::mpsc::Sender<()>) -> Router {
+        async fn exports() -> &'static str {
+            "an archive"
+        }
+        Router::new()
+            .route("/api/v1/boards/{boardId}/archive/export", get(exports))
+            .route(
+                "/api/v1/teams/{teamId}/archive/import",
+                post(move || async move {
+                    let _ = started.send(()).await;
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    StatusCode::NO_CONTENT
+                }),
+            )
+            .route_layer(middleware::from_fn_with_state(
+                metrics.clone(),
+                count_archives,
+            ))
+            .route_layer(middleware::from_fn(in_a_task))
+    }
+
+    #[tokio::test]
+    async fn an_export_is_under_way_until_its_answer_is_sent() {
+        let metrics = Metrics::kept().expect("the metrics register");
+        let (started, _) = tokio::sync::mpsc::channel(1);
+        let request = Request::get("/api/v1/boards/b1/archive/export")
+            .body(Body::empty())
+            .expect("a request");
+        let response = router(&metrics, started)
+            .oneshot(request)
+            .await
+            .expect("an answer");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(archives(&metrics, "export"), "1", "being sent");
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .expect("the body is read");
+        assert_eq!(body, "an archive");
+        assert_eq!(archives(&metrics, "export"), "0", "sent");
+    }
+
+    #[tokio::test]
+    async fn an_import_whose_client_went_away_is_under_way_until_it_is_done() {
+        let metrics = Metrics::kept().expect("the metrics register");
+        let (started, mut has_started) = tokio::sync::mpsc::channel(1);
+        let request = Request::post("/api/v1/teams/t1/archive/import")
+            .body(Body::empty())
+            .expect("a request");
+        let answering = tokio::spawn(router(&metrics, started).oneshot(request));
+        has_started.recv().await.expect("the import starts");
+        // The client goes away: the request is dropped, its task goes on.
+        answering.abort();
+        assert!(answering.await.is_err(), "the request was dropped");
+        assert_eq!(archives(&metrics, "import"), "1", "still under way");
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(archives(&metrics, "import"), "0", "done");
+    }
 
     #[test]
     fn the_archive_routes_are_known_with_and_without_a_base_path() {

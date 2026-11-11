@@ -10,7 +10,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use prometheus::{HistogramOpts, HistogramVec, IntGauge, Opts, Registry};
 
-use super::{ArchiveWork, Metrics, PREFIX};
+use super::{Metrics, PREFIX};
 
 /// The route of a request that matched none: a page of the web app, a path that is no
 /// route, under the API or elsewhere.
@@ -75,32 +75,17 @@ impl HttpMetrics {
 #[derive(Debug, Clone, Default)]
 struct RouteSlot(Arc<OnceLock<MatchedPath>>);
 
-/// Puts the template of the route that is answering into the request's [`RouteSlot`],
-/// and counts the export or import of an archive as under way while it is (an export
-/// until its answer is sent). A layer of the routes only: requests that match no route
-/// do not pass here, and are measured as [`UNMATCHED`].
-pub(crate) async fn note_route(
-    State(metrics): State<Metrics>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let Some(path) = request.extensions().get::<MatchedPath>().cloned() else {
-        return next.run(request).await;
-    };
-    if let Some(RouteSlot(slot)) = request.extensions().get::<RouteSlot>() {
+/// Puts the template of the route that is answering into the request's [`RouteSlot`].
+/// A layer of the routes only: requests that match no route do not pass here, and are
+/// measured as [`UNMATCHED`].
+pub(crate) async fn note_route(request: Request, next: Next) -> Response {
+    if let (Some(path), Some(RouteSlot(slot))) = (
+        request.extensions().get::<MatchedPath>(),
+        request.extensions().get::<RouteSlot>(),
+    ) {
         let _ = slot.set(path.clone());
     }
-    let Some(work) = ArchiveWork::of_route(path.as_str()) else {
-        return next.run(request).await;
-    };
-    let in_progress = metrics.archive_started(work);
-    let response = next.run(request).await;
-    if work == ArchiveWork::Export && response.status().is_success() {
-        let (parts, body) = response.into_parts();
-        Response::from_parts(parts, in_progress.hold_until_sent(body))
-    } else {
-        response
-    }
+    next.run(request).await
 }
 
 /// What [`measure_requests`] needs: the metrics, and the base path the routes are
@@ -240,14 +225,10 @@ mod tests {
             tokio::time::sleep(Duration::from_secs(60)).await;
             "late"
         }
-        async fn exports() -> &'static str {
-            "an archive"
-        }
         Router::new()
             .route("/boards/{boardId}/panic", get(panics))
             .route("/slow", get(takes_a_minute))
-            .route("/api/v1/boards/{boardId}/archive/export", get(exports))
-            .route_layer(middleware::from_fn_with_state(metrics.clone(), note_route))
+            .route_layer(middleware::from_fn(note_route))
             .layer(middleware::from_fn(crate::request_log::contain_panics))
             .layer(middleware::from_fn_with_state(
                 Measured {
@@ -268,25 +249,6 @@ mod tests {
 
     fn get_request(path: &str) -> Request {
         Request::get(path).body(Body::empty()).expect("a request")
-    }
-
-    #[tokio::test]
-    async fn an_export_is_under_way_until_its_answer_is_sent() {
-        let metrics = Metrics::kept().expect("the metrics register");
-        let exports = "fvoci_archives_in_progress{work=\"export\"}";
-        let response = measured_router(&metrics)
-            .oneshot(get_request("/api/v1/boards/b1/archive/export"))
-            .await
-            .expect("an answer");
-        assert_eq!(response.status(), StatusCode::OK);
-        let text = rendered(&metrics);
-        assert!(text.contains(&format!("{exports} 1")), "being sent: {text}");
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .expect("the body is read");
-        assert_eq!(body, "an archive");
-        let text = rendered(&metrics);
-        assert!(text.contains(&format!("{exports} 0")), "sent: {text}");
     }
 
     #[tokio::test]

@@ -167,7 +167,18 @@ impl Server {
     /// metrics are kept, every request is measured.
     pub fn router(&self) -> Router {
         let measured = self.app.metrics().is_kept();
-        let api = api::router(&self.app)
+        let api = api::router(&self.app);
+        // Inside the task that runs a request to its end: an export or import is under
+        // way for as long as that task works, also after its client went away.
+        let api = if measured {
+            api.route_layer(middleware::from_fn_with_state(
+                self.app.metrics().clone(),
+                metrics::count_archives,
+            ))
+        } else {
+            api
+        };
+        let api = api
             .route_layer(middleware::from_fn_with_state(
                 self.app.clone(),
                 api::run_to_completion,
@@ -191,10 +202,7 @@ impl Server {
         // Nesting puts the API's routes into this router, so they get the layer too; its
         // fallbacks do not, and their answers are measured as unmatched.
         let routes = if measured {
-            routes.route_layer(middleware::from_fn_with_state(
-                self.app.metrics().clone(),
-                metrics::note_route,
-            ))
+            routes.route_layer(middleware::from_fn(metrics::note_route))
         } else {
             routes
         };

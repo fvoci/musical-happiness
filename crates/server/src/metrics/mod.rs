@@ -27,7 +27,7 @@ mod storage;
 mod websocket;
 
 pub(crate) use http::{Measured, measure_requests, note_route};
-pub(crate) use storage::ArchiveWork;
+pub(crate) use storage::count_archives;
 pub(crate) use websocket::Disconnect;
 
 /// The prefix of the name of every metric of this server's own.
