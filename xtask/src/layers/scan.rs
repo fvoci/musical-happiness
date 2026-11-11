@@ -54,6 +54,8 @@ pub(crate) enum Target {
 pub(crate) struct Alias {
     pub(crate) name: String,
     pub(crate) target: String,
+    /// Whether the name is given inside the body of a function, and so only there.
+    pub(crate) in_body: bool,
 }
 
 /// A module that a file declares and keeps in another file (`mod name;`).
@@ -73,8 +75,13 @@ pub(crate) struct Source {
     pub(crate) references: Vec<Reference>,
     pub(crate) aliases: Vec<Alias>,
     pub(crate) declared: Vec<Declared>,
-    /// The modules the file holds: its own, and the inline ones (`mod name { … }`).
+    /// The modules the file holds: its own, and the inline ones (`mod name { … }`)
+    /// that are not written inside the body of a function.
     pub(crate) modules: Vec<String>,
+    /// The modules the file declares, inline or not, that are not there everywhere
+    /// their name may be written: under a condition (`#[cfg(…)]`), or inside the body
+    /// of a function.
+    pub(crate) conditional: Vec<String>,
 }
 
 /// Reads the source of the module `module` (its path from the crate's name on).
@@ -102,6 +109,7 @@ pub(crate) fn read_source(module: &[String], source: &str, handles: &[&str]) -> 
         anyhow::Error::new(error).context(format!("line {line}"))
     })?;
     let mut reader = Reader::default();
+    reader.modules.push(module.join("::"));
     reader.read_items(module.to_vec(), &file.items, &file.attrs);
     let tokens: TokenStream = source
         .parse()
@@ -110,6 +118,12 @@ pub(crate) fn read_source(module: &[String], source: &str, handles: &[&str]) -> 
     read_handles(tokens, handles, &module.join("::"), &mut read.references);
     read.references.sort_by_key(|reference| reference.line);
     Ok(read)
+}
+
+/// Whether an attribute may take the item it is on away: `#[cfg(…)]`, and
+/// `#[cfg_attr(…)]`, which may hold one.
+fn is_conditional(attribute: &syn::Attribute) -> bool {
+    attribute.path().is_ident("cfg") || attribute.path().is_ident("cfg_attr")
 }
 
 /// Where a written path starts.
@@ -165,6 +179,8 @@ struct Written {
     open: bool,
     /// The name this path is given, if it is the target of a `use` or part of a `type`.
     alias: Option<String>,
+    /// Whether it is written inside the body of a function.
+    in_body: bool,
 }
 
 #[derive(Default)]
@@ -178,8 +194,13 @@ struct Reader {
     /// The lines of `include!`.
     included: Vec<usize>,
     declared: Vec<Declared>,
+    /// What becomes [`Source::modules`] and [`Source::conditional`].
+    modules: Vec<String>,
+    conditional: Vec<String>,
     /// The name the paths being read are given: inside `type Name = …`.
     naming: Option<String>,
+    /// How many bodies of functions, and other blocks, are around the code being read.
+    bodies: usize,
 }
 
 impl Reader {
@@ -285,6 +306,7 @@ impl Reader {
             names,
             open,
             alias,
+            in_body: self.bodies > 0,
         });
     }
 
@@ -486,11 +508,8 @@ impl Reader {
             .collect();
         let mut source = Source {
             declared: self.declared,
-            modules: self
-                .sights
-                .iter()
-                .filter_map(|sight| sight.first().cloned())
-                .collect(),
+            modules: self.modules,
+            conditional: self.conditional,
             ..Source::default()
         };
         for written in &self.written {
@@ -522,6 +541,7 @@ impl Reader {
                 source.aliases.push(Alias {
                     name: name.clone(),
                     target: path.clone(),
+                    in_body: written.in_body,
                 });
             }
             source.references.push(Reference {
@@ -549,7 +569,13 @@ impl<'ast> Visit<'ast> for Reader {
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
         let mut module = self.module().to_vec();
         module.push(node.ident.unraw().to_string());
+        if self.bodies > 0 || node.attrs.iter().any(is_conditional) {
+            self.conditional.push(module.join("::"));
+        }
         if let Some((_, items)) = &node.content {
+            if self.bodies == 0 {
+                self.modules.push(module.join("::"));
+            }
             self.read_items(module, items, &node.attrs);
             return;
         }
@@ -567,6 +593,12 @@ impl<'ast> Visit<'ast> for Reader {
             inline_parents,
             path_attribute: node.attrs.iter().find_map(crate::files::path_attribute),
         });
+    }
+
+    fn visit_block(&mut self, node: &'ast syn::Block) {
+        self.bodies += 1;
+        visit::visit_block(self, node);
+        self.bodies -= 1;
     }
 
     fn visit_item_use(&mut self, node: &'ast syn::ItemUse) {

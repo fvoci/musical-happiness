@@ -228,6 +228,10 @@ struct Sources {
     files: Vec<(String, Vec<Reference>)>,
     /// The modules that were read, those written inside a file included.
     modules: BTreeSet<String>,
+    /// The names that are a module in one place and may be something else in another:
+    /// a module declared under a condition (`#[cfg(…)]`) or inside the body of a
+    /// function, and a name given inside the body of a function.
+    unsettled: BTreeSet<String>,
     /// The names given to paths, in any module: who names the key names the values.
     aliases: BTreeMap<String, Vec<String>>,
     /// The modules that import everything of a path (`use path::*`): who names
@@ -263,7 +267,11 @@ impl Sources {
             .collect();
         let read = scan::read_source(module, source, &handles)?;
         self.modules.extend(read.modules);
+        self.unsettled.extend(read.conditional);
         for alias in read.aliases {
+            if alias.in_body {
+                self.unsettled.insert(alias.name.clone());
+            }
             self.aliases
                 .entry(alias.name)
                 .or_default()
@@ -289,7 +297,10 @@ impl Sources {
     ///
     /// A name that has names after it is a module where there is one, whatever else
     /// was given that name: after `mod download; pub use download::download;` the
-    /// function is `download` alone, and `download::Slot` is the module's.
+    /// function is `download` alone, and `download::Slot` is the module's. A module
+    /// likewise comes before what an import of everything brought under its name.
+    /// The name alone is read both ways, also where it can only be the module
+    /// (`use app::download::{self}`).
     fn reached(&self, path: &str) -> Vec<String> {
         let mut reached = vec![path.to_owned()];
         let mut at = 0;
@@ -308,7 +319,7 @@ impl Sources {
             // where it leads on to a given name or to another layer.
             for end in &ends {
                 let (prefix, rest) = current.split_at(*end);
-                if !rest.is_empty() && self.modules.contains(prefix) {
+                if !rest.is_empty() && self.is_module_everywhere(prefix) {
                     continue;
                 }
                 let named = self.aliases.get(prefix).into_iter().flatten();
@@ -316,11 +327,15 @@ impl Sources {
             }
             for end in &ends {
                 let (prefix, rest) = current.split_at(*end);
+                let Some(names) = rest.strip_prefix("::") else {
+                    continue;
+                };
+                let first = names.split("::").next().unwrap_or(names);
+                if self.is_module_everywhere(&format!("{prefix}::{first}")) {
+                    continue;
+                }
                 let held = self.globs.get(prefix).into_iter().flatten();
-                next.extend(
-                    held.filter(|_| !rest.is_empty())
-                        .map(|target| format!("{target}{rest}")),
-                );
+                next.extend(held.map(|target| format!("{target}{rest}")));
             }
             for form in next {
                 if !reached.contains(&form) && reached.len() < MOST_FORMS {
@@ -329,6 +344,15 @@ impl Sources {
             }
         }
         reached
+    }
+
+    /// Whether `path` is a module wherever it is written, so that nothing else can
+    /// have its name before `::`: the language lets a module share its name with a
+    /// function or a constant, and with nothing a path can lead through. Not so where
+    /// the module, or a module around it, is there under a condition only, or where
+    /// the name is given again inside the body of a function.
+    fn is_module_everywhere(&self, path: &str) -> bool {
+        self.modules.contains(path) && !self.unsettled.iter().any(|name| is_within(path, name))
     }
 
     /// Every way to read the path of a reference: as written, and, where its first
@@ -515,15 +539,18 @@ fn handle_by_path(from: &Layer, path: &str) -> Option<(&'static Layer, String)> 
 /// end for names that are given in a circle.
 const MOST_FORMS: usize = 64;
 
+/// Whether `path` is `around` or something inside it: a prefix that ends at a whole name.
+fn is_within(path: &str, around: &str) -> bool {
+    path.strip_prefix(around)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+}
+
 /// The layer a path belongs to: the one with the longest claim on it.
 fn layer_of(path: &str) -> Option<&'static Layer> {
     LAYERS
         .iter()
         .flat_map(|layer| layer.owns.iter().map(move |owned| (layer, *owned)))
-        .filter(|(_, owned)| {
-            path.strip_prefix(owned)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
-        })
+        .filter(|(_, owned)| is_within(path, owned))
         .max_by_key(|(_, owned)| owned.len())
         .map(|(layer, _)| layer)
 }

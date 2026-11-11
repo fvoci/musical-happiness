@@ -326,8 +326,10 @@ fn a_function_that_has_the_name_of_its_module_is_followed() {
         ["fvoci_server::app::download::Slot"],
         "before `::` it is the module"
     );
+}
 
-    // The function may be another layer's; the module of the same name does not hide it.
+#[test]
+fn a_module_of_the_same_name_does_not_hide_what_a_name_stands_for() {
     let found = broken_in(
         &[
             (
@@ -354,6 +356,132 @@ fn a_function_that_has_the_name_of_its_module_is_followed() {
         ],
         "the import and the call of each, beside a module in a file and one written inline; \
          `open::Options` is the module's"
+    );
+
+    let found = broken_in(
+        &[
+            (
+                "fvoci_server::app",
+                "mod download; pub(crate) use download::download;",
+            ),
+            (
+                "fvoci_server::app::download",
+                "pub(crate) use fvoci_store::Store as Slot; pub(crate) fn download() {}",
+            ),
+            (
+                "fvoci_server::api::planted",
+                "use crate::app::download; \
+                 fn f(a: download::Slot, b: crate::app::download::Slot) { download(); }",
+            ),
+        ],
+        "fvoci_server::api::planted",
+    );
+    assert_eq!(
+        found, ["http>store fvoci_store::Store"; 2],
+        "what the module holds is followed through its name, short and in full"
+    );
+}
+
+#[test]
+fn a_name_is_the_module_only_where_the_module_is_there_everywhere() {
+    let handler = (
+        "fvoci_server::api::planted",
+        "fn f(store: crate::app::db::Store) { crate::app::db::connect(); }",
+    );
+    let found = |logic: &[(&'static str, &'static str)]| {
+        let mut files = logic.to_vec();
+        files.push(handler);
+        broken_in(&files, "fvoci_server::api::planted")
+    };
+    let both = [
+        "http>store fvoci_store::Store",
+        "http>store fvoci_store::connect",
+    ];
+    assert_eq!(
+        found(&[
+            (
+                "fvoci_server::app",
+                "#[cfg(test)] mod db; #[cfg(not(test))] pub(crate) use fvoci_store as db;"
+            ),
+            ("fvoci_server::app::db", ""),
+        ]),
+        both,
+        "a module under a condition, and the name given where the module is not"
+    );
+    assert_eq!(
+        found(&[(
+            "fvoci_server::app",
+            "#[cfg(test)] mod db {} #[cfg(not(test))] pub(crate) use fvoci_store as db;"
+        )]),
+        both,
+        "the same, written inline"
+    );
+    assert_eq!(
+        found(&[
+            (
+                "fvoci_server::app",
+                "#[cfg(unix)] mod inner; #[cfg(not(unix))] #[path = \"other.rs\"] mod inner; \
+                 pub(crate) use inner::db;"
+            ),
+            ("fvoci_server::app::inner", "pub(crate) mod db;"),
+            ("fvoci_server::app::inner::db", ""),
+            (
+                "fvoci_server::app::inner",
+                "pub(crate) use fvoci_store as db;"
+            ),
+        ]),
+        both,
+        "a module inside a module that is one file or another by a condition"
+    );
+    assert_eq!(
+        found(&[(
+            "fvoci_server::app",
+            "pub(crate) use fvoci_store as db; fn helper() { mod db { pub(crate) fn connect() {} } }"
+        )]),
+        both,
+        "a module written inside the body of a function is a module there only"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_server::api::planted",
+            "mod open; fn f() { use fvoci_store as open; open::connect(); let _: open::Store; }"
+        ),
+        [
+            "http>store fvoci_store",
+            "http>store fvoci_store::connect",
+            "http>store fvoci_store::Store"
+        ],
+        "a name given inside the body of a function, where a module has it outside"
+    );
+}
+
+#[test]
+fn a_module_that_exports_everything_of_a_module_of_its_own_is_no_circle() {
+    let sources = sources(&[
+        ("fvoci_server::app", "mod boards; pub use boards::*;"),
+        (
+            "fvoci_server::app::boards",
+            "pub use fvoci_store::Team; pub struct Board;",
+        ),
+        (
+            "fvoci_server::api::planted",
+            "use crate::app::{Board, Team}; fn f(board: crate::app::boards::Board) {}",
+        ),
+    ]);
+    assert!(
+        sources.refused().is_empty(),
+        "the module comes before what the import of everything brought: {:?}",
+        sources.refused()
+    );
+    let found: Vec<String> = sources
+        .violations()
+        .into_iter()
+        .map(|violation| violation.named)
+        .collect();
+    assert_eq!(
+        found,
+        ["fvoci_store::Team"],
+        "and what the module hands on from the store is found through it"
     );
 }
 
@@ -587,6 +715,17 @@ fn an_entry_of_the_table_that_is_no_module_is_noticed() {
           xtask/src/layers.rs"
         ],
         "a module that was renamed or removed"
+    );
+    let inline = |root: &'static str| {
+        let mut files = modules[1..].to_vec();
+        files.push(("fvoci_server", root));
+        sources(&files).stale_layers().len()
+    };
+    assert_eq!(inline("mod app {}"), 0, "a module written inside a file");
+    assert_eq!(
+        inline("fn f() { mod app {} }"),
+        1,
+        "a module written inside the body of a function is no module of the crate"
     );
 }
 
