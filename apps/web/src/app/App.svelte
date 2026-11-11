@@ -134,6 +134,17 @@
       if (known) chooseLocale(known);
     }}
     onSignOut={account ? () => void signOut() : undefined}
+    onChangePassword={account
+      ? async (oldPassword: string, newPassword: string) => {
+          try {
+            await account?.changePassword(oldPassword, newPassword);
+          } catch (error) {
+            // The session was over: that is signing out, not a wrong password.
+            if (isBackendError(error) && error.status === 401) workspace?.report('save', error);
+            throw error;
+          }
+        }
+      : undefined}
   >
     {#if router.route.unknown}
       <div class="grid h-full place-items-center p-6 text-center">

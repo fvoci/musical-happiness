@@ -12,7 +12,8 @@
     the chosen one. The list and the function that changes it come from the
     app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
-  - Who is signed in, and signing out: only where the backend has accounts.
+  - Who is signed in, signing out and changing the password: only where the
+    backend has accounts.
 
   A dialog in the middle of the page; on a compact page it fills the screen,
   clear of the edges the device keeps. The back button closes it.
@@ -46,6 +47,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import { devReadout } from './dev.svelte.ts';
+  import PasswordChange from './PasswordChange.svelte';
   import SettingChoice from './SettingChoice.svelte';
   import SettingPicker from './SettingPicker.svelte';
   import {
@@ -67,6 +69,8 @@
     onChooseLocale?: (locale: string) => void;
     /** Signs the reader out. Without it there is no account to leave (the backend in memory). */
     onSignOut?: () => void;
+    /** Changes the password. Without it there is no account (the backend in memory). */
+    onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
   }
 
   let {
@@ -76,6 +80,7 @@
     locale,
     onChooseLocale,
     onSignOut,
+    onChangePassword,
   }: Props = $props();
 
   closeOnBack(
@@ -269,6 +274,10 @@
           }}
         />
       </label>
+
+      {#if onChangePassword}
+        <PasswordChange onChange={onChangePassword} />
+      {/if}
 
       {#if onSignOut}
         <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">

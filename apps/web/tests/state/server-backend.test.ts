@@ -772,3 +772,29 @@ describe('boards on the server', () => {
     expect(view.id).toBe('v1');
   });
 });
+
+describe('the password on the server', () => {
+  it('is changed with the old one, and a wrong old one is let through with its reason', async () => {
+    const sent = serveRoutes([['POST /api/v1/users/me/password', undefined, 204]]);
+    const backend = new ServerBackend('');
+    await backend.changePassword('old secret', 'new secret');
+    expect(sentLines(sent)).toEqual(['POST /api/v1/users/me/password']);
+    expect(sent[0]?.body).toEqual({ oldPassword: 'old secret', newPassword: 'new secret' });
+    serveRoutes([
+      [
+        'POST /api/v1/users/me/password',
+        {
+          error: 'bad_request',
+          message: 'wrong',
+          reason: 'invalid_credentials',
+          field: 'oldPassword',
+        },
+        400,
+      ],
+    ]);
+    const refused = await backend
+      .changePassword('x', 'new secret')
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.reason).toBe('invalid_credentials');
+  });
+});

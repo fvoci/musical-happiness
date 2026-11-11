@@ -60,6 +60,8 @@
     onChooseLocale?: (locale: string) => void;
     /** Signs the reader out. Without it (no accounts: the backend in memory) it is not offered. */
     onSignOut?: () => void;
+    /** Changes the reader's password. Without it (no accounts) it is not offered. */
+    onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
     /** The page: what is shown beside the sidebar. */
     children: Snippet;
   }
@@ -73,6 +75,7 @@
     locale,
     onChooseLocale,
     onSignOut,
+    onChangePassword,
     children,
   }: Props = $props();
 
@@ -302,6 +305,7 @@
   {locale}
   {onChooseLocale}
   {onSignOut}
+  {onChangePassword}
 />
 
 {#if devReadout.shown}

@@ -122,6 +122,12 @@ export class ServerBackend implements Backend, Account {
     await this.#http.request('/api/v1/logout', {}, { method: 'POST' });
   }
 
+  /** The session goes on under a new cookie, which the browser keeps by itself. */
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    const request: Schemas['ChangePasswordRequest'] = { oldPassword, newPassword };
+    await this.#http.request('/api/v1/users/me/password', {}, { method: 'POST', json: request });
+  }
+
   // ------------------------------------------- the reader and their team
 
   async me(): Promise<User> {

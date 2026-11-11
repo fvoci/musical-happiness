@@ -257,6 +257,12 @@ export interface Account {
   /** Makes an account. It does not sign in. */
   register(registration: Registration): Promise<void>;
   signOut(): Promise<void>;
+  /**
+   * Changes the reader's password; `oldPassword` proves they know it. Their
+   * other sessions end, this one goes on. A wrong old password is 400 with
+   * the reason `invalid_credentials`, too many tries 429.
+   */
+  changePassword(oldPassword: string, newPassword: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------- changes
