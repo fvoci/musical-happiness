@@ -10,6 +10,10 @@ use crate::serde_util::null_as_default;
 /// The spacing between the sort orders of consecutive boards in a category.
 pub const CATEGORY_BOARDS_SORT_ORDER_GAP: i64 = 10;
 
+/// The name of the category every user has, which collects the boards filed nowhere
+/// else; it is found by this name.
+pub const DEFAULT_CATEGORY_NAME: &str = "Boards";
+
 /// Whether a category was created by the server or by the user.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,

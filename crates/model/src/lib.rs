@@ -66,7 +66,7 @@ pub use card_property::{
 };
 pub use category::{
     BoardCategoryWebsocketData, CATEGORY_BOARDS_SORT_ORDER_GAP, Category, CategoryBoardMetadata,
-    CategoryBoards, CategoryError, CategoryType,
+    CategoryBoards, CategoryError, CategoryType, DEFAULT_CATEGORY_NAME,
 };
 pub use client_config::ClientConfig;
 pub use comment_version::CommentVersion;

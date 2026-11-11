@@ -6,7 +6,10 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{CATEGORY_BOARDS_SORT_ORDER_GAP, CategoryBoardMetadata, CategoryBoards, new_id};
+use fvoci_model::{
+    CATEGORY_BOARDS_SORT_ORDER_GAP, CategoryBoardMetadata, CategoryBoards, DEFAULT_CATEGORY_NAME,
+    new_id,
+};
 
 use crate::Store;
 use crate::categories::get_user_categories;
@@ -214,5 +217,108 @@ pub(crate) async fn add_update_category_board(
         .execute(sql)
         .await
         .map_err(|error| error.missing_reference("category, board or user"))?;
+    Ok(())
+}
+
+/// Where a user filed a board: the category, the board's place in it, and whether it is
+/// hidden there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoardPlace {
+    /// The user who filed the board.
+    pub user_id: String,
+    /// The category the board is filed under.
+    pub category_id: String,
+    /// The board's sort order in the category.
+    pub sort_order: i64,
+    /// Whether the board is hidden in the category.
+    pub hidden: bool,
+}
+
+impl Store {
+    /// Returns where users filed a board, by user.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_board_places(&self, board_id: &str) -> Result<Vec<BoardPlace>, StoreError> {
+        self.with_conn(async |scope| places_of_board(scope, board_id).await)
+            .await
+    }
+}
+
+pub(crate) async fn places_of_board(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+) -> Result<Vec<BoardPlace>, StoreError> {
+    let mut sql = scope.sql(
+        "SELECT user_id, category_id, sort_order, hidden FROM category_boards WHERE board_id = ",
+    );
+    sql.bind(Id(board_id)).push(" ORDER BY user_id");
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| {
+            Ok(BoardPlace {
+                user_id: row.id(0)?,
+                category_id: row.id(1)?,
+                sort_order: row.int(2)?,
+                hidden: row.bool(3)?,
+            })
+        })
+        .collect()
+}
+
+/// Files a restored board where `place` says. Under its category if the user still has
+/// it in the board's team, at its sort order, the boards from there on moving down by one
+/// so that it is between the ones it was between. Else under the user's default category
+/// (found by its name, as the app finds it) with sort order 0, as a newly filed board. A
+/// user without a default category yet is filed nowhere: making that category files the
+/// boards the user is a member of. A category of another team, where a board can be filed
+/// by naming it, counts as gone.
+pub(crate) async fn put_back(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    team_id: &str,
+    place: &BoardPlace,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT id FROM categories WHERE id = ");
+    sql.bind(Id(&place.category_id))
+        .push_bind(" AND user_id = ", Id(&place.user_id))
+        .push_bind(" AND team_id = ", Id(team_id));
+    let (category_id, sort_order) = if let Some(row) = scope.fetch_optional(sql).await? {
+        let category_id = row.id(0)?;
+        let mut sql = scope
+            .sql("UPDATE category_boards SET sort_order = sort_order + 1 WHERE category_id = ");
+        sql.bind(Id(&category_id))
+            .push_bind(" AND sort_order >= ", place.sort_order);
+        scope.execute(sql).await?;
+        (category_id, place.sort_order)
+    } else {
+        let mut sql = scope.sql("SELECT id FROM categories WHERE name = ");
+        sql.bind(DEFAULT_CATEGORY_NAME)
+            .push_bind(" AND user_id = ", Id(&place.user_id))
+            .push_bind(" AND team_id = ", Id(team_id))
+            .push(" ORDER BY sort_order, create_at, id LIMIT 1");
+        match scope.fetch_optional(sql).await? {
+            Some(row) => (row.id(0)?, 0),
+            None => return Ok(()),
+        }
+    };
+    let now = now_millis();
+    let mut sql = scope.sql(
+        "INSERT INTO category_boards \
+         (id, user_id, category_id, board_id, create_at, update_at, sort_order, hidden) VALUES (",
+    );
+    sql.bind(Id(&new_id()))
+        .push_bind(", ", Id(&place.user_id))
+        .push_bind(", ", Id(&category_id))
+        .push_bind(", ", Id(board_id))
+        .push_bind(", ", now)
+        .push_bind(", ", now)
+        .push_bind(", ", sort_order)
+        .push_bind(", ", place.hidden)
+        .push(") ON CONFLICT (user_id, board_id) DO NOTHING");
+    scope.execute(sql).await?;
     Ok(())
 }
