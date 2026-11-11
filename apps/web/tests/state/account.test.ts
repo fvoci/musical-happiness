@@ -48,8 +48,8 @@ describe('the display name, in memory', () => {
   it('is found by the search of people, as the login name is', async () => {
     const { backend, other } = setup();
     const named = await other.patchMe({ displayName: 'Countess Lovelace' });
-    const [team] = await backend.teams();
-    const found = await backend.searchUsers(team?.id ?? '', 'COUNTESS');
+    const [workspace] = await backend.workspaces();
+    const found = await backend.searchUsers(workspace?.id ?? '', 'COUNTESS');
     expect(found.map((user) => user.id)).toEqual([named.id]);
   });
 

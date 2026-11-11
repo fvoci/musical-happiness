@@ -32,22 +32,22 @@ test.use({ locale: 'en-US' });
 
 async function stored(
   api: APIRequestContext,
-  teamId: string,
+  workspaceId: string,
 ): Promise<Schemas['CategoryBoards'][]> {
-  const answer = await api.get(`/api/v1/w/${teamId}/categories`);
+  const answer = await api.get(`/api/v1/w/${workspaceId}/categories`);
   expect(answer.ok()).toBe(true);
   return (await answer.json()) as Schemas['CategoryBoards'][];
 }
 
 /** The names of the reader's categories on the server, in their order. */
-async function storedNames(api: APIRequestContext, teamId: string): Promise<string[]> {
-  return (await stored(api, teamId))
+async function storedNames(api: APIRequestContext, workspaceId: string): Promise<string[]> {
+  return (await stored(api, workspaceId))
     .sort((first, second) => first.sortOrder - second.sortOrder)
     .map((one) => one.name);
 }
 
-async function storedCategory(api: APIRequestContext, teamId: string, name: string) {
-  return (await stored(api, teamId)).find((one) => one.name === name);
+async function storedCategory(api: APIRequestContext, workspaceId: string, name: string) {
+  return (await stored(api, workspaceId)).find((one) => one.name === name);
 }
 
 /**
@@ -75,9 +75,9 @@ test('categories and the boards under them are kept on the server and show in th
   const api = await signedIn(base, owner);
   const alpha = await makeBoard(api, { title: 'Alpha' });
   const beta = await makeBoard(api, { title: 'Beta' });
-  const { teamId } = alpha;
+  const { workspaceId } = alpha;
   // The default category the server made, with the two new boards in it (E3).
-  const [defaults] = await stored(api, teamId);
+  const [defaults] = await stored(api, workspaceId);
   expect(defaults?.type).toBe('system');
   const home = defaults?.name ?? '';
   expect(defaults?.boardMetadata.map((entry) => entry.boardId).sort()).toEqual(
@@ -100,13 +100,13 @@ test('categories and the boards under them are kept on the server and show in th
   // First in this tab at once, before the server's message is read.
   expect(await categories(first)).toEqual(['Work', home]);
   await expect.poll(() => categories(second)).toEqual(['Work', home]);
-  expect(await storedNames(api, teamId)).toEqual(['Work', home]);
+  expect(await storedNames(api, workspaceId)).toEqual(['Work', home]);
 
   // Renamed.
   await chooseFromMenu(first, categoryMenu(first, 'Work'), 'rename');
   await nameCategory(first, 'Projects', 'Update');
   await expect.poll(() => categories(second)).toEqual(['Projects', home]);
-  expect(await storedNames(api, teamId)).toEqual(['Projects', home]);
+  expect(await storedNames(api, workspaceId)).toEqual(['Projects', home]);
 
   // The default category keeps its name: its menu has no renaming.
   await categoryMenu(first, home).click();
@@ -115,14 +115,16 @@ test('categories and the boards under them are kept on the server and show in th
   await first.keyboard.press('Escape');
 
   // Boards filed under it from their menus, each last.
-  const projects = (await storedCategory(api, teamId, 'Projects'))?.id ?? '';
+  const projects = (await storedCategory(api, workspaceId, 'Projects'))?.id ?? '';
   await chooseFromMenu(first, boardMenu(first, 'Beta'), `move-to-${projects}`);
   await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Beta']);
   await chooseFromMenu(first, boardMenu(first, 'Alpha'), `move-to-${projects}`);
   await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Beta', 'Alpha']);
   await expect
     .poll(async () =>
-      (await storedCategory(api, teamId, 'Projects'))?.boardMetadata.map((entry) => entry.boardId),
+      (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata.map(
+        (entry) => entry.boardId,
+      ),
     )
     .toEqual([beta.boardId, alpha.boardId]);
 
@@ -134,23 +136,25 @@ test('categories and the boards under them are kept on the server and show in th
   await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Alpha', 'Beta']);
   await expect
     .poll(async () =>
-      (await storedCategory(api, teamId, 'Projects'))?.boardMetadata.map((entry) => entry.boardId),
+      (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata.map(
+        (entry) => entry.boardId,
+      ),
     )
     .toEqual([alpha.boardId, beta.boardId]);
 
   // The categories in another order.
   await chooseFromMenu(first, categoryMenu(first, home), 'move-up');
   await expect.poll(() => categories(second)).toEqual([home, 'Projects']);
-  expect(await storedNames(api, teamId)).toEqual([home, 'Projects']);
+  expect(await storedNames(api, workspaceId)).toEqual([home, 'Projects']);
 
   // Folded.
   await categoryToggle(first, 'Projects').click();
   await expect(categoryToggle(second, 'Projects')).toHaveAttribute('aria-expanded', 'false');
-  expect((await storedCategory(api, teamId, 'Projects'))?.collapsed).toBe(true);
+  expect((await storedCategory(api, workspaceId, 'Projects'))?.collapsed).toBe(true);
   await categoryToggle(second, 'Projects').click();
   await expect(categoryToggle(first, 'Projects')).toHaveAttribute('aria-expanded', 'true');
   await expect
-    .poll(async () => (await storedCategory(api, teamId, 'Projects'))?.collapsed)
+    .poll(async () => (await storedCategory(api, workspaceId, 'Projects'))?.collapsed)
     .toBe(false);
 
   // Hidden, and undo shows it again.
@@ -159,7 +163,7 @@ test('categories and the boards under them are kept on the server and show in th
   await first.getByTestId('undo').click();
   await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Alpha', 'Beta']);
   await expect
-    .poll(async () => (await storedCategory(api, teamId, 'Projects'))?.boardMetadata)
+    .poll(async () => (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata)
     .toEqual([
       { boardId: alpha.boardId, hidden: false },
       { boardId: beta.boardId, hidden: false },
@@ -170,7 +174,7 @@ test('categories and the boards under them are kept on the server and show in th
   await expect(boardLink(second, 'Alpha')).toHaveCount(0);
   await expect(boardLink(first, 'Alpha')).toHaveCount(0);
   await expect
-    .poll(async () => (await storedCategory(api, teamId, 'Projects'))?.boardMetadata)
+    .poll(async () => (await storedCategory(api, workspaceId, 'Projects'))?.boardMetadata)
     .toEqual([
       { boardId: alpha.boardId, hidden: true },
       { boardId: beta.boardId, hidden: false },
@@ -184,7 +188,7 @@ test('categories and the boards under them are kept on the server and show in th
   expect(await mine(first, home)).toEqual(['Beta']);
   await expect.poll(() => categories(second)).toEqual([home]);
   await expect.poll(() => mine(second, home)).toEqual(['Beta']);
-  expect(await storedNames(api, teamId)).toEqual([home]);
+  expect(await storedNames(api, workspaceId)).toEqual([home]);
 
   // The hidden boards are listed at the foot of the sidebar; one is shown again from there.
   const hiddenList = sidebar(first).getByTestId('hidden-boards');
@@ -194,7 +198,7 @@ test('categories and the boards under them are kept on the server and show in th
   await expect.poll(() => mine(second, home)).toContain('Alpha');
   await expect
     .poll(async () =>
-      (await storedCategory(api, teamId, home))?.boardMetadata.find(
+      (await storedCategory(api, workspaceId, home))?.boardMetadata.find(
         (entry) => entry.boardId === alpha.boardId,
       ),
     )

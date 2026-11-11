@@ -4,7 +4,7 @@
  * something as another user).
  *
  * The first account of a server needs no invitation and becomes its
- * administrator; every account after it needs the team's invitation, which
+ * administrator; every account after it needs the workspace's invitation, which
  * only an administrator can read. `invitation()` makes that first account
  * once per run and reads the invitation with it.
  */
@@ -51,7 +51,7 @@ async function ok(response: Awaited<ReturnType<APIRequestContext['get']>>, what:
 const ADMIN: Person = { username: 'admin', email: 'admin@example.test', password: PASSWORD };
 let token: string | undefined;
 
-/** The team's invitation. Makes the administrator first if the server has nobody yet. */
+/** The workspace's invitation. Makes the administrator first if the server has nobody yet. */
 export async function invitation(baseURL: string): Promise<string> {
   if (token !== undefined) return token;
   const api = await apiClient(baseURL);
@@ -64,10 +64,10 @@ export async function invitation(baseURL: string): Promise<string> {
   const [workspace] = (await (
     await api.get('/api/v1/users/me/workspaces')
   ).json()) as Schemas['UserWorkspace'][];
-  const team = workspace
-    ? ((await (await api.get(`/api/v1/w/${workspace.id}`)).json()) as Schemas['Team'])
+  const found = workspace
+    ? ((await (await api.get(`/api/v1/w/${workspace.id}`)).json()) as Schemas['Workspace'])
     : undefined;
-  token = team?.signupToken;
+  token = found?.signupToken;
   await api.dispose();
   if (!token) throw new Error('the administrator was given no invitation');
   return token;
@@ -116,7 +116,7 @@ export function watchErrors(page: Page): string[] {
  */
 export interface BoardPlan {
   title: string;
-  /** `O`: open to the team, anyone may join. `P` (the default): members only. */
+  /** `O`: open to the workspace, anyone may join. `P` (the default): members only. */
   type?: 'O' | 'P';
   description?: string;
   /** The options of "Status", in order. */
@@ -129,7 +129,7 @@ export interface BoardPlan {
 export interface MadeBoard {
   boardId: string;
   viewId: string;
-  teamId: string;
+  workspaceId: string;
   /** Option identifiers of "Status" by name. */
   options: Record<string, string>;
   /** Card identifiers by title. */
@@ -147,13 +147,13 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     await api.get('/api/v1/users/me/workspaces'),
     'workspaces',
   );
-  const teamId = workspaces[0]?.id ?? '';
+  const workspaceId = workspaces[0]?.id ?? '';
   const statuses = plan.statuses ?? ['To do', 'Doing', 'Done'];
   const options = Object.fromEntries(statuses.map((name, at) => [name, `opt-${at}`]));
   const board = await json<Schemas['Board']>(
     await api.post('/api/v1/boards', {
       data: {
-        teamId,
+        workspaceId,
         type: plan.type ?? 'P',
         title: plan.title,
         ...(plan.description ? { description: plan.description } : {}),
@@ -217,7 +217,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
   }
   for (const { who, role } of plan.members ?? []) {
     const found = await json<Schemas['User'][]>(
-      await api.get(`/api/v1/w/${teamId}/users`, { params: { search: who.username } }),
+      await api.get(`/api/v1/w/${workspaceId}/users`, { params: { search: who.username } }),
       `find ${who.username}`,
     );
     const user = found.find((candidate) => candidate.username === who.username);
@@ -234,5 +234,5 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
       `add ${who.username}`,
     );
   }
-  return { boardId: board.id, viewId: view?.id ?? '', teamId, options, cards };
+  return { boardId: board.id, viewId: view?.id ?? '', workspaceId, options, cards };
 }

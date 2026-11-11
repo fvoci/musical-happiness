@@ -6,7 +6,7 @@ use fvoci_model::{BLOCK_TITLE_MAX_CHARS, BoardType, Card};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID};
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID};
 
 fn paragraph(text: &str) -> Value {
     json!({"type": "paragraph", "content": [{"type": "text", "text": text}]})
@@ -78,7 +78,7 @@ async fn listed(client: &Client, board_id: &str, card_id: &str) -> (bool, u64, u
 #[tokio::test]
 async fn a_card_is_made_with_its_body_and_listed_without_it() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
 
     let created: Card = new_card(
         &th.client,
@@ -129,7 +129,7 @@ async fn a_card_is_made_with_its_body_and_listed_without_it() {
 #[tokio::test]
 async fn a_body_is_changed_only_from_the_card_as_it_is() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let created: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
         .await
         .created_json();
@@ -209,7 +209,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
 #[tokio::test]
 async fn a_body_that_is_no_document_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let created: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
         .await
         .created_json();
@@ -248,7 +248,7 @@ async fn a_body_that_is_no_document_is_refused() {
 #[tokio::test]
 async fn a_read_at_from_before_a_change_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let created: Card = new_card(
         &th.client,
         &board.id,
@@ -312,7 +312,7 @@ async fn a_read_at_from_before_a_change_is_refused() {
 #[tokio::test]
 async fn a_body_comes_back_from_the_trash_and_is_copied() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let created: Card = new_card(
         &th.client,
         &board.id,
@@ -377,7 +377,7 @@ fn with_image(file_id: &str) -> Value {
 #[tokio::test]
 async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let blocks = format!("/boards/{}/blocks", board.id);
 
     // Made with a body, which is checked and counted.
@@ -444,7 +444,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
         .post(
             "/boards-and-blocks",
             &json!({
-                "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
+                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block("bd", &document())],
             }),
         )
@@ -465,8 +465,8 @@ fn document_body() -> fvoci_model::Body {
 #[tokio::test]
 async fn the_images_of_a_body_are_files_of_its_board() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
     );
@@ -533,7 +533,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         .post(
             "/boards-and-blocks",
             &json!({
-                "boards": [{"id": board.id, "teamId": TEST_TEAM_ID, "type": "P"}],
+                "boards": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block(&board.id, &with_image(&file_id))],
             }),
         )
@@ -550,7 +550,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
 #[tokio::test]
 async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let blocks = format!("/boards/{}/blocks", board.id);
     let made: Vec<Value> = th
         .client
@@ -583,7 +583,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
         .post(
             "/boards-and-blocks",
             &json!({
-                "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
+                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block("bd", &json!("attachment"))],
             }),
         )
@@ -607,7 +607,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     );
     let boards = th
         .client
-        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
         .await
         .value();
     assert_eq!(boards.as_array().map(Vec::len), Some(1), "{boards}");
@@ -620,8 +620,8 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
 #[tokio::test]
 async fn a_copy_of_a_body_shows_copies_of_its_files() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
     );
@@ -725,8 +725,8 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
 #[tokio::test]
 async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
     );
@@ -809,8 +809,8 @@ async fn block_of(client: &Client, board_id: &str, block_id: &str) -> Value {
 #[tokio::test]
 async fn a_comment_has_a_body() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let blocks = format!("/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
@@ -910,7 +910,7 @@ async fn a_comment_has_a_body() {
 #[tokio::test]
 async fn a_comment_body_goes_every_way_a_card_body_does() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let blocks = format!("/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
@@ -977,7 +977,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
         .post(
             "/boards-and-blocks",
             &json!({
-                "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
+                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [
                     {"id": "k1", "boardId": "bd", "type": "card", "createAt": 1, "updateAt": 1},
                     {"id": "m1", "boardId": "bd", "parentId": "k1", "type": "comment",
@@ -1004,8 +1004,8 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
 #[tokio::test]
 async fn a_commenter_posts_a_body_but_copies_no_files() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let source = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let source = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let blocks = format!("/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
@@ -1092,7 +1092,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
 #[tokio::test]
 async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let blocks = format!("/boards/{}/blocks", board.id);
     let me = th.client.me().await;
     let card: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))

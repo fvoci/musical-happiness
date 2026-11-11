@@ -6,12 +6,12 @@
 use fvoci_model::{Block, BlockType, Board, BoardType, new_id};
 use serde_json::{Value, json};
 
-use crate::common::{Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// The title of the built-in welcome board.
 const WELCOME_TITLE: &str = "Welcome to fvoci!";
 
-/// Makes an open template in the global team, as any signed-in user can, that looks as
+/// Makes an open template in the global workspace, as any signed-in user can, that looks as
 /// much like the built-in welcome board as a client can make it: the same title and the
 /// marker property. It holds one card, titled `hijacked`. Returns the template.
 async fn impostor_template(client: &Client) -> Board {
@@ -19,7 +19,7 @@ async fn impostor_template(client: &Client) -> Board {
         .post(
             "/boards",
             &json!({
-                "teamId": ROOT_TEAM_ID, "type": "O", "title": WELCOME_TITLE, "isTemplate": true,
+                "workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": WELCOME_TITLE, "isTemplate": true,
                 "properties": {"onboarding": true}, "createdBy": "system",
             }),
         )
@@ -55,7 +55,7 @@ async fn card_titles(ts: &TestServer, client: &Client, board_id: &str) -> Vec<St
 /// The built-in template that carries the onboarding mark.
 async fn marked_template(client: &Client) -> Board {
     let templates: Vec<Board> = client
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .ok_json();
     let marked: Vec<Board> = templates
@@ -68,7 +68,7 @@ async fn marked_template(client: &Client) -> Board {
     marked.into_iter().next().expect("checked just above")
 }
 
-/// Not in the original, which takes the first open template of the global team that has
+/// Not in the original, which takes the first open template of the global workspace that has
 /// the welcome board's title, whoever made it. On a server without the built-in
 /// templates that handed a user's template to every new user (this test, before the
 /// change, got the card `hijacked`). The tour copies the template the system made and
@@ -85,7 +85,7 @@ async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template
 
     let value = ts
         .client2
-        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
@@ -125,7 +125,7 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
 
     let value = ts
         .client2
-        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
@@ -170,7 +170,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
 
     let value = ts
         .client
-        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
@@ -187,7 +187,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
     ts.teardown().await;
 }
 
-/// `TestPrepareOnboardingTour/"base case"`: onboarding answers the team and a new board,
+/// `TestPrepareOnboardingTour/"base case"`: onboarding answers the workspace and a new board,
 /// makes the board private, and records the tour preferences.
 #[tokio::test]
 async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
@@ -200,13 +200,13 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
 
     let response = ts
         .client
-        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
         .await;
     let value = response.ok_json::<Value>();
     assert_eq!(
-        value["teamId"],
-        Value::String(ROOT_TEAM_ID.to_owned()),
-        "the team"
+        value["workspaceId"],
+        Value::String(ROOT_WORKSPACE_ID.to_owned()),
+        "the workspace"
     );
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
     assert!(!board_id.is_empty(), "a board id is returned");
@@ -257,10 +257,10 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
     ts.teardown().await;
 }
 
-/// Onboarding answers for any team identifier, echoing the team back (verified on the
+/// Onboarding answers for any workspace identifier, echoing the workspace back (verified on the
 /// oracle).
 #[tokio::test]
-async fn onboard_echoes_the_team_identifier() {
+async fn onboard_echoes_the_workspace_identifier() {
     let ts = Setup::native()
         .with_templates()
         .start()
@@ -269,13 +269,13 @@ async fn onboard_echoes_the_team_identifier() {
         .await;
     let value = ts
         .client
-        .post_empty(&format!("/w/{TEST_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{TEST_WORKSPACE_ID}/onboard"))
         .await
         .ok_json::<Value>();
     assert_eq!(
-        value["teamId"],
-        Value::String(TEST_TEAM_ID.to_owned()),
-        "the team is echoed"
+        value["workspaceId"],
+        Value::String(TEST_WORKSPACE_ID.to_owned()),
+        "the workspace is echoed"
     );
     assert!(
         value["boardId"].as_str().is_some_and(|id| !id.is_empty()),
@@ -294,7 +294,7 @@ async fn onboard_without_a_session_is_refused() {
         .init_basic()
         .await;
     ts.anonymous()
-        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -318,7 +318,7 @@ async fn onboard_stores_the_templates_again_when_the_welcome_board_is_gone() {
 
     let value = ts
         .client
-        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
@@ -349,7 +349,7 @@ async fn concurrent_onboarding_stores_the_templates_once() {
         .await
         .expect("the built-in templates are removed");
 
-    let path = format!("/w/{ROOT_TEAM_ID}/onboard");
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/onboard");
     let answers = futures_util::future::join_all(
         [&ts.client, &ts.client2, &ts.client, &ts.client2].map(|client| client.post_empty(&path)),
     )

@@ -32,7 +32,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{Client, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID};
 
 /// How long to wait for a websocket message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -69,11 +69,11 @@ async fn store_board(th: &TestServer, mut board: Board) -> Board {
     board
 }
 
-/// Creates an empty board in [`TEST_TEAM_ID`] through the store, with the first client's
+/// Creates an empty board in [`TEST_WORKSPACE_ID`] through the store, with the first client's
 /// user as its administrator.
 async fn create_board_in_store(th: &TestServer, board_type: BoardType) -> Board {
     let board = Board {
-        team_id: TEST_TEAM_ID.to_owned(),
+        workspace_id: TEST_WORKSPACE_ID.to_owned(),
         board_type,
         ..Board::default()
     };
@@ -195,7 +195,7 @@ fn duplicate_path(board_id: &str, block_id: &str) -> String {
 }
 
 /// What a board answers that is not there, or that the user cannot see.
-const NO_BOARD: &str = "board not found";
+pub(crate) const NO_BOARD: &str = "board not found";
 
 /// What a block answers that is not there, or that is on another board than the path's.
 const NO_BLOCK: &str = "block not found";
@@ -278,25 +278,25 @@ pub(crate) struct Socket {
 }
 
 impl Socket {
-    /// Connects, authenticates as the client's user and subscribes to `team_id`;
+    /// Connects, authenticates as the client's user and subscribes to `workspace_id`;
     /// returns once the server has acted on the subscription. Commands have no
     /// acknowledgement, so the wait is for a broadcast to the user to come through.
-    pub(crate) async fn subscribed_to_team(
+    pub(crate) async fn subscribed_to_workspace(
         th: &TestServer,
         client: &Client,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Self {
         let stream = client.connect_websocket().await;
         let mut socket = Self { stream };
         socket
-            .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": team_id}))
+            .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id}))
             .await;
 
         let probe = Category {
             id: new_id(),
             name: "subscription probe".to_owned(),
             user_id: client.me().await.id,
-            team_id: team_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
             ..Category::default()
         };
         for _ in 0..50 {
@@ -307,7 +307,7 @@ impl Socket {
                 return socket;
             }
         }
-        panic!("the socket was never subscribed to team {team_id}");
+        panic!("the socket was never subscribed to workspace {workspace_id}");
     }
 
     async fn send(&mut self, command: Value) {
@@ -330,14 +330,18 @@ impl Socket {
         }
     }
 
-    /// The block of the next message, which must be a block change in the test team.
+    /// The block of the next message, which must be a block change in the test workspace.
     pub(crate) async fn next_block(&mut self) -> Value {
         let message = self
             .next_json(PATIENCE)
             .await
             .expect("a block change is announced");
         assert_eq!(message["action"], json!("UPDATE_BLOCK"), "{message}");
-        assert_eq!(message["teamId"], json!(TEST_TEAM_ID), "{message}");
+        assert_eq!(
+            message["workspaceId"],
+            json!(TEST_WORKSPACE_ID),
+            "{message}"
+        );
         message["block"].clone()
     }
 
@@ -758,7 +762,7 @@ async fn app_patch_blocks_success_scenario() {
 
     th.app
         .patch_blocks(
-            TEST_TEAM_ID,
+            TEST_WORKSPACE_ID,
             &batch(&[(&block, "new title")]),
             &th.stranger().await,
             ChangeNotification::Send,
@@ -786,7 +790,7 @@ async fn app_patch_blocks_error_scenario() {
     let error = th
         .app
         .patch_blocks(
-            TEST_TEAM_ID,
+            TEST_WORKSPACE_ID,
             &batch(&[(&block, "new title"), (&missing, "new title")]),
             &th.stranger().await,
             ChangeNotification::Send,
@@ -1025,13 +1029,13 @@ async fn get_blocks_permissions() {
     th.teardown().await;
 }
 
-/// The blocks of an open template are for everyone in the team; a private template is
+/// The blocks of an open template are for everyone in the workspace; a private template is
 /// for its members.
 #[tokio::test]
 async fn get_blocks_of_templates() {
     let th = Setup::native().start().await.init_basic().await;
     let template = |board_type| Board {
-        team_id: TEST_TEAM_ID.to_owned(),
+        workspace_id: TEST_WORKSPACE_ID.to_owned(),
         board_type,
         is_template: true,
         ..Board::default()
@@ -1070,7 +1074,7 @@ async fn get_blocks_of_templates() {
 async fn board_with_people(th: &TestServer, board_id: &str, me: &str, editor: &str) {
     let people = json!([
         {"id": "owner", "name": "Owner", "type": "person"},
-        {"id": "team", "name": "Team", "type": "multiPerson"},
+        {"id": "workspace", "name": "Workspace", "type": "multiPerson"},
         {"id": "by", "name": "By", "type": "createdBy"},
         {"id": "note", "name": "Note", "type": "text"},
     ]);
@@ -1089,7 +1093,7 @@ async fn board_with_people(th: &TestServer, board_id: &str, me: &str, editor: &s
             &json!({
                 "title": "mentions",
                 "body": body,
-                "properties": {"owner": me, "team": [me, editor], "note": me, "gone": me},
+                "properties": {"owner": me, "workspace": [me, editor], "note": me, "gone": me},
             }),
         )
         .await
@@ -1150,7 +1154,7 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     let hidden = json!({
         "createdBy": "",
         "mention": "",
-        "properties": {"owner": "", "team": ["", ""], "note": me.id},
+        "properties": {"owner": "", "workspace": ["", ""], "note": me.id},
         "filter": {"operation": "and", "filters": [
             {"propertyId": "owner", "condition": "includes", "values": [""]},
             {"operation": "or", "filters": [
@@ -1176,7 +1180,7 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     let shown = people_in(&th.client.get(&path).await.value());
     assert_eq!(shown["mention"], json!(me.id), "the user, to a member");
     assert_eq!(
-        shown["properties"]["team"],
+        shown["properties"]["workspace"],
         json!([me.id, editor.id]),
         "{shown}"
     );
@@ -2464,14 +2468,14 @@ async fn duplicate_block_copies() {
 
 // -- who is told about a change -----------------------------------------------------------
 
-/// Every change of a block is broadcast to the board's members who listen to its team,
+/// Every change of a block is broadcast to the board's members who listen to its workspace,
 /// with or without `disableNotify`; except, as in the original, a batch patch.
 #[tokio::test]
 async fn block_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let board = create_board_in_store(&th, BoardType::Private).await;
-    let mut member = Socket::subscribed_to_team(&th, &th.client, TEST_TEAM_ID).await;
-    let mut outsider = Socket::subscribed_to_team(&th, &th.client2, TEST_TEAM_ID).await;
+    let mut member = Socket::subscribed_to_workspace(&th, &th.client, TEST_WORKSPACE_ID).await;
+    let mut outsider = Socket::subscribed_to_workspace(&th, &th.client2, TEST_WORKSPACE_ID).await;
     let path = blocks_path(&board.id);
 
     // Insert: one message per block, in order.
@@ -2510,7 +2514,7 @@ async fn block_changes_are_broadcast() {
     assert_eq!(announced["title"], json!("patched quietly"), "{announced}");
 
     // A batch patch is announced block by block, like single patches. (The original
-    // broadcasts it to the team with the empty identifier, which nobody listens to.)
+    // broadcasts it to the workspace with the empty identifier, which nobody listens to.)
     th.client
         .patch(&path, &batch(&[(card, "batch 1"), (text, "batch 2")]))
         .await
@@ -2693,7 +2697,7 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
     let outsider_id = outsider.me().await.id;
     let mut own = Board {
         id: new_id(),
-        team_id: TEST_TEAM_ID.to_owned(),
+        workspace_id: TEST_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Private,
         ..Board::default()
     };
@@ -2797,7 +2801,7 @@ async fn a_new_block_of_another_type_is_refused() {
             .post(
                 "/boards-and-blocks",
                 &json!({
-                    "boards": [{"id": "b1", "teamId": TEST_TEAM_ID, "type": "O"}],
+                    "boards": [{"id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "O"}],
                     "blocks": [{
                         "id": "x1", "boardId": "b1", "type": name, "createAt": 1, "updateAt": 1,
                     }],
@@ -2902,142 +2906,4 @@ async fn the_fields_of_a_block_are_limited_by_its_type() {
     let stored = th.app.block(&card.id).await.expect("the card is stored");
     assert!(!stored.fields.contains_key("more"), "the card is as it was");
     th.teardown().await;
-}
-
-/// Not in the original (user decision 2026-11-11 14:25 KST). The deleted cards of a board
-/// are listed for its editors, the last deleted first, with what it takes to decide on
-/// bringing one back; a viewer is refused, and for anybody else the board is not there.
-#[tokio::test]
-async fn the_deleted_cards_of_a_board_are_listed_for_its_editors() {
-    let th = Setup::native().start().await.init_basic().await;
-    let boards = boards_with_roles(&th).await;
-    let board_id = &boards.board.id;
-    let editor = boards.editor.me().await;
-    let first = insert_one(&th.client, &new_block(board_id, BlockType::Card, "first")).await;
-    let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
-    insert_one(&th.client, &new_block(board_id, BlockType::Card, "kept")).await;
-    let view = insert_one(&th.client, &new_block(board_id, BlockType::View, "view")).await;
-    delete(&th.client, &first).await;
-    a_moment().await;
-    delete(&boards.editor, &second).await;
-    delete(&th.client, &view).await;
-    let trash = format!("/boards/{board_id}/trash/cards");
-
-    let listed = boards.editor.get(&trash).await.value();
-    let entries: Vec<(Value, Value)> = listed
-        .as_array()
-        .expect("a list")
-        .iter()
-        .map(|entry| (entry["title"].clone(), entry["deletedBy"].clone()))
-        .collect();
-    assert_eq!(
-        entries,
-        [
-            (json!("second"), json!(editor.id)),
-            (json!("first"), json!(th.client.me().await.id)),
-        ],
-        "cards only, the last deleted first"
-    );
-    let members: Vec<&String> = listed[0].as_object().expect("an entry").keys().collect();
-    assert_eq!(members, ["deletedAt", "deletedBy", "id", "title"]);
-    assert_eq!(listed[0]["id"], json!(second.id));
-    assert!(listed[0]["deletedAt"].as_i64().unwrap_or(0) > 0, "{listed}");
-
-    let page: Vec<Value> = boards
-        .editor
-        .get(&format!("{trash}?page=1&perPage=1"))
-        .await
-        .ok_json();
-    assert_eq!(page.len(), 1);
-    assert_eq!(page[0]["title"], json!("first"), "the pages cut that order");
-
-    boards.viewer.get(&trash).await.check_error(
-        StatusCode::FORBIDDEN,
-        "access denied to the trash of the board",
-    );
-    th.client2
-        .get(&trash)
-        .await
-        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
-    th.anonymous().get(&trash).await.check_unauthorized();
-
-    // Brought back, a card is no longer listed.
-    th.client
-        .post_empty(&format!("{}/undelete", block_path(board_id, &second.id)))
-        .await
-        .check_ok();
-    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
-    assert_eq!(listed.len(), 1, "{listed:?}");
-}
-
-/// Two deletions a millisecond apart at least, so that their order is that of time.
-async fn a_moment() {
-    tokio::time::sleep(std::time::Duration::from_millis(3)).await;
-}
-
-/// Not in the original (user decision 2026-11-11 14:25 KST). The list of a board's deleted
-/// cards has each card that `undeleteBlock` brings back by itself: a card on another one
-/// deleted alone is there, a card that went with the card it was on comes back with that
-/// one and is not; no comment is a card. Paging as `getCards`; no list for a board in the
-/// trash.
-#[tokio::test]
-async fn the_deleted_cards_are_those_that_come_back_by_themselves() {
-    let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let board_id = &board.id;
-    let outer = insert_one(&th.client, &new_block(board_id, BlockType::Card, "outer")).await;
-    let inner = insert_one(&th.client, &child_of(&outer, BlockType::Card, "inner")).await;
-    let alone = insert_one(&th.client, &new_block(board_id, BlockType::Card, "alone")).await;
-    let nested = insert_one(&th.client, &child_of(&alone, BlockType::Card, "nested")).await;
-    insert_one(&th.client, &child_of(&alone, BlockType::Comment, "comment")).await;
-    let comment = insert_one(&th.client, &child_of(&outer, BlockType::Comment, "said")).await;
-    delete(&th.client, &comment).await;
-    a_moment().await;
-    delete(&th.client, &nested).await;
-    a_moment().await;
-    delete(&th.client, &outer).await;
-    let trash = format!("/boards/{board_id}/trash/cards");
-    let titles = |listed: &[Value]| -> Vec<Value> {
-        listed.iter().map(|entry| entry["title"].clone()).collect()
-    };
-
-    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
-    assert_eq!(titles(&listed), [json!("outer"), json!("nested")]);
-    for (query, expected) in [
-        ("?perPage=0", vec![json!("outer"), json!("nested")]),
-        ("?page=-1", vec![]),
-        ("?page=0&perPage=1", vec![json!("outer")]),
-        ("?page=5&perPage=1", vec![]),
-    ] {
-        let listed: Vec<Value> = th.client.get(&format!("{trash}{query}")).await.ok_json();
-        assert_eq!(titles(&listed), expected, "{query}");
-    }
-    for query in ["?page=one", "?perPage=1.5"] {
-        th.client
-            .get(&format!("{trash}{query}"))
-            .await
-            .check_bad_request();
-    }
-
-    // The inner card is not listed, and comes back with the outer one.
-    th.client
-        .post_empty(&format!("{}/undelete", block_path(board_id, &outer.id)))
-        .await
-        .check_ok();
-    let blocks = blocks_of(&th.client, board_id).await;
-    assert!(
-        blocks.iter().any(|block| block.id == inner.id),
-        "the inner card is back"
-    );
-    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
-    assert_eq!(titles(&listed), [json!("nested")]);
-
-    th.client
-        .delete(&format!("/boards/{board_id}"))
-        .await
-        .check_no_content();
-    th.client
-        .get(&trash)
-        .await
-        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
 }

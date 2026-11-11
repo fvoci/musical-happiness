@@ -45,11 +45,11 @@
       "modifiedBy",
       "properties",
       "showDescription",
-      "teamId",
       "templateVersion",
       "title",
       "type",
-      "updateAt"
+      "updateAt",
+      "workspaceId"
     ]
   },
   {
@@ -94,11 +94,11 @@
       "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:1>",
       "templateVersion": 0,
       "title": "My template",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:1>"
     }
   },
   {
@@ -120,11 +120,11 @@
       "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:1>",
       "templateVersion": 0,
       "title": "My template",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:1>"
     }
   },
   {
@@ -134,7 +134,7 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:4>",
-      "teamId": "<id:1>"
+      "workspaceId": "<id:1>"
     }
   },
   {
@@ -245,11 +245,11 @@
         "trackingTemplateId": "7bb8ddeb84b405c68a100dc7ee36a1a8"
       },
       "showDescription": true,
-      "teamId": "<id:1>",
       "templateVersion": 7,
       "title": "Welcome to fvoci!",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:1>"
     }
   },
   {
@@ -281,10 +281,10 @@
         "id": "<id:7>",
         "name": "Boards",
         "sortOrder": 10,
-        "teamId": "<id:1>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:2>"
+        "userId": "<id:2>",
+        "workspaceId": "<id:1>"
       }
     ]
   },

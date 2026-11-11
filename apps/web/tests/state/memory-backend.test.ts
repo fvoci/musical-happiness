@@ -10,8 +10,8 @@ import { LIMITS } from '$lib/state/memory/backend.ts';
 import { loadTemplates, settle, setup, STATUS, text } from './support.ts';
 
 async function firstBoard(made = setup()) {
-  const [team] = await made.backend.teams();
-  const [board] = await made.backend.boards(team?.id ?? '');
+  const [workspace] = await made.backend.workspaces();
+  const [board] = await made.backend.boards(workspace?.id ?? '');
   if (!board) throw new Error('no board');
   const cards = await made.backend.cards(board.id);
   const byTitle = (title: string) => {
@@ -162,9 +162,9 @@ describe('deleting', () => {
 
   it('takes a board out of every sidebar and puts it back with its blocks', async () => {
     const { backend, boardId } = await firstBoard();
-    const [team] = await backend.teams();
+    const [workspace] = await backend.workspaces();
     await backend.deleteBoard(boardId);
-    expect(await backend.boards(team?.id ?? '')).toHaveLength(0);
+    expect(await backend.boards(workspace?.id ?? '')).toHaveLength(0);
     await backend.restoreBoard(boardId);
     expect(await backend.cards(boardId)).toHaveLength(3);
   });
@@ -271,8 +271,8 @@ describe('the seed made of the built-in templates', () => {
     const templates = await loadTemplates();
     expect(templates).toHaveLength(13);
     const { backend, world } = setup(templates);
-    const [team] = await backend.teams();
-    const boards = await backend.boards(team?.id ?? '');
+    const [workspace] = await backend.workspaces();
+    const boards = await backend.boards(workspace?.id ?? '');
     expect(boards).toHaveLength(13);
     const cards = (await Promise.all(boards.map((board) => backend.cards(board.id)))).flat();
     expect(cards).toHaveLength(77);
@@ -280,7 +280,7 @@ describe('the seed made of the built-in templates', () => {
     expect(new Set([...world.blocks.keys(), ...world.boards.keys()]).size).toBe(
       world.blocks.size + world.boards.size,
     );
-    const categories = await backend.categories(team?.id ?? '');
+    const categories = await backend.categories(workspace?.id ?? '');
     expect(categories.flatMap((category) => category.boardIds).sort()).toEqual(
       boards.map((board) => board.id).sort(),
     );

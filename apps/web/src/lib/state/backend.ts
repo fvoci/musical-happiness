@@ -64,7 +64,7 @@ export interface User extends UserNames {
   deleteAt: number;
 }
 
-export interface Team {
+export interface WorkspaceInfo {
   id: string;
   title: string;
 }
@@ -84,7 +84,7 @@ export interface Category {
   id: string;
   name: string;
   userId: string;
-  teamId: string;
+  workspaceId: string;
   /** `system` is the one every reader has and cannot delete. */
   type: 'custom' | 'system';
   collapsed: boolean;
@@ -282,15 +282,15 @@ export interface Backend extends TrashReads {
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
   patchMe(patch: { displayName: string | null }): Promise<User>;
-  teams(): Promise<Team[]>;
-  /** The people of a team: who can be mentioned or set as a person. */
-  users(teamId: string): Promise<User[]>;
+  workspaces(): Promise<WorkspaceInfo[]>;
+  /** The people of a workspace: who can be mentioned or set as a person. */
+  users(workspaceId: string): Promise<User[]>;
   /**
-   * The people of a team with these identifiers: for the names `users`
-   * did not bring (the server's list of a team is short). Every identifier
+   * The people of a workspace with these identifiers: for the names `users`
+   * did not bring (the server's list of a workspace is short). Every identifier
    * must be a user's.
    */
-  usersById(teamId: string, userIds: string[]): Promise<User[]>;
+  usersById(workspaceId: string, userIds: string[]): Promise<User[]>;
 
   // Account settings (server design 5.8) and the pocket of screen state.
   settings(): Promise<AccountSettings>;
@@ -300,7 +300,7 @@ export interface Backend extends TrashReads {
   patchScreenState(updated: Record<string, string>, deleted?: string[]): Promise<void>;
 
   // Boards.
-  boards(teamId: string): Promise<Board[]>;
+  boards(workspaceId: string): Promise<Board[]>;
   board(boardId: string): Promise<Board>;
   /**
    * Makes a board and its first view together, all or none: a board without
@@ -308,7 +308,7 @@ export interface Backend extends TrashReads {
    * that is no template is filed under their default category.
    */
   createBoard(
-    teamId: string,
+    workspaceId: string,
     draft: BoardDraft,
     firstView: ViewDraft,
   ): Promise<{ board: Board; view: BoardView }>;
@@ -320,31 +320,31 @@ export interface Backend extends TrashReads {
    */
   reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]>;
   /**
-   * The templates the reader may make a board from: the team's they may
-   * see, then the built-in ones every team is offered.
+   * The templates the reader may make a board from: the workspace's they may
+   * see, then the built-in ones every workspace is offered.
    */
-  templates(teamId: string): Promise<Board[]>;
+  templates(workspaceId: string): Promise<Board[]>;
   /**
    * Copies a board with its views and cards (not its comments) into the
-   * team: a board from a template, or a template from a board. The reader is
-   * the copy's admin, and it is private. The team is said because a built-in
+   * workspace: a board from a template, or a template from a board. The reader is
+   * the copy's admin, and it is private. The workspace is said because a built-in
    * template belongs to none of the reader's.
    */
-  duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board>;
+  duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board>;
   /** Copies the welcome board for the reader; answers its identifier. Each call makes another copy. */
-  onboard(teamId: string): Promise<string>;
+  onboard(workspaceId: string): Promise<string>;
   /**
    * The boards the reader may find whose title has every word of `query` in
    * it, whatever the case: those of `boards`, hidden ones too. No templates.
    */
-  searchBoards(teamId: string, query: string): Promise<Board[]>;
+  searchBoards(workspaceId: string, query: string): Promise<Board[]>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
   /** Takes the board back out of the trash, filed where each person had it (`TrashReads`). */
   restoreBoard(boardId: string): Promise<Board>;
   members(boardId: string): Promise<BoardMember[]>;
   /**
-   * Makes a person of the team a member of the board, with the role. For the
+   * Makes a person of the workspace a member of the board, with the role. For the
    * board's admins. Someone who is a member already keeps their role.
    */
   addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
@@ -356,38 +356,38 @@ export interface Backend extends TrashReads {
   sharing(boardId: string): Promise<Sharing>;
   /** Turns the public link on or off, or makes it anew. */
   setSharing(boardId: string, change: SharingChange): Promise<Sharing>;
-  /** People of the team whose name has `query` in it, whatever the case; ten at most. */
-  searchUsers(teamId: string, query: string): Promise<User[]>;
+  /** People of the workspace whose name has `query` in it, whatever the case; ten at most. */
+  searchUsers(workspaceId: string, query: string): Promise<User[]>;
   /**
-   * Makes the reader a member of an open board of their team, with the
+   * Makes the reader a member of an open board of their workspace, with the
    * board's minimum role. Until then such a board is readable but its views,
    * cards and members are refused (403).
    */
   joinBoard(boardId: string): Promise<BoardMember>;
 
   // The reader's sidebar.
-  categories(teamId: string): Promise<Category[]>;
+  categories(workspaceId: string): Promise<Category[]>;
   /** A new category goes first. */
-  createCategory(teamId: string, draft: CategoryDraft): Promise<Category>;
+  createCategory(workspaceId: string, draft: CategoryDraft): Promise<Category>;
   /** The default category keeps its name whatever the patch says. */
-  patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category>;
+  patchCategory(workspaceId: string, categoryId: string, patch: CategoryPatch): Promise<Category>;
   /** Its boards go to the default category, which cannot be deleted. */
-  deleteCategory(teamId: string, categoryId: string): Promise<void>;
+  deleteCategory(workspaceId: string, categoryId: string): Promise<void>;
   /** The reader's order of all their categories. */
-  reorderCategories(teamId: string, categoryIds: string[]): Promise<void>;
+  reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void>;
   /**
    * Files a board under a category, at `index` in the category's own list
    * (`Category.boardIds`, without the board).
    */
   moveBoardToCategory(
-    teamId: string,
+    workspaceId: string,
     boardId: string,
     categoryId: string,
     index: number,
   ): Promise<void>;
   /** Hides a board of a category from the reader's sidebar, or shows it again. */
   setBoardHidden(
-    teamId: string,
+    workspaceId: string,
     categoryId: string,
     boardId: string,
     hidden: boolean,
@@ -449,15 +449,15 @@ export interface Backend extends TrashReads {
   // Archives of boards.
   /** An archive of the board with its blocks, files and members. For its members. */
   exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile>;
-  /** An archive of every board of the team the reader may see. */
-  exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  /** An archive of every board of the workspace the reader may see. */
+  exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile>;
   /**
-   * Makes the boards of an archive in the team, the reader their admin. An
+   * Makes the boards of an archive in the workspace, the reader their admin. An
    * archive over the server's limit is refused before anything is sent (413,
    * with the limit); one that is no archive of this app is 400. The boards
    * are made one after the other: a failure keeps those before it.
    */
-  importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void>;
+  importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<void>;
 
   // Changes as they happen.
   /** Listens to the changes of one board. Returns the function that stops listening. */

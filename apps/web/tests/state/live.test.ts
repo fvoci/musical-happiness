@@ -53,7 +53,7 @@ const BLOCK = {
 };
 
 const reads: LiveReads = {
-  teamId: () => Promise.resolve('t'),
+  workspaceId: () => Promise.resolve('t'),
   members: (boardId) =>
     Promise.resolve([
       {
@@ -107,23 +107,23 @@ async function connected(): Promise<{
 }
 
 describe('changes from the server', () => {
-  it('opens one connection and subscribes to the team', async () => {
+  it('opens one connection and subscribes to the workspace', async () => {
     const { socket } = await connected();
     expect(FakeSocket.made).toHaveLength(1);
     expect(socket.url).toBe('ws://here/ws');
-    expect(socket.sent).toEqual([{ action: 'SUBSCRIBE_TEAM', teamId: 't' }]);
+    expect(socket.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
   });
 
   it('hands a block to the listeners of its board alone, as the screens’ block', async () => {
     const { socket, board, other, self } = await connected();
     socket.message({
       action: 'UPDATE_BLOCK',
-      teamId: 't',
+      workspaceId: 't',
       block: { ...BLOCK, id: 'c1', boardId: 'b1', type: 'card', fields: { properties: {} } },
     });
     socket.message({
       action: 'UPDATE_BLOCK',
-      teamId: 't',
+      workspaceId: 't',
       block: { ...BLOCK, id: 'c1', boardId: 'b1', deleteAt: 5, type: '', fields: {} },
     });
     await settle();
@@ -138,7 +138,7 @@ describe('changes from the server', () => {
   it('hands a board to its listeners and to the reader’s own; a deleted one as deleted', async () => {
     const { socket, board, self } = await connected();
     const shape = {
-      teamId: 't',
+      workspaceId: 't',
       channelId: '',
       createdBy: 'u',
       modifiedBy: 'u',
@@ -157,12 +157,12 @@ describe('changes from the server', () => {
     };
     socket.message({
       action: 'UPDATE_BOARD',
-      teamId: 't',
+      workspaceId: 't',
       board: { ...shape, id: 'b1', deleteAt: 0 },
     });
     socket.message({
       action: 'UPDATE_BOARD',
-      teamId: 't',
+      workspaceId: 't',
       board: { ...shape, id: 'b1', deleteAt: 9 },
     });
     await settle();
@@ -175,13 +175,13 @@ describe('changes from the server', () => {
     const { socket, board, self } = await connected();
     socket.message({
       action: 'UPDATE_MEMBER',
-      teamId: 't',
+      workspaceId: 't',
       member: { boardId: 'b1', userId: 'u2', schemeViewer: true },
     });
     // A board nobody here watches: its members are not read.
     socket.message({
       action: 'DELETE_MEMBER',
-      teamId: 't',
+      workspaceId: 't',
       member: { boardId: 'b9', userId: 'u2' },
     });
     await settle();
@@ -208,7 +208,7 @@ describe('changes from the server', () => {
     const { socket, board } = await connected();
     const message = {
       action: 'UPDATE_MEMBER',
-      teamId: 't',
+      workspaceId: 't',
       member: { boardId: 'b1', userId: 'u2' },
     };
     socket.message(message);
@@ -222,8 +222,8 @@ describe('changes from the server', () => {
 
   it('reads the sidebar again on a message of the categories', async () => {
     const { socket, self, board } = await connected();
-    socket.message({ action: 'UPDATE_CATEGORY', teamId: 't', category: {} });
-    socket.message({ action: 'REORDER_CATEGORIES', teamId: 't', categoryOrder: [] });
+    socket.message({ action: 'UPDATE_CATEGORY', workspaceId: 't', category: {} });
+    socket.message({ action: 'REORDER_CATEGORIES', workspaceId: 't', categoryOrder: [] });
     await vi.advanceTimersByTimeAsync(200);
     expect(self).toEqual([{ kind: 'resync' }]);
     expect(board).toEqual([]);
@@ -236,18 +236,18 @@ describe('changes from the server', () => {
     await settle();
     const again = FakeSocket.made[1];
     again?.open();
-    expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_TEAM', teamId: 't' }]);
+    expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
     expect(board).toEqual([{ kind: 'resync' }]);
   });
 
-  it('gives up an opening that waits for the old session’s team when signing in again', async () => {
-    let oldTeam: (teamId: string) => void = () => undefined;
-    const teamId = vi
-      .spyOn(reads, 'teamId')
+  it('gives up an opening that waits for the old session’s workspace when signing in again', async () => {
+    let oldWorkspace: (workspaceId: string) => void = () => undefined;
+    const workspaceId = vi
+      .spyOn(reads, 'workspaceId')
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
-            oldTeam = resolve;
+            oldWorkspace = resolve;
           }),
       )
       .mockImplementationOnce(() => Promise.resolve('t2'));
@@ -255,12 +255,14 @@ describe('changes from the server', () => {
     live.watch('b1', () => undefined);
     live.restart();
     await settle();
-    oldTeam('t');
+    oldWorkspace('t');
     await settle();
     expect(FakeSocket.made).toHaveLength(1);
     FakeSocket.made[0]?.open();
-    expect(FakeSocket.made[0]?.sent).toEqual([{ action: 'SUBSCRIBE_TEAM', teamId: 't2' }]);
-    teamId.mockRestore();
+    expect(FakeSocket.made[0]?.sent).toEqual([
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
+    ]);
+    workspaceId.mockRestore();
   });
 
   it('waits from the first wait again only after a connection has held', async () => {
@@ -295,7 +297,7 @@ describe('changes from the server', () => {
     await vi.advanceTimersByTimeAsync(1);
     const again = FakeSocket.made[2];
     again?.open();
-    expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_TEAM', teamId: 't' }]);
+    expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
     for (const changes of [board, self, other]) expect(changes).toEqual([{ kind: 'resync' }]);
   });
 

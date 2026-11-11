@@ -26,7 +26,7 @@ const VALUE_TOUR_CATEGORY: &str = "onboarding";
 
 impl App {
     /// Duplicates the welcome board for a user and records the tour state, and returns
-    /// the team and the new board's identifier.
+    /// the workspace and the new board's identifier.
     ///
     /// # Errors
     ///
@@ -35,9 +35,9 @@ impl App {
     pub async fn prepare_onboarding_tour(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<(String, String), AppError> {
-        let board_id = self.create_welcome_board(user_id, team_id).await?;
+        let board_id = self.create_welcome_board(user_id, workspace_id).await?;
 
         let mut updated_fields = BTreeMap::new();
         updated_fields.insert(KEY_TOUR_STARTED.to_owned(), "1".to_owned());
@@ -49,16 +49,25 @@ impl App {
         };
         self.store().patch_user_preferences(user_id, &patch).await?;
 
-        Ok((team_id.to_owned(), board_id))
+        Ok((workspace_id.to_owned(), board_id))
     }
 
-    /// Duplicates the welcome board into a team for a user, makes the copy private, and
+    /// Duplicates the welcome board into a workspace for a user, makes the copy private, and
     /// returns its identifier.
-    async fn create_welcome_board(&self, user_id: &str, team_id: &str) -> Result<String, AppError> {
+    async fn create_welcome_board(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<String, AppError> {
         let onboarding_board_id = self.onboarding_board_id().await?;
 
         let (boards_and_blocks, _members) = self
-            .duplicate_board(&onboarding_board_id, user_id, team_id, DuplicateAs::Copy)
+            .duplicate_board(
+                &onboarding_board_id,
+                user_id,
+                workspace_id,
+                DuplicateAs::Copy,
+            )
             .await?;
         let [board] = boards_and_blocks.boards.as_slice() else {
             return Err(AppError::internal("new board wasn't created"));

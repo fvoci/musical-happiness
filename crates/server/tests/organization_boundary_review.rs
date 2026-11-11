@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, OrgRole, Team, User, UserWorkspace,
+    Block, BlockType, Board, BoardMember, BoardType, OrgRole, User, UserWorkspace, Workspace,
     WorkspaceRole, new_id,
 };
 use fvoci_store::testing::db_type_of_the_tests;
@@ -16,19 +16,19 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
-use common::{HIDDEN_TEAM_ID, ROOT_TEAM_ID, Setup, TestServer, UNKNOWN_ID};
+use common::{HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID};
 
 fn open(config: &mut fvoci_server::config::Configuration) {
     "open".clone_into(&mut config.org_creation);
 }
 
 /// A second organization, with its own member, workspace and private board.
-async fn other_organization(ts: &TestServer) -> (Store, Team, User, Board) {
-    let workspace = Team {
+async fn other_organization(ts: &TestServer) -> (Store, Workspace, User, Board) {
+    let workspace = Workspace {
         id: new_id(),
         title: "Other organization's workspace".to_owned(),
         signup_token: "another-signup-token".to_owned(),
-        ..Team::default()
+        ..Workspace::default()
     };
     let org_id = ts
         .app
@@ -50,7 +50,7 @@ async fn other_organization(ts: &TestServer) -> (Store, Team, User, Board) {
         .expect("their owner exists");
     let mut board = Board {
         id: new_id(),
-        team_id: workspace.id.clone(),
+        workspace_id: workspace.id.clone(),
         board_type: BoardType::Private,
         title: "Other organization's confidential board".to_owned(),
         ..Board::default()
@@ -63,7 +63,7 @@ async fn other_organization(ts: &TestServer) -> (Store, Team, User, Board) {
 }
 
 /// Keep client2's real session, but make the user belong only to the second org.
-async fn move_second_user(ts: &TestServer, store: &Store, workspace: &Team) {
+async fn move_second_user(ts: &TestServer, store: &Store, workspace: &Workspace) {
     let user_id = ts.client2.me().await.id;
     for table in ["workspace_members", "organization_members"] {
         ts.app
@@ -83,7 +83,7 @@ async fn move_second_user(ts: &TestServer, store: &Store, workspace: &Team) {
     assert!(
         ts.app
             .store()
-            .resolve_workspace(&user_id, ROOT_TEAM_ID)
+            .resolve_workspace(&user_id, ROOT_WORKSPACE_ID)
             .await
             .expect("membership is checked")
             .is_none(),
@@ -105,20 +105,25 @@ async fn another_organizations_user_cannot_discover_the_oldest_workspace() {
     let (store, workspace, _, _) = other_organization(&ts).await;
     move_second_user(&ts, &store, &workspace).await;
     ts.client2
-        .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
         .await
         .check_not_found();
 
-    let team = ts.client2.get(&format!("/w/{ROOT_TEAM_ID}")).await;
-    let boards = ts.client2.get(&format!("/w/{ROOT_TEAM_ID}/boards")).await;
-    let teams: Vec<UserWorkspace> = ts.client2.get("/users/me/workspaces").await.ok_json();
+    let workspace = ts.client2.get(&format!("/w/{ROOT_WORKSPACE_ID}")).await;
+    let boards = ts
+        .client2
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
+        .await;
+    let workspaces: Vec<UserWorkspace> = ts.client2.get("/users/me/workspaces").await.ok_json();
     ts.teardown().await;
 
     assert_eq!(
         (
-            team.status,
+            workspace.status,
             boards.status,
-            teams.iter().any(|team| team.id == ROOT_TEAM_ID)
+            workspaces
+                .iter()
+                .any(|workspace| workspace.id == ROOT_WORKSPACE_ID)
         ),
         (StatusCode::NOT_FOUND, StatusCode::NOT_FOUND, false),
         "legacy routes must hide a workspace from a user of another organization"
@@ -136,7 +141,7 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
     let (store, workspace, _, _) = other_organization(&ts).await;
     move_second_user(&ts, &store, &workspace).await;
 
@@ -169,7 +174,7 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
 #[tokio::test]
 async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_route() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
     let user_id = ts.client2.me().await.id;
     ts.app
         .store()
@@ -180,7 +185,7 @@ async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_rou
         .expect("the workspace role becomes guest");
     let visible: Vec<Board> = ts
         .client2
-        .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
         .await
         .ok_json();
     assert!(visible.is_empty(), "the guest is not on this open board");
@@ -213,7 +218,7 @@ async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_rou
 
 #[tokio::test]
 #[ignore = "O4: the search of users and the reading of a profile are narrowed to who shares a workspace with the one who asks; users are no organization's rows, so the wall does not part them"]
-async fn a_team_user_search_and_profile_lookup_do_not_expose_another_organizations_users() {
+async fn a_workspace_user_search_and_profile_lookup_do_not_expose_another_organizations_users() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
     }
@@ -227,7 +232,7 @@ async fn a_team_user_search_and_profile_lookup_do_not_expose_another_organizatio
     let found: Vec<User> = ts
         .client2
         .get(&format!(
-            "/w/{ROOT_TEAM_ID}/users?search=confidential.other"
+            "/w/{ROOT_WORKSPACE_ID}/users?search=confidential.other"
         ))
         .await
         .ok_json();
@@ -319,7 +324,7 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
     let mut socket = ts.client2.connect_websocket().await;
     socket
         .send(Message::Text(
-            json!({"action": "SUBSCRIBE_TEAM", "teamId": workspace.id})
+            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace.id})
                 .to_string()
                 .into(),
         ))
@@ -398,41 +403,41 @@ async fn removing_workspace_membership_stops_websocket_content_from_that_organiz
 async fn a_hidden_workspace_in_the_same_organization_also_rejects_legacy_board_creation() {
     let ts = Setup::native().start().await.init_basic().await;
     ts.client2
-        .get(&format!("/w/{HIDDEN_TEAM_ID}/boards"))
+        .get(&format!("/w/{HIDDEN_WORKSPACE_ID}/boards"))
         .await
         .check_not_found();
-    let create_in = async |team_id: &str| {
+    let create_in = async |workspace_id: &str| {
         ts.client2
             .post(
                 "/boards",
                 &json!({
-                    "teamId": team_id, "type": "P", "title": "Created inside a hidden workspace"
+                    "workspaceId": workspace_id, "type": "P", "title": "Created inside a hidden workspace"
                 }),
             )
             .await
     };
-    let hidden = create_in(HIDDEN_TEAM_ID).await;
+    let hidden = create_in(HIDDEN_WORKSPACE_ID).await;
     let absent = create_in(UNKNOWN_ID).await;
-    // How many boards the hidden team has: a statement that changes nothing, for the
+    // How many boards the hidden workspace has: a statement that changes nothing, for the
     // number of rows it finds.
     let boards = ts
         .app
         .store()
         .execute_unchecked(&format!(
-            "UPDATE boards SET title = title WHERE team_id = '{HIDDEN_TEAM_ID}'"
+            "UPDATE boards SET title = title WHERE workspace_id = '{HIDDEN_WORKSPACE_ID}'"
         ))
         .await
-        .expect("the boards of the hidden team are counted");
+        .expect("the boards of the hidden workspace are counted");
     ts.teardown().await;
-    // The reviewer's test asked for a 404 here. A team that a body names and that is
+    // The reviewer's test asked for a 404 here. A workspace that a body names and that is
     // not there is a 400 naming the member, by the API's rule for what a body names;
-    // a hidden team answers as one that is not there, so that the two cannot be told
+    // a hidden workspace answers as one that is not there, so that the two cannot be told
     // apart, and a 404 for the hidden one alone would tell them apart.
-    hidden.check_error(StatusCode::BAD_REQUEST, "no such team");
+    hidden.check_error(StatusCode::BAD_REQUEST, "no such workspace");
     assert_eq!(
         (hidden.status, hidden.error_message(), hidden.refused_at()),
         (absent.status, absent.error_message(), absent.refused_at()),
-        "a hidden team answers as one that does not exist"
+        "a hidden workspace answers as one that does not exist"
     );
     assert_eq!(boards, 0, "and no board is made in it");
 }

@@ -1,4 +1,4 @@
-//! Listing the template boards of a team.
+//! Listing the template boards of a workspace.
 //!
 //! Ports `server/api/templates.go`.
 
@@ -19,10 +19,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_get_templates))
 }
 
-/// The templates of a team
+/// The templates of a workspace
 ///
-/// The team's template boards the user may see, then the built-in templates, which
-/// every team is offered. Each of the two oldest first.
+/// The workspace's template boards the user may see, then the built-in templates, which
+/// every workspace is offered. Each of the two oldest first.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/templates",
@@ -32,12 +32,12 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     responses((status = 200, description = "The templates.", body = Vec<Board>)),
 )]
 async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
-    let (app, user_id, team_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
+    let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
     if user_is_guest(app, user_id).await? {
         return Err(AppError::forbidden("access denied to templates"));
     }
 
-    let boards = app.template_boards(team_id, user_id).await?;
+    let boards = app.template_boards(workspace_id, user_id).await?;
     let mut results: Vec<Board> = Vec::with_capacity(boards.len());
     for board in boards {
         let visible = board.board_type == BoardType::Open
@@ -48,6 +48,6 @@ async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
             results.push(board);
         }
     }
-    tracing::debug!(team_id, boards_count = results.len(), "GetTemplates");
+    tracing::debug!(workspace_id, boards_count = results.len(), "GetTemplates");
     Ok(json_response(&results))
 }

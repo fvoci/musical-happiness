@@ -1,4 +1,4 @@
-//! Sidebar categories, which group a user's boards within a team.
+//! Sidebar categories, which group a user's boards within a workspace.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -49,7 +49,7 @@ impl CategoryError {
     }
 }
 
-/// A sidebar category of one user in one team.
+/// A sidebar category of one user in one workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Category {
@@ -62,9 +62,9 @@ pub struct Category {
     /// The identifier of the user the category belongs to.
     #[serde(deserialize_with = "null_as_default")]
     pub user_id: String,
-    /// The identifier of the team the category belongs to.
+    /// The identifier of the workspace the category belongs to.
     #[serde(deserialize_with = "null_as_default")]
-    pub team_id: String,
+    pub workspace_id: String,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
@@ -113,7 +113,7 @@ impl Category {
     ///
     /// # Errors
     ///
-    /// Returns a [`CategoryError`] with every one of the identifier, name, user and team
+    /// Returns a [`CategoryError`] with every one of the identifier, name, user and workspace
     /// that is blank.
     pub fn validate(&self) -> Result<(), CategoryError> {
         let required = [
@@ -121,9 +121,9 @@ impl Category {
             (&self.name, "name", "category name cannot be empty"),
             (&self.user_id, "userId", "category user ID cannot be empty"),
             (
-                &self.team_id,
-                "teamId",
-                "category team id ID cannot be empty",
+                &self.workspace_id,
+                "workspaceId",
+                "category workspace id ID cannot be empty",
             ),
         ];
         let mut refused = Refusals::new();

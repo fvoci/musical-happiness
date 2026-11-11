@@ -16,7 +16,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// The smallest part size, which the tests use so that a file of two parts stays small.
 const PART: usize = 5 * 1024 * 1024;
@@ -140,7 +140,7 @@ fn files_in(directory: &Path) -> Vec<String> {
 #[tokio::test]
 async fn a_file_sent_in_parts_is_stored_whole() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let data = file_of(PART + 1000);
 
     let response = open(&ts.client, &board.id, "Report.PDF", data.len()).await;
@@ -220,7 +220,7 @@ async fn a_file_sent_in_parts_is_stored_whole() {
 #[tokio::test]
 async fn an_empty_file_has_no_part() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = open(&ts.client, &board.id, "empty.txt", 0).await;
     response.check_created();
     assert_eq!(response.value()["partCount"], 0);
@@ -253,7 +253,7 @@ async fn an_empty_file_has_no_part() {
 #[tokio::test]
 async fn a_part_that_fails_a_check_is_not_kept() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let data = file_of(PART + 10);
     let upload_id = opened(&ts.client, &board.id, "a.bin", data.len()).await;
     let last = &data[PART..];
@@ -310,7 +310,7 @@ async fn a_part_that_fails_a_check_is_not_kept() {
 #[tokio::test]
 async fn another_users_upload_is_not_found() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
 
     for id in [upload_id.as_str(), "no-such-upload"] {
@@ -337,7 +337,7 @@ async fn another_users_upload_is_not_found() {
 #[tokio::test]
 async fn an_abandoned_upload_leaves_nothing() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &upload_id, 1, b"abc")
         .await
@@ -369,7 +369,7 @@ async fn opening_an_upload_is_checked() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     open(&ts.client, &board.id, "a.txt", 1000)
         .await
@@ -415,7 +415,7 @@ async fn opening_an_upload_is_checked() {
 #[tokio::test]
 async fn a_completion_without_the_permission_throws_the_upload_away() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let editor = ts.client2.me().await;
     ts.client
         .add_member(&BoardMember {
@@ -453,7 +453,7 @@ async fn a_completion_without_the_permission_throws_the_upload_away() {
 #[tokio::test]
 async fn a_closed_upload_is_left_to_whoever_closed_it() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &upload_id, 1, b"abc")
         .await
@@ -488,7 +488,7 @@ async fn a_closed_upload_is_left_to_whoever_closed_it() {
 #[tokio::test]
 async fn a_part_that_ends_after_the_upload_closed_is_not_kept() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     let me = ts.client.me().await;
     let (upload, _) = ts
@@ -528,7 +528,7 @@ async fn a_part_that_ends_after_the_upload_closed_is_not_kept() {
 #[tokio::test]
 async fn a_late_part_sent_again_leaves_the_recorded_part() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &upload_id, 1, b"abc")
         .await
@@ -571,7 +571,7 @@ async fn a_late_part_sent_again_leaves_the_recorded_part() {
 #[tokio::test]
 async fn a_user_has_at_most_eight_uploads_open() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let mut open_ones = Vec::new();
     for _ in 0..8 {
         open_ones.push(opened(&ts.client, &board.id, "a.txt", 1).await);
@@ -620,7 +620,7 @@ async fn the_bytes_open_uploads_hold_back_are_limited() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     opened(&ts.client, &board.id, "a.bin", 1000).await;
     opened(&ts.client, &board.id, "a.bin", 1000).await;
@@ -640,7 +640,7 @@ async fn the_bytes_open_uploads_hold_back_are_limited() {
 #[tokio::test]
 async fn ended_uploads_are_thrown_away_with_their_parts() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let ending = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &ending, 1, b"abc")
         .await
@@ -703,7 +703,7 @@ async fn ended_uploads_are_thrown_away_with_their_parts() {
 #[tokio::test]
 async fn the_sweep_removes_what_no_upload_owns() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let live = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &live, 1, b"abc")
         .await
@@ -742,7 +742,7 @@ async fn the_sweep_removes_what_no_upload_owns() {
 #[tokio::test]
 async fn a_single_upload_takes_one_part() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let files = Path::new(&ts.app.config().files_path).to_path_buf();
 
     let response = crate::files::upload(&ts.client, &board.id, "a.bin", &file_of(PART)).await;
@@ -797,7 +797,7 @@ fn stored_files(root: &Path) -> Vec<PathBuf> {
 #[tokio::test]
 async fn uploads_opened_at_once_keep_to_the_limit() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let answers =
         futures_util::future::join_all((0..20).map(|_| open(&ts.client, &board.id, "a.txt", 1)))
             .await;
@@ -817,7 +817,7 @@ async fn uploads_opened_at_once_keep_to_the_limit() {
 #[tokio::test]
 async fn an_upload_closed_just_before_its_end_gets_the_grace() {
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = open(&ts.client, &board.id, "a.txt", 3).await;
     response.check_created();
     let expires_at = response.value()["expiresAt"].as_i64().expect("an end");
@@ -859,7 +859,7 @@ async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     let ts = server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let address = ts.base_url.trim_start_matches("http://").to_owned();
     let request = format!(
         "POST /api/v1/boards/{}/files HTTP/1.1\r\nHost: {address}\r\n\
@@ -951,7 +951,7 @@ async fn upload_path(ts: &TestServer, upload_id: &str) -> String {
 #[ignore = "needs an S3-compatible server; see tests/storage.rs"]
 async fn with_s3_the_parts_go_to_the_bucket() {
     let ts = s3_server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let data = file_of(PART + 1000);
 
     let upload_id = opened(&ts.client, &board.id, "Report.PDF", data.len()).await;
@@ -1045,7 +1045,7 @@ async fn with_s3_the_parts_go_to_the_bucket() {
 #[ignore = "needs an S3-compatible server; see tests/storage.rs"]
 async fn with_s3_what_fails_leaves_nothing() {
     let ts = s3_server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     // A part sent after the session was closed, as by a completion that began.
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
@@ -1104,7 +1104,7 @@ async fn with_s3_what_fails_leaves_nothing() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = open(&ts.client, &board.id, "a.txt", 3).await;
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
     let sessions = ts
@@ -1166,7 +1166,7 @@ async fn complete_behind_the_back(ts: &TestServer, upload_id: &str) -> String {
 #[ignore = "needs an S3-compatible server; see tests/storage.rs"]
 async fn with_s3_a_completion_without_record_leaves_no_object() {
     let ts = s3_server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
     put_part(&ts.client, &upload_id, 1, b"abc")
@@ -1230,7 +1230,7 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
 #[ignore = "needs an S3-compatible server; see tests/storage.rs"]
 async fn with_s3_parts_sent_at_once_are_all_taken() {
     let ts = s3_server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let data = file_of(PART * 3 + 10);
     let upload_id = opened(&ts.client, &board.id, "a.bin", data.len()).await;
 

@@ -8,14 +8,14 @@ use serde_json::json;
 use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncReadExt as _;
 
-use super::common::{Client, ROOT_TEAM_ID};
+use super::common::{Client, ROOT_WORKSPACE_ID};
 use super::db_type_of_the_tests;
 use super::media::Scene;
 
-async fn import_bytes(client: &Client, team: &str, bytes: Vec<u8>) {
+async fn import_bytes(client: &Client, workspace: &str, bytes: Vec<u8>) {
     let opened = client
         .post(
-            &format!("/w/{team}/archive/uploads"),
+            &format!("/w/{workspace}/archive/uploads"),
             &json!({"name": "transfer.zip", "size": bytes.len()}),
         )
         .await;
@@ -35,7 +35,7 @@ async fn import_bytes(client: &Client, team: &str, bytes: Vec<u8>) {
     .check_no_content();
     client
         .post(
-            &format!("/w/{team}/archive/import"),
+            &format!("/w/{workspace}/archive/import"),
             &json!({"uploadId": upload}),
         )
         .await
@@ -134,14 +134,14 @@ async fn export_with_b_only_member(scene: &Scene) -> (Vec<u8>, User) {
         scene
             .ts
             .app
-            .export_archive(ROOT_TEAM_ID, std::slice::from_ref(&scene.b.id))
+            .export_archive(ROOT_WORKSPACE_ID, std::slice::from_ref(&scene.b.id))
             .await
             .is_err(),
         "A's service cannot export B's board"
     );
     let mut archive = scene
         .b_app
-        .export_archive(&scene.b.team_id, std::slice::from_ref(&scene.b.id))
+        .export_archive(&scene.b.workspace_id, std::slice::from_ref(&scene.b.id))
         .await
         .expect("the user explicitly exports B through B's service");
     let mut bytes = Vec::new();
@@ -162,11 +162,11 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let scene = Scene::new(None).await;
     let (_, name_b) = scene.receive_files().await;
     let (bytes, outsider) = export_with_b_only_member(&scene).await;
-    import_bytes(&scene.ts.client, ROOT_TEAM_ID, bytes).await;
+    import_bytes(&scene.ts.client, ROOT_WORKSPACE_ID, bytes).await;
     let boards: Vec<Board> = scene
         .ts
         .client
-        .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
         .await
         .ok_json();
     let imported = boards
@@ -178,7 +178,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
         "the original identifier is not reused"
     );
     assert_eq!(
-        imported.team_id, ROOT_TEAM_ID,
+        imported.workspace_id, ROOT_WORKSPACE_ID,
         "the target workspace wins over archive metadata"
     );
     let members: Vec<BoardMember> = scene
@@ -280,14 +280,14 @@ async fn system_templates_are_shared_read_only_and_their_copies_belong_to_the_de
         .duplicate_board(
             &builtin.id,
             &scene.user,
-            &scene.b.team_id,
+            &scene.b.workspace_id,
             DuplicateAs::Copy,
         )
         .await
         .expect("an authorized template copy into B");
     let board = &copied.boards[0];
     assert!(
-        !board.is_builtin && board.team_id == scene.b.team_id,
+        !board.is_builtin && board.workspace_id == scene.b.workspace_id,
         "the copy is B's regular board"
     );
     assert!(
@@ -320,19 +320,19 @@ async fn one_user_can_file_a_shared_builtin_template_independently_in_two_orgs()
     let a_categories = scene
         .ts
         .app
-        .user_category_boards(&scene.user, ROOT_TEAM_ID)
+        .user_category_boards(&scene.user, ROOT_WORKSPACE_ID)
         .await
         .expect("A's categories");
     let b_categories = scene
         .b_app
-        .user_category_boards(&scene.user, &scene.b.team_id)
+        .user_category_boards(&scene.user, &scene.b.workspace_id)
         .await
         .expect("B's categories");
     scene
         .ts
         .app
         .add_update_user_category_board(
-            ROOT_TEAM_ID,
+            ROOT_WORKSPACE_ID,
             &scene.user,
             &a_categories[0].category.id,
             std::slice::from_ref(&builtin.id),
@@ -342,7 +342,7 @@ async fn one_user_can_file_a_shared_builtin_template_independently_in_two_orgs()
     let b_filed = scene
         .b_app
         .add_update_user_category_board(
-            &scene.b.team_id,
+            &scene.b.workspace_id,
             &scene.user,
             &b_categories[0].category.id,
             std::slice::from_ref(&builtin.id),

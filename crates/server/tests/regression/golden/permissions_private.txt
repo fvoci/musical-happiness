@@ -47,9 +47,9 @@ files: info                                 401        404        200        200
 uploads: open                               401        404        403        403        201        201
 archive: export board                       401        404        200        200        200        200
 archive: open an upload                     401        201        201        201        201        201
-archive: export team                        401        200        200        200        200        200
+archive: export workspace                   401        200        200        200        200        200
 categories: list                            401        200        200        200        200        200
-team: boards                                401        200        200        200        200        200
-team: templates                             401        200        200        200        200        200
-team: search                                401        200        200        200        200        200
-team: users                                 401        200        200        200        200        200
+workspace: boards                           401        200        200        200        200        200
+workspace: templates                        401        200        200        200        200        200
+workspace: search                           401        200        200        200        200        200
+workspace: users                            401        200        200        200        200        200

@@ -8,7 +8,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::common::{
-    ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID,
+    ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
 
 /// Whether the creator of a board becomes a member of it; the last argument of the
@@ -48,19 +48,19 @@ async fn create_board(
     board
 }
 
-fn titled(title: &str, board_type: BoardType, team_id: &str) -> Board {
+fn titled(title: &str, board_type: BoardType, workspace_id: &str) -> Board {
     Board {
         title: title.to_owned(),
         board_type,
-        team_id: team_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
         ..Board::default()
     }
 }
 
 /// `SearchBoardsForTeam`
-async fn search_team(client: &Client, team_id: &str, term: &str) -> ApiResponse {
+async fn search_workspace(client: &Client, workspace_id: &str, term: &str) -> ApiResponse {
     client
-        .get(&format!("/w/{team_id}/boards/search?q={term}"))
+        .get(&format!("/w/{workspace_id}/boards/search?q={term}"))
         .await
 }
 
@@ -102,7 +102,7 @@ fn check_nothing_found(response: &ApiResponse) {
 async fn search_boards_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = search_team(&th.anonymous(), TEST_TEAM_ID, "term").await;
+    let response = search_workspace(&th.anonymous(), TEST_WORKSPACE_ID, "term").await;
 
     check_error(&response, StatusCode::UNAUTHORIZED, "no session token");
     th.teardown().await;
@@ -115,12 +115,12 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
  {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let team_id = TEST_TEAM_ID;
+    let workspace_id = TEST_WORKSPACE_ID;
     let board =
-        async |title: &str, board_type: BoardType, team_id: &str, membership: Membership| {
+        async |title: &str, board_type: BoardType, workspace_id: &str, membership: Membership| {
             create_board(
                 &th,
-                titled(title, board_type, team_id),
+                titled(title, board_type, workspace_id),
                 &user1.id,
                 membership,
             )
@@ -130,35 +130,35 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
     let board1 = board(
         "public board where user1 is admin",
         BoardType::Open,
-        team_id,
+        workspace_id,
         Membership::Admin,
     )
     .await;
     let board2 = board(
         "public board where user1 is not member",
         BoardType::Open,
-        team_id,
+        workspace_id,
         Membership::None,
     )
     .await;
     let board3 = board(
         "private board where user1 is admin",
         BoardType::Private,
-        team_id,
+        workspace_id,
         Membership::Admin,
     )
     .await;
     board(
         "private board where user1 is not member",
         BoardType::Private,
-        team_id,
+        workspace_id,
         Membership::None,
     )
     .await;
     let board5 = board(
-        "private board where user1 is admin, but in other team",
+        "private board where user1 is admin, but in other workspace",
         BoardType::Private,
-        ROOT_TEAM_ID,
+        ROOT_WORKSPACE_ID,
         Membership::Admin,
     )
     .await;
@@ -196,7 +196,7 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
         ),
     ];
     for (name, client, term, expected) in cases {
-        let response = search_team(client, team_id, term).await;
+        let response = search_workspace(client, workspace_id, term).await;
         assert_eq!(found_ids(&response), sorted_ids(&expected), "{name}");
     }
 
@@ -207,20 +207,20 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
 // Not in the original: the routes' answers, checked against the original server.
 
 /// A server with two users and two boards of the first: an open one titled "b one" and a
-/// private one titled "b two", both in team `0`.
+/// private one titled "b two", both in workspace `0`.
 async fn two_boards() -> (TestServer, Board, Board) {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let open = create_board(
         &th,
-        titled("b one", BoardType::Open, ROOT_TEAM_ID),
+        titled("b one", BoardType::Open, ROOT_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
     .await;
     let private = create_board(
         &th,
-        titled("b two", BoardType::Private, ROOT_TEAM_ID),
+        titled("b two", BoardType::Private, ROOT_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
@@ -234,27 +234,27 @@ async fn search_without_a_term_finds_nothing() {
     let (th, _open, _private) = two_boards().await;
 
     for path in [
-        &format!("/w/{ROOT_TEAM_ID}/boards/search"),
-        &format!("/w/{ROOT_TEAM_ID}/boards/search?q="),
-        &format!("/w/{ROOT_TEAM_ID}/boards/search?field=title"),
+        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search"),
+        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search?q="),
+        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search?field=title"),
         "/boards/search",
         "/boards/search?q=",
     ] {
         check_nothing_found(&th.client.get(path).await);
     }
     // And a term that matches no board answers the same.
-    check_nothing_found(&search_team(&th.client, ROOT_TEAM_ID, "zzzzqq").await);
+    check_nothing_found(&search_workspace(&th.client, ROOT_WORKSPACE_ID, "zzzzqq").await);
     check_nothing_found(&th.client.get("/boards/search?q=zzzzqq").await);
 
     th.teardown().await;
 }
 
-/// The search within a team: what each user finds, and how the term is read.
+/// The search within a workspace: what each user finds, and how the term is read.
 #[tokio::test]
-async fn search_boards_of_a_team() {
+async fn search_boards_of_a_workspace() {
     let (th, open, private) = two_boards().await;
 
-    let response = search_team(&th.client, ROOT_TEAM_ID, "b").await;
+    let response = search_workspace(&th.client, ROOT_WORKSPACE_ID, "b").await;
     assert_eq!(
         found_ids(&response),
         sorted_ids(&[&open, &private]),
@@ -268,39 +268,39 @@ async fn search_boards_of_a_team() {
         .expect("the open board is found");
     assert_eq!(*found_open, open, "the board as stored");
 
-    let response = search_team(&th.client2, ROOT_TEAM_ID, "b").await;
+    let response = search_workspace(&th.client2, ROOT_WORKSPACE_ID, "b").await;
     assert_eq!(
         found_ids(&response),
         sorted_ids(&[&open]),
         "another user finds the open board only"
     );
-    check_nothing_found(&search_team(&th.client2, ROOT_TEAM_ID, "two").await);
+    check_nothing_found(&search_workspace(&th.client2, ROOT_WORKSPACE_ID, "two").await);
 
     // The term is decoded from the query: `+` and `%20` are spaces, and every word of
     // the term must be in the title.
     for term in ["b+one", "b%20one", "ONE+b"] {
-        let response = search_team(&th.client, ROOT_TEAM_ID, term).await;
+        let response = search_workspace(&th.client, ROOT_WORKSPACE_ID, term).await;
         assert_eq!(found_ids(&response), sorted_ids(&[&open]), "term {term}");
     }
-    check_nothing_found(&search_team(&th.client, ROOT_TEAM_ID, "one+two").await);
+    check_nothing_found(&search_workspace(&th.client, ROOT_WORKSPACE_ID, "one+two").await);
 
-    // Preserved quirk: the team of the path is not part of the search.
-    let response = search_team(&th.client, TEST_TEAM_ID, "b").await;
+    // Preserved quirk: the workspace of the path is not part of the search.
+    let response = search_workspace(&th.client, TEST_WORKSPACE_ID, "b").await;
     assert_eq!(
         found_ids(&response),
         sorted_ids(&[&open, &private]),
-        "the boards of the root team are found under another team"
+        "the boards of the root workspace are found under another workspace"
     );
-    // The team has to be one, though.
-    for no_team in [UNKNOWN_ID, "another-team"] {
-        let response = search_team(&th.client, no_team, "b").await;
+    // The workspace has to be one, though.
+    for no_workspace in [UNKNOWN_ID, "another-workspace"] {
+        let response = search_workspace(&th.client, no_workspace, "b").await;
         response.check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
 
     th.teardown().await;
 }
 
-/// The `field` parameter of the search within a team.
+/// The `field` parameter of the search within a workspace.
 #[tokio::test]
 async fn search_boards_by_field() {
     let (th, open, _private) = two_boards().await;
@@ -311,7 +311,7 @@ async fn search_boards_by_field() {
         &th,
         Board {
             properties,
-            ..titled("with a property", BoardType::Open, ROOT_TEAM_ID)
+            ..titled("with a property", BoardType::Open, ROOT_WORKSPACE_ID)
         },
         &user.id,
         Membership::Admin,
@@ -319,7 +319,7 @@ async fn search_boards_by_field() {
     .await;
     let search = async |query: &str| {
         th.client
-            .get(&format!("/w/{ROOT_TEAM_ID}/boards/search?{query}"))
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/search?{query}"))
             .await
     };
 
@@ -349,7 +349,7 @@ async fn search_boards_by_field() {
         );
     }
 
-    // The search across teams has no such parameter.
+    // The search across workspaces has no such parameter.
     let response = th.client.get("/boards/search?q=one&field=bogus").await;
     assert_eq!(found_ids(&response), sorted_ids(&[&open]), "field ignored");
 
@@ -371,7 +371,7 @@ async fn searches_answer_the_same_on_both_databases() {
         &th,
         Board {
             properties,
-            ..titled("Ärger 100% über_all", BoardType::Open, ROOT_TEAM_ID)
+            ..titled("Ärger 100% über_all", BoardType::Open, ROOT_WORKSPACE_ID)
         },
         &user.id,
         Membership::Admin,
@@ -379,7 +379,7 @@ async fn searches_answer_the_same_on_both_databases() {
     .await;
     let search = async |query: &str| {
         th.client
-            .get(&format!("/w/{ROOT_TEAM_ID}/boards/search?{query}"))
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/search?{query}"))
             .await
     };
     for query in [
@@ -408,14 +408,14 @@ async fn searches_answer_the_same_on_both_databases() {
     th.teardown().await;
 }
 
-/// The search across all teams.
+/// The search across all workspaces.
 #[tokio::test]
 async fn search_all_boards() {
     let (th, open, private) = two_boards().await;
     let user = th.client.me().await;
     let elsewhere = create_board(
         &th,
-        titled("b three", BoardType::Private, TEST_TEAM_ID),
+        titled("b three", BoardType::Private, TEST_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
@@ -424,7 +424,7 @@ async fn search_all_boards() {
         &th,
         Board {
             is_template: true,
-            ..titled("b template", BoardType::Open, ROOT_TEAM_ID)
+            ..titled("b template", BoardType::Open, ROOT_WORKSPACE_ID)
         },
         &user.id,
         Membership::Admin,
@@ -435,7 +435,7 @@ async fn search_all_boards() {
     assert_eq!(
         found_ids(&response),
         sorted_ids(&[&open, &private, &elsewhere]),
-        "the member finds the boards of every team, and no template"
+        "the member finds the boards of every workspace, and no template"
     );
     assert!(
         !found_ids(&response).contains(&template.id),
@@ -462,9 +462,9 @@ async fn search_all_boards() {
 async fn search_routes_of_the_host_application_do_not_exist() {
     let th = Setup::native().start().await.init_basic().await;
     let paths = [
-        &format!("/teams/{ROOT_TEAM_ID}/channels"),
-        &format!("/teams/{ROOT_TEAM_ID}/channels?search=x"),
-        &format!("/w/{ROOT_TEAM_ID}/boards/search/linkable?q=b"),
+        &format!("/teams/{ROOT_WORKSPACE_ID}/channels"),
+        &format!("/teams/{ROOT_WORKSPACE_ID}/channels?search=x"),
+        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search/linkable?q=b"),
     ];
 
     for path in paths {
@@ -476,24 +476,24 @@ async fn search_routes_of_the_host_application_do_not_exist() {
     th.teardown().await;
 }
 
-/// The search within one team, which no route of a standalone server reaches (its caller
+/// The search within one workspace, which no route of a standalone server reaches (its caller
 /// in the original is the linkable-boards route).
 #[tokio::test]
-async fn search_boards_for_user_in_team() {
+async fn search_boards_for_user_in_workspace() {
     let (th, open, private) = two_boards().await;
     let user = th.client.me().await;
     let other = th.client2.me().await;
     create_board(
         &th,
-        titled("b three", BoardType::Open, TEST_TEAM_ID),
+        titled("b three", BoardType::Open, TEST_WORKSPACE_ID),
         &user.id,
         Membership::Admin,
     )
     .await;
-    let search = async |team_id: &str, term: &str, user_id: &str| {
+    let search = async |workspace_id: &str, term: &str, user_id: &str| {
         let mut found: Vec<String> = th
             .app
-            .search_boards_for_user_in_team(team_id, term, user_id)
+            .search_boards_for_user_in_workspace(workspace_id, term, user_id)
             .await
             .expect("the search runs")
             .into_iter()
@@ -504,23 +504,23 @@ async fn search_boards_for_user_in_team() {
     };
 
     assert_eq!(
-        search(ROOT_TEAM_ID, "b", &user.id).await,
+        search(ROOT_WORKSPACE_ID, "b", &user.id).await,
         sorted_ids(&[&open, &private]),
-        "the member finds the boards of the team"
+        "the member finds the boards of the workspace"
     );
     assert_eq!(
-        search(ROOT_TEAM_ID, "b", &other.id).await,
+        search(ROOT_WORKSPACE_ID, "b", &other.id).await,
         sorted_ids(&[&open]),
         "another user finds the open one"
     );
     assert_eq!(
-        search(ROOT_TEAM_ID, "two", &user.id).await,
+        search(ROOT_WORKSPACE_ID, "two", &user.id).await,
         sorted_ids(&[&private]),
         "by title"
     );
     assert!(
         search(UNKNOWN_ID, "b", &user.id).await.is_empty(),
-        "nothing in a team that is none"
+        "nothing in a workspace that is none"
     );
 
     th.teardown().await;

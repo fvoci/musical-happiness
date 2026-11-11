@@ -14,7 +14,7 @@ use reqwest::multipart::{Form, Part};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// What exists and is hidden from the second user, and what stands in for it in the
 /// request that names nothing.
@@ -45,7 +45,7 @@ impl Hidden {
         let th = Setup::local_mode().start().await.init_basic().await;
         let owner = th.client.me().await;
         let outsider = th.client2.me().await.id;
-        let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+        let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
         let block = |block_type: BlockType, parent_id: &str| Block {
             id: new_id(),
             board_id: board.id.clone(),
@@ -82,14 +82,14 @@ impl Hidden {
 
         // Listing creates the default category; then one of the owner's own.
         th.client
-            .get(&format!("/w/{TEST_TEAM_ID}/categories"))
+            .get(&format!("/w/{TEST_WORKSPACE_ID}/categories"))
             .await
             .check_ok();
         let category: Category = th
             .client
             .post(
-                &format!("/w/{TEST_TEAM_ID}/categories"),
-                &json!({"name": "Hidden", "userId": owner.id, "teamId": TEST_TEAM_ID}),
+                &format!("/w/{TEST_WORKSPACE_ID}/categories"),
+                &json!({"name": "Hidden", "userId": owner.id, "workspaceId": TEST_WORKSPACE_ID}),
             )
             .await
             .created_json();
@@ -117,7 +117,7 @@ impl Hidden {
         let own_board = th
             .client2
             .create_board(&fvoci_model::Board {
-                team_id: TEST_TEAM_ID.to_owned(),
+                workspace_id: TEST_WORKSPACE_ID.to_owned(),
                 board_type: BoardType::Private,
                 ..fvoci_model::Board::default()
             })
@@ -148,14 +148,14 @@ impl Hidden {
             .created_json();
         created.pop().expect("the text is created");
         th.client2
-            .get(&format!("/w/{TEST_TEAM_ID}/categories"))
+            .get(&format!("/w/{TEST_WORKSPACE_ID}/categories"))
             .await
             .check_ok();
         let own_category: Category = th
             .client2
             .post(
-                &format!("/w/{TEST_TEAM_ID}/categories"),
-                &json!({"name": "Own", "userId": outsider, "teamId": TEST_TEAM_ID}),
+                &format!("/w/{TEST_WORKSPACE_ID}/categories"),
+                &json!({"name": "Own", "userId": outsider, "workspaceId": TEST_WORKSPACE_ID}),
             )
             .await
             .created_json();
@@ -199,6 +199,16 @@ fn title(_: &Hidden, _: usize) -> Value {
 
 fn member(_: &Hidden, _: usize) -> Value {
     json!({"userId": "somebody", "schemeEditor": true})
+}
+
+/// The path of a category of the test workspace, and of what follows it.
+fn category_path(category: &str, rest: &str) -> String {
+    format!("/w/{TEST_WORKSPACE_ID}/categories/{category}{rest}")
+}
+
+/// The path of a board in a category of the test workspace, and of what follows it.
+fn filed_path(category: &str, board: &str, rest: &str) -> String {
+    category_path(category, &format!("/boards/{board}{rest}"))
 }
 
 #[expect(
@@ -418,37 +428,27 @@ fn cases() -> Vec<Case> {
         // The owner's category.
         case(
             Method::PUT,
-            |h, i| format!("/w/{TEST_TEAM_ID}/categories/{}", h.category[i]),
-            |h, i| json!({"id": h.category[i], "name": "x", "teamId": TEST_TEAM_ID}),
+            |h, i| category_path(&h.category[i], ""),
+            |h, i| json!({"id": h.category[i], "name": "x", "workspaceId": TEST_WORKSPACE_ID}),
         ),
         case(
             Method::DELETE,
-            |h, i| format!("/w/{TEST_TEAM_ID}/categories/{}", h.category[i]),
+            |h, i| category_path(&h.category[i], ""),
             no_body,
         ),
         case(
             Method::PUT,
-            |h, i| format!("/w/{TEST_TEAM_ID}/categories/{}/board-order", h.category[i]),
+            |h, i| category_path(&h.category[i], "/board-order"),
             |_, _| json!([]),
         ),
         case(
             Method::POST,
-            |h, i| {
-                format!(
-                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}",
-                    h.category[i], h.board[i]
-                )
-            },
+            |h, i| filed_path(&h.category[i], &h.board[i], ""),
             no_body,
         ),
         case(
             Method::PUT,
-            |h, i| {
-                format!(
-                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}/hide",
-                    h.category[i], h.board[i]
-                )
-            },
+            |h, i| filed_path(&h.category[i], &h.board[i], "/hide"),
             no_body,
         ),
     ]
@@ -552,42 +552,27 @@ fn mixed_cases() -> Vec<Case> {
         // A hidden board in the asker's own category.
         case(
             Method::POST,
-            |h, i| {
-                format!(
-                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}",
-                    h.own_category, h.board[i]
-                )
-            },
+            |h, i| filed_path(&h.own_category, &h.board[i], ""),
             no_body,
         ),
         case(
             Method::PUT,
-            |h, i| {
-                format!(
-                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}/hide",
-                    h.own_category, h.board[i]
-                )
-            },
+            |h, i| filed_path(&h.own_category, &h.board[i], "/hide"),
             no_body,
         ),
         case(
             Method::PUT,
-            |h, i| {
-                format!(
-                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}/unhide",
-                    h.own_category, h.board[i]
-                )
-            },
+            |h, i| filed_path(&h.own_category, &h.board[i], "/unhide"),
             no_body,
         ),
         // A new category that names the identifier of somebody's category.
         case(
             Method::POST,
-            |_, _| format!("/w/{TEST_TEAM_ID}/categories"),
+            |_, _| format!("/w/{TEST_WORKSPACE_ID}/categories"),
             |h, i| {
                 json!({
                     "id": h.category[i], "name": "x",
-                    "userId": h.outsider, "teamId": TEST_TEAM_ID,
+                    "userId": h.outsider, "workspaceId": TEST_WORKSPACE_ID,
                 })
             },
         ),
@@ -777,7 +762,7 @@ async fn without_a_session_nothing_is_told_either() {
 }
 
 /// Text that is no identifier answers as an identifier of nothing, also where the asker
-/// is allowed everything: on their own board, in their own team, about themselves. An
+/// is allowed everything: on their own board, in their own workspace, about themselves. An
 /// identifier column takes no such text, and no route may let that show: not as a 500,
 /// and not as an answer that differs from "there is no such thing".
 #[tokio::test]
@@ -792,7 +777,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
     let board = &hidden.board[0];
     let card = &hidden.card[0];
     let category = &hidden.category[0];
-    let team = TEST_TEAM_ID;
+    let workspace = TEST_WORKSPACE_ID;
 
     // `{}` stands for the identifier that is asked about.
     let requests: Vec<(Method, String, Value)> = vec![
@@ -874,32 +859,32 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         ),
         (
             Method::POST,
-            format!("/boards/{board}/duplicate?toTeam={{}}"),
+            format!("/boards/{board}/duplicate?toWorkspace={{}}"),
             Value::Null,
         ),
         (
             Method::PUT,
-            format!("/w/{team}/categories/{{}}"),
-            json!({"id": "{}", "name": "x", "userId": me, "teamId": team}),
+            format!("/w/{workspace}/categories/{{}}"),
+            json!({"id": "{}", "name": "x", "userId": me, "workspaceId": workspace}),
         ),
         (
             Method::DELETE,
-            format!("/w/{team}/categories/{{}}"),
+            format!("/w/{workspace}/categories/{{}}"),
             Value::Null,
         ),
         (
             Method::POST,
-            format!("/w/{team}/categories/{{}}/boards/{board}"),
+            format!("/w/{workspace}/categories/{{}}/boards/{board}"),
             Value::Null,
         ),
         (
             Method::POST,
-            format!("/w/{team}/categories/{category}/boards/{{}}"),
+            format!("/w/{workspace}/categories/{category}/boards/{{}}"),
             Value::Null,
         ),
         (
             Method::PUT,
-            format!("/w/{team}/categories/{category}/boards/{{}}/hide"),
+            format!("/w/{workspace}/categories/{category}/boards/{{}}/hide"),
             Value::Null,
         ),
         (

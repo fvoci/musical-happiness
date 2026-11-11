@@ -73,13 +73,13 @@ struct UploadState {
     /// The identifier of the upload.
     upload_id: String,
     /// What the upload is for: `file`, a file of a board (`completeUpload`), or
-    /// `import`, an archive to import into a team (`importArchive`).
+    /// `import`, an archive to import into a workspace (`importArchive`).
     #[schema(inline)]
     purpose: Purpose,
     /// The board the file is for; empty for an archive.
     board_id: String,
-    /// The team the archive is for; empty for a file.
-    team_id: String,
+    /// The workspace the archive is for; empty for a file.
+    workspace_id: String,
     /// The name of the file.
     name: String,
     /// The size of the file in bytes.
@@ -133,7 +133,7 @@ impl UploadState {
                 UploadPurpose::Import => Purpose::Import,
             },
             board_id: upload.board_id,
-            team_id: upload.team_id,
+            workspace_id: upload.workspace_id,
             name: upload.name,
             size: upload.size,
             part_size: upload.part_size,
@@ -221,11 +221,11 @@ async fn handle_create_upload(
 
 /// Open an upload of an archive
 ///
-/// Opens an upload of an archive to import into the team, sent in parts as a file is
+/// Opens an upload of an archive to import into the workspace, sent in parts as a file is
 /// with `createUpload`, and imported with `importArchive` once every part is received.
 /// An archive larger than `maxImportSize` of `getClientConfig` is 413. It counts
 /// toward the same limits as the uploads of files, which hold back at most twice the
-/// larger of `maxFileSize` and `maxImportSize` for a user. For users of the team who
+/// larger of `maxFileSize` and `maxImportSize` for a user. For users of the workspace who
 /// are not guests, as `importArchive`.
 #[utoipa::path(
     post,
@@ -239,10 +239,10 @@ async fn handle_create_upload(
 async fn handle_create_import_upload(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
+    Path(workspace_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    let ws = require_import_access(&app, session, team_id).await?;
+    let ws = require_import_access(&app, session, workspace_id).await?;
     let NewUpload {
         name,
         size,

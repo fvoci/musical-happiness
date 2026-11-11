@@ -15,5 +15,5 @@ export async function changeDisplayName(workspace: Workspace, displayName: strin
   workspace.users = workspace.user(changed.id)
     ? replace(workspace.users)
     : [...workspace.users, changed];
-  workspace.teamUsers = replace(workspace.teamUsers);
+  workspace.workspaceUsers = replace(workspace.workspaceUsers);
 }

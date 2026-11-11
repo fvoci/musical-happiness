@@ -22,8 +22,10 @@ import {
 
 test.use({ locale: 'en-US' });
 
-async function boardsTitled(api: APIRequestContext, teamId: string, title: string) {
-  const boards = (await (await api.get(`/api/v1/w/${teamId}/boards`)).json()) as Schemas['Board'][];
+async function boardsTitled(api: APIRequestContext, workspaceId: string, title: string) {
+  const boards = (await (
+    await api.get(`/api/v1/w/${workspaceId}/boards`)
+  ).json()) as Schemas['Board'][];
   return boards.filter((board) => board.title === title);
 }
 
@@ -64,9 +66,9 @@ test('a board is exported and imported again, and a file that is no archive is r
   await sidebar(page).getByTestId('open-settings').click();
   const settings = page.getByTestId('settings-dialog');
   const savingAll = page.waitForEvent('download');
-  await settings.getByTestId('export-team').click();
+  await settings.getByTestId('export-workspace').click();
   const all = await savingAll;
-  const allPath = testInfo.outputPath('team.boardarchive');
+  const allPath = testInfo.outputPath('workspace.boardarchive');
   await all.saveAs(allPath);
   expect((await readFile(allPath)).subarray(0, 2).toString()).toBe('PK');
 
@@ -75,8 +77,8 @@ test('a board is exported and imported again, and a file that is no archive is r
   await expect(
     page.getByTestId('transfers').locator('[data-transfer="import"][data-finished]'),
   ).toContainText('board.boardarchive is imported.');
-  await expect.poll(async () => (await boardsTitled(api, made.teamId, title)).length).toBe(2);
-  const copy = (await boardsTitled(api, made.teamId, title)).find(
+  await expect.poll(async () => (await boardsTitled(api, made.workspaceId, title)).length).toBe(2);
+  const copy = (await boardsTitled(api, made.workspaceId, title)).find(
     (board) => board.id !== made.boardId,
   );
   const cards = (await (
@@ -96,7 +98,7 @@ test('a board is exported and imported again, and a file that is no archive is r
   await expect(page.locator('[data-problem="import"]')).toHaveText(
     /That file is no archive of boards this app can read\./,
   );
-  expect(await boardsTitled(api, made.teamId, title)).toHaveLength(2);
+  expect(await boardsTitled(api, made.workspaceId, title)).toHaveLength(2);
 
   await api.dispose();
   expect(errors).toEqual([]);

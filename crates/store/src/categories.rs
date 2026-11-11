@@ -1,4 +1,4 @@
-//! Sidebar categories: a user's named groups of boards within a team.
+//! Sidebar categories: a user's named groups of boards within a workspace.
 //!
 //! A category is a row while it exists. Deleting one removes the row, and with it the
 //! filing of boards under it.
@@ -14,7 +14,7 @@ use crate::error::StoreError;
 const CATEGORY_SORT_ORDER_GAP: i64 = 10;
 
 /// The columns of a category, in the order [`category_from_row`] reads them.
-const CATEGORY_COLUMNS: &str = "id, name, user_id, team_id, create_at, update_at, \
+const CATEGORY_COLUMNS: &str = "id, name, user_id, workspace_id, create_at, update_at, \
                                 collapsed, sort_order, type";
 
 impl Store {
@@ -29,7 +29,7 @@ impl Store {
             .await
     }
 
-    /// Returns the categories of a user in a team, by ascending sort order; those with
+    /// Returns the categories of a user in a workspace, by ascending sort order; those with
     /// equal sort orders come oldest first, then by identifier.
     ///
     /// # Errors
@@ -39,13 +39,13 @@ impl Store {
     pub async fn get_user_categories(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<Vec<Category>, StoreError> {
-        self.with_conn(async |scope| get_user_categories(scope, user_id, team_id).await)
+        self.with_conn(async |scope| get_user_categories(scope, user_id, workspace_id).await)
             .await
     }
 
-    /// Stores `category` as given and moves every category of its user and team down by
+    /// Stores `category` as given and moves every category of its user and workspace down by
     /// one place, so that a category created with sort order zero ends up first.
     ///
     /// The category is not validated and its `sorting` is not stored. The category itself
@@ -82,10 +82,10 @@ impl Store {
         .await
     }
 
-    /// Deletes a category of a user in a team. The boards filed under it are filed under
+    /// Deletes a category of a user in a workspace. The boards filed under it are filed under
     /// nothing afterwards.
     ///
-    /// Deleting a category that does not exist, or belongs to another user or team,
+    /// Deleting a category that does not exist, or belongs to another user or workspace,
     /// succeeds and changes nothing.
     ///
     /// # Errors
@@ -95,24 +95,24 @@ impl Store {
         &self,
         category_id: &str,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM categories WHERE id = ");
             sql.bind(Id(category_id))
                 .push_bind(" AND user_id = ", Id(user_id))
-                .push_bind(" AND team_id = ", Id(team_id));
+                .push_bind(" AND workspace_id = ", Id(workspace_id));
             scope.execute(sql).await?;
             Ok(())
         })
         .await
     }
 
-    /// Gives the categories of a user in a team the sort orders 0, 10, 20 and so on, in
+    /// Gives the categories of a user in a workspace the sort orders 0, 10, 20 and so on, in
     /// the order of their identifiers in `new_order`, and returns `new_order`.
     ///
-    /// Categories of the user and team that `new_order` does not name keep their sort
-    /// order, and identifiers that are not categories of the user and team are ignored. An empty order changes nothing.
+    /// Categories of the user and workspace that `new_order` does not name keep their sort
+    /// order, and identifiers that are not categories of the user and workspace are ignored. An empty order changes nothing.
     ///
     /// # Errors
     ///
@@ -120,7 +120,7 @@ impl Store {
     pub async fn reorder_categories(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         new_order: Vec<String>,
     ) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
@@ -136,7 +136,7 @@ impl Store {
             }
             sql.push(" ELSE sort_order END")
                 .push_bind(" WHERE user_id = ", Id(user_id))
-                .push_bind(" AND team_id = ", Id(team_id));
+                .push_bind(" AND workspace_id = ", Id(workspace_id));
             scope.execute(sql).await?;
             Ok(())
         })
@@ -161,7 +161,7 @@ fn category_from_row(row: &Row) -> Result<Category, StoreError> {
         id: row.id(0)?,
         name: row.text(1)?,
         user_id: row.id(2)?,
-        team_id: row.id(3)?,
+        workspace_id: row.id(3)?,
         create_at: row.int(4)?,
         update_at: row.int(5)?,
         // A category that exists is not deleted.
@@ -188,13 +188,13 @@ pub(crate) async fn get_category(scope: &mut Scope<'_>, id: &str) -> Result<Cate
 pub(crate) async fn get_user_categories(
     scope: &mut Scope<'_>,
     user_id: &str,
-    team_id: &str,
+    workspace_id: &str,
 ) -> Result<Vec<Category>, StoreError> {
     let mut sql = scope.sql(&format!(
         "SELECT {CATEGORY_COLUMNS} FROM categories WHERE user_id = "
     ));
     sql.bind(Id(user_id))
-        .push_bind(" AND team_id = ", Id(team_id))
+        .push_bind(" AND workspace_id = ", Id(workspace_id))
         .push(" ORDER BY sort_order, create_at, id");
     scope
         .fetch_all(sql)
@@ -209,13 +209,13 @@ pub(crate) async fn create_category(
     category: &Category,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
-        "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, collapsed, \
+        "INSERT INTO categories (id, name, user_id, workspace_id, create_at, update_at, collapsed, \
          sort_order, type) VALUES (",
     );
     sql.bind(Id(&category.id))
         .push_bind(", ", &category.name)
         .push_bind(", ", Id(&category.user_id))
-        .push_bind(", ", Id(&category.team_id))
+        .push_bind(", ", Id(&category.workspace_id))
         .push_bind(", ", category.create_at)
         .push_bind(", ", category.update_at)
         .push_bind(", ", category.collapsed)
@@ -229,7 +229,7 @@ pub(crate) async fn create_category(
     let mut sql = scope.sql("UPDATE categories SET sort_order = sort_order + ");
     sql.bind(CATEGORY_SORT_ORDER_GAP)
         .push_bind(" WHERE user_id = ", Id(&category.user_id))
-        .push_bind(" AND team_id = ", Id(&category.team_id));
+        .push_bind(" AND workspace_id = ", Id(&category.workspace_id));
     scope.execute(sql).await?;
     Ok(())
 }

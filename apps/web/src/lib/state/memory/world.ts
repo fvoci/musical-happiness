@@ -14,7 +14,7 @@ import type {
   ChangeListener,
   CommentVersion,
   Sharing,
-  Team,
+  WorkspaceInfo,
   User,
 } from '../backend.ts';
 
@@ -70,7 +70,7 @@ interface Watcher {
 }
 
 export class World {
-  team: Team = { id: '', title: '' };
+  workspace: WorkspaceInfo = { id: '', title: '' };
   readonly users = new Map<string, User>();
   readonly boards = new Map<string, Board>();
   readonly members = new Map<string, BoardMember[]>();

@@ -81,7 +81,7 @@ impl App {
     /// archive cannot be written.
     pub async fn export_archive(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         board_ids: &[String],
     ) -> Result<ExportedArchive, AppError> {
         let mut boards = Vec::with_capacity(board_ids.len());
@@ -98,7 +98,8 @@ impl App {
         // Removed however the export ends, also when its request is dropped meanwhile: the
         // file stays while it is sent, and goes with the archive.
         let path = Doomed::file(directory.join(format!("{}.boardarchive", new_secret())));
-        self.write_archive(path.path(), team_id, &boards).await?;
+        self.write_archive(path.path(), workspace_id, &boards)
+            .await?;
         let file = fs::File::open(path.path())
             .await
             .map_err(|error| io_error(&error))?;
@@ -114,7 +115,7 @@ impl App {
     async fn write_archive(
         &self,
         path: &Path,
-        team_id: &str,
+        workspace_id: &str,
         boards: &[Board],
     ) -> Result<(), AppError> {
         let file = fs::File::create(path)
@@ -133,7 +134,7 @@ impl App {
         })?;
         writer.write(&bytes).await?;
         for board in boards {
-            self.write_board(&mut writer, board, team_id).await?;
+            self.write_board(&mut writer, board, workspace_id).await?;
         }
         writer.finish().await
     }
@@ -143,7 +144,7 @@ impl App {
         &self,
         writer: &mut ArchiveWriter,
         board: &Board,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<(), AppError> {
         writer
             .start_entry(&format!("{}/board.jsonl", board.id))
@@ -173,7 +174,7 @@ impl App {
         }
 
         for filename in &files {
-            self.write_file(writer, &board.id, team_id, filename)
+            self.write_file(writer, &board.id, workspace_id, filename)
                 .await?;
         }
         Ok(())
@@ -185,14 +186,19 @@ impl App {
         &self,
         writer: &mut ArchiveWriter,
         board_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         filename: &str,
     ) -> Result<(), AppError> {
         writer
             .start_entry(&format!("{board_id}/{filename}"))
             .await?;
         let Some(mut stream) = self.open_stored_file(board_id, filename).await? else {
-            tracing::error!(filename, team_id, board_id, "image file missing for export");
+            tracing::error!(
+                filename,
+                workspace_id,
+                board_id,
+                "image file missing for export"
+            );
             return Ok(());
         };
         while let Some(chunk) = stream.next().await {

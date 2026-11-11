@@ -103,14 +103,14 @@ impl Store {
     ///
     /// Returns [`StoreError::InvalidId`] if the user or the board is named by text that
     /// is no identifier, and [`StoreError::Database`] if the statement fails, also for a
-    /// user that does not exist and, on PostgreSQL, for a board or a team that is not
+    /// user that does not exist and, on PostgreSQL, for a board or a workspace that is not
     /// one of the organization's.
     pub async fn create_upload(&self, upload: &Upload) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            // An upload goes to a board or a team, which `board_id` names.
+            // An upload goes to a board or a workspace, which `board_id` names.
             let target = match upload.purpose {
                 UploadPurpose::File => &upload.board_id,
-                UploadPurpose::Import => &upload.team_id,
+                UploadPurpose::Import => &upload.workspace_id,
             };
             let mut sql = scope.sql(&format!("INSERT INTO uploads ({UPLOAD_COLUMNS}) VALUES ("));
             sql.bind(&upload.id)
@@ -313,7 +313,7 @@ fn upload_from_row(row: &Row) -> Result<Upload, StoreError> {
         reason: format!("{purpose:?} is no purpose of an upload"),
     })?;
     let target = row.id(2)?;
-    let (board_id, team_id) = match purpose {
+    let (board_id, workspace_id) = match purpose {
         UploadPurpose::File => (target, String::new()),
         UploadPurpose::Import => (String::new(), target),
     };
@@ -322,7 +322,7 @@ fn upload_from_row(row: &Row) -> Result<Upload, StoreError> {
         user_id: row.id(1)?,
         purpose,
         board_id,
-        team_id,
+        workspace_id,
         name: row.text(3)?,
         size: row.int(4)?,
         content_type: row.text(5)?,

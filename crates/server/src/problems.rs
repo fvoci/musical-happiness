@@ -182,7 +182,7 @@ fn describe_reason(reason: Reason) -> &'static str {
              and this registration has none. `errors` names `/token`."
         }
         Reason::SignupTokenInvalid => {
-            "Status 403. The signup token of the registration is not the team's. `errors` \
+            "Status 403. The signup token of the registration is not the workspace's. `errors` \
              names `/token`."
         }
         Reason::UsernameTaken => {

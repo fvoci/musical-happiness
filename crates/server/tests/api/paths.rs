@@ -11,7 +11,7 @@ use fvoci_model::BoardType;
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
-use crate::common::{ROOT_TEAM_ID, Setup, TestServer};
+use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
 
 /// What a path answered.
 #[derive(Debug)]
@@ -136,7 +136,7 @@ async fn check_path_rules(origin: &str, base: &str) {
         "/api/v2/boards",
         "/api/v2/clientConfig",
         "/api/v2/login",
-        &format!("/api/v1/teams/{ROOT_TEAM_ID}/channels"),
+        &format!("/api/v1/teams/{ROOT_WORKSPACE_ID}/channels"),
     ] {
         for method in [Method::GET, Method::POST] {
             let answer = ask_owned(origin, method.clone(), format!("{base}{path}")).await;
@@ -286,23 +286,29 @@ async fn the_original_paths_of_routes_that_have_another_path_are_not_found() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let other = th.client2.me().await.id;
-    let board = th.create_board(ROOT_TEAM_ID, BoardType::Open).await.id;
-    let team = ROOT_TEAM_ID;
+    let board = th.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await.id;
+    let workspace = ROOT_WORKSPACE_ID;
     let file = "7unknownunknownunknownunk12.png";
 
     let requests = [
         (Method::GET, "/clientConfig".to_owned()),
-        (Method::POST, format!("/w/{team}/regenerate_signup_token")),
+        (
+            Method::POST,
+            format!("/w/{workspace}/regenerate_signup_token"),
+        ),
         (Method::POST, format!("/users/{me}/changepassword")),
         (Method::POST, format!("/users/{other}/changepassword")),
         (Method::GET, "/users/me/config".to_owned()),
         (Method::PUT, format!("/users/{me}/config")),
         (Method::PUT, format!("/users/{other}/config")),
-        (Method::POST, format!("/w/{team}/{board}/files")),
-        (Method::GET, format!("/files/teams/{team}/{board}/{file}")),
+        (Method::POST, format!("/w/{workspace}/{board}/files")),
         (
             Method::GET,
-            format!("/files/teams/{team}/{board}/{file}/info"),
+            format!("/files/teams/{workspace}/{board}/{file}"),
+        ),
+        (
+            Method::GET,
+            format!("/files/teams/{workspace}/{board}/{file}/info"),
         ),
     ];
     for (method, path) in requests {

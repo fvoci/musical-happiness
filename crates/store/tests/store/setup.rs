@@ -125,12 +125,12 @@ async fn in_memory_sqlite_databases_are_private_to_their_store() {
         .await
         .expect("another in-memory database");
 
-    // A block of a board of a team, by a user, all in the first store only.
+    // A block of a board of a workspace, by a user, all in the first store only.
     let (org_id, _) = common::organization(&first, "").await;
     let first = first.for_org(&org_id).expect("an identifier");
     let user_id = common::user(&first, "only-in-first").await;
-    let team_id = common::team(&first).await;
-    let boards = common::create_test_boards(&first, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(&first).await;
+    let boards = common::create_test_boards(&first, &workspace_id, &user_id, 1).await;
     let mut block = Block {
         id: new_id(),
         board_id: boards[0].id.clone(),
@@ -194,14 +194,14 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     // Rows that refer to nothing, by a single statement and by a transaction: a file
     // record for a board that does not exist, a category of a user who does not.
     let mut writes = JoinSet::new();
     for index in 0..WRITES_AT_ONCE {
         let store = test.store.clone();
-        let team_id = team_id.clone();
+        let workspace_id = workspace_id.clone();
         writes.spawn(async move {
             if index % 2 == 0 {
                 let record = record_for_no_board(format!("7file{index}.png"));
@@ -211,7 +211,7 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
                     id: new_id(),
                     name: format!("Category {index}"),
                     user_id: new_id(),
-                    team_id,
+                    workspace_id,
                     ..Category::default()
                 };
                 (Orphan::Category, store.create_category(&category).await)
@@ -237,7 +237,7 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
     assert_eq!(refused, WRITES_AT_ONCE, "every write was refused");
 
     // The same rows are stored once what they refer to exists.
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let record = FileInfo {
         board_id: boards[0].id.clone(),
         ..record_for_no_board("7file.png".to_owned())
@@ -250,7 +250,7 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
         id: new_id(),
         name: "Category".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         ..Category::default()
     };
     store
@@ -258,7 +258,7 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
         .await
         .expect("a category of a user who exists is stored");
     let listed = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -319,8 +319,8 @@ async fn set_column(
 async fn the_schema_refuses_a_board_type_that_is_none() {
     let test = common::setup().await;
     let user_id = common::user(&test, "owner").await;
-    let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
     for board_type in ["", " ", "X", "o", "p", "OP", "open", "private", "O "] {
@@ -351,9 +351,9 @@ async fn the_schema_refuses_a_board_type_that_is_none() {
     // a type that is one, and refused with one that is none.
     let new_board = |board_type: &str| {
         format!(
-            "INSERT INTO boards (id, team_id, type, title, description, icon, \
+            "INSERT INTO boards (id, workspace_id, type, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, \
-             update_at) VALUES ('{}', '{team_id}', '{board_type}', '', '', '', FALSE, FALSE, \
+             update_at) VALUES ('{}', '{workspace_id}', '{board_type}', '', '', '', FALSE, FALSE, \
              '{{}}', '[]', 1, 1)",
             new_id()
         )
@@ -377,12 +377,12 @@ async fn the_schema_refuses_a_board_type_that_is_none() {
 async fn the_schema_refuses_a_category_type_that_is_none() {
     let test = common::setup().await;
     let user_id = common::user(&test, "owner").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let category = Category {
         id: new_id(),
         name: "Category".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         ..Category::default()
     };
     test.create_category(&category)
@@ -429,8 +429,8 @@ async fn the_schema_refuses_a_category_type_that_is_none() {
     // a type that is one, and refused with one that is none.
     let new_category = |category_type: &str| {
         format!(
-            "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, type) \
-             VALUES ('{}', 'New', '{user_id}', '{team_id}', 1, 1, '{category_type}')",
+            "INSERT INTO categories (id, name, user_id, workspace_id, create_at, update_at, type) \
+             VALUES ('{}', 'New', '{user_id}', '{workspace_id}', 1, 1, '{category_type}')",
             new_id()
         )
     };
@@ -555,8 +555,8 @@ fn the_two_body_migrations_differ_in_the_column_types_only() {
 async fn blocks_stored_before_the_body_migration_have_no_body() {
     let test = common::setup().await;
     let user_id = common::user(&test, "migrated").await;
-    let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let mut card = Block {
         id: new_id(),
         board_id: boards[0].id.clone(),
@@ -689,8 +689,8 @@ async fn store_previous_shapes(dbconfig: &str, blocks: &[Block]) {
 async fn the_date_value_step_rewrites_what_was_stored_before() {
     let test = common::setup().await;
     let user_id = common::user(&test, "migrated").await;
-    let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, 2).await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 2).await;
     let (board_id, trashed_board) = (&boards[0].id, &boards[1].id);
     let block = |board_id: &str, block_type| Block {
         id: new_id(),
@@ -780,8 +780,8 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
 async fn the_file_reference_migration_finds_what_the_blocks_show() {
     let test = common::setup().await;
     let user_id = common::user(&test, "migrated").await;
-    let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
     for name in [
         "7image.png",
@@ -884,8 +884,8 @@ async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
 async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect() {
     let test = common::setup().await;
     let user_id = common::user(&test, "migrated").await;
-    let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
     save_files(&test, board_id, &["7image.png", "7kept.png"]).await;
     let block = |block_type: &str, fields: serde_json::Value| Block {

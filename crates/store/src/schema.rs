@@ -16,7 +16,8 @@
 //! and every table of an organization gets its policy; SQLite holds one organization
 //! and gets neither. And
 //! SQLite adds no column that both takes no NULL and refers to another table, so where
-//! PostgreSQL alters `teams`, SQLite makes the table again; and SQLite alone has the
+//! PostgreSQL alters `teams` (the table of the workspaces before migration 17 named it
+//! so), SQLite makes the table again; and SQLite alone has the
 //! triggers that hold it to one organization. The migration after it, of the keys that
 //! name the organization, is PostgreSQL's alone: SQLite's file says why it is empty.
 
@@ -36,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 16] = [
+const STEPS: [Step; 17] = [
     Step {
         version: 1,
         description: "baseline",
@@ -133,12 +134,22 @@ const STEPS: [Step; 16] = [
         sqlite: include_str!("../schema/sqlite/0016_loose_objects.sql"),
         postgres: include_str!("../schema/postgres/0016_loose_objects.sql"),
     },
+    Step {
+        version: 17,
+        description: "workspaces",
+        sqlite: include_str!("../schema/sqlite/0017_workspaces.sql"),
+        postgres: include_str!("../schema/postgres/0017_workspaces.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
 /// between them.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const ORGANIZATIONS_VERSION: i64 = 14;
+
+/// The migration that renames the table of the workspaces and the columns that name one.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const WORKSPACES_VERSION: i64 = 17;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
@@ -173,10 +184,10 @@ pub(crate) const ORG_TABLES: [&str; 19] = [
     "organizations",
     "sharing",
     "subscriptions",
-    "teams",
     "upload_parts",
     "uploads",
     "workspace_members",
+    "workspaces",
 ];
 
 /// The table in which sqlx's migrator records what it applied.
@@ -364,7 +375,7 @@ mod tests {
             "INSERT INTO file_refs (block_id) VALUES ('x')",
             "INSERT INTO data_steps (name) SELECT title FROM boards;",
             "update users set display_name = (select title from boards limit 1)",
-            "CREATE TABLE copies AS SELECT b.id FROM blocks AS b JOIN teams t ON true",
+            "CREATE TABLE copies AS SELECT b.id FROM blocks AS b JOIN workspaces t ON true",
             "-- a comment\nUPDATE users SET email = '' WHERE id IN (SELECT user_id FROM board_members)",
         ] {
             assert!(!walled_tables(touching).is_empty(), "{touching}");

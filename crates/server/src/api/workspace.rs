@@ -8,7 +8,7 @@ use axum::body::Bytes;
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
-use fvoci_model::{Board, Session, Team, User, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Board, Session, User, UserWorkspace, Workspace, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -26,8 +26,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_my_workspaces))
         .routes(routes!(handle_get_workspace_boards))
-        .routes(routes!(handle_get_team))
-        .routes(routes!(handle_get_team_users, handle_get_team_users_by_id))
+        .routes(routes!(handle_get_workspace))
+        .routes(routes!(
+            handle_get_workspace_users,
+            handle_get_workspace_users_by_id
+        ))
 }
 
 /// The workspace a request names in its path, for a member of it.
@@ -176,28 +179,28 @@ async fn handle_get_workspace_boards(ws: Ws) -> ApiResult {
     Ok(json_response(&boards))
 }
 
-/// A team
+/// A workspace
 ///
 /// The signup token, which lets in whoever has it, is there for administrators only.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}",
-    operation_id = "getTeam",
-    tag = tag::TEAMS,
+    operation_id = "getWorkspace",
+    tag = tag::WORKSPACES,
     params(WorkspaceId),
-    responses((status = 200, description = "The team.", body = Team)),
+    responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
-async fn handle_get_team(WorksIn(ws): WorksIn) -> ApiResult {
-    let mut team = ws.app.team(&ws.workspace_id).await?;
+async fn handle_get_workspace(WorksIn(ws): WorksIn) -> ApiResult {
+    let mut workspace = ws.app.workspace(&ws.workspace_id).await?;
     // The signup token lets anyone in who has it: it is for the administrators, who
     // hand it on, and is left out for everybody else.
     if !ws.app.user(&ws.session.user_id).await?.is_admin {
-        team.signup_token.clear();
+        workspace.signup_token.clear();
     }
-    Ok(json_response(&team))
+    Ok(json_response(&workspace))
 }
 
-/// The users of a team
+/// The users of a workspace
 ///
 /// Up to ten users: with `search` those whose login name or display name has that text
 /// in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
@@ -205,21 +208,21 @@ async fn handle_get_team(WorksIn(ws): WorksIn) -> ApiResult {
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/users",
-    operation_id = "getTeamUsers",
-    tag = tag::TEAMS,
+    operation_id = "getWorkspaceUsers",
+    tag = tag::WORKSPACES,
     params(WorkspaceId, UserSearch),
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_team_users(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_workspace_users(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) -> ApiResult {
     let search_query = query_param(query.as_deref(), "search");
     // There are no guests to treat differently, but the user must exist.
     user_is_guest(&ws.app, &ws.session.user_id).await?;
     Ok(json_response(
-        &ws.app.search_team_users(&search_query).await?,
+        &ws.app.search_workspace_users(&search_query).await?,
     ))
 }
 
-/// Users of a team by their identifiers
+/// Users of a workspace by their identifiers
 ///
 /// The users with the identifiers of the body, which must name at least one: an empty
 /// list is 400. Every identifier must be a user's and none may be there twice;
@@ -227,13 +230,13 @@ async fn handle_get_team_users(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) 
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/users",
-    operation_id = "getTeamUsersById",
-    tag = tag::TEAMS,
+    operation_id = "getWorkspaceUsersById",
+    tag = tag::WORKSPACES,
     params(WorkspaceId),
     request_body = Vec<String>,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_team_users_by_id(
+async fn handle_get_workspace_users_by_id(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     Path(workspace_id): Path<String>,

@@ -1,6 +1,6 @@
 /**
  * Templates on the real server: a board made from a built-in template, a
- * template made from a board and changed on its own page, and the team's
+ * template made from a board and changed on its own page, and the workspace's
  * template offered to be changed again from "Add board".
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -19,8 +19,8 @@ import {
 
 test.use({ locale: 'en-US' });
 
-async function templates(api: APIRequestContext, teamId: string) {
-  const answer = await api.get(`/api/v1/w/${teamId}/templates`);
+async function templates(api: APIRequestContext, workspaceId: string) {
+  const answer = await api.get(`/api/v1/w/${workspaceId}/templates`);
   expect(answer.ok()).toBe(true);
   return (await answer.json()) as Schemas['Board'][];
 }
@@ -40,7 +40,7 @@ test('a board is made from a template, and a template from a board is changed on
   await register(base, owner);
   const api = await signedIn(base, owner);
   const mine = await makeBoard(api, { title: 'Weekly plan', cards: [{ title: 'Water' }] });
-  const builtIn = (await templates(api, mine.teamId)).find(
+  const builtIn = (await templates(api, mine.workspaceId)).find(
     (template) => template.title === 'Project Tasks',
   );
   expect(builtIn?.isBuiltin).toBe(true);
@@ -60,12 +60,12 @@ test('a board is made from a template, and a template from a board is changed on
   await expect(boardLink(page, 'Project Tasks')).toHaveAttribute('aria-current', 'page');
   const [, made = ''] = /\/board\/([^/]+)/.exec(page.url()) ?? [];
   const copy = (await (await api.get(`/api/v1/boards/${made}`)).json()) as Schemas['Board'];
-  // In the reader's team (sent as `toTeam`: a built-in template is kept apart from every team).
+  // In the reader's workspace (sent as `toWorkspace`: a built-in template is kept apart from every workspace).
   expect(copy).toMatchObject({
     title: 'Project Tasks',
     isTemplate: false,
     type: 'P',
-    teamId: mine.teamId,
+    workspaceId: mine.workspaceId,
   });
   expect((await views(api, made)).length).toBe((await views(api, builtIn?.id ?? '')).length);
 
@@ -78,7 +78,9 @@ test('a board is made from a template, and a template from a board is changed on
   await title.press('Enter');
   await expect
     .poll(async () =>
-      (await templates(api, mine.teamId)).filter((one) => !one.isBuiltin).map((one) => one.title),
+      (await templates(api, mine.workspaceId))
+        .filter((one) => !one.isBuiltin)
+        .map((one) => one.title),
     )
     .toEqual(['Our weekly plan']);
   // No board of the sidebar.

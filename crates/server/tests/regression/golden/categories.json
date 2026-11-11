@@ -18,11 +18,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Filed board",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -44,11 +44,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Other board",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -74,10 +74,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -95,10 +95,10 @@
         "id": "<id:6>",
         "name": "Boards",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:7>"
+        "userId": "<id:7>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -114,10 +114,10 @@
       "id": "<id:8>",
       "name": "Projects",
       "sortOrder": 10,
-      "teamId": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
-      "userId": "<id:1>"
+      "userId": "<id:1>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -132,10 +132,10 @@
       "id": "<id:9>",
       "name": "Archive",
       "sortOrder": 10,
-      "teamId": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
-      "userId": "<id:1>"
+      "userId": "<id:1>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -181,16 +181,16 @@
     }
   },
   {
-    "name": "create: for another team",
+    "name": "create: for another workspace",
     "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "teamId mismatch",
+      "detail": "workspaceId mismatch",
       "errors": [
         {
-          "detail": "teamId mismatch",
-          "pointer": "/teamId",
+          "detail": "workspaceId mismatch",
+          "pointer": "/workspaceId",
           "reason": "invalid"
         }
       ],
@@ -243,10 +243,10 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [],
@@ -256,10 +256,10 @@
         "id": "<id:8>",
         "name": "Projects",
         "sortOrder": 20,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [
@@ -278,10 +278,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 30,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -297,10 +297,10 @@
       "id": "<id:8>",
       "name": "Projects 2",
       "sortOrder": 20,
-      "teamId": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
-      "userId": "<id:1>"
+      "userId": "<id:1>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -364,10 +364,10 @@
       "id": "<id:5>",
       "name": "Boards",
       "sortOrder": 30,
-      "teamId": "<id:3>",
       "type": "system",
       "updateAt": "<ts>",
-      "userId": "<id:1>"
+      "userId": "<id:1>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -396,10 +396,10 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [
@@ -418,10 +418,10 @@
         "id": "<id:8>",
         "name": "Projects 2",
         "sortOrder": 20,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [],
@@ -431,10 +431,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 30,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -472,10 +472,10 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [
@@ -494,10 +494,10 @@
         "id": "<id:8>",
         "name": "Projects 2",
         "sortOrder": 20,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [],
@@ -507,10 +507,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 30,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -653,10 +653,10 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [
@@ -675,10 +675,10 @@
         "id": "<id:8>",
         "name": "Projects 2",
         "sortOrder": 20,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [],
@@ -688,10 +688,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 30,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -785,10 +785,10 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [
@@ -807,10 +807,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 30,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -842,10 +842,10 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [
@@ -864,10 +864,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 30,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -899,10 +899,10 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 10,
-        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       },
       {
         "boardMetadata": [
@@ -921,10 +921,10 @@
         "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 30,
-        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userId": "<id:1>"
+        "userId": "<id:1>",
+        "workspaceId": "<id:3>"
       }
     ]
   }

@@ -4,7 +4,7 @@ use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardType,
     Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig, InvalidInput,
     LoginRequest, MinimumRole, PatchBoardsAndBlocks, Problem, Sharing, Subscriber, SubscriberType,
-    Subscription, Team, User, UserPreferencesPatch,
+    Subscription, User, UserPreferencesPatch, Workspace,
 };
 use serde_json::{Value, json};
 
@@ -155,7 +155,7 @@ fn block_patch_apply_updates_then_deletes() {
 fn board_json_members() {
     let board = Board {
         id: "b1".to_owned(),
-        team_id: "0".to_owned(),
+        workspace_id: "0".to_owned(),
         created_by: "u1".to_owned(),
         modified_by: "u1".to_owned(),
         board_type: BoardType::Private,
@@ -175,7 +175,7 @@ fn board_json_members() {
         delete_at: 0,
     };
     let want = json!({
-        "id": "b1", "teamId": "0", "createdBy": "u1", "modifiedBy": "u1",
+        "id": "b1", "workspaceId": "0", "createdBy": "u1", "modifiedBy": "u1",
         "type": "P", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
         "icon": "🚀", "showDescription": true, "isTemplate": false, "isBuiltin": false, "templateVersion": 6,
         "properties": { "k": "v" }, "cardProperties": [{ "id": "p1", "name": "Status" }],
@@ -351,7 +351,7 @@ fn category_json_members() {
         id: "7c".to_owned(),
         name: "Boards".to_owned(),
         user_id: "u".to_owned(),
-        team_id: "0".to_owned(),
+        workspace_id: "0".to_owned(),
         create_at: 1,
         update_at: 2,
         delete_at: 0,
@@ -362,7 +362,7 @@ fn category_json_members() {
     };
     // The sorting method has no place in the storage and is not sent.
     let want = json!({
-        "id": "7c", "name": "Boards", "userId": "u", "teamId": "0", "createAt": 1,
+        "id": "7c", "name": "Boards", "userId": "u", "workspaceId": "0", "createAt": 1,
         "updateAt": 2, "deleteAt": 0, "collapsed": true, "sortOrder": 20,
         "type": "system"
     });
@@ -396,7 +396,7 @@ fn category_boards_json_flattens_the_category() {
     assert_eq!(
         to_json(&category_boards),
         json!({
-            "id": "7c", "name": "Boards", "userId": "", "teamId": "", "createAt": 0,
+            "id": "7c", "name": "Boards", "userId": "", "workspaceId": "", "createAt": 0,
             "updateAt": 0, "deleteAt": 0, "collapsed": false, "sortOrder": 30,
             "type": "custom", "boardMetadata": [{ "boardId": "b1", "hidden": true }]
         })
@@ -408,7 +408,7 @@ fn category_hydrate_and_validate() {
     let mut category = Category {
         name: "n".to_owned(),
         user_id: "u".to_owned(),
-        team_id: "t".to_owned(),
+        workspace_id: "t".to_owned(),
         sort_order: -5,
         ..Category::default()
     };
@@ -444,13 +444,16 @@ fn category_hydrate_and_validate() {
         no_user.validate().expect_err("no user").to_string(),
         "category user ID cannot be empty"
     );
-    let no_team = Category {
-        team_id: String::new(),
+    let no_workspace = Category {
+        workspace_id: String::new(),
         ..category
     };
     assert_eq!(
-        no_team.validate().expect_err("no team").to_string(),
-        "category team id ID cannot be empty"
+        no_workspace
+            .validate()
+            .expect_err("no workspace")
+            .to_string(),
+        "category workspace id ID cannot be empty"
     );
 }
 
@@ -496,8 +499,8 @@ fn user_json_hides_credentials_and_what_nothing_stores() {
 }
 
 #[test]
-fn team_and_sharing_json_members() {
-    let team = Team {
+fn workspace_and_sharing_json_members() {
+    let workspace = Workspace {
         id: "0".to_owned(),
         title: "t".to_owned(),
         signup_token: "tok".to_owned(),
@@ -506,7 +509,7 @@ fn team_and_sharing_json_members() {
         update_at: 3,
     };
     assert_eq!(
-        to_json(&team),
+        to_json(&workspace),
         json!({
             "id": "0", "title": "t", "signupToken": "tok", "settings": { "a": 1 },
             "modifiedBy": "u", "updateAt": 3
@@ -557,7 +560,7 @@ fn subscription_json_members() {
         subscription
     );
     assert!(
-        serde_json::from_value::<Subscription>(json!({ "subscriberType": "team" })).is_err(),
+        serde_json::from_value::<Subscription>(json!({ "subscriberType": "workspace" })).is_err(),
         "an unknown subscriber type must not decode"
     );
 
@@ -732,7 +735,7 @@ fn null_members_decode_as_empty_values() {
     );
 
     let board: Board = serde_json::from_value(json!({
-        "id": null, "teamId": null, "channelId": null, "createdBy": null, "modifiedBy": null,
+        "id": null, "workspaceId": null, "channelId": null, "createdBy": null, "modifiedBy": null,
         "type": "P", "minimumRole": null, "title": null, "description": null, "icon": null,
         "showDescription": null, "isTemplate": null, "templateVersion": null, "properties": null,
         "cardProperties": null, "createAt": null, "updateAt": null, "deleteAt": null,
@@ -765,7 +768,7 @@ fn null_members_decode_as_empty_values() {
     assert_eq!(login.username, "", "null is the empty string");
 
     let category: Category = serde_json::from_value(json!({
-        "id": null, "name": null, "userID": null, "teamID": null, "createAt": null,
+        "id": null, "name": null, "userID": null, "workspaceID": null, "createAt": null,
         "updateAt": null, "deleteAt": null, "collapsed": null, "sortOrder": null, "sorting": null,
     }))
     .expect("a category with null members decodes");

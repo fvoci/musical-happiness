@@ -51,7 +51,7 @@ impl App {
             .delete_subscription(block_id, subscriber_id)
             .await?;
         subscription.delete_at = now_millis();
-        // The original looks up the block's board here to name a team for a broadcast
+        // The original looks up the block's board here to name a workspace for a broadcast
         // that its standalone websocket server does not send, and crashes if the block
         // is gone by now (server/app/subscriptions.go:43-51). There is nothing to look
         // up for nothing to send.

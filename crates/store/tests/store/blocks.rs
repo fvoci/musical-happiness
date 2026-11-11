@@ -11,7 +11,7 @@
 //! The original names its users, boards and blocks with made-up text such as `user-id-1`,
 //! `board-id` and `block1`, and none of them has to exist. Here an identifier is a UUID,
 //! and what a block refers to (its board, the users who write it) is stored before the
-//! block. So every test first stores its users, its team and its boards, and the sample
+//! block. So every test first stores its users, its workspace and its boards, and the sample
 //! blocks carry the names the original gives them as their titles.
 //!
 //! After the ported suite come tests the original does not have: concurrent writers,
@@ -59,34 +59,34 @@ const TYPED_SAMPLE: [(&str, &str, &str); 5] = [
 ];
 
 /// What has to exist before a block does: a user to write it and a board to hold it,
-/// which in turn is a team's.
+/// which in turn is a workspace's.
 #[expect(
     clippy::struct_field_names,
     reason = "the members are identifiers, named like the variables that hold them"
 )]
-struct Fixture {
+pub(crate) struct Fixture {
     /// Takes the place of `testUserID` of the original suite.
-    user_id: String,
-    team_id: String,
+    pub(crate) user_id: String,
+    pub(crate) workspace_id: String,
     /// Takes the place of `testBoardID` of the original suite.
-    board_id: String,
+    pub(crate) board_id: String,
 }
 
-/// Stores a user, a team and a board of that team.
-async fn fixture(store: &Store) -> Fixture {
+/// Stores a user, a workspace and a board of that workspace.
+pub(crate) async fn fixture(store: &Store) -> Fixture {
     let user_id = common::user(store, "test-user").await;
-    let team_id = common::team(store).await;
-    let board_id = another_board(store, &team_id, &user_id).await;
+    let workspace_id = common::workspace(store).await;
+    let board_id = another_board(store, &workspace_id, &user_id).await;
     Fixture {
         user_id,
-        team_id,
+        workspace_id,
         board_id,
     }
 }
 
-/// Stores one more board of a team and returns its identifier.
-async fn another_board(store: &Store, team_id: &str, user_id: &str) -> String {
-    common::create_test_boards(store, team_id, user_id, 1)
+/// Stores one more board of a workspace and returns its identifier.
+pub(crate) async fn another_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
+    common::create_test_boards(store, workspace_id, user_id, 1)
         .await
         .into_iter()
         .next()
@@ -110,7 +110,7 @@ async fn users<const N: usize>(store: &Store) -> [String; N] {
 ///
 /// Many block literals of the original also preset `ModifiedBy`. Every insert overwrites
 /// it before anything reads it, so it is only carried over where a test is about it.
-fn block(id: &str, board_id: &str) -> Block {
+pub(crate) fn block(id: &str, board_id: &str) -> Block {
     Block {
         id: id.to_owned(),
         board_id: board_id.to_owned(),
@@ -122,7 +122,7 @@ fn block(id: &str, board_id: &str) -> Block {
 /// of each. A parent comes before its children; the empty name means no parent.
 ///
 /// The name of a block is its title, and [`id_of`] finds its identifier by it.
-fn named_blocks(board_id: &str, specs: &[(&str, &str, &str)]) -> Vec<Block> {
+pub(crate) fn named_blocks(board_id: &str, specs: &[(&str, &str, &str)]) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::with_capacity(specs.len());
     for &(name, parent, block_type) in specs {
         let parent_id = if parent.is_empty() {
@@ -142,7 +142,7 @@ fn named_blocks(board_id: &str, specs: &[(&str, &str, &str)]) -> Vec<Block> {
 
 /// The identifier of the block that [`named_blocks`] made under the given name.
 #[track_caller]
-fn id_of<'a>(blocks: &'a [Block], name: &str) -> &'a str {
+pub(crate) fn id_of<'a>(blocks: &'a [Block], name: &str) -> &'a str {
     blocks
         .iter()
         .find(|block| block.title == name)
@@ -150,7 +150,7 @@ fn id_of<'a>(blocks: &'a [Block], name: &str) -> &'a str {
 }
 
 /// The names of blocks that [`named_blocks`] made, sorted.
-fn sorted_names(blocks: &[Block]) -> Vec<&str> {
+pub(crate) fn sorted_names(blocks: &[Block]) -> Vec<&str> {
     let mut names: Vec<&str> = blocks.iter().map(|block| block.title.as_str()).collect();
     names.sort_unstable();
     names
@@ -186,12 +186,12 @@ fn oversized_fields() -> JsonMap {
 }
 
 /// The fields of a block, from a JSON object literal.
-fn fields(object: Value) -> JsonMap {
+pub(crate) fn fields(object: Value) -> JsonMap {
     serde_json::from_value(object).expect("the literal is a JSON object")
 }
 
 /// A patch that sets the title.
-fn title_patch(title: &str) -> BlockPatch {
+pub(crate) fn title_patch(title: &str) -> BlockPatch {
     BlockPatch {
         title: Some(title.to_owned()),
         ..BlockPatch::default()
@@ -255,7 +255,7 @@ async fn board_blocks(store: &Store, board_id: &str) -> Vec<Block> {
 }
 
 /// `GetBlock` followed by `require.NoError` and `require.NotNil`.
-async fn existing_block(store: &Store, block_id: &str) -> Block {
+pub(crate) async fn existing_block(store: &Store, block_id: &str) -> Block {
     store
         .get_block(block_id)
         .await
@@ -406,12 +406,12 @@ async fn insert_block() {
     let store = &test.store;
     let Fixture {
         user_id: owner_id,
-        team_id,
+        workspace_id,
         board_id,
     } = fixture(store).await;
     let board_id = board_id.as_str();
     // `board-id-1` of the original.
-    let other_board_id = another_board(store, &team_id, &owner_id).await;
+    let other_board_id = another_board(store, &workspace_id, &owner_id).await;
     let [user1, user2, user3, user4, user5, user6] = users(store).await;
 
     let initial_count = board_blocks(store, board_id).await.len();
@@ -927,11 +927,11 @@ async fn patch_blocks() {
     let store = &test.store;
     let Fixture {
         user_id,
-        team_id,
+        workspace_id,
         board_id,
     } = fixture(store).await;
     // The two blocks are on a board each, as in the original.
-    let second_board_id = another_board(store, &team_id, &user_id).await;
+    let second_board_id = another_board(store, &workspace_id, &user_id).await;
 
     let first_id = new_id();
     let second_id = new_id();
@@ -1307,7 +1307,7 @@ async fn duplicate_block() {
     let store = &test.store;
     let Fixture {
         user_id,
-        team_id,
+        workspace_id,
         board_id,
     } = fixture(store).await;
     let board_id = board_id.as_str();
@@ -1375,7 +1375,7 @@ async fn duplicate_block() {
     // "not matching board/block"
     // The other board of the original does not exist. Here it does, which is the case
     // that matters: a board that exists does not hand out the blocks of another.
-    let other_board_id = another_board(store, &team_id, user_id).await;
+    let other_board_id = another_board(store, &workspace_id, user_id).await;
     for other in [other_board_id, new_id()] {
         let error = store
             .duplicate_block(&other, child1_id, user_id, DuplicateAs::Copy)
@@ -1400,9 +1400,9 @@ async fn undelete_block_children() {
     let store = &test.store;
     let user_id = common::user(store, "test-user").await;
     let user_id = user_id.as_str();
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
-    let boards = common::create_test_boards(store, &team_id, user_id, 2).await;
+    let boards = common::create_test_boards(store, &workspace_id, user_id, 2).await;
     let board_delete_id = boards[0].id.clone();
     let board_keep_id = boards[1].id.clone();
 
@@ -2135,7 +2135,7 @@ async fn deleting_blocks_that_hold_files_leaves_the_file_records() {
     let store = &test.store;
     let Fixture {
         user_id,
-        team_id,
+        workspace_id,
         board_id,
     } = fixture(store).await;
     let board_id = board_id.as_str();
@@ -2147,7 +2147,7 @@ async fn deleting_blocks_that_hold_files_leaves_the_file_records() {
         files.push(save_file(store, board_id, stored_name).await);
     }
     // Another board has a file under the name of one whose block is deleted here.
-    let other_board_id = another_board(store, &team_id, user_id).await;
+    let other_board_id = another_board(store, &workspace_id, user_id).await;
     files.push(save_file(store, &other_board_id, "direct.png").await);
 
     let cards = create_test_cards(store, user_id, board_id, 2).await;
@@ -2217,7 +2217,7 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
     let store = &test.store;
     let Fixture {
         user_id,
-        team_id,
+        workspace_id,
         board_id,
     } = fixture(store).await;
 
@@ -2232,7 +2232,7 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
 
     let mut sample = typed_sample_blocks(&board_id);
     common::insert_blocks(store, &mut sample, &user_id).await;
-    let other_board_id = another_board(store, &team_id, &user_id).await;
+    let other_board_id = another_board(store, &workspace_id, &user_id).await;
     let mut other_board = Block {
         block_type: BlockType::from("test2"),
         ..block(&new_id(), &other_board_id)
@@ -2918,11 +2918,11 @@ async fn insert_block_refuses_a_parent_that_is_not_a_block_of_the_board() {
     let store = &test.store;
     let Fixture {
         user_id,
-        team_id,
+        workspace_id,
         board_id,
     } = fixture(store).await;
     let user_id = user_id.as_str();
-    let other_board_id = another_board(store, &team_id, user_id).await;
+    let other_board_id = another_board(store, &workspace_id, user_id).await;
 
     let mut sample = named_blocks(&board_id, &[("card", "", "card"), ("deleted", "", "card")]);
     common::insert_blocks(store, &mut sample, user_id).await;
@@ -3375,11 +3375,11 @@ async fn purge_trash_removes_what_was_deleted_before_the_cutoff() {
 async fn insert_block_of_an_identifier_on_another_board_is_not_found() {
     let test = common::setup().await;
     let store = &test.store;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
     let user_a = common::user(store, "user-a").await;
     let user_b = common::user(store, "user-b").await;
-    let board_a = another_board(store, &team_id, &user_a).await;
-    let board_b = another_board(store, &team_id, &user_b).await;
+    let board_a = another_board(store, &workspace_id, &user_a).await;
+    let board_b = another_board(store, &workspace_id, &user_b).await;
 
     let moving_id = new_id();
     let mut original = Block {
@@ -3525,7 +3525,7 @@ const SMALL_TREE: [(&str, &str, &str); 3] = [
 ];
 
 /// How many times each race below is run.
-const RACE_ROUNDS: usize = 40;
+pub(crate) const RACE_ROUNDS: usize = 40;
 
 /// How many calls compete in a round of a race below.
 const RACERS: usize = 4;
@@ -3726,7 +3726,7 @@ async fn insert_block_on_a_board_that_does_not_exist_is_not_found() {
     let store = &test.store;
     let Fixture {
         user_id,
-        team_id,
+        workspace_id,
         board_id,
     } = fixture(store).await;
     let user_id = user_id.as_str();
@@ -3738,7 +3738,7 @@ async fn insert_block_on_a_board_that_does_not_exist_is_not_found() {
         .insert_block(&mut card, user_id)
         .await
         .expect("a card of the board that exists is inserted");
-    let deleted_board_id = another_board(store, &team_id, user_id).await;
+    let deleted_board_id = another_board(store, &workspace_id, user_id).await;
     store
         .delete_board(&deleted_board_id, user_id)
         .await
@@ -4059,11 +4059,13 @@ async fn a_block_inserted_while_its_board_is_deleted_goes_with_the_board_or_is_n
     let test = common::setup().await;
     let store = &test.store;
     let Fixture {
-        user_id, team_id, ..
+        user_id,
+        workspace_id,
+        ..
     } = fixture(store).await;
 
     for round in 0..RACE_ROUNDS {
-        let raced_board_id = another_board(store, &team_id, &user_id).await;
+        let raced_board_id = another_board(store, &workspace_id, &user_id).await;
         let mut card = Block {
             block_type: BlockType::Card,
             title: "card".to_owned(),
@@ -4152,167 +4154,6 @@ async fn a_block_inserted_while_its_board_is_deleted_goes_with_the_board_or_is_n
             "round {round}: the board came back with what went into the trash with it"
         );
     }
-
-    test.teardown().await;
-}
-
-/// A patch is applied to the block as the patch before it left it: of two patches at
-/// once, one of the title and one of a field, both changes are there afterwards. Neither
-/// writes back what it read of the other's part before the other wrote.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn two_patches_of_a_block_at_once_both_take_effect() {
-    let test = common::setup().await;
-    let store = &test.store;
-    let Fixture {
-        user_id, board_id, ..
-    } = fixture(store).await;
-    let mut card = Block {
-        block_type: BlockType::Card,
-        title: "before".to_owned(),
-        fields: fields(json!({ "kept": "as it is", "mark": "before" })),
-        ..block(&new_id(), &board_id)
-    };
-    store
-        .insert_block(&mut card, &user_id)
-        .await
-        .expect("the card is inserted");
-
-    for round in 0..2 * RACE_ROUNDS {
-        let title = format!("title {round}");
-        let mark = json!(format!("mark {round}"));
-        let patches = [
-            title_patch(&title),
-            BlockPatch {
-                updated_fields: fields(json!({ "mark": mark })),
-                ..BlockPatch::default()
-            },
-        ];
-
-        let start = Arc::new(Barrier::new(2));
-        let mut racers = JoinSet::new();
-        for patch in patches {
-            let (store, start) = (store.clone(), Arc::clone(&start));
-            let (card_id, user_id) = (card.id.clone(), user_id.clone());
-            racers.spawn(async move {
-                start.wait().await;
-                store.patch_block(&card_id, &patch, &user_id).await
-            });
-        }
-        for outcome in racers.join_all().await {
-            outcome.unwrap_or_else(|error| panic!("round {round}: a patch failed: {error:?}"));
-        }
-
-        let stored = existing_block(store, &card.id).await;
-        assert_eq!(
-            (stored.title.as_str(), stored.fields.get("mark")),
-            (title.as_str(), Some(&mark)),
-            "round {round}: the title of one patch and the field of the other"
-        );
-        assert_eq!(
-            stored.fields.get("kept"),
-            Some(&json!("as it is")),
-            "round {round}: what neither patch named is as it was"
-        );
-    }
-
-    test.teardown().await;
-}
-
-/// Asked for the blocks whose parent is the board itself, the store answers with the
-/// blocks directly on the board: the ones it stores without a parent. Not the blocks
-/// below those, not the blocks of another board, and nothing if the board named as
-/// parent is not the board that is asked about.
-#[tokio::test]
-async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_board() {
-    let test = common::setup().await;
-    let store = &test.store;
-    let Fixture {
-        user_id,
-        team_id,
-        board_id,
-    } = fixture(store).await;
-    let other_board_id = another_board(store, &team_id, &user_id).await;
-
-    // Two cards and a view at the top, one of the cards written with the board as its
-    // parent; a text on a card and a checkbox on the text.
-    let mut tree = named_blocks(
-        &board_id,
-        &[
-            ("card", "", "card"),
-            ("view", "", "view"),
-            ("text", "card", "attachment"),
-            ("checkbox", "text", "attachment"),
-        ],
-    );
-    common::insert_blocks(store, &mut tree, &user_id).await;
-    let mut named_the_board = Block {
-        parent_id: board_id.clone(),
-        block_type: BlockType::Card,
-        title: "second card".to_owned(),
-        ..block(&new_id(), &board_id)
-    };
-    store
-        .insert_block(&mut named_the_board, &user_id)
-        .await
-        .expect("a card that names its board as parent is stored");
-    let mut elsewhere = named_blocks(&other_board_id, &[("other card", "", "card")]);
-    common::insert_blocks(store, &mut elsewhere, &user_id).await;
-
-    let on_the_board = BlockFilter::board(&board_id).with_parent(&board_id);
-    let blocks = store
-        .get_blocks(&on_the_board)
-        .await
-        .expect("the query runs");
-    assert_eq!(
-        sorted_names(&blocks),
-        ["card", "second card", "view"],
-        "exactly the blocks directly on the board"
-    );
-    assert!(
-        blocks.iter().all(|block| block.parent_id.is_empty()),
-        "none of them has a parent: {blocks:?}"
-    );
-
-    // The other filters narrow it as they narrow any list.
-    let cards = store
-        .get_blocks(&on_the_board.clone().with_type(BlockType::Card))
-        .await
-        .expect("the query runs");
-    assert_eq!(
-        sorted_names(&cards),
-        ["card", "second card"],
-        "of them, the cards"
-    );
-
-    // A block as parent still means that block.
-    let on_the_card = store
-        .get_blocks(&BlockFilter::board(&board_id).with_parent(id_of(&tree, "card")))
-        .await
-        .expect("the query runs");
-    assert_eq!(
-        sorted_names(&on_the_card),
-        ["text"],
-        "the block on the card"
-    );
-
-    // Each board has its own, and one board is not the parent of another's blocks.
-    let on_the_other = store
-        .get_blocks(&BlockFilter::board(&other_board_id).with_parent(&other_board_id))
-        .await
-        .expect("the query runs");
-    assert_eq!(
-        sorted_names(&on_the_other),
-        ["other card"],
-        "the other board's"
-    );
-    let mixed = store
-        .get_blocks(&BlockFilter::board(&board_id).with_parent(&other_board_id))
-        .await
-        .expect("the query runs");
-    assert!(
-        mixed.is_empty(),
-        "no block of the board is on another board: {mixed:?}"
-    );
 
     test.teardown().await;
 }

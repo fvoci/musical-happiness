@@ -6,7 +6,7 @@ use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::response::Response;
 use fvoci_model::{
-    ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, Team, User, display_name,
+    ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, User, Workspace, display_name,
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -151,8 +151,8 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
 /// Register a user
 ///
 /// Makes an account. The first user of a server needs no signup token and becomes its
-/// administrator; everyone after needs the team's token, and is refused with 403 and
-/// the reason `signup_token_required` without it. A token that is not the team's is 403
+/// administrator; everyone after needs the workspace's token, and is refused with 403 and
+/// the reason `signup_token_required` without it. A token that is not the workspace's is 403
 /// with the reason `signup_token_invalid`, for the first user too. A name or an email
 /// address that is taken is 409 with the reason `username_taken` or `email_taken`.
 /// Registering does not sign in.
@@ -195,7 +195,7 @@ async fn handle_register(
         register.display_name = name;
     }
 
-    // The first user needs no signup token; everyone after needs the team's. Asked
+    // The first user needs no signup token; everyone after needs the workspace's. Asked
     // here so that a request without one costs no password hash; whether it really is
     // the first is decided where the user is stored.
     let admission = if register.token.is_empty() {
@@ -206,10 +206,10 @@ async fn handle_register(
         }
         Admission::FirstUserOnly
     } else {
-        // TEMPORARY, with `only_organization_scope`: the root team stands in for what
+        // TEMPORARY, with `only_organization_scope`: the root workspace stands in for what
         // an invitation will name.
-        let team = app.root_team().await?;
-        if !tokens_match(&team.signup_token, &register.token) {
+        let workspace = app.root_workspace().await?;
+        if !tokens_match(&workspace.signup_token, &register.token) {
             return Err(AppError::forbidden("the signup token is not valid")
                 .with_reason(Reason::SignupTokenInvalid)
                 .with_field("token"));
@@ -226,24 +226,24 @@ async fn handle_register(
 
 /// Make a new signup token
 ///
-/// Makes a new signup token for the team; the old one stops working. For
+/// Makes a new signup token for the workspace; the old one stops working. For
 /// administrators.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/signup-token",
     operation_id = "regenerateSignupToken",
-    tag = tag::TEAMS,
+    tag = tag::WORKSPACES,
     params(WorkspaceId),
-    responses((status = 200, description = "The team, with its new token.", body = Team)),
+    responses((status = 200, description = "The workspace, with its new token.", body = Workspace)),
 )]
 async fn handle_regenerate_signup_token(WorksIn(ws): WorksIn) -> ApiResult {
     require_admin(&ws.app, &ws.session.user_id).await?;
-    let team = ws
+    let workspace = ws
         .app
         .regenerate_signup_token(&ws.workspace_id, &ws.session.user_id)
         .await?;
-    // The team with its new token: the one answer that carries it without being asked.
-    Ok(json_response(&team))
+    // The workspace with its new token: the one answer that carries it without being asked.
+    Ok(json_response(&workspace))
 }
 
 /// Change the password

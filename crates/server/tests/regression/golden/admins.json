@@ -45,7 +45,7 @@
     }
   },
   {
-    "name": "team: administrator",
+    "name": "workspace: administrator",
     "request": "GET /api/v1/w/<id:3> as root",
     "status": 200,
     "content_type": "application/json",
@@ -59,7 +59,7 @@
     }
   },
   {
-    "name": "team: anybody else",
+    "name": "workspace: anybody else",
     "request": "GET /api/v1/w/<id:3> as admins-alice",
     "status": 200,
     "content_type": "application/json",
@@ -141,7 +141,7 @@
     }
   },
   {
-    "name": "renew the token: unknown team",
+    "name": "renew the token: unknown workspace",
     "request": "POST /api/v1/w/<id:6>/signup-token as root",
     "status": 404,
     "content_type": "application/problem+json",
@@ -379,7 +379,7 @@
     }
   },
   {
-    "name": "team: the new administrator",
+    "name": "workspace: the new administrator",
     "request": "GET /api/v1/w/<id:3> as admins-bob",
     "status": 200,
     "content_type": "application/json",
@@ -423,7 +423,7 @@
     }
   },
   {
-    "name": "team: after stepping down",
+    "name": "workspace: after stepping down",
     "request": "GET /api/v1/w/<id:3> as root",
     "status": 200,
     "content_type": "application/json",

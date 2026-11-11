@@ -13,7 +13,7 @@ use fvoci_model::{Block, Board, Card};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::export::import;
 
 /// Card property definitions that are malformed, each with what is wrong with it.
@@ -55,7 +55,7 @@ async fn new_board(client: &Client, card_properties: Value) -> ApiResponse {
         .post(
             "/boards",
             &json!({
-                "teamId": TEST_TEAM_ID, "type": "P", "title": "Properties",
+                "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Properties",
                 "cardProperties": card_properties,
             }),
         )
@@ -109,7 +109,7 @@ async fn board_with_card(th: &TestServer) -> (Board, Card) {
 
 async fn board_count(client: &Client) -> usize {
     let boards: Vec<Board> = client
-        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
         .await
         .ok_json();
     boards.len()
@@ -406,7 +406,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     let request = |card_properties: Value, values: Value| {
         json!({
             "boards": [{
-                "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Both",
+                "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Both",
                 "cardProperties": card_properties,
             }],
             "blocks": [card_block("b1", values)],
@@ -480,7 +480,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
 /// An archive with one board and one card on it.
 fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
     let board = json!({"type": "board", "data": {
-        "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Imported",
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Imported",
         "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
     }});
     let block = json!({"type": "block", "data": card_block("b1", values)});
@@ -504,7 +504,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
 
     let response = import(
         &th.client,
-        TEST_TEAM_ID,
+        TEST_WORKSPACE_ID,
         &archive(&json!([{"name": "no id"}]), json!({})),
     )
     .await;
@@ -513,7 +513,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
 
     let response = import(
         &th.client,
-        TEST_TEAM_ID,
+        TEST_WORKSPACE_ID,
         &archive(&json!([{"id": "p1"}]), json!({"p1": 3})),
     )
     .await;
@@ -527,7 +527,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
     // The same archive, well-formed, is imported.
     import(
         &th.client,
-        TEST_TEAM_ID,
+        TEST_WORKSPACE_ID,
         &archive(&json!([{"id": "p1"}]), json!({"p1": "v"})),
     )
     .await
@@ -745,7 +745,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
 
     import(
         &th.client,
-        TEST_TEAM_ID,
+        TEST_WORKSPACE_ID,
         &archive(
             &json!([
                 {"id": "due", "name": "Due", "type": "date"},
@@ -758,7 +758,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     .check_no_content();
     let boards: Vec<Board> = th
         .client
-        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
         .await
         .ok_json();
     let imported = boards

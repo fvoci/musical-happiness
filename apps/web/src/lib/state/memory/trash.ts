@@ -59,15 +59,15 @@ export function deletedCardsOf(
 export const wasAdmin = (members: readonly BoardMember[], userId: string): boolean =>
   members.some((member) => member.userId === userId && member.schemeAdmin);
 
-/** The boards of the team in the trash that the user was an admin of. The last deleted first. */
+/** The boards of the workspace in the trash that the user was an admin of. The last deleted first. */
 export function deletedBoardsOf(
   world: World,
   userId: string,
-  teamId: string,
+  workspaceId: string,
   paging: Paging | undefined,
 ): DeletedItem[] {
   const items = [...world.deletedBoards.values()]
-    .filter(({ board, members }) => board.teamId === teamId && wasAdmin(members, userId))
+    .filter(({ board, members }) => board.workspaceId === workspaceId && wasAdmin(members, userId))
     .map(({ board, deletedAt, deletedBy }) => ({
       id: board.id,
       title: board.title,

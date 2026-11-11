@@ -37,8 +37,8 @@ interface StoredView {
 
 interface Dev {
   backend: {
-    teams: () => Promise<{ id: string }[]>;
-    boards: (teamId: string) => Promise<{ id: string; title: string }[]>;
+    workspaces: () => Promise<{ id: string }[]>;
+    boards: (workspaceId: string) => Promise<{ id: string; title: string }[]>;
     board: (boardId: string) => Promise<{
       cardProperties: { id: string; name: string; options: { id: string; value: string }[] }[];
     }>;
@@ -104,9 +104,9 @@ async function setPaneWidth(page: Page, width: number): Promise<void> {
 async function boardAddress(page: Page, title: string): Promise<string> {
   const id = await page.evaluate(async (wanted) => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const [team] = await backend.teams();
-    if (!team) throw new Error('no team');
-    return (await backend.boards(team.id)).find((board) => board.title === wanted)?.id;
+    const [workspace] = await backend.workspaces();
+    if (!workspace) throw new Error('no workspace');
+    return (await backend.boards(workspace.id)).find((board) => board.title === wanted)?.id;
   }, title);
   if (!id) throw new Error(`no board called ${title}`);
   return `/board/${id}`;

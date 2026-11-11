@@ -71,7 +71,9 @@ describe('an export', () => {
         ),
       );
     });
-    const refused = await new ServerBackend('').exportTeam('t1').catch((error: unknown) => error);
+    const refused = await new ServerBackend('')
+      .exportWorkspace('t1')
+      .catch((error: unknown) => error);
     expect(isBackendError(refused) && [refused.status, refused.reason]).toEqual([
       403,
       'sharing_disabled',

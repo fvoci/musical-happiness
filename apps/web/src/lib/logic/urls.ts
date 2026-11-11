@@ -19,7 +19,7 @@ export function buildUrl(path: string, basePath: string | undefined, origin?: st
 
 /**
  * Fills the parameters into a route pattern such as
- * `/team/:teamId/:boardId?/:viewId?`. A missing optional parameter (`?`)
+ * `/workspace/:workspaceId/:boardId?/:viewId?`. A missing optional parameter (`?`)
  * drops its segment; a missing required one is an error.
  */
 export function fillPath(

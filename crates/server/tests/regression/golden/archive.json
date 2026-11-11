@@ -25,11 +25,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Exported board",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -143,11 +143,11 @@
             "modifiedBy": "<id:1>",
             "properties": {},
             "showDescription": false,
-            "teamId": "<id:3>",
             "templateVersion": 0,
             "title": "Exported board",
             "type": "P",
-            "updateAt": "<ts>"
+            "updateAt": "<ts>",
+            "workspaceId": "<id:3>"
           },
           "type": "board"
         },
@@ -295,7 +295,7 @@
     }
   },
   {
-    "name": "team export status and type",
+    "name": "workspace export status and type",
     "request": "(observation)",
     "status": 0,
     "body": [
@@ -304,7 +304,7 @@
     ]
   },
   {
-    "name": "team export entries",
+    "name": "workspace export entries",
     "request": "(observation)",
     "status": 0,
     "body": 3
@@ -384,11 +384,11 @@
         "modifiedBy": "<id:8>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Exported board",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },

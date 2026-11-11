@@ -27,7 +27,7 @@ pub enum BoardVisibility {
 }
 
 impl Store {
-    /// Returns the categories of a user in a team, in the order of
+    /// Returns the categories of a user in a workspace, in the order of
     /// [`Store::get_user_categories`], each with its boards by ascending sort order.
     ///
     /// # Errors
@@ -37,9 +37,9 @@ impl Store {
     pub async fn get_user_category_boards(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<Vec<CategoryBoards>, StoreError> {
-        self.with_conn(async |scope| get_user_category_boards(scope, user_id, team_id).await)
+        self.with_conn(async |scope| get_user_category_boards(scope, user_id, workspace_id).await)
             .await
     }
 
@@ -145,9 +145,9 @@ fn filed_once(scope: &Scope<'_>) -> &'static str {
 pub(crate) async fn get_user_category_boards(
     scope: &mut Scope<'_>,
     user_id: &str,
-    team_id: &str,
+    workspace_id: &str,
 ) -> Result<Vec<CategoryBoards>, StoreError> {
-    let categories = get_user_categories(scope, user_id, team_id).await?;
+    let categories = get_user_categories(scope, user_id, workspace_id).await?;
     let mut user_category_boards = Vec::with_capacity(categories.len());
     for category in categories {
         let board_metadata = category_board_metadata(scope, &category.id).await?;
@@ -280,22 +280,22 @@ pub(crate) async fn places_of_board(
 }
 
 /// Files a restored board where `place` says. Under its category if the user still has
-/// it in the board's team, at its sort order, the boards from there on moving down by one
+/// it in the board's workspace, at its sort order, the boards from there on moving down by one
 /// so that it is between the ones it was between. Else under the user's default category
 /// (found by its name, as the app finds it) with sort order 0, as a newly filed board. A
 /// user without a default category yet is filed nowhere: making that category files the
-/// boards the user is a member of. A category of another team, where a board could be
+/// boards the user is a member of. A category of another workspace, where a board could be
 /// filed by naming it before the routes compared the workspaces, counts as gone.
 pub(crate) async fn put_back(
     scope: &mut Scope<'_>,
     board_id: &str,
-    team_id: &str,
+    workspace_id: &str,
     place: &BoardPlace,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT id FROM categories WHERE id = ");
     sql.bind(Id(&place.category_id))
         .push_bind(" AND user_id = ", Id(&place.user_id))
-        .push_bind(" AND team_id = ", Id(team_id));
+        .push_bind(" AND workspace_id = ", Id(workspace_id));
     let (category_id, sort_order) = if let Some(row) = scope.fetch_optional(sql).await? {
         let category_id = row.id(0)?;
         let mut sql = scope
@@ -308,7 +308,7 @@ pub(crate) async fn put_back(
         let mut sql = scope.sql("SELECT id FROM categories WHERE name = ");
         sql.bind(DEFAULT_CATEGORY_NAME)
             .push_bind(" AND user_id = ", Id(&place.user_id))
-            .push_bind(" AND team_id = ", Id(team_id))
+            .push_bind(" AND workspace_id = ", Id(workspace_id))
             .push(" ORDER BY sort_order, create_at, id LIMIT 1");
         match scope.fetch_optional(sql).await? {
             Some(row) => (row.id(0)?, 0),

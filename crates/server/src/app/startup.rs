@@ -90,16 +90,16 @@ async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::
 /// the websocket connections. A route that names its workspace gets its organization
 /// from there; when all do, this function and its one call go. On PostgreSQL what is
 /// left without an organization then shows by reaching nothing; SQLite has no wall, and
-/// shows only the statements that name the organization themselves (the teams and the
+/// shows only the statements that name the organization themselves (the workspaces and the
 /// members), so that run tells less. The first organization of an empty database is
 /// made here too, and needs another place then.
 async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
-    // The first workspace of an organization that is made now: the root team, with a
+    // The first workspace of an organization that is made now: the root workspace, with a
     // fresh signup token.
-    let workspace = fvoci_model::Team {
+    let workspace = fvoci_model::Workspace {
         id: fvoci_model::new_id(),
         signup_token: auth::secret::new_secret(),
-        ..fvoci_model::Team::default()
+        ..fvoci_model::Workspace::default()
     };
     let org_id = store
         .only_organization(&workspace)

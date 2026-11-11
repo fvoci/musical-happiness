@@ -23,8 +23,8 @@ use fvoci_server::error::ErrorKind;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::boards::TeamSocket;
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
+use crate::board_broadcasts::WorkspaceSocket;
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID};
 
 /// How long background notifications may take to finish.
 const BACKGROUND: Duration = Duration::from_secs(10);
@@ -41,7 +41,7 @@ pub(crate) struct Roles {
 }
 
 pub(crate) async fn board_with_roles(th: &TestServer) -> Roles {
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let editor = th.add_user("editor").await;
     let commenter = th.add_user("commenter").await;
     let viewer = th.add_user("viewer").await;
@@ -81,7 +81,7 @@ pub(crate) fn check_error(response: &ApiResponse, status: StatusCode, message: &
     response.check_error(status, message);
 }
 
-fn cards_path(board_id: &str) -> String {
+pub(crate) fn cards_path(board_id: &str) -> String {
     format!("/boards/{board_id}/cards")
 }
 
@@ -115,7 +115,7 @@ fn make_card_props(count: usize) -> JsonMap {
 
 /// `CreateBoardAndCards`: an open board of the first user with `count` cards.
 async fn create_board_and_cards(th: &TestServer, count: usize) -> (Board, Vec<Card>) {
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let mut cards = Vec::with_capacity(count);
     for number in 1..=count {
         let card = Card {
@@ -180,7 +180,7 @@ fn title_patch(title: &str) -> CardPatch {
 const CARD_COUNT: usize = 25;
 
 async fn get_cards_fixture(th: &TestServer) -> Board {
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let user_id = th.client.me().await.id;
     for number in 0..CARD_COUNT {
         let card = Card {
@@ -227,7 +227,7 @@ fn card_numbers(cards: &[Card]) -> BTreeSet<usize> {
 #[tokio::test]
 async fn create_card_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let card = Card {
         title: "basic card".to_owned(),
         ..Card::default()
@@ -243,7 +243,7 @@ async fn create_card_a_non_authenticated_user_should_be_rejected() {
 #[tokio::test]
 async fn create_card_good() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let card = Card {
         title: "test card 1".to_owned(),
         icon: "😱".to_owned(),
@@ -262,7 +262,7 @@ async fn create_card_good() {
 #[tokio::test]
 async fn create_card_invalid_card() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let card = Card {
         title: "too many emoji's".to_owned(),
         icon: "😱😱😱😱".to_owned(),
@@ -440,7 +440,7 @@ async fn get_card_good() {
 #[tokio::test]
 async fn app_create_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let user_id = th.stranger().await;
     let card = Card {
         board_id: board.id.clone(),
@@ -469,7 +469,7 @@ async fn app_create_card_success_scenario() {
 #[tokio::test]
 async fn app_create_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let user_id = th.stranger().await;
 
     let too_long = Card {
@@ -516,7 +516,7 @@ async fn app_create_card_error_scenario() {
 #[tokio::test]
 async fn app_get_cards_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let mut blocks: Vec<Block> = (0..CARD_COUNT)
         .map(|number| Block {
             schema: 1,
@@ -551,7 +551,7 @@ async fn app_get_cards_success_scenario() {
 #[tokio::test]
 async fn app_get_cards_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let block = Block {
         fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
         ..new_block(&board.id, "", BlockType::Card)
@@ -576,7 +576,7 @@ async fn app_get_cards_error_scenario() {
 #[tokio::test]
 async fn app_patch_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let user_id = th.stranger().await;
     let props = make_card_props(3);
     let card = Card {
@@ -665,7 +665,7 @@ async fn app_patch_card_error_scenario() {
 #[tokio::test]
 async fn app_get_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let props = make_card_props(5);
     let content_order = vec![new_id(), new_id()];
     let fields = json!({
@@ -713,7 +713,7 @@ async fn app_get_card_not_found() {
 #[tokio::test]
 async fn app_get_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let text = insert_block(&th.client, &new_block(&board.id, "", BlockType::Attachment)).await;
 
     let error = th.app.card(&text.id).await.expect_err("a text is no card");
@@ -734,7 +734,7 @@ async fn app_get_card_error_scenario() {
 #[tokio::test]
 async fn create_card_answer_and_stored_block() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let me = th.client.me().await;
     let before = fvoci_server::auth::now_millis();
 
@@ -829,7 +829,7 @@ async fn create_card_answer_and_stored_block() {
 #[tokio::test]
 async fn create_card_without_members() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let me = th.client.me().await;
 
     for body in [
@@ -1032,7 +1032,7 @@ async fn get_cards_permissions_and_malformed_paging() {
 #[tokio::test]
 async fn get_cards_paging() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let total = 103;
     let mut blocks: Vec<Block> = (0..total)
         .map(|number| Block {
@@ -1103,7 +1103,7 @@ async fn get_cards_paging() {
 #[tokio::test]
 async fn a_malformed_card_block_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
     // Side-by-side content, as the original's web app stores it, has nested lists.
     insert_card_block(
@@ -1189,7 +1189,7 @@ async fn a_malformed_card_block_is_refused() {
 #[tokio::test]
 async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let card = create_card(&th.client, &board.id, &json!({"title": "old"})).await;
     let stored = serde_json::from_value(json!({"icon": 5, "isTemplate": "yes", "properties": []}))
         .expect("an object");
@@ -1240,7 +1240,7 @@ async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it()
 #[tokio::test]
 async fn a_title_with_u0000_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let block = Block {
         title: "a\u{0}b".to_owned(),
         ..new_block(&board.id, "", BlockType::Card)
@@ -1291,7 +1291,7 @@ async fn a_title_with_u0000_is_refused() {
         .client
         .post(
             "/boards",
-            &json!({"teamId": TEST_TEAM_ID, "type": "O", "title": "x\u{0}"}),
+            &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "title": "x\u{0}"}),
         )
         .await;
     response.check_bad_request();
@@ -1455,7 +1455,7 @@ async fn patch_card_refusals() {
 #[tokio::test]
 async fn patches_of_different_properties_at_the_same_time_both_stay() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let card = create_card(&th.client, &board.id, &json!({"title": "t"})).await;
     let path = card_path(&card.id);
     for round in 0..10 {
@@ -1491,7 +1491,7 @@ async fn patches_of_different_properties_at_the_same_time_both_stay() {
 #[tokio::test]
 async fn patch_card_merges_and_deletes_values() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let card = create_card(
         &th.client,
         &board.id,
@@ -1644,15 +1644,17 @@ async fn patch_card_changes() {
 // -- who is told about a change -----------------------------------------------------------
 
 /// Creating and patching a card is broadcast as the change of its block to the
-/// board's members who listen to its team, with or without `disableNotify`.
+/// board's members who listen to its workspace, with or without `disableNotify`.
 #[tokio::test]
 async fn card_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
-    let mut member = TeamSocket::subscribe(&th, &th.client, TEST_TEAM_ID, &user1.id).await;
-    let mut outsider = TeamSocket::subscribe(&th, &th.client2, TEST_TEAM_ID, &user2.id).await;
+    let mut member =
+        WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
+    let mut outsider =
+        WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &user2.id).await;
     let path = cards_path(&board.id);
 
     for (path, title) in [
@@ -1665,7 +1667,11 @@ async fn card_changes_are_broadcast() {
             .await
             .created_json();
         let message = member.expect("UPDATE_BLOCK", "/block/id", &card.id).await;
-        assert_eq!(message["teamId"], json!(TEST_TEAM_ID), "{message}");
+        assert_eq!(
+            message["workspaceId"],
+            json!(TEST_WORKSPACE_ID),
+            "{message}"
+        );
         assert_eq!(message["block"]["type"], json!("card"), "{message}");
         assert_eq!(message["block"]["title"], json!(title), "{message}");
         assert_eq!(message["block"]["boardId"], json!(board.id), "{message}");
@@ -1739,7 +1745,7 @@ async fn card_changes_call_the_webhook() {
         .await
         .init_basic()
         .await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let me = th.client.me().await;
     // What the webhook got since the last call, as (identifier, type, title) triples.
     let take_posted = async || -> Vec<(String, String, String)> {
@@ -1931,133 +1937,4 @@ async fn a_card_says_when_it_was_last_commented_on() {
         posted_at(&cards_of(&th.client, &board.id, "").await),
         expected(0)
     );
-}
-
-/// An open board with a person property `owner` and two cards: "with", owned by the
-/// first user, whose body has a mention, a text whose cut falls before an emoji, an image
-/// in a list and another after it; and "without", with no body. Returns the board, the
-/// file of the image in the list, and the first user's identifier.
-async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let me = th.client.me().await;
-    let upload = crate::files::upload(&th.client, &board.id, "picture.png", b"png").await;
-    upload.check_created();
-    let file_id = crate::files::uploaded_id(&upload);
-    let later = crate::files::upload(&th.client, &board.id, "later.png", b"png").await;
-    later.check_created();
-    let later_id = crate::files::uploaded_id(&later);
-    th.client
-        .patch(
-            &format!("/boards/{}", board.id),
-            &json!({"updatedCardProperties": [
-                {"id": "owner", "name": "Owner", "type": "person", "options": []},
-            ]}),
-        )
-        .await
-        .check_ok();
-    // 199 two-byte letters and an emoji of two UTF-16 units: the cut falls before it.
-    let opening = format!("{}🎉", "가".repeat(199));
-    let paragraph =
-        |text: &str| json!({"type": "paragraph", "content": [{"type": "text", "text": text}]});
-    // A mention first, which the text leaves out; the first image is in a list, before
-    // another.
-    let body = json!({"type": "doc", "content": [
-        {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": me.id}}]},
-        paragraph(&opening),
-        {"type": "bulletList", "content": [{"type": "listItem", "content": [
-            paragraph("item"),
-            {"type": "image", "attrs": {"fileId": file_id}},
-        ]}]},
-        {"type": "image", "attrs": {"fileId": later_id}},
-        paragraph("more"),
-    ]});
-    let with_body = json!({"id": new_id(), "boardId": board.id, "type": "card", "title": "with",
-                           "createAt": 1, "updateAt": 1, "body": body,
-                           "fields": {"properties": {"owner": me.id}}});
-    let without = json!({"id": new_id(), "boardId": board.id, "type": "card", "title": "without",
-                         "createAt": 1, "updateAt": 1});
-    th.client
-        .post(
-            &format!("/boards/{}/blocks", board.id),
-            &[with_body, without],
-        )
-        .await
-        .check_created();
-    (board, file_id, me.id)
-}
-
-/// Not in the original (user decision 2026-11-11 14:25 KST). With `preview=true` the card
-/// list gives each card the file of its body's first image and the beginning of its text,
-/// at most 200 UTF-16 code units cut between characters; without it, no preview. A reader
-/// with the board's read token gets the same previews, the cards naming no users, and
-/// gets the image with the same token.
-#[tokio::test]
-async fn the_card_list_gives_previews_when_asked() {
-    let th = Setup::local_mode().start().await.init_basic().await;
-    let (board, file_id, me_id) = board_with_previewed_card(&th).await;
-    let previews = |cards: &[Value]| -> Vec<(Value, Value)> {
-        cards
-            .iter()
-            .map(|card| (card["title"].clone(), card["preview"].clone()))
-            .collect()
-    };
-    let expected = vec![
-        (
-            json!("with"),
-            json!({"imageFileId": file_id, "text": "가".repeat(199)}),
-        ),
-        (json!("without"), json!({"imageFileId": "", "text": ""})),
-    ];
-
-    let plain: Vec<Value> = th.client.get(&cards_path(&board.id)).await.ok_json();
-    assert!(
-        plain.iter().all(|card| card.get("preview").is_none()),
-        "no previews unless asked: {plain:?}"
-    );
-    let asked: Vec<Value> = th
-        .client
-        .get(&format!("{}?preview=true", cards_path(&board.id)))
-        .await
-        .ok_json();
-    assert_eq!(previews(&asked), expected);
-
-    let token = th.share(&board.id).await;
-    let shared = format!("{}?preview=true&readToken={token}", cards_path(&board.id));
-    let read: Vec<Value> = th.anonymous().get(&shared).await.ok_json();
-    assert_eq!(
-        previews(&read),
-        expected,
-        "the same for a reader with the token"
-    );
-    // Anonymous, or signed in and no member: no users; a member: as ever.
-    let outsider: Vec<Value> = th.client2.get(&shared).await.ok_json();
-    assert_eq!(previews(&outsider), expected);
-    for card in read.iter().chain(&outsider) {
-        assert_eq!(card["createdBy"], json!(""), "{card}");
-        assert_eq!(card["modifiedBy"], json!(""), "{card}");
-    }
-    assert_eq!(
-        outsider[0]["properties"]["owner"],
-        json!(""),
-        "{outsider:?}"
-    );
-    let member: Vec<Value> = th.client.get(&shared).await.ok_json();
-    assert_eq!(member[0]["createdBy"], json!(me_id));
-    assert_eq!(member[0]["properties"]["owner"], json!(me_id));
-    th.anonymous()
-        .get(&format!(
-            "/boards/{}/files/{file_id}?readToken={token}",
-            board.id
-        ))
-        .await
-        .check_ok();
-
-    th.anonymous()
-        .get(&cards_path(&board.id))
-        .await
-        .check_unauthorized();
-    th.anonymous()
-        .get(&format!("{}?readToken=nope", cards_path(&board.id)))
-        .await
-        .check_unauthorized();
 }

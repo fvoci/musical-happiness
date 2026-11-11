@@ -31,14 +31,14 @@
 
 | `action` | 세션 | 멤버 | 하는 일 |
 |---|---|---|---|
-| `SUBSCRIBE_TEAM` | 필요 | `teamId` | 그 팀의 변경을 받는다(3절). 같은 팀을 다시 구독해도 한 번이다 |
-| `UNSUBSCRIBE_TEAM` | 필요 | `teamId` | 그만 받는다 |
-| `SUBSCRIBE_BLOCKS` | 없어도 된다 | `teamId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다. `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `teamId`가 비어 있지 않아야 한다. 하나라도 어긋나면 명령 전체를 무시한다 |
+| `SUBSCRIBE_WORKSPACE` | 필요 | `workspaceId` | 그 워크스페이스의 변경을 받는다(3절). 같은 워크스페이스를 다시 구독해도 한 번이다 |
+| `UNSUBSCRIBE_WORKSPACE` | 필요 | `workspaceId` | 그만 받는다 |
+| `SUBSCRIBE_BLOCKS` | 없어도 된다 | `workspaceId`, `readToken`, `blockIds` | 공유 보드의 블록들을 읽기 토큰으로 따라간다. `blockIds`가 모두 한 보드의 것이고 `readToken`이 그 보드의 공유 토큰이며 `workspaceId`가 비어 있지 않아야 한다. 하나라도 어긋나면 명령 전체를 무시한다 |
 | `UNSUBSCRIBE_BLOCKS` | 없어도 된다 | 같다 | 그 블록들을 그만 따라간다. 같은 검사를 한다 |
 
 - 세션이 필요한 명령을 익명 연결이 보내면 무시한다.
-- JSON이 아니거나, 멤버의 타입이 틀리거나(`teamId`가 수, `blockIds`가 목록이 아님 등), `action`을 모르면 그 명령만 무시하고 연결은 그대로다.
-- `SUBSCRIBE_TEAM`의 팀 권한 검사는 `teamId`가 비어 있지 않으면 참이다(팀이 하나뿐이다). 비어 있지 않은 어느 `teamId`든 받아들이지만, 변경은 그 보드의 팀 ID로 나가므로 맞는 팀 ID(`GET /api/v1/teams`)를 보내야 받는다.
+- JSON이 아니거나, 멤버의 타입이 틀리거나(`workspaceId`가 수, `blockIds`가 목록이 아님 등), `action`을 모르면 그 명령만 무시하고 연결은 그대로다.
+- `SUBSCRIBE_WORKSPACE`는 그 워크스페이스에서 일하는 사용자(손님이 아닌 구성원)의 것만 받아들이고, 그 밖의 것은 무시한다. 워크스페이스 ID는 `GET /api/v1/users/me/workspaces`에 있다.
 - `blockIds`가 빈 목록이면 보드를 정할 수 없어 읽기 토큰이 맞지 않는 것으로 친다.
 
 ## 3. 서버가 보내는 메시지
@@ -47,23 +47,23 @@
 
 | `action` | 싣는 것 | 누가 받나 |
 |---|---|---|
-| `UPDATE_BOARD` | `teamId`, `board`(`Board` 전체) | 그 팀을 구독한 연결 가운데 사용자가 보드의 멤버인 것 |
-| `UPDATE_BLOCK` | `teamId`, `block`(`Block` 전체) | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `SUBSCRIBE_BLOCKS`로 따라가는 연결 |
-| `UPDATE_MEMBER` | `teamId`, `member`(`BoardMember`) | 그 팀을 구독한 연결 가운데 사용자가 보드의 멤버인 것 |
-| `DELETE_MEMBER` | `teamId`, `member`(`boardId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
-| `UPDATE_CATEGORY` | `teamId`, `category`(`Category`) | 카테고리 주인의, 그 팀을 구독한 연결 모두(아래) |
-| `UPDATE_BOARD_CATEGORY` | `teamId`, `boardCategories`(`{boardId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setBoardCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideBoard`·`unhideBoard`·`undeleteBoard`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
-| `REORDER_CATEGORIES` | `teamId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
-| `REORDER_CATEGORY_BOARDS` | `teamId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
+| `UPDATE_BOARD` | `workspaceId`, `board`(`Board` 전체) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드의 멤버인 것 |
+| `UPDATE_BLOCK` | `workspaceId`, `block`(`Block` 전체) | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `SUBSCRIBE_BLOCKS`로 따라가는 연결 |
+| `UPDATE_MEMBER` | `workspaceId`, `member`(`BoardMember`) | 그 워크스페이스를 구독한 연결 가운데 사용자가 보드의 멤버인 것 |
+| `DELETE_MEMBER` | `workspaceId`, `member`(`boardId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
+| `UPDATE_CATEGORY` | `workspaceId`, `category`(`Category`) | 카테고리 주인의, 그 워크스페이스를 구독한 연결 모두(아래) |
+| `UPDATE_BOARD_CATEGORY` | `workspaceId`, `boardCategories`(`{boardId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setBoardCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideBoard`·`unhideBoard`·`undeleteBoard`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
+| `REORDER_CATEGORIES` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
+| `REORDER_CATEGORY_BOARDS` | `workspaceId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
 
 ### 받는 사람의 규칙
 
-- "보드의 멤버"는 메시지를 보낼 때 저장소에서 읽은 멤버 목록이다. 팀을 구독하지 않은 연결은 멤버여도 받지 않는다.
+- "보드의 멤버"는 메시지를 보낼 때 저장소에서 읽은 멤버 목록이다. 워크스페이스를 구독하지 않은 연결은 멤버여도 받지 않는다.
 - 공개 보드라도 멤버가 아닌 사용자는 보드와 블록의 변경을 받지 않는다.
-- **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 팀을 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다(원본은 먼저 구독한 하나에만 보냈다).
+- **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 워크스페이스를 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다(원본은 먼저 구독한 하나에만 보냈다).
 - `SUBSCRIBE_BLOCKS`로 따라가는 연결 가운데 세션이 없거나 사용자가 보드의 멤버(보기 역할부터)가 아닌 것이 받는 `UPDATE_BLOCK`은 HTTP의 `getBlocks`가 그 독자에게 주는 모양이다(`docs/contract-pending.md` 1절): `createdBy`, `modifiedBy`, 본문의 모든 멘션의 `userId`, 사람 속성이 가리키는 사람이 비어 있다. 사용자 ID가 가입 시각을 드러낸다. 멤버의 연결은 읽기 토큰으로 따라가도 그대로 받는다.
-- 한 연결이 팀 구독과 블록 구독을 함께 해서 두 길로 다 해당하면 같은 메시지를 두 번 받는다.
+- 한 연결이 워크스페이스 구독과 블록 구독을 함께 해서 두 길로 다 해당하면 같은 메시지를 두 번 받는다.
 - 쓴 사람 자신의 연결도 받는다. 서버는 보낸 사람을 빼지 않는다.
 
 ### 메시지를 내는 조작
@@ -72,10 +72,10 @@
 |---|---|
 | `createBoard`, `createBoardsAndBlocks`, `duplicateBoard`(템플릿에서 만들기 포함), `onboard` | 새 보드마다 `UPDATE_BOARD`, 블록마다 `UPDATE_BLOCK`, 멤버마다 `UPDATE_MEMBER`. 템플릿이 아닌 새 보드는 만든 사람의 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`를 낸다. `onboard`는 보드를 고친 뒤 `UPDATE_BOARD`를 한 번 더 낸다 |
 | `importArchive` | 보드·블록의 `UPDATE_BOARD`·`UPDATE_BLOCK`이 멤버가 생기기 전에 나가 **아무도 받지 않는다**. 그 뒤 `UPDATE_MEMBER`, `UPDATE_BOARD_CATEGORY`, 이미지를 고친 블록의 `UPDATE_BLOCK` |
-| `patchBoard` | `UPDATE_BOARD`. **템플릿**의 패치에 `type`이 있으면(바뀌지 않았어도) 멤버가 아닌 팀 사용자마다: 비공개면 `DELETE_MEMBER`, 공개면 보기 역할의 `UPDATE_MEMBER`. 템플릿이 아닌 보드는 종류가 바뀌어도 `UPDATE_BOARD`뿐이다 |
+| `patchBoard` | `UPDATE_BOARD`. **템플릿**의 패치에 `type`이 있으면(바뀌지 않았어도) 멤버가 아닌 워크스페이스 사용자마다: 비공개면 `DELETE_MEMBER`, 공개면 보기 역할의 `UPDATE_MEMBER`. 템플릿이 아닌 보드는 종류가 바뀌어도 `UPDATE_BOARD`뿐이다 |
 | `patchBoardsAndBlocks` | 바뀐 블록마다 `UPDATE_BLOCK`, 바뀐 보드마다 `UPDATE_BOARD` |
 | `reorderCardProperties` | 새 순서의 `cardProperties`를 실은 `UPDATE_BOARD` |
-| `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `teamId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 연결을 닫는다 |
+| `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `workspaceId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 연결을 닫는다 |
 | `undeleteBoard` | 돌아온 보드의 `UPDATE_BOARD` 하나, 그리고 보드를 사이드바에 다시 둔 사용자마다 그 사람의 연결에 `UPDATE_BOARD_CATEGORY`(그 보드의 항목 하나: 원래 카테고리, 그사이 지워졌으면 기본 카테고리)와 그 카테고리의 `REORDER_CATEGORY_BOARDS`(원래 자리로 들어가며 뒤의 보드가 밀린 순서). 비공개 보드는 다시 구성원이 된 사람에게만. **함께 돌아온 블록과 멤버의 메시지는 없다** |
 | `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
@@ -120,7 +120,7 @@
 
 | # | 웹앱의 가정 | 지금 서버 |
 |---|---|---|
-| G1 | 구독은 둘: 보드 하나(`watchBoard`), 나 자신(`watchSelf`) | 구독의 단위는 **팀**(`SUBSCRIBE_TEAM`)과 **블록**(`SUBSCRIBE_BLOCKS`, 읽기 토큰으로)이다. 보드 하나만 구독하는 명령은 없다. 팀을 구독하면 내가 멤버인 모든 보드의 보드·블록·멤버 변경과 내 카테고리의 변경이 온다. 그러니 `watchBoard`와 `watchSelf`는 연결 하나의 팀 구독에서 화면이 보드 ID로 갈라 쓴다. 설정(`patchUserSettings`)의 변경은 메시지가 없다. 카테고리 메시지는 그 팀을 구독한 내 연결 모두에 간다(3절) |
+| G1 | 구독은 둘: 보드 하나(`watchBoard`), 나 자신(`watchSelf`) | 구독의 단위는 **워크스페이스**(`SUBSCRIBE_WORKSPACE`)와 **블록**(`SUBSCRIBE_BLOCKS`, 읽기 토큰으로)이다. 보드 하나만 구독하는 명령은 없다. 워크스페이스를 구독하면 내가 멤버인 모든 보드의 보드·블록·멤버 변경과 내 카테고리의 변경이 온다. 그러니 `watchBoard`와 `watchSelf`는 연결 하나의 워크스페이스 구독에서 화면이 보드 ID로 갈라 쓴다. 설정(`patchUserSettings`)의 변경은 메시지가 없다. 카테고리 메시지는 그 워크스페이스를 구독한 내 연결 모두에 간다(3절) |
 | G2 | 변경의 종류 일곱 | 보드: `UPDATE_BOARD`(전체). 보드 삭제: `deleteAt`이 0이 아닌 `UPDATE_BOARD`(따로 된 종류가 없다). 블록: `UPDATE_BLOCK`이 **블록 하나씩**, `Block` 전체를 싣는다. 카드도 요약이 아니라 블록 전체이고 본문(최대 1 MiB)을 함께 싣는다. 블록 삭제: `deleteAt`이 0이 아닌 `UPDATE_BLOCK`, 지운 블록 하나만(아래 것은 싣지 않는다). 구성원: 전체 목록이 아니라 멤버 한 명씩(`UPDATE_MEMBER`, `DELETE_MEMBER`). 카테고리: 전체 목록이 아니라 카테고리 하나(`UPDATE_CATEGORY`), 보드의 자리(`UPDATE_BOARD_CATEGORY`), 순서(`REORDER_CATEGORIES`, `REORDER_CATEGORY_BOARDS`). 설정: 메시지 없음 |
 | G3 | 내 쓰기도 내게 온다 | 맞다. 보낸 연결도 받는다 |
 | G4 | `updateAt`이 블록마다 단조 증가 | **있는 블록을 고칠 때는 그렇다**: 고칠 때마다 앞의 값보다 커진다(4절). 휴지통에서 돌아온 블록은 그때의 서버 시각을 받으므로, 시계가 뒤로 갔다면 지우기 전보다 작을 수 있다. 판을 가르는 다른 값(카운터)은 없다 |

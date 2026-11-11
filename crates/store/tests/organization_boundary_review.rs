@@ -22,7 +22,7 @@ async fn failed_and_cancelled_transactions_do_not_leave_an_organization_on_the_p
     let (other_org, _) = common::organization(&test, "other").await;
     let mut board = fvoci_model::Board {
         id: new_id(),
-        team_id: test.workspace_id.clone(),
+        workspace_id: test.workspace_id.clone(),
         board_type: fvoci_model::BoardType::Private,
         ..fvoci_model::Board::default()
     };
@@ -127,7 +127,7 @@ async fn an_org_cannot_attach_a_board_to_another_orgs_workspace() {
     let (_, other_workspace) = common::organization(&test, "other").await;
     let mut board = fvoci_model::Board {
         id: new_id(),
-        team_id: other_workspace,
+        workspace_id: other_workspace,
         board_type: fvoci_model::BoardType::Private,
         ..fvoci_model::Board::default()
     };

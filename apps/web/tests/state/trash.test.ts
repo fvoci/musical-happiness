@@ -27,13 +27,13 @@ afterEach(() => {
 
 async function firstBoard() {
   const made = setup();
-  const [team] = await made.backend.teams();
-  const [board] = await made.backend.boards(team?.id ?? '');
-  if (!board || !team) throw new Error('no board');
+  const [workspace] = await made.backend.workspaces();
+  const [board] = await made.backend.boards(workspace?.id ?? '');
+  if (!board || !workspace) throw new Error('no board');
   const cards = await made.backend.cards(board.id);
   const id = (title: string): string => cards.find((card) => card.title === title)?.id ?? '';
   const otherId = (await made.other.me()).id;
-  return { ...made, teamId: team.id, boardId: board.id, id, otherId };
+  return { ...made, workspaceId: workspace.id, boardId: board.id, id, otherId };
 }
 
 describe('the cards in the trash, in memory', () => {
@@ -81,11 +81,11 @@ describe('the cards in the trash, in memory', () => {
 
 describe('the boards in the trash, in memory', () => {
   it('are listed for who was their admin, and brought back by them only', async () => {
-    const { backend, other, world, teamId, boardId, otherId } = await firstBoard();
+    const { backend, other, world, workspaceId, boardId, otherId } = await firstBoard();
     await backend.setMemberRole(boardId, otherId, 'editor');
     await backend.deleteBoard(boardId);
-    expect((await backend.deletedBoards(teamId)).map((item) => item.id)).toEqual([boardId]);
-    expect(await other.deletedBoards(teamId)).toEqual([]);
+    expect((await backend.deletedBoards(workspaceId)).map((item) => item.id)).toEqual([boardId]);
+    expect(await other.deletedBoards(workspaceId)).toEqual([]);
     expect((await rejection(other.restoreBoard(boardId))).status).toBe(403);
     const stranger = backend.as(
       [...world.users.keys()].find(
@@ -97,21 +97,21 @@ describe('the boards in the trash, in memory', () => {
     );
     expect((await rejection(stranger.restoreBoard(boardId))).status).toBe(404);
     await backend.restoreBoard(boardId);
-    expect(await backend.deletedBoards(teamId)).toEqual([]);
+    expect(await backend.deletedBoards(workspaceId)).toEqual([]);
   });
 
   it('come back where each person had filed them, hidden or not, and the sidebar is told', async () => {
-    const { backend, teamId, boardId } = await firstBoard();
-    const projects = await backend.createCategory(teamId, { name: 'Projects' });
-    await backend.moveBoardToCategory(teamId, boardId, projects.id, 0);
+    const { backend, workspaceId, boardId } = await firstBoard();
+    const projects = await backend.createCategory(workspaceId, { name: 'Projects' });
+    await backend.moveBoardToCategory(workspaceId, boardId, projects.id, 0);
     const second = await backend.createBoard(
-      teamId,
+      workspaceId,
       { title: 'Second' },
       { title: 'View', fields: createBoardView().fields },
     );
-    await backend.moveBoardToCategory(teamId, second.board.id, projects.id, 1);
-    await backend.setBoardHidden(teamId, projects.id, boardId, true);
-    const before = (await backend.categories(teamId)).find((one) => one.id === projects.id);
+    await backend.moveBoardToCategory(workspaceId, second.board.id, projects.id, 1);
+    await backend.setBoardHidden(workspaceId, projects.id, boardId, true);
+    const before = (await backend.categories(workspaceId)).find((one) => one.id === projects.id);
     expect(before?.boardIds).toEqual([boardId, second.board.id]);
 
     await backend.deleteBoard(boardId);
@@ -119,7 +119,7 @@ describe('the boards in the trash, in memory', () => {
     backend.watchSelf((change) => changes.push(change));
     await backend.restoreBoard(boardId);
     await settle();
-    const after = (await backend.categories(teamId)).find((one) => one.id === projects.id);
+    const after = (await backend.categories(workspaceId)).find((one) => one.id === projects.id);
     expect(after?.boardIds).toEqual([boardId, second.board.id]);
     expect(after?.hiddenBoardIds).toEqual([boardId]);
     const told = changes.find((change) => change.kind === 'categories');
@@ -130,13 +130,13 @@ describe('the boards in the trash, in memory', () => {
   });
 
   it('go to the default category when theirs went meanwhile', async () => {
-    const { backend, teamId, boardId } = await firstBoard();
-    const projects = await backend.createCategory(teamId, { name: 'Projects' });
-    await backend.moveBoardToCategory(teamId, boardId, projects.id, 0);
+    const { backend, workspaceId, boardId } = await firstBoard();
+    const projects = await backend.createCategory(workspaceId, { name: 'Projects' });
+    await backend.moveBoardToCategory(workspaceId, boardId, projects.id, 0);
     await backend.deleteBoard(boardId);
-    await backend.deleteCategory(teamId, projects.id);
+    await backend.deleteCategory(workspaceId, projects.id);
     await backend.restoreBoard(boardId);
-    const system = (await backend.categories(teamId)).find((one) => one.type === 'system');
+    const system = (await backend.categories(workspaceId)).find((one) => one.type === 'system');
     expect(system?.boardIds).toContain(boardId);
   });
 });
@@ -177,7 +177,7 @@ describe('the list of a trash', () => {
       deletedBy: '',
     }));
     const asked: unknown[] = [];
-    vi.spyOn(workspace.backend, 'deletedBoards').mockImplementation((_teamId, paging) => {
+    vi.spyOn(workspace.backend, 'deletedBoards').mockImplementation((_workspaceId, paging) => {
       asked.push(paging);
       return Promise.resolve(items.slice(0, paging?.perPage ?? 100));
     });
@@ -259,7 +259,7 @@ describe('a trash read again after a failure', () => {
       deletedBy: '',
     }));
     const asked: unknown[] = [];
-    vi.spyOn(workspace.backend, 'deletedBoards').mockImplementation((_teamId, paging) => {
+    vi.spyOn(workspace.backend, 'deletedBoards').mockImplementation((_workspaceId, paging) => {
       asked.push(paging);
       if (asked.length === 2) return Promise.reject(new BackendError(500));
       return Promise.resolve(items.slice(0, paging?.perPage ?? 100));

@@ -655,7 +655,7 @@ describe('the sidebar on the server', () => {
     id: 'k1',
     name: 'Work',
     userId: 'me',
-    teamId: 't',
+    workspaceId: 't',
     type: 'custom',
     collapsed: true,
     sortOrder: 10,
@@ -677,7 +677,7 @@ describe('the sidebar on the server', () => {
     ]);
     const made = await new ServerBackend('').createCategory('t', { name: 'Work' });
     expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/w/t/categories']);
-    expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', teamId: 't' });
+    expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', workspaceId: 't' });
     expect(made).toMatchObject({ id: 'k1', boardIds: [], hiddenBoardIds: [] });
   });
 
@@ -694,7 +694,7 @@ describe('the sidebar on the server', () => {
     expect(sent[1]?.body).toEqual({
       id: 'k1',
       userId: 'me',
-      teamId: 't',
+      workspaceId: 't',
       name: 'Home',
       collapsed: true,
     });
@@ -753,7 +753,7 @@ describe('the sidebar on the server', () => {
     expect(sent[2]?.body).toEqual(['b1', 'b9', 'b2', 'b3']);
   });
 
-  it('sends the sidebar’s writes of a team one after another, each reading after the last', async () => {
+  it('sends the sidebar’s writes of a workspace one after another, each reading after the last', async () => {
     const sent = serveRoutes([
       ['POST /api/v1/w/t/categories/k1/boards/', undefined, 204],
       ['GET /api/v1/w/t/categories', CATEGORIES],
@@ -792,7 +792,7 @@ describe('the sidebar on the server', () => {
 describe('boards on the server', () => {
   const BOARD = {
     id: 'b1',
-    teamId: 't',
+    workspaceId: 't',
     createdBy: 'me',
     modifiedBy: 'me',
     type: 'P',
@@ -832,7 +832,7 @@ describe('boards on the server', () => {
     expect(body.boards).toEqual([
       {
         id: body.blocks[0]?.boardId,
-        teamId: 't',
+        workspaceId: 't',
         type: 'P',
         title: 'Plan',
         description: '',
@@ -987,13 +987,13 @@ describe('sharing a board on the server', () => {
     ]);
   });
 
-  it('finds people of the team by the search of their list', async () => {
+  it('finds people of the workspace by the search of their list', async () => {
     const sent = serveRoutes([['GET /api/v1/w/t/users', []]]);
     await new ServerBackend('').searchUsers('t', 'ann lee');
     expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/users?search=ann+lee']);
   });
 
-  it("takes the reader's teams from their workspaces, leaving out those they are a guest of", async () => {
+  it("takes the reader's workspaces from their workspaces, leaving out those they are a guest of", async () => {
     const workspace = (id: string, role: string) => ({ id, orgId: 'o', name: `n-${id}`, role });
     const sent = serveRoutes([
       [
@@ -1001,7 +1001,7 @@ describe('sharing a board on the server', () => {
         [workspace('w1', 'guest'), workspace('w2', 'member'), workspace('w3', 'admin')],
       ],
     ]);
-    expect(await new ServerBackend('').teams()).toEqual([
+    expect(await new ServerBackend('').workspaces()).toEqual([
       { id: 'w2', title: 'n-w2' },
       { id: 'w3', title: 'n-w3' },
     ]);
@@ -1012,7 +1012,7 @@ describe('sharing a board on the server', () => {
 describe('templates on the server', () => {
   const BOARD = {
     id: 'b2',
-    teamId: 't',
+    workspaceId: 't',
     createdBy: 'me',
     modifiedBy: 'me',
     type: 'P',
@@ -1035,7 +1035,7 @@ describe('templates on the server', () => {
     const sent = serveRoutes([
       ['GET /api/v1/w/t/templates', [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }]],
       ['POST /api/v1/boards/', { boards: [BOARD], blocks: [] }, 201],
-      ['POST /api/v1/w/t/onboard', { teamId: 't', boardId: 'w1' }],
+      ['POST /api/v1/w/t/onboard', { workspaceId: 't', boardId: 'w1' }],
     ]);
     const backend = new ServerBackend('');
     const [template] = await backend.templates('t');
@@ -1045,15 +1045,15 @@ describe('templates on the server', () => {
     expect(await backend.onboard('t')).toBe('w1');
     expect(sentLines(sent)).toEqual([
       'GET /api/v1/w/t/templates',
-      'POST /api/v1/boards/tp/duplicate?asTemplate=false&toTeam=t',
-      'POST /api/v1/boards/b2/duplicate?asTemplate=true&toTeam=t',
+      'POST /api/v1/boards/tp/duplicate?asTemplate=false&toWorkspace=t',
+      'POST /api/v1/boards/b2/duplicate?asTemplate=true&toWorkspace=t',
       'POST /api/v1/w/t/onboard',
     ]);
   });
 });
 
 describe('searching boards on the server', () => {
-  it('asks the team’s search by title', async () => {
+  it('asks the workspace’s search by title', async () => {
     const sent = serveRoutes([['GET /api/v1/w/t/boards/search', []]]);
     expect(await new ServerBackend('').searchBoards('t', 'garden plan')).toEqual([]);
     expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/boards/search?q=garden+plan']);

@@ -9,14 +9,14 @@
 
 use fvoci_model::{Block, BlockType, BoardType, new_id};
 
-use crate::common::{Setup, TEST_TEAM_ID};
+use crate::common::{Setup, TEST_WORKSPACE_ID};
 
 /// The route of `moveContentBlock` answers 404 for two blocks of one card, which it
 /// moved (204) or refused (400) before.
 #[tokio::test]
 async fn moving_a_content_block_is_no_route() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let block = |id: &str, parent: &str, block_type: BlockType| Block {
         id: id.to_owned(),
         board_id: board.id.clone(),

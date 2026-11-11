@@ -24,8 +24,8 @@ async fn file_store() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "michael.scott").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
     // "should save and retrieve fileinfo"
@@ -72,8 +72,8 @@ async fn file_info_stores_every_member() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "pam.beesly").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
     let file_info = FileInfo {
@@ -162,8 +162,8 @@ async fn a_file_is_found_through_its_own_board_only() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "jim.halpert").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 3).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 3).await;
     let (own, other, third) = (&boards[0].id, &boards[1].id, &boards[2].id);
     let stored_name = "7shared.png";
 
@@ -257,8 +257,8 @@ async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "kelly.kapoor").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
 
     let no_board = new_id();
     let record = record_of(&no_board, "7orphan.png");
@@ -304,8 +304,8 @@ async fn a_stored_name_is_taken_once_per_board() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "oscar.martinez").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 2).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 2).await;
     let (one, other) = (&boards[0].id, &boards[1].id);
     let stored_name = "7ledger.png";
 
@@ -364,8 +364,8 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "angela.martin").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 2).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 2).await;
     let (doomed, other) = (&boards[0].id, &boards[1].id);
     let stored_name = "7party.png";
 
@@ -467,8 +467,8 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "toby.flenderson").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
     let started = now_millis();
     let later = started + 3_600_000;
@@ -538,8 +538,8 @@ async fn a_restored_block_or_board_shows_its_files_again() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "creed.bratton").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
     let mut old = record_of(board_id, "7old.png");
     old.create_at = 1;
@@ -624,8 +624,8 @@ pub(crate) fn title_and_body(body: Option<&str>) -> fvoci_model::BlockPatch {
 /// A board with the files `7first.png` and `7second.png`, and a comment on a card of it,
 /// posted by `author`, whose body says `v1` and shows the first file.
 pub(crate) async fn posted_comment(store: &fvoci_store::Store, author: &str) -> Block {
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, author, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, author, 1).await;
     let board_id = &boards[0].id;
     for name in ["7first.png", "7second.png"] {
         store

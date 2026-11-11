@@ -531,7 +531,7 @@ export interface PropertyTemplate {
 
 export interface Board {
   id: string;
-  teamId: string;
+  workspaceId: string;
   channelId?: string;
   createdBy: string;
   modifiedBy: string;
@@ -542,7 +542,7 @@ export interface Board {
   icon?: string;
   showDescription: boolean;
   isTemplate: boolean;
-  /** A template the server offers every team; nobody's to change. */
+  /** A template the server offers every workspace; nobody's to change. */
   isBuiltin?: boolean;
   templateVersion: number;
   properties: Record<string, string | string[]>;
@@ -609,7 +609,7 @@ export function createBoard(source?: Board, statusName = 'Status'): Board {
 
   return {
     id: source?.id || createId('board'),
-    teamId: source?.teamId || '',
+    workspaceId: source?.workspaceId || '',
     channelId: source?.channelId || '',
     createdBy: source?.createdBy || '',
     modifiedBy: source?.modifiedBy || '',

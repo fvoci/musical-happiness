@@ -19,11 +19,11 @@ fn file_at(board_id: &str, path: &str) -> FileInfo {
     }
 }
 
-/// A board of a new team of the test's organization, by a new user.
+/// A board of a new workspace of the test's organization, by a new user.
 async fn board(store: &Store) -> (String, String) {
     let user_id = common::user(store, &format!("u{}", &new_id()[24..])).await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     (boards[0].id.clone(), user_id)
 }
 

@@ -77,14 +77,14 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 }
 
 /// Checks that a signed-in user may read the blocks of a board: the members of the
-/// board, and for an open template everyone who works in its team besides.
+/// board, and for an open template everyone who works in its workspace besides.
 async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<(), AppError> {
     if board.is_template && board.board_type == BoardType::Open {
         if !board.is_builtin
-            && !app.works_in_team(user_id, &board.team_id).await?
+            && !app.works_in_workspace(user_id, &board.workspace_id).await?
             && !app.is_board_reader(user_id, &board.id).await?
         {
-            // A template of a team the user does not work in is not there.
+            // A template of a workspace the user does not work in is not there.
             return Err(AppError::not_found("board"));
         }
     } else {
@@ -132,7 +132,7 @@ async fn require_source_board_access(
 
 /// The blocks of a board
 ///
-/// For the board's members, and for an open template everyone in its team. With the
+/// For the board's members, and for an open template everyone in its workspace. With the
 /// board's read token no session is needed. Who reads with the token and is no member
 /// of the board, without a session or signed in, is told no user's identifier:
 /// `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a
@@ -662,7 +662,7 @@ async fn handle_patch_blocks(
             .map_err(|error| error.under(&element_pointer(Some(PATCHES), index)))?;
     }
 
-    app.patch_blocks(&board.team_id, &batch, user_id, notification)
+    app.patch_blocks(&board.workspace_id, &batch, user_id, notification)
         .await
         .map_err(|error| {
             error

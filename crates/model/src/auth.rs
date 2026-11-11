@@ -151,7 +151,7 @@ pub struct RegisterRequest {
     /// The password.
     #[serde(deserialize_with = "null_as_default")]
     pub password: String,
-    /// The team's signup token; may be empty while no user exists yet.
+    /// The workspace's signup token; may be empty while no user exists yet.
     #[serde(deserialize_with = "null_as_default")]
     pub token: String,
     /// The name to be shown by; may be left out, `null` or empty for none. Read as

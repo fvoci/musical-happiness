@@ -38,11 +38,11 @@ fn user_ids(users: &[User]) -> Vec<&str> {
     users.iter().map(|user| user.id.as_str()).collect()
 }
 
-/// Stores a board of the team and returns its identifier.
-async fn stored_board(store: &Store, team_id: &str, user_id: &str, board: Board) -> String {
+/// Stores a board of the workspace and returns its identifier.
+async fn stored_board(store: &Store, workspace_id: &str, user_id: &str, board: Board) -> String {
     let mut board = Board {
         id: new_id(),
-        team_id: team_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
         ..board
     };
     store
@@ -58,16 +58,16 @@ async fn boards_come_oldest_first() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team_of(store, &[&user_id]).await;
+    let workspace_id = common::workspace_of(store, &[&user_id]).await;
     let open = |title: &str| Board {
         board_type: BoardType::Open,
         title: title.to_owned(),
         ..Board::default()
     };
-    let first = stored_board(store, &team_id, &user_id, open("board d")).await;
-    let second = stored_board(store, &team_id, &user_id, open("board a")).await;
-    let third = stored_board(store, &team_id, &user_id, open("board c")).await;
-    let fourth = stored_board(store, &team_id, &user_id, open("board b")).await;
+    let first = stored_board(store, &workspace_id, &user_id, open("board d")).await;
+    let second = stored_board(store, &workspace_id, &user_id, open("board a")).await;
+    let third = stored_board(store, &workspace_id, &user_id, open("board c")).await;
+    let fourth = stored_board(store, &workspace_id, &user_id, open("board b")).await;
     set_create_at(
         &test,
         "boards",
@@ -81,11 +81,15 @@ async fn boards_come_oldest_first() {
         third.as_str(),
     ];
 
-    let of_team = store
-        .get_boards_for_user_and_team(&user_id, &team_id, PublicBoards::Include)
+    let of_workspace = store
+        .get_boards_for_user_and_workspace(&user_id, &workspace_id, PublicBoards::Include)
         .await
         .expect("the boards are read");
-    assert_eq!(board_ids(&of_team), expected, "the boards of a team");
+    assert_eq!(
+        board_ids(&of_workspace),
+        expected,
+        "the boards of a workspace"
+    );
 
     let found = store
         .search_boards_for_user(
@@ -96,17 +100,21 @@ async fn boards_come_oldest_first() {
         )
         .await
         .expect("the boards are searched");
-    assert_eq!(board_ids(&found), expected, "a search of every team");
+    assert_eq!(board_ids(&found), expected, "a search of every workspace");
 
-    let found_in_team = store
-        .search_boards_for_user_in_team(&team_id, "board", &user_id)
+    let found_in_workspace = store
+        .search_boards_for_user_in_workspace(&workspace_id, "board", &user_id)
         .await
         .expect("the boards are searched");
-    assert_eq!(board_ids(&found_in_team), expected, "a search of one team");
+    assert_eq!(
+        board_ids(&found_in_workspace),
+        expected,
+        "a search of one workspace"
+    );
 
     let asked = [third.clone(), first.clone(), fourth.clone(), second.clone()];
     let by_id = store
-        .get_boards_in_team_by_ids(&asked, &team_id)
+        .get_boards_in_workspace_by_ids(&asked, &workspace_id)
         .await
         .expect("the boards are read");
     assert_eq!(
@@ -118,13 +126,13 @@ async fn boards_come_oldest_first() {
     test.teardown().await;
 }
 
-/// The templates of a team and the built-in ones come oldest first too.
+/// The templates of a workspace and the built-in ones come oldest first too.
 #[tokio::test]
 async fn templates_come_oldest_first() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
     let template = || Board {
         board_type: BoardType::Open,
         is_template: true,
@@ -133,9 +141,9 @@ async fn templates_come_oldest_first() {
     let mut own = Vec::new();
     let mut builtin = Vec::new();
     for _ in 0..3 {
-        own.push(stored_board(store, &team_id, &user_id, template()).await);
+        own.push(stored_board(store, &workspace_id, &user_id, template()).await);
         // A template stored on behalf of no user is a built-in one.
-        builtin.push(stored_board(store, &team_id, "", template()).await);
+        builtin.push(stored_board(store, &workspace_id, "", template()).await);
     }
     for ids in [&own, &builtin] {
         set_create_at(
@@ -146,14 +154,14 @@ async fn templates_come_oldest_first() {
         .await;
     }
 
-    let of_team = store
-        .get_template_boards(&team_id, &user_id)
+    let of_workspace = store
+        .get_template_boards(&workspace_id, &user_id)
         .await
         .expect("the templates are read");
     assert_eq!(
-        board_ids(&of_team),
+        board_ids(&of_workspace),
         [own[2].as_str(), own[0].as_str(), own[1].as_str()],
-        "the templates of a team"
+        "the templates of a workspace"
     );
     let shipped = store
         .get_builtin_templates()
@@ -178,7 +186,7 @@ async fn templates_come_oldest_first() {
 async fn memberships_come_by_identifier() {
     let test = common::setup().await;
     let store = &test.store;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
     let users = [
         common::user(store, "user c").await,
         common::user(store, "user a").await,
@@ -189,9 +197,9 @@ async fn memberships_come_by_identifier() {
         ..Board::default()
     };
     let boards = [
-        stored_board(store, &team_id, &users[0], open()).await,
-        stored_board(store, &team_id, &users[0], open()).await,
-        stored_board(store, &team_id, &users[0], open()).await,
+        stored_board(store, &workspace_id, &users[0], open()).await,
+        stored_board(store, &workspace_id, &users[0], open()).await,
+        stored_board(store, &workspace_id, &users[0], open()).await,
     ];
     let join = async |board_id: &str, user_id: &str| {
         let member = BoardMember {
@@ -252,7 +260,10 @@ async fn users_come_oldest_first() {
     .await;
     let expected = [third.as_str(), first.as_str(), second.as_str()];
 
-    let everybody = store.get_users_by_team().await.expect("the users are read");
+    let everybody = store
+        .get_users_by_workspace()
+        .await
+        .expect("the users are read");
     assert_eq!(user_ids(&everybody), expected, "every user");
 
     let asked = [second.clone(), third.clone(), first.clone()];
@@ -267,7 +278,7 @@ async fn users_come_oldest_first() {
     );
 
     let found = store
-        .search_users_by_team("order-")
+        .search_users_by_workspace("order-")
         .await
         .expect("the users are searched");
     assert_eq!(user_ids(&found), expected, "a search");
@@ -279,7 +290,7 @@ async fn users_come_oldest_first() {
     // The two made last are the oldest.
     set_create_at(&test, "users", &[(&many[11], 10), (&many[10], 20)]).await;
     let found = store
-        .search_users_by_team("many-")
+        .search_users_by_workspace("many-")
         .await
         .expect("the users are searched");
     let mut oldest_ten = vec![many[11].as_str(), many[10].as_str()];
@@ -300,14 +311,14 @@ async fn sidebar_ties_fall_back_to_age() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
     let mut categories = Vec::new();
     for name in ["z", "y", "a"] {
         let category = Category {
             id: new_id(),
             name: name.to_owned(),
             user_id: user_id.clone(),
-            team_id: team_id.clone(),
+            workspace_id: workspace_id.clone(),
             create_at: 1,
             update_at: 1,
             ..Category::default()
@@ -331,7 +342,7 @@ async fn sidebar_ties_fall_back_to_age() {
     .await;
 
     let listed = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are read");
     let listed_ids: Vec<&str> = listed.iter().map(|category| category.id.as_str()).collect();
@@ -345,7 +356,7 @@ async fn sidebar_ties_fall_back_to_age() {
         "categories of one sort order"
     );
 
-    let boards = common::create_test_boards(store, &team_id, &user_id, 3).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 3).await;
     let filed = [
         boards[2].id.clone(),
         boards[0].id.clone(),
@@ -357,7 +368,7 @@ async fn sidebar_ties_fall_back_to_age() {
         .expect("the boards are filed");
     let boards_of = async |category_id: &str| -> Vec<String> {
         store
-            .get_user_category_boards(&user_id, &team_id)
+            .get_user_category_boards(&user_id, &workspace_id)
             .await
             .expect("the categories are read")
             .into_iter()
@@ -406,14 +417,14 @@ async fn sidebar_ties_fall_back_to_age() {
 async fn subscription_ties_fall_back_to_identifiers() {
     let test = common::setup().await;
     let store = &test.store;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
     let users = [
         common::user(store, "user b").await,
         common::user(store, "user a").await,
     ];
     let board_id = stored_board(
         store,
-        &team_id,
+        &workspace_id,
         &users[0],
         Board {
             board_type: BoardType::Open,
@@ -482,14 +493,14 @@ async fn subscription_ties_fall_back_to_identifiers() {
     test.teardown().await;
 }
 
-/// Stores a board of the team with `admin_id` its admin and `editor_id` an editor.
+/// Stores a board of the workspace with `admin_id` its admin and `editor_id` an editor.
 async fn board_administered_by(
     store: &Store,
-    team_id: &str,
+    workspace_id: &str,
     admin_id: &str,
     editor_id: &str,
 ) -> String {
-    let board_id = stored_board(store, team_id, admin_id, Board::default()).await;
+    let board_id = stored_board(store, workspace_id, admin_id, Board::default()).await;
     for (member, admin) in [(admin_id, true), (editor_id, false)] {
         store
             .save_member(&BoardMember {
@@ -512,8 +523,8 @@ async fn the_trash_comes_the_last_deleted_first() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
-    let board_id = stored_board(store, &team_id, &user_id, Board::default()).await;
+    let workspace_id = common::workspace(store).await;
+    let board_id = stored_board(store, &workspace_id, &user_id, Board::default()).await;
     let mut cards: Vec<Block> = (0..3)
         .map(|_| Block {
             id: new_id(),
@@ -526,7 +537,7 @@ async fn the_trash_comes_the_last_deleted_first() {
     let other_id = common::user(store, "other").await;
     let mut boards = Vec::new();
     for _ in 0..3 {
-        boards.push(board_administered_by(store, &team_id, &user_id, &other_id).await);
+        boards.push(board_administered_by(store, &workspace_id, &user_id, &other_id).await);
     }
     for (card, board) in cards.iter().zip(&boards) {
         store
@@ -573,7 +584,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         by_id(cards.iter().map(|card| card.id.clone()).collect())
     );
     let listed: Vec<String> = store
-        .get_deleted_boards(&team_id, &user_id, None)
+        .get_deleted_boards(&workspace_id, &user_id, None)
         .await
         .expect("the deleted boards")
         .into_iter()
@@ -582,7 +593,7 @@ async fn the_trash_comes_the_last_deleted_first() {
     assert_eq!(listed, by_id(boards.clone()));
     let page: Vec<String> = store
         .get_deleted_boards(
-            &team_id,
+            &workspace_id,
             &user_id,
             Some(Paging {
                 page: 1,
@@ -596,7 +607,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         .collect();
     assert_eq!(page, by_id(boards.clone())[2..], "the pages cut that order");
     let not_admin = store
-        .get_deleted_boards(&team_id, &other_id, None)
+        .get_deleted_boards(&workspace_id, &other_id, None)
         .await
         .expect("the deleted boards of an editor");
     assert!(not_admin.is_empty(), "only those the user was an admin of");

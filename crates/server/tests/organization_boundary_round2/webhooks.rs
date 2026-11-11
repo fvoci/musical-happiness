@@ -115,7 +115,7 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
     socket
         .send(Message::Text(
             serde_json::json!({
-                "action": "SUBSCRIBE_BLOCKS", "teamId": scene.b.team_id,
+                "action": "SUBSCRIBE_BLOCKS", "workspaceId": scene.b.workspace_id,
                 "blockIds": [scene.card_b.id], "readToken": token
             })
             .to_string()
@@ -140,7 +140,7 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
     scene
         .b_app
         .ws()
-        .broadcast_block_change(&scene.b.team_id, &scene.card_b)
+        .broadcast_block_change(&scene.b.workspace_id, &scene.card_b)
         .await;
     let update = tokio::time::timeout(Duration::from_millis(500), async {
         while let Some(message) = socket.next().await {

@@ -323,6 +323,23 @@ pub async fn migrate_to_the_organizations(database: &TestDatabase) {
     store.close().await;
 }
 
+/// Brings a test database to the schema as a server left it before the workspaces were
+/// named so (migration 17): every migration before that one, and none of the changes of
+/// the data that follow the migrations.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_before_workspaces(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::WORKSPACES_VERSION - 1))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 impl Store {
     /// What the idle connections of a PostgreSQL store carry of an organization, read
     /// past the store's own transactions: for each connection the settings `fvoci.org`

@@ -28,7 +28,7 @@ export {
   type InvalidInput,
   type Registration,
   type Sharing,
-  type Team,
+  type WorkspaceInfo,
   type UploadedFile,
   type User,
   type ViewDraft,

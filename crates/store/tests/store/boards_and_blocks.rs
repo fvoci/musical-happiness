@@ -5,8 +5,8 @@
 //! subtests on SQLite, where it has no transactions; the port is atomic on both
 //! databases and runs them everywhere.
 //!
-//! The original names its boards, blocks, team and user with fixed strings. Here every
-//! identifier is generated, and the team and the users a board or block refers to are
+//! The original names its boards, blocks, workspace and user with fixed strings. Here every
+//! identifier is generated, and the workspace and the users a board or block refers to are
 //! stored first.
 //!
 //! The tests after [`duplicate_board`] have no counterpart in the original.
@@ -32,10 +32,10 @@ fn sorted(ids: &[&str]) -> Vec<String> {
     ids
 }
 
-fn new_board(id: &str, team_id: &str, board_type: BoardType) -> Board {
+fn new_board(id: &str, workspace_id: &str, board_type: BoardType) -> Board {
     Board {
         id: id.to_owned(),
-        team_id: team_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
         board_type,
         ..Board::default()
     }
@@ -66,10 +66,10 @@ fn is_title_size_limit_exceeded(error: &StoreError) -> bool {
     )
 }
 
-/// Inserts a new open board of the team on behalf of the user and returns its
+/// Inserts a new open board of the workspace on behalf of the user and returns its
 /// identifier.
-async fn insert_new_board(store: &Store, team_id: &str, user_id: &str) -> String {
-    let mut board = new_board(&new_id(), team_id, BoardType::Open);
+async fn insert_new_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
+    let mut board = new_board(&new_id(), workspace_id, BoardType::Open);
     store
         .insert_board(&mut board, user_id)
         .await
@@ -104,14 +104,14 @@ impl TwoBoards {
     /// the fourth block; it must name a board that exists.
     async fn insert(
         store: &Store,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
         last_block_board_id: Option<&str>,
     ) -> Self {
-        let board1 = insert_new_board(store, team_id, user_id).await;
+        let board1 = insert_new_board(store, workspace_id, user_id).await;
         let block1 = insert_new_block(store, &board1, user_id).await;
         let block2 = insert_new_block(store, &board1, user_id).await;
-        let board2 = insert_new_board(store, team_id, user_id).await;
+        let board2 = insert_new_board(store, workspace_id, user_id).await;
         let block3 = insert_new_block(store, &board2, user_id).await;
         let block4 = insert_new_block(store, last_block_board_id.unwrap_or(&board2), user_id).await;
         Self {
@@ -140,11 +140,11 @@ impl TwoBoards {
 )]
 async fn create_boards_and_blocks() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
     let stored = test
-        .get_boards_for_user_and_team(&user_id, &team_id, PublicBoards::Include)
+        .get_boards_for_user_and_workspace(&user_id, &workspace_id, PublicBoards::Include)
         .await
         .expect("the query succeeds");
     assert!(stored.is_empty(), "got {stored:?}");
@@ -155,9 +155,9 @@ async fn create_boards_and_blocks() {
         let [block1, block2] = new_ids();
         let mut new_bab = BoardsAndBlocks {
             boards: vec![
-                new_board(&board1, &team_id, BoardType::Open),
-                new_board(&board2, &team_id, BoardType::Private),
-                new_board(&board3, &team_id, BoardType::Open),
+                new_board(&board1, &workspace_id, BoardType::Open),
+                new_board(&board2, &workspace_id, BoardType::Private),
+                new_board(&board3, &workspace_id, BoardType::Open),
             ],
             blocks: vec![new_card(&block1, &board1), new_card(&block2, &board2)],
         };
@@ -186,9 +186,9 @@ async fn create_boards_and_blocks() {
         let [block3, block4] = new_ids();
         let mut new_bab = BoardsAndBlocks {
             boards: vec![
-                new_board(&board4, &team_id, BoardType::Open),
-                new_board(&board5, &team_id, BoardType::Private),
-                new_board(&board6, &team_id, BoardType::Open),
+                new_board(&board4, &workspace_id, BoardType::Open),
+                new_board(&board5, &workspace_id, BoardType::Private),
+                new_board(&board6, &workspace_id, BoardType::Open),
             ],
             blocks: vec![new_card(&block3, &board4), new_card(&block4, &board5)],
         };
@@ -234,9 +234,9 @@ async fn create_boards_and_blocks() {
         // one of the blocks is invalid as it doesn't have BoardID
         let mut new_bab = BoardsAndBlocks {
             boards: vec![
-                new_board(&board7, &team_id, BoardType::Open),
-                new_board(&board8, &team_id, BoardType::Private),
-                new_board(&board9, &team_id, BoardType::Open),
+                new_board(&board7, &workspace_id, BoardType::Open),
+                new_board(&board8, &workspace_id, BoardType::Private),
+                new_board(&board9, &workspace_id, BoardType::Open),
             ],
             blocks: vec![new_card(&block5, &board7), new_card(&block6, "")],
         };
@@ -291,9 +291,9 @@ async fn create_boards_and_blocks() {
         // one of the blocks is invalid as it has a title too large
         let mut new_bab = BoardsAndBlocks {
             boards: vec![
-                new_board(&board7, &team_id, BoardType::Open),
-                new_board(&board8, &team_id, BoardType::Private),
-                new_board(&board9, &team_id, BoardType::Open),
+                new_board(&board7, &workspace_id, BoardType::Open),
+                new_board(&board8, &workspace_id, BoardType::Private),
+                new_board(&board9, &workspace_id, BoardType::Open),
             ],
             blocks: vec![
                 new_card(&block5, &board7),
@@ -327,7 +327,7 @@ async fn create_boards_and_blocks() {
 )]
 async fn patch_boards_and_blocks() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
     // The subtests share their boards and blocks, as the original's do by naming them
@@ -342,7 +342,7 @@ async fn patch_boards_and_blocks() {
 
         let mut board = Board {
             title: initial_title.to_owned(),
-            ..new_board(&board1_id, &team_id, BoardType::Open)
+            ..new_board(&board1_id, &workspace_id, BoardType::Open)
         };
         test.insert_board(&mut board, &user_id)
             .await
@@ -394,7 +394,7 @@ async fn patch_boards_and_blocks() {
 
         let mut board = Board {
             title: initial_title.to_owned(),
-            ..new_board(&board1_id, &team_id, BoardType::Open)
+            ..new_board(&board1_id, &workspace_id, BoardType::Open)
         };
         test.insert_board(&mut board, &user_id)
             .await
@@ -437,12 +437,12 @@ async fn patch_boards_and_blocks() {
             boards: vec![
                 Board {
                     description: "initial description".to_owned(),
-                    ..new_board(&board1_id, &team_id, BoardType::Open)
+                    ..new_board(&board1_id, &workspace_id, BoardType::Open)
                 },
-                new_board(&board2_id, &team_id, BoardType::Private),
+                new_board(&board2_id, &workspace_id, BoardType::Private),
                 Board {
                     title: "initial title".to_owned(),
-                    ..new_board(&board3_id, &team_id, BoardType::Open)
+                    ..new_board(&board3_id, &workspace_id, BoardType::Open)
                 },
             ],
             blocks: vec![
@@ -526,16 +526,16 @@ async fn patch_boards_and_blocks() {
 #[tokio::test]
 async fn delete_boards_and_blocks() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
     // "should not delete anything if a block doesn't belong to any of the boards"
     {
         // The original puts the fourth block on a board that does not exist. A block's
         // board exists here, so it is a third board, which the request leaves out.
-        let different_board_id = insert_new_board(&test, &team_id, &user_id).await;
+        let different_board_id = insert_new_board(&test, &workspace_id, &user_id).await;
         let entities =
-            TwoBoards::insert(&test, &team_id, &user_id, Some(&different_board_id)).await;
+            TwoBoards::insert(&test, &workspace_id, &user_id, Some(&different_board_id)).await;
 
         let dbab = DeleteBoardsAndBlocks {
             boards: entities.board_ids.to_vec(),
@@ -558,7 +558,7 @@ async fn delete_boards_and_blocks() {
 
     // "should not delete anything if a board doesn't exist"
     {
-        let entities = TwoBoards::insert(&test, &team_id, &user_id, None).await;
+        let entities = TwoBoards::insert(&test, &workspace_id, &user_id, None).await;
 
         let mut boards = entities.board_ids.to_vec();
         boards.push(new_id());
@@ -579,7 +579,7 @@ async fn delete_boards_and_blocks() {
 
     // "should not delete anything if a block doesn't exist"
     {
-        let entities = TwoBoards::insert(&test, &team_id, &user_id, None).await;
+        let entities = TwoBoards::insert(&test, &workspace_id, &user_id, None).await;
 
         let mut blocks = entities.block_ids.to_vec();
         blocks.push(new_id());
@@ -600,7 +600,7 @@ async fn delete_boards_and_blocks() {
 
     // "should work properly if all the entities are related"
     {
-        let entities = TwoBoards::insert(&test, &team_id, &user_id, None).await;
+        let entities = TwoBoards::insert(&test, &workspace_id, &user_id, None).await;
 
         let dbab = DeleteBoardsAndBlocks {
             boards: entities.board_ids.to_vec(),
@@ -650,7 +650,7 @@ async fn delete_boards_and_blocks() {
 #[tokio::test]
 async fn duplicate_board() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
     // The original gives the first board a channel and checks that the copies have
@@ -659,9 +659,9 @@ async fn duplicate_board() {
     let [block1, block1a, block2] = new_ids();
     let mut new_bab = BoardsAndBlocks {
         boards: vec![
-            new_board(&board1, &team_id, BoardType::Open),
-            new_board(&board2, &team_id, BoardType::Private),
-            new_board(&board3, &team_id, BoardType::Open),
+            new_board(&board1, &workspace_id, BoardType::Open),
+            new_board(&board2, &workspace_id, BoardType::Private),
+            new_board(&board3, &workspace_id, BoardType::Open),
         ],
         blocks: vec![
             new_card(&block1, &board1),
@@ -683,7 +683,7 @@ async fn duplicate_board() {
     // "duplicate existing board as no template"
     {
         let (bab, members) = test
-            .duplicate_board(&board1, &user_id, Some(&team_id), DuplicateAs::Copy)
+            .duplicate_board(&board1, &user_id, Some(&workspace_id), DuplicateAs::Copy)
             .await
             .expect("the board is duplicated");
         assert_eq!(members.len(), 1, "got {members:?}");
@@ -695,7 +695,12 @@ async fn duplicate_board() {
     // "duplicate existing board as template"
     {
         let (bab, members) = test
-            .duplicate_board(&board1, &user_id, Some(&team_id), DuplicateAs::Template)
+            .duplicate_board(
+                &board1,
+                &user_id,
+                Some(&workspace_id),
+                DuplicateAs::Template,
+            )
             .await
             .expect("the board is duplicated");
         assert_eq!(members.len(), 1, "got {members:?}");
@@ -707,7 +712,7 @@ async fn duplicate_board() {
     // "duplicate not existing board"
     {
         let error = test
-            .duplicate_board(&new_id(), &user_id, Some(&team_id), DuplicateAs::Copy)
+            .duplicate_board(&new_id(), &user_id, Some(&workspace_id), DuplicateAs::Copy)
             .await
             .expect_err("there is no such board");
         assert!(error.is_not_found(), "got {error:?}");
@@ -726,8 +731,8 @@ async fn duplicate_board() {
 )]
 async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
-    let other_team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
+    let other_workspace_id = common::workspace(&test).await;
     let author = common::user(&test, "author").await;
     let copier = common::user(&test, "copier").await;
 
@@ -738,7 +743,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
             title: "Roadmap".to_owned(),
             description: "Plans".to_owned(),
             icon: "🗺".to_owned(),
-            ..new_board(&source_id, &team_id, BoardType::Open)
+            ..new_board(&source_id, &workspace_id, BoardType::Open)
         }],
         blocks: vec![
             Block {
@@ -763,7 +768,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
         .await
         .expect("the board and its blocks are created");
 
-    // board -> board, same team
+    // board -> board, same workspace
     let (copy, members) = test
         .duplicate_board(&source_id, &copier, None, DuplicateAs::Copy)
         .await
@@ -775,7 +780,10 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
     assert_eq!(board.description, "Plans", "the description is copied");
     assert_eq!(board.icon, "🗺", "the icon is copied");
     assert_eq!(board.board_type, BoardType::Private, "a copy is private");
-    assert_eq!(board.team_id, team_id, "the copy stays in the team");
+    assert_eq!(
+        board.workspace_id, workspace_id,
+        "the copy stays in the workspace"
+    );
     assert_eq!(board.created_by, copier, "the copier made the copy");
     assert_eq!(board.modified_by, copier, "the copier made the copy");
     assert!(!board.is_template, "a copy of a board is a board");
@@ -834,19 +842,22 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
     let source_board = test.get_board(&source_id).await.expect("the source exists");
     assert_eq!(source_board, source.boards[0], "the source board");
 
-    // board -> template, other team
+    // board -> template, other workspace
     let (template, _) = test
         .duplicate_board(
             &source_id,
             &copier,
-            Some(&other_team_id),
+            Some(&other_workspace_id),
             DuplicateAs::Template,
         )
         .await
         .expect("the board is duplicated");
     let template = &template.boards[0];
     assert_eq!(template.title, "New board template", "a new template");
-    assert_eq!(template.team_id, other_team_id, "in the team asked for");
+    assert_eq!(
+        template.workspace_id, other_workspace_id,
+        "in the workspace asked for"
+    );
     assert!(template.is_template, "got {template:?}");
 
     // template -> template
@@ -859,8 +870,8 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
         "a copy of a template"
     );
     assert_eq!(
-        template_copy.boards[0].team_id, other_team_id,
-        "in the team of the template"
+        template_copy.boards[0].workspace_id, other_workspace_id,
+        "in the workspace of the template"
     );
 
     // template -> board
@@ -887,11 +898,11 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
 #[tokio::test]
 async fn duplicate_board_copies_a_board_without_blocks() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
-    let empty_id = insert_new_board(&test, &team_id, &user_id).await;
-    let only_comments_id = insert_new_board(&test, &team_id, &user_id).await;
+    let empty_id = insert_new_board(&test, &workspace_id, &user_id).await;
+    let only_comments_id = insert_new_board(&test, &workspace_id, &user_id).await;
     let mut card = new_card(&new_id(), &only_comments_id);
     test.insert_block(&mut card, &user_id)
         .await
@@ -943,10 +954,10 @@ async fn duplicate_board_copies_a_board_without_blocks() {
 #[tokio::test]
 async fn patch_boards_and_blocks_rejects_fewer_patches_than_ids() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
-    let board_id = insert_new_board(&test, &team_id, &user_id).await;
+    let board_id = insert_new_board(&test, &workspace_id, &user_id).await;
     let block_id = insert_new_block(&test, &board_id, &user_id).await;
 
     let boards_short = PatchBoardsAndBlocks {
@@ -998,11 +1009,11 @@ async fn patch_boards_and_blocks_rejects_fewer_patches_than_ids() {
 #[tokio::test]
 async fn delete_boards_and_blocks_accepts_a_block_listed_after_its_parent() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
     for (order, child_first) in [("the parent first", false), ("the child first", true)] {
-        let board_id = insert_new_board(&test, &team_id, &user_id).await;
+        let board_id = insert_new_board(&test, &workspace_id, &user_id).await;
         let card_id = insert_new_block(&test, &board_id, &user_id).await;
         let mut child = Block {
             id: new_id(),
@@ -1051,10 +1062,10 @@ async fn delete_boards_and_blocks_accepts_a_block_listed_after_its_parent() {
 #[tokio::test]
 async fn delete_boards_and_blocks_takes_every_block_of_the_boards_to_the_trash() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
-    let board_id = insert_new_board(&test, &team_id, &user_id).await;
+    let board_id = insert_new_board(&test, &workspace_id, &user_id).await;
     let listed_id = insert_new_block(&test, &board_id, &user_id).await;
     let unlisted_id = insert_new_block(&test, &board_id, &user_id).await;
     let mut child_of_unlisted = Block {
@@ -1113,10 +1124,10 @@ async fn delete_boards_and_blocks_takes_every_block_of_the_boards_to_the_trash()
 #[tokio::test]
 async fn delete_boards_and_blocks_refuses_a_block_that_is_in_the_trash() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
-    let board_id = insert_new_board(&test, &team_id, &user_id).await;
+    let board_id = insert_new_board(&test, &workspace_id, &user_id).await;
     let kept_id = insert_new_block(&test, &board_id, &user_id).await;
     let deleted_id = insert_new_block(&test, &board_id, &user_id).await;
     test.delete_block(&deleted_id, &user_id)
@@ -1144,12 +1155,12 @@ async fn delete_boards_and_blocks_refuses_a_block_that_is_in_the_trash() {
 #[tokio::test]
 async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
     let [board_id, card_id, text_id, checkbox_id] = new_ids();
     let mut new_bab = BoardsAndBlocks {
-        boards: vec![new_board(&board_id, &team_id, BoardType::Open)],
+        boards: vec![new_board(&board_id, &workspace_id, BoardType::Open)],
         blocks: vec![
             Block {
                 parent_id: text_id.clone(),
@@ -1202,10 +1213,10 @@ async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
 #[tokio::test]
 async fn duplicate_board_copies_a_block_that_is_older_than_its_parent() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
 
-    let board_id = insert_new_board(&test, &team_id, &user_id).await;
+    let board_id = insert_new_board(&test, &workspace_id, &user_id).await;
     let text_id = insert_new_block(&test, &board_id, &user_id).await;
     let card_id = insert_new_block(&test, &board_id, &user_id).await;
     let onto_the_card = BlockPatch {

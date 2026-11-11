@@ -226,7 +226,7 @@ impl Store {
         .await
     }
 
-    /// Returns the boards of a team that are in the trash and that `admin_id` was an
+    /// Returns the boards of a workspace that are in the trash and that `admin_id` was an
     /// admin of when they were deleted (`schemeAdmin` of the membership they had), with
     /// those memberships, the last deleted first and then by identifier: one page of them
     /// if `paging` says so (a page size of zero is every board).
@@ -236,7 +236,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_deleted_boards(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         admin_id: &str,
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedBoard>, StoreError> {
@@ -253,9 +253,9 @@ impl Store {
                      member WHERE member->>'schemeAdmin' = 'true' AND member->>'userId' = "
                 }
             };
-            let mut sql =
-                scope.sql("SELECT board, members, deleted_by FROM deleted_boards WHERE team_id = ");
-            sql.bind(Id(team_id))
+            let mut sql = scope
+                .sql("SELECT board, members, deleted_by FROM deleted_boards WHERE workspace_id = ");
+            sql.bind(Id(workspace_id))
                 .push_bind(was_admin, admin_id)
                 .push(") ORDER BY deleted_at DESC, id");
             push_paging(&mut sql, paging);
@@ -609,11 +609,11 @@ pub(crate) async fn delete_board(
     };
     let mut sql = scope.sql(
         "INSERT INTO deleted_boards \
-         (id, team_id, deleted_at, deleted_by, deletion_id, board, members, files, places) \
+         (id, workspace_id, deleted_at, deleted_by, deletion_id, board, members, files, places) \
          VALUES (",
     );
     sql.bind(Id(board_id))
-        .push_bind(", ", Id(&in_trash.team_id))
+        .push_bind(", ", Id(&in_trash.workspace_id))
         .push_bind(", ", now)
         .push_bind(", ", OptId(user_id))
         .push_bind(", ", Id(&deletion_id))
@@ -681,7 +681,7 @@ pub(crate) async fn undelete_board(
         let sees = board.board_type == BoardType::Open
             || members.iter().any(|member| member.user_id == place.user_id);
         if sees && known_users.has(scope, &place.user_id).await? {
-            category_boards::put_back(scope, board_id, &board.team_id, &place).await?;
+            category_boards::put_back(scope, board_id, &board.workspace_id, &place).await?;
         }
     }
     for file in Vec::<FileInfo>::from(files) {

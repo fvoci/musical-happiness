@@ -1,6 +1,6 @@
 /**
  * The server's changes as they happen (`contracts/websocket.md`): one
- * WebSocket per page, subscribed to the reader's team, its messages turned
+ * WebSocket per page, subscribed to the reader's workspace, its messages turned
  * into the screens' changes (`Change`) and handed to whoever listens to that
  * board or to the reader's own things.
  *
@@ -25,8 +25,8 @@ type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
 
 /** What the messages do not carry, read over HTTP instead. */
 export interface LiveReads {
-  /** The reader's team, which the connection subscribes to. */
-  teamId(): Promise<string>;
+  /** The reader's workspace, which the connection subscribes to. */
+  workspaceId(): Promise<string>;
   /** A board's members: a message carries one member, the screens want them all. */
   members(boardId: string): Promise<Members>;
 }
@@ -55,7 +55,7 @@ export class LiveChanges {
   readonly #reads: LiveReads;
   readonly #listening = new Set<Listening>();
   #socket: WebSocket | undefined;
-  #teamId: string | undefined;
+  #workspaceId: string | undefined;
   /** Tries in a row that did not open: picks the wait. */
   #failures = 0;
   /** A connection was open before: the next one that opens is a reconnection. */
@@ -84,8 +84,8 @@ export class LiveChanges {
    * anonymous and hears nothing). The listeners then read again.
    */
   restart(): void {
-    this.#teamId = undefined;
-    // An opening still waiting for the old session's team gives up (#open).
+    this.#workspaceId = undefined;
+    // An opening still waiting for the old session's workspace gives up (#open).
     this.#session += 1;
     this.#failures = 0;
     // The old connection's close is not heard (it is no longer the one): its timer goes here.
@@ -129,9 +129,9 @@ export class LiveChanges {
 
   async #open(): Promise<void> {
     const session = this.#session;
-    let teamId = this.#teamId;
+    let workspaceId = this.#workspaceId;
     try {
-      teamId ??= await this.#reads.teamId();
+      workspaceId ??= await this.#reads.workspaceId();
     } catch {
       if (session !== this.#session) return;
       this.#failures += 1;
@@ -140,13 +140,13 @@ export class LiveChanges {
     }
     // Signed in again meanwhile: that opening is the one that counts.
     if (session !== this.#session) return;
-    this.#teamId = teamId;
+    this.#workspaceId = workspaceId;
     if (this.#listening.size === 0 || this.#socket) return;
     const socket = new WebSocket(this.#url);
     this.#socket = socket;
     socket.addEventListener('open', () => {
       if (this.#socket !== socket) return;
-      socket.send(JSON.stringify({ action: 'SUBSCRIBE_TEAM', teamId }));
+      socket.send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
       // A connection that is closed as soon as it opens does not count as held.
       this.#steady = setTimeout(() => {
         this.#failures = 0;

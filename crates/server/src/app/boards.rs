@@ -35,21 +35,21 @@ impl App {
         }
     }
 
-    /// Returns the boards of a team that a user is a member of and, if asked for, the
-    /// team's open boards. Templates are left out.
+    /// Returns the boards of a workspace that a user is a member of and, if asked for, the
+    /// workspace's open boards. Templates are left out.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn boards_for_user_and_team(
+    pub async fn boards_for_user_and_workspace(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         public_boards: PublicBoards,
     ) -> Result<Vec<Board>, AppError> {
         Ok(self
             .store()
-            .get_boards_for_user_and_team(user_id, team_id, public_boards)
+            .get_boards_for_user_and_workspace(user_id, workspace_id, public_boards)
             .await?)
     }
 
@@ -110,11 +110,11 @@ impl App {
         let created = board.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_board_change(&created.team_id, &created)
+                .broadcast_board_change(&created.workspace_id, &created)
                 .await;
             if let Some(creator) = creator {
                 app.ws()
-                    .broadcast_member_change(&created.team_id, &created.id, &creator)
+                    .broadcast_member_change(&created.workspace_id, &created.id, &creator)
                     .await;
             }
         });
@@ -122,7 +122,7 @@ impl App {
         if !board.is_template {
             self.add_boards_to_default_category(
                 user_id,
-                &board.team_id,
+                &board.workspace_id,
                 std::slice::from_ref(&board.id),
             )
             .await?;
@@ -130,15 +130,15 @@ impl App {
         Ok(board)
     }
 
-    /// Files boards under a user's default category in a team, creating that category
+    /// Files boards under a user's default category in a workspace, creating that category
     /// if the user does not have it yet.
     pub(super) async fn add_boards_to_default_category(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         board_ids: &[String],
     ) -> Result<(), AppError> {
-        let categories = self.user_category_boards(user_id, team_id).await?;
+        let categories = self.user_category_boards(user_id, workspace_id).await?;
         let Some(default) = categories
             .iter()
             .find(|entry| entry.category.name == DEFAULT_CATEGORY_BOARDS)
@@ -147,7 +147,7 @@ impl App {
                 "no default category found for user userID: {user_id}"
             )));
         };
-        self.add_update_user_category_board(team_id, user_id, &default.category.id, board_ids)
+        self.add_update_user_category_board(workspace_id, user_id, &default.category.id, board_ids)
             .await
     }
 
@@ -181,10 +181,10 @@ impl App {
         let new_type = patch.board_type.filter(|_| is_template);
         self.spawn_background(async move {
             app.ws()
-                .broadcast_board_change(&board.team_id, &board)
+                .broadcast_board_change(&board.workspace_id, &board)
                 .await;
             if let Some(board_type) = new_type {
-                app.broadcast_team_users(&board, board_type).await;
+                app.broadcast_workspace_users(&board, board_type).await;
             }
         });
 
@@ -217,15 +217,15 @@ impl App {
         let app = self.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_board_change(&board.team_id, &board)
+                .broadcast_board_change(&board.workspace_id, &board)
                 .await;
         });
         Ok(order.to_vec())
     }
 
-    /// Tells the users of a team who are not members of a template that they gained or
+    /// Tells the users of a workspace who are not members of a template that they gained or
     /// lost access to it, after the template changed between open and private.
-    async fn broadcast_team_users(&self, board: &Board, board_type: BoardType) {
+    async fn broadcast_workspace_users(&self, board: &Board, board_type: BoardType) {
         let members = match self.members_for_board(&board.id).await {
             Ok(members) => members,
             Err(error) => {
@@ -233,10 +233,10 @@ impl App {
                 Vec::new()
             }
         };
-        let users = match self.store().get_users_by_team().await {
+        let users = match self.store().get_users_by_workspace().await {
             Ok(users) => users,
             Err(error) => {
-                tracing::error!(%error, "Unable to get the team users");
+                tracing::error!(%error, "Unable to get the workspace users");
                 Vec::new()
             }
         };
@@ -247,7 +247,7 @@ impl App {
             match board_type {
                 BoardType::Private => {
                     self.ws()
-                        .broadcast_member_delete(&board.team_id, &board.id, &user.id)
+                        .broadcast_member_delete(&board.workspace_id, &board.id, &user.id)
                         .await;
                 }
                 BoardType::Open => {
@@ -259,7 +259,7 @@ impl App {
                         ..BoardMember::default()
                     };
                     self.ws()
-                        .broadcast_member_change(&board.team_id, &board.id, &viewer)
+                        .broadcast_member_change(&board.workspace_id, &board.id, &viewer)
                         .await;
                 }
             }
@@ -283,7 +283,7 @@ impl App {
         self.store().delete_board(board_id, user_id).await?;
 
         self.ws()
-            .broadcast_board_delete(&board.team_id, &board.id, &members);
+            .broadcast_board_delete(&board.workspace_id, &board.id, &members);
         // The board's sharing went with it; so does whoever followed it by its link.
         self.ws().close_readers_of_board(&board.id);
         Ok(())
@@ -326,7 +326,7 @@ impl App {
         let restored = board.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_board_change(&restored.team_id, &restored)
+                .broadcast_board_change(&restored.workspace_id, &restored)
                 .await;
             app.tell_where_restored_board_is(&restored).await;
         });
@@ -351,13 +351,13 @@ impl App {
                 hidden: place.hidden,
             };
             self.ws().broadcast_category_board_change(
-                &board.team_id,
+                &board.workspace_id,
                 &place.user_id,
                 std::slice::from_ref(&filed),
             );
             let categories = self
                 .store()
-                .get_user_category_boards(&place.user_id, &board.team_id)
+                .get_user_category_boards(&place.user_id, &board.workspace_id)
                 .await;
             let order: Option<Vec<String>> = categories.ok().and_then(|categories| {
                 categories
@@ -373,7 +373,7 @@ impl App {
             });
             if let Some(order) = order {
                 self.ws().broadcast_category_boards_reorder(
-                    &board.team_id,
+                    &board.workspace_id,
                     &place.user_id,
                     &place.category_id,
                     &order,
@@ -382,7 +382,7 @@ impl App {
         }
     }
 
-    /// Copies a board and its blocks, except comments, into `to_team` for a user, who
+    /// Copies a board and its blocks, except comments, into `to_workspace` for a user, who
     /// becomes the copy's admin. Returns the copies and that membership.
     ///
     /// A copy that is not a template is filed under the category the user has filed the
@@ -396,7 +396,7 @@ impl App {
         &self,
         board_id: &str,
         user_id: &str,
-        to_team: &str,
+        to_workspace: &str,
         duplicate_as: DuplicateAs,
     ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
         let (mut copies, members) = self
@@ -404,7 +404,7 @@ impl App {
             .duplicate_board(
                 board_id,
                 user_id,
-                Some(to_team).filter(|team| !team.is_empty()),
+                Some(to_workspace).filter(|workspace| !workspace.is_empty()),
                 duplicate_as,
             )
             .await?;
@@ -433,7 +433,7 @@ impl App {
 
         if duplicate_as == DuplicateAs::Copy {
             for board in &copies.boards {
-                self.set_board_category_from_source(board_id, &board.id, user_id, to_team)
+                self.set_board_category_from_source(board_id, &board.id, user_id, to_workspace)
                     .await?;
             }
         }
@@ -442,17 +442,17 @@ impl App {
         let broadcast = copies.clone();
         let new_members = members.clone();
         self.spawn_background(async move {
-            let mut team_id = "";
+            let mut workspace_id = "";
             for board in &broadcast.boards {
-                team_id = &board.team_id;
-                app.ws().broadcast_board_change(team_id, board).await;
+                workspace_id = &board.workspace_id;
+                app.ws().broadcast_board_change(workspace_id, board).await;
             }
             for block in &broadcast.blocks {
-                app.ws().broadcast_block_change(team_id, block).await;
+                app.ws().broadcast_block_change(workspace_id, block).await;
             }
             for member in &new_members {
                 app.ws()
-                    .broadcast_member_change(team_id, &member.board_id, member)
+                    .broadcast_member_change(workspace_id, &member.board_id, member)
                     .await;
             }
         });
@@ -461,16 +461,16 @@ impl App {
     }
 
     /// Files a copy of a board under the category its source is filed under for the
-    /// user in the team, or else under the default category.
+    /// user in the workspace, or else under the default category.
     async fn set_board_category_from_source(
         &self,
         source_board_id: &str,
         destination_board_id: &str,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<(), AppError> {
         let destination = [destination_board_id.to_owned()];
-        let categories = self.user_category_boards(user_id, team_id).await?;
+        let categories = self.user_category_boards(user_id, workspace_id).await?;
         let source_category = categories.iter().find(|entry| {
             entry
                 .board_metadata
@@ -480,7 +480,7 @@ impl App {
         match source_category {
             Some(entry) => {
                 self.add_update_user_category_board(
-                    team_id,
+                    workspace_id,
                     user_id,
                     &entry.category.id,
                     &destination,
@@ -488,7 +488,7 @@ impl App {
                 .await
             }
             None => {
-                self.add_boards_to_default_category(user_id, team_id, &destination)
+                self.add_boards_to_default_category(user_id, workspace_id, &destination)
                     .await
             }
         }
@@ -496,7 +496,7 @@ impl App {
 
     /// Returns the members of a board.
     ///
-    /// The original also reports the team's administrators as admins of the board; a
+    /// The original also reports the workspace's administrators as admins of the board; a
     /// standalone server has none.
     ///
     /// # Errors
@@ -535,11 +535,11 @@ impl App {
         }
 
         // The membership is stored: it is announced whatever becomes of the filing.
-        self.broadcast_member_change_in_background(board.team_id.clone(), member.clone());
+        self.broadcast_member_change_in_background(board.workspace_id.clone(), member.clone());
         if !board.is_template {
             self.add_boards_to_default_category(
                 &member.user_id,
-                &board.team_id,
+                &board.workspace_id,
                 std::slice::from_ref(&board.id),
             )
             .await?;
@@ -568,11 +568,14 @@ impl App {
             Joined::New(member) => {
                 // The membership is stored: it is announced whatever becomes of the
                 // filing.
-                self.broadcast_member_change_in_background(board.team_id.clone(), member.clone());
+                self.broadcast_member_change_in_background(
+                    board.workspace_id.clone(),
+                    member.clone(),
+                );
                 if !board.is_template {
                     self.add_boards_to_default_category(
                         user_id,
-                        &board.team_id,
+                        &board.workspace_id,
                         std::slice::from_ref(&board.id),
                     )
                     .await?;
@@ -580,7 +583,7 @@ impl App {
                 Ok(member)
             }
             Joined::Raised(member) => {
-                self.broadcast_member_change_in_background(board.team_id, member.clone());
+                self.broadcast_member_change_in_background(board.workspace_id, member.clone());
                 Ok(member)
             }
             Joined::Already(member) => Ok(member),
@@ -616,15 +619,15 @@ impl App {
             }
         }
 
-        self.broadcast_member_change_in_background(board.team_id, member.clone());
+        self.broadcast_member_change_in_background(board.workspace_id, member.clone());
         Ok(Some(member.clone()))
     }
 
-    fn broadcast_member_change_in_background(&self, team_id: String, member: BoardMember) {
+    fn broadcast_member_change_in_background(&self, workspace_id: String, member: BoardMember) {
         let app = self.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_member_change(&team_id, &member.board_id, &member)
+                .broadcast_member_change(&workspace_id, &member.board_id, &member)
                 .await;
         });
     }
@@ -657,7 +660,7 @@ impl App {
         let user_id = user_id.to_owned();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_member_delete(&board.team_id, &board.id, &user_id)
+                .broadcast_member_delete(&board.workspace_id, &board.id, &user_id)
                 .await;
         });
         Ok(())

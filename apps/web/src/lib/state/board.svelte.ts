@@ -191,7 +191,7 @@ export class BoardStore {
 
   /**
    * Whether the board refused is an open board the reader may join: one of
-   * their team that they are no member of reads as itself, while its views,
+   * their workspace that they are no member of reads as itself, while its views,
    * cards and members are refused. Its title and description are then shown
    * with a way to join (the user's decision, H5).
    */
@@ -787,7 +787,7 @@ export class BoardStore {
   readonly #propertyMoves = propertyMovesOf(this);
   // ------------------------------------------------------------ sharing
 
-  /** Whether anybody of the team may find and join the board. */
+  /** Whether anybody of the workspace may find and join the board. */
   async setOpen(open: boolean): Promise<void> {
     await this.changeBoard((board) => ({ ...board, type: open ? 'O' : 'P' }), 'changeBoardType');
   }
@@ -797,7 +797,7 @@ export class BoardStore {
     await this.changeBoard((board) => ({ ...board, minimumRole: role }), 'changeMinimumRole');
   }
 
-  /** Makes a person of the team a member. Somebody who is a member already keeps their role. */
+  /** Makes a person of the workspace a member. Somebody who is a member already keeps their role. */
   async addMember(userId: string, role: BoardRole): Promise<void> {
     try {
       const member = await this.#backend.addMember(this.boardId, userId, role);

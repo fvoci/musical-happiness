@@ -19,7 +19,7 @@ use crate::serde_util::null_as_default;
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
 )]
 pub enum BoardType {
-    /// Any member of the team may find and join the board.
+    /// Any member of the workspace may find and join the board.
     #[default]
     #[serde(rename = "O")]
     Open,
@@ -115,9 +115,9 @@ impl From<MinimumRole> for BoardRole {
 /// Reasons a [`Board`], or a change of one, is rejected before it is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BoardError {
-    /// The board names no team.
-    #[error("empty-team-id")]
-    EmptyTeamId,
+    /// The board names no workspace.
+    #[error("empty-workspace-id")]
+    EmptyWorkspaceId,
     /// A card property definition of the board is malformed.
     #[error(transparent)]
     InvalidCardProperty(#[from] CardPropertyError),
@@ -160,10 +160,10 @@ pub struct Board {
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
     pub id: String,
-    /// The identifier of the team the board belongs to.
+    /// The identifier of the workspace the board belongs to.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
-    pub team_id: String,
+    pub workspace_id: String,
     /// The identifier of the user who created the board; empty for a built-in template,
     /// which no user made.
     #[serde(default)]
@@ -204,7 +204,7 @@ pub struct Board {
     #[serde(deserialize_with = "null_as_default")]
     pub is_template: bool,
     /// Whether the board is one of the templates the server ships with. They are
-    /// offered to every team and nobody can change them. The server decides this:
+    /// offered to every workspace and nobody can change them. The server decides this:
     /// what a client sends here is ignored.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
@@ -293,11 +293,11 @@ impl Board {
     ///
     /// # Errors
     ///
-    /// Returns [`BoardError::EmptyTeamId`] if the board names no team, or
+    /// Returns [`BoardError::EmptyWorkspaceId`] if the board names no workspace, or
     /// [`BoardError::InvalidCardProperty`] if a card property definition is malformed.
     pub fn validate(&self) -> Result<(), BoardError> {
-        if self.team_id.is_empty() {
-            return Err(BoardError::EmptyTeamId);
+        if self.workspace_id.is_empty() {
+            return Err(BoardError::EmptyWorkspaceId);
         }
         self.validate_card_properties()?;
         Ok(())

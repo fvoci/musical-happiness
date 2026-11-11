@@ -28,7 +28,6 @@ pub(crate) mod tag {
     pub(crate) const SYSTEM: &str = "system";
     pub(crate) const AUTH: &str = "auth";
     pub(crate) const USERS: &str = "users";
-    pub(crate) const TEAMS: &str = "teams";
     pub(crate) const WORKSPACES: &str = "workspaces";
     pub(crate) const BOARDS: &str = "boards";
     pub(crate) const MEMBERS: &str = "members";
@@ -42,7 +41,7 @@ pub(crate) mod tag {
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 14] = [
+const TAGS: [(&str, &str); 13] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -55,10 +54,9 @@ const TAGS: [(&str, &str); 14] = [
         tag::USERS,
         "The user of the session, their settings, and other users.",
     ),
-    (tag::TEAMS, "The team and its users."),
     (
         tag::WORKSPACES,
-        "The workspaces a user is a member of, and what is in a workspace.",
+        "The workspaces a user is a member of, what is in a workspace, and its users.",
     ),
     (tag::BOARDS, "Boards and templates."),
     (tag::MEMBERS, "Who is on a board, and with which role."),
@@ -129,7 +127,7 @@ operation's path does not have is 405.
 
 A request without a session whose JSON body has more than 64 KiB is 413 before it is 401.
 
-The identifiers of users, teams, boards, blocks and categories are UUIDs, written \
+The identifiers of users, workspaces, boards, blocks and categories are UUIDs, written \
 lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is \
 no UUID: it is an unguessable name that ends in the file's extension. Times are \
 milliseconds since the Unix epoch.
@@ -204,7 +202,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ServerMetadata", Members::AsWritten),
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
-    ("Team", Members::AllBut(&["signupToken"])),
+    ("Workspace", Members::AllBut(&["signupToken"])),
     ("UploadOpened", Members::All),
     ("UploadState", Members::All),
     ("ReceivedPart", Members::All),

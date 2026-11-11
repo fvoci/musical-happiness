@@ -18,8 +18,8 @@ import { screensDir } from './screens.ts';
 
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
 interface DevBackend {
-  teams(): Promise<{ id: string }[]>;
-  boards(teamId: string): Promise<{ id: string; title: string }[]>;
+  workspaces(): Promise<{ id: string }[]>;
+  boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   views(boardId: string): Promise<{ id: string; title: string }[]>;
   cards(boardId: string): Promise<{ id: string; title: string }[]>;
   card(boardId: string, cardId: string): Promise<{ updateAt: number }>;
@@ -64,8 +64,8 @@ async function openCardWithEmbeds(page: Page, board: string): Promise<Locator> {
   await expect(page.getByTestId('board-page')).toBeVisible();
   const place = await page.evaluate(async (boardTitle) => {
     const reader = (window as unknown as { fvociDev: Dev }).fvociDev.backend;
-    const [team] = await reader.teams();
-    const boards = await reader.boards(team?.id ?? '');
+    const [workspace] = await reader.workspaces();
+    const boards = await reader.boards(workspace?.id ?? '');
     const found = boards.find((each) => each.title.startsWith(boardTitle));
     if (!found) throw new Error(`no board ${boardTitle}`);
     const [card] = await reader.cards(found.id);

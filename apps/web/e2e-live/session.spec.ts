@@ -19,7 +19,7 @@ import {
 test.use({ locale: 'en-US' });
 
 /**
- * Settles once the page's connection has subscribed to the team: the
+ * Settles once the page's connection has subscribed to the workspace: the
  * server tells a connection only what happens after that (it has no
  * answer to wait for). Set up before the page opens.
  */
@@ -27,7 +27,7 @@ function subscribed(page: Page): Promise<void> {
   return new Promise((resolve) => {
     page.on('websocket', (socket) => {
       socket.on('framesent', (frame) => {
-        if (typeof frame.payload === 'string' && frame.payload.includes('SUBSCRIBE_TEAM')) {
+        if (typeof frame.payload === 'string' && frame.payload.includes('SUBSCRIBE_WORKSPACE')) {
           resolve();
         }
       });
@@ -56,8 +56,8 @@ test('a category made elsewhere shows in the sidebar of every tab of its user', 
   await listening;
 
   const me = (await (await api.get('/api/v1/users/me')).json()) as Schemas['User'];
-  const made = await api.post(`/api/v1/w/${board.teamId}/categories`, {
-    data: { name: 'Errands', teamId: board.teamId, userId: me.id, type: 'custom' },
+  const made = await api.post(`/api/v1/w/${board.workspaceId}/categories`, {
+    data: { name: 'Errands', workspaceId: board.workspaceId, userId: me.id, type: 'custom' },
   });
   expect(made.ok(), await made.text()).toBe(true);
   const category = (await made.json()) as Schemas['Category'];

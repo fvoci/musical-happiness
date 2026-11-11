@@ -11,7 +11,7 @@ use crate::blocks::{
     card_with_content, child_of, delete, find, insert_one, new_block, title_patch, titles,
     undelete_path,
 };
-use crate::common::{Setup, TEST_TEAM_ID};
+use crate::common::{Setup, TEST_WORKSPACE_ID};
 
 /// Not in the original, where every editor can delete anyone's comment
 /// (`server/api/blocks.go:372`; on the original, an editor's `DELETE` of another user's
@@ -443,7 +443,7 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     };
 
     // The author, with no more than the commenter's role, on both routes.
-    let mut member = Socket::subscribed_to_team(&th, &th.client, TEST_TEAM_ID).await;
+    let mut member = Socket::subscribed_to_workspace(&th, &th.client, TEST_WORKSPACE_ID).await;
     boards
         .commenter
         .patch(&path, &title_patch("by its author"))

@@ -18,11 +18,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Quarterly zebra plan",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -44,11 +44,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Open zebra notes",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -70,15 +70,15 @@
       "modifiedBy": "<id:5>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Private zebra diary",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
-    "name": "team search",
+    "name": "workspace search",
     "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as search-alice",
     "status": 200,
     "content_type": "application/json",
@@ -97,11 +97,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [],
@@ -117,16 +117,16 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
   {
-    "name": "team search: other user",
+    "name": "workspace search: other user",
     "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as search-bob",
     "status": 200,
     "content_type": "application/json",
@@ -145,11 +145,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [],
@@ -165,37 +165,37 @@
         "modifiedBy": "<id:5>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Private zebra diary",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
   {
-    "name": "team search: no match",
+    "name": "workspace search: no match",
     "request": "GET /api/v1/w/<id:3>/boards/search?q=giraffe as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
-    "name": "team search: empty term",
+    "name": "workspace search: empty term",
     "request": "GET /api/v1/w/<id:3>/boards/search?q= as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
-    "name": "team search: no term",
+    "name": "workspace search: no term",
     "request": "GET /api/v1/w/<id:3>/boards/search as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
-    "name": "team search: case",
+    "name": "workspace search: case",
     "request": "GET /api/v1/w/<id:3>/boards/search?q=ZEBRA as search-alice",
     "status": 200,
     "content_type": "application/json",
@@ -214,11 +214,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [],
@@ -234,16 +234,16 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
   {
-    "name": "team search: by field",
+    "name": "workspace search: by field",
     "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra&field=title as search-alice",
     "status": 200,
     "content_type": "application/json",
@@ -262,11 +262,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [],
@@ -282,16 +282,16 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
   {
-    "name": "team search: bad field",
+    "name": "workspace search: bad field",
     "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra&field=nope as search-alice",
     "status": 400,
     "content_type": "application/problem+json",
@@ -305,7 +305,7 @@
     }
   },
   {
-    "name": "team search: anonymous",
+    "name": "workspace search: anonymous",
     "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
@@ -338,11 +338,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [],
@@ -358,11 +358,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },

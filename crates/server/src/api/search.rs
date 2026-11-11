@@ -21,17 +21,17 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_search_all_boards))
 }
 
-/// Search the boards, asked through a team
+/// Search the boards, asked through a workspace
 ///
 /// The boards the user may find, as `getBoards` lists them, whose title matches the
 /// term as `searchBoards` matches it, or with `field=property_name` those whose own
-/// `properties` have a member of exactly that name, whatever its value (`null` too). The team of the path is not part of
-/// the search: the boards of every team are searched. A `field` that is neither is 400.
+/// `properties` have a member of exactly that name, whatever its value (`null` too). The workspace of the path is not part of
+/// the search: the boards of every workspace are searched. A `field` that is neither is 400.
 /// Oldest first.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards/search",
-    operation_id = "searchTeamBoards",
+    operation_id = "searchWorkspaceBoards",
     tag = tag::BOARDS,
     params(WorkspaceId, SearchTerm, SearchField),
     responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
@@ -39,7 +39,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 async fn handle_search_boards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
+    Path(workspace_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let term = query_param(query.as_deref(), "q");
@@ -52,13 +52,15 @@ async fn handle_search_boards(
             .map_err(AppError::bad_request)?
     };
     // The query is read before the workspace is asked for, as it always was.
-    let ws = Ws::enter(&app, session, team_id).await?.works_there()?;
-    let team_id = &ws.workspace_id;
+    let ws = Ws::enter(&app, session, workspace_id)
+        .await?
+        .works_there()?;
+    let workspace_id = &ws.workspace_id;
 
-    // Preserved quirk: the team of the path is not part of the search. The boards found
-    // are those of every team (server/api/search.go:171).
+    // Preserved quirk: the workspace of the path is not part of the search. The boards found
+    // are those of every workspace (server/api/search.go:171).
     let boards = search_boards(&ws.app, &ws.session.user_id, &term, search_field).await?;
-    tracing::debug!(team_id, boards_count = boards.len(), "SearchBoards");
+    tracing::debug!(workspace_id, boards_count = boards.len(), "SearchBoards");
     Ok(json_response(&boards))
 }
 

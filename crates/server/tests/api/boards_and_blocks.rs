@@ -16,22 +16,22 @@ use fvoci_store::BlockFilter;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
+use crate::board_broadcasts::WorkspaceSocket;
 use crate::boards::{
-    TeamSocket, board_with_admin, board_without_members, insert_block, member, members_of,
-    new_board,
+    board_with_admin, board_without_members, insert_block, member, members_of, new_board,
 };
 use crate::common::{
-    ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID,
+    ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
 
 const PATH: &str = "/boards-and-blocks";
 
 // -- helpers --------------------------------------------------------------------------
 
-fn request_board(id: &str, team_id: &str, board_type: BoardType, title: &str) -> Board {
+fn request_board(id: &str, workspace_id: &str, board_type: BoardType, title: &str) -> Board {
     Board {
         id: id.to_owned(),
-        ..new_board(team_id, board_type, title)
+        ..new_board(workspace_id, board_type, title)
     }
 }
 
@@ -92,8 +92,8 @@ fn expect_bad_request(response: &ApiResponse, message: &str) {
 }
 
 /// Two open boards of user1, each with one block, as most subtests of
-/// `TestPatchBoardsAndBlocks` set up. The first is in the test team, the second in
-/// `second_team`, and has user1 as admin only if `second` says so.
+/// `TestPatchBoardsAndBlocks` set up. The first is in the test workspace, the second in
+/// `second_workspace`, and has user1 as admin only if `second` says so.
 struct TwoBoards {
     board1: Board,
     board2: Board,
@@ -107,15 +107,15 @@ enum SecondBoard {
     WithoutMembers,
 }
 
-async fn two_boards(th: &TestServer, second: SecondBoard, second_team: &str) -> TwoBoards {
+async fn two_boards(th: &TestServer, second: SecondBoard, second_workspace: &str) -> TwoBoards {
     let user_id = th.client.me().await.id;
     let board1 = board_with_admin(
         th,
-        new_board(TEST_TEAM_ID, BoardType::Open, "initial title"),
+        new_board(TEST_WORKSPACE_ID, BoardType::Open, "initial title"),
         &user_id,
     )
     .await;
-    let board2 = new_board(second_team, BoardType::Open, "initial title");
+    let board2 = new_board(second_workspace, BoardType::Open, "initial title");
     let board2 = match second {
         SecondBoard::WithAdmin => board_with_admin(th, board2, &user_id).await,
         SecondBoard::WithoutMembers => board_without_members(th, board2, &user_id).await,
@@ -185,7 +185,7 @@ async fn create_boards_and_blocks_no_blocks() {
     let request = BoardsAndBlocks {
         boards: vec![request_board(
             "board-id",
-            TEST_TEAM_ID,
+            TEST_WORKSPACE_ID,
             BoardType::Private,
             "",
         )],
@@ -206,7 +206,7 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
     let request = BoardsAndBlocks {
         boards: vec![request_board(
             "board-id",
-            TEST_TEAM_ID,
+            TEST_WORKSPACE_ID,
             BoardType::Private,
             "",
         )],
@@ -229,8 +229,8 @@ async fn create_boards_and_blocks_boards_with_no_ids() {
     let th = Setup::native().start().await.init_basic().await;
     let request = BoardsAndBlocks {
         boards: vec![
-            request_board("board-id", TEST_TEAM_ID, BoardType::Private, ""),
-            request_board("", TEST_TEAM_ID, BoardType::Private, ""),
+            request_board("board-id", TEST_WORKSPACE_ID, BoardType::Private, ""),
+            request_board("", TEST_WORKSPACE_ID, BoardType::Private, ""),
         ],
         blocks: vec![request_block("block-id", "board-id", "")],
     };
@@ -246,19 +246,19 @@ async fn create_boards_and_blocks_boards_with_no_ids() {
 
 /// `TestCreateBoardsAndBlocks/"invalid boards and blocks"/"boards from different teams"`
 #[tokio::test]
-async fn create_boards_and_blocks_boards_from_different_teams() {
+async fn create_boards_and_blocks_boards_from_different_workspaces() {
     let th = Setup::native().start().await.init_basic().await;
     let request = BoardsAndBlocks {
         boards: vec![
-            request_board("board-id-1", TEST_TEAM_ID, BoardType::Private, ""),
-            request_board("board-id-2", ROOT_TEAM_ID, BoardType::Private, ""),
+            request_board("board-id-1", TEST_WORKSPACE_ID, BoardType::Private, ""),
+            request_board("board-id-2", ROOT_WORKSPACE_ID, BoardType::Private, ""),
         ],
         blocks: vec![request_block("block-id", "board-id-1", "")],
     };
 
     let response = th.client.post(PATH, &request).await;
 
-    expect_bad_request(&response, "cannot create boards for multiple teams");
+    expect_bad_request(&response, "cannot create boards for multiple workspaces");
     th.teardown().await;
 }
 
@@ -269,10 +269,15 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
     let user1 = th.client.me().await;
     let request = BoardsAndBlocks {
         boards: vec![
-            request_board("board-id-1", TEST_TEAM_ID, BoardType::Open, "public board"),
+            request_board(
+                "board-id-1",
+                TEST_WORKSPACE_ID,
+                BoardType::Open,
+                "public board",
+            ),
             request_board(
                 "board-id-2",
-                TEST_TEAM_ID,
+                TEST_WORKSPACE_ID,
                 BoardType::Private,
                 "private board",
             ),
@@ -309,7 +314,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         let found = th
             .app
             .store()
-            .search_boards_for_user_in_team(TEST_TEAM_ID, term, &user1.id)
+            .search_boards_for_user_in_workspace(TEST_WORKSPACE_ID, term, &user1.id)
             .await
             .expect("the boards are searched");
         assert_eq!(found.len(), 1, "one board matches {term:?}: {found:?}");
@@ -342,7 +347,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
     // Both boards are filed under the creator's default category.
     let categories = th
         .app
-        .user_category_boards(&user1.id, TEST_TEAM_ID)
+        .user_category_boards(&user1.id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are read");
     let default = categories
@@ -359,10 +364,10 @@ fn card_json(board_id: &str) -> Value {
     json!({"id": "b1", "boardId": board_id, "type": "card", "createAt": 1, "updateAt": 1})
 }
 
-/// The boards of the test team that a client's user sees.
-async fn team_boards(client: &Client) -> Vec<Board> {
+/// The boards of the test workspace that a client's user sees.
+async fn workspace_boards(client: &Client) -> Vec<Board> {
     client
-        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
         .await
         .ok_json()
 }
@@ -371,7 +376,7 @@ async fn team_boards(client: &Client) -> Vec<Board> {
 #[tokio::test]
 async fn create_boards_and_blocks_refusals() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = json!({"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"});
+    let board = json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"});
 
     // A body that is no JSON object is a bad request. (The original answers 500.)
     for body in ["{bad", "", "null", "[]"] {
@@ -383,8 +388,8 @@ async fn create_boards_and_blocks_refusals() {
     // Every board needs an identifier for the blocks to name, the first one too. (The
     // original does not check the first board at all.)
     for boards in [
-        json!([{"teamId": TEST_TEAM_ID, "type": "P", "title": "no id"}]),
-        json!([board, {"teamId": TEST_TEAM_ID, "type": "P"}]),
+        json!([{"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "no id"}]),
+        json!([board, {"workspaceId": TEST_WORKSPACE_ID, "type": "P"}]),
     ] {
         let response = th
             .client
@@ -427,13 +432,13 @@ async fn create_boards_and_blocks_refusals() {
         );
     }
 
-    // No team at all, a team that does not exist, and text that is no identifier: the
-    // boards' team must exist. (The original's team permission check fails on no team,
-    // and it creates boards in a team of any other name.)
+    // No workspace at all, a workspace that does not exist, and text that is no identifier: the
+    // boards' workspace must exist. (The original's workspace permission check fails on no workspace,
+    // and it creates boards in a workspace of any other name.)
     for board in [
         json!({"id": "bd", "type": "P"}),
-        json!({"id": "bd", "teamId": UNKNOWN_ID, "type": "P"}),
-        json!({"id": "bd", "teamId": "nope", "type": "P"}),
+        json!({"id": "bd", "workspaceId": UNKNOWN_ID, "type": "P"}),
+        json!({"id": "bd", "workspaceId": "nope", "type": "P"}),
     ] {
         let response = th
             .client
@@ -442,7 +447,7 @@ async fn create_boards_and_blocks_refusals() {
                 &json!({"boards": [board], "blocks": [card_json("bd")]}),
             )
             .await;
-        expect_bad_request(&response, "no such team");
+        expect_bad_request(&response, "no such workspace");
         assert_eq!(
             response.refused_at(),
             "/boards",
@@ -467,7 +472,11 @@ async fn create_boards_and_blocks_refusals() {
         response.error_message()
     );
 
-    assert_eq!(team_boards(&th.client).await, vec![], "nothing was created");
+    assert_eq!(
+        workspace_boards(&th.client).await,
+        vec![],
+        "nothing was created"
+    );
     th.teardown().await;
 }
 
@@ -483,7 +492,7 @@ async fn create_boards_and_blocks_accepts_a_template() {
         .post(
             PATH,
             &json!({
-                "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "O", "isTemplate": true}],
+                "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "O", "isTemplate": true}],
                 "blocks": [card_json("bd")],
             }),
         )
@@ -492,7 +501,7 @@ async fn create_boards_and_blocks_accepts_a_template() {
     assert!(created.boards[0].is_template, "a template");
     let categories = th
         .app
-        .user_category_boards(&user1.id, TEST_TEAM_ID)
+        .user_category_boards(&user1.id, TEST_WORKSPACE_ID)
         .await
         .expect("the categories are read");
     assert!(
@@ -516,15 +525,15 @@ async fn create_boards_and_blocks_refuses_unknown_board_types_and_roles() {
 
     for (board, message) in [
         (
-            json!({"id": "bd", "teamId": TEST_TEAM_ID, "type": "invalid"}),
+            json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "invalid"}),
             "invalid-board-type",
         ),
         (
-            json!({"id": "bd", "teamId": TEST_TEAM_ID}),
+            json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID}),
             "invalid-board-type",
         ),
         (
-            json!({"id": "bd", "teamId": TEST_TEAM_ID, "type": "O", "minimumRole": "boss"}),
+            json!({"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "O", "minimumRole": "boss"}),
             "invalid-board-minimum-role",
         ),
     ] {
@@ -535,7 +544,11 @@ async fn create_boards_and_blocks_refuses_unknown_board_types_and_roles() {
         expect_bad_request(&response, message);
     }
 
-    assert_eq!(team_boards(&th.client).await, vec![], "nothing was created");
+    assert_eq!(
+        workspace_boards(&th.client).await,
+        vec![],
+        "nothing was created"
+    );
     th.teardown().await;
 }
 
@@ -545,11 +558,12 @@ async fn create_boards_and_blocks_refuses_unknown_board_types_and_roles() {
 async fn create_boards_and_blocks_is_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let mut socket = TeamSocket::subscribe(&th, &th.client, TEST_TEAM_ID, &user1.id).await;
+    let mut socket =
+        WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
     let request = BoardsAndBlocks {
         boards: vec![request_board(
             "board-id-1",
-            TEST_TEAM_ID,
+            TEST_WORKSPACE_ID,
             BoardType::Open,
             "public board",
         )],
@@ -595,7 +609,7 @@ async fn patch_boards_and_blocks_a_non_authenticated_user_should_be_rejected() {
 #[tokio::test]
 async fn patch_boards_and_blocks_no_board_ids() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 1");
     let request = PatchBoardsAndBlocks {
         board_ids: vec![],
@@ -616,7 +630,7 @@ async fn patch_boards_and_blocks_no_board_ids() {
 #[tokio::test]
 async fn patch_boards_and_blocks_missmatch_board_ids_and_patches() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (mut board_patches, block_patches) = title_patches(2, "new title 1");
     board_patches.truncate(1);
     let request = PatchBoardsAndBlocks {
@@ -637,7 +651,7 @@ async fn patch_boards_and_blocks_missmatch_board_ids_and_patches() {
 #[tokio::test]
 async fn patch_boards_and_blocks_no_block_ids() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 1");
     let request = PatchBoardsAndBlocks {
         board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
@@ -658,7 +672,7 @@ async fn patch_boards_and_blocks_no_block_ids() {
 #[tokio::test]
 async fn patch_boards_and_blocks_missmatch_block_ids_and_patches() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (board_patches, mut block_patches) = title_patches(2, "new title 1");
     block_patches.truncate(1);
     let request = PatchBoardsAndBlocks {
@@ -680,7 +694,7 @@ async fn patch_boards_and_blocks_missmatch_block_ids_and_patches() {
 #[tokio::test]
 async fn patch_boards_and_blocks_block_that_doesnt_belong_to_any_board() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (mut board_patches, block_patches) = title_patches(2, "new title 1");
     board_patches.truncate(1);
     let request = PatchBoardsAndBlocks {
@@ -705,7 +719,7 @@ async fn patch_boards_and_blocks_block_that_doesnt_belong_to_any_board() {
 #[tokio::test]
 async fn patch_boards_and_blocks_without_permissions_for_one_board_nothing_is_updated() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 2");
     let request = PatchBoardsAndBlocks {
         board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
@@ -728,9 +742,9 @@ async fn patch_boards_and_blocks_without_permissions_for_one_board_nothing_is_up
 
 /// `TestPatchBoardsAndBlocks/"boards belonging to different teams should be rejected"`
 #[tokio::test]
-async fn patch_boards_and_blocks_boards_belonging_to_different_teams_should_be_rejected() {
+async fn patch_boards_and_blocks_boards_belonging_to_different_workspaces_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, ROOT_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, ROOT_WORKSPACE_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 3");
     let request = PatchBoardsAndBlocks {
         board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
@@ -741,7 +755,7 @@ async fn patch_boards_and_blocks_boards_belonging_to_different_teams_should_be_r
 
     let response = patch(&th.client, &request).await;
 
-    expect_bad_request(&response, "mismatched team ID");
+    expect_bad_request(&response, "mismatched workspace ID");
     assert_titles_unchanged(&th, &boards).await;
     th.teardown().await;
 }
@@ -750,7 +764,7 @@ async fn patch_boards_and_blocks_boards_belonging_to_different_teams_should_be_r
 #[tokio::test]
 async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_WORKSPACE_ID).await;
     let request = json!({
         "boardIds": [boards.board1.id, boards.board2.id],
         "boardPatches": [{"title": "new title 4"}, {"type": "invalid"}],
@@ -792,7 +806,7 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
 #[tokio::test]
 async fn patch_boards_and_blocks_rejects_a_block_of_a_board_that_is_not_patched() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let (mut board_patches, block_patches) = title_patches(2, "new patched title");
     board_patches.truncate(1);
     let request = PatchBoardsAndBlocks {
@@ -815,7 +829,7 @@ async fn patch_boards_and_blocks_rejects_a_block_of_a_board_that_is_not_patched(
 async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let new_title = "new other title";
     let (board_patches, block_patches) = title_patches(2, new_title);
     let request = PatchBoardsAndBlocks {
@@ -824,7 +838,8 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
         block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
-    let mut socket = TeamSocket::subscribe(&th, &th.client, TEST_TEAM_ID, &user1.id).await;
+    let mut socket =
+        WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
 
     let patched: BoardsAndBlocks = patch(&th.client, &request).await.ok_json();
 
@@ -875,7 +890,7 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
 #[tokio::test]
 async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let first_id = &boards.board1.id;
 
     let null_patch = format!("{{\"boardIds\":[\"{first_id}\"],\"boardPatches\":[null]}}");
@@ -901,11 +916,11 @@ async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
 async fn patch_boards_and_blocks_checks() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let first_id = &boards.board1.id;
 
     // A board that does not exist, and a private board of somebody else, answer alike.
-    let private = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let private = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     for board_id in [UNKNOWN_ID, "nonexistent", private.id.as_str()] {
         let response = patch(
             &th.client2,
@@ -1031,8 +1046,12 @@ async fn delete_boards_and_blocks_no_boards() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     // a board and a block are required for the permission checks
-    let board =
-        board_with_admin(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
+    let board = board_with_admin(
+        &th,
+        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        &user1.id,
+    )
+    .await;
     let block = stored_block(&th, &board.id, &user1.id).await;
     let request = DeleteBoardsAndBlocks {
         boards: vec![],
@@ -1053,24 +1072,32 @@ async fn delete_boards_and_blocks_no_boards() {
 }
 
 /// `TestDeleteBoardsAndBlocks/"invalid delete boards and blocks"/"boards from different
-/// teams"`
+/// workspaces"`
 #[tokio::test]
-async fn delete_boards_and_blocks_boards_from_different_teams() {
+async fn delete_boards_and_blocks_boards_from_different_workspaces() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let board =
-        board_with_admin(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
+    let board = board_with_admin(
+        &th,
+        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        &user1.id,
+    )
+    .await;
     let block = stored_block(&th, &board.id, &user1.id).await;
-    let other_teams_board =
-        board_with_admin(&th, new_board(ROOT_TEAM_ID, BoardType::Open, ""), &user1.id).await;
+    let other_workspaces_board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Open, ""),
+        &user1.id,
+    )
+    .await;
     let request = DeleteBoardsAndBlocks {
-        boards: strings(&[&board.id, &other_teams_board.id]),
+        boards: strings(&[&board.id, &other_workspaces_board.id]),
         blocks: vec![block.id],
     };
 
     let response = delete(&th.client, &request).await;
 
-    expect_bad_request(&response, "all boards should belong to the same team");
+    expect_bad_request(&response, "all boards should belong to the same workspace");
     th.app.board(&board.id).await.expect("the board is there");
     assert_eq!(blocks_of(&th, &board.id).await.len(), 1, "with its block");
     th.teardown().await;
@@ -1083,11 +1110,19 @@ async fn delete_boards_and_blocks_without_permissions_to_one_board_nothing_is_de
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     // the user is an admin of the first board
-    let board1 =
-        board_with_admin(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
+    let board1 = board_with_admin(
+        &th,
+        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        &user1.id,
+    )
+    .await;
     // but not of the second
-    let board2 =
-        board_without_members(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
+    let board2 = board_without_members(
+        &th,
+        new_board(TEST_WORKSPACE_ID, BoardType::Open, ""),
+        &user1.id,
+    )
+    .await;
     // (The original names a block that does not exist; here the block is one of the
     // first board, so that the missing permission is all that is wrong.)
     let block = stored_block(&th, &board1.id, &user1.id).await;
@@ -1122,10 +1157,15 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     let block_ids = [new_id(), new_id()];
     let request = BoardsAndBlocks {
         boards: vec![
-            request_board(&board_ids[0], TEST_TEAM_ID, BoardType::Open, "public board"),
+            request_board(
+                &board_ids[0],
+                TEST_WORKSPACE_ID,
+                BoardType::Open,
+                "public board",
+            ),
             request_board(
                 &board_ids[1],
-                TEST_TEAM_ID,
+                TEST_WORKSPACE_ID,
                 BoardType::Private,
                 "private board",
             ),
@@ -1154,7 +1194,8 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
             .await
             .expect("the block exists");
     }
-    let mut socket = TeamSocket::subscribe(&th, &th.client, TEST_TEAM_ID, &user1.id).await;
+    let mut socket =
+        WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &user1.id).await;
 
     // call the API to delete boards and blocks
     let response = delete(
@@ -1207,7 +1248,7 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
 #[tokio::test]
 async fn delete_boards_and_blocks_checks() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_WORKSPACE_ID).await;
     let first_id = &boards.board1.id;
 
     // A body that is no JSON object is a bad request.

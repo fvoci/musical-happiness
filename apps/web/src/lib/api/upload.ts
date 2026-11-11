@@ -147,12 +147,12 @@ export function uploadInParts(
 }
 
 /**
- * An archive to import into a team: opened by `createImportUpload`, ended
+ * An archive to import into a workspace: opened by `createImportUpload`, ended
  * by `importArchive` (in place of `completeUpload`).
  */
 export function importInParts(
   http: Http,
-  teamId: string,
+  workspaceId: string,
   file: File,
   options: UploadOptions = {},
 ): Promise<void> {
@@ -163,14 +163,14 @@ export function importInParts(
     () =>
       http.request<Schemas['UploadOpened']>(
         '/api/v1/w/{workspaceId}/archive/uploads',
-        { workspaceId: teamId },
+        { workspaceId: workspaceId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const request: Schemas['ImportRequest'] = { uploadId };
       await http.request(
         '/api/v1/w/{workspaceId}/archive/import',
-        { workspaceId: teamId },
+        { workspaceId: workspaceId },
         { method: 'POST', json: request, signal },
       );
     },

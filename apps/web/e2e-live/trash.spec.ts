@@ -56,29 +56,33 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
     members: [{ who: helper, role: 'editor' }],
   });
   const gamma = await makeBoard(api, { title: 'Gamma' });
-  const { teamId } = alpha;
+  const { workspaceId } = alpha;
   const ids = [alpha.boardId, beta.boardId, gamma.boardId];
   const projects = await json<Schemas['Category']>(
-    await api.post(`/api/v1/w/${teamId}/categories`, {
+    await api.post(`/api/v1/w/${workspaceId}/categories`, {
       data: {
         name: 'Projects',
-        teamId,
+        workspaceId,
         userId: (await json<Schemas['User']>(await api.get('/api/v1/users/me'))).id,
       },
     }),
   );
   for (const boardId of ids) {
-    const filed = await api.post(`/api/v1/w/${teamId}/categories/${projects.id}/boards/${boardId}`);
+    const filed = await api.post(
+      `/api/v1/w/${workspaceId}/categories/${projects.id}/boards/${boardId}`,
+    );
     expect(filed.ok(), await filed.text()).toBe(true);
   }
-  const ordered = await api.put(`/api/v1/w/${teamId}/categories/${projects.id}/board-order`, {
+  const ordered = await api.put(`/api/v1/w/${workspaceId}/categories/${projects.id}/board-order`, {
     data: ids,
   });
   expect(ordered.ok(), await ordered.text()).toBe(true);
   const order = async (): Promise<string[]> =>
     (
       (
-        await json<Schemas['CategoryBoards'][]>(await api.get(`/api/v1/w/${teamId}/categories`))
+        await json<Schemas['CategoryBoards'][]>(
+          await api.get(`/api/v1/w/${workspaceId}/categories`),
+        )
       ).find((one) => one.id === projects.id)?.boardMetadata ?? []
     ).map((entry) => entry.boardId);
   expect(await order()).toEqual(ids);
@@ -89,7 +93,7 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
 
   // The helper was an editor of Beta: their trash does not have it, on the server or the page.
   const theirs = await json<Schemas['DeletedItem'][]>(
-    await helperApi.get(`/api/v1/w/${teamId}/trash/boards`),
+    await helperApi.get(`/api/v1/w/${workspaceId}/trash/boards`),
   );
   expect(theirs.map((item) => item.id)).not.toContain(beta.boardId);
   const helperPage = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();

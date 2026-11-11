@@ -1,9 +1,9 @@
-//! The websocket endpoint `/ws`: clients subscribe to a team or to blocks and are told
+//! The websocket endpoint `/ws`: clients subscribe to a workspace or to blocks and are told
 //! about changes as they happen.
 //!
 //! Whose connection it is is settled at the handshake, from the session the request
 //! carries; there is no message to sign in with. A user's connection may subscribe to
-//! teams. `SUBSCRIBE_BLOCKS` works without a session but needs the read token of the
+//! workspaces. `SUBSCRIBE_BLOCKS` works without a session but needs the read token of the
 //! shared board the blocks belong to.
 
 use std::collections::HashMap;
@@ -63,7 +63,7 @@ impl std::fmt::Debug for Identity {
 #[serde(default, rename_all = "camelCase")]
 struct Command {
     action: String,
-    team_id: String,
+    workspace_id: String,
     read_token: String,
     #[serde(deserialize_with = "null_as_empty")]
     block_ids: Vec<String>,
@@ -79,7 +79,7 @@ fn null_as_empty<'de, D: serde::Deserializer<'de>>(
 #[serde(rename_all = "camelCase")]
 struct UpdateBlockMessage<'a> {
     action: &'static str,
-    team_id: &'a str,
+    workspace_id: &'a str,
     block: &'a Block,
 }
 
@@ -87,7 +87,7 @@ struct UpdateBlockMessage<'a> {
 #[serde(rename_all = "camelCase")]
 struct UpdateBoardMessage<'a> {
     action: &'static str,
-    team_id: &'a str,
+    workspace_id: &'a str,
     board: &'a Board,
 }
 
@@ -95,7 +95,7 @@ struct UpdateBoardMessage<'a> {
 #[serde(rename_all = "camelCase")]
 struct UpdateMemberMessage<'a> {
     action: &'static str,
-    team_id: &'a str,
+    workspace_id: &'a str,
     member: &'a BoardMember,
 }
 
@@ -103,7 +103,7 @@ struct UpdateMemberMessage<'a> {
 #[serde(rename_all = "camelCase")]
 struct UpdateCategoryMessage<'a> {
     action: &'static str,
-    team_id: &'a str,
+    workspace_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     category: Option<&'a Category>,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
@@ -115,7 +115,7 @@ struct UpdateCategoryMessage<'a> {
 struct CategoryReorderMessage<'a> {
     action: &'static str,
     category_order: &'a [String],
-    team_id: &'a str,
+    workspace_id: &'a str,
 }
 
 #[derive(Serialize)]
@@ -124,7 +124,7 @@ struct CategoryBoardsReorderMessage<'a> {
     action: &'static str,
     category_id: &'a str,
     board_order: &'a [String],
-    team_id: &'a str,
+    workspace_id: &'a str,
 }
 
 #[derive(Serialize)]
@@ -173,7 +173,7 @@ struct Listener {
     closed: CancellationToken,
     /// Why the hub gave the connection up, set before `closed` is cancelled.
     closed_because: Arc<OnceLock<Disconnect>>,
-    teams: Vec<String>,
+    workspaces: Vec<String>,
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
     /// When such a board stops being shared under that token, the connection goes.
@@ -184,7 +184,7 @@ struct Listener {
 struct Listeners {
     next_id: ListenerId,
     by_id: HashMap<ListenerId, Listener>,
-    by_team: HashMap<String, Vec<ListenerId>>,
+    by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
 }
 
@@ -197,10 +197,10 @@ impl Listener {
 }
 
 impl Listeners {
-    /// The listeners of a user that are subscribed to the team: every tab of the user.
-    fn of_user(&self, team_id: &str, user_id: &str) -> Vec<ListenerId> {
-        self.by_team
-            .get(team_id)
+    /// The listeners of a user that are subscribed to the workspace: every tab of the user.
+    fn of_user(&self, workspace_id: &str, user_id: &str) -> Vec<ListenerId> {
+        self.by_workspace
+            .get(workspace_id)
             .map(|ids| {
                 ids.iter()
                     .copied()
@@ -218,8 +218,8 @@ impl Listeners {
         let Some(listener) = self.by_id.remove(&id) else {
             return;
         };
-        for team in &listener.teams {
-            remove_from(&mut self.by_team, team, id);
+        for workspace in &listener.workspaces {
+            remove_from(&mut self.by_workspace, workspace, id);
         }
         for block in &listener.blocks {
             remove_from(&mut self.by_block, block, id);
@@ -307,7 +307,7 @@ impl Hub {
                     outbox,
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),
-                    teams: Vec::new(),
+                    workspaces: Vec::new(),
                     blocks: Vec::new(),
                     shared_boards: Vec::new(),
                 },
@@ -525,30 +525,32 @@ impl Hub {
         }
 
         match command.action.as_str() {
-            "SUBSCRIBE_TEAM" => {
-                let team = &command.team_id;
-                if self.audience.works_in_team(&user_id, team).await {
-                    subscribe_to_team(&mut self.listeners(), id, &command.team_id);
+            "SUBSCRIBE_WORKSPACE" => {
+                let workspace = &command.workspace_id;
+                if self.audience.works_in_workspace(&user_id, workspace).await {
+                    subscribe_to_workspace(&mut self.listeners(), id, &command.workspace_id);
                 } else {
-                    tracing::error!(team_id = %command.team_id, user_id, "websocket: no team access");
+                    tracing::error!(workspace_id = %command.workspace_id, user_id, "websocket: no workspace access");
                 }
             }
-            "UNSUBSCRIBE_TEAM" => {
+            "UNSUBSCRIBE_WORKSPACE" => {
                 let mut listeners = self.listeners();
                 if let Some(listener) = listeners.by_id.get_mut(&id) {
-                    listener.teams.retain(|team| *team != command.team_id);
+                    listener
+                        .workspaces
+                        .retain(|workspace| *workspace != command.workspace_id);
                 }
-                remove_from(&mut listeners.by_team, &command.team_id, id);
+                remove_from(&mut listeners.by_workspace, &command.workspace_id, id);
             }
             other => tracing::error!(action = other, "websocket: invalid action"),
         }
         true
     }
 
-    /// A block subscription needs a team, blocks that all belong to one board, and that
+    /// A block subscription needs a workspace, blocks that all belong to one board, and that
     /// board's read token. Returns the board, or `None` if the subscription is refused.
     async fn board_of_read_token(&self, command: &Command) -> Option<String> {
-        if command.team_id.is_empty() {
+        if command.workspace_id.is_empty() {
             return None;
         }
         let mut board_id = String::new();
@@ -569,7 +571,7 @@ impl Hub {
             Ok(true) => Some(board_id),
             Ok(false) => None,
             Err(error) => {
-                tracing::error!(%error, team_id = %command.team_id, "websocket: checking a read token failed");
+                tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
                 None
             }
         }
@@ -577,26 +579,26 @@ impl Hub {
 
     // -- broadcasts -------------------------------------------------------------------
 
-    /// Tells the board's members in the team, and the listeners of the block and of its
+    /// Tells the board's members in the workspace, and the listeners of the block and of its
     /// parent, that a block changed.
     ///
     /// A listener of the block whose connection has no session, or whose user is no
     /// member of the board who may read it, follows it by the read token alone and is
     /// told no user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
-    pub async fn broadcast_block_change(&self, team_id: &str, block: &Block) {
+    pub async fn broadcast_block_change(&self, workspace_id: &str, block: &Block) {
         let followers = self.block_followers(block);
         // Most changes happen with nobody listening; do not ask the store then.
-        if followers.is_empty() && !self.listeners().by_team.contains_key(team_id) {
+        if followers.is_empty() && !self.listeners().by_workspace.contains_key(workspace_id) {
             return;
         }
         let members = match self.audience.members(&block.board_id).await {
             Ok(members) => members,
             Err(error) => {
-                tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board's members failed");
+                tracing::error!(%error, workspace_id, board_id = %block.board_id, "websocket: reading the board's members failed");
                 return;
             }
         };
-        let mut recipients = self.listeners_among(team_id, &members, None);
+        let mut recipients = self.listeners_among(workspace_id, &members, None);
         let mut by_token = Vec::new();
         // A connection that listens both as a board member and to the block itself
         // gets the message once per subscription.
@@ -614,7 +616,7 @@ impl Hub {
         }
         let message = UpdateBlockMessage {
             action: "UPDATE_BLOCK",
-            team_id,
+            workspace_id,
             block,
         };
         self.send(&recipients, &message);
@@ -632,7 +634,7 @@ impl Hub {
             Err(error) => {
                 // Without the board's person properties the block cannot be told
                 // without its people: it is not told.
-                tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board of a followed block failed");
+                tracing::error!(%error, workspace_id, board_id = %block.board_id, "websocket: reading the board of a followed block failed");
                 return;
             }
         };
@@ -640,7 +642,7 @@ impl Hub {
         without_people.hide_people(&people);
         let message = UpdateBlockMessage {
             action: "UPDATE_BLOCK",
-            team_id,
+            workspace_id,
             block: &without_people,
         };
         self.send(&by_token, &message);
@@ -664,7 +666,7 @@ impl Hub {
 
     /// Tells the same listeners that a block was deleted. The message is a block change
     /// whose block has only its identifiers and the deletion time.
-    pub async fn broadcast_block_delete(&self, team_id: &str, block_id: &str, board_id: &str) {
+    pub async fn broadcast_block_delete(&self, workspace_id: &str, block_id: &str, board_id: &str) {
         let now = now_millis();
         let block = Block {
             id: block_id.to_owned(),
@@ -673,7 +675,7 @@ impl Hub {
             delete_at: now,
             ..Block::default()
         };
-        self.broadcast_block_change(team_id, &block).await;
+        self.broadcast_block_change(workspace_id, &block).await;
     }
 
     /// Tells those who were the members of a board that is deleted by now that one of
@@ -682,7 +684,7 @@ impl Hub {
     /// The memberships went with the board, so the caller says who the members were.
     pub fn broadcast_block_delete_with_board(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         block_id: &str,
         board_id: &str,
         former_members: &[BoardMember],
@@ -697,22 +699,22 @@ impl Hub {
         };
         let message = UpdateBlockMessage {
             action: "UPDATE_BLOCK",
-            team_id,
+            workspace_id,
             block: &block,
         };
-        let recipients = self.listeners_among(team_id, former_members, None);
+        let recipients = self.listeners_among(workspace_id, former_members, None);
         self.send(&recipients, &message);
     }
 
-    /// Tells the board's members in the team that the board changed.
-    pub async fn broadcast_board_change(&self, team_id: &str, board: &Board) {
+    /// Tells the board's members in the workspace that the board changed.
+    pub async fn broadcast_board_change(&self, workspace_id: &str, board: &Board) {
         let message = UpdateBoardMessage {
             action: "UPDATE_BOARD",
-            team_id,
+            workspace_id,
             board,
         };
         let recipients = self
-            .listeners_for_team_and_board(team_id, &board.id, None)
+            .listeners_for_workspace_and_board(workspace_id, &board.id, None)
             .await;
         self.send(&recipients, &message);
     }
@@ -723,48 +725,48 @@ impl Hub {
     /// The memberships went with the board, so the caller says who the members were.
     pub fn broadcast_board_delete(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         board_id: &str,
         former_members: &[BoardMember],
     ) {
         let now = now_millis();
         let board = Board {
             id: board_id.to_owned(),
-            team_id: team_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
             update_at: now,
             delete_at: now,
             ..Board::default()
         };
         let message = UpdateBoardMessage {
             action: "UPDATE_BOARD",
-            team_id,
+            workspace_id,
             board: &board,
         };
-        let recipients = self.listeners_among(team_id, former_members, None);
+        let recipients = self.listeners_among(workspace_id, former_members, None);
         self.send(&recipients, &message);
     }
 
-    /// Tells the board's members in the team that a membership changed.
+    /// Tells the board's members in the workspace that a membership changed.
     pub async fn broadcast_member_change(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         board_id: &str,
         member: &BoardMember,
     ) {
         let message = UpdateMemberMessage {
             action: "UPDATE_MEMBER",
-            team_id,
+            workspace_id,
             member,
         };
         let recipients = self
-            .listeners_for_team_and_board(team_id, board_id, None)
+            .listeners_for_workspace_and_board(workspace_id, board_id, None)
             .await;
         self.send(&recipients, &message);
     }
 
-    /// Tells the board's members in the team, and the removed user, that a membership
+    /// Tells the board's members in the workspace, and the removed user, that a membership
     /// ended.
-    pub async fn broadcast_member_delete(&self, team_id: &str, board_id: &str, user_id: &str) {
+    pub async fn broadcast_member_delete(&self, workspace_id: &str, board_id: &str, user_id: &str) {
         let member = BoardMember {
             user_id: user_id.to_owned(),
             board_id: board_id.to_owned(),
@@ -772,11 +774,11 @@ impl Hub {
         };
         let message = UpdateMemberMessage {
             action: "DELETE_MEMBER",
-            team_id,
+            workspace_id,
             member: &member,
         };
         let recipients = self
-            .listeners_for_team_and_board(team_id, board_id, Some(user_id))
+            .listeners_for_workspace_and_board(workspace_id, board_id, Some(user_id))
             .await;
         self.send(&recipients, &message);
     }
@@ -795,48 +797,48 @@ impl Hub {
     pub fn broadcast_category_change(&self, category: &Category) {
         let message = UpdateCategoryMessage {
             action: "UPDATE_CATEGORY",
-            team_id: &category.team_id,
+            workspace_id: &category.workspace_id,
             category: Some(category),
             board_categories: &[],
         };
-        self.send_to_user(&category.team_id, &category.user_id, &message);
+        self.send_to_user(&category.workspace_id, &category.user_id, &message);
     }
 
     /// Tells a user that boards moved between their categories or were hidden.
     pub fn broadcast_category_board_change(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
         board_categories: &[BoardCategoryWebsocketData],
     ) {
         let message = UpdateCategoryMessage {
             action: "UPDATE_BOARD_CATEGORY",
-            team_id,
+            workspace_id,
             category: None,
             board_categories,
         };
-        self.send_to_user(team_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message);
     }
 
     /// Tells a user the new order of their categories.
     pub fn broadcast_category_reorder(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
         category_order: &[String],
     ) {
         let message = CategoryReorderMessage {
             action: "REORDER_CATEGORIES",
             category_order,
-            team_id,
+            workspace_id,
         };
-        self.send_to_user(team_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message);
     }
 
     /// Tells a user the new order of the boards in one of their categories.
     pub fn broadcast_category_boards_reorder(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
         category_id: &str,
         board_order: &[String],
@@ -845,44 +847,44 @@ impl Hub {
             action: "REORDER_CATEGORY_BOARDS",
             category_id,
             board_order,
-            team_id,
+            workspace_id,
         };
-        self.send_to_user(team_id, user_id, &message);
+        self.send_to_user(workspace_id, user_id, &message);
     }
 
-    /// The team's listeners whose user is a member of the board, or is `also_user`.
-    async fn listeners_for_team_and_board(
+    /// The workspace's listeners whose user is a member of the board, or is `also_user`.
+    async fn listeners_for_workspace_and_board(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         board_id: &str,
         also_user: Option<&str>,
     ) -> Vec<ListenerId> {
         // Most changes happen with nobody listening; do not ask the store then.
-        if !self.listeners().by_team.contains_key(team_id) {
+        if !self.listeners().by_workspace.contains_key(workspace_id) {
             return Vec::new();
         }
         let members = match self.audience.members(board_id).await {
             Ok(members) => members,
             Err(error) => {
-                tracing::error!(%error, team_id, board_id, "websocket: reading the board's members failed");
+                tracing::error!(%error, workspace_id, board_id, "websocket: reading the board's members failed");
                 return Vec::new();
             }
         };
-        self.listeners_among(team_id, &members, also_user)
+        self.listeners_among(workspace_id, &members, also_user)
     }
 
-    /// The team's listeners whose user is one of `members`, or is `also_user`.
+    /// The workspace's listeners whose user is one of `members`, or is `also_user`.
     fn listeners_among(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         members: &[BoardMember],
         also_user: Option<&str>,
     ) -> Vec<ListenerId> {
         let listeners = self.listeners();
-        let Some(team_listeners) = listeners.by_team.get(team_id) else {
+        let Some(workspace_listeners) = listeners.by_workspace.get(workspace_id) else {
             return Vec::new();
         };
-        team_listeners
+        workspace_listeners
             .iter()
             .copied()
             .filter(|id| {
@@ -896,10 +898,10 @@ impl Hub {
             .collect()
     }
 
-    /// Sends a message to every connection of the user that is subscribed to the team:
+    /// Sends a message to every connection of the user that is subscribed to the workspace:
     /// every tab of the user is told. (The original tells the first one only.)
-    fn send_to_user(&self, team_id: &str, user_id: &str, message: &impl Outgoing) {
-        let recipients = self.listeners().of_user(team_id, user_id);
+    fn send_to_user(&self, workspace_id: &str, user_id: &str, message: &impl Outgoing) {
+        let recipients = self.listeners().of_user(workspace_id, user_id);
         self.send(&recipients, message);
     }
 
@@ -951,17 +953,21 @@ async fn next_tick(interval: Option<&mut tokio::time::Interval>) {
     }
 }
 
-fn subscribe_to_team(listeners: &mut Listeners, id: ListenerId, team_id: &str) {
+fn subscribe_to_workspace(listeners: &mut Listeners, id: ListenerId, workspace_id: &str) {
     let Some(listener) = listeners.by_id.get_mut(&id) else {
         return;
     };
-    if listener.teams.iter().any(|team| team == team_id) {
+    if listener
+        .workspaces
+        .iter()
+        .any(|workspace| workspace == workspace_id)
+    {
         return;
     }
-    listener.teams.push(team_id.to_owned());
+    listener.workspaces.push(workspace_id.to_owned());
     listeners
-        .by_team
-        .entry(team_id.to_owned())
+        .by_workspace
+        .entry(workspace_id.to_owned())
         .or_default()
         .push(id);
 }
@@ -994,237 +1000,4 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
 
 /// Ports of `server/ws/server_test.go`, on the listener table.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
-        let (outbox, _inbox) = mpsc::channel(1);
-        listeners.next_id += 1;
-        let id = listeners.next_id;
-        listeners.by_id.insert(
-            id,
-            Listener {
-                user_id: user_id.to_owned(),
-                session_id: String::new(),
-                outbox,
-                closed: CancellationToken::new(),
-                closed_because: Arc::default(),
-                teams: Vec::new(),
-                blocks: Vec::new(),
-                shared_boards: Vec::new(),
-            },
-        );
-        id
-    }
-
-    fn unsubscribe_from_team(listeners: &mut Listeners, id: ListenerId, team_id: &str) {
-        if let Some(listener) = listeners.by_id.get_mut(&id) {
-            listener.teams.retain(|team| team != team_id);
-        }
-        remove_from(&mut listeners.by_team, team_id, id);
-    }
-
-    fn teams_of(listeners: &Listeners, id: ListenerId) -> &[String] {
-        &listeners.by_id[&id].teams
-    }
-
-    fn blocks_of(listeners: &Listeners, id: ListenerId) -> &[String] {
-        &listeners.by_id[&id].blocks
-    }
-
-    fn team_listeners<'a>(listeners: &'a Listeners, team_id: &str) -> &'a [ListenerId] {
-        listeners.by_team.get(team_id).map_or(&[], Vec::as_slice)
-    }
-
-    fn block_listeners<'a>(listeners: &'a Listeners, block_id: &str) -> &'a [ListenerId] {
-        listeners.by_block.get(block_id).map_or(&[], Vec::as_slice)
-    }
-
-    /// `TestTeamSubscription`
-    #[test]
-    fn team_subscription() {
-        let mut listeners = Listeners::default();
-        let team_id = "fake-team-id";
-
-        // "Should correctly add a session"
-        let session = add_listener(&mut listeners, "");
-        assert_eq!(listeners.by_id.len(), 1, "one listener");
-        assert!(listeners.by_team.is_empty(), "no team subscriptions yet");
-        assert!(
-            teams_of(&listeners, session).is_empty(),
-            "the session has no teams"
-        );
-
-        // "Should correctly subscribe to a team" and "Subscribing again to a subscribed
-        // team would have no effect"
-        for round in ["first", "again"] {
-            subscribe_to_team(&mut listeners, session, team_id);
-            assert_eq!(team_listeners(&listeners, team_id), [session], "{round}");
-            assert_eq!(teams_of(&listeners, session), [team_id], "{round}");
-        }
-
-        // "Should correctly unsubscribe to a team" and "Unsubscribing again to an
-        // unsubscribed team would have no effect"
-        for round in ["first", "again"] {
-            unsubscribe_from_team(&mut listeners, session, team_id);
-            assert!(team_listeners(&listeners, team_id).is_empty(), "{round}");
-            assert!(teams_of(&listeners, session).is_empty(), "{round}");
-        }
-
-        // "Should correctly be removed from the server"
-        listeners.remove(session);
-        assert!(listeners.by_id.is_empty(), "no listener is left");
-
-        // "If subscribed to teams and removed, should be removed from the teams
-        // subscription list"
-        let team_id2 = "other-fake-team-id";
-        let session = add_listener(&mut listeners, "");
-        subscribe_to_team(&mut listeners, session, team_id);
-        subscribe_to_team(&mut listeners, session, team_id2);
-        assert_eq!(listeners.by_id.len(), 1, "one listener");
-        assert_eq!(
-            team_listeners(&listeners, team_id),
-            [session],
-            "subscribed to the first"
-        );
-        assert_eq!(
-            team_listeners(&listeners, team_id2),
-            [session],
-            "and to the second"
-        );
-        listeners.remove(session);
-        assert!(listeners.by_id.is_empty(), "no listener is left");
-        assert!(
-            team_listeners(&listeners, team_id).is_empty(),
-            "nor in the first team"
-        );
-        assert!(
-            team_listeners(&listeners, team_id2).is_empty(),
-            "nor in the second"
-        );
-        assert!(
-            listeners.by_team.is_empty(),
-            "empty teams are dropped from the index"
-        );
-    }
-
-    /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
-    /// a user in the team are the ones that are told about their categories, every tab of
-    /// the user and no other user's.
-    #[test]
-    fn team_subscription_subscribe_users_to_team_retrieve_by_user() {
-        let mut listeners = Listeners::default();
-        let team_id = "fake-team-id";
-        let anonymous = add_listener(&mut listeners, "");
-        let user1 = add_listener(&mut listeners, "fake-user-id");
-        let user2 = add_listener(&mut listeners, "fake-user-id2");
-        for id in [anonymous, user1, user2] {
-            subscribe_to_team(&mut listeners, id, team_id);
-        }
-        assert_eq!(listeners.by_id.len(), 3, "three listeners");
-        assert_eq!(
-            team_listeners(&listeners, team_id).len(),
-            3,
-            "all in the team"
-        );
-
-        let found = listeners.of_user(team_id, "fake-user-id");
-        assert_eq!(found, [user1], "the user's listener is found");
-
-        let other_tab = add_listener(&mut listeners, "fake-user-id");
-        subscribe_to_team(&mut listeners, other_tab, team_id);
-        let mut found = listeners.of_user(team_id, "fake-user-id");
-        found.sort_unstable();
-        let mut both = vec![user1, other_tab];
-        both.sort_unstable();
-        assert_eq!(found, both, "both tabs of the user, not the other user's");
-        listeners.remove(other_tab);
-
-        for id in [anonymous, user1, user2] {
-            listeners.remove(id);
-        }
-        assert!(listeners.by_id.is_empty(), "no listener is left");
-        assert!(
-            team_listeners(&listeners, team_id).is_empty(),
-            "nor in the team"
-        );
-        assert_eq!(
-            listeners.of_user(team_id, "fake-user-id"),
-            Vec::<ListenerId>::new(),
-            "nobody to find"
-        );
-    }
-
-    /// `TestBlocksSubscription`
-    #[test]
-    fn blocks_subscription() {
-        let mut listeners = Listeners::default();
-        let block_ids = [
-            "block1".to_owned(),
-            "block2".to_owned(),
-            "block3".to_owned(),
-        ];
-
-        // "Should correctly add a session"
-        let session = add_listener(&mut listeners, "");
-        assert_eq!(listeners.by_id.len(), 1, "one listener");
-        assert!(listeners.by_block.is_empty(), "no block subscriptions yet");
-
-        // "Should correctly subscribe to a set of blocks" and "Subscribing again to a
-        // subscribed block would have no effect"
-        for round in ["first", "again"] {
-            subscribe_to_blocks(&mut listeners, session, &block_ids);
-            for block_id in &block_ids {
-                assert_eq!(
-                    block_listeners(&listeners, block_id),
-                    [session],
-                    "{round} {block_id}"
-                );
-            }
-            assert_eq!(blocks_of(&listeners, session), block_ids, "{round}");
-        }
-
-        // "Should correctly unsubscribe to a set of blocks"
-        unsubscribe_from_blocks(&mut listeners, session, &block_ids);
-        for block_id in &block_ids {
-            assert!(
-                block_listeners(&listeners, block_id).is_empty(),
-                "{block_id}"
-            );
-        }
-        assert!(
-            blocks_of(&listeners, session).is_empty(),
-            "the session has no blocks"
-        );
-
-        // "Unsubscribing again to an unsubscribed block would have no effect"
-        unsubscribe_from_blocks(&mut listeners, session, &block_ids[..1]);
-        assert!(
-            block_listeners(&listeners, "block1").is_empty(),
-            "still not subscribed"
-        );
-        assert!(blocks_of(&listeners, session).is_empty(), "still no blocks");
-
-        // "Should correctly be removed from the server"
-        listeners.remove(session);
-        assert!(listeners.by_id.is_empty(), "no listener is left");
-
-        // "If subscribed to blocks and removed, should be removed from the blocks
-        // subscription list"
-        let session = add_listener(&mut listeners, "");
-        subscribe_to_blocks(&mut listeners, session, &block_ids);
-        assert_eq!(
-            blocks_of(&listeners, session),
-            block_ids,
-            "subscribed to all three"
-        );
-        listeners.remove(session);
-        assert!(listeners.by_id.is_empty(), "no listener is left");
-        for block_id in &block_ids {
-            assert!(
-                block_listeners(&listeners, block_id).is_empty(),
-                "{block_id}"
-            );
-        }
-    }
-}
+mod tests;

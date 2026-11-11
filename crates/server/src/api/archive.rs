@@ -1,6 +1,6 @@
 //! Exporting and importing board archives.
 //!
-//! Ports `server/api/archive.go`. The team-export route is registered twice in the
+//! Ports `server/api/archive.go`. The workspace-export route is registered twice in the
 //! original (the standalone server answers it); the import field is `file`.
 
 use axum::Extension;
@@ -26,7 +26,7 @@ use crate::connection::{Breaker, Connection};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
-/// What is refused to a user who may not import into the team.
+/// What is refused to a user who may not import into the workspace.
 const IMPORT_DENIAL: &str = "access denied to create board";
 
 /// An archive to import: one sent in parts with `createImportUpload`.
@@ -41,7 +41,7 @@ struct ImportRequest {
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_export_board))
-        .routes(routes!(handle_export_team))
+        .routes(routes!(handle_export_workspace))
         .routes(routes!(handle_import))
 }
 
@@ -115,7 +115,7 @@ async fn handle_export_board(
     let board = app.board(&board_id).await?;
     let slot = app.start_export(user_id)?;
     let archive = app
-        .export_archive(&board.team_id, std::slice::from_ref(&board.id))
+        .export_archive(&board.workspace_id, std::slice::from_ref(&board.id))
         .await?;
     Ok(archive_response(
         &app,
@@ -125,16 +125,16 @@ async fn handle_export_board(
     ))
 }
 
-/// Export the boards of a team
+/// Export the boards of a workspace
 ///
-/// An archive of all boards of the team that `getBoards` lists for the user, offered
+/// An archive of all boards of the workspace that `getBoards` lists for the user, offered
 /// as a download with its length, in the format of `exportBoardArchive`, and under its
-/// limits. A team that is not there, or that the user is not in, is not refused: its
+/// limits. A workspace that is not there, or that the user is not in, is not refused: its
 /// archive has no boards.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/archive/export",
-    operation_id = "exportTeamArchive",
+    operation_id = "exportWorkspaceArchive",
     tag = tag::ARCHIVES,
     params(WorkspaceId),
     responses((
@@ -148,11 +148,11 @@ async fn handle_export_board(
         ),
     )),
 )]
-async fn handle_export_team(
+async fn handle_export_workspace(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     connection: Option<Extension<ConnectInfo<Connection>>>,
-    Path(team_id): Path<String>,
+    Path(workspace_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
     let public = if user_is_guest(&app, user_id).await? {
@@ -161,11 +161,11 @@ async fn handle_export_team(
         PublicBoards::Include
     };
     let boards = app
-        .boards_for_user_and_team(user_id, &team_id, public)
+        .boards_for_user_and_workspace(user_id, &workspace_id, public)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
     let slot = app.start_export(user_id)?;
-    let archive = app.export_archive(&team_id, &ids).await?;
+    let archive = app.export_archive(&workspace_id, &ids).await?;
     Ok(archive_response(
         &app,
         archive,
@@ -176,14 +176,14 @@ async fn handle_export_team(
 
 /// Import an archive
 ///
-/// Makes the boards of an archive in the team, with the user as their admin. The
+/// Makes the boards of an archive in the workspace, with the user as their admin. The
 /// members the archive names for a board become members of it with the roles they had,
-/// where they are in the team. The archive is sent before in parts: open an
+/// where they are in the workspace. The archive is sent before in parts: open an
 /// upload with `createImportUpload`, send its parts with `putUploadPart`, then name
 /// the upload here, in place of `completeUpload`. A part missing is 400 and the upload
 /// stays open for it; otherwise the upload ends with the import, whether it succeeds or
 /// not. Another user's upload, or one that has ended, is 404; an upload of a file, or
-/// one for another team, is 400. For users of the team who are not guests, at the
+/// one for another workspace, is 400. For users of the workspace who are not guests, at the
 /// import as when the upload was opened: a user who may not import any more is
 /// refused, and the upload is thrown away.
 ///
@@ -214,14 +214,14 @@ async fn handle_export_team(
 async fn handle_import(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
+    Path(workspace_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
     let user_id = session.user_id.clone();
     // The workspace is entered first, for the organization its upload is read in, and
     // refused where it always was: after the body and the upload are looked at, with
     // the upload thrown away.
-    let entered = require_import_access(&app, session, team_id.clone()).await;
+    let entered = require_import_access(&app, session, workspace_id.clone()).await;
     let reach = entered
         .as_ref()
         .map_or_else(|_| app.clone(), |ws| ws.app.clone());
@@ -233,9 +233,9 @@ async fn handle_import(
         )
         .with_field("uploadId"));
     }
-    if upload.team_id != team_id {
+    if upload.workspace_id != workspace_id {
         return Err(
-            AppError::bad_request("the upload is of an archive for another team")
+            AppError::bad_request("the upload is of an archive for another workspace")
                 .with_field("uploadId"),
         );
     }

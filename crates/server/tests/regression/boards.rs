@@ -6,7 +6,7 @@
 
 use serde_json::json;
 
-use crate::common::ROOT_TEAM_ID;
+use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{block, id_of, new_blocks, new_board};
 use crate::harness::{API, Session, id_by_title};
 
@@ -14,19 +14,19 @@ pub(crate) async fn boards(s: &mut Session) {
     let [alice, bob] = s.users("boards", ["alice", "bob"]).await;
     let boards = format!("{API}/boards");
     s.post("create: no type", &boards)
-        .json(json!({"teamId": ROOT_TEAM_ID, "title": "x"}))
+        .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "title": "x"}))
         .user(&alice)
         .await;
     s.post("create: bad type", &boards)
-        .json(json!({"teamId": ROOT_TEAM_ID, "type": "X", "title": "x"}))
+        .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "X", "title": "x"}))
         .user(&alice)
         .await;
-    s.post("create: no team", &boards)
+    s.post("create: no workspace", &boards)
         .json(json!({"type": "P", "title": "x"}))
         .user(&alice)
         .await;
     s.post("create: without session", &boards)
-        .json(json!({"teamId": ROOT_TEAM_ID, "type": "P"}))
+        .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P"}))
         .await;
     s.post("create: malformed body", &boards)
         .raw(b"{nope")
@@ -56,12 +56,15 @@ pub(crate) async fn boards(s: &mut Session) {
     s.get("get: non-member, open", &open_path).user(&bob).await;
     s.get("get: anonymous", &path).await;
     s.get("get: unknown board", &unknown).user(&alice).await;
-    s.get("list: member", &format!("{API}/w/{ROOT_TEAM_ID}/boards"))
-        .user(&alice)
-        .await;
+    s.get(
+        "list: member",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
+    )
+    .user(&alice)
+    .await;
     s.get(
         "list: other user",
-        &format!("{API}/w/{ROOT_TEAM_ID}/boards"),
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
     )
     .user(&bob)
     .await;
@@ -162,14 +165,17 @@ pub(crate) async fn boards(s: &mut Session) {
     s.get("blocks after undelete", &format!("{path}/blocks"))
         .user(&alice)
         .await;
-    s.get("list at the end", &format!("{API}/w/{ROOT_TEAM_ID}/boards"))
-        .user(&alice)
-        .await;
+    s.get(
+        "list at the end",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
+    )
+    .user(&alice)
+    .await;
 }
 
 pub(crate) async fn members(s: &mut Session) {
     let [alice, bob, carol] = s.users("members", ["alice", "bob", "carol"]).await;
-    let board = new_board(s, &alice, "Team board", "P", json!({})).await;
+    let board = new_board(s, &alice, "Workspace board", "P", json!({})).await;
     let open_board = new_board(s, &alice, "Open board", "O", json!({})).await;
     let bob_id = s.user_id(&bob).await;
     let carol_id = s.user_id(&carol).await;
@@ -300,7 +306,7 @@ pub(crate) async fn members(s: &mut Session) {
         "create a board with no minimum role",
         &format!("{API}/boards"),
     )
-    .json(json!({"teamId": ROOT_TEAM_ID, "type": "O", "minimumRole": ""}))
+    .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "O", "minimumRole": ""}))
     .user(&alice)
     .await;
     s.patch("minimum role: commenter", &role_path)
@@ -372,8 +378,8 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
     let path = format!("{API}/boards-and-blocks");
     let body = json!({
         "boards": [
-            {"id": "board-a", "teamId": ROOT_TEAM_ID, "type": "P", "title": "Board A"},
-            {"id": "board-b", "teamId": ROOT_TEAM_ID, "type": "O", "title": "Board B"},
+            {"id": "board-a", "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Board A"},
+            {"id": "board-b", "workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": "Board B"},
         ],
         "blocks": [
             block("blk-a", "board-a", "card", "Card A", "", json!({})),
@@ -397,20 +403,20 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
         .await;
     s.post("create: block of another board", &path)
         .json(json!({
-            "boards": [{"id": "b1", "teamId": ROOT_TEAM_ID, "type": "P"}],
+            "boards": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "type": "P"}],
             "blocks": [block("k1", "elsewhere", "card", "", "", json!({}))],
         }))
         .user(&alice)
         .await;
-    s.post("create: boards of two teams", &path)
+    s.post("create: boards of two workspaces", &path)
         .json(json!({
-            "boards": [{"id": "b1", "teamId": ROOT_TEAM_ID, "type": "P"}, {"id": "b2", "teamId": "1", "type": "P"}],
+            "boards": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID, "type": "P"}, {"id": "b2", "workspaceId": "1", "type": "P"}],
             "blocks": [],
         }))
         .user(&alice)
         .await;
     s.post("create: board without type", &path)
-        .json(json!({"boards": [{"id": "b1", "teamId": ROOT_TEAM_ID}], "blocks": []}))
+        .json(json!({"boards": [{"id": "b1", "workspaceId": ROOT_WORKSPACE_ID}], "blocks": []}))
         .user(&alice)
         .await;
     s.post("create: malformed body", &path)

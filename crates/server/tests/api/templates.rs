@@ -9,7 +9,7 @@ use std::time::Instant;
 use fvoci_model::{Block, Board, BoardType};
 use serde_json::{Value, json};
 
-use crate::common::{ROOT_TEAM_ID, Setup};
+use crate::common::{ROOT_WORKSPACE_ID, Setup};
 
 /// `TestGetTemplates`: the built-in templates are listed, each with blocks, and each can
 /// be duplicated into a non-template board.
@@ -23,7 +23,7 @@ async fn get_templates_returns_the_built_in_templates() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -64,7 +64,10 @@ async fn get_templates_returns_the_built_in_templates() {
     let duplicate = ts
         .client
         .post(
-            &format!("/boards/{}/duplicate?toTeam={ROOT_TEAM_ID}", first.id),
+            &format!(
+                "/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
+                first.id
+            ),
             &json!({}),
         )
         .await
@@ -96,7 +99,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -113,7 +116,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
     for known in [
         "7ba22ccfdfac391d63dea5c4b8cde0de", // Company Goals & OKRs
         "ecc250bb7dff0fe02247f1110f097544", // Sales Pipeline CRM
-        "e4f03181c4ced8edd4d53d33d569a086", // Team Retrospective
+        "e4f03181c4ced8edd4d53d33d569a086", // Workspace Retrospective
     ] {
         assert!(
             tracking_ids.iter().any(|id| id == known),
@@ -133,7 +136,7 @@ async fn get_templates_without_a_session_is_401() {
         .init_basic()
         .await;
     ts.anonymous()
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -178,10 +181,10 @@ async fn template_initialization_is_idempotent_and_measured() {
     ts.teardown().await;
 }
 
-/// The number of template boards the root team is offered.
+/// The number of template boards the root workspace is offered.
 async fn ts_template_count(ts: &crate::common::TestServer) -> usize {
     ts.app
-        .template_boards(ROOT_TEAM_ID, "")
+        .template_boards(ROOT_WORKSPACE_ID, "")
         .await
         .expect("the template boards")
         .len()
@@ -207,7 +210,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     };
     let before: Vec<Board> = ts
         .client
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .ok_json();
     let marked_before = marked(&before);
@@ -237,7 +240,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     );
     let after: Vec<Board> = ts
         .client
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .ok_json();
     assert_eq!(after.len(), before.len(), "the same number of templates");
@@ -245,13 +248,13 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     assert_eq!(marked_after.len(), 1, "one marked template again");
     assert_ne!(marked_after, marked_before, "a newly imported board");
     ts.client
-        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
         .await
         .check_ok();
     ts.teardown().await;
 }
 
-/// Security fix. The built-in templates are open boards of the team every user is in,
+/// Security fix. The built-in templates are open boards of the workspace every user is in,
 /// so in the original anyone could join one, become its editor, and change what every
 /// new user's first board is copied from. A template is not joined, and so nobody
 /// becomes a member of a built-in one.
@@ -265,7 +268,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .await;
     let templates = ts
         .client
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
     let welcome = templates
@@ -381,7 +384,7 @@ async fn the_built_in_templates_are_the_template_files() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
     let files = template_files();

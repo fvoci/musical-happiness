@@ -1,7 +1,7 @@
 [
   {
     "name": "workspaces",
-    "request": "GET /api/v1/users/me/workspaces as teams-alice",
+    "request": "GET /api/v1/users/me/workspaces as workspaces-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -20,8 +20,8 @@
     ]
   },
   {
-    "name": "team 0",
-    "request": "GET /api/v1/w/<id:1> as teams-alice",
+    "name": "workspace 0",
+    "request": "GET /api/v1/w/<id:1> as workspaces-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -33,8 +33,8 @@
     }
   },
   {
-    "name": "some other team id",
-    "request": "GET /api/v1/w/anything as teams-alice",
+    "name": "some other workspace id",
+    "request": "GET /api/v1/w/anything as workspaces-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -47,7 +47,7 @@
     }
   },
   {
-    "name": "team without session",
+    "name": "workspace without session",
     "request": "GET /api/v1/w/<id:1> as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
@@ -61,14 +61,14 @@
     }
   },
   {
-    "name": "team users include me",
+    "name": "workspace users include me",
     "request": "(observation)",
     "status": 0,
     "body": true
   },
   {
-    "name": "team users search",
-    "request": "GET /api/v1/w/<id:1>/users?search=teams-ali as teams-alice",
+    "name": "workspace users search",
+    "request": "GET /api/v1/w/<id:1>/users?search=workspaces-ali as workspaces-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -79,20 +79,20 @@
         "id": "<id:4>",
         "isAdmin": false,
         "updateAt": "<ts>",
-        "username": "teams-alice"
+        "username": "workspaces-alice"
       }
     ]
   },
   {
-    "name": "team users search without match",
-    "request": "GET /api/v1/w/<id:1>/users?search=zzzz-no-such as teams-alice",
+    "name": "workspace users search without match",
+    "request": "GET /api/v1/w/<id:1>/users?search=zzzz-no-such as workspaces-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
-    "name": "team users by id",
-    "request": "POST /api/v1/w/<id:1>/users as teams-alice",
+    "name": "workspace users by id",
+    "request": "POST /api/v1/w/<id:1>/users as workspaces-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -103,13 +103,13 @@
         "id": "<id:4>",
         "isAdmin": false,
         "updateAt": "<ts>",
-        "username": "teams-alice"
+        "username": "workspaces-alice"
       }
     ]
   },
   {
-    "name": "team users by id: empty",
-    "request": "POST /api/v1/w/<id:1>/users as teams-alice",
+    "name": "workspace users by id: empty",
+    "request": "POST /api/v1/w/<id:1>/users as workspaces-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {

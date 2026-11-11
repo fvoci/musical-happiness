@@ -27,8 +27,8 @@ async fn a_deletion_is_the_block_with_all_below_it_the_block_first() {
     let test = common::setup().await;
     let store: &Store = &test.store;
     let user_id = common::user(store, "author").await;
-    let team_id = common::team(store).await;
-    let board = common::create_test_boards(store, &team_id, &user_id, 1)
+    let workspace_id = common::workspace(store).await;
+    let board = common::create_test_boards(store, &workspace_id, &user_id, 1)
         .await
         .remove(0);
     // The middle block's identifier sorts after the one below it, so that the order of
@@ -80,8 +80,8 @@ async fn a_block_stored_off_its_place_is_still_changed() {
     let test = common::setup().await;
     let store: &Store = &test.store;
     let user_id = common::user(store, "author").await;
-    let team_id = common::team(store).await;
-    let board = common::create_test_boards(store, &team_id, &user_id, 1)
+    let workspace_id = common::workspace(store).await;
+    let board = common::create_test_boards(store, &workspace_id, &user_id, 1)
         .await
         .remove(0);
     let card_id = new_id();
@@ -119,8 +119,8 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
     let test = common::setup().await;
     let store: &Store = &test.store;
     let user_id = common::user(store, "author").await;
-    let team_id = common::team(store).await;
-    let board = common::create_test_boards(store, &team_id, &user_id, 1)
+    let workspace_id = common::workspace(store).await;
+    let board = common::create_test_boards(store, &workspace_id, &user_id, 1)
         .await
         .remove(0);
     let card_id = new_id();

@@ -8,7 +8,7 @@ use fvoci_server::config::Configuration;
 use fvoci_store::testing::{TestDatabase, db_type_of_the_tests};
 use fvoci_store::{DbType, Store};
 
-use crate::common::{ROOT_TEAM_ID, Setup};
+use crate::common::{ROOT_WORKSPACE_ID, Setup};
 
 fn open(config: &mut Configuration) {
     "open".clone_into(&mut config.org_creation);
@@ -149,7 +149,7 @@ async fn a_server_of_one_organization_starts_past_the_wall_and_works() {
         .await
         .init_basic()
         .await;
-    let private = ts.create_board(ROOT_TEAM_ID, BoardType::Private).await;
+    let private = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
     ts.client
         .get(&format!("/boards/{}", private.id))
         .await
@@ -185,7 +185,7 @@ async fn org_creation_is_one_of_two_words_and_open_needs_postgresql() {
 
 /// A server that starts on an empty database has one organization and one workspace by
 /// itself: the first user who registers is in the workspace, as its administrator, and
-/// it is the team the routes that name no workspace work in.
+/// it is the workspace the routes that name no workspace work in.
 #[tokio::test]
 async fn a_first_start_makes_the_organization_and_its_workspace() {
     let ts = Setup::one_user().on_an_empty_database().start().await;
@@ -193,18 +193,17 @@ async fn a_first_start_makes_the_organization_and_its_workspace() {
         ts.client.get("/users/me/workspaces").await.ok_json();
     assert_eq!(workspaces.len(), 1, "one workspace: {workspaces:?}");
     assert_eq!(workspaces[0].role, fvoci_model::WorkspaceRole::Admin);
-    let teams: Vec<fvoci_model::Team> = vec![
-        ts.client
-            .get(&format!("/w/{}", workspaces[0].id))
-            .await
-            .ok_json(),
-    ];
-    assert!(!teams[0].signup_token.is_empty(), "with a signup token");
+    let workspace: fvoci_model::Workspace = ts
+        .client
+        .get(&format!("/w/{}", workspaces[0].id))
+        .await
+        .ok_json();
+    assert!(!workspace.signup_token.is_empty(), "with a signup token");
     // And it is there to work in.
-    let board = ts.create_board(&teams[0].id, BoardType::Private).await;
+    let board = ts.create_board(&workspace.id, BoardType::Private).await;
     let boards: Vec<fvoci_model::Board> = ts
         .client
-        .get(&format!("/w/{}/boards", teams[0].id))
+        .get(&format!("/w/{}/boards", workspaces[0].id))
         .await
         .ok_json();
     assert_eq!(boards.len(), 1, "{boards:?}");
@@ -214,7 +213,7 @@ async fn a_first_start_makes_the_organization_and_its_workspace() {
     let again = ts
         .app
         .store()
-        .only_organization(&fvoci_model::Team::default())
+        .only_organization(&fvoci_model::Workspace::default())
         .await
         .expect("the organization");
     assert_eq!(again, workspaces[0].org_id);
@@ -230,10 +229,10 @@ async fn the_housekeeping_reaches_every_organization() {
         return;
     }
     let ts = Setup::native().start().await.init_basic().await;
-    let workspace = fvoci_model::Team {
+    let workspace = fvoci_model::Workspace {
         id: fvoci_model::new_id(),
         signup_token: "signup-token".to_owned(),
-        ..fvoci_model::Team::default()
+        ..fvoci_model::Workspace::default()
     };
     let org_id = ts
         .app
@@ -245,7 +244,7 @@ async fn the_housekeeping_reaches_every_organization() {
     let user_id = ts.client.me().await.id;
     let mut board = fvoci_model::Board {
         id: fvoci_model::new_id(),
-        team_id: workspace.id.clone(),
+        workspace_id: workspace.id.clone(),
         board_type: BoardType::Open,
         ..fvoci_model::Board::default()
     };

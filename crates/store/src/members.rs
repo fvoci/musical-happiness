@@ -16,7 +16,7 @@ use crate::users::InstanceRole;
 /// board is no secret to who works in its workspace, and to nobody else.
 pub(crate) fn push_open_boards_at_work<'sql>(sql: &'sql mut Sql, user_id: &str) -> &'sql mut Sql {
     sql.push_bind(" AND ((b.type = ", BoardType::Open.as_str())
-        .push(" AND b.team_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
+        .push(" AND b.workspace_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
         .push_bind(" WHERE wm.user_id = ", Id(user_id))
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
         .push(")) OR ")
@@ -60,7 +60,7 @@ impl Store {
             sql.bind(Id(user_id))
                 .push_bind(", ", role.as_str())
                 .push_bind(", ", now_millis())
-                .push_bind(" FROM teams WHERE id = ", Id(workspace_id))
+                .push_bind(" FROM workspaces WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push_bind(" AND delete_at = ", 0_i64);
             if scope.execute(sql).await? == 0 {
@@ -116,7 +116,7 @@ pub(crate) async fn join_organization(
         .push_bind(", ", workspace_role.as_str())
         .push_bind(", ", now_millis())
         .push_bind(
-            " FROM organizations AS o JOIN teams AS t ON t.id = o.default_workspace_id \
+            " FROM organizations AS o JOIN workspaces AS t ON t.id = o.default_workspace_id \
              WHERE o.id = ",
             scope.org()?,
         )
@@ -154,7 +154,7 @@ pub(crate) async fn follow_instance_role(
         .push_bind(" WHERE user_id = ", Id(user_id))
         .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str())
         .push_bind(
-            " AND workspace_id IN (SELECT id FROM teams WHERE org_id = ",
+            " AND workspace_id IN (SELECT id FROM workspaces WHERE org_id = ",
             scope.org()?,
         )
         .push(")");

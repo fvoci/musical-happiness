@@ -175,9 +175,9 @@ fn a_full_path_is_found_wherever_it_is_written() {
     );
     assert_eq!(
         found(
-            "#[utoipa::path(get, responses((status = 200, body = fvoci_store::Team)))] fn f() {}"
+            "#[utoipa::path(get, responses((status = 200, body = fvoci_store::Workspace)))] fn f() {}"
         ),
-        ["http>store fvoci_store::Team"],
+        ["http>store fvoci_store::Workspace"],
         "the arguments of an attribute"
     );
     assert_eq!(
@@ -240,7 +240,10 @@ fn a_name_given_elsewhere_does_not_hide_what_it_stands_for() {
          pub use fvoci_store::PublicBoards; pub type Shared = std::sync::Arc<Database>; \
          pub struct App;",
     );
-    let boards = ("fvoci_server::app::boards", "pub use fvoci_store::Team;");
+    let boards = (
+        "fvoci_server::app::boards",
+        "pub use fvoci_store::Workspace;",
+    );
     let found = |source| {
         broken_in(
             &[logic, boards, ("fvoci_server::api::planted", source)],
@@ -266,8 +269,8 @@ fn a_name_given_elsewhere_does_not_hide_what_it_stands_for() {
         "through a module that was given another name"
     );
     assert_eq!(
-        found("use crate::app::Team;"),
-        ["http>store fvoci_store::Team"],
+        found("use crate::app::Workspace;"),
+        ["http>store fvoci_store::Workspace"],
         "through a module that re-exports everything of another"
     );
     assert_eq!(
@@ -461,11 +464,11 @@ fn a_module_that_exports_everything_of_a_module_of_its_own_is_no_circle() {
         ("fvoci_server::app", "mod boards; pub use boards::*;"),
         (
             "fvoci_server::app::boards",
-            "pub use fvoci_store::Team; pub struct Board;",
+            "pub use fvoci_store::Workspace; pub struct Board;",
         ),
         (
             "fvoci_server::api::planted",
-            "use crate::app::{Board, Team}; fn f(board: crate::app::boards::Board) {}",
+            "use crate::app::{Board, Workspace}; fn f(board: crate::app::boards::Board) {}",
         ),
     ]);
     assert!(
@@ -480,7 +483,7 @@ fn a_module_that_exports_everything_of_a_module_of_its_own_is_no_circle() {
         .collect();
     assert_eq!(
         found,
-        ["fvoci_store::Team"],
+        ["fvoci_store::Workspace"],
         "and what the module hands on from the store is found through it"
     );
 }

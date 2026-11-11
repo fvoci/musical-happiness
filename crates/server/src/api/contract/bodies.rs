@@ -26,8 +26,8 @@ pub(crate) struct NewBoard {
     /// the board another identifier. Where one board is made, a board with an `id` is
     /// refused.
     id: Option<String>,
-    /// The identifier of the team the board is made in.
-    team_id: String,
+    /// The identifier of the workspace the board is made in.
+    workspace_id: String,
     /// Whether the board is open or private.
     #[schema(rename = "type")]
     board_type: BoardType,
@@ -95,7 +95,7 @@ pub(crate) struct NewBlock {
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewBoardsAndBlocks {
-    /// The boards, at least one, all of one team. Each needs an `id`.
+    /// The boards, at least one, all of one workspace. Each needs an `id`.
     boards: Vec<NewBoard>,
     /// The blocks, at least one. The `boardId` of each is the `id` of one of `boards`.
     blocks: Vec<NewBlock>,
@@ -128,8 +128,8 @@ pub(crate) struct NewCategory {
     name: String,
     /// The user of the session: a user makes categories for themselves only.
     user_id: String,
-    /// The team of the path.
-    team_id: String,
+    /// The workspace of the path.
+    workspace_id: String,
     /// Whether the category is collapsed in the sidebar.
     collapsed: Option<bool>,
     /// The position of the category among the user's categories. It is stored 10
@@ -152,8 +152,8 @@ pub(crate) struct CategoryUpdate {
     name: String,
     /// The user of the session.
     user_id: String,
-    /// The team of the path.
-    team_id: String,
+    /// The workspace of the path.
+    workspace_id: String,
     /// Whether the category is collapsed in the sidebar. Left out, it is not.
     collapsed: Option<bool>,
 }
@@ -163,7 +163,7 @@ pub(crate) struct CategoryUpdate {
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewMember {
-    /// The identifier of the user, who must be able to see the board's team.
+    /// The identifier of the user, who must be able to see the board's workspace.
     user_id: String,
     /// The user administers the board. Only who manages the board's roles may ask for
     /// this.

@@ -3,7 +3,7 @@
 //!
 //! Every name starts with [`PREFIX`], but for the process metrics, which have the names
 //! every Prometheus client gives them (`process_cpu_seconds_total` and so on). No label
-//! carries an identifier of a user, a board, a team or a file, nor a path as it was
+//! carries an identifier of a user, a board, a workspace or a file, nor a path as it was
 //! asked: whatever a client sends maps onto a set of values fixed in this code.
 //!
 //! This module is what the rest of the server counts into, the logic as well as HTTP,

@@ -326,9 +326,9 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
     retry_after(&login(&th, "first", PASSWORD).await);
     let signup_token = th
         .app
-        .root_team()
+        .root_workspace()
         .await
-        .expect("the root team exists")
+        .expect("the root workspace exists")
         .signup_token;
     let late = RegisterRequest {
         token: signup_token,

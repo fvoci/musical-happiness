@@ -25,7 +25,7 @@ import {
   type Category,
   type Change,
   type DownloadedFile,
-  type Team,
+  type WorkspaceInfo,
   type User,
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
@@ -36,7 +36,7 @@ import { reread } from './write.ts';
 export interface Transfer {
   id: number;
   kind: 'export' | 'import';
-  /** What is moved: the board's title, the team's, or the archive's file name. */
+  /** What is moved: the board's title, the workspace's, or the archive's file name. */
   name: string;
   done: number;
   /** 0 while the length is not known. */
@@ -74,10 +74,10 @@ export class Workspace {
 
   status = $state<LoadStatus>('idle');
   me = $state.raw<User | undefined>(undefined);
-  team = $state.raw<Team | undefined>(undefined);
+  info = $state.raw<WorkspaceInfo | undefined>(undefined);
   users = $state.raw<User[]>([]);
-  /** The team's list as the backend gives it without a search: on the server, its oldest ten (D2). */
-  teamUsers = $state.raw<User[]>([]);
+  /** The workspace's list as the backend gives it without a search: on the server, its oldest ten (D2). */
+  workspaceUsers = $state.raw<User[]>([]);
   boards = $state.raw<Board[]>([]);
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
@@ -142,26 +142,26 @@ export class Workspace {
   async load(): Promise<void> {
     this.status = 'loading';
     try {
-      const [me, teams, settings] = await Promise.all([
+      const [me, workspaces, settings] = await Promise.all([
         this.backend.me(),
-        this.backend.teams(),
+        this.backend.workspaces(),
         this.backend.settings(),
       ]);
-      const team = teams[0];
-      if (!team) throw new Error('the reader belongs to no team');
+      const workspace = workspaces[0];
+      if (!workspace) throw new Error('the reader belongs to no workspace');
       const [users, boards, categories] = await Promise.all([
-        this.backend.users(team.id),
-        this.backend.boards(team.id),
-        this.backend.categories(team.id),
+        this.backend.users(workspace.id),
+        this.backend.boards(workspace.id),
+        this.backend.categories(workspace.id),
       ]);
       this.me = me;
-      this.team = team;
+      this.info = workspace;
       this.users = users;
-      this.teamUsers = users;
+      this.workspaceUsers = users;
       this.boards = boards;
       this.categories = categories;
       this.#takeSettings(settings);
-      // The list of the team is short (ten): the open board's members it did
+      // The list of the workspace is short (ten): the open board's members it did
       // not bring are read again, as when the board was opened.
       if (this.board) void this.learnUsers(this.board.members.map((member) => member.userId));
       this.#stopWatching?.();
@@ -243,16 +243,16 @@ export class Workspace {
    * two readings that overlap, the later one counts.
    */
   async #refresh(): Promise<void> {
-    const team = this.team;
-    if (this.status !== 'ready' || !team) return;
+    const workspace = this.info;
+    if (this.status !== 'ready' || !workspace) return;
     this.#refreshing += 1;
     const reading = this.#refreshing;
     const before = this.boards.map((board) => board.id);
     const begun = this.#sidebarBegun;
     try {
       const [boards, categories] = await Promise.all([
-        this.backend.boards(team.id),
-        this.backend.categories(team.id),
+        this.backend.boards(workspace.id),
+        this.backend.categories(workspace.id),
       ]);
       if (reading !== this.#refreshing) return;
       this.boards = reread(this.boards, boards, before);
@@ -294,18 +294,18 @@ export class Workspace {
 
   /**
    * Reads the people among `userIds` the workspace has no name for yet: the
-   * members of a board, say, when the list of the team did not bring them.
+   * members of a board, say, when the list of the workspace did not bring them.
    * Failing, the names stay unknown and nothing is told: nothing else
    * depends on them. A session that is over still signs out.
    */
   async learnUsers(userIds: readonly string[]): Promise<void> {
-    const team = this.team;
+    const workspace = this.info;
     const missing = userIds.filter(
       (id, at) => userIds.indexOf(id) === at && this.#usersById[id] === undefined,
     );
-    if (!team || missing.length === 0) return;
+    if (!workspace || missing.length === 0) return;
     try {
-      const found = await this.backend.usersById(team.id, missing);
+      const found = await this.backend.usersById(workspace.id, missing);
       // Another read may have brought some of them meanwhile.
       this.users = [
         ...this.users,
@@ -318,14 +318,14 @@ export class Workspace {
   }
 
   /**
-   * People of the team whose name has `query` in it (ten at most). A failure
+   * People of the workspace whose name has `query` in it (ten at most). A failure
    * finds nobody; a session that is over signs out.
    */
   async searchUsers(query: string): Promise<User[]> {
-    const team = this.team;
-    if (!team) return [];
+    const workspace = this.info;
+    if (!workspace) return [];
     try {
-      return await this.backend.searchUsers(team.id, query);
+      return await this.backend.searchUsers(workspace.id, query);
     } catch (error) {
       if (isBackendError(error) && error.status === 401) this.report('load', error);
       else if (!isBackendError(error)) console.error(error);
@@ -383,7 +383,7 @@ export class Workspace {
     viewTitle = '',
     statusName = 'Status',
   ): Promise<Board | undefined> {
-    if (!this.team) return undefined;
+    if (!this.info) return undefined;
     try {
       const cardProperties =
         draft.cardProperties ?? createEmptyBoard(undefined, statusName).cardProperties;
@@ -393,7 +393,7 @@ export class Workspace {
       fields.groupById = groupBy?.id;
       fields.visibleOptionIds = [...(groupBy?.options.map((option) => option.id) ?? []), ''];
       const { board } = await this.backend.createBoard(
-        this.team.id,
+        this.info.id,
         { ...draft, cardProperties },
         { title: viewTitle, fields },
       );
@@ -410,10 +410,10 @@ export class Workspace {
    * A failure finds nothing; a session that is over signs out.
    */
   async searchBoards(query: string): Promise<Board[]> {
-    const team = this.team;
-    if (!team || query.trim() === '') return [];
+    const workspace = this.info;
+    if (!workspace || query.trim() === '') return [];
     try {
-      return await this.backend.searchBoards(team.id, query.trim());
+      return await this.backend.searchBoards(workspace.id, query.trim());
     } catch (error) {
       if (isBackendError(error) && error.status === 401) this.report('load', error);
       else if (!isBackendError(error)) console.error(error);
@@ -423,9 +423,9 @@ export class Workspace {
 
   /** The templates a board can be made from; none when they cannot be read (told). */
   async templates(): Promise<Board[]> {
-    if (!this.team) return [];
+    if (!this.info) return [];
     try {
-      return await this.backend.templates(this.team.id);
+      return await this.backend.templates(this.info.id);
     } catch (error) {
       this.report('load', error);
       return [];
@@ -434,9 +434,9 @@ export class Workspace {
 
   /** Makes a board from a template; it keeps the template's title, views and cards. */
   async createBoardFromTemplate(templateId: string): Promise<Board | undefined> {
-    if (!this.team) return undefined;
+    if (!this.info) return undefined;
     try {
-      const board = await this.backend.duplicateBoard(templateId, false, this.team.id);
+      const board = await this.backend.duplicateBoard(templateId, false, this.info.id);
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
@@ -445,11 +445,11 @@ export class Workspace {
     }
   }
 
-  /** Makes a template of the team from a board. A template is no board of the sidebar. */
+  /** Makes a template of the workspace from a board. A template is no board of the sidebar. */
   async createTemplateFromBoard(boardId: string): Promise<Board | undefined> {
-    if (!this.team) return undefined;
+    if (!this.info) return undefined;
     try {
-      return await this.backend.duplicateBoard(boardId, true, this.team.id);
+      return await this.backend.duplicateBoard(boardId, true, this.info.id);
     } catch (error) {
       this.report('save', error);
       return undefined;
@@ -462,10 +462,10 @@ export class Workspace {
    * it could not be made; the reader starts with an empty workspace then.
    */
   async onboard(): Promise<string | undefined> {
-    if (!this.team) return undefined;
+    if (!this.info) return undefined;
     let boardId: string;
     try {
-      boardId = await this.backend.onboard(this.team.id);
+      boardId = await this.backend.onboard(this.info.id);
     } catch (error) {
       this.report('load', error);
       return undefined;
@@ -547,12 +547,12 @@ export class Workspace {
     );
   }
 
-  /** An archive of every board of the team the reader may see. */
-  exportTeam(): Promise<DownloadedFile | undefined> {
-    const team = this.team;
-    if (!team) return Promise.resolve(undefined);
-    return this.#transfer('export', `team ${team.id}`, team.title, (options) =>
-      this.backend.exportTeam(team.id, options),
+  /** An archive of every board of the workspace the reader may see. */
+  exportWorkspace(): Promise<DownloadedFile | undefined> {
+    const workspace = this.info;
+    if (!workspace) return Promise.resolve(undefined);
+    return this.#transfer('export', `workspace ${workspace.id}`, workspace.title, (options) =>
+      this.backend.exportWorkspace(workspace.id, options),
     );
   }
 
@@ -562,14 +562,14 @@ export class Workspace {
    * nobody hears of them. Whether it went through.
    */
   async importArchive(file: File): Promise<boolean> {
-    const team = this.team;
-    if (!team) return false;
+    const workspace = this.info;
+    if (!workspace) return false;
     const done = await this.#transfer(
       'import',
       `import ${file.name} ${file.size} ${file.lastModified}`,
       file.name,
       async (options) => {
-        await this.backend.importArchive(team.id, file, options);
+        await this.backend.importArchive(workspace.id, file, options);
         return true;
       },
     );
@@ -652,10 +652,10 @@ export class Workspace {
 
   /** A new category goes first, as the backend puts it. */
   async createCategory(name: string): Promise<void> {
-    if (!this.team) return;
+    if (!this.info) return;
     this.#sidebarWriting();
     try {
-      const category = await this.backend.createCategory(this.team.id, { name });
+      const category = await this.backend.createCategory(this.info.id, { name });
       if (this.categories.some((existing) => existing.id === category.id)) return;
       // The others were moved down to make room; until they are read again,
       // the new one is put before them.
@@ -672,31 +672,31 @@ export class Workspace {
   }
 
   async renameCategory(categoryId: string, name: string): Promise<void> {
-    const team = this.team;
-    if (!team) return;
+    const workspace = this.info;
+    if (!workspace) return;
     await this.#categoryWrite(
       this.categories.map((category) =>
         category.id === categoryId ? { ...category, name } : category,
       ),
-      () => this.backend.patchCategory(team.id, categoryId, { name }),
+      () => this.backend.patchCategory(workspace.id, categoryId, { name }),
     );
   }
 
   async setCategoryCollapsed(categoryId: string, collapsed: boolean): Promise<void> {
-    const team = this.team;
-    if (!team) return;
+    const workspace = this.info;
+    if (!workspace) return;
     await this.#categoryWrite(
       this.categories.map((category) =>
         category.id === categoryId ? { ...category, collapsed } : category,
       ),
-      () => this.backend.patchCategory(team.id, categoryId, { collapsed }),
+      () => this.backend.patchCategory(workspace.id, categoryId, { collapsed }),
     );
   }
 
   async deleteCategory(categoryId: string): Promise<void> {
-    const team = this.team;
+    const workspace = this.info;
     const gone = this.categories.find((category) => category.id === categoryId);
-    if (!team || !gone) return;
+    if (!workspace || !gone) return;
     await this.#categoryWrite(
       this.categories
         .filter((category) => category.id !== categoryId)
@@ -710,27 +710,27 @@ export class Workspace {
               }
             : category,
         ),
-      () => this.backend.deleteCategory(team.id, categoryId),
+      () => this.backend.deleteCategory(workspace.id, categoryId),
     );
   }
 
   /** Sets the order of the categories; `categoryIds` names every one of them. */
   async reorderCategories(categoryIds: readonly string[]): Promise<void> {
-    const team = this.team;
-    if (!team) return;
+    const workspace = this.info;
+    if (!workspace) return;
     await this.#categoryWrite(
       this.categories.map((category) => ({
         ...category,
         sortOrder: categoryIds.indexOf(category.id) * 10,
       })),
-      () => this.backend.reorderCategories(team.id, [...categoryIds]),
+      () => this.backend.reorderCategories(workspace.id, [...categoryIds]),
     );
   }
 
   /** Files a board under a category, at `index` among the boards shown there. */
   async moveBoard(boardId: string, categoryId: string, index: number): Promise<void> {
-    const team = this.team;
-    if (!team) return;
+    const workspace = this.info;
+    if (!workspace) return;
     await this.#categoryWrite(
       this.categories.map((category) => {
         const boardIds = category.boardIds.filter((id) => id !== boardId);
@@ -739,7 +739,7 @@ export class Workspace {
         }
         return { ...category, boardIds };
       }),
-      () => this.backend.moveBoardToCategory(team.id, boardId, categoryId, index),
+      () => this.backend.moveBoardToCategory(workspace.id, boardId, categoryId, index),
     );
   }
 
@@ -778,8 +778,8 @@ export class Workspace {
    * any sidebar write (`#sidebarRefused`) and rejects.
    */
   async #setBoardHidden(categoryId: string, boardId: string, hidden: boolean): Promise<void> {
-    const team = this.team;
-    if (!team) return;
+    const workspace = this.info;
+    if (!workspace) return;
     const before = this.categories;
     const category = before.find((one) => one.id === categoryId);
     // A board no category files (one brought back from the trash) is shown in
@@ -798,13 +798,13 @@ export class Workspace {
     try {
       if (loose) {
         await this.backend.moveBoardToCategory(
-          team.id,
+          workspace.id,
           boardId,
           categoryId,
           category.boardIds.length,
         );
       }
-      await this.backend.setBoardHidden(team.id, categoryId, boardId, hidden);
+      await this.backend.setBoardHidden(workspace.id, categoryId, boardId, hidden);
     } catch (error) {
       this.#sidebarRefused(before);
       throw error;

@@ -21,8 +21,8 @@ use crate::error::AppError;
 struct OnboardingStart {
     /// The identifier of the board the tour goes through.
     board_id: String,
-    /// The identifier of the team.
-    team_id: String,
+    /// The identifier of the workspace.
+    workspace_id: String,
 }
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -39,16 +39,19 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     post,
     path = "/w/{workspaceId}/onboard",
     operation_id = "onboard",
-    tag = tag::TEAMS,
+    tag = tag::WORKSPACES,
     params(WorkspaceId),
     responses((status = 200, description = "Where the tour's board is.", body = OnboardingStart)),
 )]
 async fn handle_onboard(WorksIn(ws): WorksIn) -> ApiResult {
-    let (app, user_id, team_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
+    let (app, user_id, workspace_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
     if user_is_guest(app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }
 
-    let (team_id, board_id) = app.prepare_onboarding_tour(user_id, team_id).await?;
-    Ok(json_response(&OnboardingStart { board_id, team_id }))
+    let (workspace_id, board_id) = app.prepare_onboarding_tour(user_id, workspace_id).await?;
+    Ok(json_response(&OnboardingStart {
+        board_id,
+        workspace_id,
+    }))
 }

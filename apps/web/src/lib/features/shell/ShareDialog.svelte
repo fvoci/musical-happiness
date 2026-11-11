@@ -1,11 +1,11 @@
 <!--
-  Sharing a board, for its admins: who of the team may find and join it and
-  with which role, its members and their roles, adding people of the team,
+  Sharing a board, for its admins: who of the workspace may find and join it and
+  with which role, its members and their roles, adding people of the workspace,
   and the public link (read only, for anyone who has it).
 
   Every change is sent at once through the board store, which shows it and
   takes it back when the server refuses it. The people offered to add are
-  the team's oldest ten until something is typed, then the ten the server
+  the workspace's oldest ten until something is typed, then the ten the server
   finds by name (D2); members are left out. The public link is read when the
   dialog opens. The reader's own role is not changed here: that is another
   admin's to do, so that nobody locks themselves out by a slip.
@@ -92,7 +92,7 @@
   let searchField = $state<HTMLInputElement | null>(null);
 
   const candidates = $derived(
-    (query.trim() === '' ? workspace.teamUsers : found).filter(
+    (query.trim() === '' ? workspace.workspaceUsers : found).filter(
       (user) => !board.members.some((member) => member.userId === user.id),
     ),
   );
@@ -206,11 +206,11 @@
     </Dialog.Header>
 
     <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
-      <!-- The team. -->
-      <section class="grid gap-2" aria-labelledby="{uid}-team">
-        <h3 id="{uid}-team" class="font-medium">{m.share_team_title()}</h3>
+      <!-- The workspace. -->
+      <section class="grid gap-2" aria-labelledby="{uid}-workspace">
+        <h3 id="{uid}-workspace" class="font-medium">{m.share_workspace_title()}</h3>
         <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-          <span class="min-w-0 flex-1 text-muted-foreground">{m.share_team_open()}</span>
+          <span class="min-w-0 flex-1 text-muted-foreground">{m.share_workspace_open()}</span>
           <Switch
             checked={isOpen}
             data-testid="share-open"

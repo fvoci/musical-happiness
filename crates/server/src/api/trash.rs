@@ -57,13 +57,13 @@ async fn handle_get_deleted_cards(
     ))
 }
 
-/// The deleted boards of a team
+/// The deleted boards of a workspace
 ///
-/// One page of the team's boards that are in the trash and that the user was an admin
+/// One page of the workspace's boards that are in the trash and that the user was an admin
 /// of when they were deleted, which is who `undeleteBoard` lets bring them back: each
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
 /// first; the pages cut that order. A `page` or `perPage` that is no whole number is
-/// 400. For users of the team.
+/// 400. For users of the workspace.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/trash/boards",

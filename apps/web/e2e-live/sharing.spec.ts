@@ -1,7 +1,7 @@
 /**
  * Sharing a board on the real server, from its share dialog: people of the
- * team found by name and added, a member's role changed and the member
- * taken off, the board opened to the team with a minimum role, and the
+ * workspace found by name and added, a member's role changed and the member
+ * taken off, the board opened to the workspace with a minimum role, and the
  * public link turned on, made anew and off. Each is checked on the server;
  * the person added sees the board without a reload.
  */
@@ -36,7 +36,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   baseURL,
 }) => {
   const base = baseURL ?? '';
-  // The team's oldest ten are offered before anything is typed; the guest
+  // The workspace's oldest ten are offered before anything is typed; the guest
   // is past them and is found by name.
   for (let made = 0; made < 10; made += 1) await register(base, person('crowd'));
   const owner = person('sharer');
@@ -61,7 +61,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   const dialog = ownerPage.getByTestId('share-dialog');
   await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(1);
 
-  // Not among the team's first ten, offered before anything is typed.
+  // Not among the workspace's first ten, offered before anything is typed.
   await expect(dialog.getByTestId('share-candidates').locator('li').first()).toBeVisible();
   await expect(dialog.getByRole('button', { name: `Add ${guest.username}` })).toHaveCount(0);
   // Found by name, added as an editor (the board is private).
@@ -93,7 +93,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
     .not.toContain(guestId);
   await expect(boardLink(guestPage, 'Garden share')).toHaveCount(0);
 
-  // Open to the team, commenters at least.
+  // Open to the workspace, commenters at least.
   await dialog.getByTestId('share-open').click();
   await dialog.getByTestId('share-minimum-role').selectOption('commenter');
   await expect

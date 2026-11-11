@@ -7,7 +7,7 @@
 
 use serde_json::json;
 
-use crate::common::ROOT_TEAM_ID;
+use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{add_member, block, id_of, merged, new_blocks, new_board};
 use crate::harness::{API, Session};
 
@@ -17,38 +17,38 @@ pub(crate) async fn categories(s: &mut Session) {
     let other = new_board(s, &alice, "Other board", "P", json!({})).await;
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
-    let path = format!("{API}/w/{ROOT_TEAM_ID}/categories");
+    let path = format!("{API}/w/{ROOT_WORKSPACE_ID}/categories");
 
     s.get("list: default only", &path).user(&alice).await;
     s.get("list: other user", &path).user(&bob).await;
     let created = s
         .post("create", &path)
-        .json(json!({"name": "Projects", "userId": alice_id, "teamId": ROOT_TEAM_ID}))
+        .json(json!({"name": "Projects", "userId": alice_id, "workspaceId": ROOT_WORKSPACE_ID}))
         .user(&alice)
         .await
         .json()
         .clone();
     let second = s
         .post("create second", &path)
-        .json(json!({"name": "Archive", "userId": alice_id, "teamId": ROOT_TEAM_ID, "collapsed": true}))
+        .json(json!({"name": "Archive", "userId": alice_id, "workspaceId": ROOT_WORKSPACE_ID, "collapsed": true}))
         .user(&alice)
         .await
         .json()
         .clone();
     s.post("create: no name", &path)
-        .json(json!({"name": "", "userId": alice_id, "teamId": ROOT_TEAM_ID}))
+        .json(json!({"name": "", "userId": alice_id, "workspaceId": ROOT_WORKSPACE_ID}))
         .user(&alice)
         .await;
     s.post("create: for another user", &path)
-        .json(json!({"name": "x", "userId": bob_id, "teamId": ROOT_TEAM_ID}))
+        .json(json!({"name": "x", "userId": bob_id, "workspaceId": ROOT_WORKSPACE_ID}))
         .user(&alice)
         .await;
-    s.post("create: for another team", &path)
-        .json(json!({"name": "x", "userId": alice_id, "teamId": "1"}))
+    s.post("create: for another workspace", &path)
+        .json(json!({"name": "x", "userId": alice_id, "workspaceId": "1"}))
         .user(&alice)
         .await;
     s.post("create: bad type", &path)
-        .json(json!({"name": "x", "userId": alice_id, "teamId": ROOT_TEAM_ID, "type": "weird"}))
+        .json(json!({"name": "x", "userId": alice_id, "workspaceId": ROOT_WORKSPACE_ID, "type": "weird"}))
         .user(&alice)
         .await;
     s.post("create: malformed body", &path)
@@ -91,7 +91,7 @@ pub(crate) async fn categories(s: &mut Session) {
     .await;
     s.put("update: system category", &format!("{path}/{default}"))
         .json(json!({
-            "id": default, "name": "Renamed", "userId": alice_id, "teamId": ROOT_TEAM_ID, "type": "system",
+            "id": default, "name": "Renamed", "userId": alice_id, "workspaceId": ROOT_WORKSPACE_ID, "type": "system",
         }))
         .user(&alice)
         .await;
@@ -153,7 +153,7 @@ pub(crate) async fn categories(s: &mut Session) {
         .json(json!([archive, category, default]))
         .user(&alice)
         .await;
-    let reorder = format!("{API}/w/{ROOT_TEAM_ID}/category-order");
+    let reorder = format!("{API}/w/{ROOT_WORKSPACE_ID}/category-order");
     s.put("reorder categories", &reorder)
         .json(json!([archive, category, default]))
         .user(&alice)
@@ -437,40 +437,55 @@ pub(crate) async fn search(s: &mut Session) {
     new_board(s, &alice, "Quarterly zebra plan", "P", json!({})).await;
     new_board(s, &alice, "Open zebra notes", "O", json!({})).await;
     new_board(s, &bob, "Private zebra diary", "P", json!({})).await;
-    let team_search = format!("{API}/w/{ROOT_TEAM_ID}/boards/search");
+    let workspace_search = format!("{API}/w/{ROOT_WORKSPACE_ID}/boards/search");
 
-    s.get("team search", &format!("{team_search}?q=zebra"))
-        .user(&alice)
-        .await;
-    s.get("team search: other user", &format!("{team_search}?q=zebra"))
-        .user(&bob)
-        .await;
-    s.get("team search: no match", &format!("{team_search}?q=giraffe"))
-        .user(&alice)
-        .await;
-    s.get("team search: empty term", &format!("{team_search}?q="))
-        .user(&alice)
-        .await;
-    s.get("team search: no term", &team_search)
-        .user(&alice)
-        .await;
-    s.get("team search: case", &format!("{team_search}?q=ZEBRA"))
+    s.get("workspace search", &format!("{workspace_search}?q=zebra"))
         .user(&alice)
         .await;
     s.get(
-        "team search: by field",
-        &format!("{team_search}?q=zebra&field=title"),
+        "workspace search: other user",
+        &format!("{workspace_search}?q=zebra"),
+    )
+    .user(&bob)
+    .await;
+    s.get(
+        "workspace search: no match",
+        &format!("{workspace_search}?q=giraffe"),
     )
     .user(&alice)
     .await;
     s.get(
-        "team search: bad field",
-        &format!("{team_search}?q=zebra&field=nope"),
+        "workspace search: empty term",
+        &format!("{workspace_search}?q="),
     )
     .user(&alice)
     .await;
-    s.get("team search: anonymous", &format!("{team_search}?q=zebra"))
+    s.get("workspace search: no term", &workspace_search)
+        .user(&alice)
         .await;
+    s.get(
+        "workspace search: case",
+        &format!("{workspace_search}?q=ZEBRA"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "workspace search: by field",
+        &format!("{workspace_search}?q=zebra&field=title"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "workspace search: bad field",
+        &format!("{workspace_search}?q=zebra&field=nope"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "workspace search: anonymous",
+        &format!("{workspace_search}?q=zebra"),
+    )
+    .await;
     s.get("all search", &format!("{API}/boards/search?q=zebra"))
         .user(&alice)
         .await;
@@ -479,19 +494,19 @@ pub(crate) async fn search(s: &mut Session) {
         .await;
     s.get(
         "linkable search",
-        &format!("{team_search}/linkable?q=zebra"),
+        &format!("{workspace_search}/linkable?q=zebra"),
     )
     .user(&alice)
     .await;
     s.get(
         "channels",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/channels?search=x"),
+        &format!("{API}/teams/{ROOT_WORKSPACE_ID}/channels?search=x"),
     )
     .user(&alice)
     .await;
     s.get(
         "channel",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/channels/some-channel"),
+        &format!("{API}/teams/{ROOT_WORKSPACE_ID}/channels/some-channel"),
     )
     .user(&alice)
     .await;

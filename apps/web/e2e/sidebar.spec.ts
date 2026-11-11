@@ -34,7 +34,13 @@ import {
   topBar,
 } from './shell.support.ts';
 
-const TEAM = ['Project Tasks', 'Sprint Planner', 'Roadmap', 'Meeting Agenda', 'Team Retrospective'];
+const WORKSPACE = [
+  'Project Tasks',
+  'Sprint Planner',
+  'Roadmap',
+  'Meeting Agenda',
+  'Team Retrospective',
+];
 const RESEARCH = ['User Research Sessions', 'Competitive Analysis', 'Content Calendar'];
 
 test.describe('the shapes of the sidebar', () => {
@@ -305,7 +311,7 @@ test.describe('boards in the sidebar', () => {
     await boardMenu(page, 'Roadmap').click();
     await page.getByRole('menuitem', { name: 'Move to Research' }).click();
     await expect.poll(() => boardsIn(page, 'Research')).toEqual([...RESEARCH, 'Roadmap']);
-    expect(await boardsIn(page, 'Team')).toEqual(TEAM.filter((title) => title !== 'Roadmap'));
+    expect(await boardsIn(page, 'Team')).toEqual(WORKSPACE.filter((title) => title !== 'Roadmap'));
   });
 
   test('a board is dragged with the mouse: to another place, into another category, onto a folded one', async ({

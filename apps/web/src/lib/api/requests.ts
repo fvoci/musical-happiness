@@ -1,6 +1,6 @@
 /**
  * The requests of the server backend that take nothing but HTTP: making an
- * account, changing the reader's own and reading their teams, and reading
+ * account, changing the reader's own and reading their workspaces, and reading
  * the trash. `ServerBackend`
  * is made of these and the rest (`backend.ts`).
  */
@@ -8,12 +8,12 @@ import type {
   DeletedItem,
   Paging,
   Registration,
-  Team,
+  WorkspaceInfo,
   TrashReads,
   User,
 } from '../state/backend.ts';
 
-import { teamsOf, userOf, type Schemas } from './convert.ts';
+import { workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 
 export class ServerRequests implements TrashReads {
@@ -45,8 +45,8 @@ export class ServerRequests implements TrashReads {
     );
   }
 
-  async teams(): Promise<Team[]> {
-    return teamsOf(
+  async workspaces(): Promise<WorkspaceInfo[]> {
+    return workspacesOf(
       await this.#http.request<Schemas['UserWorkspace'][]>('/api/v1/users/me/workspaces'),
     );
   }
@@ -59,10 +59,10 @@ export class ServerRequests implements TrashReads {
     );
   }
 
-  async deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]> {
+  async deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
     return this.#http.request<Schemas['DeletedItem'][]>(
       '/api/v1/w/{workspaceId}/trash/boards',
-      { workspaceId: teamId },
+      { workspaceId: workspaceId },
       { query: { ...paging } },
     );
   }

@@ -11,15 +11,15 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{OrgRole, Team, UserWorkspace, WorkspaceRole, new_id};
+use fvoci_model::{OrgRole, UserWorkspace, Workspace, WorkspaceRole, new_id};
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::loose_objects::LooseState;
-use crate::teams;
 use crate::uploads::{OpenUploads, UploadUsage};
+use crate::workspaces;
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -69,7 +69,7 @@ impl Store {
     pub async fn create_organization(
         &self,
         name: &str,
-        workspace: &Team,
+        workspace: &Workspace,
     ) -> Result<String, StoreError> {
         self.system()
             .transaction(async |scope| create_organization(scope, name, workspace).await)
@@ -85,7 +85,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn only_organization(&self, workspace: &Team) -> Result<String, StoreError> {
+    pub async fn only_organization(&self, workspace: &Workspace) -> Result<String, StoreError> {
         self.system()
             .transaction(async |scope| {
                 // One at a time: of two servers that start on an empty database, the
@@ -126,7 +126,7 @@ impl Store {
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
                     "SELECT t.org_id, wm.role, om.role FROM workspace_members AS wm \
-                     JOIN teams AS t ON t.id = wm.workspace_id \
+                     JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      LEFT JOIN organization_members AS om \
                      ON om.org_id = t.org_id AND om.user_id = wm.user_id \
@@ -168,7 +168,7 @@ impl Store {
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
                     "SELECT t.id, t.org_id, t.name, wm.role FROM workspace_members AS wm \
-                     JOIN teams AS t ON t.id = wm.workspace_id \
+                     JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      WHERE wm.user_id = ",
                 );
@@ -326,7 +326,7 @@ impl Store {
                 let mut sql = scope.sql(
                     "SELECT t.org_id, s.token FROM sharing AS s \
                      JOIN boards AS b ON b.id = s.board_id \
-                     JOIN teams AS t ON t.id = b.team_id \
+                     JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id WHERE s.board_id = ",
                 );
                 sql.bind(Id(board_id))
@@ -352,7 +352,7 @@ impl Store {
 async fn create_organization(
     scope: &mut Scope<'_>,
     name: &str,
-    workspace: &Team,
+    workspace: &Workspace,
 ) -> Result<String, StoreError> {
     let id = new_id();
     let now = now_millis();
@@ -365,7 +365,7 @@ async fn create_organization(
         .push_bind(", ", now)
         .push(")");
     scope.execute(sql).await?;
-    teams::insert_team(scope, workspace, Id(&id)).await?;
+    workspaces::insert_workspace(scope, workspace, Id(&id)).await?;
     let mut sql = scope.sql("UPDATE organizations SET default_workspace_id = ");
     sql.bind(Id(&workspace.id))
         .push_bind(" WHERE id = ", Id(&id));

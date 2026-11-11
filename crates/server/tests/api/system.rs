@@ -7,7 +7,9 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::common::{Client, PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, USER1_USERNAME};
+use crate::common::{
+    Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, USER1_USERNAME,
+};
 
 /// `TestHello/"Returns 'Hello' on success"`
 #[tokio::test]
@@ -250,7 +252,10 @@ async fn a_path_that_is_no_text_is_a_problem_like_any_other_error() {
 #[tokio::test]
 async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await.id;
+    let board = th
+        .create_board(TEST_WORKSPACE_ID, BoardType::Private)
+        .await
+        .id;
     let card: Value = th
         .client
         .post(&format!("/boards/{board}/cards"), &json!({"title": "card"}))
@@ -353,11 +358,11 @@ async fn base_path_prefixes_every_route() {
 async fn startup_refuses_a_malformed_base_path() {
     for base_path in [
         "boards",
-        "/boards/{team}",
+        "/boards/{workspace}",
         "/boards/*rest",
         // The router would read these as patterns, or never match them.
         "/:boards",
-        "/boards/:team",
+        "/boards/:workspace",
         "/boards?x=1",
         "/boards#top",
         "/a//b",
@@ -398,7 +403,8 @@ async fn a_request_is_finished_when_its_client_disconnects() {
 
     for round in 0..20 {
         let title = format!("abandoned {round}");
-        let body = json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": title}).to_string();
+        let body =
+            json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}).to_string();
         let request = format!(
             "POST /api/v1/boards HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\n\
              X-Requested-With: XMLHttpRequest\r\nContent-Type: application/json\r\n\
@@ -427,7 +433,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let boards = th
             .client
-            .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
             .await
             .value();
         let created: Vec<&str> = boards
@@ -438,7 +444,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
             .collect();
         let categories = th
             .client
-            .get(&format!("/w/{ROOT_TEAM_ID}/categories"))
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
             .await
             .value();
         let filed: Vec<&str> = categories

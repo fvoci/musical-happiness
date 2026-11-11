@@ -33,8 +33,8 @@ interface StoredCard {
 interface Dev {
   backend: {
     latency: number;
-    teams(): Promise<{ id: string }[]>;
-    boards(teamId: string): Promise<{ id: string; title: string }[]>;
+    workspaces(): Promise<{ id: string }[]>;
+    boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
     views(boardId: string): Promise<StoredView[]>;
     cards(boardId: string): Promise<StoredCard[]>;
     createCard(boardId: string, draft: { title: string }): Promise<StoredCard>;
@@ -58,8 +58,8 @@ async function openView(page: Page, boardTitle: string, viewTitle: string): Prom
   const found = await page.evaluate(
     async ([board, view]) => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-      const [team] = await backend.teams();
-      const boards = await backend.boards(team?.id ?? '');
+      const [workspace] = await backend.workspaces();
+      const boards = await backend.boards(workspace?.id ?? '');
       const boardId = boards.find((each) => each.title === board)?.id ?? '';
       const views = boardId === '' ? [] : await backend.views(boardId);
       return { boardId, viewId: views.find((each) => each.title === view)?.id ?? '' };
@@ -1487,8 +1487,8 @@ test.describe('five hundred rows', () => {
     // The cards are made while another board is shown; then the table is opened on all of them at once.
     const target = await page.evaluate(async () => {
       const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-      const [team] = await backend.teams();
-      const boards = await backend.boards(team?.id ?? '');
+      const [workspace] = await backend.workspaces();
+      const boards = await backend.boards(workspace?.id ?? '');
       const board = boards.find((each) => each.title === 'Sales Pipeline CRM');
       const other = boards.find((each) => each.title === 'Personal Tasks');
       if (!board || !other) throw new Error('the seed has no such boards');

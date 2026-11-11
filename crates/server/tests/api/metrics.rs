@@ -355,7 +355,7 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
     // Messages are counted as they are queued, one per connection they go to.
     socket
         .send(Message::Text(
-            serde_json::json!({"action": "SUBSCRIBE_TEAM", "teamId": crate::common::ROOT_TEAM_ID})
+            serde_json::json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": crate::common::ROOT_WORKSPACE_ID})
                 .to_string()
                 .into(),
         ))
@@ -365,7 +365,7 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
         id: fvoci_model::new_id(),
         name: "probe".to_owned(),
         user_id: user.id.clone(),
-        team_id: crate::common::ROOT_TEAM_ID.to_owned(),
+        workspace_id: crate::common::ROOT_WORKSPACE_ID.to_owned(),
         ..fvoci_model::Category::default()
     };
     let mut received = 0_u32;
@@ -433,7 +433,10 @@ async fn the_pool_and_the_open_uploads_are_measured() {
     assert!(max >= 1.0 && open <= max && idle <= open, "{body}");
 
     let board = server
-        .create_board(crate::common::TEST_TEAM_ID, fvoci_model::BoardType::Open)
+        .create_board(
+            crate::common::TEST_WORKSPACE_ID,
+            fvoci_model::BoardType::Open,
+        )
         .await;
     let mut uploads = Vec::new();
     for size in [10, 20] {
@@ -492,15 +495,22 @@ async fn the_archives_that_hold_their_place_are_counted() {
         .init_basic()
         .await;
     let board = server
-        .create_board(crate::common::TEST_TEAM_ID, fvoci_model::BoardType::Open)
+        .create_board(
+            crate::common::TEST_WORKSPACE_ID,
+            fvoci_model::BoardType::Open,
+        )
         .await;
     let export = server
         .client
         .get(&format!("/boards/{}/archive/export", board.id))
         .await;
     assert_eq!(export.status, StatusCode::OK);
-    let imported =
-        crate::export::import(&server.client, crate::common::TEST_TEAM_ID, &export.body).await;
+    let imported = crate::export::import(
+        &server.client,
+        crate::common::TEST_WORKSPACE_ID,
+        &export.body,
+    )
+    .await;
     assert_eq!(
         imported.status,
         StatusCode::NO_CONTENT,
