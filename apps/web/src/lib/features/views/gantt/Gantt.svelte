@@ -4,7 +4,11 @@
   or else the first kind of date of the board, or else when the card was
   made). A card of one day is a bar of one day. Where the view names a card
   relation as its dependencies, an arrow goes from each card to the cards
-  that come after it.
+  that come after it; dates are never moved. A card that starts before a
+  card it comes after has ended is out of order (ending and starting on the
+  same day is in order): its arrow is dashed, its bar and its title carry a
+  mark, its bar says so in words, and the row above the chart counts them.
+  Cards on a loop are marked and counted the same way.
 
   One box scrolls both ways. The titles of the cards are a column at its
   left that stays while the days scroll; the marks of the days are two rows
@@ -106,6 +110,12 @@
     scroller?.querySelector<HTMLElement>(`[data-bar="${CSS.escape(cardId)}"]`)?.focus();
   }
 
+  /** Goes to the next of `cardIds` after the bar last focused, round and round. */
+  function focusNext(cardIds: readonly string[]): void {
+    const at = focused === undefined ? -1 : cardIds.indexOf(focused);
+    focusBar(cardIds[(at + 1) % cardIds.length]);
+  }
+
   /** The arrow keys walk the bars: up and down a row, Home and End to the first and last. */
   function barKeys(event: KeyboardEvent, cardId: string): void {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -124,12 +134,21 @@
   data-first={axis.first}
   data-last={axis.last}
   data-edges={chart.relations.edges.length}
+  data-late={chart.relations.late.size}
   class="flex h-full min-h-0 flex-col [--gantt-row:2.25rem] [--gantt-title:7rem] @columns/pane:[--gantt-title:14rem] roomy:[--gantt-row:2.75rem]"
   style:--gantt-width="{axis.width}rem"
 >
   <Toolbar
     ontoday={() => {
       showDay(today);
+    }}
+    late={chart.relations.late.size}
+    onlate={() => {
+      focusNext(chart.lateIds);
+    }}
+    loops={chart.loopIds.length}
+    onloop={() => {
+      focusNext(chart.loopIds);
     }}
   />
 

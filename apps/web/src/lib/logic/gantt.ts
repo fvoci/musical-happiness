@@ -306,6 +306,8 @@ export interface ChartRelations {
   /** Of those, by `edgeKey`: the ones whose dates are out of order, and the ones on a loop. */
   late: Set<string>;
   loops: Set<string>;
+  /** Every card of the board that is on a loop, drawn or not. */
+  loopCards: Set<string>;
 }
 
 /**
@@ -321,14 +323,16 @@ export function relationsOf(
   propertyId: string | undefined,
   daysOf: (cardId: string) => Days | undefined,
 ): ChartRelations {
-  if (!propertyId) return { edges: [], late: new Set(), loops: new Set() };
+  if (!propertyId) return { edges: [], late: new Set(), loops: new Set(), loopCards: new Set() };
   const drawn = shown.filter((card) => daysOf(card.id) !== undefined);
   const edges = relationEdges(drawn, propertyId);
-  const onLoops = new Set(edgesOnLoops(relationEdges(all, propertyId)).map(edgeKey));
+  const looping = edgesOnLoops(relationEdges(all, propertyId));
+  const onLoops = new Set(looping.map(edgeKey));
   return {
     edges,
     late: new Set(edgesOutOfOrderByDays(edges, daysOf).map(edgeKey)),
     loops: new Set(edges.map(edgeKey).filter((key) => onLoops.has(key))),
+    loopCards: new Set(looping.flatMap(({ from, to }) => [from, to])),
   };
 }
 

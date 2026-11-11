@@ -8,6 +8,10 @@
   to whatever height the style sheet gives a row. Lines keep their thickness
   whatever the stretch.
 
+  An arrow between two cards whose dates are out of order is dashed, and one
+  that lies on a loop is dotted: the colour they also get is not the only
+  sign. The bar of the card says the same with a mark and in words.
+
   For the eye only: a bar says to a screen reader which cards it comes after.
 -->
 <script lang="ts">
@@ -21,6 +25,10 @@
   }
 
   let { arrows, width, rows }: Props = $props();
+
+  /** In pixels, as the thickness of the line is. */
+  const DASHED = '6 4';
+  const DOTTED = '0.1 4.5';
 </script>
 
 {#if arrows.length > 0 && rows > 0}
@@ -33,13 +41,22 @@
     preserveAspectRatio="none"
   >
     {#each arrows as arrow (`${arrow.from}\u0000${arrow.to}`)}
-      <g data-arrow data-from={arrow.from} data-to={arrow.to}>
+      <g
+        data-arrow
+        data-from={arrow.from}
+        data-to={arrow.to}
+        data-late={arrow.late ? '' : undefined}
+        data-loop={arrow.loop ? '' : undefined}
+        class={[(arrow.late || arrow.loop) && 'text-destructive']}
+      >
         <path
           d={arrowPath(arrow.points)}
           fill="none"
           stroke="currentColor"
           stroke-width="1.5"
           stroke-linejoin="round"
+          stroke-linecap={arrow.loop && !arrow.late ? 'round' : undefined}
+          stroke-dasharray={arrow.late ? DASHED : arrow.loop ? DOTTED : undefined}
           vector-effect="non-scaling-stroke"
         />
         <path d={arrowHead(arrow.points)} fill="currentColor" />

@@ -118,6 +118,17 @@ describe('the relations a chart draws', () => {
     const relations = relationsOf(drawn, all, AFTER, daysOf);
     expect(relations.edges).toHaveLength(2);
     expect([...relations.loops]).toEqual([edgeKey({ from: 'a', to: 'b' })]);
+    // Every card of the loop is known, the one that is not drawn too; the one beside it is not.
+    expect([...relations.loopCards].sort()).toEqual(['a', 'b', 'hidden']);
+  });
+
+  it('know a card on a loop none of whose edges is drawn', () => {
+    // a → undated → a: neither edge has two bars.
+    const cards = [card('a', ['undated']), card('undated', ['a'])];
+    const relations = relationsOf(cards, cards, AFTER, daysOf);
+    expect(relations.edges).toEqual([]);
+    expect(relations.loops.size).toBe(0);
+    expect([...relations.loopCards].sort()).toEqual(['a', 'undated']);
   });
 });
 

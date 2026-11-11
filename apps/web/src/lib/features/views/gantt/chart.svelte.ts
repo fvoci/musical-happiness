@@ -12,6 +12,7 @@ import {
   barsOf,
   cardsBefore,
   dependencyProperty,
+  edgeKey,
   relationsOf,
   rowsOf,
   scaleOf,
@@ -48,8 +49,15 @@ export interface CardLine {
   bar: Bar;
   /** What the row and the bar show. */
   title: string;
-  /** What a screen reader hears for the bar: the title, the days, and the cards it comes after. */
+  /**
+   * What a screen reader hears for the bar: the title, the days, the cards
+   * it comes after, and what is wrong with that (out of order, on a loop).
+   */
   name: string;
+  /** The card starts before the day a card it comes after ends. */
+  late: boolean;
+  /** Following what the card comes after leads back to the card. */
+  loop: boolean;
 }
 
 export type ChartLine = CardLine;
@@ -138,11 +146,27 @@ export class GanttChart {
     );
   }
 
-  /** What a screen reader hears for a bar: its title and days, then the cards it comes after. */
+  /** The cards that `cardId` comes after and starts too early for. */
+  #lateBefore(cardId: string): string[] {
+    const before = this.#before.get(cardId) ?? [];
+    return before.filter((from) => this.relations.late.has(edgeKey({ from, to: cardId })));
+  }
+
+  /**
+   * What a screen reader hears for a bar: its title and days, the cards it
+   * comes after, and in words what the dashes and the marks say to the eye.
+   */
   #name(card: Card): string {
-    const name = this.placed.name(card);
     const before = this.#before.get(card.id);
-    return before ? m.gantt_bar_after({ name, cards: this.#listed(before) }) : name;
+    const late = this.#lateBefore(card.id);
+    const name = this.placed.name(card);
+    return [
+      before ? m.gantt_bar_after({ name, cards: this.#listed(before) }) : name,
+      late.length > 0 ? m.gantt_bar_late({ cards: this.#listed(late) }) : undefined,
+      this.relations.loopCards.has(card.id) ? m.gantt_bar_loop() : undefined,
+    ]
+      .filter((part) => part !== undefined)
+      .join(' ');
   }
 
   /** The rows as drawn. */
@@ -159,8 +183,18 @@ export class GanttChart {
           bar,
           title: this.placed.title(card),
           name: this.#name(card),
+          late: this.#lateBefore(row.id).length > 0,
+          loop: this.relations.loopCards.has(row.id),
         },
       ];
     }),
+  );
+
+  /** The cards with a bar that are out of order, and those on a loop, from the top. */
+  readonly lateIds = $derived.by(() =>
+    this.lines.filter((line) => line.late).map((line) => line.id),
+  );
+  readonly loopIds = $derived.by(() =>
+    this.lines.filter((line) => line.loop).map((line) => line.id),
   );
 }
