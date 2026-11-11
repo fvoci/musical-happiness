@@ -9,14 +9,15 @@
 //!
 //! The two files of a migration describe one change and differ in the column types
 //! only, as the tests of the baselines hold them to. The migration of the organizations
-//! is the exception, and the only one, on two counts. PostgreSQL keeps the rows of the
+//! is an exception on two counts. PostgreSQL keeps the rows of the
 //! organizations apart with row-level security, which SQLite does not have: there the
 //! tables whose statements do not name the organization get the column `org_id`, with
 //! the organization of the transaction as its default, and every table of an
 //! organization gets its policy; SQLite holds one organization and gets neither. And
 //! SQLite adds no column that both takes no NULL and refers to another table, so where
 //! PostgreSQL alters `teams`, SQLite makes the table again; and SQLite alone has the
-//! triggers that hold it to one organization.
+//! triggers that hold it to one organization. The migration after it, of the keys that
+//! name the organization, is PostgreSQL's alone: SQLite's file says why it is empty.
 
 use sqlx::SqlSafeStr as _;
 use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
@@ -34,7 +35,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 14] = [
+const STEPS: [Step; 15] = [
     Step {
         version: 1,
         description: "baseline",
@@ -118,6 +119,12 @@ const STEPS: [Step; 14] = [
         description: "organizations",
         sqlite: include_str!("../schema/sqlite/0014_organizations.sql"),
         postgres: include_str!("../schema/postgres/0014_organizations.sql"),
+    },
+    Step {
+        version: 15,
+        description: "organization keys",
+        sqlite: include_str!("../schema/sqlite/0015_organization_keys.sql"),
+        postgres: include_str!("../schema/postgres/0015_organization_keys.sql"),
     },
 ];
 

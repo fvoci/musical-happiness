@@ -331,6 +331,22 @@ impl<'c> Scope<'c> {
         matches!(self.tenant, Tenant::Org(_))
     }
 
+    /// The conditions that hold each row of `pairs` to the organization of the row
+    /// paired with it: `" AND a.org_id = b.org_id"` for each pair `(a, b)` of table
+    /// names or aliases, where rows carry their organization (PostgreSQL), and nothing
+    /// on SQLite. For the statements that reach across every organization and match rows
+    /// by an identifier that the keys of the schema do not hold to one organization, or
+    /// that do not take the keys on trust.
+    pub(crate) fn same_organization(&self, pairs: &[(&str, &str)]) -> String {
+        if self.dialect() == Dialect::Sqlite {
+            return String::new();
+        }
+        pairs
+            .iter()
+            .map(|(row, parent)| [" AND ", row, ".org_id = ", parent, ".org_id"].concat())
+            .collect()
+    }
+
     /// How many earlier versions of a comment are kept, at least one.
     pub(crate) fn comment_versions_kept(&self) -> usize {
         self.comment_versions_kept

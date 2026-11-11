@@ -103,7 +103,8 @@ impl Store {
     ///
     /// Returns [`StoreError::InvalidId`] if the user or the board is named by text that
     /// is no identifier, and [`StoreError::Database`] if the statement fails, also for a
-    /// user or a board that does not exist.
+    /// user that does not exist and, on PostgreSQL, for a board or a team that is not
+    /// one of the organization's.
     pub async fn create_upload(&self, upload: &Upload) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
             // An upload goes to a board or a team, which `board_id` names.

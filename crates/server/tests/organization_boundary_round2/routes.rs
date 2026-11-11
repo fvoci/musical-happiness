@@ -1,0 +1,641 @@
+//! Inventory of every legacy team route, including body and query targets.
+
+use std::collections::BTreeSet;
+use std::io::{Cursor, Read as _};
+
+use fvoci_model::{
+    Block, BlockType, Board, BoardMember, BoardType, CategoryBoards, Team, WorkspaceRole, new_id,
+};
+use fvoci_store::DbType;
+use reqwest::StatusCode;
+use serde_json::{Value, json};
+
+use super::common::{Client, HIDDEN_TEAM_ID, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, UNKNOWN_ID};
+use super::{answer, db_type_of_the_tests};
+
+// Method, path suffix, operation ID: also compared against the published contract.
+const TEAM_ROUTES: &[(&str, &str, &str)] = &[
+    ("GET", "", "getTeam"),
+    ("GET", "/archive/export", "exportTeamArchive"),
+    ("POST", "/archive/import", "importArchive"),
+    ("POST", "/archive/uploads", "createImportUpload"),
+    ("GET", "/boards", "getBoards"),
+    ("GET", "/boards/search?q=secret", "searchTeamBoards"),
+    ("GET", "/categories", "getCategories"),
+    ("POST", "/categories", "createCategory"),
+    ("DELETE", "/categories/{category}", "deleteCategory"),
+    ("PUT", "/categories/{category}", "updateCategory"),
+    (
+        "PUT",
+        "/categories/{category}/board-order",
+        "reorderCategoryBoards",
+    ),
+    (
+        "POST",
+        "/categories/{category}/boards/{board}",
+        "setBoardCategory",
+    ),
+    (
+        "PUT",
+        "/categories/{category}/boards/{board}/hide",
+        "hideBoard",
+    ),
+    (
+        "PUT",
+        "/categories/{category}/boards/{board}/unhide",
+        "unhideBoard",
+    ),
+    ("PUT", "/category-order", "reorderCategories"),
+    ("POST", "/onboard", "onboard"),
+    ("POST", "/signup-token", "regenerateSignupToken"),
+    ("GET", "/templates", "getTemplates"),
+    ("GET", "/trash/boards", "getDeletedBoards"),
+    ("GET", "/users", "getTeamUsers"),
+    ("POST", "/users", "getTeamUsersById"),
+];
+
+#[test]
+fn the_team_route_inventory_covers_every_operation_in_the_contract() {
+    let contract: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/openapi.json"
+    )))
+    .expect("the contract is JSON");
+    let operations: BTreeSet<&str> = contract["paths"]
+        .as_object()
+        .expect("paths")
+        .iter()
+        .filter(|(path, _)| path.starts_with("/api/v1/teams/{teamId}"))
+        .flat_map(|(_, methods)| methods.as_object().expect("operations").values())
+        .filter_map(|operation| operation["operationId"].as_str())
+        .collect();
+    assert_eq!(
+        operations,
+        TEAM_ROUTES
+            .iter()
+            .map(|(_, _, operation)| *operation)
+            .collect(),
+        "every team route is exercised, not only its read routes"
+    );
+}
+
+fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).expect("an export is a ZIP");
+    let mut entries = Vec::new();
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index).expect("an entry");
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).expect("the entry contents");
+        if entry.name().expect("an entry name") == "version.json" {
+            let mut header: Value = serde_json::from_slice(&bytes).expect("the archive header");
+            assert!(header["date"].is_number(), "an export timestamp is present");
+            header["date"] = json!(0);
+            bytes = serde_json::to_vec(&header).expect("the normalized header");
+        }
+        entries.push((
+            entry.name().expect("a UTF-8 entry name").into_owned(),
+            bytes,
+        ));
+    }
+    entries.sort();
+    entries
+}
+
+async fn compare_team_routes(client: &Client, user_id: &str) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (method, suffix, operation) in TEAM_ROUTES {
+        let suffix = suffix
+            .replace("{category}", UNKNOWN_ID)
+            .replace("{board}", UNKNOWN_ID);
+        let body = |team: &str| match *operation {
+            "createCategory" => json!({"name": "mine", "userId": user_id, "teamId": team}),
+            "reorderCategories" | "reorderCategoryBoards" | "getTeamUsersById" => json!([]),
+            "importArchive" => json!({"uploadId": "missing-upload"}),
+            "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
+            _ => json!({}),
+        };
+        let send = async |team: &str| {
+            Client::send(
+                client
+                    .request(
+                        method.parse().expect("an HTTP method"),
+                        &format!("/teams/{team}{suffix}"),
+                    )
+                    .json(&body(team)),
+            )
+            .await
+        };
+        let hidden = send(HIDDEN_TEAM_ID).await;
+        let absent = send(UNKNOWN_ID).await;
+        let equal = if *operation == "exportTeamArchive" {
+            hidden.status == absent.status
+                && hidden.status == StatusCode::OK
+                && archive_entries(&hidden.body) == archive_entries(&absent.body)
+        } else {
+            answer(&hidden) == answer(&absent) && hidden.status == StatusCode::NOT_FOUND
+        };
+        if !equal {
+            violations.push(format!(
+                "{method} {suffix} ({operation}): hidden={:?}, absent={:?}",
+                answer(&hidden),
+                answer(&absent)
+            ));
+        }
+    }
+    // Team IDs supplied in a JSON body, rather than in the path.
+    for bulk in [false, true] {
+        let send = async |team: &str| {
+            let board = json!({"id": "board-ref", "teamId": team, "type": "P", "title": "new"});
+            let (path, body) = if bulk {
+                (
+                    "/boards-and-blocks",
+                    json!({"boards": [board], "blocks": [{"id": "card-ref", "boardId": "board-ref", "type": "card", "createAt": 1, "updateAt": 1}]}),
+                )
+            } else {
+                ("/boards", board)
+            };
+            client.post(path, &body).await
+        };
+        let hidden = send(HIDDEN_TEAM_ID).await;
+        let absent = send(UNKNOWN_ID).await;
+        if hidden.status != StatusCode::BAD_REQUEST || answer(&hidden) != answer(&absent) {
+            violations.push(format!(
+                "team in body (bulk={bulk}): {:?} versus {:?}",
+                answer(&hidden),
+                answer(&absent)
+            ));
+        }
+    }
+    let listed: Vec<Team> = client.get("/teams").await.ok_json();
+    if listed.iter().any(|team| team.id == HIDDEN_TEAM_ID) {
+        violations.push("GET /teams disclosed the hidden workspace".to_owned());
+    }
+    violations
+}
+
+#[tokio::test]
+async fn every_team_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let guest = ts.add_user("workspace-guest").await;
+    let guest_id = guest.me().await.id;
+    ts.app
+        .store()
+        .add_workspace_member(HIDDEN_TEAM_ID, &guest_id, WorkspaceRole::Guest)
+        .await
+        .expect("a workspace guest");
+    let mut violations = compare_team_routes(&ts.client, &ts.client.me().await.id).await;
+    violations.extend(compare_team_routes(&guest, &guest_id).await);
+    if db_type_of_the_tests() == DbType::Postgres {
+        let user_id = ts.client2.me().await.id;
+        for table in ["workspace_members", "organization_members"] {
+            ts.app
+                .store()
+                .execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{user_id}'"))
+                .await
+                .expect("the other user leaves the first org");
+        }
+        let workspace = Team {
+            id: new_id(),
+            ..Team::default()
+        };
+        let org = ts
+            .app
+            .store()
+            .create_organization("Other", &workspace)
+            .await
+            .expect("another organization");
+        ts.app
+            .store()
+            .for_org(&org)
+            .expect("an org ID")
+            .add_workspace_member(&workspace.id, &user_id, WorkspaceRole::Member)
+            .await
+            .expect("the user works elsewhere");
+        violations.extend(compare_team_routes(&ts.client2, &user_id).await);
+    }
+    ts.teardown().await;
+    assert!(
+        violations.is_empty(),
+        "legacy route refusals differ from absent workspaces:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[tokio::test]
+#[ignore = "o1-follow 3: the category routes do not compare the workspaces yet"]
+async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let categories: Vec<CategoryBoards> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await
+        .ok_json();
+    let category = &categories[0].category;
+    let hidden = ts
+        .client
+        .post(
+            &format!(
+                "/teams/{ROOT_TEAM_ID}/categories/{}/boards/{}",
+                category.id, board.id
+            ),
+            &json!({}),
+        )
+        .await;
+    let absent = ts
+        .client
+        .post(
+            &format!(
+                "/teams/{ROOT_TEAM_ID}/categories/{}/boards/{UNKNOWN_ID}",
+                category.id
+            ),
+            &json!({}),
+        )
+        .await;
+    let after: Vec<CategoryBoards> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await
+        .ok_json();
+    let filed = after
+        .iter()
+        .flat_map(|entry| &entry.board_metadata)
+        .any(|metadata| metadata.board_id == board.id);
+    ts.teardown().await;
+    assert_eq!(
+        (answer(&hidden), filed),
+        (answer(&absent), false),
+        "a board of another workspace must not be filed through this workspace's path"
+    );
+}
+
+/// The ID-only inventory comes from the contract, so adding a resource operation
+/// automatically includes it in the comparisons. The team inventory above spells out
+/// the complete team list separately, and body/query targets are checked below.
+async fn compare_resource_routes(
+    client: &Client,
+    board: &Board,
+    card: &Block,
+    file: &str,
+    owner: &str,
+    upload_id: &str,
+) -> Vec<String> {
+    let caller = client.me().await.id;
+    let contract: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/openapi.json"
+    )))
+    .expect("the contract");
+    let mut violations = Vec::new();
+    for (template, methods) in contract["paths"].as_object().expect("paths") {
+        if !(template.starts_with("/api/v1/boards/{boardId}")
+            || template.starts_with("/api/v1/cards/{cardId}")
+            || template.starts_with("/api/v1/uploads/{uploadId}")
+            || template.starts_with("/api/v1/subscriptions"))
+        {
+            continue;
+        }
+        for (method, operation) in methods.as_object().expect("operations") {
+            let Some(operation) = operation["operationId"].as_str() else {
+                continue;
+            };
+            let path = |absent: bool| {
+                template
+                    .trim_start_matches("/api/v1")
+                    .replace("{boardId}", if absent { UNKNOWN_ID } else { &board.id })
+                    .replace("{cardId}", if absent { UNKNOWN_ID } else { &card.id })
+                    .replace("{blockId}", if absent { UNKNOWN_ID } else { &card.id })
+                    .replace("{fileId}", if absent { "missing-file" } else { file })
+                    .replace(
+                        "{uploadId}",
+                        if absent { "missing-upload" } else { upload_id },
+                    )
+                    .replace("{userId}", if absent { UNKNOWN_ID } else { owner })
+                    .replace("{subscriberId}", if absent { UNKNOWN_ID } else { owner })
+                    .replace("{partNumber}", "1")
+            };
+            let body = |absent: bool| match operation {
+                "patchBlocks" => {
+                    json!({"blockIds": [if absent {UNKNOWN_ID} else {&card.id}], "blockPatches": [{"title": "changed"}]})
+                }
+                "reorderCardProperties" | "createBlocks" => json!([]),
+                "createCard" => json!({"title": "new card"}),
+                "patchCard" | "patchBoard" | "patchBlock" => json!({"title": "changed"}),
+                "createUpload" => json!({"name": "new.bin", "size": 0}),
+                "addMember" => json!({"userId": owner, "schemeViewer": true}),
+                "setSharing" => json!({"enabled": true}),
+                "createSubscription" => {
+                    json!({"blockId": if absent {UNKNOWN_ID} else {&card.id}, "blockType": "card", "subscriberType": "user", "subscriberId": caller})
+                }
+                _ => json!({}),
+            };
+            let hidden_body = body(false);
+            let missing_body = body(true);
+            let hidden = Client::send(
+                client
+                    .request(method.parse().expect("method"), &path(false))
+                    .json(&hidden_body),
+            )
+            .await;
+            let absent = Client::send(
+                client
+                    .request(method.parse().expect("method"), &path(true))
+                    .json(&missing_body),
+            )
+            .await;
+            if hidden.status.is_success() || answer(&hidden) != answer(&absent) {
+                violations.push(format!(
+                    "{operation} ({method} {template}): hidden={:?}, absent={:?}",
+                    answer(&hidden),
+                    answer(&absent)
+                ));
+            }
+        }
+    }
+    violations
+}
+
+#[tokio::test]
+async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let owner = ts.stranger().await;
+    ts.app
+        .store()
+        .add_workspace_member(HIDDEN_TEAM_ID, &owner, WorkspaceRole::Member)
+        .await
+        .expect("the resource owner works in the hidden workspace");
+    let mut board = Board {
+        id: new_id(),
+        team_id: HIDDEN_TEAM_ID.to_owned(),
+        board_type: BoardType::Open,
+        title: "Hidden board".to_owned(),
+        ..Board::default()
+    };
+    ts.app
+        .store()
+        .insert_board_with_admin(&mut board, &owner)
+        .await
+        .expect("a hidden workspace's board");
+    let mut card = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        title: "Hidden card".to_owned(),
+        ..Block::default()
+    };
+    ts.app
+        .store()
+        .insert_block(&mut card, &owner)
+        .await
+        .expect("its card");
+    let mut data = &b"hidden workspace file"[..];
+    let file = ts
+        .app
+        .save_file(&mut data, &board.id, "hidden.txt")
+        .await
+        .expect("its file");
+    let upload = ts
+        .app
+        .create_upload(
+            &owner,
+            &board.id,
+            fvoci_server::app::FileToUpload {
+                name: "hidden-upload.txt".to_owned(),
+                size: 0,
+                content_type: String::new(),
+            },
+        )
+        .await
+        .expect("a real upload owned by the hidden workspace's member");
+    let guest = ts.add_user("id-inventory-guest").await;
+    let guest_id = guest.me().await.id;
+    ts.app
+        .store()
+        .add_workspace_member(HIDDEN_TEAM_ID, &guest_id, WorkspaceRole::Guest)
+        .await
+        .expect("a guest who has no board invitation");
+    let mut violations =
+        compare_resource_routes(&ts.client, &board, &card, &file, &owner, &upload.id).await;
+    violations
+        .extend(compare_resource_routes(&guest, &board, &card, &file, &owner, &upload.id).await);
+    // A role in another organization must not change the answer of any ID route.
+    if db_type_of_the_tests() == DbType::Postgres {
+        let user = ts.client2.me().await.id;
+        for table in ["workspace_members", "organization_members"] {
+            ts.app
+                .store()
+                .execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{user}'"))
+                .await
+                .expect("remove first-org admission");
+        }
+        let workspace = Team {
+            id: new_id(),
+            ..Team::default()
+        };
+        let org = ts
+            .app
+            .store()
+            .create_organization("ID inventory", &workspace)
+            .await
+            .expect("another organization");
+        ts.app
+            .store()
+            .for_org(&org)
+            .expect("org ID")
+            .add_workspace_member(&workspace.id, &user, WorkspaceRole::Member)
+            .await
+            .expect("admission elsewhere");
+        violations.extend(
+            compare_resource_routes(&ts.client2, &board, &card, &file, &owner, &upload.id).await,
+        );
+    }
+    ts.teardown().await;
+    assert!(
+        violations.is_empty(),
+        "ID-only route differences:\n{}",
+        violations.join("\n")
+    );
+}
+
+async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
+    for (path, absent) in [
+        (
+            format!("/boards/{}/duplicate?toTeam={HIDDEN_TEAM_ID}", own.id),
+            format!("/boards/{}/duplicate?toTeam={UNKNOWN_ID}", own.id),
+        ),
+        (
+            format!("/boards/{}/blocks?sourceBoardId={}", own.id, hidden.id),
+            format!("/boards/{}/blocks?sourceBoardId={UNKNOWN_ID}", own.id),
+        ),
+    ] {
+        let body = if path.contains("/blocks?") {
+            json!([])
+        } else {
+            json!({})
+        };
+        let hidden = client.post(&path, &body).await;
+        let missing = client.post(&absent, &body).await;
+        assert_eq!(answer(&hidden), answer(&missing), "query target in {path}");
+        hidden.check_not_found();
+    }
+    for method in [reqwest::Method::PATCH, reqwest::Method::DELETE] {
+        let body = |board: &str| {
+            if method == reqwest::Method::PATCH {
+                json!({"boardIds": [board], "boardPatches": [{"title": "changed"}], "blockIds": [], "blockPatches": []})
+            } else {
+                json!({"boards": [board], "blocks": []})
+            }
+        };
+        let concealed = Client::send(
+            client
+                .request(method.clone(), "/boards-and-blocks")
+                .json(&body(&hidden.id)),
+        )
+        .await;
+        let missing = Client::send(
+            client
+                .request(method.clone(), "/boards-and-blocks")
+                .json(&body(UNKNOWN_ID)),
+        )
+        .await;
+        assert_eq!(
+            answer(&concealed),
+            answer(&missing),
+            "{method} bulk board identifiers"
+        );
+        concealed.check_not_found();
+    }
+    let found: Vec<Board> = client
+        .get("/boards/search?q=Hidden%20query")
+        .await
+        .ok_json();
+    assert!(
+        found.is_empty(),
+        "global board search does not find hidden open boards"
+    );
+}
+
+#[tokio::test]
+async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let own = ts.create_board(ROOT_TEAM_ID, BoardType::Private).await;
+    let owner = ts.stranger().await;
+    let mut hidden = Board {
+        id: new_id(),
+        team_id: HIDDEN_TEAM_ID.to_owned(),
+        board_type: BoardType::Open,
+        title: "Hidden query board".to_owned(),
+        ..Board::default()
+    };
+    ts.app
+        .store()
+        .insert_board_with_admin(&mut hidden, &owner)
+        .await
+        .expect("the hidden board");
+    let guest = ts.add_user("query-guest").await;
+    ts.app
+        .store()
+        .add_workspace_member(HIDDEN_TEAM_ID, &guest.me().await.id, WorkspaceRole::Guest)
+        .await
+        .expect("a guest actor");
+    let mut actors = vec![ts.client.clone(), guest];
+    if db_type_of_the_tests() == DbType::Postgres {
+        let user = ts.client2.me().await.id;
+        for table in ["workspace_members", "organization_members"] {
+            ts.app
+                .store()
+                .execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{user}'"))
+                .await
+                .expect("the actor leaves A");
+        }
+        let workspace = Team {
+            id: new_id(),
+            ..Team::default()
+        };
+        let org = ts
+            .app
+            .store()
+            .create_organization("Query actor B", &workspace)
+            .await
+            .expect("B exists");
+        let b = ts.app.store().for_org(&org).expect("B's scope");
+        b.add_organization_member(&user, fvoci_model::OrgRole::Member)
+            .await
+            .expect("the actor belongs to B");
+        b.add_workspace_member(&workspace.id, &user, WorkspaceRole::Member)
+            .await
+            .expect("the actor works in B");
+        actors.push(ts.client2.clone());
+    }
+    for actor in actors {
+        compare_query_targets(&actor, &own, &hidden).await;
+    }
+    ts.teardown().await;
+}
+
+#[tokio::test]
+async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_rights() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let user = ts.client2.me().await.id;
+    ts.app
+        .store()
+        .add_workspace_member(HIDDEN_TEAM_ID, &user, WorkspaceRole::Guest)
+        .await
+        .expect("workspace guest");
+    let mut board = Board {
+        id: new_id(),
+        team_id: HIDDEN_TEAM_ID.to_owned(),
+        board_type: BoardType::Open,
+        ..Board::default()
+    };
+    ts.app
+        .store()
+        .insert_board_with_admin(&mut board, &ts.stranger().await)
+        .await
+        .expect("a hidden board");
+    ts.client2
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .check_not_found();
+    ts.app
+        .store()
+        .save_member(&BoardMember {
+            board_id: board.id.clone(),
+            user_id: user,
+            scheme_viewer: true,
+            ..BoardMember::default()
+        })
+        .await
+        .expect("a viewer invitation");
+    for suffix in ["", "/blocks", "/cards", "/members"] {
+        ts.client2
+            .get(&format!("/boards/{}{suffix}", board.id))
+            .await
+            .check_ok();
+    }
+    let boards: Vec<Board> = ts
+        .client2
+        .get(&format!("/w/{HIDDEN_TEAM_ID}/boards"))
+        .await
+        .ok_json();
+    assert_eq!(
+        boards
+            .iter()
+            .map(|board| board.id.as_str())
+            .collect::<Vec<_>>(),
+        [board.id.as_str()],
+        "the workspace list contains the invitation only"
+    );
+    ts.client2
+        .patch(
+            &format!("/boards/{}", board.id),
+            &json!({"title": "not permitted"}),
+        )
+        .await
+        .check_forbidden();
+    ts.client2
+        .post(&format!("/boards/{}/join", board.id), &json!({}))
+        .await
+        .check_not_found();
+    ts.teardown().await;
+}

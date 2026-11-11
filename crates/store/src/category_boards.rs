@@ -1,7 +1,8 @@
 //! The boards in each sidebar category.
 //!
-//! A user has at most one row per board: the category the board is in, its place among
-//! the boards of that category, and whether the user has hidden it. The rows refer to
+//! A user has at most one row per board in each organization: the category the board
+//! is in, its place among the boards of that category, and whether the user has hidden
+//! it. The rows refer to
 //! boards by identifier only; nothing here reads the boards themselves.
 
 use std::collections::HashSet;
@@ -13,7 +14,7 @@ use fvoci_model::{
 
 use crate::Store;
 use crate::categories::get_user_categories;
-use crate::db::{Id, Scope, now_millis};
+use crate::db::{Dialect, Id, Scope, now_millis};
 use crate::error::StoreError;
 
 /// Whether a board shows in its user's sidebar.
@@ -131,6 +132,16 @@ impl Store {
     }
 }
 
+/// The key by which a user files a board once: in each organization where rows carry
+/// theirs (PostgreSQL), as a built-in template, the system organization's, is filed in
+/// each organization the user works in.
+fn filed_once(scope: &Scope<'_>) -> &'static str {
+    match scope.dialect() {
+        Dialect::Sqlite => "(user_id, board_id)",
+        Dialect::Postgres => "(user_id, board_id, org_id)",
+    }
+}
+
 pub(crate) async fn get_user_category_boards(
     scope: &mut Scope<'_>,
     user_id: &str,
@@ -209,10 +220,9 @@ pub(crate) async fn add_update_category_board(
     }
     // Preserved quirk: a board that changes category keeps the sort order it had in the
     // old one, and its hidden flag (server/services/store/sqlstore/category_boards.go:105).
-    sql.push(
-        " ON CONFLICT (user_id, board_id) DO UPDATE SET category_id = EXCLUDED.category_id, \
-         update_at = EXCLUDED.update_at",
-    );
+    sql.push(" ON CONFLICT ")
+        .push(filed_once(scope))
+        .push(" DO UPDATE SET category_id = EXCLUDED.category_id, update_at = EXCLUDED.update_at");
     scope
         .execute(sql)
         .await
@@ -318,7 +328,9 @@ pub(crate) async fn put_back(
         .push_bind(", ", now)
         .push_bind(", ", sort_order)
         .push_bind(", ", place.hidden)
-        .push(") ON CONFLICT (user_id, board_id) DO NOTHING");
+        .push(") ON CONFLICT ")
+        .push(filed_once(scope))
+        .push(" DO NOTHING");
     scope.execute(sql).await?;
     Ok(())
 }

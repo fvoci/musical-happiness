@@ -82,30 +82,40 @@ pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), 
 }
 
 /// Forgets what the blocks that are gone for good showed: neither on a board nor in the
-/// trash.
+/// trash of the organization of the row.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let sql = scope.sql(
-        "DELETE FROM file_refs WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = file_refs.block_id) \
-         AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id)",
-    );
+    let statement = [
+        "DELETE FROM file_refs WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = file_refs.block_id",
+        &scope.same_organization(&[("b", "file_refs")]),
+        ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id",
+        &scope.same_organization(&[("d", "file_refs")]),
+        ")",
+    ]
+    .concat();
+    let sql = scope.sql(&statement);
     scope.execute(sql).await?;
     Ok(())
 }
 
-/// Marks file records: one that a block shows has no mark, and one that no block shows
-/// gets the time of now if it had none. Only the records whose state flips are written.
-/// `only` narrows it to some stored names of one board; `None` looks at every record.
+/// Marks file records: one that a block of its organization shows has no mark, and one
+/// that no such block shows gets the time of now if it had none. Only the records whose
+/// state flips are written. `only` narrows it to some stored names of one board; `None`
+/// looks at every record.
 pub(crate) async fn mark(
     scope: &mut Scope<'_>,
     only: Option<(&str, &[String])>,
 ) -> Result<(), StoreError> {
-    let mut sql =
-        scope.sql("UPDATE file_info SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
-    sql.bind(now_millis()).push(
+    let shown = [
         " ELSE NULL END WHERE (unreferenced_at IS NULL) = (NOT EXISTS (\
          SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
-         AND r.name = file_info.name))",
-    );
+         AND r.name = file_info.name",
+        &scope.same_organization(&[("r", "file_info")]),
+        "))",
+    ]
+    .concat();
+    let mut sql =
+        scope.sql("UPDATE file_info SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
+    sql.bind(now_millis()).push(&shown);
     if let Some((board_id, names)) = only {
         sql.push_bind(" AND board_id = ", Id(board_id));
         for (index, name) in names.iter().enumerate() {

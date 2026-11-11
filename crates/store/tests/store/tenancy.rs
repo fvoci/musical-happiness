@@ -1361,12 +1361,14 @@ async fn a_database_from_before_organizations_becomes_one_organization() {
     database.remove().await;
 }
 
-/// An upload session of `size` bytes that the user opens through `store`.
-async fn open_upload(store: &Store, user_id: &str, size: i64) {
+/// An upload session of `size` bytes that the user opens through `store`: an archive to
+/// import into a workspace of the store's organization, which is what an upload names.
+async fn open_upload(store: &Store, workspace_id: &str, user_id: &str, size: i64) {
     let upload = Upload {
         id: new_id(),
         user_id: user_id.to_owned(),
-        board_id: new_id(),
+        purpose: fvoci_model::UploadPurpose::Import,
+        team_id: workspace_id.to_owned(),
         name: "upload.bin".to_owned(),
         size,
         part_size: size,
@@ -1388,14 +1390,15 @@ async fn the_open_uploads_are_counted_over_every_organization() {
     let test = common::setup().await;
     let user_id = common::user(&test, "uploader").await;
     let other_user = common::user(&test, "another.uploader").await;
-    open_upload(&test, &user_id, 10).await;
-    open_upload(&test, &other_user, 100).await;
+    open_upload(&test, &test.workspace_id, &user_id, 10).await;
+    open_upload(&test, &test.workspace_id, &other_user, 100).await;
     let mut handles = vec![test.store.clone(), test.scoped(Tenant::Unset)];
     let mut expected = (1, 10, 110);
     if common::db_type() == DbType::Postgres {
-        let (other_org, _) = common::organization(&test.scoped(Tenant::Unset), "the other").await;
+        let (other_org, their_workspace) =
+            common::organization(&test.scoped(Tenant::Unset), "the other").await;
         let theirs = test.for_org(&other_org).expect("an identifier");
-        open_upload(&theirs, &user_id, 1000).await;
+        open_upload(&theirs, &their_workspace, &user_id, 1000).await;
         handles.push(theirs);
         expected = (2, 1010, 1110);
     }
@@ -1685,7 +1688,8 @@ async fn foreign_keys(conn: &mut sqlx::PgConnection) -> Vec<(String, String, Vec
 /// other fails this test.
 #[tokio::test]
 async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
-    // A category takes a built-in template, which is the system organization's.
+    // A category takes a built-in template, which is the system organization's: a
+    // trigger checks the board when the row is stored (organization_boundary_round2.rs).
     const NOT_HELD: [(&str, &str); 1] = [("category_boards", "board_id")];
     if common::db_type() != DbType::Postgres {
         return;
