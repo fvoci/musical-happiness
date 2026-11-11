@@ -315,11 +315,19 @@ impl Store {
                 records += scope.execute(sql).await?;
             }
             // A block that was deleted on its own while its board existed has nothing to
-            // come back to once the board is neither there nor in the trash.
-            let sql = scope.sql(
-                "DELETE FROM deleted_blocks WHERE board_id NOT IN (SELECT id FROM boards) \
-                 AND board_id NOT IN (SELECT id FROM deleted_boards)",
-            );
+            // come back to once the board is neither there nor in the trash of the
+            // block's organization.
+            let orphans = [
+                "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM boards b \
+                 WHERE b.id = deleted_blocks.board_id",
+                &scope.same_organization(&[("b", "deleted_blocks")]),
+                ") AND NOT EXISTS (SELECT 1 FROM deleted_boards d \
+                 WHERE d.id = deleted_blocks.board_id",
+                &scope.same_organization(&[("d", "deleted_blocks")]),
+                ")",
+            ]
+            .concat();
+            let sql = scope.sql(&orphans);
             records += scope.execute(sql).await?;
             // What the blocks gone for good showed is shown no more, and the texts
             // the comments among them had go with them.

@@ -12,6 +12,16 @@
 -- would be checked against no row.
 SELECT set_config('fvoci.system', 'on', true);
 
+-- The housekeeping matches the versions of a comment to the comment's block in its own
+-- organization from now on. 0014 gave a version the organization of its block, and one
+-- of a comment in the trash the one organization; but a block in the trash has its
+-- board's organization, which for a comment on a built-in template is the system's.
+-- Such versions take the organization of their block in the trash.
+UPDATE comment_versions AS v SET org_id = d.org_id
+FROM deleted_blocks AS d
+WHERE d.id = v.block_id AND v.org_id <> d.org_id
+  AND NOT EXISTS (SELECT 1 FROM blocks AS b WHERE b.id = v.block_id);
+
 -- The versions of a comment and the files a block shows outlive the block for as long
 -- as it is in the trash, and go with it when it goes for good.
 ALTER TABLE comment_versions DROP CONSTRAINT comment_versions_pkey,
@@ -32,9 +42,13 @@ ALTER TABLE category_boards DROP CONSTRAINT category_boards_user_id_board_id_key
 -- Left without a key to what they name, and why:
 --
 -- * deleted_blocks.board_id, deleted_boards.team_id: the board of a block in the trash
---   may be in the trash too. Nothing in the trash is read but through the board or the
+--   may be in the trash too. For a request the trash is read through the board or the
 --   workspace it names, whose rows the wall keeps to their organization, and what comes
---   back from it comes back through the keys of `blocks` and `boards`.
+--   back from it comes back through the keys of `blocks` and `boards`. The purge, which
+--   reaches every organization, matches a block to the boards of its own organization.
+--   It also hands over the files listed in `deleted_boards.files` (JSON, which no key
+--   holds) to be removed: that their paths are their board's own is the purge's to
+--   check, not the schema's.
 -- * file_refs.board_id, comment_versions.block_id: they name what may be in the trash.
 --   The housekeeping, which reads every organization, matches them to the file records
 --   and the blocks of their own organization only.
@@ -51,6 +65,10 @@ ALTER TABLE category_boards DROP CONSTRAINT category_boards_user_id_board_id_key
 CREATE FUNCTION uploads_target_of_its_organization() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- A row of no organization is refused by its column, which takes no NULL.
+    IF NEW.org_id IS NULL THEN
+        RETURN NEW;
+    END IF;
     IF NEW.purpose = 'import' THEN
         IF NOT EXISTS (SELECT 1 FROM teams WHERE id = NEW.board_id AND org_id = NEW.org_id) THEN
             RAISE foreign_key_violation USING
@@ -70,6 +88,10 @@ CREATE TRIGGER uploads_target_of_its_organization
 CREATE FUNCTION category_boards_board_of_its_organization() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- A row of no organization is refused by its column, which takes no NULL.
+    IF NEW.org_id IS NULL THEN
+        RETURN NEW;
+    END IF;
     IF NOT EXISTS (
         SELECT 1 FROM boards WHERE id = NEW.board_id
         AND org_id IN (NEW.org_id, '00000000-0000-7000-8000-00000000a000')

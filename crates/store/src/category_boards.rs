@@ -2,8 +2,8 @@
 //!
 //! A user has at most one row per board in each organization: the category the board
 //! is in, its place among the boards of that category, and whether the user has hidden
-//! it. The rows refer to
-//! boards by identifier only; nothing here reads the boards themselves.
+//! it. The rows refer to boards by identifier only; nothing here reads the boards
+//! themselves.
 
 use std::collections::HashSet;
 

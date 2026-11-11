@@ -118,6 +118,11 @@ async fn one_orgs_history_row_cannot_prevent_another_orgs_comment_edit() {
         )
         .await;
     test.teardown().await;
+    assert_eq!(
+        inserted.as_ref().ok(),
+        Some(&1),
+        "A stores its own row under B's comment"
+    );
     assert!(
         edited.is_ok(),
         "A's own history row prevented B from editing its comment: insert={inserted:?}, edit={edited:?}"
@@ -154,6 +159,11 @@ async fn one_orgs_file_reference_cannot_prevent_another_orgs_attachment_edit() {
         )
         .await;
     test.teardown().await;
+    assert_eq!(
+        inserted.as_ref().ok(),
+        Some(&1),
+        "A stores its own row under B's attachment"
+    );
     assert!(
         edited.is_ok(),
         "A's own reference row prevented B from updating its attachment: insert={inserted:?}, edit={edited:?}"
@@ -325,6 +335,65 @@ async fn one_orgs_file_reference_keeps_no_file_of_another_alive() {
     assert!(
         collected.iter().any(|collected| collected.id == file.id),
         "A's reference kept B's file shown: {collected:?}"
+    );
+}
+
+/// The purge, which reaches every organization, forgets what blocks gone for good
+/// showed and the versions they had: a reference and a version of A's under the
+/// identifier of B's live block (A has no such block) are forgotten, and B's own are
+/// kept.
+#[tokio::test]
+async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let user_id = common::user(&test, "A-owner").await;
+    let ours = common::create_test_boards(&test, &test.workspace_id, &user_id, 1).await;
+    let b = other(&test).await;
+    let attachment = block(&b.store, &b.board_id, "", BlockType::Attachment, &b.user_id).await;
+    let forged = [
+        format!(
+            "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'A-file.txt')",
+            attachment.id, ours[0].id
+        ),
+        format!(
+            "INSERT INTO comment_versions (block_id, version, body, files, written_at) \
+             VALUES ('{}', 1, NULL, '[]', 0)",
+            attachment.id
+        ),
+    ];
+    for statement in &forged {
+        assert_eq!(
+            test.execute_unchecked(statement).await.ok(),
+            Some(1),
+            "A stores its own row: {statement}"
+        );
+    }
+    let b_reference = format!(
+        "INSERT INTO file_refs (block_id, board_id, name) VALUES ('{}', '{}', 'B-file.txt')",
+        attachment.id, b.board_id
+    );
+    assert_eq!(
+        b.store.execute_unchecked(&b_reference).await.ok(),
+        Some(1),
+        "B's own reference"
+    );
+
+    test.system()
+        .purge_trash(0)
+        .await
+        .expect("the trash is purged");
+    let left = [
+        test.count_rows("file_refs").await,
+        test.count_rows("comment_versions").await,
+        b.store.count_rows("file_refs").await,
+    ];
+    test.teardown().await;
+    assert_eq!(
+        left.map(Result::ok),
+        [Some(0), Some(0), Some(1)],
+        "A's reference and version, then B's reference"
     );
 }
 

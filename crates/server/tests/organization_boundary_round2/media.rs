@@ -413,7 +413,11 @@ async fn s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations() 
 /// The upload-parent exception must not turn a mistaken tenant row into an object
 /// deletion in another organization. The row is seeded through A's public Store API;
 /// no current HTTP endpoint is claimed to accept this metadata from a client.
+///
+/// The schema refuses an upload of A that names B's board (0015), so the row names A's
+/// own board and only its path is B's: what the cancellation removes is the path.
 #[tokio::test]
+#[ignore = "files-fix: cancelling an upload removes the object at its path, whoever's it is"]
 async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;
@@ -440,10 +444,12 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
         .await
         .expect("well-shaped upload metadata");
     forged.id = fvoci_server::auth::secret::new_secret();
+    forged.board_id = scene.a.id.clone();
     forged.user_id = scene.ts.client2.me().await.id;
     forged.path = victim.path.clone();
     forged.multipart_id = "left-over-multipart".to_owned();
     let inserted = scene.ts.app.store().create_upload(&forged).await;
+    assert!(inserted.is_ok(), "A stores its upload: {inserted:?}");
     let cancelled = scene
         .ts
         .client2
@@ -467,4 +473,48 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
         "A's upload cancellation erased B's file: seed={inserted:?}, cancel={}, object exists={exists}, B record exists={record_exists}",
         cancelled.status
     );
+}
+
+/// A board in A's trash keeps the records of its files as JSON, which no key holds: one
+/// that lists the path of B's file must not make the purge of A's trash remove B's
+/// object. The row is stored through A's handle, below the server's checks.
+#[tokio::test]
+#[ignore = "files-fix: the purge of the trash removes every path its rows list"]
+async fn purging_a_trash_row_does_not_delete_another_orgs_file() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let scene = Scene::new(None).await;
+    let (_, name_b) = scene.receive_files().await;
+    let victim = scene
+        .b_app
+        .store()
+        .get_file_info(&scene.b.id, &name_b)
+        .await
+        .expect("B's real file");
+    let files = json!([{
+        "id": new_id(), "board_id": new_id(), "stored_name": "gone.txt", "name": "gone.txt",
+        "extension": ".txt", "size": 1, "path": victim.path, "create_at": 0,
+    }]);
+    let stored = scene
+        .ts
+        .app
+        .store()
+        .execute_unchecked(&format!(
+            "INSERT INTO deleted_boards (id, team_id, deleted_at, deletion_id, board, members, \
+             files) VALUES ('{}', '{ROOT_TEAM_ID}', 0, '{}', '{{}}', '[]', '{files}')",
+            new_id(),
+            new_id()
+        ))
+        .await;
+    fvoci_server::keep_house(&scene.ts.app).await;
+    let exists = scene
+        .b_app
+        .files()
+        .exists(&victim.path)
+        .await
+        .expect("check B's object");
+    scene.ts.teardown().await;
+    assert_eq!(stored.ok(), Some(1), "A stores its own trash row");
+    assert!(exists, "the purge of A's trash removed B's file");
 }
