@@ -314,10 +314,17 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         .insert_blocks(&board.id, &[image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")])
         .await
         .check_created();
-    let mut older = [fvoci_model::Block {
-        block_type: fvoci_model::BlockType::Image,
-        ..image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")
-    }];
+    // The stored image block shares the file, and has one that only it shows.
+    let mut older = [
+        fvoci_model::Block {
+            block_type: fvoci_model::BlockType::Image,
+            ..image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")
+        },
+        fvoci_model::Block {
+            block_type: fvoci_model::BlockType::Image,
+            ..image("7bbbbbbbbbbbbbbbbbbbbbbbbbb.png")
+        },
+    ];
     ts.app
         .insert_blocks(
             &mut older,
@@ -331,11 +338,21 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
     export.check_ok();
     let archive = zip::ZipArchive::new(std::io::Cursor::new(export.body.clone()))
         .expect("the export is an archive");
-    let files = archive
+    let mut files: Vec<String> = archive
         .file_names()
-        .filter(|name| name.as_ref().is_ok_and(|name| name.ends_with(".png")))
-        .count();
-    assert_eq!(files, 1, "the shared file has one entry");
+        .filter_map(Result::ok)
+        .filter(|name| name.ends_with(".png"))
+        .map(|name| name.rsplit('/').next().unwrap_or_default().to_owned())
+        .collect();
+    files.sort();
+    assert_eq!(
+        files,
+        [
+            "7aaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+            "7bbbbbbbbbbbbbbbbbbbbbbbbbb.png"
+        ],
+        "the shared file has one entry, and the image block's own file one too"
+    );
     ts.teardown().await;
 }
 
@@ -553,13 +570,9 @@ async fn an_archive_reads_back_whatever_an_image_block_names() {
     ts.teardown().await;
 }
 
-/// An archive that holds a block of a type no new block has, as an export of a board
-/// that an older server stored can, is refused before anything of it is stored.
-#[tokio::test]
-async fn an_archive_with_a_block_of_another_type_stores_nothing() {
-    let ts = Setup::native().start().await.init_basic().await;
-    // Two boards, as a team's export has them: the first is fine, the second holds the
-    // block. Neither is stored.
+/// A team's archive of two boards: the first is fine, the second has a card and the
+/// given blocks below it.
+fn two_board_archive(second_blocks: &[serde_json::Value]) -> Vec<u8> {
     let board = |id: &str| {
         serde_json::json!({"type": "board", "data": {
             "id": id, "teamId": TEST_TEAM_ID, "type": "P", "title": id, "createAt": 1,
@@ -572,22 +585,16 @@ async fn an_archive_with_a_block_of_another_type_stores_nothing() {
             "updateAt": 1,
         }})
     };
-    let first = [board("b1"), card("c1", "b1")];
-    let second = [
-        board("b2"),
-        card("c2", "b2"),
-        serde_json::json!({"type": "block", "data": {
-            "id": "t2", "boardId": "b2", "parentId": "c2", "type": "text", "title": "text",
-            "createAt": 1, "updateAt": 1,
-        }}),
-    ];
+    let first = vec![board("b1"), card("c1", "b1")];
+    let mut second = vec![board("b2"), card("c2", "b2")];
+    second.extend(second_blocks.iter().cloned());
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
         .write_all(br#"{"version":3,"date":1}"#)
         .expect("write");
-    for (dir, lines) in [("b1", &first[..]), ("b2", &second[..])] {
+    for (dir, lines) in [("b1", &first), ("b2", &second)] {
         writer
             .start_file(format!("{dir}/board.jsonl"), options)
             .expect("start");
@@ -597,18 +604,40 @@ async fn an_archive_with_a_block_of_another_type_stores_nothing() {
                 .expect("write");
         }
     }
-    let bytes = writer.finish().expect("finish").into_inner();
+    writer.finish().expect("finish").into_inner()
+}
 
-    let before = boards_of(&ts).await.len();
-    let response = import(&ts.client, TEST_TEAM_ID, &bytes).await;
-    response.check_bad_request();
-    assert!(
-        response.value()["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("\"text\"")),
-        "the refusal names the type: {}",
-        response.text()
-    );
-    assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
+/// An archive whose second board the server refuses stores neither board: every board
+/// is read and checked before the first is stored. The second board holds a block of a
+/// type no new block has, as an export of a board that an older server stored can, or a
+/// card whose fields are over the limit of a card, as a card stored before the limit
+/// can be.
+#[tokio::test]
+async fn an_archive_with_a_refused_board_stores_nothing() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let older_type = serde_json::json!({"type": "block", "data": {
+        "id": "t2", "boardId": "b2", "parentId": "c2", "type": "text", "title": "text",
+        "createAt": 1, "updateAt": 1,
+    }});
+    let oversized = serde_json::json!({"type": "block", "data": {
+        "id": "c3", "boardId": "b2", "type": "card", "title": "big", "createAt": 1,
+        "updateAt": 1, "fields": {"note": "x".repeat(70_000)},
+    }});
+    for (block, says) in [
+        (older_type, "\"text\""),
+        (oversized, "block fields size limit exceeded"),
+    ] {
+        let before = boards_of(&ts).await.len();
+        let response = import(&ts.client, TEST_TEAM_ID, &two_board_archive(&[block])).await;
+        response.check_bad_request();
+        assert!(
+            response.value()["message"]
+                .as_str()
+                .is_some_and(|message| message.contains(says)),
+            "the refusal says {says}: {}",
+            response.text()
+        );
+        assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
+    }
     ts.teardown().await;
 }

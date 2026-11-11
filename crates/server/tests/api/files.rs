@@ -551,7 +551,7 @@ async fn duplicating_a_card_copies_its_files() {
     // An attachment, and an image block as an older server stored it.
     for block_type in [BlockType::Attachment, BlockType::Image] {
         let ts = Setup::native().start().await.init_basic().await;
-        let (board, _file_id) = board_with_file_block(&ts, block_type.clone()).await;
+        let (board, file_id) = board_with_file_block(&ts, block_type.clone()).await;
         let card_id = ts
             .client
             .get(&format!("/boards/{}/blocks", board.id))
@@ -579,6 +579,10 @@ async fn duplicating_a_card_copies_its_files() {
             .get("fileId")
             .and_then(Value::as_str)
             .expect("a copied file id");
+        assert_ne!(
+            new_file_id, file_id,
+            "a copy of the {block_type} block's file"
+        );
         let download = ts
             .client
             .get(&format!("/boards/{}/files/{new_file_id}", board.id))

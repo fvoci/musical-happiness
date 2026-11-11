@@ -293,9 +293,9 @@ impl Block {
     ///
     /// Returns a [`BlockError`] if the board identifier is empty, the title or the
     /// serialized fields exceed their size limits (the latter by type), or the fields
-    /// hold `properties` that
-    /// are not well-formed card property values. The last applies to blocks of every
-    /// type: `properties` among a block's fields always means card property values.
+    /// hold `properties` that are not well-formed card property values. The last applies
+    /// to blocks of every type: `properties` among a block's fields always means card
+    /// property values.
     pub fn validate(&self) -> Result<(), BlockError> {
         if self.board_id.is_empty() {
             return Err(BlockError::EmptyBoardId);

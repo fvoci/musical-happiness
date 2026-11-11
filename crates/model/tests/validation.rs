@@ -103,6 +103,13 @@ fn a_refused_type_is_shown_shortened() {
         panic!("a refusal of the type");
     };
     assert_eq!(shown, format!("{}…", "é".repeat(64)));
+    for (length, shown) in [(64, "a".repeat(64)), (65, format!("{}…", "a".repeat(64)))] {
+        assert_eq!(
+            BlockError::type_not_current(&BlockType::from("a".repeat(length))),
+            BlockError::TypeNotCurrent(shown),
+            "{length} characters"
+        );
+    }
     assert_eq!(
         BlockError::type_not_current(&BlockType::Text),
         BlockError::TypeNotCurrent("text".to_owned())

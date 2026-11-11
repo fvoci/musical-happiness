@@ -19,6 +19,7 @@ use super::App;
 use super::export::ARCHIVE_VERSION;
 use crate::auth::now_millis;
 use crate::error::AppError;
+use fvoci_store::StoreError;
 
 /// The largest a single archive entry may decompress to. The original bounds only its
 /// `board.jsonl`; this bounds every entry, so that a small upload cannot unfold into an
@@ -101,20 +102,24 @@ impl App {
             check_entry(&zip, index).await?;
         }
 
-        // Every board is read and checked before the first is stored: an archive that
-        // one of them refuses stores nothing.
-        let mut parsed = Vec::new();
+        // Every board is read and checked as the store checks it before the first is
+        // stored: an archive that one of them refuses stores nothing. What is read is
+        // dropped and read again to be stored, so that one board at a time is held.
+        let mut boards = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
             if filename == "board.jsonl" {
-                let bytes = read_entry(&zip, index).await?;
-                parsed.push((dir, parse_board_jsonl(bytes, options).await?));
+                boards.push((index, dir));
             }
+        }
+        for (index, _) in &boards {
+            parse_board_jsonl(read_entry(&zip, *index).await?, options).await?;
         }
 
         // First pass: the boards; a file entry needs its board already known.
         let mut board_map: HashMap<String, Board> = HashMap::new();
-        for (dir, board) in parsed {
+        for (index, dir) in boards {
+            let board = parse_board_jsonl(read_entry(&zip, index).await?, options).await?;
             let board = self.store_archive_board(board, options).await?;
             board_map.insert(dir, board);
         }
@@ -241,7 +246,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the board cannot be stored.
+    /// Returns the store's error if the board or a membership cannot be stored. What
+    /// the store refuses as a bad request, [`parse_board_jsonl`] has refused before.
     async fn store_archive_board(
         &self,
         board: ParsedBoard,
@@ -296,15 +302,22 @@ struct ParsedBoard {
     members: Vec<BoardMember>,
 }
 
-/// Reads and checks one board's `board.jsonl`: its lines, the types of its blocks and
-/// whether its boards and blocks fit together. Values of the other kind are cleared,
-/// blocks that nothing leads to are dropped, and everything gets a new identifier.
+/// Reads and checks one board's `board.jsonl`: its lines, the types of its blocks,
+/// whether its boards and blocks fit together, and each board and block as the store
+/// checks it (the card property definitions of a board; the title, the fields with the
+/// limit of their type, the property values and the body of a block). Values of the
+/// other kind are cleared, blocks that nothing leads to are dropped, and everything gets
+/// a new identifier.
+///
+/// What the store still checks against what is stored is the parent of a block: a
+/// parent that is a board of the same `board.jsonl` other than the block's own. An
+/// archive of this server has one board per `board.jsonl`.
 ///
 /// # Errors
 ///
 /// Returns a bad request if the file is too large, a line is malformed or of an unknown
-/// type, a block has a type that no new block has, or the boards and blocks do not fit
-/// together.
+/// type, a block has a type that no new block has, the boards and blocks do not fit
+/// together, or a board or block is not one the store takes, with the store's message.
 async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<ParsedBoard, AppError> {
     if jsonl.len() > MAX_JSONL_BYTES {
         return Err(AppError::bad_request(
@@ -352,6 +365,20 @@ async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<Pars
             )));
         }
     };
+    // As the store refuses them, with its messages, before anything is stored.
+    for board in &boards_and_blocks.boards {
+        board
+            .validate_card_properties()
+            .map_err(|error| AppError::from(StoreError::InvalidBoard(error.into())))?;
+    }
+    for block in &boards_and_blocks.blocks {
+        block.validate().map_err(|source| {
+            AppError::from(StoreError::InvalidBlock {
+                id: block.id.clone(),
+                source,
+            })
+        })?;
+    }
     Ok(ParsedBoard {
         boards_and_blocks,
         members,
