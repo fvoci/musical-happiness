@@ -1,7 +1,9 @@
 //! The two containers the tests use: PostgreSQL and an S3-compatible object store.
 //!
-//! A container that runs is used as it is; a stopped one is started; a missing one is
-//! created. Nothing is ever removed here: the containers outlive the test run.
+//! A container that runs is used as it is and left running; a stopped one is started and
+//! a missing one created, and those are stopped again when the test run ends, whether it
+//! passed, failed or was interrupted ([`Started`]). Nothing is ever removed here: the
+//! containers outlive the test run.
 
 use std::io::{Read as _, Write as _};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
@@ -41,7 +43,7 @@ pub(crate) struct Container {
 }
 
 impl Container {
-    /// The PostgreSQL container: `hafgufa-pg` on 127.0.0.1:15433 unless
+    /// The PostgreSQL container: `fvoci-test-pg` on 127.0.0.1:15433 unless
     /// `FVOCI_TEST_PG_CONTAINER` and `FVOCI_TEST_PG_PORT` say otherwise.
     ///
     /// # Errors
@@ -49,7 +51,7 @@ impl Container {
     /// Fails if the port variable is set to something that is no port.
     pub(crate) fn postgres() -> Result<Self> {
         Ok(Self {
-            name: name_from_env("FVOCI_TEST_PG_CONTAINER", "hafgufa-pg"),
+            name: name_from_env("FVOCI_TEST_PG_CONTAINER", "fvoci-test-pg"),
             host_port: port_from_env("FVOCI_TEST_PG_PORT", 15433)?,
             image: "postgres:18",
             internal_port: 5432,
@@ -62,7 +64,7 @@ impl Container {
         })
     }
 
-    /// The S3-compatible store: `hafgufa-s3` on 127.0.0.1:18333 unless
+    /// The S3-compatible store: `fvoci-test-s3` on 127.0.0.1:18333 unless
     /// `FVOCI_TEST_S3_CONTAINER` and `FVOCI_TEST_S3_PORT` say otherwise.
     ///
     /// # Errors
@@ -70,7 +72,7 @@ impl Container {
     /// Fails if the port variable is set to something that is no port.
     pub(crate) fn object_store() -> Result<Self> {
         Ok(Self {
-            name: name_from_env("FVOCI_TEST_S3_CONTAINER", "hafgufa-s3"),
+            name: name_from_env("FVOCI_TEST_S3_CONTAINER", "fvoci-test-s3"),
             host_port: port_from_env("FVOCI_TEST_S3_PORT", 18333)?,
             image: "chrislusf/seaweedfs:latest",
             internal_port: 8333,
@@ -116,10 +118,19 @@ impl Container {
     }
 
     /// Makes sure the container runs: starts it if it is stopped, creates it if it does
-    /// not exist.
-    fn ensure_running(&self) -> Result<()> {
-        match self.state()? {
-            State::Running => say(&format!("    {}: already running", self.name)),
+    /// not exist. One it started or created is noted in `started`, to be stopped at the
+    /// end of the run.
+    fn ensure_running(&self, started: &mut Started) -> Result<()> {
+        let state = self.state()?;
+        if state.is_started_by_this_run() {
+            // Noted before it is started: a start that fails half-way leaves it to stop.
+            started.names.push(self.name.clone());
+        }
+        match state {
+            State::Running => say(&format!(
+                "    {}: already running; it is left running",
+                self.name
+            )),
             State::Stopped => {
                 say(&format!("    {}: stopped; starting it", self.name));
                 docker(&["start", &self.name])?;
@@ -187,6 +198,27 @@ impl Container {
     }
 }
 
+/// The containers this run started or created, stopped when it is dropped: at the end
+/// of the run, after a failure, and after Ctrl-C (`steps::catch_interrupts`), in the
+/// order opposite to the starting. Those that ran before are not in it.
+#[derive(Debug, Default)]
+pub(crate) struct Started {
+    names: Vec<String>,
+}
+
+impl Drop for Started {
+    /// Stops the containers. Waiting for `docker stop` is what this task does at its end
+    /// anyway; a container that cannot be stopped is reported.
+    fn drop(&mut self) {
+        for name in self.names.drain(..).rev() {
+            say(&format!("    {name}: stopping it, as this run started it"));
+            if let Err(error) = docker(&["stop", &name]) {
+                say(&format!("    {name}: could not be stopped: {error:#}"));
+            }
+        }
+    }
+}
+
 /// What `docker inspect` says about a container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -196,6 +228,11 @@ enum State {
 }
 
 impl State {
+    /// Whether a container in this state before the run is started by it.
+    fn is_started_by_this_run(self) -> bool {
+        !matches!(self, Self::Running)
+    }
+
     /// Reads the result of `docker inspect --format {{.State.Running}}`.
     ///
     /// # Errors
@@ -274,9 +311,9 @@ fn wait_until(what: &str, mut probe: impl FnMut() -> Result<()>) -> Result<()> {
 ///
 /// Fails if docker is missing, the container cannot be started, or the database does
 /// not accept connections in time.
-pub(crate) fn prepare_postgres() -> Result<String> {
+pub(crate) fn prepare_postgres(started: &mut Started) -> Result<String> {
     let container = Container::postgres()?;
-    container.ensure_running()?;
+    container.ensure_running(started)?;
     wait_until(&container.name, || {
         // Over TCP: while the image initializes a new database it answers on the socket
         // only, and restarts once more before it is ready.
@@ -306,9 +343,9 @@ pub(crate) fn prepare_postgres() -> Result<String> {
 ///
 /// Fails if docker is missing, the container cannot be started, or the bucket cannot be
 /// created in time.
-pub(crate) fn prepare_object_store() -> Result<(String, &'static str)> {
+pub(crate) fn prepare_object_store(started: &mut Started) -> Result<(String, &'static str)> {
     let container = Container::object_store()?;
-    container.ensure_running()?;
+    container.ensure_running(started)?;
     wait_until(&container.name, || {
         create_bucket(container.host_port, S3_BUCKET)
     })?;
@@ -412,10 +449,18 @@ mod tests {
         assert_eq!(state(succeeded("true")), State::Running, "true");
         assert_eq!(state(succeeded("false")), State::Stopped, "false");
         assert_eq!(
-            state(failed("Error: No such object: hafgufa-pg")),
+            state(failed("Error: No such object: fvoci-test-pg")),
             State::Missing,
             "no such object"
         );
+    }
+
+    /// Only a container that did not run before is stopped at the end.
+    #[test]
+    fn only_what_this_run_started_is_stopped() {
+        assert!(!State::Running.is_started_by_this_run(), "running before");
+        assert!(State::Stopped.is_started_by_this_run(), "started");
+        assert!(State::Missing.is_started_by_this_run(), "created");
     }
 
     /// A daemon that cannot be reached is not a missing container: creating one would

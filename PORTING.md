@@ -31,8 +31,8 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 | 테스트 | `cargo xtask test` | 컨테이너 준비 뒤 SQLite 전체, PostgreSQL(store, server), S3 저장소 테스트 |
 | 계약 | `cargo xtask openapi` | `contracts/openapi.json`이 서버가 내는 것과 다르면 실패한다. `--write`가 고쳐 쓴다 |
 | 회귀 테스트 | `crates/server/tests/regression/` (스냅샷은 `golden/`) | 응답을 기대값으로 고정한 시나리오와 권한 표. `cargo test --workspace`에 포함. 갱신은 `FVOCI_REGRESSION_UPDATE=1` |
-| PostgreSQL | 컨테이너 `hafgufa-pg` (127.0.0.1:15433, PostgreSQL 18.6) | 스토어·서버 테스트의 PostgreSQL 실행. `FVOCI_STORE_TEST_DB_TYPE=postgres`, `FVOCI_STORE_TEST_CONN_STRING=postgres://fvoci:fvoci-test@localhost:15433/fvoci?sslmode=disable` |
-| S3 호환 서버 | 컨테이너 `hafgufa-s3` (SeaweedFS, 127.0.0.1:18333, 버킷 `fvoci-test`) | S3 파일 백엔드 테스트 |
+| PostgreSQL | 컨테이너 `fvoci-test-pg` (127.0.0.1:15433, PostgreSQL 18; 2026-11-11 전에는 `hafgufa-pg`) | 스토어·서버 테스트의 PostgreSQL 실행. `FVOCI_STORE_TEST_DB_TYPE=postgres`, `FVOCI_STORE_TEST_CONN_STRING=postgres://fvoci:fvoci-test@localhost:15433/fvoci?sslmode=disable` |
+| S3 호환 서버 | 컨테이너 `fvoci-test-s3` (SeaweedFS, 127.0.0.1:18333, 버킷 `fvoci-test`; 2026-11-11 전에는 `hafgufa-s3`) | S3 파일 백엔드 테스트 |
 | 라이선스 | `cargo deny check`(`deny.toml`), `cargo about generate …`(`about.toml`, `about.hbs`) | 의존성 라이선스·권고 검사, `NOTICE` 생성. 도구는 `target/tools/bin`에 설치한다 |
 
 빌드 산출물과 테스트 DB는 모두 `target/` 아래에 둔다. 원본과 견줄 때 쓰던 도구(오라클, 차등 비교, Cypress)는 맨 끝 절에 있다.

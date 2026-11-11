@@ -46,6 +46,9 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
         );
     }
     let cargo = steps::cargo();
+    // Declared before the steps, so dropped after them: the containers the steps start
+    // are stopped when the run ends, however it ends.
+    let started = std::cell::RefCell::new(containers::Started::default());
     let mut parts = Vec::new();
 
     if databases == Databases::Postgres {
@@ -70,7 +73,7 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
                     steps::say(&format!("    using the PostgreSQL of {CONN_STRING_ENV}"));
                     url
                 }
-                None => containers::prepare_postgres()?,
+                None => containers::prepare_postgres(&mut started.borrow_mut())?,
             };
             steps::run(
                 root,
@@ -95,22 +98,26 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
         parts.push(Step::skipped("S3 storage test", "only with every database"));
     }
     if databases == Databases::All {
-        parts.push(Step::new("S3 storage test", || s3_tests(root, &cargo)));
+        parts.push(Step::new("S3 storage test", || {
+            s3_tests(root, &cargo, &mut started.borrow_mut())
+        }));
     }
 
-    steps::run_all("test", parts)
+    let result = steps::run_all("test", parts);
+    drop(started);
+    result
 }
 
 /// The tests that need an S3-compatible server: the storage test, and the uploads in
 /// parts that go to S3 as multipart uploads. Runs against the object store of the
 /// environment, or the container prepared for them.
-fn s3_tests(root: &Path, cargo: &std::ffi::OsStr) -> Result<()> {
+fn s3_tests(root: &Path, cargo: &std::ffi::OsStr, started: &mut containers::Started) -> Result<()> {
     let (endpoint, bucket) =
         if let (Some(endpoint), Some(bucket)) = (env(S3_ENDPOINT_ENV), env(S3_BUCKET_ENV)) {
             steps::say(&format!("    using the object store of {S3_ENDPOINT_ENV}"));
             (endpoint, bucket)
         } else {
-            let (endpoint, bucket) = containers::prepare_object_store()?;
+            let (endpoint, bucket) = containers::prepare_object_store(started)?;
             (endpoint, bucket.to_owned())
         };
     let s3 = [

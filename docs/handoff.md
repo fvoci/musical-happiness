@@ -1,6 +1,6 @@
 # 서버 인수인계
 
-고친 때: 2026-11-11 11:51 KST(서버의 다음 묶음이 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+고친 때: 2026-11-11 12:10 KST(서버의 다음 묶음이 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
 
 ## 저장소가 하나로 합쳐졌다
 
@@ -43,8 +43,8 @@
   | 9a | 내보내기를 임시 파일에 쓰고 길이와 함께 흘려 보낸다. 시작할 때 남은 것을 지운다 | 끝 |
   | 9b | 가져오기를 올리기 세션(용도 `import`)으로, 아카이브를 디스크에서 읽고 한도(256 MiB, 풀린 합계 1 GiB, 항목 수, `board.jsonl`, 파일 항목) | 끝 |
   | 10 | 응답 압축(정적 `.zst`, API의 gzip·brotli·zstd) | 끝 |
-  | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | 다음 |
-  | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | |
+  | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | 끝 |
+  | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | 다음 |
   | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | |
   | 14 | 빌드 크기(디버그 정보 수준) | |
   | 15 | 사용자 결정 1(11:05 KST): `patchCard`가 바뀐 속성만 받아 합치고 지울 속성을 따로 받는다 | |
@@ -166,20 +166,20 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 ## 2. 이 기기의 상태
 
-**평소에 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 그 뒤로는 `cargo xtask test`가 둘을 만들고(PostgreSQL은 `postgres:18`), 돌린 세션이 끝날 때 멈춘다. 멈춘 채 남아 있는 것은 다음 `cargo xtask test`가 다시 시작한다.
+**평소에 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 그 뒤로는 `cargo xtask test`가 둘을 만들고(PostgreSQL은 `postgres:18`), 스스로 시작하거나 만든 것은 끝날 때 멈춘다(tracer-bullet 11). 멈춘 채 남아 있는 것은 다음 `cargo xtask test`가 다시 시작한다. 이름은 2026-11-11에 `hafgufa-pg`, `hafgufa-s3`에서 `fvoci-test-pg`, `fvoci-test-s3`로 바뀌었다. 옛 이름의 둘은 멈춘 채 이 기기에 남아 있고 더 쓰이지 않는다(지울지는 사용자가 정한다. 같은 포트를 쓰므로 옛 것을 띄우면 새 것이 시작하지 못한다).
 
 **컨테이너를 쓰는 규칙(사용자 결정).**
 
 - 컨테이너는 필요할 때 만들고 그 일이 끝나면 닫는다.
-- 테스트를 돌린 세션은 작업 묶음이 끝날 때 자기가 띄운 컨테이너와 프로세스를 멈춘다. `cargo xtask test`는 아직 스스로 멈추지 않으므로 손으로 멈춘다(6절의 할 일 5번).
+- 테스트를 돌린 세션은 작업 묶음이 끝날 때 자기가 띄운 컨테이너와 프로세스를 멈춘다. `cargo xtask test`는 스스로 시작하거나 만든 컨테이너를 끝날 때(통과, 실패, Ctrl-C 모두) 멈추고, 그 전부터 떠 있던 것은 그대로 둔다. Ctrl-C를 받으면 돌던 단계가 끝나기를 기다린 뒤 나머지를 건너뛰고 멈춘다. 그 사이 다시 Ctrl-C를 눌러도 같다. 바로 끝내려면 프로세스를 죽이고, 그때는 컨테이너를 손으로 멈춘다.
 - `supabase-*`는 다른 작업의 것이다. 건드리지 않는다. 포트 8000의 서비스(`supabase-envoy`)도 그 작업의 것이다.
 
 `cargo xtask test`가 만드는 컨테이너는 둘이다. 값은 모두 테스트 전용이다. 떠 있는 동안에는 워크트리 여럿이 함께 쓴다.
 
 | 컨테이너 | 주소 | 접속 |
 |---|---|---|
-| `hafgufa-pg` (PostgreSQL) | `127.0.0.1:15433` | 사용자 `fvoci`, 비밀번호 `fvoci-test`, DB `fvoci` |
-| `hafgufa-s3` (S3 호환) | `127.0.0.1:18333` | 인증 없음, 버킷 `fvoci-test` |
+| `fvoci-test-pg` (PostgreSQL) | `127.0.0.1:15433` | 사용자 `fvoci`, 비밀번호 `fvoci-test`, DB `fvoci` |
+| `fvoci-test-s3` (S3 호환) | `127.0.0.1:18333` | 인증 없음, 버킷 `fvoci-test` |
 
 - `cargo xtask test`가 멈춘 컨테이너는 시작하고 없는 것은 만든다. 재시작 정책은 없다.
 - 같은 이름의 컨테이너가 다른 포트에 게시돼 있으면 xtask가 거절한다.
@@ -265,8 +265,8 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 1. **본문 저장과 날짜 값**(설계 3.7, 5.7). 이 묶음이 하는 중이다. 허용 목록 판 2와 공유 벡터 `contracts/body-vectors.json`은 들어갔다(맨 앞 "지금 상태"의 tracer-bullet 목록).
 2. **템플릿 받기**(설계 3.10, 5.7). 웹앱의 변환기가 낸 산출물을 받아 넣고, 저장소 밖의 템플릿 아카이브에 대한 의존을 끊는다. 이것이 끝나야 새 클론에서 서버가 그대로 컴파일된다.
 3. **청크 업로드, 스트리밍, 파일 한도**(설계 4.3, 5.6).
-4. **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
-5. **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
+4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
+5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
 
 **후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 둘이다(`docs/configuration.md`의 "예약된 키").
 
