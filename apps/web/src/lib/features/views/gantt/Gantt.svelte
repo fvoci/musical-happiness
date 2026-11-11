@@ -289,7 +289,7 @@
     templates: board.board?.cardProperties ?? [],
     visiblePropertyIds: view.fields.visiblePropertyIds,
     users: board.workspace.users,
-    nameFormat: board.workspace.nameFormat,
+    board,
     cardHref,
   });
 
