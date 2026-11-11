@@ -217,7 +217,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
 struct Sources {
     /// Each file, as the list and the messages write it, with what it names.
     files: Vec<(String, Vec<Reference>)>,
-    /// The modules that were read.
+    /// The modules that were read, those written inside a file included.
     modules: BTreeSet<String>,
     /// The names given to paths, in any module: who names the key names the values.
     aliases: BTreeMap<String, Vec<String>>,
@@ -253,7 +253,7 @@ impl Sources {
             .flat_map(|layer| layer.handles.iter().copied())
             .collect();
         let read = scan::read_source(module, source, &handles)?;
-        self.modules.insert(module.join("::"));
+        self.modules.extend(read.modules);
         for alias in read.aliases {
             self.aliases
                 .entry(alias.name)
@@ -277,6 +277,10 @@ impl Sources {
     /// Everything a path may stand for: itself, and what the names on its way were
     /// given to. A re-export, a renamed import and a type alias lead on from here.
     /// At most [`MOST_FORMS`]: that many means names given in a circle.
+    ///
+    /// A name that has names after it is a module where there is one, whatever else
+    /// was given that name: after `mod download; pub use download::download;` the
+    /// function is `download` alone, and `download::Slot` is the module's.
     fn reached(&self, path: &str) -> Vec<String> {
         let mut reached = vec![path.to_owned()];
         let mut at = 0;
@@ -295,6 +299,9 @@ impl Sources {
             // where it leads on to a given name or to another layer.
             for end in &ends {
                 let (prefix, rest) = current.split_at(*end);
+                if !rest.is_empty() && self.modules.contains(prefix) {
+                    continue;
+                }
                 let named = self.aliases.get(prefix).into_iter().flatten();
                 next.extend(named.map(|target| format!("{target}{rest}")));
             }

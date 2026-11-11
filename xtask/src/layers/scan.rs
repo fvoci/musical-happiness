@@ -73,6 +73,8 @@ pub(crate) struct Source {
     pub(crate) references: Vec<Reference>,
     pub(crate) aliases: Vec<Alias>,
     pub(crate) declared: Vec<Declared>,
+    /// The modules the file holds: its own, and the inline ones (`mod name { … }`).
+    pub(crate) modules: Vec<String>,
 }
 
 /// Reads the source of the module `module` (its path from the crate's name on).
@@ -484,6 +486,11 @@ impl Reader {
             .collect();
         let mut source = Source {
             declared: self.declared,
+            modules: self
+                .sights
+                .iter()
+                .filter_map(|sight| sight.first().cloned())
+                .collect(),
             ..Source::default()
         };
         for written in &self.written {

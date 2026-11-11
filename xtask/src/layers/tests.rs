@@ -281,6 +281,76 @@ fn a_name_given_elsewhere_does_not_hide_what_it_stands_for() {
 }
 
 #[test]
+fn a_function_that_has_the_name_of_its_module_is_followed() {
+    let logic = (
+        "fvoci_server::app",
+        "mod download; pub(crate) use download::download; pub(crate) use download::Slot;",
+    );
+    let download = (
+        "fvoci_server::app::download",
+        "use super::Slot as Place; pub(crate) struct Slot; \
+         pub(crate) fn download(place: Place) -> fvoci_store::Store { todo!() }",
+    );
+    let handler = (
+        "fvoci_server::api::planted",
+        "use crate::app::{Slot, download}; fn f(slot: Slot) { download(slot); }",
+    );
+    let sources = sources(&[logic, download, handler]);
+    assert!(
+        sources.refused().is_empty(),
+        "the module and the function share a name and are no circle: {:?}",
+        sources.refused()
+    );
+    assert!(
+        sources.violations().is_empty(),
+        "logic, named by HTTP and by itself: {:?}",
+        sources.violations()
+    );
+    assert_eq!(
+        sources.reached("fvoci_server::app::download"),
+        [
+            "fvoci_server::app::download",
+            "fvoci_server::app::download::download"
+        ],
+        "the name alone is the module or the function"
+    );
+    assert_eq!(
+        sources.reached("fvoci_server::app::download::Slot"),
+        ["fvoci_server::app::download::Slot"],
+        "before `::` it is the module"
+    );
+
+    // The function may be another layer's; the module of the same name does not hide it.
+    let found = broken_in(
+        &[
+            (
+                "fvoci_server::api",
+                "mod open; mod planted; pub(crate) use fvoci_store::open; \
+                 mod inner { pub(crate) mod connect {} pub(crate) use fvoci_store::connect; }",
+            ),
+            ("fvoci_server::api::open", "pub(crate) struct Options;"),
+            (
+                "fvoci_server::api::planted",
+                "use super::open; use super::inner::connect; \
+                 fn f(options: open::Options) { open(options); connect(); }",
+            ),
+        ],
+        "fvoci_server::api::planted",
+    );
+    assert_eq!(
+        found,
+        [
+            "http>store fvoci_store::open",
+            "http>store fvoci_store::connect",
+            "http>store fvoci_store::open",
+            "http>store fvoci_store::connect"
+        ],
+        "the import and the call of each, beside a module in a file and one written inline; \
+         `open::Options` is the module's"
+    );
+}
+
+#[test]
 fn an_import_of_everything_of_another_layer_is_refused() {
     let sources = sources(&[
         (
