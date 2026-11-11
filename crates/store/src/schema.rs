@@ -114,17 +114,17 @@ const STEPS: [Step; 14] = [
         postgres: include_str!("../schema/postgres/0013_comments_by_parent.sql"),
     },
     Step {
-        version: 90,
+        version: 14,
         description: "organizations",
-        sqlite: include_str!("../schema/sqlite/0090_organizations.sql"),
-        postgres: include_str!("../schema/postgres/0090_organizations.sql"),
+        sqlite: include_str!("../schema/sqlite/0014_organizations.sql"),
+        postgres: include_str!("../schema/postgres/0014_organizations.sql"),
     },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
 /// between them.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORGANIZATIONS_VERSION: i64 = 90;
+pub(crate) const ORGANIZATIONS_VERSION: i64 = 14;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
