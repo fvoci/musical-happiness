@@ -71,6 +71,7 @@
       {
         "createAt": "<ts>",
         "deleteAt": 0,
+        "displayName": "",
         "id": "<id:3>",
         "isAdmin": false,
         "updateAt": "<ts>",
@@ -94,6 +95,7 @@
       {
         "createAt": "<ts>",
         "deleteAt": 0,
+        "displayName": "",
         "id": "<id:3>",
         "isAdmin": false,
         "updateAt": "<ts>",

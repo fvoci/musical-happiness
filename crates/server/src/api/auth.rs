@@ -5,7 +5,9 @@ use axum::extract::{Extension, Path, State};
 use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::response::Response;
-use fvoci_model::{ChangePasswordRequest, ErrorBody, LoginRequest, RegisterRequest, Team, User};
+use fvoci_model::{
+    ChangePasswordRequest, ErrorBody, LoginRequest, RegisterRequest, Team, User, display_name,
+};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -155,8 +157,9 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
 /// Registering does not sign in.
 ///
 /// The name and the email address must not be blank, the email address must look like
-/// one, and the password must have at least 8 characters and at most 1024 bytes;
-/// otherwise the request is 400, and `field` names the member.
+/// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
+/// and the password must have at least 8 characters and at most 1024 bytes; otherwise
+/// the request is 400, and `field` names the member.
 #[utoipa::path(
     post,
     path = "/register",
@@ -182,6 +185,7 @@ async fn handle_register(
     let mut register: RegisterRequest = decode_object(&body)?;
     register.email = register.email.trim().to_owned();
     register.username = register.username.trim().to_owned();
+    register.display_name = display_name(&register.display_name)?;
 
     // The first user needs no signup token; everyone after needs the team's. Asked
     // here so that a request without one costs no password hash; whether it really is
@@ -205,13 +209,7 @@ async fn handle_register(
     register.validate()?;
 
     let user = app
-        .register_user(
-            &register.username,
-            &register.email,
-            &register.password,
-            admission,
-            address_of(client),
-        )
+        .register_user(&register, admission, address_of(client))
         .await?;
     Ok(created(&user))
 }

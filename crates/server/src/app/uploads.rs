@@ -29,6 +29,7 @@ use tokio::sync::{OwnedMutexGuard, Semaphore};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use super::App;
+use super::doomed::Doomed;
 use super::files::FilePlace;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
@@ -72,7 +73,6 @@ pub struct FileToUpload {
 /// The SHA-256 digest of a part, as the client sent it.
 pub type PartDigest = [u8; 32];
 
-/// The memory of [`PARTS_IN_MEMORY`] parts of `part_bytes`, in KiB.
 /// What a clean-up of the upload sessions did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CleanedUp {
@@ -82,6 +82,7 @@ pub struct CleanedUp {
     pub left: usize,
 }
 
+/// The memory of [`PARTS_IN_MEMORY`] parts of `part_bytes`, in KiB.
 pub(crate) fn part_memory_kib(part_bytes: u64) -> usize {
     let kib = part_bytes.div_ceil(1024).saturating_mul(PARTS_IN_MEMORY);
     usize::try_from(kib)
@@ -706,14 +707,16 @@ impl App {
         // archive stays until it is imported. A server that stops meanwhile leaves a
         // directory that is no session's, which the start-up sweep removes.
         let directory = self.upload_dir(&upload.id);
-        let working = directory.with_extension(format!("importing-{}", new_secret()));
+        // Removed however the import ends, also when its request is dropped meanwhile.
+        let working =
+            Doomed::directory(directory.with_extension(format!("importing-{}", new_secret())));
         let moved = match fs::create_dir_all(&directory).await {
-            Ok(()) => fs::rename(&directory, &working).await,
+            Ok(()) => fs::rename(&directory, working.path()).await,
             Err(error) => Err(error),
         };
-        let archive = working.join("archive.boardarchive");
+        let archive = working.path().join("archive.boardarchive");
         let joined = match moved {
-            Ok(()) => join_parts(&parts, &working, &archive).await,
+            Ok(()) => join_parts(&parts, working.path(), &archive).await,
             Err(error) => Err(part_error(&error)),
         };
         self.discard_in_turn(upload).await;
@@ -725,7 +728,7 @@ impl App {
             }
             Err(error) => Err(error),
         };
-        remove_dir_quietly(&working).await;
+        working.remove().await;
         imported
     }
 

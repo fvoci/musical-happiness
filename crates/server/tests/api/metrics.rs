@@ -382,7 +382,7 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
 }
 
 #[tokio::test]
-async fn the_pool_the_open_uploads_and_the_archives_are_measured() {
+async fn the_pool_and_the_open_uploads_are_measured() {
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
         .start()
@@ -443,6 +443,20 @@ async fn the_pool_the_open_uploads_and_the_archives_are_measured() {
         "{body}"
     );
 
+    server.teardown().await;
+}
+
+#[tokio::test]
+async fn the_archives_that_hold_their_place_are_counted() {
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = server
+        .create_board(crate::common::TEST_TEAM_ID, fvoci_model::BoardType::Open)
+        .await;
     let export = server
         .client
         .get(&format!("/boards/{}/archive/export", board.id))
@@ -457,16 +471,35 @@ async fn the_pool_the_open_uploads_and_the_archives_are_measured() {
     );
     let archives =
         |body: &str, work: &str| sample(body, "fvoci_archives_in_progress", &[("work", work)]);
-    let body = scrape_until(&server, |body| archives(body, "export") == Some(0.0)).await;
+    let body = scrape(&server).await;
     assert_eq!(
         archives(&body, "export"),
         Some(0.0),
-        "the export is sent: {body}"
+        "the export is done: {body}"
     );
     assert_eq!(
         archives(&body, "import"),
         Some(0.0),
         "the import is done: {body}"
+    );
+    // What is counted is what the limits count: the places held.
+    let user = server.client.me().await;
+    let export = server
+        .app
+        .start_export(&user.id)
+        .expect("a place for an export");
+    let import = server
+        .app
+        .start_import(&user.id)
+        .expect("a place for an import");
+    let held = scrape(&server).await;
+    assert_eq!(archives(&held, "export"), Some(1.0), "{held}");
+    assert_eq!(archives(&held, "import"), Some(1.0), "{held}");
+    drop((export, import));
+    assert_eq!(
+        archives(&scrape(&server).await, "export"),
+        Some(0.0),
+        "given back"
     );
     let export_route = "/api/v1/boards/{boardId}/archive/export";
     let import_route = "/api/v1/teams/{teamId}/archive/import";

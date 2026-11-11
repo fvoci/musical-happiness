@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, Board, BoardType, Category, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardPatch, BoardType, Category, new_id};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -552,7 +552,16 @@ async fn shared_board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Blo
 /// Subscribes a connection without a session to a block with a read token and waits
 /// until a change of the block comes through; returns that message.
 async fn follow_block(th: &TestServer, block: &Block, read_token: &str) -> (Socket, Value) {
-    let mut reader = Socket::connect(th).await;
+    follow_block_on(th, Socket::connect(th).await, block, read_token).await
+}
+
+/// [`follow_block`] on the given connection.
+async fn follow_block_on(
+    th: &TestServer,
+    mut reader: Socket,
+    block: &Block,
+    read_token: &str,
+) -> (Socket, Value) {
     reader
         .send(json!({
             "action": "SUBSCRIBE_BLOCKS",
@@ -674,6 +683,49 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         .expect("the reader is told too");
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
     assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
+
+    // A signed-in user who is no member of the board follows it as the token's reader:
+    // nor are they told who the values of the board's person properties name.
+    let definitions = json!([
+        {"id": "owner", "name": "Owner", "type": "person"},
+        {"id": "team", "name": "Team", "type": "multiPerson"},
+    ]);
+    let patch: BoardPatch = serde_json::from_value(json!({"updatedCardProperties": definitions}))
+        .expect("a board patch");
+    th.app
+        .store()
+        .patch_board(&block.board_id, &patch, &user1.id)
+        .await
+        .expect("the board is stored");
+    block.fields.insert(
+        "properties".to_owned(),
+        json!({"owner": user1.id, "team": [user1.id, user1.id]}),
+    );
+    let stranger = Socket::connect_as(&th.client2).await;
+    let (_stranger, message) = follow_block_on(&th, stranger, &block, &token).await;
+    assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
+    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
+    assert_eq!(
+        message["block"]["fields"]["properties"],
+        json!({"owner": "", "team": ["", ""]}),
+        "{message}"
+    );
+
+    // A member who follows the block by the token, with no team subscription, is told
+    // all of it.
+    let member = Socket::connect_as(&th.client).await;
+    let (_member, message) = follow_block_on(&th, member, &block, &token).await;
+    assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
+    assert_eq!(
+        message.pointer(mention),
+        Some(&json!(user1.id)),
+        "{message}"
+    );
+    assert_eq!(
+        message["block"]["fields"]["properties"],
+        json!({"owner": user1.id, "team": [user1.id, user1.id]}),
+        "{message}"
+    );
 
     th.teardown().await;
 }

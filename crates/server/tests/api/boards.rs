@@ -953,9 +953,44 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
         Board {
             created_by: String::new(),
             modified_by: String::new(),
-            ..board
+            ..board.clone()
         },
         "the shared board, without its creator and modifier"
+    );
+
+    // A signed-in user who is no member reads it as the token's reader; a member as a
+    // member.
+    let private = board_with_admin(
+        &th,
+        new_board(TEST_TEAM_ID, BoardType::Private, "private shared board"),
+        &user1.id,
+    )
+    .await;
+    let token = th.share(&private.id).await;
+    let path = format!("/boards/{}?readToken={token}", private.id);
+    let read: Board = th.client2.get(&path).await.ok_json();
+    assert_eq!(
+        (read.created_by.as_str(), read.modified_by.as_str()),
+        ("", ""),
+        "a signed-in user who is no member reads as the token's reader"
+    );
+    let read: Board = th.client.get(&path).await.ok_json();
+    assert_eq!(read.created_by, user1.id, "a member reads as a member");
+    // So on an open board, which a user of its team sees without the token as it is.
+    let read: Board = th
+        .client2
+        .get(&format!("/boards/{}?readToken={sharing_token}", board.id))
+        .await
+        .ok_json();
+    assert_eq!(read.created_by, "", "with the token, as its reader");
+    let read: Board = th
+        .client2
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .ok_json();
+    assert_eq!(
+        read.created_by, user1.id,
+        "without it, as a user of the team"
     );
 
     th.teardown().await;

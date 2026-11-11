@@ -33,9 +33,6 @@ futures-util = "0.3"
 getrandom = "0.4"
 # RFC 1123 date formatting and parsing for Last-Modified / If-Modified-Since. License: MIT OR Apache-2.0.
 httpdate = "1"
-# The frames of an answer's body, to keep an export counted until it is sent. License:
-# MIT.
-http-body = "1"
 md-5 = { version = "0.11", default-features = false }
 mime_guess = "2"
 clap = { version = "4", features = ["derive"] }

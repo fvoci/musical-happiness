@@ -1047,6 +1047,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
         .created_json();
     assert_eq!(made[0]["body"], with_image(&file_id), "{made:?}");
     let comment_id = made[0]["id"].as_str().expect("an id");
+    // The commenter changes the body of their own comment.
     let read = block_of(&th.client, &board.id, comment_id).await;
     th.client2
         .patch(
@@ -1054,7 +1055,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
             &json!({"body": document(), "readAt": read["updateAt"]}),
         )
         .await
-        .check_forbidden();
+        .check_no_content();
     // The commenter may not upload, and so may not copy another board's files in.
     crate::files::upload(&th.client2, &board.id, "mine.png", b"png")
         .await
@@ -1074,4 +1075,105 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
     );
 
     th.teardown().await;
+}
+
+/// A comment whose body was changed says so (`editedAt`), and the board's members read
+/// what it said before (`getCommentVersions`): the text it was posted with, by its
+/// author, and each later one, by who wrote it. A reader by the read token, and anybody
+/// who is no member, gets no versions. Not in the original (user decision 2026-11-11
+/// 14:46 KST).
+#[tokio::test]
+async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let blocks = format!("/boards/{}/blocks", board.id);
+    let me = th.client.me().await;
+    let card: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
+        .await
+        .created_json();
+    let made: Vec<Value> = th
+        .client
+        .post(
+            &blocks,
+            &json!([{"boardId": board.id, "parentId": card.id, "type": "comment",
+                     "createAt": 1, "updateAt": 1, "editedAt": 5, "body": paragraph_doc("first")}]),
+        )
+        .await
+        .created_json();
+    let comment_id = made[0]["id"].as_str().expect("an id").to_owned();
+    let versions_path = format!("{blocks}/{comment_id}/versions");
+    assert_eq!(
+        made[0].get("editedAt"),
+        None,
+        "a client sets no editedAt: {made:?}"
+    );
+    let posted = block_of(&th.client, &board.id, &comment_id).await;
+    assert_eq!(posted.get("editedAt"), None, "never changed: {posted}");
+    assert_eq!(th.client.get(&versions_path).await.value(), json!([]));
+
+    th.client
+        .patch(
+            &format!("{blocks}/{comment_id}"),
+            &json!({"body": paragraph_doc("second"), "readAt": posted["updateAt"]}),
+        )
+        .await
+        .check_no_content();
+    let changed = block_of(&th.client, &board.id, &comment_id).await;
+    assert_eq!(changed["editedAt"], changed["updateAt"], "{changed}");
+    assert_eq!(changed["body"], paragraph_doc("second"));
+    let versions = th.client.get(&versions_path).await.value();
+    assert_eq!(
+        versions,
+        json!([{
+            "version": 1,
+            "body": paragraph_doc("first"),
+            "writtenBy": me.id,
+            "writtenAt": posted["createAt"],
+        }]),
+        "the text it was posted with"
+    );
+
+    // Nobody but the members: not who is no member, nor a reader by the token.
+    th.client2
+        .get(&versions_path)
+        .await
+        .check_error(StatusCode::NOT_FOUND, "board not found");
+    let token = th.share(&board.id).await;
+    th.anonymous()
+        .get(&format!("{versions_path}?readToken={token}"))
+        .await
+        .check_unauthorized();
+    let user2 = th.client2.me().await;
+    th.app
+        .add_member_to_board(&fvoci_model::BoardMember {
+            board_id: board.id.clone(),
+            user_id: user2.id.clone(),
+            scheme_viewer: true,
+            ..Default::default()
+        })
+        .await
+        .expect("user2 is a viewer");
+    assert_eq!(
+        th.client2.get(&versions_path).await.value(),
+        versions,
+        "a viewer reads them"
+    );
+
+    // A card has no versions.
+    th.client
+        .get(&format!("{blocks}/{}/versions", card.id))
+        .await
+        .check_error(StatusCode::NOT_FOUND, "comment not found");
+
+    // In the trash the comment keeps them.
+    th.client
+        .delete(&format!("{blocks}/{comment_id}"))
+        .await
+        .check_no_content();
+    assert_eq!(th.client.get(&versions_path).await.value(), versions);
+}
+
+/// A document of one paragraph with the text.
+fn paragraph_doc(text: &str) -> Value {
+    json!({"type": "doc", "content": [paragraph(text)]})
 }

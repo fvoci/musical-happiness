@@ -58,6 +58,7 @@ fn sample_block() -> Block {
         update_at: NOW,
         delete_at: 0,
         board_id,
+        edited_at: 0,
     }
 }
 

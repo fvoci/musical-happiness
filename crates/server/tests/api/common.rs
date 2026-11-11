@@ -320,6 +320,7 @@ impl TestServer {
             email: email.to_owned(),
             password: password.to_owned(),
             token: signup_token.to_owned(),
+            display_name: String::new(),
         };
         self.anonymous()
             .post("/register", &request)

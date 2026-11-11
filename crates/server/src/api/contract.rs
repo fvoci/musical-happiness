@@ -133,7 +133,7 @@ be `null`. A member the schema marks as required is one the request cannot do wi
 where the server takes a missing one as empty instead of refusing the request, the result \
 is that of the empty value (a login without a password is a failed login). A body with \
 members the schema does not list is mostly not refused for them. The exceptions: \
-`patchUserSettings` refuses every member it does not know, `createBoard` and \
+`patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and \
 `createCategory` refuse an `id`, and `setSharing` refuses a `token`.";
 
 /// What an operation's `default` response says.
@@ -164,7 +164,7 @@ enum Members {
 /// [`document`], so that a new type is looked at once.
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
-    ("Block", Members::All),
+    ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Board", Members::All),
     ("BoardMember", Members::All),
@@ -174,6 +174,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryBoardMetadata", Members::All),
     ("CategoryBoards", Members::All),
     ("ClientConfig", Members::All),
+    ("CommentVersion", Members::All),
     ("ErrorBody", Members::Only(&["error", "message"])),
     ("FileInfo", Members::All),
     ("OnboardingStart", Members::AsWritten),
@@ -188,6 +189,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("User", Members::All),
     ("UserSettings", Members::AsWritten),
     // What a request carries.
+    ("AccountChange", Members::AsWritten),
     ("AdminChange", Members::AsWritten),
     ("BlockPatch", Members::Only(&[])),
     (
@@ -1062,6 +1064,7 @@ mod tests {
         ("getBoards", "Oldest first"),
         ("getCards", "Oldest first; the pages cut that order"),
         ("getCategories", "by `sortOrder`, lowest first"),
+        ("getCommentVersions", "The first one first"),
         ("getMembers", "By the identifier of the user"),
         ("getMyMemberships", "By the identifier of the board"),
         (
