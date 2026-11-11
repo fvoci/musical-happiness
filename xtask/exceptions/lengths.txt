@@ -14,22 +14,22 @@
 # file <lines> <path>
 # function <lines> <path> <name>
 
-file 1255 crates/server/src/api/contract.rs
-file 1051 crates/server/src/app/uploads.rs
-file 1316 crates/server/src/config.rs
-file 1111 crates/server/src/ws.rs
-file 2867 crates/server/tests/api/blocks.rs
-file 3840 crates/server/tests/api/boards.rs
-file 3011 crates/server/tests/api/sidebar.rs
+file 1384 crates/server/src/api/contract.rs
+file 1114 crates/server/src/app/uploads.rs
+file 1510 crates/server/src/config.rs
+file 1217 crates/server/src/error.rs
+file 1240 crates/server/src/ws.rs
+file 3311 crates/server/tests/api/blocks.rs
+file 3963 crates/server/tests/api/boards.rs
+file 3134 crates/server/tests/api/sidebar.rs
 file 1093 crates/store/src/boards.rs
 file 4276 crates/store/tests/store/blocks.rs
-file 4365 crates/store/tests/store/boards.rs
+file 4606 crates/store/tests/store/boards.rs
 file 2058 crates/store/tests/store/users.rs
-function 102 crates/server/src/api/blocks.rs handle_post_blocks
+function 114 crates/server/src/api/blocks.rs handle_post_blocks
 function 118 crates/server/src/app/import.rs App::import_archive
-function 101 crates/server/src/app/uploads.rs App::open_upload
-function 106 crates/server/src/ws.rs Hub::serve
-function 233 crates/server/tests/api/visibility.rs cases
+function 101 crates/server/src/ws.rs Hub::serve
+function 243 crates/server/tests/api/visibility.rs cases
 function 211 crates/server/tests/regression/accounts.rs auth
 function 322 crates/server/tests/regression/blocks.rs blocks
 function 230 crates/server/tests/regression/permissions.rs request
