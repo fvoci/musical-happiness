@@ -1060,3 +1060,97 @@ async fn messages_match_the_websocket_contract() {
 
     th.teardown().await;
 }
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The card properties of a
+/// board are put in a new order by naming all of them: the answer is the order, the
+/// board has it, and the listeners hear `UPDATE_BOARD`. An order that leaves one out,
+/// names one twice or names one the board does not have is 400 and changes nothing; a
+/// commenter may not, nor a stranger.
+#[tokio::test]
+async fn card_properties_are_put_in_order_and_the_board_is_told() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    let property = |id: &str| {
+        json!({"id": id, "name": id, "type": "text", "options": []})
+            .as_object()
+            .expect("an object")
+            .clone()
+    };
+    let mut board = Board {
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        card_properties: vec![property("a"), property("b"), property("c")],
+        ..Board::default()
+    };
+    th.app
+        .store()
+        .insert_board_with_admin(&mut board, &user1.id)
+        .await
+        .expect("the board is stored with user1 as admin");
+    th.client
+        .add_member(&fvoci_model::BoardMember {
+            board_id: board.id.clone(),
+            user_id: user2.id.clone(),
+            scheme_commenter: true,
+            ..fvoci_model::BoardMember::default()
+        })
+        .await
+        .check_ok();
+    let path = format!("/boards/{}/property-order", board.id);
+    let ids = |board: &Value| -> Vec<Value> {
+        board["cardProperties"]
+            .as_array()
+            .expect("properties")
+            .iter()
+            .map(|property| property["id"].clone())
+            .collect()
+    };
+    let mut socket = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+
+    let answered: Vec<String> = th.client.put(&path, &["c", "a", "b"]).await.ok_json();
+    assert_eq!(answered, ["c", "a", "b"]);
+    let message = socket
+        .next_json(PATIENCE)
+        .await
+        .expect("the board's listeners are told");
+    assert_eq!(message["action"], json!("UPDATE_BOARD"), "{message}");
+    assert_eq!(ids(&message["board"]), [json!("c"), json!("a"), json!("b")]);
+    let stored = th
+        .client
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .value();
+    assert_eq!(ids(&stored), [json!("c"), json!("a"), json!("b")]);
+
+    for order in [
+        json!(["c", "a"]),
+        json!(["c", "a", "b", "b"]),
+        json!(["c", "a", "b", "d"]),
+        json!(["c", "a", "d"]),
+        json!({"order": ["a"]}),
+    ] {
+        th.client.put(&path, &order).await.check_bad_request();
+    }
+    th.client2
+        .put(&path, &["a", "b", "c"])
+        .await
+        .check_status(reqwest::StatusCode::FORBIDDEN);
+    let stranger = th.add_user("stranger").await;
+    stranger
+        .put(&path, &["a", "b", "c"])
+        .await
+        .check_status(reqwest::StatusCode::NOT_FOUND);
+    let stored = th
+        .client
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .value();
+    assert_eq!(
+        ids(&stored),
+        [json!("c"), json!("a"), json!("b")],
+        "nothing refused changed it"
+    );
+}

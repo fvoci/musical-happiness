@@ -36,7 +36,7 @@
   | 8 | 되살린 보드가 구성원마다 원래 카테고리의 원래 자리로 | 끝 |
   | 9 | 카드 목록과 `getCard`의 마지막 댓글 시각 | 끝 |
   | 10 | 카드 목록의 갤러리 미리보기(청할 때만) | 끝 |
-  | 11 | 보드의 속성 순서를 바꾸는 요청 | |
+  | 11 | 보드의 속성 순서를 바꾸는 요청 | 끝 |
   | 끝 | `docs/contract-pending.md` 9절, 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | |
 
 - **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).

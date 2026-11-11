@@ -3847,6 +3847,65 @@
         ]
       }
     },
+    "/api/v1/boards/{boardId}/property-order": {
+      "put": {
+        "description": "The body names every card property of the board (`cardProperties`, by `id`) once,\nin the new order, as `reorderCategories` names categories; one left out, one named\ntwice or one the board does not have is 400, and nothing changes. For who may manage\nthe board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as\nfor any change of the board.",
+        "operationId": "reorderCardProperties",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The identifiers of the card properties in their new order."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Put the card properties of a board in an order",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
     "/api/v1/boards/{boardId}/sharing": {
       "get": {
         "description": "Whether the board is shared, and with which read token. A board that was never\nshared is not shared. For the board's admins.",

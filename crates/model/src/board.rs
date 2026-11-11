@@ -128,6 +128,13 @@ pub enum BoardError {
         /// The member, as the API names it.
         member: &'static str,
     },
+    /// A new order of the card properties does not name each property of the board
+    /// exactly once.
+    #[error("the order names each property of the board once, and nothing else: {problem}")]
+    PropertyOrder {
+        /// What is wrong with it.
+        problem: String,
+    },
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
@@ -216,6 +223,50 @@ pub struct Board {
 }
 
 impl Board {
+    /// Puts the card properties into the order of their identifiers in `order`, which
+    /// must name each of them exactly once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BoardError::PropertyOrder`], and changes nothing, if `order` leaves a
+    /// property out, names one twice, or names one the board does not have.
+    pub fn reorder_card_properties(&mut self, order: &[String]) -> Result<(), BoardError> {
+        let problem = |problem: String| Err(BoardError::PropertyOrder { problem });
+        let mut seen = std::collections::BTreeSet::new();
+        for id in order {
+            if !seen.insert(id.as_str()) {
+                return problem(format!("{id} is named twice"));
+            }
+        }
+        let mut reordered = Vec::with_capacity(self.card_properties.len());
+        for id in order {
+            let Some(at) = self
+                .card_properties
+                .iter()
+                .position(|property| property.get("id").and_then(Value::as_str) == Some(id))
+            else {
+                return problem(format!("the board has no property {id}"));
+            };
+            reordered.push(at);
+        }
+        if reordered.len() != self.card_properties.len() {
+            return problem(format!(
+                "{} of the board's {} properties are named",
+                reordered.len(),
+                self.card_properties.len()
+            ));
+        }
+        let mut old = std::mem::take(&mut self.card_properties)
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<_>>();
+        self.card_properties = reordered
+            .into_iter()
+            .filter_map(|at| old.get_mut(at).and_then(Option::take))
+            .collect();
+        Ok(())
+    }
+
     /// The board as it goes to whoever reads by a read token alone, or to a user who
     /// reads it by the token without being a member: no `createdBy` or `modifiedBy`
     /// (`docs/s6-design.md`, decision 7). The blocks go so by [`Block::hide_people`].

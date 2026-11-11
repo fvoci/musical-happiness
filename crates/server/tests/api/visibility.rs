@@ -222,6 +222,11 @@ fn cases() -> Vec<Case> {
             title,
         ),
         case(
+            Method::PUT,
+            |h, i| format!("/boards/{}/property-order", h.board[i]),
+            |_, _| json!([]),
+        ),
+        case(
             Method::DELETE,
             |h, i| format!("/boards/{}", h.board[i]),
             no_body,

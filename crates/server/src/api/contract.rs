@@ -1109,6 +1109,7 @@ mod tests {
             "Oldest account first, not in the order of the request",
         ),
         ("patchBoardsAndBlocks", "each in the order of the request"),
+        ("reorderCardProperties", "in their new order"),
         ("reorderCategories", "in their new order"),
         ("reorderCategoryBoards", "in their new order"),
         ("searchBoards", "Oldest first"),
