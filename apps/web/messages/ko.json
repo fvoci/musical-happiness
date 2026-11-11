@@ -81,6 +81,8 @@
   "app_problem_forbidden": "이 보드에서 할 수 없는 일입니다.",
   "app_problem_dismiss": "닫기",
   "app_problem_upload_busy": "올리는 파일이 너무 많습니다. 끝난 뒤에 다시 해 보세요.",
+  "app_board_join_hint": "아직 이 보드의 구성원이 아닙니다.",
+  "app_board_join": "이 보드에 참여",
   "card_menu": "카드 메뉴",
   "card_location": "{board}, {view}",
   "card_saving": "저장 중…",

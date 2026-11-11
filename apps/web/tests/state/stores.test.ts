@@ -550,3 +550,45 @@ describe('a list read again', () => {
     expect(next).toEqual([item('a', 5), item('b', 2), item('c', 1), item('new', 1)]);
   });
 });
+
+describe('an open board the reader is no member of', () => {
+  it('is shown to join, not opened, and opens once joined', async () => {
+    const made = setup();
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const stored = made.world.boards.get(first.id);
+    if (!stored) throw new Error('no stored board');
+    made.world.boards.set(first.id, { ...stored, type: 'O' });
+    const readerId = (await made.backend.me()).id;
+    made.world.members.set(
+      first.id,
+      (made.world.members.get(first.id) ?? []).filter((member) => member.userId !== readerId),
+    );
+    // As the server answers a team member who is no member of an open board.
+    made.backend.failNext('views', new BackendError(403));
+
+    const board = await made.workspace.openBoard(first.id);
+    expect(board.joinable).toBe(true);
+    expect(board.missing).toBe(false);
+    expect(board.board?.title).toBe(stored.title);
+    expect(made.workspace.problems).toHaveLength(0);
+
+    expect(await board.join()).toBe(true);
+    expect(board.joinable).toBe(false);
+    expect(board.status).toBe('ready');
+    expect(board.members.some((member) => member.userId === readerId)).toBe(true);
+  });
+
+  it('is not offered to join when the board refused is a private one', async () => {
+    const made = setup();
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    made.backend.failNext('views', new BackendError(403));
+    const board = await made.workspace.openBoard(first.id);
+    expect(board.joinable).toBe(false);
+    expect(board.status).toBe('failed');
+    expect(made.workspace.problems.at(-1)).toMatchObject({ action: 'load' });
+  });
+});

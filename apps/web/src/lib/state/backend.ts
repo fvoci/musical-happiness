@@ -327,6 +327,12 @@ export interface Backend {
   /** Takes the board, its blocks and its members back out of the trash. */
   restoreBoard(boardId: string): Promise<Board>;
   members(boardId: string): Promise<BoardMember[]>;
+  /**
+   * Makes the reader a member of an open board of their team, with the
+   * board's minimum role. Until then such a board is readable but its views,
+   * cards and members are refused (403).
+   */
+  joinBoard(boardId: string): Promise<BoardMember>;
 
   // The reader's sidebar.
   categories(teamId: string): Promise<Category[]>;

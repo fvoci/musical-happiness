@@ -220,6 +220,17 @@ export class ServerBackend implements Backend, Account {
     return members.map(memberOf);
   }
 
+  /** Joins an open board (`joinBoard`), with its minimum role. */
+  async joinBoard(boardId: string): Promise<BoardMember> {
+    return memberOf(
+      await this.#http.request<Schemas['BoardMember']>(
+        '/api/v1/boards/{boardId}/join',
+        { boardId },
+        { method: 'POST' },
+      ),
+    );
+  }
+
   // ------------------------------------------------------------ sidebar
 
   async categories(teamId: string): Promise<Category[]> {

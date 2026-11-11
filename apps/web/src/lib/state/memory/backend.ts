@@ -438,6 +438,24 @@ export class MemoryBackend implements Backend {
     return copy(deleted.board);
   }
 
+  async joinBoard(boardId: string): Promise<BoardMember> {
+    await this.#enter('joinBoard');
+    const board = this.#board(boardId);
+    if (board.type !== 'O' || board.isTemplate) fail(404, 'no such open board');
+    const members = this.world.members.get(boardId) ?? [];
+    const existing = members.find((member) => member.userId === this.userId);
+    if (existing) return copy(existing);
+    const role = board.minimumRole === 'admin' ? 'editor' : board.minimumRole || 'editor';
+    const member = memberOf(boardId, this.userId, role);
+    this.world.members.set(boardId, [...members, member]);
+    this.world.tellBoard(boardId, {
+      kind: 'members',
+      boardId,
+      members: copy([...members, member]),
+    });
+    return copy(member);
+  }
+
   async members(boardId: string): Promise<BoardMember[]> {
     await this.#enter('members');
     this.#board(boardId);

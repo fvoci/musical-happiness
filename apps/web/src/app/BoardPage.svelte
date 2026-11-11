@@ -15,6 +15,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
   import type { Workspace } from '$lib/state/index.ts';
+  import { Button } from '$lib/ui/button/index.js';
 
   import type { Router } from './router.svelte.ts';
 
@@ -30,6 +31,17 @@
     workspace.board?.boardId === router.route.boardId ? workspace.board : undefined,
   );
   const view = $derived(board?.view(router.route.viewId));
+
+  let joining = $state(false);
+  async function join(): Promise<void> {
+    if (!board || joining) return;
+    joining = true;
+    try {
+      await board.join();
+    } finally {
+      joining = false;
+    }
+  }
 
   // An address without a view, or with one that is gone, shows the first view.
   $effect(() => {
@@ -80,6 +92,20 @@
     <div>
       <p class="text-lg font-medium" role="alert">{m['error.board-not-found']()}</p>
       <p class="mt-1 text-muted-foreground">{m.app_board_not_found_hint()}</p>
+    </div>
+  </div>
+{:else if board.joinable && board.board}
+  <div class="grid h-full place-items-center p-6 text-center" data-testid="board-join">
+    <div class="flex max-w-md flex-col items-center gap-3">
+      <h2 class="text-lg font-medium">
+        {board.board.icon ? `${board.board.icon} ` : ''}{board.board.title ||
+          m['Sidebar.untitled-board']()}
+      </h2>
+      {#if board.board.description}
+        <p class="whitespace-pre-wrap text-muted-foreground">{board.board.description}</p>
+      {/if}
+      <p class="text-muted-foreground">{m.app_board_join_hint()}</p>
+      <Button disabled={joining} onclick={() => void join()}>{m.app_board_join()}</Button>
     </div>
   </div>
 {:else if board.status === 'failed'}

@@ -330,6 +330,23 @@ describe('changing a card on the server', () => {
   });
 });
 
+describe('joining an open board on the server', () => {
+  it('asks to join by the board and gives the membership', async () => {
+    const sent = serve({
+      boardId: 'b',
+      userId: 'u',
+      roles: '',
+      schemeAdmin: false,
+      schemeEditor: true,
+      schemeCommenter: true,
+      schemeViewer: true,
+    });
+    const member = await new ServerBackend('').joinBoard('b');
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['POST /api/v1/boards/b/join']);
+    expect(member).toMatchObject({ boardId: 'b', userId: 'u', schemeEditor: true });
+  });
+});
+
 describe('writing a card’s body on the server', () => {
   const body = {
     type: 'doc',

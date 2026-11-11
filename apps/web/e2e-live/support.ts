@@ -111,6 +111,9 @@ export function watchErrors(page: Page): string[] {
  */
 export interface BoardPlan {
   title: string;
+  /** `O`: open to the team, anyone may join. `P` (the default): members only. */
+  type?: 'O' | 'P';
+  description?: string;
   /** The options of "Status", in order. */
   statuses?: string[];
   cards?: { title: string; status?: string; note?: string }[];
@@ -143,8 +146,9 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     await api.post('/api/v1/boards', {
       data: {
         teamId,
-        type: 'P',
+        type: plan.type ?? 'P',
         title: plan.title,
+        ...(plan.description ? { description: plan.description } : {}),
         cardProperties: [
           {
             id: 'status',

@@ -101,6 +101,8 @@ export class BoardStore {
   status = $state<LoadStatus>('idle');
   /** The board does not exist, or the reader may not see it: the two look the same. */
   missing = $state(false);
+  /** The board is open and the reader no member of it: shown with a way to join (`join`). */
+  joinable = $state(false);
   board = $state.raw<Board | undefined>(undefined);
   views = $state.raw<BoardView[]>([]);
   /** Every card of the board, card templates included, in no order. */
@@ -177,6 +179,7 @@ export class BoardStore {
   async load(): Promise<void> {
     this.status = 'loading';
     this.missing = false;
+    this.joinable = false;
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
@@ -198,8 +201,40 @@ export class BoardStore {
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;
-      else this.workspace.report('load', error);
+      else if (isBackendError(error) && error.status === 403 && (await this.#openToJoin())) {
+        this.joinable = true;
+      } else this.workspace.report('load', error);
     }
+  }
+
+  /**
+   * Whether the board refused is an open board the reader may join: one of
+   * their team that they are no member of reads as itself, while its views,
+   * cards and members are refused. Its title and description are then shown
+   * with a way to join (the user's decision, H5).
+   */
+  async #openToJoin(): Promise<boolean> {
+    try {
+      const board = await this.#backend.board(this.boardId);
+      if (board.type !== 'O' || board.isTemplate) return false;
+      this.board = board;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Joins the open board shown (`joinable`) and opens it. False (and told) when that failed. */
+  async join(): Promise<boolean> {
+    try {
+      await this.#backend.joinBoard(this.boardId);
+    } catch (error) {
+      this.workspace.report('save', error);
+      return false;
+    }
+    // The sidebar hears of it from the server (a member message reads it again).
+    await this.load();
+    return this.status === 'ready';
   }
 
   close(): void {
