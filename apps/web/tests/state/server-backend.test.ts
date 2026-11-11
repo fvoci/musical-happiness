@@ -582,7 +582,9 @@ function serveRoutes(routes: [string, unknown, number?][]): Sent[] {
     return Promise.resolve(
       new Response(status === 204 ? null : JSON.stringify(answer), {
         status,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': status >= 400 ? 'application/problem+json' : 'application/json',
+        },
       }),
     );
   });
@@ -847,10 +849,12 @@ describe('the password on the server', () => {
       [
         'POST /api/v1/users/me/password',
         {
-          error: 'bad_request',
-          message: 'wrong',
+          type: '/problems/invalid-credentials',
+          title: 'Invalid credentials',
+          status: 400,
+          detail: 'wrong',
           reason: 'invalid_credentials',
-          field: 'oldPassword',
+          errors: [{ pointer: '/oldPassword', detail: 'wrong', reason: 'invalid_credentials' }],
         },
         400,
       ],
@@ -859,6 +863,9 @@ describe('the password on the server', () => {
       .changePassword('x', 'new secret')
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.reason).toBe('invalid_credentials');
+    expect(isBackendError(refused) && refused.refusalAt('/oldPassword')?.reason).toBe(
+      'invalid_credentials',
+    );
   });
 });
 

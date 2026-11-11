@@ -253,7 +253,7 @@ export class ServerBackend implements Backend, Account {
     );
     const [board] = made.boards;
     const view = made.blocks.find((block) => block.type === 'view');
-    if (!board || !view) throw new BackendError(500, { message: 'the server made no board' });
+    if (!board || !view) throw new BackendError(500, { detail: 'the server made no board' });
     return { board: boardOf(board), view: viewOf(view) };
   }
 
@@ -264,7 +264,10 @@ export class ServerBackend implements Backend, Account {
   async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
     const { minimumRole, updatedCardProperties, ...rest } = patch;
     if (minimumRole === '' || minimumRole === 'admin') {
-      throw new BackendError(400, { message: 'no such minimum role', field: 'minimumRole' });
+      throw new BackendError(400, {
+        detail: 'no such minimum role',
+        errors: [refusedMember('minimumRole', 'no such minimum role')],
+      });
     }
     const request: Schemas['BoardPatch'] = {
       ...rest,
@@ -310,7 +313,7 @@ export class ServerBackend implements Backend, Account {
       { method: 'POST', query: { asTemplate: String(asTemplate), toTeam: teamId } },
     );
     const [board] = made.boards;
-    if (!board) throw new BackendError(500, { message: 'the server made no copy' });
+    if (!board) throw new BackendError(500, { detail: 'the server made no copy' });
     return boardOf(board);
   }
 
@@ -575,7 +578,7 @@ export class ServerBackend implements Backend, Account {
   async #category(teamId: string, categoryId: string): Promise<Category> {
     const found = (await this.categories(teamId)).find((category) => category.id === categoryId);
     if (!found) {
-      throw new BackendError(404, { message: 'no such category', reason: 'not_found' });
+      throw new BackendError(404, { detail: 'no such category', reason: 'not_found' });
     }
     return found;
   }
@@ -607,7 +610,7 @@ export class ServerBackend implements Backend, Account {
       { boardId },
       { method: 'POST', json: [block] },
     );
-    if (!made) throw new BackendError(500, { message: 'the server made no view' });
+    if (!made) throw new BackendError(500, { detail: 'the server made no view' });
     return viewOf(made);
   }
 
@@ -977,7 +980,7 @@ export class ServerBackend implements Backend, Account {
     if (file.size > limit) {
       // The reason is this app's: the server's 413 may count entries, this one counts bytes.
       throw new BackendError(413, {
-        message: 'the archive is too large',
+        detail: 'the archive is too large',
         reason: 'over_import_limit',
         limit,
       });

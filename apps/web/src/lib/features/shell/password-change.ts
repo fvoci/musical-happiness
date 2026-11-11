@@ -1,7 +1,7 @@
 /**
  * What the form that changes the password says about a refusal, and which
- * field it is about. The words come from the refusal's kind, reason and
- * field, never from the server's message.
+ * field it is about. The words come from the refusal's status, reason and
+ * the member `errors` points at, never from the server's detail.
  */
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { isBackendError } from '$lib/state/index.ts';
@@ -25,11 +25,15 @@ export function passwordProblemOf(error: unknown, next: string): PasswordProblem
   if (error.status === 409) {
     return { text: m.account_password_changed_elsewhere(), field: undefined };
   }
-  if (error.status === 400 && error.field === 'newPassword') {
-    if (characters(next) < PASSWORD_MIN_CHARACTERS) {
+  const refused = error.status === 400 ? error.refusalAt('/newPassword') : undefined;
+  if (refused) {
+    if (refused.reason === 'too_short' || characters(next) < PASSWORD_MIN_CHARACTERS) {
       return { text: m.account_password_too_short(), field: 'next' };
     }
-    if (new TextEncoder().encode(next).length > PASSWORD_MAX_BYTES) {
+    if (
+      refused.reason === 'too_long' ||
+      new TextEncoder().encode(next).length > PASSWORD_MAX_BYTES
+    ) {
       return { text: m.account_password_too_long(), field: 'next' };
     }
   }

@@ -38,7 +38,7 @@ export async function downloadWithProgress(
     response = await fetch(http.url(path, params), { credentials: 'same-origin', signal });
   } catch (error) {
     if (signal?.aborted) throw error;
-    throw new BackendError(0, { message: `GET ${path}: no answer` });
+    throw new BackendError(0, { detail: `GET ${path}: no answer` });
   }
   const name = dispositionName(response.headers.get('Content-Disposition')) ?? fallbackName;
   if (!response.ok) throw await errorOf(response);
@@ -66,11 +66,11 @@ export async function downloadWithProgress(
     }).blob();
   } catch (error) {
     if (signal?.aborted) throw error;
-    throw new BackendError(0, { message: `GET ${path}: the answer broke off` });
+    throw new BackendError(0, { detail: `GET ${path}: the answer broke off` });
   }
   // A body that ends early without breaking (a proxy that cut it) is no archive either.
   if (total > 0 && received !== total) {
-    throw new BackendError(0, { message: `GET ${path}: ${received} of ${total} bytes arrived` });
+    throw new BackendError(0, { detail: `GET ${path}: ${received} of ${total} bytes arrived` });
   }
   return { bytes, name };
 }

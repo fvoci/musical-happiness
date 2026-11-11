@@ -59,9 +59,16 @@ describe('an export', () => {
     vi.stubGlobal('fetch', (url: string) => {
       urls.push(url);
       return Promise.resolve(
-        new Response(JSON.stringify({ error: 'forbidden', message: 'no', reason: 'x' }), {
-          status: 403,
-        }),
+        new Response(
+          JSON.stringify({
+            type: '/problems/forbidden',
+            title: 'Forbidden',
+            status: 403,
+            detail: 'no',
+            reason: 'x',
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
       );
     });
     const refused = await new ServerBackend('').exportTeam('t1').catch((error: unknown) => error);
@@ -95,7 +102,7 @@ describe('an import', () => {
       }
       if (url.includes('/parts/')) return answer(204);
       if (url.endsWith('/archive/import')) return answer(204);
-      return answer(404, { error: 'not_found', message: 'no' });
+      return answer(404, { type: '/problems/not-found', status: 404, detail: 'no' });
     });
     return calls;
   }
