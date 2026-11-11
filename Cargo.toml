@@ -80,7 +80,16 @@ uuid = { version = "1", features = ["v7"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # The Yjs CRDT in Rust: the Y document of a body that people edit together. Only
 # `crates/collab` uses it. License: MIT.
-yrs = "0.28"
+#
+# Held to one exact version. Before the library reads an update from a client,
+# `crates/collab/src/scan.rs` walks the same bytes in the library's own framing, to
+# keep from it what it does not survive (a value nested deep ends the process). A
+# newer version may frame differently. When this version is raised: hold scan.rs
+# against the new version's decoder (`impl Decode for Update`, `decode_block`,
+# `ItemContent::decode`, `Any::decode`, the delete set, the variable-length numbers),
+# and run the tests of bytes from anybody again
+# (`cargo test -p fvoci-collab --test untrusted`: random and damaged updates).
+yrs = "=0.28.1"
 # Zstandard, to read compressed answers in the tests (the server's compression has it
 # already). License: MIT.
 zstd = "0.14"
