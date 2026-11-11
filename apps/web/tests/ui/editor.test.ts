@@ -102,7 +102,10 @@ describe('the editor and the list agree', () => {
       .run();
     target.chain().toggleCodeBlock().insertContent('code').run();
     target.commands.setFileImage({ fileId: 'file-2' });
-    target.commands.insertContent({ type: 'mention', attrs: { userId: 'user-1' } });
+    target.commands.insertContent({
+      type: 'mention',
+      attrs: { userId: '01930000-0000-7000-8000-00000000c004' },
+    });
     expect(validateDoc(stored(target))).toEqual([]);
   });
 });
@@ -143,7 +146,7 @@ describe('HTML from elsewhere', () => {
 
   it('keeps marks off line breaks and mentions inside marked text', () => {
     const doc = load(
-      '<p><strong>a<br>b <span data-mention data-user-id="u1"></span> c</strong></p><p><a href="/x"><em>d<br></em>e</a></p>',
+      '<p><strong>a<br>b <span data-mention data-user-id="01930000-0000-7000-8000-00000000c001"></span> c</strong></p><p><a href="/x"><em>d<br></em>e</a></p>',
     );
     expect(validateDoc(doc)).toEqual([]);
     const unmarked = (node: DocNode): DocNode[] => [
@@ -220,12 +223,17 @@ describe('drawing', () => {
   it('draws a mention with the current name of the user', () => {
     const target = create({
       type: 'doc',
-      content: [{ type: 'paragraph', content: [{ type: 'mention', attrs: { userId: 'u7' } }] }],
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c007' } }],
+        },
+      ],
     });
     const mention = target.view.dom.querySelector('[data-mention]');
-    expect(mention?.textContent).toBe('@name-of-u7');
-    expect(mention?.getAttribute('data-user-id')).toBe('u7');
-    expect(target.getText()).toBe('@name-of-u7');
+    expect(mention?.textContent).toBe('@name-of-01930000-0000-7000-8000-00000000c007');
+    expect(mention?.getAttribute('data-user-id')).toBe('01930000-0000-7000-8000-00000000c007');
+    expect(target.getText()).toBe('@name-of-01930000-0000-7000-8000-00000000c007');
   });
 
   it('opens links in a new tab without handing over the opener, without storing that', () => {

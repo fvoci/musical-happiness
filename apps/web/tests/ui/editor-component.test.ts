@@ -226,20 +226,25 @@ describe('BodyEditor', () => {
   });
 
   it('names mentioned people through the caller, and again when the names become known', async () => {
+    const [U1, U2, U3] = [
+      '01930000-0000-7000-8000-00000000c001',
+      '01930000-0000-7000-8000-00000000c002',
+      '01930000-0000-7000-8000-00000000c003',
+    ];
     const body = doc(
-      paragraph(mention('u1'), text(' and '), mention('u2'), text(' and '), mention('u3')),
+      paragraph(mention(U1), text(' and '), mention(U2), text(' and '), mention(U3)),
     );
-    const users = [{ id: 'u2', name: '이도윤' }];
+    const users = [{ id: U2, name: '이도윤' }];
     const { container, rerender } = render(BodyEditor, { doc: body, users });
     const names = () =>
       Array.from(container.querySelectorAll('[data-mention]')).map((node) => node.textContent);
-    expect(names()).toEqual(['@u1', '@이도윤', '@u3']);
+    expect(names()).toEqual([`@${U1}`, '@이도윤', `@${U3}`]);
     await rerender({
       doc: body,
       users,
-      resolveUser: (userId: string) => (userId === 'u1' ? '김하늘' : undefined),
+      resolveUser: (userId: string) => (userId === U1 ? '김하늘' : undefined),
     });
-    expect(names()).toEqual(['@김하늘', '@이도윤', '@u3']);
+    expect(names()).toEqual(['@김하늘', '@이도윤', `@${U3}`]);
     // The document still holds identifiers only.
     expect(JSON.stringify(editorIn(container).getJSON())).not.toContain('김하늘');
   });

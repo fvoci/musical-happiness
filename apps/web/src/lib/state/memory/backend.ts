@@ -12,7 +12,13 @@
  * development page: `as` (the same world seen by another user), `failNext`
  * and `latency`.
  */
-import { countTasks, storedSize, validateDoc, type DocNode } from '../../editor/schema.ts';
+import {
+  countTasks,
+  MAX_BODY_BYTES,
+  storedSize,
+  validateDoc,
+  type DocNode,
+} from '../../editor/schema.ts';
 import {
   DEFAULT_DISPLAY_SETTINGS,
   readDisplaySettings,
@@ -64,7 +70,7 @@ import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
 /** The limits of the server design: section 5.7 (bodies) and 4.2, 5.6 (files). */
 export const LIMITS = {
-  bodyBytes: 1024 * 1024,
+  bodyBytes: MAX_BODY_BYTES,
   fileBytes: 100 * 1024 * 1024,
   uploadPartBytes: 8 * 1024 * 1024,
   screenStateKeys: 100,

@@ -46,8 +46,9 @@
 
   // Before anything is drawn: the read-only view asks for addresses as soon as it has a document.
   setFileUrlResolver(fakeFileUrl);
-  const nameOf = (userId: string): string | undefined =>
-    USERS.find((user) => user.id === userId)?.name;
+  // Somebody no longer among the people: a short label, not their long identifier.
+  const nameOf = (userId: string): string =>
+    USERS.find((user) => user.id === userId)?.name ?? '알 수 없는 사용자';
 
   /** Hands the editor a document as if it had come from the server. */
   function show(next: DocNode): void {

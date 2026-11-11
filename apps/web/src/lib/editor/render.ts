@@ -349,7 +349,8 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
  * `doc` is the stored document as it came from the server, already parsed
  * from JSON; `null` or `undefined` is an empty body, not a failure. A
  * document the validator refuses is not drawn, not even in part: the result
- * says so and the caller decides what to show in its place.
+ * says so and the caller decides what to show in its place. A mention that
+ * names nobody (as an anonymous reader gets them) is drawn as an unknown user.
  */
 export function renderBody(doc: unknown, options: RenderBodyOptions = {}): RenderedBody {
   const page = options.document ?? document;
@@ -358,7 +359,7 @@ export function renderBody(doc: unknown, options: RenderBodyOptions = {}): Rende
   }
   let problems: string[];
   try {
-    problems = validateDoc(doc);
+    problems = validateDoc(doc, { shown: true });
   } catch {
     // The validator expects the shape of a document and may trip over
     // something that has none, such as a number where a list should be.

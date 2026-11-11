@@ -67,7 +67,7 @@ describe('the server backend', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 
-  it('makes a card from a draft, and refuses one with a body before sending it', async () => {
+  it('makes a card from a draft, its body along', async () => {
     const sent = serve({
       ...BLOCK,
       id: 'c1',
@@ -92,11 +92,12 @@ describe('the server backend', () => {
       fields: { properties: { status: 'todo' } },
     });
 
-    const refused = await backend
-      .createCard('b', { body: { type: 'doc', content: [{ type: 'paragraph' }] } })
-      .catch((error: unknown) => error);
-    expect(isBackendError(refused) && refused.reason).toBe('not_wired');
-    expect(sent).toHaveLength(1);
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }],
+    };
+    await backend.createCard('b', { title: 'Copy', body });
+    expect(sent[1]?.body).toMatchObject({ title: 'Copy', body });
   });
 
   it("reads a card's comments and attachments as blocks under it", async () => {

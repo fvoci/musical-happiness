@@ -49,6 +49,7 @@ import {
   teamOf,
   userOf,
   viewOf,
+  wireBody,
   type Schemas,
 } from './convert.ts';
 import { Http } from './http.ts';
@@ -309,7 +310,7 @@ export class ServerBackend implements Backend, Account {
     return cards.map(cardOf);
   }
 
-  /** A card without its body: the server keeps none yet (`docs/contract-pending.md`, 1). */
+  /** A card with its body. */
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     return cardDetailOf(await this.#card(boardId, cardId));
   }
@@ -328,7 +329,6 @@ export class ServerBackend implements Backend, Account {
   }
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
-    if (draft.body) notWired('writeCardBody');
     const card = await this.#http.request<Schemas['Card']>(
       '/api/v1/boards/{boardId}/cards',
       { boardId },
@@ -384,9 +384,25 @@ export class ServerBackend implements Backend, Account {
     return cardOf(card);
   }
 
-  /** Bodies are not wired: the server is changing how it stores them (`docs/contract-pending.md`, 1). */
-  writeCardBody(_boardId: string, _cardId: string, _write: BodyWrite): Promise<CardDetail> {
-    return notWired('writeCardBody');
+  /**
+   * Replaces the body by the card patch, with the version it was read at:
+   * the server refuses with 409 when the card changed since, and changes
+   * nothing. An empty document is sent as it is; the server stores it as no
+   * body. The body goes in the same turn as the card's other changes.
+   */
+  writeCardBody(_boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
+    return this.#inTurn(cardId, async () => {
+      const request: Schemas['CardPatch'] = {
+        body: write.body ? wireBody(write.body) : null,
+        readAt: write.readAt,
+      };
+      const card = await this.#http.request<Schemas['Card']>(
+        '/api/v1/cards/{cardId}',
+        { cardId },
+        { method: 'PATCH', json: request },
+      );
+      return cardDetailOf(card);
+    });
   }
 
   /** The comments of a card, read only for now (`commentOf`). */

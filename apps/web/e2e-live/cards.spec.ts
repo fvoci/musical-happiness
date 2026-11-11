@@ -46,12 +46,18 @@ test('a card made in a column is the server’s, with the value of that column',
   await expect(dialog.getByTestId('card-comments')).toBeVisible();
   await expect(page.locator('[data-problem]')).toHaveCount(0);
 
-  // The body is not the server's yet: writing one says so, as that.
+  // A body written in the new card is the server's too.
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
   await page.getByTestId('card-body').locator('[contenteditable]').first().click();
   await page.keyboard.type('Bring a list');
-  await expect(page.locator('[data-problem]')).toHaveText(/not saved to the server yet/);
-  await page.locator('[data-problem]').getByRole('button').click();
+  await expect
+    .poll(async () => {
+      const [made] = (await (
+        await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } })
+      ).json()) as Schemas['Card'][];
+      return made?.hasBody;
+    })
+    .toBe(true);
   await page.goBack();
   await expect(dialog).toBeHidden();
   await expect(column(page, 'Doing').locator('[data-card]')).toHaveCount(1);
