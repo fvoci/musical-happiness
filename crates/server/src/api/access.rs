@@ -98,10 +98,12 @@ pub(crate) async fn require_block_patch_permission(
     patch: &BlockPatch,
     denial: &str,
 ) -> Result<(), AppError> {
-    let moves = patch
-        .parent_id
-        .as_ref()
-        .is_some_and(|parent_id| *parent_id != block.parent_id);
+    // A block directly on its board has no parent, which clients of the original name
+    // by the board: naming it so moves nothing.
+    let moves = patch.parent_id.as_ref().is_some_and(|parent_id| {
+        *parent_id != block.parent_id
+            && !(block.parent_id.is_empty() && *parent_id == block.board_id)
+    });
     if block.block_type == BlockType::Comment && moves {
         require_board_permission(
             app,
