@@ -61,10 +61,11 @@ const LISTED_TASKS_DONE: usize = 14;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
 const LISTED_LAST_COMMENT_AT: usize = 15;
 /// The columns a list reads for previews, after the last comment's time: the beginning
-/// of the plain text of the body, worked out when it was stored (characters, each of one
-/// or two UTF-16 code units, so the 200 units a preview shows are among them), and the
-/// body.
-const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 200), body";
+/// of the plain text of the body, worked out when it was stored, and the body. The text
+/// is 201 characters (code points, each of one or two UTF-16 code units): the 200 units
+/// a preview shows are among them, and a character as it is seen that the cut splits
+/// runs past 200 units, so the preview leaves it out whole.
+const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 201), body";
 /// The column of the plain text of the body, read for previews.
 const LISTED_BODY_TEXT: usize = 16;
 /// The column of the body, read for previews.
@@ -150,7 +151,7 @@ pub struct ListedBlock {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BodyPreview {
     /// The beginning of the body's plain text, as it is searched (a line per paragraph):
-    /// its first 200 characters.
+    /// its first 201 characters.
     pub text: String,
     /// The stored name of the file of the body's first image, if it has one.
     pub first_image: Option<String>,
@@ -353,6 +354,43 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| patch_block(scope, block_id, patch, user_id).await)
             .await
+    }
+
+    /// Gives blocks of a board the bodies in `bodies` (by block identifier; `None` for
+    /// none), all or none, as the rest of a write that made them: no one's change, so the
+    /// blocks keep who changed them last and when, and a comment gets no version. An
+    /// import points the images of the bodies it stored at the files it stored after them
+    /// so. The files the blocks show are put down again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if the board, or one of the blocks on it, is not
+    /// there.
+    pub async fn replace_bodies_as_written(
+        &self,
+        board_id: &str,
+        bodies: Vec<(String, Option<Body>)>,
+    ) -> Result<(), StoreError> {
+        self.transaction(async |scope| {
+            if !boards::lock_board(scope, board_id).await? {
+                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
+            }
+            for (block_id, body) in bodies {
+                let mut sql = scope.sql("UPDATE blocks SET update_at = update_at");
+                push_body(&mut sql, body.as_ref(), BodyColumns::Assign)?;
+                sql.push_bind(" WHERE id = ", Id(&block_id))
+                    .push_bind(" AND board_id = ", Id(board_id));
+                if scope.execute(sql).await? == 0 {
+                    return Err(StoreError::not_found(format_args!(
+                        "block ID={block_id} on board {board_id}"
+                    )));
+                }
+                let block = get_block(scope, &block_id).await?;
+                file_refs::refresh(scope, &block).await?;
+            }
+            Ok(())
+        })
+        .await
     }
 
     /// Applies each patch of `batch` to the block at the same position, all or none.
@@ -946,7 +984,7 @@ mod tests {
         assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
         assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
         // The text, then the body, right after the last comment's time.
-        assert_eq!(PREVIEW_COLUMNS, "SUBSTR(body_text, 1, 200), body");
+        assert_eq!(PREVIEW_COLUMNS, "SUBSTR(body_text, 1, 201), body");
         assert_eq!(LISTED_BODY_TEXT, LISTED_LAST_COMMENT_AT + 1);
         assert_eq!(LISTED_BODY, LISTED_BODY_TEXT + 1);
     }

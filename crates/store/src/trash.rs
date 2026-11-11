@@ -299,9 +299,6 @@ fn board_not_in_trash() -> StoreError {
     StoreError::not_found("deleted board")
 }
 
-/// Reads a block of the trash. Its body is taken as it was stored: it was checked when
-/// it was written, against the allowlist of that time, which a later one may not
-/// accept.
 /// Limits a list of the trash to one page, if `paging` has a page size.
 fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
     if let Some(paging) = paging.filter(|paging| paging.per_page > 0) {
@@ -311,6 +308,9 @@ fn push_paging(sql: &mut Sql, paging: Option<Paging>) {
     }
 }
 
+/// Reads a block of the trash. Its body is taken as it was stored: it was checked when
+/// it was written, against the allowlist of that time, which a later one may not
+/// accept.
 fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
     let corrupt = |error: serde_json::Error| StoreError::Corrupt {
         column: "block",
@@ -653,8 +653,6 @@ impl KnownUsers {
     }
 }
 
-/// The file records of a board as they are kept with the board in the trash. A file
-/// record's own JSON form is the one for clients, which leaves out where the file is.
 /// A [`BoardPlace`] as the trash keeps it, in `deleted_boards.places`. Its own type, so
 /// that what is stored does not change with the store's interface.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -689,6 +687,8 @@ impl From<StoredPlace> for BoardPlace {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+/// The file records of a board as they are kept with the board in the trash. A file
+/// record's own JSON form is the one for clients, which leaves out where the file is.
 struct StoredFiles(Vec<StoredFile>);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

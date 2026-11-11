@@ -878,6 +878,48 @@ async fn a_body_is_stored_with_its_version_and_text() {
     test.teardown().await;
 }
 
+/// Not in the original (user decision 2026-11-11 14:25 KST). A list asked for previews
+/// reads the beginning of a card's plain text, 201 characters of it, so that a letter
+/// and its accent that the 200 units of a preview would split are left out together.
+#[tokio::test]
+async fn a_preview_reads_one_character_past_its_length() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let [user_id] = users(store).await;
+    let opening = "a".repeat(199);
+    let written = format!("{opening}e\u{301} and more");
+    let mut card = Block {
+        block_type: BlockType::Card,
+        body: Body::parse(json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": written}]},
+        ]}))
+        .expect("the body is allowed"),
+        ..block(&new_id(), &board_id)
+    };
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is inserted");
+
+    let listed = store
+        .get_listed_blocks(&BlockFilter::board(&board_id), fvoci_store::Previews::With)
+        .await
+        .expect("the cards are listed");
+    let [listed] = listed.as_slice() else {
+        panic!("one card: {listed:?}");
+    };
+    let preview = listed.preview.as_ref().expect("a preview");
+    assert_eq!(preview.text, format!("{opening}e\u{301}"), "201 characters");
+    assert_eq!(
+        fvoci_model::CardPreview::new(String::new(), &preview.text).text,
+        opening,
+        "the accented letter is left out whole"
+    );
+
+    test.teardown().await;
+}
+
 /// `testPatchBlocks`.
 #[tokio::test]
 async fn patch_blocks() {
