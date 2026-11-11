@@ -81,7 +81,9 @@
 
   // Once the move shows at an end, the button pressed is off and would lose the focus: the other one takes it.
   $effect(() => {
-    if (!pending || place === pending.from) return;
+    // Read whether or not a move waits, so that the effect runs again when the place changes.
+    const now = place;
+    if (!pending || now === pending.from) return;
     const { step } = pending;
     pending = undefined;
     if (step === -1 && place <= 0) moveDown?.focus();

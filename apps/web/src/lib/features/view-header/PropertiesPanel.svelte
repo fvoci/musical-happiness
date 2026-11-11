@@ -51,7 +51,9 @@
 
   // Once the move shows: the moved row's button keeps the focus, or the other one at an end.
   $effect(() => {
-    const at = pending ? order.indexOf(pending.id) : -1;
+    // Read whether or not a move waits, so that the effect runs again when the order changes.
+    const shown = order;
+    const at = pending ? shown.indexOf(pending.id) : -1;
     if (!pending || at < 0 || at === pending.from) return;
     const { id, step } = pending;
     pending = undefined;
