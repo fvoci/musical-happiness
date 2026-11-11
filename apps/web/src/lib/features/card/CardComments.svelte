@@ -226,7 +226,11 @@
               when: displayDateTime(comment.createAt, context),
             })}
             class="shrink-0 text-muted-foreground"
-            onclick={() => void card.deleteComment(comment.id)}
+            onclick={() => {
+              // Its field, if open, goes with it (an undo brings the comment back, not the edit).
+              if (editing?.id === comment.id) editing = undefined;
+              void card.deleteComment(comment.id);
+            }}
           >
             <Trash2Icon aria-hidden="true" />
           </IconButton>

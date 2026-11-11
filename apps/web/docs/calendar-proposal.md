@@ -459,7 +459,7 @@ Playwright에서 `setViewportSize`로 창을 바꿔 본 것이다(`calendar.spec
 | 드래그: 양 끝 늘이기           | 같은 폴더 + `src/lib/drag/pointer-drag.ts` | 250줄     | **기반에 없다.** 손잡이를 끄는 것은 "옮기기"가 아니라 값 하나를 바꾸는 것이라 `pointer-drag.ts`(누름·움직임·취소) 위에 따로 짠다. 주를 넘는 늘이기, 취소     |
 | 뷰 머리글의 "표시 기준"        | `src/lib/features/view-header/`            | 100줄     | 메뉴 한 줄과 속성 목록                                                                                                                                       |
 | 조립                           | `src/app/BoardPage.svelte`                 | 50줄      | `Calendar.svelte`를 그린다(V1)                                                                                                                               |
-| 화면의 글                      | `messages-own/<묶음>/`                     | 키 30개쯤 | 원본에 있는 것은 그것을 쓴다: `calendar.today`, `calendar.month`, `calendar.week`, `CalendarCard.untitled`, `ViewHeader.display-by`, `View.NewCalendarTitle` |
+| 화면의 글                      | `messages/<태그>.json`                     | 키 30개쯤 | 원본에 있는 것은 그것을 쓴다: `calendar.today`, `calendar.month`, `calendar.week`, `CalendarCard.untitled`, `ViewHeader.display-by`, `View.NewCalendarTitle` |
 
 합쳐서 화면 2,200줄, 로직 250줄 안팎이다. 테스트는 로직 단위 테스트 40건쯤(주의 시작 셋, 달의 경계, 줄 배치, 넘침, 시간대에 따라 달라지는 날), 화면 테스트 30건쯤, 브라우저 테스트 15건쯤으로 어림한다. 이 스파이크의 브라우저 테스트 53건 가운데 배치와 44px을 보는 것들은 옮겨 쓸 수 있다.
 

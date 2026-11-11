@@ -40,7 +40,7 @@
 | 글꼴의 결정과 수치                               | `PORTING.md`의 "글꼴"                                                                                            |
 | 날짜 값의 와이어, 지역 설정의 값                 | `PORTING.md`의 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대: 계정 설정"                                     |
 | 번역 결정, 한국어 검수 표                        | `docs/i18n-conversion.md`, `docs/ko-review.md`                                                                   |
-| 템플릿 산출물과 바뀐 곳                          | `tools/templates/output/README.md`, `CHANGES.md`                                                                 |
+| 내장 템플릿과 변환이 바꾼 곳                     | 저장소 루트의 `crates/server/assets/templates/`의 `README.md`, `CHANGES.md`                                      |
 | 편집기, 읽기 전용 표시기, 번들 크기              | `docs/spike-editor.md`(표시기는 9절, 창 크기는 6.5절, 수식과 다이어그램은 10절)                                  |
 | 드래그의 결정 1–11, 공개 형태, 창 크기가 바뀔 때 | `docs/spike-drag.md`                                                                                             |
 | 속성 편집기, 카드 상세와 원본 테스트의 대응      | `docs/properties-test-mapping.md`, `docs/card-test-mapping.md`, `src/lib/components/README.md`                   |
@@ -54,22 +54,23 @@
 
 ## 이 브랜치의 마지막 검증
 
-2026-11-11 07:19–07:28 KST(커밋 `a4ab4a6`; 그 뒤는 이 표의 고침뿐이고 같은 명령을 다시 돌렸다), 저장소 루트에서 `pnpm --filter web run <명령>`:
+2026-11-11 16:37–16:52 KST(커밋 `362f1b5`; 그 뒤는 이 표의 고침뿐이고 같은 명령을 다시 돌렸다), 저장소 루트에서 `pnpm --filter web run <명령>`:
 
-| 명령            | 결과                                                                                                                                                                                                                                               |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check`         | 통과(svelte-check 오류 0, ESLint, Prettier, 문구의 키)                                                                                                                                                                                             |
-| `test`          | 2413 통과, 36 건너뜀(원본 번역의 재변환처럼 원본이 있어야 하는 것), 파일 97                                                                                                                                                                        |
-| `build`         | 통과                                                                                                                                                                                                                                               |
-| `e2e`           | 532 통과, 179 건너뜀(`FVOCI_SCREENS`의 그림과 프로젝트마다 맞지 않는 것), 실패 0                                                                                                                                                                   |
-| `e2e:live`      | 11 통과, 실패 0(서버는 테스트가 띄우고 끈다)                                                                                                                                                                                                       |
-| 스크린샷 테스트 | `FVOCI_SCREENS=1`의 e2e 그림 테스트 108개(그림 178장), 스파이크의 그림 테스트(`FVOCI_MOBILE_SHOTS`, `FVOCI_CALENDAR_SHOTS`, `FVOCI_EDITOR_SHOTS`) 153개(그림 129장)가 통과하고, 그림은 `target/screens/`에 생기며 `git status --short`가 비어 있다 |
+| 명령       | 결과                                                                                          |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| `check`    | 통과(svelte-check 오류 0, ESLint, Prettier, 문구의 키)                                        |
+| `test`     | 2609 통과, 41 건너뜀(원본 번역과 템플릿 아카이브의 재변환처럼 원본이 있어야 하는 것), 파일 99 |
+| `build`    | 통과                                                                                          |
+| `e2e`      | 532 통과, 179 건너뜀(`FVOCI_SCREENS`의 그림과 프로젝트마다 맞지 않는 것), 실패 0              |
+| `e2e:live` | 27 통과, 실패 0(지난 묶음의 11개가 그대로 있다. 서버는 테스트가 띄우고 끈다)                  |
+
+스크린샷 테스트(`FVOCI_SCREENS`와 스파이크의 그림)는 이 묶음에서 돌리지 않았다.
 
 ## 다음에 할 일
 
 1. **서버에 붙이는 일을 잇는다.** `not_wired`로 남은 조작(보드·뷰·카테고리 만들기와 고치기, 구성원 관리 등)이다(`docs/decisions.md`의 연결 3). 카테고리와 새 보드를 붙일 때 볼 것은 `docs/contract-assumptions.md` 4절에 있다. 타입은 계약에서 만든다(`pnpm --filter web run api:types`).
 2. **익명 독자의 화면이 없다.** 공유 보드를 읽기 토큰으로 보는 화면이 없어, 빈 `userId`의 멘션은 그리는 쪽과 쓰기의 거절까지만 붙었다(`e2e-live/anonymous.spec.ts`는 서버의 답을 직접 읽는다). 파일 주소에 `readToken`을 싣는 일도 그 화면과 함께다.
-3. **손으로 적은 임시 타입이 남아 있다**(`tools/templates/output.ts`). 템플릿은 이 묶음의 범위 밖이었다. 화면의 카드에는 옛 `contentOrder`가 남아 있지만(`logic/wire.ts`) 서버로 가지 않는다.
+3. **손으로 적은 임시 타입이 남아 있다**(`src/lib/state/memory/seed.ts`의 템플릿 파일). 화면의 카드에는 옛 `contentOrder`가 남아 있지만(`logic/wire.ts`) 서버로 가지 않는다.
 4. **검토에서 남긴 것을 본다.** 화면 조립 때의 것은 `docs/decisions.md`의 "검토에서 나온 것과 처리"에, 이 묶음의 것은 각 리뷰 커밋의 본문("Not taken")에 있다.
 5. **캘린더 뷰는 읽기까지 있다**(`features/views/calendar/`, 권고대로). 주 보기(C17), 날짜 바꾸기·카드 만들기(V2), 끌기(V5)가 남았고, 서버에서 뷰를 만드는 `createView`는 아직 `not_wired`다.
 6. **가끔 실패하는 드래그 테스트의 원인을 가른다**(아래).
@@ -103,7 +104,7 @@
 | 실제 서버의 Playwright                 | `e2e:live`(아래)                  | 18510, `FVOCI_LIVE_PORT`   | 스스로 띄우고 끈다 |
 | Storybook 개발 서버                    | `pnpm --filter web run storybook` | 6006                       | `/`                |
 
-`e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server`(템플릿 아카이브를 놓아야 컴파일된다, 루트 `docs/handoff.md`)와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
+`e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
 
 `look`에 관해:
 
@@ -182,9 +183,8 @@
 ### 문서와 커밋
 
 - **문서에 시각을 미리 적지 않는다.** 일이 끝날 시각을 어림해 적었다가 여러 번 고쳤다. `date`를 찍고 그 값을 적는다.
-- **이름 검사는 산출물도 본다.** 템플릿의 "바뀐 곳 목록"은 이전 문구에 원본의 이름이 들어가므로 `{old product name}`, `{old company name}`으로 가려서 쓴다(`tools/templates/rewrite.ts`의 `maskOldNames`).
-- **생성물을 Prettier가 다시 접는다.** `JSON.stringify(…, null, 2)`의 배열 모양은 Prettier의 것과 다르다. 도구가 쓰는 파일은 `.prettierignore`에 넣고, "최신인가"는 테스트가 본다(`messages/`, `tools/templates/output/`).
-- **체리픽한 뒤 생성물을 다시 만든다.** 두 작업이 `messages-own/`에 키를 더하고 `messages/`를 각자 생성한 적이 있다. 합친 뒤 `pnpm --filter web run i18n:convert`와 `node tools/i18n/review.ts`를 돌려 차이가 없는지 본다.
+- **이름 검사는 산출물도 본다.** 템플릿의 "바뀐 곳 목록"(`CHANGES.md`)은 이전 문구에 원본의 이름이 들어가므로 `{old product name}`, `{old company name}`으로 가려서 썼다.
+- **생성물을 Prettier가 다시 접는다.** `JSON.stringify(…, null, 2)`의 배열 모양은 Prettier의 것과 다르다. 도구가 쓰는 파일은 `.prettierignore`에 넣고, "최신인가"는 검사가 본다(`src/lib/api/contract.ts`).
 - **충돌을 풀며 체리픽한 커밋은 `git cherry`가 "같은 변경"으로 알아보지 못한다.** 화면 조립 때 메시지 파일의 충돌을 풀며 들어온 커밋이 그랬다. 워크트리를 지워도 되는지는 워킹 트리가 깨끗한지와 내용이 들어왔는지를 따로 확인한다.
 - **다른 커밋의 트리를 `target/` 아래에 풀고 거기서 `pnpm exec`를 부르면 안 된다.** pnpm이 심볼릭 링크를 타고 `apps/web/node_modules`에 잠금 파일 없이 설치한다. 한 번 겪었고, 지우고 `--frozen-lockfile`로 다시 설치했다. 추적되는 파일에는 영향이 없었다.
 
