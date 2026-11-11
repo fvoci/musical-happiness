@@ -582,3 +582,157 @@ async fn a_restored_block_or_board_shows_its_files_again() {
 
     test.teardown().await;
 }
+
+/// A body that shows the files, or says `text` without any.
+fn body_showing(text: &str, names: &[&str]) -> Option<fvoci_model::Body> {
+    let mut content =
+        vec![json!({"type": "paragraph", "content": [{"type": "text", "text": text}]})];
+    content.extend(
+        names
+            .iter()
+            .map(|name| json!({"type": "image", "attrs": {"fileId": name}})),
+    );
+    fvoci_model::Body::parse(json!({"type": "doc", "content": content}))
+        .expect("the body may be stored")
+}
+
+/// The texts of the versions of a comment.
+async fn version_texts(store: &fvoci_store::Store, comment_id: &str) -> Vec<(i64, String)> {
+    store
+        .get_comment_versions(comment_id)
+        .await
+        .expect("the versions are read")
+        .into_iter()
+        .map(|version| {
+            let text = version.body.map(|body| body.text()).unwrap_or_default();
+            (version.version, text)
+        })
+        .collect()
+}
+
+/// A patch of a comment's title that sets its body to the text, or keeps the body.
+fn title_and_body(body: Option<&str>) -> fvoci_model::BlockPatch {
+    fvoci_model::BlockPatch {
+        title: Some("title".to_owned()),
+        body: body.map_or(fvoci_model::BodyChange::Keep, |words| {
+            fvoci_model::BodyChange::Set(body_showing(words, &[]).expect("a body"))
+        }),
+        ..fvoci_model::BlockPatch::default()
+    }
+}
+
+/// A board with the files `7first.png` and `7second.png`, and a comment on a card of it,
+/// posted by `author`, whose body says `v1` and shows the first file.
+async fn posted_comment(store: &fvoci_store::Store, author: &str) -> Block {
+    let team_id = common::team(store).await;
+    let boards = common::create_test_boards(store, &team_id, author, 1).await;
+    let board_id = &boards[0].id;
+    for name in ["7first.png", "7second.png"] {
+        store
+            .save_file_info(&record_of(board_id, name))
+            .await
+            .expect("a file of the board is stored");
+    }
+    let mut card = card_showing(board_id, &[]);
+    common::insert_blocks(store, std::slice::from_mut(&mut card), author).await;
+    let mut comment = Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        parent_id: card.id.clone(),
+        block_type: BlockType::Comment,
+        body: body_showing("v1", &["7first.png"]),
+        ..Block::default()
+    };
+    common::insert_blocks(store, std::slice::from_mut(&mut comment), author).await;
+    store.get_block(&comment.id).await.expect("the comment")
+}
+
+/// Not in the original (user decision 2026-11-11 14:46 KST). Each change of a comment's
+/// body keeps what it said before, with who wrote it and when, up to the set number of
+/// versions: the first and the newest. The files of the kept versions stay, and the
+/// versions go with the comment when it is gone for good, not while it is in the trash.
+#[tokio::test]
+async fn a_changed_comment_keeps_what_it_said_before() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let author = common::user(store, "meredith.palmer").await;
+    let editor = common::user(store, "kelly.kapoor").await;
+    let posted = posted_comment(store, &author).await;
+    let id = &posted.id;
+    assert_eq!(posted.edited_at, 0, "never changed");
+    assert_eq!(version_texts(store, id).await, [], "no versions yet");
+
+    // A change of the title alone makes no version.
+    store
+        .patch_block(id, &title_and_body(None), &author)
+        .await
+        .expect("the title is changed");
+    assert_eq!(version_texts(store, id).await, []);
+
+    store
+        .patch_block(id, &title_and_body(Some("v2")), &editor)
+        .await
+        .expect("the body is changed");
+    let changed = store.get_block(id).await.expect("the comment");
+    assert_eq!(
+        changed.edited_at, changed.update_at,
+        "when the body changed"
+    );
+    let versions = store.get_comment_versions(id).await.expect("the versions");
+    assert_eq!(versions.len(), 1, "{versions:?}");
+    assert_eq!(versions[0].version, 1);
+    assert_eq!(
+        versions[0].written_by, author,
+        "the text it was posted with"
+    );
+    assert_eq!(versions[0].written_at, posted.create_at);
+    // A body that stays makes none either.
+    store
+        .patch_block(id, &title_and_body(Some("v2")), &editor)
+        .await
+        .expect("the same body again");
+    assert_eq!(version_texts(store, id).await, [(1, "v1".to_owned())]);
+
+    // The first version shows its file: it stays while the version is kept.
+    let later = now_millis() + 3_600_000;
+    assert_eq!(collected(store, later).await, ["7second.png"]);
+
+    // With three kept, the first and the two newest stay.
+    store.set_comment_versions_kept(3);
+    for words in ["v3", "v4", "v5", "v6"] {
+        store
+            .patch_block(id, &title_and_body(Some(words)), &editor)
+            .await
+            .expect("the body is changed");
+    }
+    let versions = store.get_comment_versions(id).await.expect("the versions");
+    assert_eq!(
+        version_texts(store, id).await,
+        [
+            (1, "v1".to_owned()),
+            (4, "v4".to_owned()),
+            (5, "v5".to_owned())
+        ],
+        "the first, then the newest; the body has v6"
+    );
+    assert_eq!(versions[1].written_by, editor, "who changed it to v4");
+    store.set_comment_versions_kept(fvoci_store::DEFAULT_COMMENT_VERSIONS_KEPT);
+
+    // In the trash the versions stay, and back from it too.
+    store.delete_block(id, &author).await.expect("deleted");
+    assert_eq!(version_texts(store, id).await.len(), 3);
+    store.undelete_block(id, &author).await.expect("restored");
+    assert_eq!(version_texts(store, id).await.len(), 3);
+    assert_eq!(collected(store, later).await, Vec::<String>::new());
+
+    // Gone for good, the versions go, and so does what only they showed.
+    store.delete_block(id, &author).await.expect("deleted");
+    store
+        .purge_trash(now_millis() + 60_000)
+        .await
+        .expect("the trash is purged");
+    assert_eq!(version_texts(store, id).await, []);
+    assert_eq!(collected(store, later).await, ["7first.png"]);
+
+    test.teardown().await;
+}

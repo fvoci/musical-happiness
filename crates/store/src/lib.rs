@@ -12,6 +12,7 @@ mod boards;
 mod boards_and_blocks;
 mod categories;
 mod category_boards;
+mod comment_versions;
 mod connect;
 mod data_steps;
 mod db;
@@ -38,6 +39,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 pub use blocks::{BlockFilter, DuplicateAs, Paging};
 pub use boards::{Joined, MemberChange, PublicBoards};
 pub use category_boards::BoardVisibility;
+pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use db::Dialect;
 pub use error::{StoreError, Taken};
@@ -64,6 +66,8 @@ struct Inner {
     pool: Pool,
     /// The queue of the transactions on an SQLite database; see [`Store::transaction`].
     sqlite_writers: tokio::sync::Mutex<()>,
+    /// See [`Store::set_comment_versions_kept`].
+    comment_versions_kept: std::sync::atomic::AtomicUsize,
 }
 
 #[derive(Debug)]
@@ -118,6 +122,9 @@ impl Store {
             inner: Arc::new(Inner {
                 pool,
                 sqlite_writers: tokio::sync::Mutex::new(()),
+                comment_versions_kept: std::sync::atomic::AtomicUsize::new(
+                    comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT,
+                ),
             }),
         };
         schema::migrate(&store).await?;
@@ -174,14 +181,15 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
+        let kept = self.comment_versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(ConnRef::Sqlite(&mut conn))).await
+                operation(&mut Scope::new(ConnRef::Sqlite(&mut conn), kept)).await
             }
             Pool::Postgres(pool) => {
                 let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(ConnRef::Postgres(&mut conn))).await
+                operation(&mut Scope::new(ConnRef::Postgres(&mut conn), kept)).await
             }
         }
     }
@@ -192,6 +200,7 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
+        let kept = self.comment_versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 // One transaction at a time, in the order they come. SQLite has one
@@ -205,12 +214,12 @@ impl Store {
                 // then tries to write fails with SQLITE_BUSY as soon as another one does
                 // the same, and no busy timeout can resolve that.
                 let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-                let result = operation(&mut Scope::new(ConnRef::Sqlite(&mut tx))).await;
+                let result = operation(&mut Scope::new(ConnRef::Sqlite(&mut tx), kept)).await;
                 finish(result, tx).await
             }
             Pool::Postgres(pool) => {
                 let mut tx = pool.begin().await?;
-                let result = operation(&mut Scope::new(ConnRef::Postgres(&mut tx))).await;
+                let result = operation(&mut Scope::new(ConnRef::Postgres(&mut tx), kept)).await;
                 finish(result, tx).await
             }
         }

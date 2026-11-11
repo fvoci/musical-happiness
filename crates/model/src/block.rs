@@ -297,6 +297,21 @@ pub struct Block {
     /// The identifier of the board the block belongs to.
     #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
+    /// For a comment whose body was changed: when that last happened, in milliseconds
+    /// since the Unix epoch. Absent for a comment never changed and for every other
+    /// block. The server sets it, and ignores a client's. What the body said before is
+    /// `getCommentVersions`'.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub edited_at: i64,
+}
+
+/// Whether a time is none: zero.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes a reference"
+)]
+fn is_zero(time: &i64) -> bool {
+    *time == 0
 }
 
 impl Block {

@@ -19,6 +19,7 @@ mod card;
 mod card_property;
 mod category;
 mod client_config;
+mod comment_version;
 mod date_value;
 mod error_response;
 mod file_info;
@@ -65,6 +66,7 @@ pub use category::{
     CategoryBoards, CategoryError, CategoryType,
 };
 pub use client_config::ClientConfig;
+pub use comment_version::CommentVersion;
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };

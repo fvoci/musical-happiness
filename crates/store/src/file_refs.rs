@@ -6,9 +6,12 @@
 //! live or in the trash, is marked with the time it became so, and a file marked longer
 //! ago than the grace period is removed by [`Store::collect_unreferenced_files`].
 
-use fvoci_model::{Block, FileInfo};
+use std::collections::BTreeSet;
+
+use fvoci_model::{Block, BlockType, FileInfo};
 
 use crate::Store;
+use crate::comment_versions;
 use crate::db::{Id, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info::{FILE_INFO_COLUMNS, file_info_from_row};
@@ -46,7 +49,8 @@ impl Store {
 }
 
 /// Puts down the files a block shows now, in place of those it showed, and marks the
-/// files of its board whose state that changes.
+/// files of its board whose state that changes. A comment shows the files of its kept
+/// versions too.
 pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     sql.bind(Id(&block.id)).push(" RETURNING name");
@@ -56,7 +60,12 @@ pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), 
         .iter()
         .map(|row| row.text(0))
         .collect::<Result<Vec<_>, _>>()?;
-    for name in block.shown_files() {
+    // What the block shows, and what the kept versions of a comment show.
+    let mut shown: BTreeSet<String> = block.shown_files().into_iter().collect();
+    if block.block_type == BlockType::Comment {
+        shown.extend(comment_versions::files_of(scope, &block.id).await?);
+    }
+    for name in shown {
         let mut sql = scope.sql("INSERT INTO file_refs (block_id, board_id, name) VALUES (");
         sql.bind(Id(&block.id))
             .push_bind(", ", Id(&block.board_id))

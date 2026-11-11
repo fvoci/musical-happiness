@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use crate::Store;
 use crate::boards;
+use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs;
@@ -22,6 +23,16 @@ use crate::file_refs;
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
                              fields, create_at, update_at, board_id, body";
+
+/// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
+/// changed if it is a comment with versions.
+pub(crate) fn block_read_columns() -> String {
+    format!("{BLOCK_COLUMNS}, {EDITED_AT_COLUMN}")
+}
+
+/// The column of a block read with [`block_read_columns`] that says when its body was
+/// last changed.
+const EDITED_AT: usize = 12;
 
 /// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
 /// when it is stored.
@@ -367,7 +378,7 @@ impl Store {
 
 /// Starts `SELECT <block columns> FROM blocks`.
 pub(crate) fn select_blocks(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!("SELECT {BLOCK_COLUMNS} FROM blocks"))
+    scope.sql(&format!("SELECT {} FROM blocks", block_read_columns()))
 }
 
 pub(crate) async fn fetch_blocks(
@@ -378,10 +389,16 @@ pub(crate) async fn fetch_blocks(
         .fetch_all(sql)
         .await?
         .iter()
-        .map(block_from_row)
+        .map(|row| {
+            let mut block = block_from_row(row)?;
+            block.edited_at = row.int(EDITED_AT)?;
+            Ok(block)
+        })
         .collect()
 }
 
+/// The block of a row read with [`BLOCK_COLUMNS`] or [`LISTED_BLOCK_COLUMNS`]: without
+/// [`Block::edited_at`].
 fn block_from_row(row: &Row) -> Result<Block, StoreError> {
     Ok(Block {
         id: row.id(0)?,
@@ -401,6 +418,7 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
             Value::Null => None,
             document => Some(Body::from_stored(document)),
         },
+        edited_at: 0,
     })
 }
 
@@ -408,7 +426,7 @@ pub(crate) async fn get_blocks(
     scope: &mut Scope<'_>,
     filter: &BlockFilter,
 ) -> Result<Vec<Block>, StoreError> {
-    let sql = filtered_blocks(scope, filter, BLOCK_COLUMNS);
+    let sql = filtered_blocks(scope, filter, &block_read_columns());
     fetch_blocks(scope, sql).await
 }
 
@@ -582,10 +600,17 @@ async fn insert_block_at(
                 block.id, block.board_id
             )));
         }
+        block.edited_at =
+            if comment_versions::record_change(scope, &existing, block, user_id).await? {
+                block.update_at
+            } else {
+                existing.edited_at
+            };
         file_refs::refresh(scope, block).await
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
+        block.edited_at = 0;
         insert_block_row(scope, block).await
     }
 }

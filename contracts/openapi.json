@@ -46,6 +46,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "editedAt": {
+            "description": "For a comment whose body was changed: when that last happened, in milliseconds\nsince the Unix epoch. Absent for a comment never changed and for every other\nblock. The server sets it, and ignores a client's. What the body said before is\n`getCommentVersions`'.",
+            "format": "int64",
+            "type": "integer"
+          },
           "fields": {
             "additionalProperties": true,
             "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment or an attachment and 800,000 for a view or a block of another type. The\n`icon` of a card is a string and its `isTemplate` a boolean, or either `null`\n(400 naming `fields` otherwise).",
@@ -815,6 +820,43 @@
           "maxFileSize",
           "maxImportSize",
           "teammateNameDisplay"
+        ],
+        "type": "object"
+      },
+      "CommentVersion": {
+        "description": "A text a comment had before its body was changed: the body then, who wrote it and\nwhen. The first is the comment as it was posted.",
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The body of the comment then; `null` if it had none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "description": "The place of the version among the comment's, counted from 1 for the text it was\nposted with. Versions the server no longer keeps leave gaps.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "writtenAt": {
+            "description": "When this version was written, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "writtenBy": {
+            "description": "Who wrote this version: the author of the comment for the first one, and for\neach later one who changed the body to it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body",
+          "version",
+          "writtenAt",
+          "writtenBy"
         ],
         "type": "object"
       },
@@ -2937,6 +2979,61 @@
           }
         },
         "summary": "Bring a deleted block back",
+        "tags": [
+          "blocks"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/blocks/{blockId}/versions": {
+      "get": {
+        "description": "The earlier versions of a comment's body: every version but the one it has now, with\nwho wrote it and when. The first one first; it is the text the comment was posted\nwith, by its author. The server keeps the first version and the newest ones, up to\nits setting `max_comment_versions` in all, so the numbers of the versions may leave\ngaps. Empty for a comment whose body was never changed; the comment's `editedAt` says\nwhether it was. For the board's members, also in the trash: the versions go only\nwhen the comment is gone for good. Not for a reader by the board's read token. A\nblock that is no comment is not there (404).",
+        "operationId": "getCommentVersions",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CommentVersion"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The earlier versions, the first one first."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "What a comment said before",
         "tags": [
           "blocks"
         ]

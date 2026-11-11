@@ -164,7 +164,7 @@ enum Members {
 /// [`document`], so that a new type is looked at once.
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
-    ("Block", Members::All),
+    ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Board", Members::All),
     ("BoardMember", Members::All),
@@ -174,6 +174,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryBoardMetadata", Members::All),
     ("CategoryBoards", Members::All),
     ("ClientConfig", Members::All),
+    ("CommentVersion", Members::All),
     ("ErrorBody", Members::Only(&["error", "message"])),
     ("FileInfo", Members::All),
     ("OnboardingStart", Members::AsWritten),
@@ -1062,6 +1063,7 @@ mod tests {
         ("getBoards", "Oldest first"),
         ("getCards", "Oldest first; the pages cut that order"),
         ("getCategories", "by `sortOrder`, lowest first"),
+        ("getCommentVersions", "The first one first"),
         ("getMembers", "By the identifier of the user"),
         ("getMyMemberships", "By the identifier of the board"),
         (

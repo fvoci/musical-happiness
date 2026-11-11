@@ -254,6 +254,9 @@ pub(crate) enum ConnRef<'c> {
 #[derive(Debug)]
 pub(crate) struct Scope<'c> {
     conn: ConnRef<'c>,
+    /// How many earlier versions of a comment are kept
+    /// ([`crate::Store::set_comment_versions_kept`]).
+    comment_versions_kept: usize,
 }
 
 /// Binds every parameter of `$sql` to `$query` for one database. `$id` turns an
@@ -287,8 +290,16 @@ fn postgres_id(uuid: Uuid) -> Uuid {
 }
 
 impl<'c> Scope<'c> {
-    pub(crate) fn new(conn: ConnRef<'c>) -> Self {
-        Self { conn }
+    pub(crate) fn new(conn: ConnRef<'c>, comment_versions_kept: usize) -> Self {
+        Self {
+            conn,
+            comment_versions_kept,
+        }
+    }
+
+    /// How many earlier versions of a comment are kept, at least one.
+    pub(crate) fn comment_versions_kept(&self) -> usize {
+        self.comment_versions_kept
     }
 
     /// The dialect of the connected database.

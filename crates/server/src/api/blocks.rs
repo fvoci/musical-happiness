@@ -3,7 +3,7 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, CommentVersion,
     generate_block_ids, stamp_modification_metadata,
 };
 
@@ -41,6 +41,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         ))
         .routes(routes!(handle_delete_block, handle_patch_block))
         .routes(routes!(handle_undelete_block))
+        .routes(routes!(handle_get_comment_versions))
         .routes(routes!(handle_duplicate_block))
 }
 
@@ -443,6 +444,55 @@ async fn handle_undelete_block(
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
     Ok(json_response(&undeleted))
+}
+
+/// What a comment said before
+///
+/// The earlier versions of a comment's body: every version but the one it has now, with
+/// who wrote it and when. The first one first; it is the text the comment was posted
+/// with, by its author. The server keeps the first version and the newest ones, up to
+/// its setting `max_comment_versions` in all, so the numbers of the versions may leave
+/// gaps. Empty for a comment whose body was never changed; the comment's `editedAt` says
+/// whether it was. For the board's members, also in the trash: the versions go only
+/// when the comment is gone for good. Not for a reader by the board's read token. A
+/// block that is no comment is not there (404).
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/blocks/{blockId}/versions",
+    operation_id = "getCommentVersions",
+    tag = tag::BLOCKS,
+    params(BoardId, BlockId),
+    responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
+)]
+async fn handle_get_comment_versions(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path((board_id, block_id)): Path<(String, String)>,
+) -> ApiResult {
+    let user_id = session.user_id.as_str();
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ViewBoard,
+        "access denied to board",
+    )
+    .await?;
+    let comment = match block_on_board(&app, &block_id, &board_id).await {
+        Ok(block) => block,
+        Err(error) if error.is_not_found() => app
+            .deleted_block(&block_id)
+            .await?
+            .map(|deleted| deleted.block)
+            .filter(|block| block.board_id == board_id)
+            .ok_or_else(|| AppError::not_found("comment"))?,
+        Err(error) => return Err(error),
+    };
+    if comment.block_type != BlockType::Comment {
+        return Err(AppError::not_found("comment"));
+    }
+    let versions = app.comment_versions(&block_id).await?;
+    Ok(json_response(&versions))
 }
 
 /// Change a block
