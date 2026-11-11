@@ -17,6 +17,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 
+use crate::files;
 use crate::steps;
 use scan::{Declared, Reference, Target};
 use walk::ModuleFile;
@@ -192,7 +193,7 @@ impl Sources {
                 let ModuleFile { module, file } = module_file;
                 let source = std::fs::read_to_string(file)
                     .with_context(|| format!("reading {}", file.display()))?;
-                let shown = shown_path(root, file);
+                let shown = files::shown_path(root, file);
                 sources
                     .add(&shown, module, &source)
                     .with_context(|| format!("reading {shown}"))
@@ -420,16 +421,6 @@ fn handle_by_path(from: &Layer, path: &str) -> Option<(&'static Layer, String)> 
 /// How many forms of one path are followed: more than any real chain of names, and an
 /// end for names that are given in a circle.
 const MOST_FORMS: usize = 64;
-
-/// A path below the workspace root as the list and the messages write it.
-fn shown_path(root: &Path, file: &Path) -> String {
-    let relative = file.strip_prefix(root).unwrap_or(file);
-    let parts: Vec<String> = relative
-        .components()
-        .map(|part| part.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    parts.join("/")
-}
 
 /// The layer a path belongs to: the one with the longest claim on it.
 fn layer_of(path: &str) -> Option<&'static Layer> {

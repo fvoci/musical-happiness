@@ -746,7 +746,7 @@ fn walked(directory: &Path) -> Result<Vec<String>> {
         seen.push(format!(
             "{} {}",
             module_file.module.join("::"),
-            shown_path(directory, &module_file.file)
+            crate::files::shown_path(directory, &module_file.file)
         ));
         Ok(read_source(&module_file.module, &source, &[])?.declared)
     })?;

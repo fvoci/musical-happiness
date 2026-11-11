@@ -88,7 +88,8 @@
 ## 1. 검증
 
 ```bash
-cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 계약, 라이선스·권고. 외부 서비스 없음
+cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 길이, 계약, 라이선스·권고. 외부 서비스 없음
+cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 천장을 올리는 유일한 길이고, 따로 잰 묶음들을 합친 뒤 한 번만 돌린다
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
 cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
@@ -97,7 +98,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 여덟 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 남은 위반은 `xtask/exceptions/layers.txt`(줄어들 수만 있다) |
+| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(줄어들 수만 있다) |
 | `cargo xtask test` | SQLite 1,095건, PostgreSQL 956건, S3 7건, 실패 0(2026-11-11, `fvoci/server-next`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
@@ -106,7 +107,6 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
-- `cargo xtask test`는 스스로 띄운 컨테이너를, 마지막으로 쓴 실행이 끝날 때 멈춘다(tracer-bullet 11).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다.
 
 **걸리는 시간.** 이 기기에서 빌드 캐시가 있을 때, 2026-11-11 02–03시 KST에 잰 값이다.

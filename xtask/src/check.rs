@@ -70,6 +70,7 @@ pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
         }),
         Step::new("names", || former_names_are_absent(root)),
         Step::new("layers", || crate::layers::run(root)),
+        Step::new("lengths", || crate::lengths::run(root)),
         Step::new("contract", || {
             crate::openapi::run(root, crate::openapi::Mode::Check)
         }),

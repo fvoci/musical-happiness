@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context as _, Result, bail};
 
 use super::scan::Declared;
+use crate::files;
 
 /// A file of a crate and the module it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,12 +64,11 @@ pub(crate) fn walk_crate(
             waiting.push(locate(&declared, file_directory, &children_directory)?);
         }
     }
-    let mut unreached = Vec::new();
-    collect_rust_files(source_directory, &mut |file| {
-        if !reached.contains(file) {
-            unreached.push(file.display().to_string());
-        }
-    })?;
+    let unreached: Vec<String> = files::rust_files(source_directory)?
+        .iter()
+        .filter(|file| !reached.contains(*file))
+        .map(|file| file.display().to_string())
+        .collect();
     if !unreached.is_empty() {
         bail!(
             "not a module of {name}, so not checked: {}",
@@ -124,26 +124,4 @@ fn locate(
         );
     };
     Ok((ModuleFile { module, file }, directory.join(name)))
-}
-
-/// Calls `visit` for every `.rs` file under `directory`, in the order of their paths.
-///
-/// # Errors
-///
-/// Fails if a directory cannot be read.
-pub(crate) fn collect_rust_files(directory: &Path, visit: &mut dyn FnMut(&Path)) -> Result<()> {
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(directory)
-        .with_context(|| format!("reading {}", directory.display()))?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<_, _>>()
-        .with_context(|| format!("reading {}", directory.display()))?;
-    entries.sort();
-    for path in entries {
-        if path.is_dir() {
-            collect_rust_files(&path, visit)?;
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            visit(&path);
-        }
-    }
-    Ok(())
 }
