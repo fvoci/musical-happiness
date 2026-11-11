@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use fvoci_model::{BODY_MAX_DEPTH, BODY_MAX_NODES, Body, BodyError};
 use serde_json::{Value, json};
-use yrs::{ArrayRef, Doc, ReadTxn, Transact, XmlFragmentRef};
+use yrs::{Doc, ReadTxn, Transact, XmlFragment, XmlFragmentRef};
 
 use crate::FIELD;
 use crate::read::{self, Child, Content, Pushed};
@@ -20,8 +20,9 @@ use crate::read::{self, Child, Content, Pushed};
 /// # Errors
 ///
 /// Returns the [`BodyError`] a body of that JSON is refused with. Shared content that
-/// has no JSON at all (a text at the root, a value where a node belongs, something in a
-/// text that is no letter) is refused as [`BodyError::InvalidNode`].
+/// has no JSON at all (letters or a value where a node belongs, a fragment inside the
+/// document, something in a text that is no letter) is refused as
+/// [`BodyError::InvalidNode`].
 pub fn to_body(doc: &Doc) -> Result<Option<Body>, BodyError> {
     let txn = doc.transact();
     // A document nothing was ever written into has no root yet, and no body.
@@ -70,19 +71,18 @@ impl<T: ReadTxn> Walk<'_, T> {
     /// The content of an element or the root, whose children are at `depth`.
     fn content(
         &mut self,
-        parent: &impl AsRef<ArrayRef>,
+        parent: &impl XmlFragment,
         depth: usize,
     ) -> Result<Vec<Value>, BodyError> {
-        let children = read::children(self.txn, parent);
-        if !children.is_empty() && depth > BODY_MAX_DEPTH {
-            return Err(BodyError::TooDeep);
-        }
+        let Some(children) = read::children(self.txn, parent) else {
+            return Err(self.invalid("holds something that is neither a node nor a text"));
+        };
         let mut content = Content::default();
         for child in children {
             self.path.push(content.len());
             match child {
                 Child::Element(element) => {
-                    self.count()?;
+                    self.count(depth)?;
                     let inner = self.content(&element, depth + 1)?;
                     content.push(read::element_node(self.txn, &element, inner));
                 }
@@ -90,10 +90,12 @@ impl<T: ReadTxn> Walk<'_, T> {
                     let Some(nodes) = read::text_nodes(self.txn, &text) else {
                         return Err(self.invalid("text holds something that is no text"));
                     };
+                    // A text without letters is no node: an editor leaves one in a
+                    // paragraph it emptied.
                     for node in nodes {
                         // A text that joins the one before it is no node of its own.
                         if content.push(node) == Pushed::New {
-                            self.count()?;
+                            self.count(depth)?;
                         }
                     }
                 }
@@ -106,8 +108,11 @@ impl<T: ReadTxn> Walk<'_, T> {
         Ok(content.into_nodes())
     }
 
-    /// Counts one more node, and stops the walk past the limit.
-    fn count(&mut self) -> Result<(), BodyError> {
+    /// Counts one more node, at `depth`, and stops the walk past a limit.
+    fn count(&mut self, depth: usize) -> Result<(), BodyError> {
+        if depth > BODY_MAX_DEPTH {
+            return Err(BodyError::TooDeep);
+        }
         self.nodes += 1;
         if self.nodes > BODY_MAX_NODES {
             return Err(BodyError::TooManyNodes);

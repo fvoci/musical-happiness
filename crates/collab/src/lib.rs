@@ -14,6 +14,11 @@
 //! - [`with_update`] gives the Y document as it would be with a client's update, and
 //!   refuses an update that cannot be taken as it is.
 //!
+//! Every function here that is given a document takes its lock for as long as it
+//! runs, and waits for it: do not call one while the same thread holds a transaction
+//! on that document. The Y library is given on as [`yrs`], so that what holds a
+//! document names its types from the version this crate is built with.
+//!
 //! What the shape is, and what an editor does with shared content, is not assumed here:
 //! the web app's tests state it (`apps/web/spikes/collab`) and write it down as vectors
 //! (`contracts/ydoc-vectors.json`), and this crate's tests read those.
@@ -30,6 +35,7 @@ pub use build::{from_body, new_doc};
 pub use project::to_body;
 pub use repair::{Repair, repair};
 pub use update::{UpdateError, UpdateLimits, copy_of, state_of, with_update};
+pub use yrs;
 
 /// The name of the XML fragment at the root of the Y document that holds the body: the
 /// one the editor's collaboration extension uses when it is given none.

@@ -57,15 +57,58 @@ fn a_document_is_made_the_same_every_time() {
 }
 
 /// What the editors keep though it is no body is refused here, and a repair deletes
-/// what the allowlist refuses in it and leaves a body.
+/// what the allowlist refuses in it and nothing else. No editor says what is left; this
+/// table does, as how many deletions and the body.
 #[test]
 fn what_only_the_servers_rules_refuse_is_refused_and_repaired() {
-    for vector in vectors("refused") {
-        let name = &vector.name;
+    let a =
+        r#"{"content":[{"content":[{"text":"a","type":"text"}],"type":"paragraph"}],"type":"doc"}"#;
+    let two_empty = r#"{"content":[{"type":"paragraph"},{"type":"paragraph"}],"type":"doc"}"#;
+    let left: [(&str, usize, &str); 17] = [
+        ("a heading of level 7", 1, a),
+        ("a heading whose level is a text", 1, "null"),
+        ("a heading whose level is null", 1, "null"),
+        ("an image without a file", 1, a),
+        ("an image whose file is empty", 1, "null"),
+        // The mentions go, the paragraphs they stood in stay.
+        (
+            "a mention of nobody, and of somebody who is no identifier",
+            2,
+            two_empty,
+        ),
+        ("formulas without a source and with an empty one", 3, a),
+        // The text goes, and a document of one empty paragraph is no body.
+        ("a link without a target", 1, "null"),
+        ("a link whose value is true", 1, "null"),
+        ("a link whose value is a text", 1, "null"),
+        ("a link that runs a script", 1, a),
+        ("an ordered list that starts below zero", 1, "null"),
+        // The item, and with it the list it leaves without one: one deletion.
+        ("a task item whose checked is a text", 1, "null"),
+        ("a code block whose language has a space", 1, "null"),
+        ("a text with the character U+0000", 1, "null"),
+        (
+            "a mark given twice, once under a name with a hash",
+            1,
+            "null",
+        ),
+        ("two links on one text, under names with a hash", 1, "null"),
+    ];
+    let refused = vectors("refused");
+    assert_eq!(
+        refused
+            .iter()
+            .map(|one| one.name.as_str())
+            .collect::<Vec<_>>(),
+        left.iter().map(|(name, _, _)| *name).collect::<Vec<_>>(),
+        "the table has every refused vector"
+    );
+    for (vector, (name, deletions, body)) in refused.iter().zip(left) {
         let doc = doc_of(&vector.update);
         assert!(to_body(&doc).is_err(), "{name}: refused as it is");
         let repaired = repair(&doc).unwrap_or_else(|error| panic!("{name}: {error}"));
-        assert!(repaired.deleted > 0, "{name}: something was deleted");
+        assert_eq!(repaired.deleted, deletions, "{name}: deletions");
+        assert_eq!(json_of(repaired.body.as_ref()).to_string(), body, "{name}");
         let now = to_body(&doc).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(now, repaired.body, "{name}: the document is the body given");
     }

@@ -4,7 +4,8 @@
 use serde_json::{Map, Value};
 use yrs::types::Attrs;
 use yrs::types::text::YChange;
-use yrs::{Any, Array, ArrayRef, Number, Out, ReadTxn, Text, Xml, XmlElementRef, XmlTextRef};
+use yrs::types::xml::XmlOut;
+use yrs::{Any, Number, Out, ReadTxn, Text, Xml, XmlElementRef, XmlFragment, XmlTextRef};
 
 use crate::schema::{self, Fallback};
 
@@ -15,22 +16,32 @@ pub(crate) enum Child {
     Element(XmlElementRef),
     /// Text: the neighbouring text nodes of a line, with their marks.
     Text(XmlTextRef),
-    /// Something no editor writes there and none reads: a value, a map, a nested fragment.
+    /// A fragment inside the document, which no editor writes and none reads.
     Other,
 }
 
-/// The children of an element or the root, in order. The place of each in the list is
-/// the index it is deleted by.
-pub(crate) fn children<T: ReadTxn>(txn: &T, parent: &impl AsRef<ArrayRef>) -> Vec<Child> {
-    parent
-        .as_ref()
-        .iter(txn)
-        .map(|child| match child {
-            Out::YXmlElement(element) => Child::Element(element),
-            Out::YXmlText(text) => Child::Text(text),
-            _ => Child::Other,
-        })
-        .collect()
+/// The children of an element or the root, in order; the place of each in the list is
+/// the index it is deleted by. `None` if the parent holds anything that is no shared
+/// XML type (letters or values put straight into it): no editor writes that, and the
+/// library's own way of listing a parent's content does not come back from some of it
+/// (a letter outside the basic plane in such a string), so the children are followed
+/// from one to the next instead and counted against the parent's length.
+pub(crate) fn children<T: ReadTxn>(txn: &T, parent: &impl XmlFragment) -> Option<Vec<Child>> {
+    let mut found = Vec::new();
+    let mut next = parent.first_child();
+    while let Some(node) = next {
+        next = match &node {
+            XmlOut::Element(element) => element.siblings(txn).next(),
+            XmlOut::Text(text) => text.siblings(txn).next(),
+            XmlOut::Fragment(_) => None,
+        };
+        found.push(match node {
+            XmlOut::Element(element) => Child::Element(element),
+            XmlOut::Text(text) => Child::Text(text),
+            XmlOut::Fragment(_) => Child::Other,
+        });
+    }
+    (u32::try_from(found.len()).ok() == Some(parent.len(txn))).then_some(found)
 }
 
 /// The text nodes of a text, as JSON: one per run of letters with the same marks. `None`
@@ -215,6 +226,13 @@ impl Content {
         }
         self.nodes.push(node);
         Pushed::New
+    }
+
+    /// Adds nodes in order.
+    pub(crate) fn extend(&mut self, nodes: Vec<Value>) {
+        for node in nodes {
+            self.push(node);
+        }
     }
 
     /// How many nodes there are.

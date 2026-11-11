@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 use yrs::updates::decoder::Decode;
-use yrs::{Doc, Out, ReadTxn, StateVector, Transact, Update};
+use yrs::{ClientID, Doc, Out, ReadTxn, StateVector, Transact, Update};
 
 use crate::FIELD;
 use crate::build::doc_of_client;
@@ -37,9 +37,10 @@ pub enum UpdateError {
     /// The update cannot be applied to the document.
     #[error("the update cannot be applied: {0}")]
     Unappliable(String),
-    /// The update builds on changes the document does not have, so that part of it
-    /// waits instead of taking effect. A client sends what it has in order; one that
-    /// leaves a gap is not in step with the document.
+    /// The update builds on changes the document does not have: a client's changes
+    /// begin later than where the document has them, or part of the update waits for
+    /// changes of another client instead of taking effect. A client sends what it has
+    /// in order; one that leaves a gap is not in step with the document.
     #[error("the update builds on changes the document does not have")]
     MissingChanges,
     /// The update writes outside the fragment that holds the body.
@@ -80,10 +81,20 @@ pub fn copy_of(doc: &Doc) -> Doc {
     copy
 }
 
-/// Reads the bytes of an update, after the walk that keeps from the library what it
-/// does not survive (`scan`).
-fn read(update: &[u8]) -> Result<Update, UpdateError> {
-    scan::check(update).map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?;
+/// Reads the bytes of an update for a document, after the walk that keeps from the
+/// library what it does not survive (`scan`).
+fn read(doc: &Doc, update: &[u8]) -> Result<Update, UpdateError> {
+    let begins = scan::check(update)
+        .map_err(|refusal| UpdateError::Unreadable(refusal.reason().to_owned()))?;
+    // A client's changes go on from where the document has them: the library would
+    // take changes that begin later and leave a hole before them.
+    let known = doc.transact().state_vector();
+    if begins
+        .into_iter()
+        .any(|(client, clock)| clock > u64::from(known.get(&ClientID::new(client))))
+    {
+        return Err(UpdateError::MissingChanges);
+    }
     Update::decode_v1(update).map_err(|error| UpdateError::Unreadable(error.to_string()))
 }
 
@@ -92,6 +103,11 @@ fn read(update: &[u8]) -> Result<Update, UpdateError> {
 ///
 /// What comes back has still to be projected ([`crate::to_body`]) and, where that
 /// fails, repaired ([`crate::repair`]): this only refuses what cannot be taken at all.
+///
+/// Not everything an update may write is read by the projection: members of the root,
+/// attributes the schema does not have, attributes of a text. No editor reads them
+/// either. They stay in the document, and [`UpdateLimits::state_bytes`] is what bounds
+/// them.
 ///
 /// # Errors
 ///
@@ -105,7 +121,7 @@ pub fn with_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Do
             limit: limits.update_bytes,
         });
     }
-    let update = read(update)?;
+    let update = read(doc, update)?;
     let copy = copy_of(doc);
     {
         let mut txn = copy.transact_mut();

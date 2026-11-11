@@ -121,29 +121,93 @@ fn a_text_at_the_root_is_refused_and_deleted() {
     assert_eq!(repaired(&doc), document(&[text_paragraph("kept")]));
 }
 
-/// A value where a node belongs has no JSON at all: an editor skips it, the server
-/// refuses it and a repair deletes it.
+/// Values where the children of a node belong have no JSON at all. An editor passes
+/// over them; the server refuses the document, and a repair deletes the node that
+/// holds them.
 #[test]
-fn a_value_where_a_node_belongs_is_refused_and_deleted() {
+fn a_node_that_holds_values_is_refused_and_deleted_whole() {
     let doc = written(|txn, root| {
         paragraph(txn, root, "one");
-        let values: &ArrayRef = root.as_ref();
-        values.push_back(txn, "a value");
-        values.push_back(txn, 7);
         let two = paragraph(txn, root, "two");
         let inside: &ArrayRef = two.as_ref();
         inside.push_back(txn, true);
+        inside.push_back(txn, "a value");
+        paragraph(txn, root, "three");
     });
     assert_eq!(
         to_body(&doc),
         Err(BodyError::InvalidNode {
             path: "/content/1".to_owned(),
-            problem: "shared content is neither a node nor a text",
+            problem: "holds something that is neither a node nor a text",
         })
     );
     assert_eq!(
         repaired(&doc),
-        document(&[text_paragraph("one"), text_paragraph("two")])
+        document(&[text_paragraph("one"), text_paragraph("three")])
+    );
+}
+
+/// At the root there is no node to delete in their place: the document is refused, and
+/// so is its repair, which deletes nothing.
+#[test]
+fn a_root_that_holds_values_is_refused_and_not_repaired() {
+    let doc = written(|txn, root| {
+        paragraph(txn, root, "one");
+        let values: &ArrayRef = root.as_ref();
+        values.push_back(txn, 7);
+        root.push_back(txn, XmlElementPrelim::empty("bulletList"));
+    });
+    let before = state_of(&doc);
+    let refusal = BodyError::InvalidNode {
+        path: String::new(),
+        problem: "holds something that is neither a node nor a text",
+    };
+    assert_eq!(to_body(&doc), Err(refusal));
+    assert_eq!(
+        repair(&doc),
+        Err(BodyError::InvalidNode {
+            path: String::new(),
+            problem: "the root holds something that is neither a node nor a text",
+        })
+    );
+    assert_eq!(state_of(&doc), before, "nothing was deleted");
+}
+
+/// Letters put straight under the root or a node, with one outside the basic plane:
+/// the library's own listing of such a parent never comes back. Reading and repairing
+/// do, here.
+#[test]
+fn letters_where_nodes_belong_are_refused_without_being_listed() {
+    // One change by client 5: the text "😀" under the root "default".
+    let mut under_root = vec![1, 1, 5, 0, 4, 1, 7];
+    under_root.extend_from_slice(b"default");
+    under_root.extend_from_slice(&[4, 0xf0, 0x9f, 0x98, 0x80, 0]);
+    let doc = fvoci_collab::with_update(&new_doc(), &under_root, &support::ROOMY)
+        .expect("the update is taken: it is the document it leaves that is refused");
+    assert!(
+        matches!(to_body(&doc), Err(BodyError::InvalidNode { .. })),
+        "refused"
+    );
+    assert!(
+        matches!(repair(&doc), Err(BodyError::InvalidNode { .. })),
+        "not repaired"
+    );
+
+    // The same text under the paragraph of a body: the paragraph is the first change
+    // of the client that wrote the body, client 1.
+    let body = from_body(&body_of(&document(&[text_paragraph("kept")])));
+    let under_paragraph = [1, 1, 5, 0, 4, 0, 1, 0, 4, 0xf0, 0x9f, 0x98, 0x80, 0];
+    let doc = fvoci_collab::with_update(&body, &under_paragraph, &support::ROOMY)
+        .expect("the update is taken");
+    assert!(
+        matches!(to_body(&doc), Err(BodyError::InvalidNode { .. })),
+        "refused"
+    );
+    let repair = repair(&doc).expect("a repair");
+    assert_eq!(
+        (repair.deleted, repair.body),
+        (1, None),
+        "the paragraph goes whole"
     );
 }
 
@@ -276,6 +340,61 @@ fn a_document_past_a_limit_is_refused_and_no_repair_deletes_from_it() {
         );
         assert_eq!(state_of(&doc), before, "{limit}: nothing was deleted");
     }
+}
+
+/// A repair that would leave a document past a limit deletes nothing, though it found
+/// what to delete.
+#[test]
+fn a_repair_that_would_leave_too_much_deletes_nothing() {
+    let doc = written(|txn, root| {
+        paragraph(txn, root, &"a".repeat(600_000));
+        root.push_back(txn, XmlElementPrelim::empty("bulletList"));
+        paragraph(txn, root, &"b".repeat(600_000));
+    });
+    let before = state_of(&doc);
+    assert_eq!(repair(&doc), Err(BodyError::TooLarge));
+    assert_eq!(state_of(&doc), before, "nothing was deleted");
+}
+
+/// What goes does not count: a document within the limits but for a node that fails
+/// is repaired, as an editor repairs it.
+#[test]
+fn nodes_that_go_do_not_count_towards_the_limit() {
+    let doc = written(|txn, root| {
+        let unknown = root.push_front(txn, XmlElementPrelim::empty("video"));
+        for _ in 0..6000 {
+            unknown.push_front(txn, XmlElementPrelim::empty("paragraph"));
+        }
+        for _ in 0..15_000 {
+            root.push_front(txn, XmlElementPrelim::empty("horizontalRule"));
+        }
+    });
+    assert_eq!(to_body(&doc), Err(BodyError::TooManyNodes));
+    let repair = repair(&doc).expect("a repair");
+    assert_eq!(repair.deleted, 1, "the node nobody knows, with all it held");
+    let blocks = json_of(repair.body.as_ref())["content"]
+        .as_array()
+        .map(Vec::len);
+    assert_eq!(blocks, Some(15_000));
+}
+
+/// An editor leaves an empty text in a paragraph it emptied. It is no node, also at
+/// the deepest level a body has.
+#[test]
+fn an_empty_text_at_the_deepest_level_is_no_level_more() {
+    let doc = written(|txn, root| {
+        let mut parent: XmlElementRef = root.push_back(txn, XmlElementPrelim::empty("blockquote"));
+        for _ in 3..BODY_MAX_DEPTH {
+            parent = parent.push_back(txn, XmlElementPrelim::empty("blockquote"));
+        }
+        let line = parent.push_back(txn, XmlElementPrelim::empty("paragraph"));
+        line.push_back(txn, XmlTextPrelim::new(""));
+    });
+    assert!(
+        to_body(&doc).expect("a body").is_some(),
+        "{BODY_MAX_DEPTH} levels"
+    );
+    assert_eq!(repair(&doc).expect("a repair").deleted, 0);
 }
 
 /// A document far past the limits is refused at the limit, without being walked to

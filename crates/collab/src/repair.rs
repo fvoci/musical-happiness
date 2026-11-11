@@ -1,12 +1,12 @@
 //! Repairing a Y document that the allowlist refuses.
 
-use fvoci_model::{BODY_MAX_DEPTH, BODY_MAX_NODES, Body, BodyError};
+use fvoci_model::{BODY_MAX_DEPTH, Body, BodyError};
 use serde_json::{Value, json};
 use yrs::{Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, XmlElementRef, XmlFragmentRef};
 
 use crate::FIELD;
 use crate::project::project;
-use crate::read::{self, Child, Content, Pushed};
+use crate::read::{self, Child, Content};
 use crate::schema::{self, Place};
 
 /// What a repair did.
@@ -39,15 +39,20 @@ pub struct Repair {
 /// The allowlist refuses more than the editor's schema, which checks no value: a
 /// heading of level 9 or a link to `javascript:` stays in an editor and is deleted here.
 /// At the root an editor wraps a node the document may not hold (a list entry, a
-/// mention) instead of deleting it; this deletes it.
+/// mention) instead of deleting it; this deletes it. And a node that holds letters or
+/// values where its children belong, which an editor passes over, is deleted whole.
 ///
 /// # Errors
 ///
+/// Nothing is deleted when an error is returned, but for the last one named here.
+///
 /// Returns [`BodyError::TooLarge`], [`BodyError::TooDeep`] or
-/// [`BodyError::TooManyNodes`] if the document is past a limit: deleting what fails
-/// does not bring a document under a limit, and nothing is deleted then. Any other
-/// error means the repaired document was still refused, which is a defect of this
-/// crate; the deletions were made.
+/// [`BodyError::TooManyNodes`] if what would be left is past a limit, or a node that is
+/// judged is past one by itself: deleting what fails is not meant to bring a document
+/// under a limit. Returns [`BodyError::InvalidNode`] with an empty path if the root
+/// itself holds letters or values: there is no node to delete in their place. Any
+/// other error means the repaired document was still refused, which is a defect of
+/// this crate; the deletions were made.
 pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
     let root = doc.get_or_insert_xml_fragment(FIELD);
     let mut txn = doc.transact_mut();
@@ -58,10 +63,15 @@ pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
             body,
         });
     }
-    let cuts = Survey::new(&txn).root(&root)?;
-    let deleted = cuts.len();
+    let found = Survey { txn: &txn }.root(&root)?;
+    // What would be left is judged whole, for the limits, before anything is deleted.
+    let left = found.content.into_nodes();
+    if !left.is_empty() {
+        Body::parse(json!({"type": "doc", "content": left}))?;
+    }
+    let deleted = found.cuts.len();
     // From the last to the first, so that no deletion moves the place of another.
-    for cut in cuts.iter().rev() {
+    for cut in found.cuts.iter().rev() {
         cut.make(&mut txn);
     }
     let body = project(&txn, &root)?;
@@ -94,8 +104,6 @@ impl Cut {
 /// without changing anything.
 struct Survey<'txn, T> {
     txn: &'txn T,
-    /// The nodes that stay, the document included.
-    nodes: usize,
 }
 
 /// What a survey found below one parent.
@@ -107,19 +115,21 @@ struct Found {
     cuts: Vec<Cut>,
 }
 
-impl<'txn, T: ReadTxn> Survey<'txn, T> {
-    fn new(txn: &'txn T) -> Self {
-        Self { txn, nodes: 1 }
-    }
-
+impl<T: ReadTxn> Survey<'_, T> {
     /// Surveys the document. At the root a child must also be one the document may
     /// hold: there is no parent to delete in its place.
-    fn root(mut self, root: &XmlFragmentRef) -> Result<Vec<Cut>, BodyError> {
+    fn root(&self, root: &XmlFragmentRef) -> Result<Found, BodyError> {
+        let Some(children) = read::children(self.txn, root) else {
+            return Err(BodyError::InvalidNode {
+                path: String::new(),
+                problem: "the root holds something that is neither a node nor a text",
+            });
+        };
         let parent: &ArrayRef = root.as_ref();
         let mut found = Found::default();
-        for (index, child) in read::children(self.txn, root).into_iter().enumerate() {
+        for (index, child) in children.into_iter().enumerate() {
             // What is noted below this child from here on goes with it if it goes.
-            let (noted, counted) = (found.cuts.len(), self.nodes);
+            let noted = found.cuts.len();
             let stays = match self.child(child, 2, &mut found.cuts)? {
                 // Each was within the limits as the node it is, so this gives no error.
                 Some(nodes)
@@ -127,13 +137,12 @@ impl<'txn, T: ReadTxn> Survey<'txn, T> {
                         .iter()
                         .all(|node| passes(node, Place::Block) == Ok(true)) =>
                 {
-                    self.keep(nodes, &mut found.content)?;
+                    found.content.extend(nodes);
                     true
                 }
                 _ => false,
             };
             if !stays {
-                self.nodes = counted;
                 found.cuts.truncate(noted);
                 found.cuts.push(Cut {
                     parent: parent.clone(),
@@ -141,48 +150,51 @@ impl<'txn, T: ReadTxn> Survey<'txn, T> {
                 });
             }
         }
-        Ok(found.cuts)
+        Ok(found)
     }
 
-    /// Surveys the children of an element, which are at `depth`.
-    fn element(&mut self, element: &XmlElementRef, depth: usize) -> Result<Found, BodyError> {
+    /// Surveys the children of an element, which are at `depth`. `None` if the element
+    /// holds something that is neither a node nor a text, and so goes whole.
+    fn element(&self, element: &XmlElementRef, depth: usize) -> Result<Option<Found>, BodyError> {
+        let Some(children) = read::children(self.txn, element) else {
+            return Ok(None);
+        };
         let parent: &ArrayRef = element.as_ref();
         let mut found = Found::default();
-        for (index, child) in read::children(self.txn, element).into_iter().enumerate() {
+        for (index, child) in children.into_iter().enumerate() {
             match self.child(child, depth, &mut found.cuts)? {
-                Some(nodes) => self.keep(nodes, &mut found.content)?,
+                Some(nodes) => found.content.extend(nodes),
                 None => found.cuts.push(Cut {
                     parent: parent.clone(),
                     index: index_of(index),
                 }),
             }
         }
-        Ok(found)
+        Ok(Some(found))
     }
 
-    /// Judges one child at `depth`: its JSON if it stays (a text may be several nodes),
-    /// `None` if it is to be deleted. The deletions below a child that stays are added
-    /// to `cuts`; those below one that goes are dropped, as they go with it.
+    /// Judges one child at `depth`: its JSON if it stays (a text may be several nodes,
+    /// or none), `None` if it is to be deleted. The deletions below a child that stays
+    /// are added to `cuts`; those below one that goes are dropped, as they go with it.
     fn child(
-        &mut self,
+        &self,
         child: Child,
         depth: usize,
         cuts: &mut Vec<Cut>,
     ) -> Result<Option<Vec<Value>>, BodyError> {
-        if depth > BODY_MAX_DEPTH {
-            return Err(BodyError::TooDeep);
-        }
         match child {
             Child::Element(element) => {
-                let counted = self.nodes;
-                let below = self.element(&element, depth + 1)?;
+                if depth > BODY_MAX_DEPTH {
+                    return Err(BodyError::TooDeep);
+                }
+                let Some(below) = self.element(&element, depth + 1)? else {
+                    return Ok(None);
+                };
                 let node = read::element_node(self.txn, &element, below.content.into_nodes());
                 if passes(&node, schema::place(element.tag()))? {
                     cuts.extend(below.cuts);
                     Ok(Some(vec![node]))
                 } else {
-                    // What it held does not count: it goes with it.
-                    self.nodes = counted;
                     Ok(None)
                 }
             }
@@ -190,6 +202,9 @@ impl<'txn, T: ReadTxn> Survey<'txn, T> {
                 let Some(nodes) = read::text_nodes(self.txn, &text) else {
                     return Ok(None);
                 };
+                if !nodes.is_empty() && depth > BODY_MAX_DEPTH {
+                    return Err(BodyError::TooDeep);
+                }
                 for node in &nodes {
                     if !passes(node, Place::Line)? {
                         return Ok(None);
@@ -199,19 +214,6 @@ impl<'txn, T: ReadTxn> Survey<'txn, T> {
             }
             Child::Other => Ok(None),
         }
-    }
-
-    /// Adds nodes that stay to their parent's content, and counts them.
-    fn keep(&mut self, nodes: Vec<Value>, content: &mut Content) -> Result<(), BodyError> {
-        for node in nodes {
-            if content.push(node) == Pushed::New {
-                self.nodes += 1;
-                if self.nodes > BODY_MAX_NODES {
-                    return Err(BodyError::TooManyNodes);
-                }
-            }
-        }
-        Ok(())
     }
 }
 

@@ -141,6 +141,27 @@ fn an_update_that_builds_on_changes_the_document_lacks_is_refused() {
     assert_eq!(texts(&with), ["first", "second", "third"]);
 }
 
+/// Changes of a client nobody has heard of that begin at clock 100: the library would
+/// take them and leave the hundred before them open.
+#[test]
+fn an_update_that_begins_after_a_hole_is_refused() {
+    let doc = opened("first");
+    let text_under_root = |clock: u8| {
+        let mut bytes = vec![1, 1, 9, clock, 7, 1, 7];
+        bytes.extend_from_slice(b"default");
+        bytes.extend_from_slice(&[3, 9]);
+        bytes.extend_from_slice(b"paragraph");
+        bytes.push(0);
+        bytes
+    };
+    assert_eq!(
+        with_update(&doc, &text_under_root(100), &ROOMY).map(|_| ()),
+        Err(UpdateError::MissingChanges)
+    );
+    let with = with_update(&doc, &text_under_root(0), &ROOMY).expect("from the beginning");
+    assert_eq!(texts(&with).len(), 2, "the paragraph the update adds");
+}
+
 /// An update may write only into the fragment that holds the body.
 #[test]
 fn an_update_that_writes_to_another_root_is_refused() {

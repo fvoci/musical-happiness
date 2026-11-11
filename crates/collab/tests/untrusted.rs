@@ -15,15 +15,27 @@ fn take(base: &Doc, update: &[u8]) {
         return;
     };
     let first = to_body(&with);
+    let before = state_of(&with);
     if let Ok(repaired) = repair(&with) {
         assert_eq!(
             to_body(&with),
             Ok(repaired.body),
             "a repaired document is its body"
         );
-    }
-    if first.is_ok() {
-        assert_eq!(to_body(&with), first, "a repair of a body changes nothing");
+        if first.is_ok() {
+            assert_eq!(
+                state_of(&with),
+                before,
+                "a repair of a body changes nothing"
+            );
+        }
+    } else {
+        assert!(first.is_err(), "a body needs no repair");
+        assert_eq!(
+            state_of(&with),
+            before,
+            "a repair that fails deletes nothing"
+        );
     }
     // What would be stored can be read again.
     let stored = state_of(&with);
@@ -31,6 +43,30 @@ fn take(base: &Doc, update: &[u8]) {
         with_update(&new_doc(), &stored, &ROOMY).is_ok(),
         "the state is an update"
     );
+}
+
+/// Updates no editor sends, to be damaged with the rest: letters and values put
+/// straight under the root and under a node, a text holding a value.
+fn odd_updates() -> Vec<Vec<u8>> {
+    let root = |info: u8| {
+        let mut bytes = vec![1, 1, 5, 0, info, 1, 7];
+        bytes.extend_from_slice(b"default");
+        bytes
+    };
+    let mut letters = root(4);
+    letters.extend_from_slice(&[6, b'a', 0xf0, 0x9f, 0x98, 0x80, b'b', 0]);
+    let mut values = root(8);
+    values.extend_from_slice(&[3, 126, 125, 7, 119, 1, b'u', 0]);
+    // A paragraph under the root, then letters, a value and a text under the paragraph.
+    let mut inside = vec![1, 4, 5, 0, 7, 1, 7];
+    inside.extend_from_slice(b"default");
+    inside.extend_from_slice(&[3, 9]);
+    inside.extend_from_slice(b"paragraph");
+    inside.extend_from_slice(&[4, 0, 5, 0, 5, 0xf0, 0x9f, 0x98, 0x80, b'x']);
+    inside.extend_from_slice(&[0x80 | 8, 5, 3, 1, 120]);
+    inside.extend_from_slice(&[0x80 | 7, 5, 4, 6]);
+    inside.push(0);
+    vec![letters, values, inside]
 }
 
 #[test]
@@ -58,12 +94,14 @@ fn damaged_updates_are_refused_or_taken_without_a_panic() {
         .iter()
         .flat_map(|section| vectors(section))
         .map(|vector| vector.update)
+        .chain(odd_updates())
         .collect();
     let mut random = Random::new(2);
     let empty = new_doc();
-    for (index, update) in updates.iter().enumerate() {
+    for update in &updates {
         // Also on a document that holds the undamaged update already.
-        let holder = with_update(&empty, update, &ROOMY).expect("the vector's update");
+        let holder = with_update(&empty, update, &ROOMY).expect("an undamaged update is taken");
+        take(&empty, update);
         for _ in 0..400 {
             let mut bytes = update.clone();
             for _ in 0..=random.below(3) {
@@ -106,7 +144,6 @@ fn damaged_updates_are_refused_or_taken_without_a_panic() {
             take(&empty, &bytes);
             take(&holder, &bytes);
         }
-        assert!(index < updates.len(), "every update was damaged");
     }
 }
 
