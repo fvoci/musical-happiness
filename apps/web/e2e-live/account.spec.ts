@@ -84,11 +84,13 @@ test('a registration that is refused says what is wrong beside each field', asyn
   await submit.click();
   // All three are told at once, each beside its field.
   await expect(form.getByTestId('problem-username')).toHaveText('Fill this in.');
-  await expect(form.getByTestId('problem-email')).toHaveText('This is not an email address.');
+  await expect(form.getByTestId('problem-email')).toHaveText('This is too long.');
   await expect(form.getByTestId('problem-password')).toHaveText('Use at least 8 characters.');
   await expect(form.getByRole('alert')).toHaveCount(3);
   await expect(name).toHaveAttribute('aria-invalid', 'true');
   await expect(name).toHaveAttribute('aria-describedby', 'account-username-problem');
+  // The first field that is wrong is where the reader goes on.
+  await expect(name).toBeFocused();
   await expect(invitationCode).not.toHaveAttribute('aria-invalid');
 
   // Two put right: the third is the only one still told.
@@ -98,6 +100,7 @@ test('a registration that is refused says what is wrong beside each field', asyn
   await expect(form.getByTestId('problem-password')).toHaveText('Use at least 8 characters.');
   await expect(form.getByRole('alert')).toHaveCount(1);
   await expect(name).not.toHaveAttribute('aria-invalid');
+  await expect(password).toBeFocused();
 
   // What the server finds only when it looks things up is told beside its field too.
   await password.fill(who.password);

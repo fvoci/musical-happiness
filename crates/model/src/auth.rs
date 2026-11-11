@@ -16,6 +16,9 @@ pub const MINIMUM_PASSWORD_LENGTH: usize = 8;
 /// request from making the server hash megabytes.
 pub const MAXIMUM_PASSWORD_BYTES: usize = 1024;
 
+/// The longest email address, in bytes (RFC 5321).
+const MAXIMUM_EMAIL_BYTES: usize = 254;
+
 /// The longest display name, in UTF-16 code units as the web app counts text.
 pub const DISPLAY_NAME_MAX_LENGTH: usize = 64;
 
@@ -174,6 +177,12 @@ impl RegisterRequest {
         }
         if self.email.trim().is_empty() {
             refused.refuse("email", RefusalReason::Required, "email is required");
+        } else if self.email.len() > MAXIMUM_EMAIL_BYTES {
+            refused.refuse(
+                "email",
+                RefusalReason::TooLong,
+                format!("email must be at most {MAXIMUM_EMAIL_BYTES} bytes"),
+            );
         } else if !is_email_valid(&self.email) {
             refused.refuse(
                 "email",
@@ -291,7 +300,7 @@ pub fn check_new_password(password: &str) -> Result<(), AuthParamError> {
 /// ``.!#$%&'*+/=?^_`{|}~-``, an `@`, and a domain of dot-separated labels. Each label is
 /// 1 to 63 ASCII letters, digits and hyphens, and neither starts nor ends with a hyphen.
 pub fn is_email_valid(email: &str) -> bool {
-    if !(3..=254).contains(&email.len()) {
+    if !(3..=MAXIMUM_EMAIL_BYTES).contains(&email.len()) {
         return false;
     }
     let Some((local, domain)) = email.split_once('@') else {

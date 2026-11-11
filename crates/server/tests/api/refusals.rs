@@ -81,6 +81,19 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
         ])
     );
 
+    // An address that has the form of one and is too long is told as that.
+    let response = anonymous
+        .post(
+            "/register",
+            &json!({
+                "username": "pam", "email": format!("{}@sample.com", "a".repeat(250)),
+                "password": "Pa$$word",
+            }),
+        )
+        .await;
+    response.check_error(StatusCode::BAD_REQUEST, "email must be at most 254 bytes");
+    assert_eq!(refused(&response), pairs(&[("/email", "too_long")]));
+
     // One member wrong: the answer's detail is that member's.
     let response = anonymous
         .post(

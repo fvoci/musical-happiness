@@ -12,6 +12,8 @@
   with it, beside itself; any other refusal is one line above the button.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
+
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { isBackendError, type InvalidInput, type Registration } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -37,7 +39,7 @@
   type Field = 'login' | 'username' | 'email' | 'password' | 'token';
 
   /** What is wrong with each field, where the server said so of the field. */
-  let fieldProblems = $state<Partial<Record<Field, string>>>({});
+  let fieldProblems = $state.raw<Partial<Record<Field, string>>>({});
 
   /**
    * The field of each form that a member of its request is typed into, by the
@@ -78,16 +80,27 @@
     }
   }
 
-  /** What the server said of the fields of the form `of`; the first word about each. */
-  function fieldProblemsOf(error: unknown, of: 'signIn' | 'register'): typeof fieldProblems {
-    const problems: typeof fieldProblems = {};
-    if (!isBackendError(error)) return problems;
+  /**
+   * What the server said of the fields of the form `of`, the first word about
+   * each, and whether it also refused something that is no field of the form.
+   */
+  function fieldProblemsOf(
+    error: unknown,
+    of: 'signIn' | 'register',
+  ): { fields: typeof fieldProblems; other: boolean } {
+    const fields: typeof fieldProblems = {};
+    let other = false;
+    if (!isBackendError(error)) return { fields, other };
     for (const entry of error.errors) {
       const field = entry.pointer === undefined ? undefined : FIELDS[of][entry.pointer];
-      if (field) problems[field] ??= fieldProblemOf(entry, field);
+      if (field) fields[field] ??= fieldProblemOf(entry, field);
+      else other = true;
     }
-    return problems;
+    return { fields, other };
   }
+
+  /** The fields in the order the forms show them, for finding the first that is wrong. */
+  const FIELD_ORDER: readonly Field[] = ['login', 'username', 'email', 'password', 'token'];
 
   /** The words for a refusal. */
   function problemOf(error: unknown): string {
@@ -136,10 +149,20 @@
         await onSignIn(login.trim(), password);
       }
     } catch (error) {
-      // `mode` is the form the refused request was sent from.
-      fieldProblems = fieldProblemsOf(error, mode);
-      // One line for the whole form only when no field has a word of its own.
-      problem = Object.keys(fieldProblems).length > 0 ? undefined : problemOf(error);
+      // `mode` is the form the refused request was sent from: the link that
+      // turns one form into the other is off while a request is under way.
+      const { fields, other } = fieldProblemsOf(error, mode);
+      fieldProblems = fields;
+      const first = FIELD_ORDER.find((field) => fields[field] !== undefined);
+      // One line for the whole form when no field has a word of its own, and
+      // when something was refused that is no field: the fields are not all of it.
+      if (first === undefined) problem = problemOf(error);
+      else if (other) problem = m.account_failed();
+      // The first field that is wrong is where to go on.
+      if (first !== undefined) {
+        await tick();
+        document.getElementById(`account-${first}`)?.focus();
+      }
     } finally {
       working = false;
     }
@@ -235,12 +258,19 @@
         autocomplete={mode === 'signIn' ? 'current-password' : 'new-password'}
         required
         aria-invalid={fieldProblems.password ? 'true' : undefined}
-        aria-describedby={fieldProblems.password ? 'account-password-problem' : undefined}
+        aria-describedby={fieldProblems.password
+          ? 'account-password-problem'
+          : mode === 'register'
+            ? 'account-password-hint'
+            : undefined}
         class="roomy:h-touch roomy:text-base"
       />
       {@render fieldProblem('password')}
-      {#if mode === 'register'}
-        <p class="text-xs text-muted-foreground">{m.account_password_hint()}</p>
+      <!-- What is wrong with the password says what the hint would say again. -->
+      {#if mode === 'register' && !fieldProblems.password}
+        <p id="account-password-hint" class="text-xs text-muted-foreground">
+          {m.account_password_hint()}
+        </p>
       {/if}
     </div>
 
@@ -253,11 +283,15 @@
           bind:value={token}
           autocomplete="off"
           aria-invalid={fieldProblems.token ? 'true' : undefined}
-          aria-describedby={fieldProblems.token ? 'account-token-problem' : undefined}
+          aria-describedby={fieldProblems.token
+            ? 'account-token-problem account-token-hint'
+            : 'account-token-hint'}
           class="roomy:h-touch roomy:text-base"
         />
         {@render fieldProblem('token')}
-        <p class="text-xs text-muted-foreground">{m.account_token_hint()}</p>
+        <p id="account-token-hint" class="text-xs text-muted-foreground">
+          {m.account_token_hint()}
+        </p>
       </div>
     {/if}
 
@@ -276,6 +310,7 @@
     <Button
       variant="link"
       class="roomy:min-h-touch"
+      disabled={working}
       onclick={() => {
         switchTo(mode === 'signIn' ? 'register' : 'signIn');
       }}
