@@ -1494,3 +1494,42 @@ async fn the_store_names_a_role_that_is_past_the_wall() {
     store.close().await;
     database.remove().await;
 }
+
+/// The tests that connect to PostgreSQL as a superuser, whom no policy holds: those of
+/// what the server and the store make of such a role, and nothing else. A test that
+/// took that connection for convenience would show nothing of the wall.
+#[test]
+fn few_tests_connect_as_a_superuser() {
+    const ALLOWED: [&str; 4] = [
+        "server/tests/api/common.rs",
+        "server/tests/api/organizations.rs",
+        "store/src/testing.rs",
+        "store/tests/store/tenancy.rs",
+    ];
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory");
+    let mut files = Vec::new();
+    rust_sources(crates, &mut files);
+    let mut connecting: Vec<String> = files
+        .iter()
+        .filter(|file| {
+            let text = std::fs::read_to_string(file).expect("a source file");
+            [
+                "create_as_superuser",
+                "connecting_as_superuser",
+                "SUPERUSER_CONN_STRING_ENV",
+            ]
+            .iter()
+            .any(|name| text.contains(name))
+        })
+        .map(|file| {
+            file.strip_prefix(crates)
+                .expect("under the crates directory")
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    connecting.sort();
+    assert_eq!(connecting, ALLOWED, "the files that connect as a superuser");
+}

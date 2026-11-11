@@ -3,9 +3,10 @@
 //! start as a role that the wall between them does not hold.
 
 use fvoci_model::BoardType;
+use fvoci_server::Server;
 use fvoci_server::config::Configuration;
-use fvoci_store::DbType;
-use fvoci_store::testing::db_type_of_the_tests;
+use fvoci_store::testing::{TestDatabase, db_type_of_the_tests};
+use fvoci_store::{DbType, Store};
 
 use crate::common::{ROOT_TEAM_ID, Setup};
 
@@ -39,6 +40,45 @@ async fn a_server_for_several_organizations_does_not_start_past_the_wall() {
 
     let ts = Setup::native().configure(open).start().await;
     ts.teardown().await;
+}
+
+/// A start that is refused over the role leaves the database as it was: nothing is
+/// made as the role that was refused, which would own it.
+#[tokio::test]
+async fn a_start_refused_over_the_role_makes_nothing_in_the_database() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let directory = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("api-tests")
+        .join(fvoci_model::new_id());
+    let database = TestDatabase::create_as_superuser(&directory).await;
+    let config = Configuration {
+        db_type: database.db_type().as_str().to_owned(),
+        db_config: database.dbconfig().to_owned(),
+        org_creation: "open".to_owned(),
+        files_path: directory.join("uploads").display().to_string(),
+        skip_template_init: true,
+        ..Configuration::default()
+    };
+    let refused = Server::new(config, "")
+        .await
+        .expect_err("the server does not start as a superuser");
+    assert!(format!("{refused:#}").contains("superuser"), "{refused:#}");
+
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .expect("the database is reached");
+    let no_table = store
+        .count_rows("_sqlx_migrations")
+        .await
+        .expect_err("no migration ran");
+    assert!(
+        no_table.to_string().contains("_sqlx_migrations"),
+        "the table is not there: {no_table}"
+    );
+    store.close().await;
+    database.remove().await;
 }
 
 /// With the one organization of the default setting the server starts as a superuser

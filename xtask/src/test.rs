@@ -73,7 +73,7 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
 
     if matches!(databases, Databases::All | Databases::Postgres) {
         parts.push(Step::new("tests on PostgreSQL", || {
-            let (url, superuser_url) = match env(CONN_STRING_ENV) {
+            let urls = match env(CONN_STRING_ENV) {
                 Some(url) => {
                     steps::say(&format!(
                         "    using the PostgreSQL of {CONN_STRING_ENV}; its role must be no \
@@ -86,7 +86,10 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
                              superuser of the same database"
                         );
                     };
-                    (url, superuser_url)
+                    containers::PostgresUrls {
+                        tests: url,
+                        superuser: superuser_url,
+                    }
                 }
                 None => containers::prepare_postgres(&mut uses.borrow_mut())?,
             };
@@ -103,8 +106,8 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
                 ],
                 &[
                     (DB_TYPE_ENV, "postgres"),
-                    (CONN_STRING_ENV, &url),
-                    (SUPERUSER_CONN_STRING_ENV, &superuser_url),
+                    (CONN_STRING_ENV, &urls.tests),
+                    (SUPERUSER_CONN_STRING_ENV, &urls.superuser),
                 ],
             )
         }));

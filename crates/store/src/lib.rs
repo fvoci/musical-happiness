@@ -169,13 +169,31 @@ impl Store {
     /// if the database cannot be reached.
     pub async fn connect(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let store = Self::open(db_type, dbconfig).await?;
-        schema::migrate(&store, None).await?;
-        data_steps::run(&store).await?;
+        store.migrate().await?;
         Ok(store)
     }
 
-    /// Connects to the database and leaves its schema as it is.
-    async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
+    /// Brings the schema of the database up to date, as [`Store::connect`] does: for a
+    /// caller that looks at the connection ([`Store::role_past_the_wall`]) before
+    /// anything is changed through it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Schema`] if the database is not this server's to open,
+    /// and [`StoreError::Database`] if a statement fails.
+    pub async fn migrate(&self) -> Result<(), StoreError> {
+        schema::migrate(self, None).await?;
+        data_steps::run(self).await
+    }
+
+    /// Connects to the database and leaves its schema as it is. Nothing but
+    /// [`Store::role_past_the_wall`] works on such a store before [`Store::migrate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, and
+    /// [`StoreError::Database`] if the database cannot be reached.
+    pub async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;

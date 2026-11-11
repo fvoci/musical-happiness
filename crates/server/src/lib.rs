@@ -104,8 +104,14 @@ impl Server {
                 "{BASE_PATH_ENV} must be empty or an absolute path such as /boards, not {base_path:?}"
             );
         }
-        let store = connect_store(&config).await?;
+        // The role is looked at before anything is made as it: a start that is refused
+        // leaves the database as it was.
+        let store = open_store(&config).await?;
         check_the_wall_holds(&store, &config).await?;
+        store
+            .migrate()
+            .await
+            .context("bringing the database's schema up to date")?;
         let store = only_organization_scope(store).await?;
         let files =
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
@@ -354,12 +360,12 @@ pub fn listen_address(config: &Configuration) -> String {
 
 /// Connects to the database, trying up to `dbpingattempts` times a second apart, so that
 /// a server started together with its database waits for it.
-async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
+async fn open_store(config: &Configuration) -> anyhow::Result<Store> {
     let db_type: DbType = config.db_type.parse()?;
     let attempts = config.db_ping_attempts.max(1);
     let mut attempt = 1;
     loop {
-        match Store::connect(db_type, &config.db_config).await {
+        match Store::open(db_type, &config.db_config).await {
             Ok(store) => return Ok(store),
             Err(fvoci_store::StoreError::Database(error)) if attempt < attempts => {
                 tracing::warn!(%error, attempt, attempts, "the database is not reachable yet");
@@ -389,12 +395,12 @@ async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::
     else {
         return Ok(());
     };
-    if config.org_creation == config::ORG_CREATION_OPEN {
+    if config.takes_several_organizations() {
         bail!(
             "the database role {role:?} is a superuser or has BYPASSRLS, so the row-level \
              security policies that keep organizations apart do not hold it; with \
-             org_creation \"open\" the server connects as a role that is neither \
-             (ALTER ROLE ... NOSUPERUSER NOBYPASSRLS, and make it the owner of the tables)"
+             org_creation \"open\" the server connects as a role made for it (LOGIN, \
+             NOSUPERUSER, NOBYPASSRLS) that owns its tables"
         );
     }
     tracing::warn!(

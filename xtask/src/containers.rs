@@ -469,7 +469,7 @@ fn wait_until(what: &str, mut probe: impl FnMut() -> Result<()>) -> Result<()> {
 ///
 /// Fails if docker is missing, the container cannot be started, or the database does
 /// not accept connections in time.
-pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<(String, String)> {
+pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<PostgresUrls> {
     let container = Container::postgres()?;
     container.ensure_running(uses)?;
     wait_until(&container.name, || {
@@ -511,7 +511,19 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<(String, String)> {
         "    {}: accepting connections on port {}, the tests connect as {POSTGRES_TEST_ROLE}",
         container.name, container.host_port
     ));
-    Ok((container.postgres_url(), container.postgres_superuser_url()))
+    Ok(PostgresUrls {
+        tests: container.postgres_url(),
+        superuser: container.postgres_superuser_url(),
+    })
+}
+
+/// The PostgreSQL URLs the tests are given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PostgresUrls {
+    /// Of the role the tests connect as, which the policies hold.
+    pub(crate) tests: String,
+    /// Of a superuser, for the tests of what the server makes of such a role.
+    pub(crate) superuser: String,
 }
 
 /// The statements that make [`POSTGRES_TEST_ROLE`] what the tests need, whether it is

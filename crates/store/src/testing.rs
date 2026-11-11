@@ -7,7 +7,9 @@
 //! The URL must name a role that is no superuser, is not exempt from row-level
 //! security (`NOBYPASSRLS`) and may make schemas in the database (`CREATE`): the
 //! policies of the schema pass a role that is either, and tests run as one would show
-//! nothing of them. A test database is not made for such a role.
+//! nothing of them. A test database is not made for such a role. The few tests of
+//! what the server makes of such a role need the URL of a superuser of the same
+//! database besides, in `FVOCI_STORE_TEST_SUPERUSER_CONN_STRING`.
 
 use std::path::{Path, PathBuf};
 
@@ -118,8 +120,19 @@ impl TestDatabase {
                 });
                 let schema = format!("t_{name}");
                 let mut connection = connect(&url).await;
-                if role == Role::HeldByTheWall {
-                    refuse_a_role_the_policies_pass(&mut connection).await;
+                let past_the_wall = role_is_past_the_wall(&mut connection).await;
+                match role {
+                    Role::HeldByTheWall => assert!(
+                        !past_the_wall,
+                        "{CONN_STRING_ENV} names a superuser or a role with BYPASSRLS. The \
+                         tests need a role that is no superuser, has NOBYPASSRLS and has \
+                         CREATE on the database; `cargo xtask test` makes one in its container"
+                    ),
+                    Role::Superuser => assert!(
+                        past_the_wall,
+                        "{SUPERUSER_CONN_STRING_ENV} names a role the policies hold; the \
+                         tests that use it need a superuser"
+                    ),
                 }
                 run(&mut connection, format!("CREATE SCHEMA {schema}")).await;
                 let separator = if url.contains('?') { '&' } else { '?' };
@@ -184,20 +197,13 @@ async fn run(connection: &mut PgConnection, statement: String) {
         .unwrap_or_else(|error| panic!("preparing the test database: {error}"));
 }
 
-/// Panics if the tests connect as a role that the row-level security policies pass.
-async fn refuse_a_role_the_policies_pass(connection: &mut PgConnection) {
-    let (role, superuser, bypasses): (String, bool, bool) = sqlx::query_as(
-        "SELECT rolname::text, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user",
-    )
-    .fetch_one(connection)
-    .await
-    .unwrap_or_else(|error| panic!("reading the role of the test connection: {error}"));
-    assert!(
-        !superuser && !bypasses,
-        "{CONN_STRING_ENV} names the role {role} (superuser: {superuser}, BYPASSRLS: \
-         {bypasses}). The tests need a role that is no superuser, has NOBYPASSRLS and has \
-         CREATE on the database; `cargo xtask test` makes one in its container"
-    );
+/// Whether the connection's role passes the row-level security policies: a superuser,
+/// or a role with `BYPASSRLS`.
+async fn role_is_past_the_wall(connection: &mut PgConnection) -> bool {
+    sqlx::query_scalar("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")
+        .fetch_one(connection)
+        .await
+        .unwrap_or_else(|error| panic!("reading the role of the test connection: {error}"))
 }
 
 /// The tables that are no organization's; every other table of the schema is behind

@@ -154,9 +154,9 @@ pub struct Configuration {
     /// The authentication mode. Only `native` is supported.
     #[serde(rename = "authmode")]
     pub auth_mode: String,
-    /// Who may make an organization: `first_user_only`, the one organization of the
-    /// first user, or `open`, anybody who signs up. `open` needs PostgreSQL, and a
-    /// database role that the wall between organizations holds.
+    /// Whether the server holds one organization (`first_user_only`) or takes in
+    /// several (`open`). `open` needs PostgreSQL, and a database role that the wall
+    /// between organizations holds.
     pub org_creation: String,
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
@@ -550,12 +550,17 @@ fn is_unset(value: &Value) -> bool {
     }
 }
 
-/// `org_creation`: the server has the one organization of its first user.
+/// `org_creation`: the server has one organization.
 pub const ORG_CREATION_FIRST_USER_ONLY: &str = "first_user_only";
-/// `org_creation`: whoever signs up makes an organization.
+/// `org_creation`: the server takes in several organizations.
 pub const ORG_CREATION_OPEN: &str = "open";
 
 impl Configuration {
+    /// Whether the server takes in several organizations (`org_creation` is `open`).
+    pub fn takes_several_organizations(&self) -> bool {
+        self.org_creation == ORG_CREATION_OPEN
+    }
+
     /// Reads the configuration file at `path` and applies environment overrides from the
     /// process environment.
     ///
@@ -733,12 +738,12 @@ impl Configuration {
                 self.org_creation
             );
         }
-        // SQLite holds one organization, and nothing would keep several apart.
-        if self.org_creation == ORG_CREATION_OPEN && self.db_type != "postgres" {
+        // SQLite holds one organization, and nothing would keep several apart. (A
+        // dbtype that is none is refused where the database is opened.)
+        if self.takes_several_organizations() && self.db_type == "sqlite3" {
             bail!(
-                "org_creation is {ORG_CREATION_OPEN:?}, which needs dbtype \"postgres\": a \
-                 database of type {:?} holds one organization",
-                self.db_type
+                "org_creation is {ORG_CREATION_OPEN:?}, which needs dbtype \"postgres\": an \
+                 SQLite database holds one organization"
             );
         }
         // Zero would listen on any free port, not on one the operator can name.

@@ -324,6 +324,8 @@ mod tests {
             "INSERT INTO data_steps (name) SELECT b.title FROM users AS u, boards AS b;",
             "DELETE FROM sessions USING boards WHERE sessions.user_id = boards.created_by",
             "ALTER TABLE boards ADD COLUMN color TEXT; UPDATE users SET email = ''",
+            // More than it must be, and meant: `DELETE` is a word here, not a statement.
+            "CREATE TABLE notes (org_id UUID REFERENCES organizations (id) ON DELETE CASCADE)",
             "UPDATE boards SET title = ''",
             "DELETE FROM deleted_blocks WHERE deleted_at < 5;",
             "INSERT INTO file_refs (block_id) VALUES ('x')",
