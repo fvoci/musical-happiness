@@ -112,7 +112,7 @@ impl Store {
     }
 
     /// Returns the blocks below a block, at any depth, by identifier: what deleting it
-    /// takes along ([`Store::delete_block`]). None for a block that has nothing below it
+    /// takes along ([`Store::delete_block`]). Empty for a block that has nothing below it
     /// or does not exist.
     ///
     /// # Errors

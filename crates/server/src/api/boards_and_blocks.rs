@@ -25,6 +25,7 @@ use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, t
 /// `PatchBoardsAndBlocks`.
 const BLOCKS: &str = "/blocks";
 const PATCHES: &str = "/blockPatches";
+use super::require_delete_permission;
 use super::{BlockAction, require_block_patch_permission, require_block_permission};
 use crate::app::App;
 use crate::error::AppError;
@@ -308,14 +309,7 @@ async fn require_blocks_to_delete(
 ) -> Result<(), AppError> {
     for block_id in block_ids {
         let block = block_of_boards(app, block_id, board_ids).await?;
-        require_block_permission(
-            app,
-            user_id,
-            &block,
-            BlockAction::Delete,
-            MODIFYING_CARDS_DENIED,
-        )
-        .await?;
+        require_delete_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
     }
     Ok(())
 }

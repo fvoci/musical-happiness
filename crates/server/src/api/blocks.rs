@@ -24,7 +24,7 @@ use super::{
 };
 use super::{
     BlockAction, require_block_patch_permission, require_block_permission,
-    require_deletion_permission,
+    require_delete_permission, require_deletion_permission,
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use super::{
@@ -419,21 +419,7 @@ async fn handle_delete_block(
     )
     .await?;
     let block = block_on_board(&app, &block_id, &board_id).await?;
-    // Only a comment's replies have a say: what goes with a card is the card's.
-    let below = if block.block_type == BlockType::Comment {
-        app.blocks_below(&block.id).await?
-    } else {
-        Vec::new()
-    };
-    require_deletion_permission(
-        &app,
-        user_id,
-        &block,
-        &below,
-        BlockAction::Delete,
-        CHANGES_DENIED,
-    )
-    .await?;
+    require_delete_permission(&app, user_id, &block, CHANGES_DENIED).await?;
     app.delete_block(&block_id, user_id, notification).await?;
     tracing::debug!(board_id, block_id, "DELETE Block");
     Ok(no_content())

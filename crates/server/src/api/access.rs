@@ -99,11 +99,21 @@ pub(crate) async fn require_block_permission(
     action: BlockAction,
     denial: &str,
 ) -> Result<(), AppError> {
-    let (permission, denial) = match block.block_type {
+    let (permission, denial) = block_permission(user_id, block, action, denial);
+    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+}
+
+/// The permission that doing `action` to the block needs, and the refusal without it.
+fn block_permission<'a>(
+    user_id: &str,
+    block: &Block,
+    action: BlockAction,
+    denial: &'a str,
+) -> (BoardPermission, &'a str) {
+    match block.block_type {
         BlockType::Comment => comment_permission(user_id, block, action, denial),
         _ => (BoardPermission::ManageBoardCards, denial),
-    };
-    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+    }
 }
 
 /// Checks what a patch does beyond changing a block's text. Changing a comment is its
@@ -147,12 +157,29 @@ pub(crate) async fn require_block_patch_permission(
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
 }
 
+/// Checks that the user may delete the block, of a board the request names, with what
+/// deleting it takes along: [`require_deletion_permission`] with the blocks below it.
+pub(crate) async fn require_delete_permission(
+    app: &App,
+    user_id: &str,
+    block: &Block,
+    denial: &str,
+) -> Result<(), AppError> {
+    // Only a comment's replies have a say: what goes with a card is the card's.
+    let below = if block.block_type == BlockType::Comment {
+        app.blocks_below(&block.id).await?
+    } else {
+        Vec::new()
+    };
+    require_deletion_permission(app, user_id, block, &below, BlockAction::Delete, denial).await
+}
+
 /// Checks that the user may delete a block and what goes with it, or bring them back
 /// (`action`): `top` is the block that is deleted, `below` the blocks it takes along.
 /// The top decides for a card, or any block that is no comment: the comments on a card
 /// go with it. A comment takes the replies below it, so who deletes it, or brings it
 /// back, must be allowed that for each of them too: nobody takes away the comment of
-/// somebody else by deleting their own.
+/// somebody else by deleting their own. Each permission is asked once, the top's first.
 pub(crate) async fn require_deletion_permission(
     app: &App,
     user_id: &str,
@@ -161,10 +188,17 @@ pub(crate) async fn require_deletion_permission(
     action: BlockAction,
     denial: &str,
 ) -> Result<(), AppError> {
-    require_block_permission(app, user_id, top, action, denial).await?;
-    if top.block_type == BlockType::Comment {
-        for block in below {
-            require_block_permission(app, user_id, block, action, denial).await?;
+    let replies = if top.block_type == BlockType::Comment {
+        below
+    } else {
+        &[]
+    };
+    let mut asked = Vec::new();
+    for block in std::iter::once(top).chain(replies) {
+        let (permission, denial) = block_permission(user_id, block, action, denial);
+        if !asked.contains(&permission) {
+            asked.push(permission);
+            require_board_permission(app, user_id, &top.board_id, permission, denial).await?;
         }
     }
     Ok(())

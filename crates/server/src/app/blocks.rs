@@ -290,7 +290,7 @@ impl App {
 
     /// Returns the blocks of the deletion a block of the trash went with, which restoring
     /// the block restores together: the one that was deleted first, then those it took
-    /// along. None if no block of that identifier is there.
+    /// along. Empty if no block of that identifier is there.
     ///
     /// # Errors
     ///
