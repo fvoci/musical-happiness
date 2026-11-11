@@ -1,7 +1,8 @@
 /**
  * The words on the axis of a Gantt chart, and the days in the name of a
- * bar. None of them is a word of ours:
- * `Intl` gives the names in the reader's language. A calendar date is
+ * bar. None of them is a word of ours (but for what joins two days, which
+ * the caller gives): `Intl` gives the names in the reader's language. A
+ * calendar date is
  * formatted as that date in UTC: it is a day, not a moment, and must not
  * move with anyone's time zone.
  */

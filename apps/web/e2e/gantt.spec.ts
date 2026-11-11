@@ -261,6 +261,40 @@ test('the title of a row opens its card, and gives the focus back without scroll
   await expect(bar(page, 'Filter and sort cards')).toBeFocused();
 });
 
+test('the focus stays in the chart when the card that has it leaves', async ({ page }, info) => {
+  await openGantt(page, info);
+  // The bar of the second row has the focus when its card is deleted: the
+  // bar that now stands in that place takes it.
+  await bars(page).nth(1).focus();
+  const gone = (await bars(page).nth(1).getAttribute('data-bar')) ?? '';
+  await page.evaluate(
+    (id) => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board.deleteCards([id]),
+    gone,
+  );
+  await expect(bars(page)).toHaveCount(3);
+  await expect(bars(page).nth(1)).toBeFocused();
+
+  // A card opened from its bar loses its date while it is open: it is among
+  // the cards without a date now, and "No date" takes the focus when it closes.
+  const title = (await gantt(page).locator('[data-row-title]').nth(1).textContent()) ?? '';
+  await page.keyboard.press('Enter');
+  await expect(dialog(page)).toBeVisible();
+  await setDates(page, { [title.trim()]: undefined });
+  await expect(bars(page)).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByTestId('gantt-undated')).toBeFocused();
+
+  // The last bars go while one has the focus: with no bar left, "No date" has it.
+  await bars(page).first().focus();
+  const rest = await gantt(page).locator('[data-row-title]').allTextContents();
+  await setDates(page, Object.fromEntries(rest.map((each) => [each.trim(), undefined])));
+  await expect(bars(page)).toHaveCount(0);
+  await expect(page.getByTestId('gantt-undated')).toBeFocused();
+  // An empty chart is not a stop of the Tab key by itself.
+  await expect(scroller(page)).toHaveAttribute('tabindex', '-1');
+});
+
 /**
  * Pictures for a person to look at, in `target/screens/gantt/` when
  * `FVOCI_SCREENS` is set. The test runs either way: what it checks on the

@@ -46,6 +46,8 @@
     onundated: () => void;
     /** "No date" itself, for the focus to come back to. Bindable. */
     undatedButton?: HTMLElement | null;
+    /** A card that is open and has no bar any more: "No date" stands for it when it closes. */
+    undatedCard: string | undefined;
   }
 
   let {
@@ -61,6 +63,7 @@
     undatedOpen,
     onundated,
     undatedButton = $bindable(null),
+    undatedCard,
   }: Props = $props();
 
   const ZOOM_NAMES: Record<GanttZoom, () => string> = {
@@ -183,6 +186,7 @@
     aria-label={m.calendar_undated_count({ count: undated })}
     aria-expanded={undatedOpen}
     data-testid="gantt-undated"
+    data-card={undatedCard}
     class="shrink-0 gap-1.5 px-2 roomy:h-touch roomy:min-w-touch"
     onclick={onundated}
   >

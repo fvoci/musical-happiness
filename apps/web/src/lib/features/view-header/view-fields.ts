@@ -1,6 +1,7 @@
 /**
  * What the header writes into a view: the fields of a new view, of a change
- * of grouping, and of the properties a view shows.
+ * of grouping, of "display by" and of "dependencies", and of the properties
+ * a view shows.
  *
  * Everything here is a pure function of the view and the board's property
  * definitions, so that the choices made (what a new view starts with, what a

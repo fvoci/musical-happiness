@@ -152,14 +152,6 @@ export function xOfDay(axis: Axis, date: CalendarDate): number {
   return daysBetween(axis.first, date) * axis.dayWidth;
 }
 
-/** The day that lies at `x`; the first or the last day for a place outside the axis. */
-export function dayAt(axis: Axis, x: number): CalendarDate {
-  // A day is 0.2 rem at the zoom `month`, which no binary fraction is: the
-  // start of a day divided by it can come out a hair under the whole number.
-  const at = Math.floor(x / axis.dayWidth + 1e-6);
-  return addDays(axis.first, Math.min(axis.days - 1, Math.max(0, at)));
-}
-
 // --------------------------------------------------------------- marks
 
 /** One mark of the axis: the day it begins on, where, and how wide it is. */

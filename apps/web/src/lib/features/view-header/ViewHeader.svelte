@@ -4,14 +4,14 @@
 
   It looks at the width of the pane it is in, not of the window
   (`pane.header`). With room for all of it, it is one row: the views as
-  tabs, every tool with its word, the search field, "New". In a narrower
+  tabs, the tools with their words, the search field, "New". In a narrower
   pane it folds into one row of a different make: one button that names the
   view and opens the list of views, search and filter as icons, the rest
   behind "…", and "New" as a round button at the bottom of the board.
 
   The two are one component, and every tool is one element in both. A tool
-  that has no button of its own in the folded row (properties, grouping,
-  sort) keeps its element there, unseen, on top of "…": what it opened stays
+  that has no button of its own (in the folded row all but search and filter;
+  "dependencies" in neither) keeps its element, unseen, on "…": what it opened stays
   open while the pane changes its width, and stays next to the button it was
   opened from. Whether a tool opens as a popover or as a sheet is not decided
   here (lib/layout/presentation.ts).
@@ -92,7 +92,7 @@
   const sorting = $derived(sortOffered(view.fields.viewType));
   const groupedBy = $derived(groupProperty(view, templates));
   const groupName = $derived(groupedBy?.name ?? m.viewheader_group_none());
-  /** A calendar: the date its cards are placed by; when they were made, where the board has none. */
+  /** A calendar or a Gantt chart: the date its cards are placed by; when they were made, where the board has none. */
   const displayBy = $derived(displayByOffered(view.fields.viewType));
   const placedByName = $derived(displayByName(view, templates, m['PropertyType.CreatedTime']()));
   /** A Gantt chart: the card relation it reads as what comes before what. */

@@ -190,6 +190,24 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
   });
   await expect(bars(page).nth(24)).toHaveAttribute('data-bar', keptId);
   await expect(bars(page).nth(24)).toBeFocused();
+  // So does the title of a row, which has the focus after a card opened from it has closed.
+  const title = gantt(page).locator('[data-row-title]').nth(25);
+  await title.click();
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('card-dialog')).toHaveCount(0);
+  await expect(title).toBeFocused();
+  const titleText = await title.textContent();
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const first = document.querySelector('[data-bar]')?.getAttribute('data-bar');
+    if (!due || !first) throw new Error('nothing to take the date from');
+    await store.setCardProperty(first, due.id, undefined);
+  });
+  const moved = gantt(page).locator('[data-row-title]').nth(24);
+  await expect(moved).toHaveText(titleText ?? '');
+  await expect(moved).toBeFocused();
   expect((await heights()).arrows).toBeCloseTo((await heights()).rows, 0);
 
   // One card renamed: how long the page is busy before it can draw again.

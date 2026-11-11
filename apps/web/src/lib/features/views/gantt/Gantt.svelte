@@ -25,7 +25,7 @@
   (a column at the right, or a sheet on a compact page).
 
   The zoom is the view's (`ganttZoom`), stored where the reader may change
-  the view and kept for the visit where not. Where the chart is scrolled to
+  the view and kept while the view is shown where not. Where the chart is scrolled to
   is the state of the screen only: another view, or a new load, starts with
   today in sight.
 -->
@@ -36,8 +36,8 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { page, Room } from '$lib/layout/room.svelte.ts';
-  import { calendarDate, dateOfInstant, daysBetween, type CalendarDate } from '$lib/logic/dates.ts';
-  import { DAY_WIDTH, xOfDay, zoomOf, type Axis } from '$lib/logic/gantt.ts';
+  import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
+  import { DAY_WIDTH, xOfDay, zoomOf } from '$lib/logic/gantt.ts';
   import type { GanttZoom } from '$lib/logic/wire.ts';
 
   import { MinuteClock } from '../calendar/clock.svelte.ts';
@@ -48,6 +48,7 @@
   import AxisHeader from './AxisHeader.svelte';
   import BarRow from './BarRow.svelte';
   import { GanttChart } from './chart.svelte.ts';
+  import { DaysHold } from './days-hold.svelte.ts';
   import GroupRow from './GroupRow.svelte';
   import Toolbar from './Toolbar.svelte';
 
@@ -57,7 +58,7 @@
   const clock = new MinuteClock();
   /** Today, on the reader's calendar. */
   const today = $derived(dateOfInstant(clock.now, board.workspace.regional.timeZone));
-  /** The zoom a reader who may not change the view chose, for this visit only. */
+  /** The zoom a reader who may not change the view chose: theirs until another view is shown. */
   let ownZoom = $state<GanttZoom | undefined>(undefined);
   const zoom = $derived((board.canEdit ? undefined : ownZoom) ?? zoomOf(view.fields.ganttZoom));
 
@@ -103,8 +104,7 @@
     if (!scroller) return;
     const x = (xOfDay(axis, date) + axis.dayWidth / 2) * rem();
     scroller.scrollLeft = Math.max(0, x - daysRoom() * part);
-    // The reader asked for this day: no earlier one is held any more.
-    held = undefined;
+    hold.release();
   }
 
   /** Another zoom: the view's where the reader may change the view, theirs for the visit where not. */
@@ -114,80 +114,48 @@
     else ownZoom = next;
   }
 
-  /** The axis the page shows; the one before it, while a new one is being drawn. Not reactive. */
-  let drawn: Axis | undefined;
-  /**
-   * The day that was held in its place the last time the axis changed (in
-   * days from `HELD_FROM`, with its fraction), how far into the days in
-   * sight it was held, and where the box was scrolled to for it. Until the
-   * reader scrolls, that day is held again: at a far zoom the whole chart
-   * may be in sight and the box not scrolled at all, and zooming back in
-   * must come back to where the reader was, not to whatever then lay in the
-   * middle. Not reactive.
-   */
-  let held: { day: number; at: number; left: number } | undefined;
-  const HELD_FROM = calendarDate(2000, 1, 1);
-
-  /**
-   * What to hold while the axis changes: today where its line is in sight
-   * (it stays where it is), else the day in the middle of what is in sight.
-   */
-  function toHold(before: Axis, left: number): { day: number; at: number } {
-    const room = daysRoom();
-    const from = daysBetween(HELD_FROM, before.first);
-    // Today on the axis that is still drawn, not on the one that is coming.
-    const todayDays = daysBetween(before.first, today) + 0.5;
-    const todayAt = todayDays * before.dayWidth * rem() - left;
-    if (todayAt >= 0 && todayAt <= room) return { day: from + todayDays, at: todayAt };
-    return { day: from + (left + room / 2) / rem() / before.dayWidth, at: room / 2 };
-  }
-
-  /*
-   * The days in sight stay in sight when the axis changes under them: the
-   * zoom, or its first day (a card dated earlier than any before, another
-   * "display by", a filter). An effect, because where a box is scrolled to
-   * is the page's and not ours: before the page is drawn again the place of
-   * a day is read off the old axis, and once it is drawn the box is scrolled
-   * to bring that day to the same place on the new one.
-   */
-  $effect.pre(() => {
-    const next = axis;
-    const before = drawn;
-    drawn = next;
-    if (!scroller || !before) return;
-    if (before.first === next.first && before.dayWidth === next.dayWidth) return;
-    const left = scroller.scrollLeft;
-    const hold =
-      held && Math.abs(held.left - left) < 1 ? held : untrack(() => toHold(before, left));
-    void tick().then(() => {
-      if (!scroller) return;
-      const x = (hold.day - daysBetween(HELD_FROM, next.first)) * next.dayWidth * rem();
-      scroller.scrollLeft = Math.max(0, x - hold.at);
-      held = { day: hold.day, at: hold.at, left: scroller.scrollLeft };
-    });
+  /** The days in sight stay in sight when the zoom or the start of the axis changes. */
+  const hold = new DaysHold({
+    axis: () => axis,
+    today: () => today,
+    scroller: () => scroller,
+    room: daysRoom,
+    rem,
   });
 
   /*
-   * A bar that has the focus keeps it when the rows are laid out again. The
-   * rows stand in blocks (below), and a card added or taken away above moves
-   * rows from one block to the next: such a row is made again, and the focus
-   * that was on its bar would fall to the page. Before the rows are drawn the
-   * focused bar is noted, and afterwards the focus is put back on it.
+   * The focus is not lost when the rows are laid out again. The rows stand
+   * in blocks (below), and a card added or taken away above moves rows from
+   * one block to the next: such a row is made again, and the focus that was
+   * on its bar or its title would fall to the page. So would the focus on
+   * the bar of a card that leaves the chart (deleted, or its date cleared,
+   * by someone else). Before the rows are drawn what has the focus is noted;
+   * afterwards, if the page has it, it goes back to the same bar or title,
+   * else to the bar that now stands in that place, else to "No date".
    */
+  /** The cards of the rows as they were drawn last, from the top. Not reactive. */
+  let shown: string[] = [];
   $effect.pre(() => {
     // Read, so that this runs again whenever the rows are laid out anew.
-    const blocks = chart.blocks;
+    const lines = chart.cardLines;
+    const before = shown;
+    shown = lines.map((line) => line.id);
     const active = document.activeElement;
-    const cardId = active instanceof HTMLElement ? active.dataset.bar : undefined;
-    if (blocks.length === 0 || cardId === undefined || !scroller?.contains(active)) return;
+    const row = active instanceof HTMLElement ? active.closest<HTMLElement>('[data-row]') : null;
+    const cardId = row?.dataset.row;
+    if (!row || cardId === undefined || !scroller?.contains(row)) return;
+    const part = active?.hasAttribute('data-row-title') ? '[data-row-title]' : '[data-bar]';
+    const at = Math.max(0, before.indexOf(cardId));
     void tick().then(() => {
       if (document.activeElement !== document.body) return;
-      scroller
-        ?.querySelector<HTMLElement>(`[data-bar="${CSS.escape(cardId)}"]`)
-        ?.focus({ preventScroll: true });
+      const same = scroller?.querySelector<HTMLElement>(
+        `[data-row="${CSS.escape(cardId)}"] ${part}`,
+      );
+      if (same) same.focus({ preventScroll: true });
+      else if (lines.length > 0) focusBar(lines[Math.min(at, lines.length - 1)]?.id);
+      else undatedButton?.focus();
     });
   });
-
   /**
    * The box, once it is drawn: it starts with today in sight. The column of
    * cards without a date lies over it: the focus going into the box means
@@ -229,6 +197,22 @@
   function openFromTitle(cardId: string): void {
     focused = cardId;
     viaTitle = cardId;
+    openCard(cardId);
+  }
+
+  /**
+   * The card opened last from the chart. Should it lose its bar while it is
+   * open (its date cleared in the card), "No date" says it is the card's
+   * (`data-card`), and the card gives the focus back to it when it closes:
+   * that is where the card is listed now.
+   */
+  let opened = $state<string | undefined>(undefined);
+  const openedUndated = $derived(
+    opened !== undefined && !chart.bars.has(opened) ? opened : undefined,
+  );
+
+  function openCard(cardId: string): void {
+    opened = cardId;
     onOpenCard(cardId);
   }
 
@@ -377,6 +361,7 @@
     {zoom}
     onzoom={setZoom}
     undated={chart.placed.undated.length}
+    undatedCard={openedUndated}
     {undatedOpen}
     bind:undatedButton
     onundated={() => void toggleUndated()}
@@ -387,7 +372,8 @@
     {#if box.measured}
       <div
         data-testid="gantt-scroller"
-        class="min-h-0 flex-1 scroll-pt-12 overflow-auto overscroll-contain"
+        tabindex="-1"
+        class="min-h-0 flex-1 scroll-pt-12 overflow-auto overscroll-contain outline-none"
         {@attach attachScroller}
       >
         <div
@@ -442,7 +428,7 @@
                         href={cardHref(line.id)}
                         viaTitle={line.id === viaTitle}
                         pointed={line.id === pointed}
-                        onopen={onOpenCard}
+                        onopen={openCard}
                         onopentitle={openFromTitle}
                         onkeys={barKeys}
                         onfocused={barFocused}

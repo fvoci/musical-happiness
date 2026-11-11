@@ -18,7 +18,6 @@ import {
   barBox,
   barsOf,
   DAY_WIDTH,
-  dayAt,
   GANTT_ZOOMS,
   MAX_AXIS_DAYS,
   MIN_BAR_WIDTH,
@@ -182,27 +181,11 @@ describe('the axis', () => {
     }
   });
 
-  it('knows where a day begins and which day lies at a place', () => {
+  it('knows where a day begins, off the axis too', () => {
     const made = axis('day');
     expect(xOfDay(made, day('2026-11-01'))).toBe(0);
     expect(xOfDay(made, TODAY)).toBe(9 * DAY_WIDTH.day);
     expect(xOfDay(made, day('2026-10-31'))).toBe(-DAY_WIDTH.day);
-    expect(dayAt(made, 9 * DAY_WIDTH.day)).toBe(TODAY);
-    expect(dayAt(made, 10 * DAY_WIDTH.day - 0.01)).toBe(TODAY);
-    expect(dayAt(made, -5)).toBe(made.first);
-    expect(dayAt(made, made.width + 5)).toBe(made.last);
-  });
-
-  it('finds every day at the place it begins, at every zoom', () => {
-    // A day is 0.2 rem at `month`: the division must not come out a day short.
-    for (const zoom of GANTT_ZOOMS) {
-      const made = axis(zoom, [days('2024-01-01', '2029-12-31')]);
-      for (let at = 0; at < made.days; at += 1) {
-        const date = addDays(made.first, at);
-        expect(dayAt(made, xOfDay(made, date))).toBe(date);
-        expect(dayAt(made, xOfDay(made, date) + made.dayWidth / 2)).toBe(date);
-      }
-    }
   });
 });
 

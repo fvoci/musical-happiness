@@ -304,11 +304,39 @@ test('a reader who may not change the view zooms for the visit, and the view sta
       defaultTemplateId: '',
     };
     const author = dev.someoneElse?.() ?? dev.backend;
-    const view = await author.createView(boardId, { title: 'Read only', fields });
+    // Two dated cards, the second after the first and starting before it ends.
+    const board = await author.board(boardId);
+    const due = board.cardProperties.find((property) => property.name === 'Due Date');
+    if (!due) throw new Error('the board has no Due Date');
+    await author.patchBoard(boardId, {
+      updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
+    });
+    const one = await author.createCard(boardId, {
+      title: 'First',
+      properties: { [due.id]: { from: '2026-11-09', to: '2026-11-13' } },
+    });
+    await author.createCard(boardId, {
+      title: 'Second',
+      properties: { [due.id]: { from: '2026-11-11' }, after: [one.id] },
+    });
+    const view = await author.createView(boardId, {
+      title: 'Read only',
+      fields: { ...fields, dateDisplayPropertyId: due.id, dependencyPropertyId: 'after' },
+    });
     return { boardId, viewId: view.id };
   });
   await goTo(page, `/board/${made.boardId}/${made.viewId}`);
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'week');
+  // The reader sees the chart whole: bars, the arrow, what is out of order; and opens a card.
+  await expect(bars(page)).toHaveCount(2);
+  await expect(arrows(page)).toHaveCount(1);
+  await expect(page.getByTestId('gantt-late')).toHaveAccessibleName(
+    'Out of order: 1. Show the next.',
+  );
+  await bar(page, 'Second').click();
+  await expect(dialog(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(bar(page, 'Second')).toBeFocused();
   // Nothing that changes the view for everyone is offered.
   await expect(page.getByTestId('view-header').locator('[data-tool="more"]')).toHaveCount(0);
   await page.getByTestId('gantt-zoom-in').click();
