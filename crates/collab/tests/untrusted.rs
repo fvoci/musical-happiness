@@ -4,7 +4,8 @@
 
 mod support;
 
-use fvoci_collab::{new_doc, repair, state_of, to_body, with_update};
+use fvoci_collab::testing::{repair, to_body, with_update};
+use fvoci_collab::{new_doc, state_of};
 use support::random::Random;
 use support::{ROOMY, vectors};
 use yrs::Doc;
@@ -181,10 +182,12 @@ fn nested_values_elsewhere(depth: usize) -> Vec<Vec<u8>> {
     after_another.extend([0x80 | 8, 5, 0, 1]);
     after_another.extend(&deep);
     after_another.push(0);
-    // An attribute of the root: the member "k".
-    let mut attribute = vec![1, 1, 5, 0];
-    attribute.extend(root(0x20 | 8));
-    attribute.extend([1, b'k', 1]);
+    // An attribute of a node: a paragraph under the root (5:0), then its member "k".
+    let mut attribute = vec![1, 2, 5, 0];
+    attribute.extend(root(7));
+    attribute.extend([3, 9]);
+    attribute.extend_from_slice(b"paragraph");
+    attribute.extend([0x20 | 8, 0, 5, 0, 1, b'k', 1]);
     attribute.extend(&deep);
     attribute.push(0);
     // The second of two values, behind a text of the letters that open a list.

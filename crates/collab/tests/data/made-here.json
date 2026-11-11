@@ -203,7 +203,7 @@
     },
     {
       "name": "runs whose marks overlap, begin and end one after another",
-      "update": "ARoBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhAECAWKEAQMBY4QBBAFkhAEFAWWEAQYBZoQBBwFnhAEIAWiEAQkBacYBAgEDBGJvbGQCe33BAQMBBAHGAQQBBQRib2xkBG51bGzGAQwBBAZpdGFsaWMCe33BAQ0BBQHBAQUBBgHGAQYBBwZpdGFsaWMEbnVsbMYBEAEGBnN0cmlrZQJ7fcEBEQEHAcYBBgERBGxpbmsfeyJocmVmIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS8ifcEBBwEIAcYBFQEIBnN0cmlrZQRudWxsxgEIAQkEbGluawRudWxsxgEIARcEY29kZQJ7fcYBCQEKBGNvZGUEbnVsbAEBBAwBDwITARUB"
+      "update": "ARoBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhAECAWKEAQMBY4QBBAFkhAEFAWWEAQYBZoQBBwFnhAEIAWiEAQkBacYBAgEDBGJvbGQCe33GAQMBBARib2xkBG51bGzGAQQBBQRib2xkBG51bGzGAQwBBAZpdGFsaWMCe33GAQ0BBQZpdGFsaWMEbnVsbMYBBQEGBml0YWxpYwRudWxsxgEGAQcGaXRhbGljBG51bGzGARABBgZzdHJpa2UCe33GAREBBwZzdHJpa2UEbnVsbMYBBgERBGxpbmsfeyJocmVmIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS8ifcYBBwEIBGxpbmsEbnVsbMYBFQEIBnN0cmlrZQRudWxsxgEIAQkEbGluawRudWxsxgEIARcEY29kZQJ7fcYBCQEKBGNvZGUEbnVsbAEBBAwBDwITARUB"
     },
     {
       "name": "marks written against the order of the schema",
@@ -211,15 +211,15 @@
     },
     {
       "name": "runs around a node that is no text",
-      "update": "ARcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFkhAECAWVGAQIEYm9sZAJ7fcEBAgEDAYYBAwRib2xkBG51bGzGAQUBAwZpdGFsaWMCe32GAQYGaXRhbGljBG51bGxHAQEDB21lbnRpb24oAAEJBnVzZXJJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMkcBCQMKaW5saW5lTWF0aCgAAQsFbGF0ZXgBdwF4RwELBgQAAQ0BY0YBDgZpdGFsaWMCe32GAQ4GaXRhbGljBG51bGxHAQ0DCWhhcmRCcmVha0cBEQYEAAESAWGEARMBYkYBEwRib2xkAnt9xgETARQEYm9sZARudWxsAQEBBQE="
+      "update": "ARcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFkhAECAWVGAQIEYm9sZAJ7fcYBAgEDBGJvbGQEbnVsbIYBAwRib2xkBG51bGzGAQUBAwZpdGFsaWMCe32GAQYGaXRhbGljBG51bGxHAQEDB21lbnRpb24oAAEJBnVzZXJJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMkcBCQMKaW5saW5lTWF0aCgAAQsFbGF0ZXgBdwF4RwELBgQAAQ0BY0YBDgZpdGFsaWMCe32GAQ4GaXRhbGljBG51bGxHAQ0DCWhhcmRCcmVha0cBEQYEAAESAWGEARMBYkYBEwRib2xkAnt9xgETARQEYm9sZARudWxsAQEBBQE="
     },
     {
       "name": "neighbouring texts with the same marks come back as one",
-      "update": "AQkBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQJhYoQBAwFjhAEEAWSEAQUBZcYBAwEEBGJvbGQCe33BAQQBBQHGAQUBBgRib2xkBG51bGwBAQEIAQ=="
+      "update": "AQkBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQJhYoQBAwFjhAEEAWSEAQUBZcYBAwEEBGJvbGQCe33GAQQBBQRib2xkBG51bGzGAQUBBgRib2xkBG51bGwBAQEIAQ=="
     },
     {
       "name": "letters outside the basic plane between marks",
-      "update": "ARcBAAcBB2RlZmF1bHQDCWNvZGVCbG9jawcAAQAGBAABARLwnZKzID0gIvCfmIAiCgnrgZ1HAQADB2hlYWRpbmcHAAEOBgQAAQ8H7ZWc6riAIIQBEgTwn5iAxgESARMGc3RyaWtlAnt9hgEUBnN0cmlrZQRudWxsKAABDgVsZXZlbAF9A0cBDgMJcGFyYWdyYXBoBwABGAYEAAEZB+qwgPCfmICEARwH8J+YgOuCmIQBHxnwn5Gp4oCN8J+RqeKAjfCfkafigI3wn5GmhAEqBfCdkrN5RgEaBGJvbGQCe33GARwBHQRib2xkBG51bGzGAR8BIAZpdGFsaWMCe33BASoBKwHGASoBMQRib2xkAnt9hgEtBGJvbGQEbnVsbIYBMwZpdGFsaWMEbnVsbAEBATEB"
+      "update": "ARcBAAcBB2RlZmF1bHQDCWNvZGVCbG9jawcAAQAGBAABARLwnZKzID0gIvCfmIAiCgnrgZ1HAQADB2hlYWRpbmcHAAEOBgQAAQ8H7ZWc6riAIIQBEgTwn5iAxgESARMGc3RyaWtlAnt9hgEUBnN0cmlrZQRudWxsKAABDgVsZXZlbAF9A0cBDgMJcGFyYWdyYXBoBwABGAYEAAEZB+qwgPCfmICEARwH8J+YgOuCmIQBHxnwn5Gp4oCN8J+RqeKAjfCfkafigI3wn5GmhAEqBfCdkrN5RgEaBGJvbGQCe33GARwBHQRib2xkBG51bGzGAR8BIAZpdGFsaWMCe33GASoBKwZpdGFsaWMEbnVsbMYBKgExBGJvbGQCe32GAS0EYm9sZARudWxshgEzBml0YWxpYwRudWxsAQEBMQE="
     },
     {
       "name": "an ordered list without a start is given one",
@@ -233,119 +233,119 @@
   "repairs": [
     {
       "name": "two people each delete one of the two entries of a list",
-      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQABAAUAAQAFAQEBAw0="
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0AQABAwEABYEBBAEABQEBAQMN"
     },
     {
       "name": "one deletes the first paragraph of an entry, the other puts a quote in place of the second",
-      "update": "AgEDAAAECgEABwEHZGVmYXVsdAMKYnVsbGV0TGlzdAEAAQABAAEABAABAAWHAQEDCGxpc3RJdGVtBwABDQMJcGFyYWdyYXBoBwABDgYEAAEPA3R3bwIBAQEMAwEABA=="
+      "update": "AgQDAMcBAgEHAwpibG9ja3F1b3RlBwADAAMJcGFyYWdyYXBoBwADAQYEAAMCAXEKAQAHAQdkZWZhdWx0AwpidWxsZXRMaXN0BwABAAMIbGlzdEl0ZW0BAAEBAQAEgQECAQAFhwEBAwhsaXN0SXRlbQcAAQ0DCXBhcmFncmFwaAcAAQ4GBAABDwN0d28CAQEBDAMBAAQ="
     },
     {
       "name": "a bullet list without entries",
-      "update": "AQQBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQEBAQMB"
+      "update": "AQQBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0AQEBAwE="
     },
     {
       "name": "an ordered list and a task list without entries",
-      "update": "AQYBAAEBB2RlZmF1bHQBAAGHAQADCXBhcmFncmFwaAcAAQIGBAABAwFhgQECAQEBAgACBQE="
+      "update": "AQYBAAcBB2RlZmF1bHQDC29yZGVyZWRMaXN0KAABAAVzdGFydAF9A4cBAAMJcGFyYWdyYXBoBwABAgYEAAEDAWGHAQIDCHRhc2tMaXN0AQECAAIFAQ=="
     },
     {
       "name": "a blockquote with nothing in it",
-      "update": "AQQBAAEBB2RlZmF1bHQBhwEAAwlwYXJhZ3JhcGgHAAEBBgQAAQIBYQEBAQAB"
+      "update": "AQQBAAcBB2RlZmF1bHQDCmJsb2NrcXVvdGWHAQADCXBhcmFncmFwaAcAAQEGBAABAgFhAQEBAAE="
     },
     {
       "name": "a list entry with nothing in it, beside one that is whole",
-      "update": "AQYBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QBAAEAAYcBAQMIbGlzdEl0ZW0HAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQEa2VwdAEBAQEB"
+      "update": "AQYBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbYcBAQMIbGlzdEl0ZW0HAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQEa2VwdAEBAQEB"
     },
     {
       "name": "a list whose only entry has nothing in it: the list goes with it",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQABAQEBAwI="
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0BwABAwMIbGlzdEl0ZW0BAQEDAg=="
     },
     {
       "name": "a list entry that does not start with a paragraph",
-      "update": "AQcBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QBAAEAAQAEhwEBAwhsaXN0SXRlbQcAAQYDCXBhcmFncmFwaAcAAQcGBAABCARrZXB0AQEBAQU="
+      "update": "AQoBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbQcAAQEDCmJsb2NrcXVvdGUHAAECAwlwYXJhZ3JhcGgHAAEDBgQAAQQBcYcBAQMIbGlzdEl0ZW0HAAEGAwlwYXJhZ3JhcGgHAAEHBgQAAQgEa2VwdAEBAQEF"
     },
     {
       "name": "a task item that starts with a list",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAFAQEBAwY="
+      "update": "AQkBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwh0YXNrTGlzdAcAAQMDCHRhc2tJdGVtBwABBAMKYnVsbGV0TGlzdAcAAQUDCGxpc3RJdGVtBwABBgMJcGFyYWdyYXBoKAABBAdjaGVja2VkAXgBAQEDBg=="
     },
     {
       "name": "what fails deep down takes its emptied ancestors with it",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQADAQEBAwQ="
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMKYnVsbGV0TGlzdAcAAQQDCGxpc3RJdGVtBwABBQMKYnVsbGV0TGlzdAEBAQME"
     },
     {
       "name": "a failing node between whole ones leaves them",
-      "update": "AQgBAAcBB2RlZmF1bHQDCmJsb2NrcXVvdGUHAAEAAwlwYXJhZ3JhcGgHAAEBBgQAAQIBYYEBAQGHAQQDCXBhcmFncmFwaAcAAQUGBAABBgFiAQEBBAE="
+      "update": "AQgBAAcBB2RlZmF1bHQDCmJsb2NrcXVvdGUHAAEAAwlwYXJhZ3JhcGgHAAEBBgQAAQIBYYcBAQMKYnVsbGV0TGlzdIcBBAMJcGFyYWdyYXBoBwABBQYEAAEGAWIBAQEEAQ=="
     },
     {
       "name": "an element of a kind nobody knows",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQABAQEBAwI="
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwV2aWRlbygAAQMDc3JjAXcBeAEBAQMC"
     },
     {
       "name": "an element of a kind nobody knows in a line: it goes, the line stays",
-      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEBAQABhwEDBgQAAQUBYgEBAQMC"
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBAwVlbW9qaSgAAQMEbmFtZQF3AXiHAQMGBAABBQFiAQEBAwI="
     },
     {
       "name": "a text with a mark nobody knows goes whole, its neighbours stay",
-      "update": "AQYBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBAwloYXJkQnJlYWuBAQMBAAcBAQEECA=="
+      "update": "AQkBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBAwloYXJkQnJlYWuHAQMGBAABBAFihgEFBGdsb3cCe32EAQYEZ2xvd4YBCgRnbG93BG51bGwBAQEECA=="
     },
     {
       "name": "a code block whose text has a mark",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAEAQEBAwU="
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwljb2RlQmxvY2sHAAEDBgYAAQQEYm9sZAJ7fYQBBQFihgEGBGJvbGQEbnVsbAEBAQMF"
     },
     {
       "name": "a code block that holds an element",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQADAQEBAwQ="
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwljb2RlQmxvY2sHAAEDBgQAAQQBYocBBAMJaGFyZEJyZWFrAQEBAwQ="
     },
     {
       "name": "a paragraph that holds a block: the paragraph goes, not the block alone",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAFAQEBAwY="
+      "update": "AQkBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwlwYXJhZ3JhcGgHAAEDBgQAAQQBYocBBAMJcGFyYWdyYXBoBwABBgYEAAEHAWMBAQEDBg=="
     },
     {
       "name": "a heading that holds a list",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAEAQEBAwU="
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwdoZWFkaW5nBwABAwMKYnVsbGV0TGlzdAcAAQQDCGxpc3RJdGVtBwABBQMJcGFyYWdyYXBoKAABAwVsZXZlbAF9AgEBAQMF"
     },
     {
       "name": "leaves with something inside",
-      "update": "ARMBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEBAQACgQEAAQACgQEGAQABgQEJAQADhwELAwlwYXJhZ3JhcGgBAAEPAQADhwEPAwlwYXJhZ3JhcGgBAAEUAQADhwEVBgQAARkBYgEBAwMMEAQVBA=="
+      "update": "ARsBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBAwloYXJkQnJlYWsHAAEDBgQAAQQBeIcBAAMFaW1hZ2UHAAEGAwlwYXJhZ3JhcGgoAAEGBmZpbGVJZAF3BWYucG5nhwEGAw5ob3Jpem9udGFsUnVsZQcAAQkDCXBhcmFncmFwaIcBCQMJYmxvY2tNYXRoBwABCwYEAAEMAXgoAAELBWxhdGV4AXcBeIcBCwMJcGFyYWdyYXBoBwABDwMHbWVudGlvbgcAARAGBAABEQF4KAABEAZ1c2VySWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDKHAQ8DCXBhcmFncmFwaAcAARQDCmlubGluZU1hdGgHAAEVBgQAARYBeCgAARUFbGF0ZXgBdwF4hwEVBgQAARkBYgEBAwMMEAQVBA=="
     },
     {
       "name": "a blockquote that holds a text",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAGAQEBAwc="
+      "update": "AQYBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwYEAAEEBWxvb3NlAQEBAwc="
     },
     {
       "name": "a list that holds an entry of another kind of list",
-      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQADgQEDAQACAQEBAwc="
+      "update": "AQoBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0BwABAwMIdGFza0l0ZW0HAAEEAwlwYXJhZ3JhcGgoAAEEB2NoZWNrZWQBeYcBAwMIdGFza0xpc3QHAAEHAwhsaXN0SXRlbQcAAQgDCXBhcmFncmFwaAEBAQMH"
     },
     {
       "name": "a list that holds a paragraph beside an entry",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAHAQEBAwg="
+      "update": "AQsBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0BwABAwMIbGlzdEl0ZW0HAAEEAwlwYXJhZ3JhcGgHAAEFBgQAAQYBYocBBAMJcGFyYWdyYXBoBwABCAYEAAEJAWMBAQEDCA=="
     },
     {
       "name": "a list entry inside a blockquote",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAEAQEBAwU="
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMIbGlzdEl0ZW0HAAEEAwlwYXJhZ3JhcGgHAAEFBgQAAQYBYgEBAQMF"
     },
     {
       "name": "a document inside a quote",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAHAQEBAwg="
+      "update": "AQsBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMJcGFyYWdyYXBoBwABBAYEAAEFAXGHAQQDA2RvYwcAAQcDCXBhcmFncmFwaAcAAQgGBAABCQFiAQEBAwg="
     },
     {
       "name": "a task item with nothing in it, beside one that is whole",
-      "update": "AQgBAAcBB2RlZmF1bHQDCHRhc2tMaXN0AQABAAEAAYcBAQMIdGFza0l0ZW0HAAEDAwlwYXJhZ3JhcGgHAAEEBgQAAQUEa2VwdCgAAQMHY2hlY2tlZAF5AQEBAQI="
+      "update": "AQgBAAcBB2RlZmF1bHQDCHRhc2tMaXN0BwABAAMIdGFza0l0ZW0oAAEBB2NoZWNrZWQBeIcBAQMIdGFza0l0ZW0HAAEDAwlwYXJhZ3JhcGgHAAEEBgQAAQUEa2VwdCgAAQMHY2hlY2tlZAF5AQEBAQI="
     },
     {
       "name": "a list entry that holds a text",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAHAQEBAwg="
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0BwABAwMIbGlzdEl0ZW0HAAEEBgQAAQUFbG9vc2UBAQEDCA=="
     },
     {
       "name": "an ordered list that holds a paragraph",
-      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhgQEAAQAEAQEBAwU="
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwtvcmRlcmVkTGlzdAcAAQMDCXBhcmFncmFwaAcAAQQGBAABBQFiKAABAwVzdGFydAF9AQEBAQMF"
     },
     {
       "name": "an element where a text belongs, in a code block inside a list",
-      "update": "AQcBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbQcAAQEDCXBhcmFncmFwaAcAAQIGBAABAwRrZXB0gQECAQACAQEBCAM="
+      "update": "AQgBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbQcAAQEDCXBhcmFncmFwaAcAAQIGBAABAwRrZXB0hwECAwljb2RlQmxvY2sHAAEIAwdtZW50aW9uKAABCQZ1c2VySWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDIBAQEIAw=="
     },
     {
       "name": "nothing is left",
-      "update": "AQIBAAEBB2RlZmF1bHQDAAEBAQEABA=="
+      "update": "AQQBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3SHAQADBXZpZGVvhwEBAwpibG9ja3F1b3RlBwABAgMKYmxvY2txdW90ZQEBAQAE"
     }
   ]
 }

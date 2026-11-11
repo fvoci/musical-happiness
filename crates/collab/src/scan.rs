@@ -13,9 +13,14 @@
 //! of the Y update encoding), and refused if a value in it nests deeper than any
 //! attribute of a body does, if it names more than it has bytes for, or if it holds
 //! anything this walk does not know: where the walk and the library could read the
-//! same bytes differently, the update does not reach the library. A body's update
-//! needs none of what is refused (a subdocument, a kind of content from another
-//! version of the encoding, a hole in a client's changes, a clock past 31 bits).
+//! same bytes differently, the update does not reach the library. Nor does what the
+//! library takes and then writes in a form it does not read again (texts of JSON, a
+//! whole number past 53 bits): the document that took it could not be stored. A
+//! body's update needs none of what is refused (a subdocument, a kind of content from
+//! another version of the encoding, a hole in a client's changes, a clock past 31
+//! bits, a number JavaScript does not keep).
+
+use std::collections::HashMap;
 
 /// How deep a value in an update may nest. The values of a body are attributes:
 /// numbers, truths and texts, which do not nest at all.
@@ -26,9 +31,20 @@ const MAX_CLIENT: u64 = (1 << 53) - 1;
 
 const MAX_U32: u64 = 0xffff_ffff;
 
+/// The largest whole number of a value: 53 bits, as for a client.
+const MAX_SAFE_WHOLE: u64 = MAX_CLIENT;
+
 /// The furthest a clock may run. The library counts some distances between clocks as
 /// signed numbers of 32 bits.
 const MAX_CLOCK: u64 = 0x7fff_ffff;
+
+/// How often a member of one node (an attribute) may be written without naming the
+/// value it replaces. An editor names it on every write but the first; only editors
+/// that write the first value at once write it so more than once. The library places
+/// each such write by walking every value the member had before, which a document
+/// keeps, as it is made without garbage collection: written over and over, a member
+/// would cost every later reading of the document the square of its writes.
+const MAX_FIRST_WRITES: u32 = 8;
 
 /// Why an update is not handed to the library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +61,9 @@ pub(crate) enum Refusal {
     Unknown,
     /// It leaves a stretch of a client's clock out, or gives a client's changes twice.
     Gap,
+    /// It writes a member of the root, or a member of a node more often than
+    /// [`MAX_FIRST_WRITES`] without the value that it replaces.
+    Member,
 }
 
 impl Refusal {
@@ -56,6 +75,7 @@ impl Refusal {
             Self::TooDeep => "a value in it nests too deep",
             Self::Unknown => "it holds content no body has",
             Self::Gap => "it leaves a gap in a client's changes",
+            Self::Member => "it writes a member no editor writes so",
         }
     }
 }
@@ -69,6 +89,7 @@ pub(crate) fn check(update: &[u8]) -> Result<Vec<(u64, u64)>, Refusal> {
     let mut walk = Walk {
         bytes: update,
         at: 0,
+        first_writes: HashMap::new(),
     };
     let length = u64::try_from(update.len()).unwrap_or(u64::MAX);
     let mut begins: Vec<(u64, u64)> = Vec::new();
@@ -107,6 +128,9 @@ pub(crate) fn check(update: &[u8]) -> Result<Vec<(u64, u64)>, Refusal> {
 struct Walk<'bytes> {
     bytes: &'bytes [u8],
     at: usize,
+    /// How often each member of a node was written without the value it replaces, by
+    /// the node's identifier and the member's name.
+    first_writes: HashMap<((u64, u64), &'bytes [u8]), u32>,
 }
 
 /// A list or a map that is being read: how many of its entries have not begun.
@@ -115,7 +139,7 @@ struct Open {
     map: bool,
 }
 
-impl Walk<'_> {
+impl<'bytes> Walk<'bytes> {
     fn byte(&mut self) -> Result<u8, Refusal> {
         let byte = *self.bytes.get(self.at).ok_or(Refusal::CutShort)?;
         self.at += 1;
@@ -161,17 +185,17 @@ impl Walk<'_> {
         Ok(count)
     }
 
-    /// A text or bytes: the length, then that many bytes.
-    fn text(&mut self) -> Result<(), Refusal> {
+    /// A text or bytes: the length, then that many bytes, which it gives.
+    fn text(&mut self) -> Result<&'bytes [u8], Refusal> {
         let length = self.number(MAX_U32)?;
-        self.skip(length)
+        let from = self.at;
+        self.skip(length)?;
+        Ok(&self.bytes[from..self.at])
     }
 
     /// The identifier of a change: the client and its clock.
-    fn id(&mut self) -> Result<(), Refusal> {
-        self.number(MAX_CLIENT)?;
-        self.number(MAX_U32)?;
-        Ok(())
+    fn id(&mut self) -> Result<(u64, u64), Refusal> {
+        Ok((self.number(MAX_CLIENT)?, self.number(MAX_U32)?))
     }
 
     /// One change: a struct of the update. Gives the length it says it has, for one
@@ -195,40 +219,47 @@ impl Walk<'_> {
             self.id()?;
         }
         if !after && !before {
-            // The parent: a root by its name, or a change by its identifier.
-            if self.number(MAX_U32)? == 1 {
+            // The parent: a root by its name, or a change by its identifier; and the
+            // member of it that is written, if it is one.
+            let parent = if self.number(MAX_U32)? == 1 {
                 self.text()?;
+                None
             } else {
-                self.id()?;
-            }
+                Some(self.id()?)
+            };
             if info & 0x20 != 0 {
-                self.text()?;
+                let member = self.text()?;
+                let Some(node) = parent else {
+                    return Err(Refusal::Member);
+                };
+                let writes = self.first_writes.entry((node, member)).or_insert(0);
+                *writes += 1;
+                if *writes > MAX_FIRST_WRITES {
+                    return Err(Refusal::Member);
+                }
             }
         }
         match info & 0x0f {
             // Deleted content: its length.
             1 => return self.number(MAX_CLOCK),
-            // Texts of JSON: one more than the number says.
-            2 => {
-                let more = self.count()?;
-                if more >= 1 << 31 {
-                    return Err(Refusal::Number);
-                }
-                for _ in 0..=more {
-                    self.text()?;
-                }
-            }
             // Bytes, a text, an embedded value written as JSON.
-            3..=5 => self.text()?,
+            3..=5 => {
+                self.text()?;
+            }
             // Formatting: the name and the value written as JSON.
             6 => {
                 self.text()?;
                 self.text()?;
             }
-            // A shared type; an XML element has its name.
+            // A shared type; an XML element has its name. An XML hook (5), which the
+            // library writes without the name that the editors' library reads after
+            // it, and a type of no kind (15), which the editors' library has not, would
+            // leave a document no browser can open.
             7 => match self.byte()? {
-                3 => self.text()?,
-                0..=2 | 4..=6 | 15 => {}
+                3 => {
+                    self.text()?;
+                }
+                0..=2 | 4 | 6 => {}
                 _ => return Err(Refusal::Unknown),
             },
             // Values.
@@ -237,10 +268,44 @@ impl Walk<'_> {
                     self.value()?;
                 }
             }
-            // A subdocument (9), or what version 1 of the encoding does not have.
+            // Texts of JSON (2), a kind of content of older versions of the encoding
+            // that no editor writes: the library reads one text more than the number
+            // before them says and writes as many as it says, so that a document that
+            // took them could not be read again. A subdocument (9), and what version 1
+            // of the encoding does not have.
             _ => return Err(Refusal::Unknown),
         }
         Ok(0)
+    }
+
+    /// A whole number of a value: the sign and six bits, then seven bits a byte.
+    ///
+    /// One past 53 bits is refused. JavaScript does not keep it, and the library, which
+    /// reads it, writes it back as a float where a float holds it exactly and otherwise
+    /// as a number of 64 bits, which this walk refuses: a document that took it could
+    /// not be read again. Every whole number up to 53 bits is written back in a form
+    /// this walk reads. Nine bytes hold 62
+    /// bits; the library reads more, and a tenth could spell the one number that has
+    /// no negative, which it negates, so the number is refused by its length as well.
+    fn whole_number(&mut self) -> Result<(), Refusal> {
+        const MAX_BYTES: u32 = 9;
+        let first = self.byte()?;
+        let mut magnitude = u64::from(first & 0x3f);
+        let mut more = first & 0x80 != 0;
+        let mut shift = 6;
+        for _ in 1..MAX_BYTES {
+            if !more {
+                break;
+            }
+            let byte = self.byte()?;
+            magnitude |= u64::from(byte & 0x7f) << shift;
+            more = byte & 0x80 != 0;
+            shift += 7;
+        }
+        if more || magnitude > MAX_SAFE_WHOLE {
+            return Err(Refusal::Number);
+        }
+        Ok(())
     }
 
     /// One value, with all it holds, read without a call a level.
@@ -250,22 +315,13 @@ impl Walk<'_> {
             match self.byte()? {
                 // Undefined, null, false and true.
                 120 | 121 | 126 | 127 => {}
-                // A whole number: the sign and six bits, then seven bits a byte. Nine
-                // bytes hold 62 bits, more than JavaScript keeps; a tenth could spell
-                // the one number that has no negative, which the library negates.
-                125 => {
-                    let mut length = 1;
-                    while self.byte()? & 0x80 != 0 {
-                        length += 1;
-                        if length > 9 {
-                            return Err(Refusal::Number);
-                        }
-                    }
-                }
+                125 => self.whole_number()?,
                 124 => self.skip(4)?,
                 123 => self.skip(8)?,
                 // Bytes and a text.
-                116 | 119 => self.text()?,
+                116 | 119 => {
+                    self.text()?;
+                }
                 tag @ (117 | 118) => {
                     if open.len() >= MAX_VALUE_DEPTH {
                         return Err(Refusal::TooDeep);
@@ -331,6 +387,48 @@ mod tests {
         value.extend([117, 1].repeat(MAX_VALUE_DEPTH));
         value.push(120);
         assert_eq!(check(&of_values(&value, 1)), Err(Refusal::TooDeep));
+    }
+
+    /// A whole number of a value in the form `125` takes: the sign, then the
+    /// magnitude six bits and seven bits a byte.
+    fn whole(number: i64) -> Vec<u8> {
+        let magnitude = number.unsigned_abs();
+        let sign = if number < 0 { 0x40 } else { 0 };
+        let low = u8::try_from(magnitude & 0x3f).expect("six bits");
+        let mut rest = magnitude >> 6;
+        let mut bytes = vec![125, low | sign | if rest > 0 { 0x80 } else { 0 }];
+        while rest > 0 {
+            let seven = u8::try_from(rest & 0x7f).expect("seven bits");
+            rest >>= 7;
+            bytes.push(seven | if rest > 0 { 0x80 } else { 0 });
+        }
+        bytes
+    }
+
+    #[test]
+    fn a_whole_number_is_taken_up_to_53_bits() {
+        let safe = i64::try_from(MAX_SAFE_WHOLE).expect("53 bits");
+        for sign in [1, -1] {
+            for magnitude in [0, 63, 64, 0x7fff_ffff, safe] {
+                let value = whole(sign * magnitude);
+                assert!(check(&of_values(&value, 1)).is_ok(), "{value:?}");
+            }
+            for magnitude in [safe + 1, (1 << 62) - 1] {
+                let value = whole(sign * magnitude);
+                assert_eq!(
+                    check(&of_values(&value, 1)),
+                    Err(Refusal::Number),
+                    "{value:?}"
+                );
+            }
+        }
+        // Zero written long, in all the bytes there are and in one more.
+        let mut long = vec![125, 0x80];
+        long.extend([0x80; 7]);
+        long.push(0);
+        assert!(check(&of_values(&long, 1)).is_ok(), "nine bytes");
+        long.insert(2, 0x80);
+        assert_eq!(check(&of_values(&long, 1)), Err(Refusal::Number), "ten");
     }
 
     #[test]
@@ -422,6 +520,41 @@ mod tests {
             Err(Refusal::Unknown),
             "a whole number of 64 bits"
         );
+        // Texts of JSON, however many the number says.
+        for count in [0, 1] {
+            let mut json = vec![1, 1, 5, 0, 2, 1, 7];
+            json.extend_from_slice(b"default");
+            json.extend_from_slice(&[count, 1, b'1', 1, b'2', 0]);
+            assert_eq!(check(&json), Err(Refusal::Unknown), "{count}");
+        }
+        // An XML hook and a type of no kind, which the editors' library cannot read.
+        for kind in [5, 15] {
+            let mut shared = vec![1, 1, 5, 0, 7, 1, 7];
+            shared.extend_from_slice(b"default");
+            shared.extend_from_slice(&[kind, 0]);
+            assert_eq!(check(&shared), Err(Refusal::Unknown), "{kind}");
+        }
+        // A member of the root, which no editor writes.
+        let mut member = vec![1, 1, 5, 0, 0x28, 1, 7];
+        member.extend_from_slice(b"default");
+        member.extend_from_slice(&[1, b'a', 1, 126, 0]);
+        assert_eq!(check(&member), Err(Refusal::Member));
+        // A member of a node written without the value it replaces, as often as is
+        // allowed and once more.
+        let first_writes = |times: u8| {
+            let mut bytes = vec![1, times, 5, 0];
+            for _ in 0..times {
+                bytes.extend_from_slice(&[0x28, 0, 7, 0, 1, b'a', 1, 126]);
+            }
+            bytes.push(0);
+            bytes
+        };
+        let allowed = u8::try_from(MAX_FIRST_WRITES).expect("a few");
+        assert!(
+            check(&first_writes(allowed)).is_ok(),
+            "as often as is allowed"
+        );
+        assert_eq!(check(&first_writes(allowed + 1)), Err(Refusal::Member));
         // A subdocument.
         let mut subdocument = vec![1, 1, 5, 0, 9, 1, 7];
         subdocument.extend_from_slice(b"default");

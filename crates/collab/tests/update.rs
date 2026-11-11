@@ -3,9 +3,8 @@
 
 mod support;
 
-use fvoci_collab::{
-    FIELD, UpdateError, UpdateLimits, copy_of, from_body, new_doc, state_of, to_body, with_update,
-};
+use fvoci_collab::testing::{copy_of, to_body, with_update};
+use fvoci_collab::{FIELD, UpdateError, UpdateLimits, from_body, new_doc, state_of};
 use serde_json::json;
 use support::{ROOMY, body_of, json_of};
 use yrs::updates::decoder::Decode;
@@ -24,7 +23,7 @@ fn opened(text: &str) -> Doc {
 /// What a client that holds `doc` sends after appending a paragraph: the update of
 /// that change alone.
 fn appended(doc: &Doc, text: &str) -> Vec<u8> {
-    let client = copy_of(doc);
+    let client = copy_of(doc).expect("the document can be read again");
     let before = client.transact().state_vector();
     {
         let root = client.get_or_insert_xml_fragment(FIELD);
@@ -67,7 +66,7 @@ fn an_update_is_applied_to_a_copy_and_the_document_stays() {
 #[test]
 fn a_copy_shares_nothing_with_its_document() {
     let doc = opened("first");
-    let copy = copy_of(&doc);
+    let copy = copy_of(&doc).expect("the document can be read again");
     assert_eq!(state_of(&copy), state_of(&doc));
     {
         let root = copy.get_or_insert_xml_fragment(FIELD);
@@ -115,7 +114,7 @@ fn an_update_over_the_limit_or_that_is_none_is_refused() {
 #[test]
 fn an_update_that_builds_on_changes_the_document_lacks_is_refused() {
     let doc = opened("first");
-    let client = copy_of(&doc);
+    let client = copy_of(&doc).expect("the document can be read again");
     let root = client.get_or_insert_xml_fragment(FIELD);
     let start = client.transact().state_vector();
     {
@@ -169,7 +168,7 @@ fn an_update_for_another_document_is_refused() {
     let one = opened("the same body");
     let other = opened("the same body");
     let typed = {
-        let client = copy_of(&one);
+        let client = copy_of(&one).expect("the document can be read again");
         let before = client.transact().state_vector();
         let root = client.get_or_insert_xml_fragment(FIELD);
         let mut txn = client.transact_mut();
@@ -264,9 +263,9 @@ fn a_document_may_cross_threads() {
     assert_eq!(moved, ["first"]);
 }
 
-/// What the room that holds a document pays for each update, measured on the largest
-/// body (1 MiB of text) and on the one with the most nodes, each with room left for a
-/// paragraph more, and printed: run with
+/// What the room that holds a document pays for each update, measured on bodies of
+/// text and of nodes up to the largest (1 MiB of text, and the most nodes), each with
+/// room left for a paragraph more, and printed: run with
 /// `--release -- --nocapture` to read it. Nothing is asserted about the times.
 #[test]
 fn the_cost_of_taking_an_update_into_the_largest_bodies() {
@@ -275,13 +274,21 @@ fn the_cost_of_taking_an_update_into_the_largest_bodies() {
 
     let frame =
         r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":""}]}]}"#;
-    let largest = json!({"type": "doc", "content": [
-        {"type": "paragraph", "content": [{"type": "text", "text": "a".repeat(BODY_MAX_BYTES - 2 * frame.len())}]},
-    ]});
-    let paragraphs = vec![json!({"type": "paragraph"}); BODY_MAX_NODES - 3];
-    let most = json!({"type": "doc", "content": paragraphs});
+    let of_text = |bytes: usize| {
+        json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "a".repeat(bytes - 2 * frame.len())}]},
+        ]})
+    };
+    let paragraphs =
+        |count: usize| json!({"type": "doc", "content": vec![json!({"type": "paragraph"}); count]});
 
-    for (name, document) in [("1 MiB of text", largest), ("20,000 nodes", most)] {
+    for (name, document) in [
+        ("4 KiB of text", of_text(4 * 1024)),
+        ("64 KiB of text", of_text(64 * 1024)),
+        ("1 MiB of text", of_text(BODY_MAX_BYTES)),
+        ("1,000 nodes", paragraphs(1000)),
+        ("20,000 nodes", paragraphs(BODY_MAX_NODES - 3)),
+    ] {
         let body = body_of(&document);
         let timed = Instant::now();
         let doc = from_body(&body);
@@ -290,7 +297,7 @@ fn the_cost_of_taking_an_update_into_the_largest_bodies() {
         let state = state_of(&doc);
         let encoded = timed.elapsed();
         let timed = Instant::now();
-        let copy = copy_of(&doc);
+        let copy = copy_of(&doc).expect("the document can be read again");
         let copied = timed.elapsed();
         let timed = Instant::now();
         let projected = to_body(&copy).expect("a body");

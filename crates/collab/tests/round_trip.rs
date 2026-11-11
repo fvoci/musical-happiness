@@ -1,13 +1,15 @@
 //! Properties over bodies made from seeds: a body goes into a Y document and comes
-//! back as it went, and a Y document from which children were deleted at random, as a
-//! merge of edits may delete them, is repaired to a body.
+//! back as it went (in the stored form, which is no larger), and a Y document from
+//! which children were deleted at random, as a merge of edits may delete them, is
+//! repaired to a body.
 
 mod support;
 
-use fvoci_collab::{FIELD, from_body, from_body_by, repair, state_of, to_body, with_update};
+use fvoci_collab::testing::{repair, to_body, with_update};
+use fvoci_collab::{FIELD, from_body, from_body_by, state_of};
 use serde_json::Value;
 use support::random::{Random, document};
-use support::{ROOMY, body_of, doc_of, json_of};
+use support::{ROOMY, body_of, doc_of, json_of, stored_form};
 use yrs::types::xml::XmlOut;
 use yrs::{Doc, Transact, TransactionMut, XmlFragment};
 
@@ -22,14 +24,19 @@ fn a_body_comes_back_as_it_went() {
         let doc = from_body_by(&body, seed + 1);
         let state = state_of(&doc);
 
+        let stored = stored_form(&document);
         let back = to_body(&doc).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
-        assert_eq!(json_of(back.as_ref()), document, "seed {seed}");
+        assert_eq!(json_of(back.as_ref()), stored, "seed {seed}");
         let travelled =
             to_body(&doc_of(&state)).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(
             json_of(travelled.as_ref()),
-            document,
+            stored,
             "seed {seed}, as an update"
+        );
+        assert!(
+            size_of(&stored) <= size_of(&document),
+            "seed {seed}: no larger than it went"
         );
 
         assert_eq!(
@@ -49,6 +56,11 @@ fn a_body_comes_back_as_it_went() {
             "seed {seed}: a repair of a body changes nothing"
         );
     }
+}
+
+/// The size of a body as JSON, as its limit is measured.
+fn size_of(json: &Value) -> usize {
+    serde_json::to_vec(json).expect("JSON").len()
 }
 
 /// Every element of the document, the root's children first.
@@ -124,16 +136,16 @@ fn a_document_with_children_deleted_at_random_is_repaired_to_a_body() {
             "seed {seed}: handed the deletions"
         );
         let own = doc_of(&before);
-        let theirs =
-            fvoci_collab::repair(&own).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
+        let theirs = fvoci_collab::testing::repair(&own)
+            .unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(theirs.body, repair.body, "seed {seed}: repaired on its own");
         // And both together: deleting what is deleted changes nothing.
         let both = with_update(&own, deletions, &ROOMY)
             .unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(to_body(&both), Ok(repair.body.clone()), "seed {seed}: both");
 
-        let again =
-            fvoci_collab::repair(&doc).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
+        let again = fvoci_collab::testing::repair(&doc)
+            .unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(again.deleted, 0, "seed {seed}: once is enough");
     }
     assert!(
