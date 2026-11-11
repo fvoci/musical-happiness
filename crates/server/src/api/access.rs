@@ -197,8 +197,9 @@ async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> Result<boo
 /// Fails with a 404 if there is no such team, and with a 403 that says `denial` unless
 /// the user may see it.
 ///
-/// Every user may see every team for now: there is one. The check stays where teams
-/// are named, for the time there are several.
+/// Every user may see every team of the server's one organization. TEMPORARY, with
+/// `only_organization_scope`: a route that is moved under a workspace asks who is a
+/// member of it (`api/workspace.rs`), and this check goes with the last that is not.
 pub(crate) async fn require_team_access(
     app: &App,
     user_id: &str,

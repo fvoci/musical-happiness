@@ -251,7 +251,7 @@ impl App {
 }
 
 /// Returns whether a board is the built-in template that the onboarding tour copies:
-/// a template of the global team that the system created and marked.
+/// a template of the system organization that the system created and marked.
 ///
 /// The system's authorship is what cannot be forged. A board's creator is always the
 /// session's user, on every route that makes a board; nobody signs in as the system.

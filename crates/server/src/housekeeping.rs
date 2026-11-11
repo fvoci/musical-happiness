@@ -10,7 +10,8 @@ use crate::app::App;
 /// files that ended, what was in the trash too long) is looked for in all of them; as
 /// one organization, a clean-up would take what it does not see of the others for gone.
 ///
-/// Nothing that answers a request works through this.
+/// Each job of the housekeeping takes this reach itself, whatever handle it is started
+/// with. Nothing that answers a request works through this.
 pub(crate) fn reach(app: &App) -> App {
     app.scoped(Tenant::System)
 }

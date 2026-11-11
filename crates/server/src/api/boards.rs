@@ -372,7 +372,8 @@ async fn handle_duplicate_board(
     }
     if to_team.is_empty() {
         // A copy stays in the board's team. A built-in template is in no team of the
-        // user's organization: its copy goes to the root team.
+        // user's organization: its copy goes to the root team (TEMPORARY, with
+        // `only_organization_scope`: to the workspace the route will name).
         to_team = if board.is_builtin {
             app.root_team().await?.id
         } else {

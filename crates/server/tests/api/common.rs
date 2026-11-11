@@ -67,6 +67,17 @@ enum DatabaseRole {
     Superuser,
 }
 
+/// What is in the database of a test server when it starts.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Database {
+    /// The organization of the tests with its two teams, under the identifiers the
+    /// tests name them by.
+    #[default]
+    Seeded,
+    /// Nothing: as a server finds it at its first start.
+    Empty,
+}
+
 /// How a test server differs from the default one.
 #[derive(Debug, Default)]
 pub(crate) struct Setup {
@@ -78,6 +89,7 @@ pub(crate) struct Setup {
     admin_socket: Option<PathBuf>,
     tls_files: Option<TlsFiles>,
     database_role: DatabaseRole,
+    database: Database,
     /// Whether the built-in templates are imported at startup. Off by default so a
     /// server starts quickly; the counterpart of the original's `SkipTemplateInit`.
     with_templates: bool,
@@ -110,6 +122,14 @@ impl Setup {
     /// of a role that the wall between organizations does not hold.
     pub(crate) fn connecting_as_superuser(mut self) -> Self {
         self.database_role = DatabaseRole::Superuser;
+        self
+    }
+
+    /// Starts on an empty database, as a server does the first time: the organization
+    /// and its first workspace are the server's to make, and [`ROOT_TEAM_ID`] and
+    /// [`TEST_TEAM_ID`] name nothing.
+    pub(crate) fn on_an_empty_database(mut self) -> Self {
+        self.database = Database::Empty;
         self
     }
 
@@ -196,7 +216,9 @@ impl Setup {
             change(&mut config);
         }
 
-        seed_teams(&config).await;
+        if self.database == Database::Seeded {
+            seed_teams(&config).await;
+        }
         let mut server = match Server::new(config, &self.base_path).await {
             Ok(server) => server,
             Err(error) => {

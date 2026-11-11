@@ -983,8 +983,9 @@ fn the_server_names_an_organization_for_a_handle_in_few_places() {
 /// What a server that knew nothing of organizations left in every table: three users
 /// (an administrator, a member, and one who left), two teams, boards of both and a
 /// built-in template, and something in every other table, some of it hanging on the
-/// template, some on a board in the trash, some on nothing that is still there. The
-/// words that begin with a colon stand for identifiers.
+/// template (a membership, a file, sharing, a subscription, a filing: what an older
+/// server let a user have on one), some on a board in the trash, some on nothing that
+/// is still there. The words that begin with a colon stand for identifiers.
 const BEFORE_ORGANIZATIONS: &str = r#"
 INSERT INTO users (id, username, email, password_hash, create_at, update_at, delete_at,
                    is_admin, display_name) VALUES
@@ -1007,7 +1008,8 @@ INSERT INTO boards (id, team_id, created_by, modified_by, type, title, descripti
 INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, scheme_commenter,
                            scheme_viewer) VALUES
     (':board', ':admin', true, true, false, false),
-    (':other_board', ':member', true, true, false, false);
+    (':other_board', ':member', true, true, false, false),
+    (':template', ':member', false, true, false, false);
 INSERT INTO blocks (id, board_id, parent_id, created_by, modified_by, "schema", type, title,
                     fields, create_at, update_at) VALUES
     (':card', ':board', NULL, ':admin', ':admin', 1, 'card', 'a card', '{}', 1, 1),
@@ -1032,12 +1034,14 @@ INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, upda
     (':filed', ':admin', ':category', ':board', 1, 1, 0, false),
     (':filed_template', ':member', ':other_category', ':template', 1, 1, 0, false);
 INSERT INTO file_info (id, board_id, name, original_name, extension, size, path, create_at)
-VALUES (':file', ':board', '7shown.png', 'shown.png', '.png', 1, 'somewhere', 1);
+VALUES (':file', ':board', '7shown.png', 'shown.png', '.png', 1, 'somewhere', 1),
+       (':template_file', ':template', '7template.png', 'template.png', '.png', 1, 'elsewhere', 1);
 INSERT INTO file_refs (block_id, board_id, name) VALUES
     (':card', ':board', '7shown.png'),
     (':card_of_deleted_board', ':deleted_board', '7gone.png');
 INSERT INTO sharing (board_id, enabled, token, modified_by, update_at)
-VALUES (':board', true, 'the-read-token', ':admin', 1);
+VALUES (':board', true, 'the-read-token', ':admin', 1),
+       (':template', true, 'the-template-token', ':admin', 1);
 INSERT INTO subscriptions (block_type, block_id, subscriber_type, subscriber_id, notified_at,
                            create_at) VALUES
     ('card', ':card', 'user', ':member', 0, 1),
@@ -1055,7 +1059,7 @@ INSERT INTO comment_versions (block_id, version, body, files, written_by, writte
 struct Before(BTreeMap<&'static str, String>);
 
 impl Before {
-    const NAMES: [&'static str; 22] = [
+    const NAMES: [&'static str; 23] = [
         "admin",
         "member",
         "left",
@@ -1077,6 +1081,7 @@ impl Before {
         "filed",
         "filed_template",
         "file",
+        "template_file",
         "comment_that_is_gone",
     ];
 
@@ -1212,6 +1217,30 @@ async fn assert_the_template_is_the_systems(
     ours.get_block(before.id("template_card"))
         .await
         .expect("and its card");
+    // What a user had on the template under an older server is the system's with it:
+    // behind PostgreSQL's wall it is out of the user's reach, and the template is
+    // nobody's to change. SQLite has no wall, and leaves it where it was.
+    let membership = ours
+        .get_member_for_board(before.id("template"), before.id("member"))
+        .await;
+    match unset.db_type() {
+        DbType::Postgres => assert!(
+            membership.is_err_and(|error| error.is_not_found()),
+            "the membership of the template is out of reach"
+        ),
+        DbType::Sqlite => assert!(
+            membership.is_ok(),
+            "the membership of the template is where it was"
+        ),
+    }
+    assert_eq!(
+        unset
+            .org_of_shared_board(before.id("template"), "the-template-token")
+            .await
+            .expect("the shared board is looked up"),
+        None,
+        "the template is shared with nobody"
+    );
     assert_eq!(
         ours.get_board(before.id("board"))
             .await
@@ -1241,15 +1270,15 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
         ("organization_members", 4, 0),
         ("workspace_members", 7, 0),
         ("boards", 2, 1),
-        ("board_members", 2, 0),
+        ("board_members", 2, 1),
         ("blocks", 2, 1),
         ("deleted_boards", 1, 0),
         ("deleted_blocks", 2, 0),
         ("categories", 2, 0),
         ("category_boards", 2, 0),
-        ("file_info", 1, 0),
+        ("file_info", 1, 1),
         ("file_refs", 2, 0),
-        ("sharing", 1, 0),
+        ("sharing", 1, 1),
         ("subscriptions", 1, 1),
         ("uploads", 1, 0),
         ("upload_parts", 1, 0),

@@ -198,6 +198,8 @@ async fn handle_register(
         }
         Admission::FirstUserOnly
     } else {
+        // TEMPORARY, with `only_organization_scope`: the root team stands in for what
+        // an invitation will name.
         let team = app.root_team().await?;
         if !tokens_match(&team.signup_token, &register.token) {
             return Err(AppError::forbidden("the signup token is not valid")

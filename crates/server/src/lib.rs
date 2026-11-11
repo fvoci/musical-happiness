@@ -119,9 +119,8 @@ impl Server {
         let app = App::new(config, store, files)?;
         app.root_team().await.context("unable to get root team")?;
         // Before any request: what is left over from a run that stopped is nobody's.
-        let housekeeping = housekeeping::reach(&app);
-        clean_up_uploads(&housekeeping).await;
-        match housekeeping.sweep_temporary_files().await {
+        clean_up_uploads(&app).await;
+        match housekeeping::reach(&app).sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
             Err(error) => tracing::error!(%error, "unable to sweep the temporary files"),
@@ -248,10 +247,9 @@ impl Server {
             .local_addr()
             .context("reading the listener's address")?;
         let admin_socket = self.start_admin_socket()?;
-        let housekeeping = housekeeping::reach(&self.app);
-        let clean_up = start_session_clean_up(&housekeeping);
-        let purge = start_trash_purge(&housekeeping);
-        let uploads = start_upload_clean_up(&housekeeping);
+        let clean_up = start_session_clean_up(&self.app);
+        let purge = start_trash_purge(&self.app);
+        let uploads = start_upload_clean_up(&self.app);
 
         let service = self.router().into_make_service_with_connect_info::<Peer>();
         let stop = CancellationToken::new();
@@ -450,9 +448,20 @@ async fn send_no_referrer(request: Request, next: middleware::Next) -> Response 
     response
 }
 
+/// Does the server's housekeeping once, now: what its periodic tasks do, each with the
+/// reach it takes for itself, over every organization. The server does it by itself
+/// while it serves; this is for its tests.
+pub async fn keep_house(app: &App) {
+    clean_up_sessions(app).await;
+    purge_trash(app).await;
+    collect_unreferenced_files(app).await;
+    clean_up_uploads(app).await;
+}
+
 /// Deletes the sessions that have ended: unused for the idle limit, or past their
 /// absolute limit. What such a session still has open is closed.
 async fn clean_up_sessions(app: &App) {
+    let app = &housekeeping::reach(app);
     let now = auth::now_millis();
     let idle_since = now.saturating_sub(app.config().session_idle_millis());
     match app.store().clean_up_sessions(now, idle_since).await {
@@ -471,6 +480,7 @@ async fn clean_up_sessions(app: &App) {
 /// Removes for good what has been in the trash for longer than `trash_retention_days`,
 /// and the files of the boards that go: nothing says where they are afterwards.
 async fn purge_trash(app: &App) {
+    let app = &housekeeping::reach(app);
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let purged = match app.store().purge_trash(deleted_before).await {
         Ok(purged) => purged,
@@ -500,6 +510,7 @@ async fn purge_trash(app: &App) {
 /// trash keeps what is deleted (`docs/s6-design.md` 5.7). A file whose record went but
 /// that cannot be removed from the storage is logged: nothing names it any more.
 async fn collect_unreferenced_files(app: &App) {
+    let app = &housekeeping::reach(app);
     let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let files = match app.store().collect_unreferenced_files(before).await {
         Ok(files) => files,
@@ -551,6 +562,7 @@ fn start_trash_purge(app: &App) -> RecurringTask {
 
 /// Throws away the upload sessions that have ended, with their parts.
 async fn clean_up_uploads(app: &App) {
+    let app = &housekeeping::reach(app);
     match app.clean_up_uploads(auth::now_millis()).await {
         Ok(0) => {}
         Ok(removed) => tracing::info!(removed, "threw away the upload sessions that ended"),

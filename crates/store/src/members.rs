@@ -109,7 +109,14 @@ pub(crate) async fn join_organization(
             scope.org()?,
         )
         .push_bind(" AND t.delete_at = ", 0_i64);
-    scope.execute(sql).await?;
+    // An organization has a default workspace in use; one without is broken, and
+    // nobody is to end up in it and in no workspace.
+    if scope.execute(sql).await? == 0 {
+        return Err(StoreError::Corrupt {
+            column: "default_workspace_id",
+            reason: "the organization has no default workspace in use".to_owned(),
+        });
+    }
     Ok(())
 }
 

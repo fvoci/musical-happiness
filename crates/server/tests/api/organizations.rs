@@ -128,3 +128,101 @@ async fn org_creation_is_one_of_two_words_and_open_needs_postgresql() {
         "the refusal names the words: {refusal}"
     );
 }
+
+/// A server that starts on an empty database has one organization and one workspace by
+/// itself: the first user who registers is in the workspace, as its administrator, and
+/// it is the team the routes that name no workspace work in.
+#[tokio::test]
+async fn a_first_start_makes_the_organization_and_its_workspace() {
+    let ts = Setup::one_user().on_an_empty_database().start().await;
+    let teams: Vec<fvoci_model::Team> = ts.client.get("/teams").await.ok_json();
+    assert_eq!(teams.len(), 1, "one team: {teams:?}");
+    assert!(!teams[0].signup_token.is_empty(), "with a signup token");
+    let workspaces: Vec<fvoci_model::UserWorkspace> =
+        ts.client.get("/users/me/workspaces").await.ok_json();
+    assert_eq!(workspaces.len(), 1, "one workspace: {workspaces:?}");
+    assert_eq!(workspaces[0].id, teams[0].id, "the team is the workspace");
+    assert_eq!(workspaces[0].role, fvoci_model::WorkspaceRole::Admin);
+    // And it is there to work in.
+    let board = ts.create_board(&teams[0].id, BoardType::Private).await;
+    let boards: Vec<fvoci_model::Board> = ts
+        .client
+        .get(&format!("/w/{}/boards", teams[0].id))
+        .await
+        .ok_json();
+    assert_eq!(boards.len(), 1, "{boards:?}");
+    assert_eq!(boards[0].id, board.id);
+
+    // A second start finds what the first made.
+    let again = ts
+        .app
+        .store()
+        .only_organization(&fvoci_model::Team::default())
+        .await
+        .expect("the organization");
+    assert_eq!(again, workspaces[0].org_id);
+    ts.teardown().await;
+}
+
+/// The server's housekeeping reaches every organization: what is in the trash of an
+/// organization the server does not work in is purged like its own. (As the one
+/// organization the routes work in, a purge would not see it.)
+#[tokio::test]
+async fn the_housekeeping_reaches_every_organization() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let ts = Setup::native().start().await.init_basic().await;
+    let workspace = fvoci_model::Team {
+        id: fvoci_model::new_id(),
+        signup_token: "signup-token".to_owned(),
+        ..fvoci_model::Team::default()
+    };
+    let org_id = ts
+        .app
+        .store()
+        .create_organization("another", &workspace)
+        .await
+        .expect("a second organization is made");
+    let theirs = ts.app.store().for_org(&org_id).expect("an identifier");
+    let user_id = ts.client.me().await.id;
+    let mut board = fvoci_model::Board {
+        id: fvoci_model::new_id(),
+        team_id: workspace.id.clone(),
+        board_type: BoardType::Open,
+        ..fvoci_model::Board::default()
+    };
+    theirs
+        .insert_board(&mut board, &user_id)
+        .await
+        .expect("their board is stored");
+    let mut card = fvoci_model::Block {
+        id: fvoci_model::new_id(),
+        board_id: board.id.clone(),
+        block_type: fvoci_model::BlockType::Card,
+        ..fvoci_model::Block::default()
+    };
+    theirs
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("their card is stored");
+    theirs
+        .delete_block(&card.id, &user_id)
+        .await
+        .expect("their card goes to the trash");
+    // Long ago: past any time the trash keeps what is deleted.
+    let aged = theirs
+        .execute_unchecked("UPDATE deleted_blocks SET deleted_at = 1")
+        .await
+        .expect("the deletion is made an old one");
+    assert_eq!(aged, 1, "their card in the trash");
+
+    fvoci_server::keep_house(&ts.app).await;
+
+    let gone = theirs
+        .get_deleted_block(&card.id)
+        .await
+        .expect_err("their card is purged");
+    assert!(gone.is_not_found(), "got {gone:?}");
+    ts.teardown().await;
+}

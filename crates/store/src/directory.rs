@@ -81,7 +81,9 @@ impl Store {
                 scope.fetch_optional(sql).await?;
 
                 let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false).push(" ORDER BY create_at, id LIMIT 1");
+                sql.bind(false)
+                    .push_bind(" AND delete_at = ", 0_i64)
+                    .push(" ORDER BY create_at, id LIMIT 1");
                 match scope.fetch_optional(sql).await? {
                     Some(row) => row.id(0),
                     None => create_organization(scope, "", workspace).await,

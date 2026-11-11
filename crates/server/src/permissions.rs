@@ -43,6 +43,10 @@ pub enum BoardPermission {
 ///
 /// Every user has every team permission except [`TeamPermission::ManageTeam`]. An empty
 /// user or team identifier has none.
+///
+/// TEMPORARY, with the one-organization scope of the routes that name no workspace
+/// (`only_organization_scope`): who is in a workspace is in `workspace_members` now,
+/// and the routes that are moved under a workspace ask that.
 pub fn has_permission_to_team(user_id: &str, team_id: &str, permission: TeamPermission) -> bool {
     !user_id.is_empty() && !team_id.is_empty() && permission != TeamPermission::ManageTeam
 }

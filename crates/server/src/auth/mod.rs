@@ -158,7 +158,9 @@ impl Authenticator {
         }
         // Whose board it is, is not known here, and need not be: the store hands the
         // organization of a shared board to whoever holds its token, and to nobody
-        // else.
+        // else. TEMPORARY, with `only_organization_scope`: the organization is dropped
+        // here, and the handler reads the board in the server's one organization; the
+        // route of shared boards will work in the organization this answers.
         Ok(self
             .store
             .org_of_shared_board(board_id, read_token)

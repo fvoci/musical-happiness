@@ -60,8 +60,8 @@ CREATE TABLE workspace_members (
 );
 CREATE INDEX workspace_members_user_id_idx ON workspace_members (user_id);
 
--- A workspace is an organization's, has a name (empty for none yet), and goes to the
--- trash like a board (delete_at; zero while it is in use).
+-- A workspace is an organization's, has a name (empty for none yet), and is marked
+-- when it is deleted (delete_at; zero while it is in use).
 ALTER TABLE teams ADD COLUMN org_id UUID REFERENCES organizations (id);
 ALTER TABLE teams ADD COLUMN name TEXT NOT NULL DEFAULT '';
 -- The workspace of the system organization, which holds the built-in templates.
@@ -186,7 +186,8 @@ CREATE POLICY org_wall ON organizations USING (
 -- The built-in templates are read by every organization: their boards and blocks,
 -- which are all the system organization holds. Reading only, and only by a transaction
 -- that names an organization; the wall above keeps everybody but the system
--- organization from changing them.
+-- organization from changing them. The templates carry no files: were they to, their
+-- file records would need the same policy to be copied with them.
 CREATE POLICY org_templates ON boards FOR SELECT USING (
     org_id = '00000000-0000-7000-8000-00000000a000'
     AND (SELECT NULLIF(current_setting('fvoci.org', true), '')) IS NOT NULL

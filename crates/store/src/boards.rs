@@ -273,7 +273,11 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if there is no such board or no such user.
     pub async fn join_board(&self, board_id: &str, user_id: &str) -> Result<Joined, StoreError> {
         self.transaction(async |scope| {
-            lock_board(scope, board_id).await?;
+            // A board that is not this handle's to change is joined by nobody through
+            // it: the lock finds no row of a built-in template, which the handle reads.
+            if !lock_board(scope, board_id).await? {
+                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
+            }
             let board = get_board(scope, board_id).await?;
             let minimum = BoardRole::from(board.minimum_role);
             let with_minimum = BoardMember {
@@ -462,8 +466,8 @@ impl Store {
             .await
     }
 
-    /// Returns the templates the server ships with, oldest first. They belong
-    /// to no team in particular: every team is offered them.
+    /// Returns the templates the server ships with, oldest first. They are the system
+    /// organization's, in its workspace: every organization is offered them.
     ///
     /// # Errors
     ///

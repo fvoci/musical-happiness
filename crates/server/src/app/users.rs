@@ -88,6 +88,9 @@ impl App {
     /// Returns whether a user is a guest. A standalone server has no guests, but the user
     /// must exist.
     ///
+    /// TEMPORARY, with `only_organization_scope`: a guest is a role in a workspace now
+    /// (`WorkspaceRole::Guest`), which the routes under a workspace ask.
+    ///
     /// # Errors
     ///
     /// Returns the store's error if the user cannot be read.

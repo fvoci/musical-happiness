@@ -85,7 +85,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
 - `cargo xtask test`는 스스로 띄운 컨테이너를, 마지막으로 쓴 실행이 끝날 때 멈춘다(tracer-bullet 11).
-- 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다. PostgreSQL을 직접 줄 때는 슈퍼유저가 아닌 역할의 주소와 함께 슈퍼유저의 주소(`FVOCI_STORE_TEST_SUPERUSER_CONN_STRING`)를 준다(조직 사이의 벽은 슈퍼유저에게 걸리지 않는다. 그 역할로 시작을 거부하는지 보는 테스트만 그 주소를 쓴다).
+- 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다. PostgreSQL을 직접 줄 때는 슈퍼유저가 아닌 역할의 주소와 함께 슈퍼유저의 주소(`FVOCI_STORE_TEST_SUPERUSER_CONN_STRING`)를 준다(조직 사이의 벽은 슈퍼유저에게 걸리지 않는다. 서버와 저장소가 그런 역할을 어떻게 다루는지 보는 테스트만 그 주소를 쓴다).
 
 **걸리는 시간.** 이 기기에서 빌드 캐시가 있을 때, 2026-11-11 02–03시 KST에 잰 값이다.
 
@@ -160,7 +160,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 | 컨테이너 | 주소 | 접속 |
 |---|---|---|
-| `fvoci-test-pg` (PostgreSQL) | `127.0.0.1:15433` | 테스트는 슈퍼유저가 아닌 역할 `fvoci_app`로 붙는다(xtask가 만든다). 이미지의 슈퍼유저 `fvoci`로는 그 역할을 다루는 테스트 셋만 붙는다. 비밀번호 `fvoci-test`, DB `fvoci` |
+| `fvoci-test-pg` (PostgreSQL) | `127.0.0.1:15433` | 테스트는 슈퍼유저가 아닌 역할 `fvoci_app`로 붙는다(xtask가 만든다). 이미지의 슈퍼유저 `fvoci`로는 그 역할을 다루는 테스트만 붙는다. 비밀번호 `fvoci-test`, DB `fvoci` |
 | `fvoci-test-s3` (S3 호환) | `127.0.0.1:18333` | 인증 없음, 버킷 `fvoci-test` |
 
 - `cargo xtask test`가 멈춘 컨테이너는 시작하고 없는 것은 만든다. 재시작 정책은 없다.

@@ -30,13 +30,7 @@ impl std::ops::Deref for TestStore {
 
 /// Which database the tests run against.
 pub(crate) fn db_type() -> DbType {
-    match std::env::var(fvoci_store::testing::DB_TYPE_ENV) {
-        Ok(name) if !name.trim().is_empty() => name
-            .trim()
-            .parse()
-            .expect("the test database type must be sqlite3 or postgres"),
-        _ => DbType::Sqlite,
-    }
+    fvoci_store::testing::db_type_of_the_tests()
 }
 
 /// Connects a store to a fresh database.

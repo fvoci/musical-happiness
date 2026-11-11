@@ -64,8 +64,8 @@ FROM (SELECT id FROM teams ORDER BY create_at, id LIMIT 1) AS oldest,
      (SELECT millis, printf('%012x', millis) AS hex
       FROM (SELECT CAST(unixepoch('subsec') * 1000 AS INTEGER) AS millis)) AS now;
 
--- A workspace is an organization's, has a name (empty for none yet), and goes to the
--- trash like a board (delete_at; zero while it is in use). SQLite adds no column that
+-- A workspace is an organization's, has a name (empty for none yet), and is marked
+-- when it is deleted (delete_at; zero while it is in use). SQLite adds no column that
 -- must have a value and refers to another table, so the table is made again. The rows
 -- that refer to a team (boards, categories, the organization above) are checked when
 -- the migration ends, by when their teams are back. Only the checks wait, not what a

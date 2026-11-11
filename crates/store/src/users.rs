@@ -1,7 +1,9 @@
 //! Users and their preferences.
 //!
-//! A standalone server has one team and every user belongs to it, so the operations that
-//! the original addresses to "the users of a team" take no team here. The original's
+//! The operations that the original addresses to "the users of a team" take no team
+//! here, and answer the users of the whole instance: users are no organization's, so
+//! no wall narrows them. TEMPORARY, with [`Store::only_organization`]: who is in a
+//! workspace is in `workspace_members`, and these will ask that. The original's
 //! standalone store ignores the team, the guest and the visibility flags it is given
 //! (`server/services/store/sqlstore/user.go:105`, `:217` and `:226`).
 
