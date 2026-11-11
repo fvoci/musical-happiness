@@ -1,0 +1,79 @@
+<!--
+  The cards that have no value for the date the calendar is placed by, and
+  so no place on the grid (question C16, answer A: a drawer opened from the
+  calendar's row). The same list on a sheet of a compact page and in the
+  column at the right of the calendar; the column has a button that closes it.
+-->
+<script lang="ts">
+  import XIcon from '@lucide/svelte/icons/x';
+
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import type { PropertyUser } from '$lib/components/properties/index.ts';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { PropertyTemplate } from '$lib/logic/wire.ts';
+
+  import CardRow from './CardRow.svelte';
+  import type { Placed } from './placed.ts';
+
+  interface Props {
+    placed: Placed;
+    templates: readonly PropertyTemplate[];
+    visiblePropertyIds: readonly string[];
+    users: readonly PropertyUser[];
+    nameFormat: string;
+    cardHref: (cardId: string) => string;
+    onOpenCard: (cardId: string) => void;
+    /** Given where the list has its own heading: the column. A sheet has its title. */
+    onclose?: () => void;
+  }
+
+  let {
+    placed,
+    templates,
+    visiblePropertyIds,
+    users,
+    nameFormat,
+    cardHref,
+    onOpenCard,
+    onclose,
+  }: Props = $props();
+
+  const uid = $props.id();
+  const rows = $derived({
+    placed,
+    templates,
+    visiblePropertyIds,
+    users,
+    nameFormat,
+    cardHref,
+    onOpenCard,
+  });
+</script>
+
+<section
+  data-testid="undated-list"
+  aria-labelledby={onclose ? `${uid}-title` : undefined}
+  class="flex min-h-0 flex-1 flex-col"
+>
+  {#if onclose}
+    <header class="flex shrink-0 items-center gap-2 py-1 pr-1 pl-4">
+      <h3 id="{uid}-title" class="font-semibold">{m.calendar_undated()}</h3>
+      <div class="flex-1"></div>
+      <IconButton label={m.calendar_close_undated()} data-testid="undated-close" onclick={onclose}>
+        <XIcon />
+      </IconButton>
+    </header>
+  {/if}
+  {#if placed.template && placed.undated.length > 0}
+    <p class="px-4 pb-1 text-xs text-muted-foreground">
+      {m.calendar_undated_hint({ property: placed.template.name })}
+    </p>
+  {/if}
+  <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
+    {#each placed.undated as card (card.id)}
+      <CardRow {card} {...rows} />
+    {:else}
+      <li class="px-3 py-2 text-muted-foreground">{m.calendar_no_undated()}</li>
+    {/each}
+  </ul>
+</section>
