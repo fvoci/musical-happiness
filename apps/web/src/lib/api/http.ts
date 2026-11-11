@@ -9,26 +9,85 @@
  * other mode writes `Origin: null`, which the server refuses (the contract's
  * preamble, "Requests that change something").
  */
-import { BackendError, ERROR_KINDS, type ErrorBody, type ErrorStatus } from '../state/backend.ts';
+import {
+  BackendError,
+  ERROR_STATUSES,
+  type ErrorStatus,
+  type InvalidInput,
+  type Problem,
+} from '../state/backend.ts';
 
 import type { paths } from './contract.ts';
 
 /** The paths of the contract, as they are written there. */
 export type ApiPath = keyof paths;
 
-/** The status an error answer is told by. One the boundary has no kind for is read as the server's own failure. */
+/** The media type of the server's error answers (RFC 9457). */
+const PROBLEM = 'application/problem+json';
+
+/** The status an error answer is told by. One the boundary does not know is read as the server's own failure. */
 function errorStatus(status: number): ErrorStatus {
-  return status in ERROR_KINDS ? (status as ErrorStatus) : 500;
+  return (ERROR_STATUSES as readonly number[]).includes(status) ? (status as ErrorStatus) : 500;
 }
 
-async function errorOf(response: Response): Promise<BackendError> {
-  let body: Partial<ErrorBody> | undefined;
-  try {
-    body = (await response.json()) as Partial<ErrorBody>;
-  } catch {
-    body = undefined;
+const isText = (value: unknown): value is string => typeof value === 'string';
+const isCount = (value: unknown): value is number => typeof value === 'number';
+
+/** The entries of `errors` that say where they are and why; anything else is left out. */
+function invalidInputs(value: unknown): InvalidInput[] {
+  if (!Array.isArray(value)) return [];
+  const entries: InvalidInput[] = [];
+  for (const item of value as unknown[]) {
+    if (typeof item !== 'object' || item === null) continue;
+    const { pointer, parameter, header, detail, reason } = item as Record<string, unknown>;
+    if (!isText(reason)) continue;
+    entries.push({
+      ...(isText(pointer) ? { pointer } : {}),
+      ...(isText(parameter) ? { parameter } : {}),
+      ...(isText(header) ? { header } : {}),
+      detail: isText(detail) ? detail : '',
+      reason,
+    });
   }
-  return new BackendError(errorStatus(response.status), body);
+  return entries;
+}
+
+/**
+ * The server's problem details of an error answer. An answer that is not one
+ * (a proxy's page in the server's place, say) has only its status to go by.
+ */
+async function problemOf(response: Response): Promise<Partial<Problem> | undefined> {
+  if (!(response.headers.get('Content-Type') ?? '').startsWith(PROBLEM)) return undefined;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return undefined;
+  }
+  if (typeof body !== 'object' || body === null) return undefined;
+  const { type, title, detail, reason, errors, limit, retryAfter, requestId } = body as Record<
+    string,
+    unknown
+  >;
+  return {
+    ...(isText(type) ? { type } : {}),
+    ...(isText(title) ? { title } : {}),
+    ...(isText(detail) ? { detail } : {}),
+    ...(isText(reason) ? { reason } : {}),
+    errors: invalidInputs(errors),
+    ...(isCount(limit) ? { limit } : {}),
+    ...(isCount(retryAfter) ? { retryAfter } : {}),
+    ...(isText(requestId) ? { requestId } : {}),
+  };
+}
+
+/**
+ * The refusal an answer that is no success stands for, read from its body.
+ * Every request reads its errors here; so does a caller that made its own
+ * request (a download read as it arrives, `download.ts`).
+ */
+export async function errorOf(response: Response): Promise<BackendError> {
+  return new BackendError(errorStatus(response.status), await problemOf(response));
 }
 
 export interface RequestOptions {
@@ -75,7 +134,7 @@ export class Http {
     try {
       response = await fetch(this.url(path, params), { credentials: 'same-origin' });
     } catch {
-      throw new BackendError(0, { message: `GET ${path}: no answer` });
+      throw new BackendError(0, { detail: `GET ${path}: no answer` });
     }
     if (!response.ok) throw await errorOf(response);
     return response.blob();
@@ -83,7 +142,7 @@ export class Http {
 
   /**
    * Sends a request and reads the answer: its JSON, or undefined for 204.
-   * Rejects with a `BackendError`: the server's error body, or `network`
+   * Rejects with a `BackendError`: the server's problem details, or status 0
    * when no answer came.
    */
   async request<T>(
@@ -92,7 +151,7 @@ export class Http {
     options: RequestOptions = {},
   ): Promise<T> {
     const method = options.method ?? 'GET';
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const headers: Record<string, string> = { Accept: `application/json, ${PROBLEM}` };
     // Every request but a reading one needs it; with it, a page of another
     // origin cannot make the browser send one (contract, "Requests that change something").
     if (method !== 'GET') headers['X-Requested-With'] = 'XMLHttpRequest';
@@ -116,7 +175,7 @@ export class Http {
       });
     } catch (error) {
       if (options.signal?.aborted) throw error;
-      throw new BackendError(0, { message: `${method} ${path}: no answer` });
+      throw new BackendError(0, { detail: `${method} ${path}: no answer` });
     }
     if (!response.ok) throw await errorOf(response);
     if (response.status === 204) return undefined as T;
@@ -124,7 +183,7 @@ export class Http {
       return (await response.json()) as T;
     } catch {
       // Something between answered in the server's place (a proxy's page, say).
-      throw new BackendError(0, { message: `${method} ${path}: not the server's answer` });
+      throw new BackendError(0, { detail: `${method} ${path}: not the server's answer` });
     }
   }
 }

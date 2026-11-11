@@ -29,7 +29,10 @@ function serve(answer: unknown, status = 200): Sent[] {
     return Promise.resolve(
       new Response(status === 204 ? null : JSON.stringify(answer), {
         status,
-        headers: { 'Content-Type': 'application/json' },
+        // An error is the server's problem details (RFC 9457).
+        headers: {
+          'Content-Type': status >= 400 ? 'application/problem+json' : 'application/json',
+        },
       }),
     );
   });
@@ -374,12 +377,72 @@ describe('writing a card’s body on the server', () => {
   });
 
   it('sends no body as null, and lets a refusal for a stale version through as 409', async () => {
-    const sent = serve({ error: 'conflict', message: 'stale' }, 409);
+    const sent = serve(
+      { type: '/problems/conflict', title: 'Conflict', status: 409, detail: 'stale' },
+      409,
+    );
     const refused = await new ServerBackend('')
       .writeCardBody('b', 'c1', { body: null, readAt: 5 })
       .catch((error: unknown) => error);
     expect(sent[0]?.body).toEqual({ body: null, readAt: 5 });
     expect(isBackendError(refused) && refused.status).toBe(409);
+  });
+
+  it('reads a refusal as the problem details the server sends', async () => {
+    serve(
+      {
+        type: '/problems/username-taken',
+        title: 'User name taken',
+        status: 409,
+        detail: 'the user name is taken',
+        instance: 'urn:uuid:r1',
+        reason: 'username_taken',
+        errors: [
+          { pointer: '/username', detail: 'the user name is taken', reason: 'username_taken' },
+          { parameter: 'page', detail: 'no number', reason: 'invalid' },
+          { pointer: '/x' },
+          'nothing',
+        ],
+        limit: 7,
+        retryAfter: 3,
+        requestId: 'r1',
+      },
+      409,
+    );
+    const refused = await new ServerBackend('').me().catch((error: unknown) => error);
+    if (!isBackendError(refused)) throw new Error('not refused');
+    expect(refused).toMatchObject({
+      status: 409,
+      type: '/problems/username-taken',
+      reason: 'username_taken',
+      message: 'the user name is taken',
+      limit: 7,
+      retryAfter: 3,
+      requestId: 'r1',
+    });
+    // An entry that does not say why is no entry.
+    expect(refused.errors).toEqual([
+      { pointer: '/username', detail: 'the user name is taken', reason: 'username_taken' },
+      { parameter: 'page', detail: 'no number', reason: 'invalid' },
+    ]);
+    expect(refused.refusalAt('/username')?.reason).toBe('username_taken');
+    expect(refused.refusalAt('/email')).toBeUndefined();
+  });
+
+  it("goes by the status alone when an error answer is not the server's", async () => {
+    // A proxy's page, or the old shape: nothing of it is read.
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: 'conflict', message: 'x', reason: 'r', field: 'f' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+    const refused = await new ServerBackend('').me().catch((error: unknown) => error);
+    if (!isBackendError(refused)) throw new Error('not refused');
+    expect(refused).toMatchObject({ status: 500, type: 'about:blank', reason: undefined });
+    expect(refused.errors).toEqual([]);
   });
 });
 
@@ -437,6 +500,32 @@ describe('changing a view on the server', () => {
       updatedFields: { cardOrder: ['c2', 'c1'] },
     });
     expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
+  });
+
+  it('makes a view as a block of the board, and refuses an answer without one', async () => {
+    const sent = serve([{ ...VIEW, fields: { viewType: 'calendar' } }], 201);
+    const view = await new ServerBackend('').createView('b', {
+      title: 'Calendar view',
+      fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' } as never,
+    });
+    expect(sent.map((one) => [one.method, one.url])).toEqual([['POST', '/api/v1/boards/b/blocks']]);
+    expect(sent[0]?.body).toEqual([
+      {
+        boardId: 'b',
+        type: 'view',
+        title: 'Calendar view',
+        fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' },
+        createAt: 1,
+        updateAt: 1,
+      },
+    ]);
+    expect(view.id).toBe('v');
+    expect(view.fields.viewType).toBe('calendar');
+    serve([], 201);
+    const refused = await new ServerBackend('')
+      .createView('b', { title: 'Calendar view', fields: { viewType: 'calendar' } as never })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(500);
   });
 
   it('sends two quick changes of one view one after the other', async () => {
@@ -499,5 +588,431 @@ describe('the settings on the server', () => {
       'PATCH /api/v1/users/me/settings',
     ]);
     expect(sent[0]?.body).toEqual({ theme: 'light', haptics: true });
+  });
+});
+
+/** Answers each request by the first route whose `METHOD path` starts it, and keeps what was sent. */
+function serveRoutes(routes: [string, unknown, number?][]): Sent[] {
+  const sent: Sent[] = [];
+  vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+    const method = init.method ?? 'GET';
+    sent.push({
+      url,
+      method,
+      headers: init.headers as Record<string, string>,
+      body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+    });
+    const route = routes.find(([start]) => `${method} ${url}`.startsWith(start));
+    if (!route) throw new Error(`nothing serves ${method} ${url}`);
+    const [, answer, status = 200] = route;
+    return Promise.resolve(
+      new Response(status === 204 ? null : JSON.stringify(answer), {
+        status,
+        headers: {
+          'Content-Type': status >= 400 ? 'application/problem+json' : 'application/json',
+        },
+      }),
+    );
+  });
+  return sent;
+}
+
+const sentLines = (sent: Sent[]) => sent.map((one) => `${one.method} ${one.url}`);
+
+describe('the sidebar on the server', () => {
+  const CATEGORY = {
+    id: 'k1',
+    name: 'Work',
+    userId: 'me',
+    teamId: 't',
+    type: 'custom',
+    collapsed: true,
+    sortOrder: 10,
+    createAt: 1,
+    updateAt: 2,
+    deleteAt: 0,
+  };
+  const FILED = [
+    { boardId: 'b1', hidden: false },
+    { boardId: 'b2', hidden: true },
+    { boardId: 'b3', hidden: false },
+  ];
+  const CATEGORIES = [{ ...CATEGORY, boardMetadata: FILED }];
+
+  it('makes a category of the reader, under their identifier', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/users/me', { id: 'me', username: 'me', createAt: 1, updateAt: 1, deleteAt: 0 }],
+      ['POST /api/v1/teams/t/categories', CATEGORY, 201],
+    ]);
+    const made = await new ServerBackend('').createCategory('t', { name: 'Work' });
+    expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/teams/t/categories']);
+    expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', teamId: 't' });
+    expect(made).toMatchObject({ id: 'k1', boardIds: [], hiddenBoardIds: [] });
+  });
+
+  it('renames a category with its folding as it is, and keeps its boards', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/teams/t/categories', CATEGORIES],
+      ['PUT /api/v1/teams/t/categories/k1', { ...CATEGORY, name: 'Home' }],
+    ]);
+    const renamed = await new ServerBackend('').patchCategory('t', 'k1', { name: 'Home' });
+    expect(sentLines(sent)).toEqual([
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1',
+    ]);
+    expect(sent[1]?.body).toEqual({
+      id: 'k1',
+      userId: 'me',
+      teamId: 't',
+      name: 'Home',
+      collapsed: true,
+    });
+    expect(renamed).toMatchObject({ name: 'Home', boardIds: ['b1', 'b2', 'b3'] });
+    expect(renamed.hiddenBoardIds).toEqual(['b2']);
+  });
+
+  it('folds a category with its name as it is', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/teams/t/categories', CATEGORIES],
+      ['PUT /api/v1/teams/t/categories/k1', { ...CATEGORY, collapsed: false }],
+    ]);
+    await new ServerBackend('').patchCategory('t', 'k1', { collapsed: false });
+    expect(sent[1]?.body).toMatchObject({ name: 'Work', collapsed: false });
+  });
+
+  it('says 404 for a category the reader does not have, and sends no change', async () => {
+    const sent = serveRoutes([['GET /api/v1/teams/t/categories', CATEGORIES]]);
+    const refused = await new ServerBackend('')
+      .patchCategory('t', 'k9', { name: 'X' })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(404);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/categories']);
+  });
+
+  it('deletes a category and orders the categories by their routes', async () => {
+    const sent = serveRoutes([
+      ['DELETE /api/v1/teams/t/categories/k1', undefined, 204],
+      ['PUT /api/v1/teams/t/category-order', ['k2', 'k1']],
+    ]);
+    const backend = new ServerBackend('');
+    await backend.deleteCategory('t', 'k1');
+    await backend.reorderCategories('t', ['k2', 'k1']);
+    expect(sentLines(sent)).toEqual([
+      'DELETE /api/v1/teams/t/categories/k1',
+      'PUT /api/v1/teams/t/category-order',
+    ]);
+    expect(sent[1]?.body).toEqual(['k2', 'k1']);
+  });
+
+  it('files a board under a category, then puts it at its place among the category’s boards', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/teams/t/categories/k1/boards/b9', undefined, 204],
+      [
+        'GET /api/v1/teams/t/categories',
+        [{ ...CATEGORY, boardMetadata: [...FILED, { boardId: 'b9', hidden: false }] }],
+      ],
+      ['PUT /api/v1/teams/t/categories/k1/board-order', ['b1', 'b9', 'b2', 'b3']],
+    ]);
+    await new ServerBackend('').moveBoardToCategory('t', 'b9', 'k1', 1);
+    expect(sentLines(sent)).toEqual([
+      'POST /api/v1/teams/t/categories/k1/boards/b9',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1/board-order',
+    ]);
+    expect(sent[2]?.body).toEqual(['b1', 'b9', 'b2', 'b3']);
+  });
+
+  it('sends the sidebar’s writes of a team one after another, each reading after the last', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/teams/t/categories/k1/boards/', undefined, 204],
+      ['GET /api/v1/teams/t/categories', CATEGORIES],
+      ['PUT /api/v1/teams/t/categories/k1', CATEGORY],
+    ]);
+    const backend = new ServerBackend('');
+    await Promise.all([
+      backend.moveBoardToCategory('t', 'b3', 'k1', 0),
+      backend.patchCategory('t', 'k1', { collapsed: false }),
+      backend.moveBoardToCategory('t', 'b2', 'k1', 0),
+    ]);
+    expect(sentLines(sent)).toEqual([
+      'POST /api/v1/teams/t/categories/k1/boards/b3',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1/board-order',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1',
+      'POST /api/v1/teams/t/categories/k1/boards/b2',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1/board-order',
+    ]);
+  });
+
+  it('hides a board and shows it again by its routes', async () => {
+    const sent = serveRoutes([['PUT /api/v1/teams/t/categories/k1/boards/b1/', undefined, 204]]);
+    const backend = new ServerBackend('');
+    await backend.setBoardHidden('t', 'k1', 'b1', true);
+    await backend.setBoardHidden('t', 'k1', 'b1', false);
+    expect(sentLines(sent)).toEqual([
+      'PUT /api/v1/teams/t/categories/k1/boards/b1/hide',
+      'PUT /api/v1/teams/t/categories/k1/boards/b1/unhide',
+    ]);
+  });
+});
+
+describe('boards on the server', () => {
+  const BOARD = {
+    id: 'b1',
+    teamId: 't',
+    createdBy: 'me',
+    modifiedBy: 'me',
+    type: 'P',
+    minimumRole: 'editor',
+    title: 'Plan',
+    description: '',
+    icon: '',
+    showDescription: false,
+    isTemplate: false,
+    templateVersion: 0,
+    properties: {},
+    cardProperties: [],
+    createAt: 1,
+    updateAt: 2,
+    deleteAt: 0,
+  };
+  const VIEW = {
+    ...BLOCK,
+    id: 'v1',
+    boardId: 'b1',
+    parentId: '',
+    type: 'view',
+    title: 'Board view',
+  };
+
+  it('makes a board and its first view in one request, the view tied to the board', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/boards-and-blocks', { boards: [BOARD], blocks: [VIEW] }, 201],
+    ]);
+    const made = await new ServerBackend('').createBoard(
+      't',
+      { title: 'Plan', cardProperties: [{ id: 's', name: 'Status', type: 'select', options: [] }] },
+      { title: 'Board view', fields: { viewType: 'board' } as never },
+    );
+    expect(sentLines(sent)).toEqual(['POST /api/v1/boards-and-blocks']);
+    const body = sent[0]?.body as { boards: { id: string }[]; blocks: { boardId: string }[] };
+    expect(body.boards).toEqual([
+      {
+        id: body.blocks[0]?.boardId,
+        teamId: 't',
+        type: 'P',
+        title: 'Plan',
+        description: '',
+        icon: '',
+        cardProperties: [{ id: 's', name: 'Status', type: 'select', options: [] }],
+      },
+    ]);
+    expect(body.blocks[0]).toMatchObject({ type: 'view', title: 'Board view' });
+    expect(body.blocks[0]).not.toHaveProperty('parentId');
+    expect(made.board.id).toBe('b1');
+    expect(made.view).toMatchObject({ id: 'v1', title: 'Board view' });
+  });
+
+  it('changes, deletes and brings back a board by its routes', async () => {
+    const sent = serveRoutes([
+      ['PATCH /api/v1/boards/b1', { ...BOARD, title: 'New' }],
+      ['DELETE /api/v1/boards/b1', undefined, 204],
+      ['POST /api/v1/boards/b1/undelete', BOARD],
+    ]);
+    const backend = new ServerBackend('');
+    expect((await backend.patchBoard('b1', { title: 'New', minimumRole: 'viewer' })).title).toBe(
+      'New',
+    );
+    await backend.deleteBoard('b1');
+    expect((await backend.restoreBoard('b1')).id).toBe('b1');
+    expect(sentLines(sent)).toEqual([
+      'PATCH /api/v1/boards/b1',
+      'DELETE /api/v1/boards/b1',
+      'POST /api/v1/boards/b1/undelete',
+    ]);
+    expect(sent[0]?.body).toEqual({ title: 'New', minimumRole: 'viewer' });
+  });
+
+  it('refuses a minimum role the contract does not have, sending nothing', async () => {
+    const sent = serveRoutes([]);
+    const refused = await new ServerBackend('')
+      .patchBoard('b1', { minimumRole: 'admin' })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(400);
+    expect(sent).toEqual([]);
+  });
+
+  it('makes a view as a block of the board', async () => {
+    const sent = serveRoutes([['POST /api/v1/boards/b1/blocks', [VIEW], 201]]);
+    const view = await new ServerBackend('').createView('b1', {
+      title: 'Table view',
+      fields: { viewType: 'table' } as never,
+    });
+    expect(sent[0]?.body).toEqual([
+      {
+        boardId: 'b1',
+        type: 'view',
+        title: 'Table view',
+        fields: { viewType: 'table' },
+        createAt: 1,
+        updateAt: 1,
+      },
+    ]);
+    expect(view.id).toBe('v1');
+  });
+});
+
+describe('the password on the server', () => {
+  it('is changed with the old one, and a wrong old one is let through with its reason', async () => {
+    const sent = serveRoutes([['POST /api/v1/users/me/password', undefined, 204]]);
+    const backend = new ServerBackend('');
+    await backend.changePassword('old secret', 'new secret');
+    expect(sentLines(sent)).toEqual(['POST /api/v1/users/me/password']);
+    expect(sent[0]?.body).toEqual({ oldPassword: 'old secret', newPassword: 'new secret' });
+    serveRoutes([
+      [
+        'POST /api/v1/users/me/password',
+        {
+          type: '/problems/invalid-credentials',
+          title: 'Invalid credentials',
+          status: 400,
+          detail: 'wrong',
+          reason: 'invalid_credentials',
+          errors: [{ pointer: '/oldPassword', detail: 'wrong', reason: 'invalid_credentials' }],
+        },
+        400,
+      ],
+    ]);
+    const refused = await backend
+      .changePassword('x', 'new secret')
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.reason).toBe('invalid_credentials');
+    expect(isBackendError(refused) && refused.refusalAt('/oldPassword')?.reason).toBe(
+      'invalid_credentials',
+    );
+  });
+});
+
+describe('sharing a board on the server', () => {
+  const MEMBER = {
+    boardId: 'b1',
+    userId: 'u2',
+    schemeAdmin: false,
+    schemeEditor: false,
+    schemeCommenter: true,
+    schemeViewer: false,
+  };
+
+  it('adds, changes and removes a member with exactly the one role', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/boards/b1/members', MEMBER],
+      [
+        'PUT /api/v1/boards/b1/members/u2',
+        { ...MEMBER, schemeCommenter: false, schemeViewer: true },
+      ],
+      ['DELETE /api/v1/boards/b1/members/u2', undefined, 204],
+    ]);
+    const backend = new ServerBackend('');
+    expect((await backend.addMember('b1', 'u2', 'commenter')).schemeCommenter).toBe(true);
+    expect((await backend.setMemberRole('b1', 'u2', 'viewer')).schemeViewer).toBe(true);
+    await backend.removeMember('b1', 'u2');
+    expect(sentLines(sent)).toEqual([
+      'POST /api/v1/boards/b1/members',
+      'PUT /api/v1/boards/b1/members/u2',
+      'DELETE /api/v1/boards/b1/members/u2',
+    ]);
+    expect(sent[0]?.body).toEqual({
+      userId: 'u2',
+      schemeAdmin: false,
+      schemeEditor: false,
+      schemeCommenter: true,
+      schemeViewer: false,
+    });
+    expect(sent[1]?.body).toEqual({
+      schemeAdmin: false,
+      schemeEditor: false,
+      schemeCommenter: false,
+      schemeViewer: true,
+    });
+  });
+
+  it('reads and sets the public link, asking for a new token only when told', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/boards/b1/sharing', { enabled: false }],
+      ['POST /api/v1/boards/b1/sharing', { enabled: true, token: 'tok', updateAt: 3 }],
+    ]);
+    const backend = new ServerBackend('');
+    expect(await backend.sharing('b1')).toEqual({ enabled: false, token: '' });
+    expect(await backend.setSharing('b1', { enabled: true })).toEqual({
+      enabled: true,
+      token: 'tok',
+    });
+    await backend.setSharing('b1', { enabled: true, regenerate: true });
+    expect(sent.slice(1).map((one) => one.body)).toEqual([
+      { enabled: true },
+      { enabled: true, regenerate: true },
+    ]);
+  });
+
+  it('finds people of the team by the search of their list', async () => {
+    const sent = serveRoutes([['GET /api/v1/teams/t/users', []]]);
+    await new ServerBackend('').searchUsers('t', 'ann lee');
+    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/users?search=ann+lee']);
+  });
+});
+
+describe('templates on the server', () => {
+  const BOARD = {
+    id: 'b2',
+    teamId: 't',
+    createdBy: 'me',
+    modifiedBy: 'me',
+    type: 'P',
+    minimumRole: 'editor',
+    title: 'Project Tasks',
+    description: '',
+    icon: '',
+    showDescription: false,
+    isTemplate: false,
+    isBuiltin: false,
+    templateVersion: 0,
+    properties: {},
+    cardProperties: [],
+    createAt: 1,
+    updateAt: 2,
+    deleteAt: 0,
+  };
+
+  it('reads the templates, copies a board either way, and starts the welcome board', async () => {
+    const sent = serveRoutes([
+      [
+        'GET /api/v1/teams/t/templates',
+        [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }],
+      ],
+      ['POST /api/v1/boards/', { boards: [BOARD], blocks: [] }, 201],
+      ['POST /api/v1/teams/t/onboard', { teamId: 't', boardId: 'w1' }],
+    ]);
+    const backend = new ServerBackend('');
+    const [template] = await backend.templates('t');
+    expect(template).toMatchObject({ id: 'tp', isTemplate: true, isBuiltin: true });
+    expect((await backend.duplicateBoard('tp', false, 't')).id).toBe('b2');
+    await backend.duplicateBoard('b2', true, 't');
+    expect(await backend.onboard('t')).toBe('w1');
+    expect(sentLines(sent)).toEqual([
+      'GET /api/v1/teams/t/templates',
+      'POST /api/v1/boards/tp/duplicate?asTemplate=false&toTeam=t',
+      'POST /api/v1/boards/b2/duplicate?asTemplate=true&toTeam=t',
+      'POST /api/v1/teams/t/onboard',
+    ]);
+  });
+});
+
+describe('searching boards on the server', () => {
+  it('asks the team’s search by title', async () => {
+    const sent = serveRoutes([['GET /api/v1/teams/t/boards/search', []]]);
+    expect(await new ServerBackend('').searchBoards('t', 'garden plan')).toEqual([]);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/boards/search?q=garden+plan']);
   });
 });

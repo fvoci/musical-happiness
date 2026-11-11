@@ -294,22 +294,28 @@
     "name": "team search: bad field",
     "request": "GET /api/v1/teams/<id:3>/boards/search?q=zebra&field=nope as search-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid board search field",
-      "request_id": "<request-id>"
+      "detail": "invalid board search field",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "team search: anonymous",
     "request": "GET /api/v1/teams/<id:3>/boards/search?q=zebra as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -371,77 +377,98 @@
     "name": "linkable search",
     "request": "GET /api/v1/teams/<id:3>/boards/search/linkable?q=zebra as search-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "channels",
     "request": "GET /api/v1/teams/<id:3>/channels?search=x as search-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "channel",
     "request": "GET /api/v1/teams/<id:3>/channels/some-channel as search-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "statistics",
     "request": "GET /api/v1/statistics as search-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "compliance boards",
     "request": "GET /api/v1/admin/boards as search-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "compliance boards history",
     "request": "GET /api/v1/admin/boards_history?modified_since=1 as search-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "compliance blocks history",
     "request": "GET /api/v1/admin/blocks_history?modified_since=1 as search-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   }
 ]

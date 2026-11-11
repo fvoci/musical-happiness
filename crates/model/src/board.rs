@@ -9,7 +9,9 @@ use thiserror::Error;
 
 use crate::JsonMap;
 use crate::allowlist::holds_nul;
-use crate::card_property::{CardPropertyError, validate_card_property_definitions};
+use crate::card_property::{
+    CardPropertyError, PersonProperties, validate_card_property_definitions,
+};
 use crate::serde_util::null_as_default;
 
 /// Who may see and join a board.
@@ -110,7 +112,7 @@ impl From<MinimumRole> for BoardRole {
     }
 }
 
-/// Reasons a [`Board`] is rejected before it is stored.
+/// Reasons a [`Board`], or a change of one, is rejected before it is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BoardError {
     /// The board names no team.
@@ -125,6 +127,26 @@ pub enum BoardError {
     NulCharacter {
         /// The member, as the API names it.
         member: &'static str,
+    },
+    /// A new order of the card properties names a property twice.
+    #[error("the order names each property of the board once: {id:?} is named twice")]
+    PropertyNamedTwice {
+        /// The property's identifier.
+        id: String,
+    },
+    /// A new order of the card properties names a property the board does not have.
+    #[error("the order names the properties of the board: it has no {id:?}")]
+    PropertyUnknown {
+        /// The identifier the order named.
+        id: String,
+    },
+    /// A new order of the card properties leaves some of the board's properties out.
+    #[error("the order names every property of the board: {named} of its {total} are named")]
+    PropertiesLeftOut {
+        /// How many the order names.
+        named: usize,
+        /// How many the board has.
+        total: usize,
     },
 }
 
@@ -214,6 +236,59 @@ pub struct Board {
 }
 
 impl Board {
+    /// Puts the card properties into the order of their identifiers in `order`, which
+    /// must name each of them exactly once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BoardError::PropertyNamedTwice`], [`BoardError::PropertyUnknown`] or
+    /// [`BoardError::PropertiesLeftOut`], and changes nothing, if `order` names one twice,
+    /// names one the board does not have, or leaves one out.
+    pub fn reorder_card_properties(&mut self, order: &[String]) -> Result<(), BoardError> {
+        let known: HashSet<String> = self
+            .card_properties
+            .iter()
+            .filter_map(property_id)
+            .collect();
+        let mut rank = HashMap::with_capacity(order.len());
+        for (at, id) in order.iter().enumerate() {
+            if !known.contains(id) {
+                return Err(BoardError::PropertyUnknown { id: id.clone() });
+            }
+            if rank.insert(id.as_str(), at).is_some() {
+                return Err(BoardError::PropertyNamedTwice { id: id.clone() });
+            }
+        }
+        // Each named once and each known: the order is the board's when it names as many
+        // as the board has (a stored board's identifiers are its own and distinct).
+        if rank.len() != self.card_properties.len() {
+            return Err(BoardError::PropertiesLeftOut {
+                named: rank.len(),
+                total: self.card_properties.len(),
+            });
+        }
+        self.card_properties.sort_by_key(|property| {
+            property_id(property).and_then(|id| rank.get(id.as_str()).copied())
+        });
+        Ok(())
+    }
+
+    /// The board as it goes to whoever reads by a read token alone, or to a user who
+    /// reads it by the token without being a member: no `createdBy` or `modifiedBy`
+    /// (`docs/s6-design.md`, decision 7). The blocks go so by [`Block::hide_people`].
+    ///
+    /// [`Block::hide_people`]: crate::Block::hide_people
+    pub fn hide_people(&mut self) {
+        self.created_by.clear();
+        self.modified_by.clear();
+    }
+
+    /// The properties of the board's cards whose values name users.
+    #[must_use]
+    pub fn person_properties(&self) -> PersonProperties {
+        PersonProperties::of(&self.card_properties)
+    }
+
     /// Checks that the board may be stored.
     ///
     /// # Errors

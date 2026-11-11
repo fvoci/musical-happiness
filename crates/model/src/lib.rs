@@ -19,10 +19,13 @@ mod card;
 mod card_property;
 mod category;
 mod client_config;
+mod comment_version;
 mod date_value;
-mod error_response;
+mod deleted_item;
 mod file_info;
 mod id;
+mod problem;
+mod refusal;
 mod serde_util;
 mod settings;
 mod sharing;
@@ -33,8 +36,9 @@ mod user;
 
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
-    AuthParamError, ChangePasswordRequest, LoginRequest, MAXIMUM_PASSWORD_BYTES,
-    MINIMUM_PASSWORD_LENGTH, RegisterRequest, check_new_password, is_email_valid,
+    AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
+    MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, RegisterRequest, check_new_password,
+    display_name, is_email_valid,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
@@ -54,27 +58,30 @@ pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
     BodySummary, TaskCount,
 };
-pub use card::{Card, CardError, CardPatch};
+pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview};
 pub use card_property::{
-    CardPropertyError, DATE_PROPERTY_TYPE, clear_values_of_another_kind, validate_block_properties,
-    validate_card_property_definitions, validate_card_property_kinds,
+    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, clear_values_of_another_kind,
+    validate_block_properties, validate_card_property_definitions, validate_card_property_kinds,
     validate_card_property_values,
 };
 pub use category::{
     BoardCategoryWebsocketData, CATEGORY_BOARDS_SORT_ORDER_GAP, Category, CategoryBoardMetadata,
-    CategoryBoards, CategoryError, CategoryType,
+    CategoryBoards, CategoryError, CategoryType, DEFAULT_CATEGORY_NAME,
 };
 pub use client_config::ClientConfig;
+pub use comment_version::CommentVersion;
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
-pub use error_response::ErrorBody;
+pub use deleted_item::DeletedItem;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
+pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
+pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
-    ClientStateError, Density, HourCycle, ParseSettingError, SettingName, SettingsError, Theme,
-    TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
+    ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,
+    Theme, TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
     check_client_state_value,
 };
 pub use sharing::Sharing;

@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 13:49 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 15:56 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -139,8 +139,12 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `trash_retention_days` | `FVOCI_TRASH_RETENTION_DAYS` | 정수(1 이상) | `30` | 지운 보드와 블록이 휴지통에 남아 되살릴 수 있는 날. 지나면 영구히 지운다. 어느 블록도(휴지통의 것까지) 가리키지 않는 파일도 그렇게 된 지 이만큼 지나면 지운다 |
 | `upload_part_bytes` | `FVOCI_UPLOAD_PART_BYTES` | 정수(5242880–5368709120, 바이트) | `8388608` | 청크로 올릴 때(`createUpload`) 마지막을 뺀 부분 하나의 크기(8 MiB). S3 멀티파트가 받는 부분이 5 MiB에서 5 GiB라서 그 밖이면 시작하지 않는다. 서버 앞의 프록시가 받는 요청 본문보다 작아야 한다(Cloudflare의 Free와 Pro는 100 MB). `filesdriver`가 `amazons3`이어도 부분은 `tmp_path`의 파일로 받아 확인한다. 버킷에 보내는 동안만 메모리에 있고, 그 메모리는 이 크기의 8배까지다(기본 64 MiB). 넘으면 다음 부분은 디스크에서 기다린다 |
 | `max_pending_upload_bytes` | `FVOCI_MAX_PENDING_UPLOAD_BYTES` | 정수(`maxfilesize`와 `max_import_bytes` 이상, 바이트) | `2147483648` | 서버의 열린 업로드(`createUpload`, `createImportUpload`) 모두가 걸어 둘 수 있는 크기의 합(2 GiB). 넘는 업로드를 열면 429이고 `reason`이 `server_uploads_pending`이다. `maxfilesize`보다 작으면 가장 큰 파일을 언제나 429로 거절하게 되므로 시작 오류다 |
-| `max_import_bytes` | `FVOCI_MAX_IMPORT_BYTES` | 정수(1 이상, 바이트) | `268435456` | 가져올 수 있는 아카이브의 가장 큰 크기(256 MiB). 아카이브도 청크로 올리므로 `upload_part_bytes` × 10,000을 넘으면 시작 오류이고, `max_pending_upload_bytes`보다 커도 시작 오류다. 풀린 합계는 1 GiB까지다(고정) |
-| `tmp_path` | `FVOCI_TMP_PATH` | 문자열 | `""` | 서버의 임시 파일을 두는 디렉터리. 청크로 올리는 부분은 `filesdriver`가 `amazons3`이어도 여기에 받는다(S3로 보낸 뒤 지운다). 업로드에 필요한 자리는 열린 업로드가 걸어 둔 크기의 합까지다(`max_pending_upload_bytes`). 가져오는 중인 아카이브는 업로드가 끝난 것으로 세어 이 합에 들지 않고, 가져오는 동안 아카이브 하나와 부분 하나, 풀어 낸 파일 항목 하나(`maxfilesize`까지)의 자리를 차지한다. 동시에 가져오는 수에는 한도가 없다. 내보내는 아카이브는 보내는 동안 자리를 차지하고(디렉터리에서는 보이지 않는다), 그 크기와 수에는 한도가 없다. 끝나지 않은 업로드의 부분(`uploads/<uploadId>/`), 가져오는 중인 아카이브(`uploads/<uploadId>.importing-…/`)와 내보내는 중인 아카이브(`exports/`. 다 쓰면 열어 둔 채 디렉터리에서 지우고 응답으로 흘린다)를 둔다. 그 아래 `uploads`와 `exports`는 서버의 것이다: 서버가 시작할 때 어느 업로드의 것도 아닌 것과 내보내다 남은 것을 지운다. 한 디렉터리를 두 서버가 함께 쓰지 않는다(`filespath`도 그렇다. 시작할 때 `filespath/.tmp/writing`을 비운다). 비우면 `filespath` 아래 `.tmp`다. 시스템의 임시 디렉터리는 메모리에 있을 수 있어 쓰지 않는다 |
+| `max_import_bytes` | `FVOCI_MAX_IMPORT_BYTES` | 정수(1 이상, 바이트) | `268435456` | 가져올 수 있는 아카이브의 가장 큰 크기(256 MiB). 아카이브도 청크로 올리므로 `upload_part_bytes` × 10,000을 넘으면 시작 오류이고, `max_pending_upload_bytes`보다 커도 시작 오류다. 풀린 합계는 1 GiB까지다(고정). 메모리 과할당을 막은 기기(`vm.overcommit_memory=2`)에서는 항목 수를 꾸민 아카이브 하나가 서버를 멈출 수 있다(`docs/contract-pending.md` 5절) |
+| `max_concurrent_exports` | `FVOCI_MAX_CONCURRENT_EXPORTS` | 정수(1 이상) | `2` | 서버가 한꺼번에 하는 내보내기(`exportBoardArchive`, `exportTeamArchive`)의 수. 한 사용자는 하나씩이다(설정이 아니다). 내보내기는 아카이브를 다 보낼 때까지(클라이언트가 끊거나 `export_stall_seconds` 동안 아무것도 받지 않을 때까지) 자리를 잡는다. 넘으면 429이고 `reason`이 `server_exports_busy`(사용자의 것이 돌고 있으면 `export_running`)다. 0은 시작 오류다 |
+| `export_stall_seconds` | `FVOCI_EXPORT_STALL_SECONDS` | 정수(1 이상) | `60` | 내보내기의 내려받기가 이 시간(초) 동안 한 바이트도 보내지 못하면 그만둔다: 임시 파일을 지우고 자리를 돌려주고 연결을 끊는다. 보낸 양은 서버의 버퍼(커널의 송신 버퍼와 HTTP 계층, 합쳐 몇 MiB)를 떠난 양이라, 클라이언트는 이 시간에 그만큼은 받아야 끊기지 않는다. 0은 시작 오류다 |
+| `max_concurrent_imports` | `FVOCI_MAX_CONCURRENT_IMPORTS` | 정수(1 이상) | `2` | 서버가 한꺼번에 하는 가져오기(`importArchive`)의 수. 한 사용자는 하나씩이다. 넘으면 429이고 `reason`이 `server_imports_busy`(사용자의 것이 돌고 있으면 `import_running`)이며 업로드는 열린 채 남는다. 열린 업로드의 한도(`max_pending_upload_bytes`)는 따로다. 0은 시작 오류다 |
+| `max_comment_versions` | `FVOCI_MAX_COMMENT_VERSIONS` | 정수(1 이상) | `50` | 댓글마다 남기는 고치기 전 글(판)의 수. 맨 처음 쓴 글은 늘 남고 그 수에 든다. 넘으면 그 다음으로 오래된 판부터 버린다(`getCommentVersions`). 줄이면 그 뒤에 고쳐지는 댓글부터 줄어든다. 0은 시작 오류다 |
+| `tmp_path` | `FVOCI_TMP_PATH` | 문자열 | `""` | 서버의 임시 파일을 두는 디렉터리. 청크로 올리는 부분은 `filesdriver`가 `amazons3`이어도 여기에 받는다(S3로 보낸 뒤 지운다). 업로드에 필요한 자리는 열린 업로드가 걸어 둔 크기의 합까지다(`max_pending_upload_bytes`). 가져오는 중인 아카이브는 업로드가 끝난 것으로 세어 이 합에 들지 않고, 가져오는 동안 아카이브 하나와 부분 하나, 풀어 낸 파일 항목 하나(`maxfilesize`까지)의 자리를 차지한다. 동시에 가져오는 수는 `max_concurrent_imports`까지다. 내보내는 아카이브는 쓰고 보내는 동안 자리를 차지하고, 그 크기에는 한도가 없고 수는 `max_concurrent_exports`까지다. 끝나지 않은 업로드의 부분(`uploads/<uploadId>/`), 가져오는 중인 아카이브(`uploads/<uploadId>.importing-…/`)와 내보내는 중인 아카이브(`exports/`. 다 보내거나 그만두면 지운다)를 둔다. 그 아래 `uploads`와 `exports`는 서버의 것이다: 서버가 시작할 때 어느 업로드의 것도 아닌 것과 내보내다 남은 것을 지운다. 한 디렉터리를 두 서버가 함께 쓰지 않는다(`filespath`도 그렇다. 시작할 때 `filespath/.tmp/writing`을 비운다). 비우면 `filespath` 아래 `.tmp`다. 시스템의 임시 디렉터리는 메모리에 있을 수 있어 쓰지 않는다 |
 
 ## 키: 공유와 보이는 것
 
@@ -160,6 +164,12 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `localModeSocketLocation` | `FVOCI_LOCALMODESOCKETLOCATION` | 문자열 | `"/var/tmp/fvoci_local.socket"` | 그 소켓의 경로 |
 | `webhook_update` | `FVOCI_WEBHOOK_UPDATE` | 문자열 목록 | `[]` | 바뀐 블록마다 그 블록을 `POST`로 받는 주소들 |
 
+## 키: 지표
+
+| 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
+|---|---|---|---|---|
+| `prometheusaddress` | `FVOCI_PROMETHEUSADDRESS` | 문자열(`호스트:포트`) | `""` | Prometheus 지표를 내는 주소. 비어 있으면 지표를 모으지 않고 아무것도 듣지 않는다. 주소가 있으면 API와 **다른 리스너**를 그 주소에 열고 `GET /metrics`만 Prometheus의 글 형식으로 답한다(그 밖의 길은 404이고, 거절은 API와 같은 `application/problem+json`이며 그것이 가리키는 `/problems`의 글도 여기서 내준다). API의 리스너에는 지표의 길이 없다. 호스트는 이름, IPv4, 괄호 안의 IPv6(`[::1]:9092`)이고, 비우면(`:9092`) 모든 인터페이스이고, `localOnly`가 참이면 API처럼 루프백(`localhost`가 풀리는 주소 하나)이다. 포트 0은 빈 포트 아무것이고 고른 주소를 로그에 남긴다. 꼴이 틀리면, 그 주소에서 들을 수 없으면(이미 쓰임, 이 기기의 주소가 아님) 시작하지 않는다. **인증이 없고** `usessl`과 관계없이 평문 HTTP다. 모니터링만 닿는 안쪽 주소(루프백, 사설망)에 묶는다. 요청 로그에 남기지 않는다. 한 번 긁을 때마다 열린 업로드를 세는 DB 조회가 하나 있다(2초까지, 동시에 하나) |
+
 ## 키: 예약된 키
 
 **아직 아무 일도 하지 않는다.** 뒤에 쓰기로 정해 둔 키다(사용자 결정, 2026-11-11 05:04 KST). 그때까지는 기본값이 아닌 값을 주면 서버가 시작하지 않는다. 쓰지 않는 기능을 켰다고 믿고 돌지 않게 하려는 것이다.
@@ -167,7 +177,6 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `authmode` | `FVOCI_AUTHMODE` | 문자열 | `"native"` | 로그인 방식. 뒤에 OIDC 로그인을 넣을 자리다. 지금은 `native`(이 서버의 사용자 이름과 비밀번호)만 받는다 |
-| `prometheusaddress` | `FVOCI_PROMETHEUSADDRESS` | 문자열 | `""` | Prometheus 지표를 내는 주소. 뒤에 넣을 자리다. 지금은 비어 있어야 한다 |
 
 ## 없앤 키
 

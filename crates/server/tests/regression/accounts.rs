@@ -483,6 +483,7 @@ pub(crate) async fn settings(s: &mut Session) {
         .json(json!({
             "timeZone": "Asia/Seoul", "weekStart": "monday", "hourCycle": "h23",
             "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
+            "language": "ko",
         }))
         .user(&alice)
         .await;
@@ -501,7 +502,7 @@ pub(crate) async fn settings(s: &mut Session) {
         .user(&alice)
         .await;
 
-    let refused: [(&str, Value); 12] = [
+    let refused: [(&str, Value); 13] = [
         (
             "no such time zone",
             json!({"timeZone": "Mars/Olympus_Mons"}),
@@ -516,6 +517,10 @@ pub(crate) async fn settings(s: &mut Session) {
         ("no such way to open a card", json!({"cardOpen": "auto"})),
         ("no such density", json!({"density": "cozy"})),
         ("haptics as a word", json!({"haptics": "true"})),
+        (
+            "no shape of a language tag",
+            json!({"language": "en-US-US"}),
+        ),
         ("a number", json!({"theme": 3})),
         ("no such setting", json!({"locale": "ko"})),
         (

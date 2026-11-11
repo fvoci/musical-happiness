@@ -9,6 +9,7 @@
       "density": "auto",
       "haptics": true,
       "hourCycle": "auto",
+      "language": "auto",
       "theme": "auto",
       "timeZone": "auto",
       "weekStart": "auto"
@@ -18,11 +19,14 @@
     "name": "get: no session",
     "request": "GET /api/v1/users/me/settings as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -35,6 +39,7 @@
       "density": "compact",
       "haptics": false,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "dark",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -50,6 +55,7 @@
       "density": "compact",
       "haptics": false,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "dark",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -65,6 +71,7 @@
       "density": "auto",
       "haptics": true,
       "hourCycle": "auto",
+      "language": "auto",
       "theme": "auto",
       "timeZone": "auto",
       "weekStart": "auto"
@@ -80,6 +87,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -95,6 +103,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -110,6 +119,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Calcutta",
       "weekStart": "monday"
@@ -119,154 +129,280 @@
     "name": "patch: no such time zone",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "timeZone",
-      "message": "timeZone must be \"auto\" or the name of an IANA time zone",
-      "request_id": "<request-id>"
+      "detail": "timeZone must be \"auto\" or the name of an IANA time zone",
+      "errors": [
+        {
+          "detail": "timeZone must be \"auto\" or the name of an IANA time zone",
+          "pointer": "/timeZone",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: a time zone in other letters",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "timeZone",
-      "message": "timeZone must be \"auto\" or the name of an IANA time zone",
-      "request_id": "<request-id>"
+      "detail": "timeZone must be \"auto\" or the name of an IANA time zone",
+      "errors": [
+        {
+          "detail": "timeZone must be \"auto\" or the name of an IANA time zone",
+          "pointer": "/timeZone",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no such week start",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "weekStart",
-      "message": "weekStart must be one of \"auto\", \"sunday\", \"monday\", \"saturday\"",
-      "request_id": "<request-id>"
+      "detail": "weekStart must be one of \"auto\", \"sunday\", \"monday\", \"saturday\"",
+      "errors": [
+        {
+          "detail": "weekStart must be one of \"auto\", \"sunday\", \"monday\", \"saturday\"",
+          "pointer": "/weekStart",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no such hour cycle",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "hourCycle",
-      "message": "hourCycle must be one of \"auto\", \"h12\", \"h23\"",
-      "request_id": "<request-id>"
+      "detail": "hourCycle must be one of \"auto\", \"h12\", \"h23\"",
+      "errors": [
+        {
+          "detail": "hourCycle must be one of \"auto\", \"h12\", \"h23\"",
+          "pointer": "/hourCycle",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no such theme",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "theme",
-      "message": "theme must be one of \"auto\", \"light\", \"dark\"",
-      "request_id": "<request-id>"
+      "detail": "theme must be one of \"auto\", \"light\", \"dark\"",
+      "errors": [
+        {
+          "detail": "theme must be one of \"auto\", \"light\", \"dark\"",
+          "pointer": "/theme",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no such way to open a card",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "cardOpen",
-      "message": "cardOpen must be one of \"center\", \"side\", \"full\"",
-      "request_id": "<request-id>"
+      "detail": "cardOpen must be one of \"center\", \"side\", \"full\"",
+      "errors": [
+        {
+          "detail": "cardOpen must be one of \"center\", \"side\", \"full\"",
+          "pointer": "/cardOpen",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no such density",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "density",
-      "message": "density must be one of \"auto\", \"compact\", \"comfortable\"",
-      "request_id": "<request-id>"
+      "detail": "density must be one of \"auto\", \"compact\", \"comfortable\"",
+      "errors": [
+        {
+          "detail": "density must be one of \"auto\", \"compact\", \"comfortable\"",
+          "pointer": "/density",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: haptics as a word",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "haptics",
-      "message": "haptics must be true or false",
-      "request_id": "<request-id>"
+      "detail": "haptics must be true or false",
+      "errors": [
+        {
+          "detail": "haptics must be true or false",
+          "pointer": "/haptics",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
+    }
+  },
+  {
+    "name": "patch: no shape of a language tag",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/problem+json",
+    "body": {
+      "detail": "language must be \"auto\" or a language tag such as \"ko\" or \"en-US\"",
+      "errors": [
+        {
+          "detail": "language must be \"auto\" or a language tag such as \"ko\" or \"en-US\"",
+          "pointer": "/language",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: a number",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "theme",
-      "message": "theme must be one of \"auto\", \"light\", \"dark\"",
-      "request_id": "<request-id>"
+      "detail": "theme must be one of \"auto\", \"light\", \"dark\"",
+      "errors": [
+        {
+          "detail": "theme must be one of \"auto\", \"light\", \"dark\"",
+          "pointer": "/theme",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no such setting",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "locale",
-      "message": "there is no setting \"locale\"",
-      "request_id": "<request-id>"
+      "detail": "there is no setting \"locale\"",
+      "errors": [
+        {
+          "detail": "there is no setting \"locale\"",
+          "pointer": "/locale",
+          "reason": "unknown"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: one valid, one not",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "theme",
-      "message": "theme must be one of \"auto\", \"light\", \"dark\"",
-      "request_id": "<request-id>"
+      "detail": "theme must be one of \"auto\", \"light\", \"dark\"",
+      "errors": [
+        {
+          "detail": "theme must be one of \"auto\", \"light\", \"dark\"",
+          "pointer": "/theme",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: not an object",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "the request body is not a JSON object",
-      "request_id": "<request-id>"
+      "detail": "the request body is not a JSON object",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no session",
     "request": "PATCH /api/v1/users/me/settings as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -279,6 +415,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Calcutta",
       "weekStart": "monday"
@@ -314,6 +451,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Calcutta",
       "weekStart": "monday"
@@ -323,49 +461,85 @@
     "name": "client state: a name with a space",
     "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "updatedFields",
-      "message": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
-      "request_id": "<request-id>"
+      "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
+      "errors": [
+        {
+          "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
+          "pointer": "/updatedFields/with space",
+          "reason": "invalid_characters"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "client state: a name that is too long",
     "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "updatedFields",
-      "message": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
-      "request_id": "<request-id>"
+      "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
+      "errors": [
+        {
+          "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
+          "pointer": "/updatedFields/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+          "reason": "too_long"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "client state: a value that is too long",
     "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "updatedFields",
-      "message": "the value of an entry is at most 4096 bytes",
-      "request_id": "<request-id>"
+      "detail": "the value of an entry is at most 4096 bytes",
+      "errors": [
+        {
+          "detail": "the value of an entry is at most 4096 bytes",
+          "pointer": "/updatedFields/big",
+          "reason": "too_long"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "client state: more entries than the bag holds",
     "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "updatedFields",
+      "detail": "a user keeps at most 100 entries of client state",
+      "errors": [
+        {
+          "detail": "a user keeps at most 100 entries of client state",
+          "pointer": "/updatedFields",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
       "limit": 100,
-      "message": "a user keeps at most 100 entries of client state",
-      "request_id": "<request-id>"
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {

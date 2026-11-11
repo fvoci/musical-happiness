@@ -35,8 +35,8 @@ pub enum BoardPermission {
     ManageBoardProperties,
     /// Comment on cards.
     CommentBoardCards,
-    /// Delete comments written by others.
-    DeleteOthersComments,
+    /// Change and delete comments written by others.
+    ManageOthersComments,
 }
 
 /// Returns whether a user has a permission in a team.
@@ -63,7 +63,7 @@ pub fn member_has_permission(member: &BoardMember, permission: BoardPermission) 
         | BoardPermission::DeleteBoard
         | BoardPermission::ManageBoardRoles
         | BoardPermission::ShareBoard
-        | BoardPermission::DeleteOthersComments => admin,
+        | BoardPermission::ManageOthersComments => admin,
         BoardPermission::ManageBoardCards | BoardPermission::ManageBoardProperties => {
             admin || editor
         }
@@ -206,7 +206,7 @@ mod tests {
             "a commenter comments"
         );
         assert!(
-            !member_has_permission(&commenter, BoardPermission::DeleteOthersComments),
+            !member_has_permission(&commenter, BoardPermission::ManageOthersComments),
             "only an admin deletes others' comments"
         );
 

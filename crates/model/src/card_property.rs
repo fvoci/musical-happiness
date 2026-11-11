@@ -7,11 +7,14 @@
 //! date value (`docs/s6-design.md` 5.7). Anything else is refused before it is stored,
 //! so that one member cannot break the board for the others.
 
+use std::collections::BTreeSet;
+
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
 use crate::date_value::{DateValueError, check_date_value};
+use crate::refusal::{RefusalReason, Refusals};
 
 /// The `type` of a property definition whose values are date values.
 pub const DATE_PROPERTY_TYPE: &str = "date";
@@ -97,24 +100,50 @@ pub enum CardPropertyError {
 /// Returns [`CardPropertyError::InvalidValue`] for the first value of another shape,
 /// and [`CardPropertyError::InvalidDateValue`] for an object that is no date value.
 pub fn validate_card_property_values(values: &JsonMap) -> Result<(), CardPropertyError> {
+    values
+        .iter()
+        .try_for_each(|(id, value)| check_property_value(id, value))
+}
+
+/// Checks the value of one property of a card.
+fn check_property_value(id: &str, value: &Value) -> Result<(), CardPropertyError> {
+    let valid = match value {
+        Value::Null | Value::String(_) => true,
+        Value::Array(items) => items.iter().all(Value::is_string),
+        Value::Object(date) => {
+            check_date_value(date).map_err(|reason| CardPropertyError::InvalidDateValue {
+                id: id.to_owned(),
+                reason,
+            })?;
+            true
+        }
+        Value::Bool(_) | Value::Number(_) => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(CardPropertyError::InvalidValue { id: id.to_owned() })
+    }
+}
+
+/// Checks the property values a request carries as its member `member` (`properties`
+/// of a card, `updatedProperties` of a patch), as [`validate_card_property_values`]
+/// does, and tells of every value that is refused, not the first alone.
+///
+/// # Errors
+///
+/// Returns every value of another shape, each at `/<member>/<property>`.
+pub(crate) fn check_card_property_values<'v>(
+    values: impl IntoIterator<Item = (&'v String, &'v Value)>,
+    member: &str,
+) -> Result<(), Refusals> {
+    let mut refused = Refusals::new();
     for (id, value) in values {
-        let valid = match value {
-            Value::Null | Value::String(_) => true,
-            Value::Array(items) => items.iter().all(Value::is_string),
-            Value::Object(date) => {
-                check_date_value(date).map_err(|reason| CardPropertyError::InvalidDateValue {
-                    id: id.clone(),
-                    reason,
-                })?;
-                true
-            }
-            Value::Bool(_) | Value::Number(_) => false,
-        };
-        if !valid {
-            return Err(CardPropertyError::InvalidValue { id: id.clone() });
+        if let Err(error) = check_property_value(id, value) {
+            refused.refuse_within(member, id, RefusalReason::Invalid, error.to_string());
         }
     }
-    Ok(())
+    refused.into_result()
 }
 
 /// Checks that the date values of a card are the values of its board's date properties,
@@ -256,6 +285,125 @@ fn is_valid_option(option: &Value) -> bool {
     })
 }
 
+/// The `type`s of the property definitions whose values name users: a person, several
+/// people, and who made or last changed a card. The last two hold no value of their own,
+/// but a view may filter by them.
+const PERSON_PROPERTY_TYPES: [&str; 4] = ["person", "multiPerson", "createdBy", "updatedBy"];
+
+/// The members of a view's `fields` that are lists of the groups (the options, or for a
+/// person property the users) the view shows, hides or folds.
+const VIEW_GROUP_LISTS: [&str; 3] = ["visibleOptionIds", "hiddenOptionIds", "collapsedOptionIds"];
+
+/// The member of a view's `fields` that is keyed by the groups the view shows.
+const VIEW_GROUP_KEYED: &str = "kanbanCalculations";
+
+/// The properties of a board as whoever reads it by its read token alone may be told of
+/// them: which ones it defines, and which of those name users.
+///
+/// Such a reader is not told who the server's users are (`docs/s6-design.md`, decision
+/// 7): the values of person properties go to them emptied, one empty string for each
+/// user, so that how many people a card has still shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonProperties {
+    defined: BTreeSet<String>,
+    people: BTreeSet<String>,
+}
+
+impl PersonProperties {
+    /// The properties among a board's definitions.
+    #[must_use]
+    pub fn of(definitions: &[JsonMap]) -> Self {
+        let mut properties = Self::default();
+        for definition in definitions {
+            let Some(id) = definition.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            properties.defined.insert(id.to_owned());
+            let names_users = definition
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| PERSON_PROPERTY_TYPES.contains(&kind));
+            if names_users {
+                properties.people.insert(id.to_owned());
+            }
+        }
+        properties
+    }
+
+    /// Empties the users that a card's property values name: a text becomes the empty
+    /// text, and each text of a list the empty text. A value of a property the board no
+    /// longer defines goes: a person property that was deleted leaves its users behind,
+    /// and nothing shows such a value.
+    pub fn hide_values(&self, values: &mut JsonMap) {
+        values.retain(|id, _| self.defined.contains(id));
+        for (id, value) in values.iter_mut() {
+            if self.people.contains(id) {
+                hide_users(value);
+            }
+        }
+    }
+
+    /// Empties the users that a view's `fields` name. In the clauses of its filter
+    /// (`filter`, a group `{operation, filters}` whose filters are groups or clauses
+    /// `{propertyId, condition, values}`) the users that a person property is compared
+    /// with become empty strings. A view grouped by a person property (`groupById`)
+    /// keeps of its lists of groups (`visibleOptionIds`, `hiddenOptionIds`,
+    /// `collapsedOptionIds`) and of `kanbanCalculations` only the group of the cards
+    /// without a value, the empty string: an emptied user would be taken for it.
+    pub fn hide_view_fields(&self, fields: &mut JsonMap) {
+        if let Some(filter) = fields.get_mut("filter") {
+            self.hide_filter_values(filter);
+        }
+        let grouped_by_people = fields
+            .get("groupById")
+            .and_then(Value::as_str)
+            .is_some_and(|id| self.people.contains(id));
+        if !grouped_by_people {
+            return;
+        }
+        for list in VIEW_GROUP_LISTS {
+            if let Some(Value::Array(groups)) = fields.get_mut(list) {
+                groups.retain(|group| group.as_str() == Some(""));
+            }
+        }
+        if let Some(Value::Object(groups)) = fields.get_mut(VIEW_GROUP_KEYED) {
+            groups.retain(|group, _| group.is_empty());
+        }
+    }
+
+    /// See [`Self::hide_view_fields`].
+    fn hide_filter_values(&self, filter: &mut Value) {
+        if let Some(filters) = filter.get_mut("filters").and_then(Value::as_array_mut) {
+            for filter in filters {
+                self.hide_filter_values(filter);
+            }
+            return;
+        }
+        let names_a_person = filter
+            .get("propertyId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| self.people.contains(id));
+        if names_a_person && let Some(values) = filter.get_mut("values") {
+            hide_users(values);
+        }
+    }
+}
+
+/// Empties a text, or each text of a list; leaves anything else as it is.
+fn hide_users(value: &mut Value) {
+    match value {
+        Value::String(user) => user.clear(),
+        Value::Array(users) => {
+            for user in users.iter_mut() {
+                if let Value::String(user) = user {
+                    user.clear();
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -268,6 +416,70 @@ mod tests {
             Value::Object(object) => object,
             other => panic!("not an object: {other}"),
         }
+    }
+
+    #[test]
+    fn the_users_of_person_properties_are_emptied_one_by_one() {
+        let people = PersonProperties::of(&[
+            object(json!({"id": "owner", "type": "person"})),
+            object(json!({"id": "team", "type": "multiPerson"})),
+            object(json!({"id": "by", "type": "createdBy"})),
+            object(json!({"id": "note", "type": "text"})),
+            object(json!({"type": "person"})),
+        ]);
+        let mut values = object(json!({
+            "owner": "u1", "team": ["u1", "u2"], "note": "u1", "deleted": "u1", "by": null,
+        }));
+        people.hide_values(&mut values);
+        assert_eq!(
+            Value::Object(values),
+            json!({"owner": "", "team": ["", ""], "note": "u1", "by": null}),
+            "the count of people stays, who they are goes, and so do undefined values"
+        );
+
+        let mut fields = object(json!({
+            "groupById": "owner",
+            "hiddenOptionIds": ["u1", ""],
+            "visibleOptionIds": ["u2"],
+            "collapsedOptionIds": [""],
+            "kanbanCalculations": {"u1": {"calculation": "count"}, "": {"calculation": "sum"}},
+            "cardOrder": ["c1"],
+            "filter": {"operation": "and", "filters": [
+                {"propertyId": "owner", "condition": "includes", "values": ["u1"]},
+                {"operation": "or", "filters": [
+                    {"propertyId": "by", "condition": "includes", "values": ["u1", "u2"]},
+                    {"propertyId": "note", "condition": "includes", "values": ["u1"]},
+                ]},
+            ]},
+        }));
+        people.hide_view_fields(&mut fields);
+        assert_eq!(
+            Value::Object(fields),
+            json!({
+                "groupById": "owner",
+                "hiddenOptionIds": [""],
+                "visibleOptionIds": [],
+                "collapsedOptionIds": [""],
+                "kanbanCalculations": {"": {"calculation": "sum"}},
+                "cardOrder": ["c1"],
+                "filter": {"operation": "and", "filters": [
+                    {"propertyId": "owner", "condition": "includes", "values": [""]},
+                    {"operation": "or", "filters": [
+                        {"propertyId": "by", "condition": "includes", "values": ["", ""]},
+                        {"propertyId": "note", "condition": "includes", "values": ["u1"]},
+                    ]},
+                ]},
+            }),
+            "in nested groups too, and the groups of users go"
+        );
+
+        let mut by_text = object(json!({"groupById": "note", "hiddenOptionIds": ["o1"]}));
+        people.hide_view_fields(&mut by_text);
+        assert_eq!(
+            Value::Object(by_text),
+            json!({"groupById": "note", "hiddenOptionIds": ["o1"]}),
+            "groups of options stay"
+        );
     }
 
     #[test]

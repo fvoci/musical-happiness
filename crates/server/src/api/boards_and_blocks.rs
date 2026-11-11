@@ -19,10 +19,19 @@ use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid
 use super::decode_object_with;
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
-use super::{objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
+use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
+
+/// The JSON Pointers to the blocks of a `BoardsAndBlocks` and to the block patches of a
+/// `PatchBoardsAndBlocks`.
+const BLOCKS: &str = "/blocks";
+const PATCHES: &str = "/blockPatches";
+use super::{require_block_change_permission, require_block_patch_permission};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
+
+/// The refusal of a change to a block of a board the user may not change cards on.
+const MODIFYING_CARDS_DENIED: &str = "access denied to modifying cards";
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(
@@ -63,7 +72,10 @@ async fn handle_create_boards_and_blocks(
             let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
                 .flatten()
                 .find_map(take_invalid_board_members);
-            (invalid, take_block_bodies(objects_mut(body, "blocks")))
+            (
+                invalid,
+                take_block_bodies(objects_mut(body, "blocks"), Some(BLOCKS)),
+            )
         })?;
     // Not as in the original, which validates neither the type nor the minimum role of
     // these boards and stores whatever it is given. The model has no way to hold such a
@@ -73,7 +85,7 @@ async fn handle_create_boards_and_blocks(
     }
     // The boards are new and have no files, so a body with an image is refused, without
     // looking up anything the request names.
-    for (block, body) in request.blocks.iter_mut().zip(bodies?) {
+    for (index, (block, body)) in request.blocks.iter_mut().zip(bodies?).enumerate() {
         if body
             .as_ref()
             .is_some_and(|body| !body.file_ids().is_empty())
@@ -81,7 +93,8 @@ async fn handle_create_boards_and_blocks(
             return Err(AppError::bad_request(
                 "an image of the body shows no file of the board: a new board has none",
             )
-            .with_field("body"));
+            .with_field("body")
+            .under(&element_pointer(Some(BLOCKS), index)));
         }
         block.body = body;
     }
@@ -117,15 +130,27 @@ async fn handle_create_boards_and_blocks(
     let problem = request
         .blocks
         .iter()
-        .find_map(|block| new_block_problem(block, &board_ids));
-    if let Some((field, problem)) = problem {
-        return Err(AppError::bad_request(problem).with_field(field));
+        .enumerate()
+        .find_map(|(index, block)| {
+            new_block_problem(block, &board_ids).map(|problem| (index, problem))
+        });
+    if let Some((index, (field, problem))) = problem {
+        return Err(AppError::bad_request(problem)
+            .with_field(field)
+            .under(&element_pointer(Some(BLOCKS), index)));
     }
 
     let request = generate_boards_and_blocks_ids(request).map_err(AppError::bad_request)?;
+    // The store names a block it refuses by its identifier.
+    let ids: Vec<String> = request
+        .blocks
+        .iter()
+        .map(|block| block.id.clone())
+        .collect();
     let created = app
         .create_boards_and_blocks_with_admin(request, user_id)
-        .await?;
+        .await
+        .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), BLOCKS))?;
     Ok(super::created(&created))
 }
 
@@ -196,11 +221,11 @@ async fn handle_patch_boards_and_blocks(
                 .collect();
             (
                 invalid,
-                take_patch_bodies(objects_mut(body, "blockPatches")),
+                take_patch_bodies(objects_mut(body, "blockPatches"), Some(PATCHES)),
             )
         })?;
     patches.validate().map_err(AppError::bad_request)?;
-    put_patch_bodies(&mut patches.block_patches, changes?)?;
+    put_patch_bodies(&mut patches.block_patches, changes?, Some(PATCHES))?;
 
     let mut team_id = String::new();
     let mut board_ids = HashSet::new();
@@ -243,15 +268,25 @@ async fn handle_patch_boards_and_blocks(
         }
     }
 
-    require_blocks_of_boards(&app, user_id, &patches.block_ids, &board_ids).await?;
-    for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
+    require_block_patches(&app, user_id, &patches, &board_ids).await?;
+    let block_patches = patches.block_ids.iter().zip(&patches.block_patches);
+    for (index, (block_id, patch)) in block_patches.enumerate() {
         if let Some(body) = patch.body.new_body() {
             let block = app.block(block_id).await?;
-            app.check_body_files(&block.board_id, Some(body)).await?;
+            app.check_body_files(&block.board_id, Some(body))
+                .await
+                .map_err(|error| error.under(&element_pointer(Some(PATCHES), index)))?;
         }
     }
 
-    let result = app.patch_boards_and_blocks(&patches, user_id).await?;
+    let result = app
+        .patch_boards_and_blocks(&patches, user_id)
+        .await
+        .map_err(|error| {
+            error
+                .moved(super::blocks::BLOCK_FIELDS, super::blocks::PATCH_FIELDS)
+                .among_blocks(patches.block_ids.iter().map(String::as_str), PATCHES)
+        })?;
     Ok(json_response(&result))
 }
 
@@ -261,6 +296,9 @@ fn not_a_block_of_the_boards() -> AppError {
     AppError::bad_request("the request names a block that is not on its boards")
 }
 
+/// Checks that every block is on one of the boards, and that the user may change cards
+/// there. The same answer for a block that does not exist and for one on a board the
+/// request does not list, so that nothing is said about blocks of other boards.
 async fn require_blocks_of_boards(
     app: &App,
     user_id: &str,
@@ -268,26 +306,48 @@ async fn require_blocks_of_boards(
     board_ids: &HashSet<&str>,
 ) -> Result<(), AppError> {
     for block_id in block_ids {
-        // One answer for a block that does not exist and for one on a board the request
-        // does not list, so that nothing is said about blocks of other boards.
-        let block = match app.block(block_id).await {
-            Ok(block) if board_ids.contains(block.board_id.as_str()) => block,
-            Ok(_) => return Err(not_a_block_of_the_boards()),
-            Err(error) if error.is_not_found() => {
-                return Err(not_a_block_of_the_boards());
-            }
-            Err(error) => return Err(error),
-        };
+        let block = block_of_boards(app, block_id, board_ids).await?;
         require_board_permission(
             app,
             user_id,
             &block.board_id,
             BoardPermission::ManageBoardCards,
-            "access denied to modifying cards",
+            MODIFYING_CARDS_DENIED,
         )
         .await?;
     }
     Ok(())
+}
+
+/// Checks that every block the request patches is on one of its boards, and that the
+/// user may apply its patch to it as `patchBlock` would.
+async fn require_block_patches(
+    app: &App,
+    user_id: &str,
+    patches: &PatchBoardsAndBlocks,
+    board_ids: &HashSet<&str>,
+) -> Result<(), AppError> {
+    for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
+        let block = block_of_boards(app, block_id, board_ids).await?;
+        require_block_change_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
+        require_block_patch_permission(app, user_id, &block, patch, MODIFYING_CARDS_DENIED).await?;
+    }
+    Ok(())
+}
+
+/// The block, if it is on one of the boards; [`not_a_block_of_the_boards`] if it does
+/// not exist or is on another board.
+async fn block_of_boards(
+    app: &App,
+    block_id: &str,
+    board_ids: &HashSet<&str>,
+) -> Result<Block, AppError> {
+    match app.block(block_id).await {
+        Ok(block) if board_ids.contains(block.board_id.as_str()) => Ok(block),
+        Ok(_) => Err(not_a_block_of_the_boards()),
+        Err(error) if error.is_not_found() => Err(not_a_block_of_the_boards()),
+        Err(error) => Err(error),
+    }
 }
 
 /// Delete boards and blocks together

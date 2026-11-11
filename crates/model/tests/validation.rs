@@ -160,6 +160,7 @@ fn register(username: &str, email: &str, password: &str) -> Result<(), String> {
         email: email.to_owned(),
         password: password.to_owned(),
         token: String::new(),
+        display_name: String::new(),
     }
     .validate()
     .map_err(|error| error.to_string())
@@ -300,4 +301,52 @@ fn email_validation_follows_the_original_pattern() {
     let longest = format!("{}@{}.{}.{}.com", "a".repeat(58), label63, label63, label63);
     assert_eq!(longest.len(), 254);
     assert!(is_email_valid(&longest), "a 254-byte address is valid");
+}
+
+/// Not in the original. A new order of the card properties names each of them once: one
+/// left out, named twice or unknown is refused and changes nothing; a board without
+/// properties takes the empty order.
+#[test]
+fn card_properties_are_reordered_only_by_a_whole_order() {
+    let property = |id: &str| {
+        json!({"id": id, "name": id, "type": "text"})
+            .as_object()
+            .expect("an object")
+            .clone()
+    };
+    let ids = |board: &Board| -> Vec<String> {
+        board
+            .card_properties
+            .iter()
+            .map(|property| property["id"].as_str().expect("an id").to_owned())
+            .collect()
+    };
+    let order = |ids: &[&str]| -> Vec<String> { ids.iter().map(|&id| id.to_owned()).collect() };
+    let mut board = Board {
+        card_properties: vec![property("a"), property("b"), property("c")],
+        ..Board::default()
+    };
+
+    board
+        .reorder_card_properties(&order(&["c", "a", "b"]))
+        .expect("a whole order");
+    assert_eq!(ids(&board), ["c", "a", "b"]);
+    assert_eq!(
+        board.reorder_card_properties(&order(&["a", "b"])),
+        Err(BoardError::PropertiesLeftOut { named: 2, total: 3 })
+    );
+    assert_eq!(
+        board.reorder_card_properties(&order(&["a", "a", "b", "c"])),
+        Err(BoardError::PropertyNamedTwice { id: "a".to_owned() })
+    );
+    assert_eq!(
+        board.reorder_card_properties(&order(&["a", "b", "c", "d"])),
+        Err(BoardError::PropertyUnknown { id: "d".to_owned() })
+    );
+    assert_eq!(ids(&board), ["c", "a", "b"], "nothing refused changed it");
+
+    let mut empty = Board::default();
+    empty
+        .reorder_card_properties(&[])
+        .expect("no properties, no order");
 }

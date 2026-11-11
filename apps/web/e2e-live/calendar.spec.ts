@@ -1,13 +1,10 @@
 /**
- * The calendar view on the real server: a view of the kind `calendar` that
- * the server keeps, dated cards on their days, and the date it is placed by
- * chosen on the page and still there after a reload.
- *
- * The view is made through the API: the page's own "add a view" is not yet
- * wired to the server (`createView` answers `not_wired`, src/lib/api). The
- * server does not check the kind of a view, so a calendar is a view like any
- * other to it. The choice of "display by" goes through the page, as a change
- * of the view's `dateDisplayPropertyId`.
+ * The calendar view on the real server: made on the page from the list of
+ * kinds, dated cards on their days, and the date it is placed by chosen on
+ * the page; after a reload the view is still a calendar placed by that date,
+ * as the server keeps it. The server does not check the kind of a view, so a
+ * calendar is a view like any other to it; "display by" is the view's
+ * `dateDisplayPropertyId`.
  */
 import { expect, test } from '@playwright/test';
 
@@ -32,8 +29,8 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, { title: 'Harvest calendar' });
-  // A second date, after "Due": the one the page will choose. Not the first,
-  // which a view that names no date falls back to.
+  // A second date, after "Due": the one the page will choose. Not the first, which a new
+  // calendar is placed by, so that the reload shows the choice and not the start.
   const added = await api.patch(`/api/v1/boards/${board.boardId}`, {
     data: { updatedCardProperties: [{ id: 'start', name: 'Start', type: 'date', options: [] }] },
   });
@@ -47,42 +44,27 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
     });
     expect(answer.ok()).toBe(true);
   }
-  // A calendar that names no date yet: it is placed by the first, "Due".
-  const made = await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
-    data: [
-      {
-        boardId: board.boardId,
-        type: 'view',
-        title: 'Calendar view',
-        createAt: 1,
-        updateAt: 1,
-        fields: {
-          viewType: 'calendar',
-          sortOptions: [],
-          visiblePropertyIds: ['__title'],
-          visibleOptionIds: [],
-          hiddenOptionIds: [],
-          collapsedOptionIds: [],
-          cardOrder: [],
-          filter: { operation: 'and', filters: [] },
-        },
-      },
-    ],
-  });
-  expect(made.ok()).toBe(true);
-  const [view] = (await made.json()) as Schemas['Block'][];
-  const viewId = view?.id ?? '';
-  const stored = async (): Promise<Record<string, unknown>> => {
+  /** The board's calendar view as the server keeps it. */
+  const stored = async (): Promise<Schemas['Block'] | undefined> => {
     const views = (await (
       await api.get(`/api/v1/boards/${board.boardId}/blocks`, { params: { type: 'view' } })
     ).json()) as Schemas['Block'][];
-    return views.find((each) => each.id === viewId)?.fields ?? {};
+    return views.find((each) => each.fields.viewType === 'calendar');
   };
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${viewId}`);
+  await page.goto(`/board/${board.boardId}/${board.viewId}`);
   await signInOnPage(page, owner);
+
+  // Made on the page: placed by the first date of the board, "Due".
+  const header = page.getByTestId('view-header');
+  await header.locator('[data-tool="add-view"]').click();
+  await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();
+  await expect.poll(async () => (await stored())?.title).toBe('Calendar view');
+  const viewId = (await stored())?.id ?? '';
+  await expect(page).toHaveURL(new RegExp(`/board/${board.boardId}/${viewId}$`));
+  expect((await stored())?.fields.dateDisplayPropertyId).toBe('due');
 
   const calendar = page.getByTestId('calendar');
   await expect(calendar).toHaveAttribute('data-layout', 'bars');
@@ -92,12 +74,11 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   // Thursday the 12th to Tuesday the 17th: two weeks, two bars.
   await expect(grid.locator('[data-bar]').filter({ hasText: 'Press cider' })).toHaveCount(2);
 
-  const tool = page.getByTestId('view-header').locator('[data-tool="display-by"]');
+  const tool = header.locator('[data-tool="display-by"]');
   await expect(tool).toHaveAccessibleName('Display by: Due');
-  expect((await stored()).dateDisplayPropertyId).toBeUndefined();
   await tool.click();
   await page.locator('[role="menuitem"][data-action="start"]').click();
-  await expect.poll(async () => (await stored()).dateDisplayPropertyId).toBe('start');
+  await expect.poll(async () => (await stored())?.fields.dateDisplayPropertyId).toBe('start');
   const week = (date: string) => grid.locator(`[data-week="${date}"] [data-bar]`);
   await expect(week('2026-11-01').filter({ hasText: 'Pick apples' })).toHaveCount(1);
 
@@ -108,7 +89,8 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await expect(week('2026-11-01').filter({ hasText: 'Pick apples' })).toHaveCount(1);
   await expect(week('2026-11-01').filter({ hasText: 'Press cider' })).toHaveCount(1);
   await expect(week('2026-11-08')).toHaveCount(0);
-  expect((await stored()).viewType).toBe('calendar');
+  await expect(page).toHaveURL(new RegExp(`/board/${board.boardId}/${viewId}$`));
+  expect((await stored())?.fields.viewType).toBe('calendar');
   expect(errors).toEqual([]);
   await api.dispose();
 });

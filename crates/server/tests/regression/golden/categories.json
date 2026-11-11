@@ -142,57 +142,91 @@
     "name": "create: no name",
     "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "category name cannot be empty",
-      "request_id": "<request-id>"
+      "detail": "category name cannot be empty",
+      "errors": [
+        {
+          "detail": "category name cannot be empty",
+          "pointer": "/name",
+          "reason": "required"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: for another user",
     "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "field": "userId",
-      "message": "a user makes categories for themselves only",
-      "request_id": "<request-id>"
+      "detail": "a user makes categories for themselves only",
+      "errors": [
+        {
+          "detail": "a user makes categories for themselves only",
+          "pointer": "/userId",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "create: for another team",
     "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "teamId",
-      "message": "teamId mismatch",
-      "request_id": "<request-id>"
+      "detail": "teamId mismatch",
+      "errors": [
+        {
+          "detail": "teamId mismatch",
+          "pointer": "/teamId",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: bad type",
     "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "category type is invalid. Allowed types: system and custom",
-      "request_id": "<request-id>"
+      "detail": "category type is invalid. Allowed types: system and custom",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: malformed body",
     "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
+      "detail": "EOF while parsing an object at line 1 column 1",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -273,34 +307,49 @@
     "name": "update: id mismatch",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "id",
-      "message": "the category of the body is not the one of the path",
-      "request_id": "<request-id>"
+      "detail": "the category of the body is not the one of the path",
+      "errors": [
+        {
+          "detail": "the category of the body is not the one of the path",
+          "pointer": "/id",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "update: other user",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8> as cat-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "update: unknown category",
     "request": "PUT /api/v1/teams/<id:3>/categories/unknown-category as cat-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -399,11 +448,14 @@
     "name": "hide: other user",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -482,55 +534,70 @@
     "name": "reorder boards: missing one",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "the new order must list every board of the category once: it has 1, the category has 2",
-      "request_id": "<request-id>"
+      "detail": "the new order must list every board of the category once: it has 1, the category has 2",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "reorder boards: unknown board",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "the new order names unknown, which is no board of the category",
-      "request_id": "<request-id>"
+      "detail": "the new order names unknown, which is no board of the category",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "reorder boards: other user",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "old path: reorder boards",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
     "status": 405,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "method_not_allowed",
-      "message": "method not allowed",
-      "request_id": "<request-id>"
+      "detail": "method not allowed",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 405,
+      "title": "Method not allowed",
+      "type": "/problems/method-not-allowed"
     }
   },
   {
     "name": "old path: reorder categories",
     "request": "PUT /api/v1/teams/<id:3>/categories/reorder as cat-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -548,22 +615,28 @@
     "name": "reorder categories: missing one",
     "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "the new order must list every category once: it has 2, the user has 3",
-      "request_id": "<request-id>"
+      "detail": "the new order must list every category once: it has 2, the user has 3",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "reorder categories: unknown id",
     "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "the new order names unknown, which is none of the user's categories",
-      "request_id": "<request-id>"
+      "detail": "the new order names unknown, which is none of the user's categories",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -626,33 +699,42 @@
     "name": "delete: other user",
     "request": "DELETE /api/v1/teams/<id:3>/categories/<id:8> as cat-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "delete: system category",
     "request": "DELETE /api/v1/teams/<id:3>/categories/<id:5> as cat-alice",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "a system category cannot be deleted",
-      "request_id": "<request-id>"
+      "detail": "a system category cannot be deleted",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "delete: unknown category",
     "request": "DELETE /api/v1/teams/<id:3>/categories/unknown-category as cat-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -665,22 +747,28 @@
     "name": "delete: again",
     "request": "DELETE /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "update: deleted category",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -730,11 +818,14 @@
     "name": "file a board: other user's category",
     "request": "POST /api/v1/teams/<id:3>/categories/<id:9>/boards/<id:4> as cat-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -784,11 +875,14 @@
     "name": "file a board: unknown category",
     "request": "POST /api/v1/teams/<id:3>/categories/unknown-category/boards/<id:4> as cat-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
+      "detail": "category not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {

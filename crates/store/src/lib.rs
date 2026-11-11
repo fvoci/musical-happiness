@@ -11,6 +11,7 @@ mod boards;
 mod boards_and_blocks;
 mod categories;
 mod category_boards;
+mod comment_versions;
 mod connect;
 mod data_steps;
 mod db;
@@ -34,21 +35,33 @@ use std::time::Duration;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
-pub use blocks::{BlockFilter, DuplicateAs, Paging};
+pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use boards::{Joined, MemberChange, PublicBoards};
-pub use category_boards::BoardVisibility;
+pub use category_boards::{BoardPlace, BoardVisibility};
+pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use db::Dialect;
 pub use error::{StoreError, Taken};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
-pub use uploads::{PartRecord, UploadUsage};
+pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};
 
 /// How many connections a store keeps to a file or server database.
 const MAX_CONNECTIONS: u32 = 10;
+
+/// How the connection pool of a [`Store`] stands, as [`Store::pool_status`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolStatus {
+    /// The connections the pool holds, in use or idle.
+    pub connections: u32,
+    /// The connections the pool holds that are idle.
+    pub idle: u32,
+    /// The most connections the pool may hold.
+    pub max_connections: u32,
+}
 
 /// A handle to the database.
 ///
@@ -63,6 +76,8 @@ struct Inner {
     pool: Pool,
     /// The queue of the transactions on an SQLite database; see [`Store::transaction`].
     sqlite_writers: tokio::sync::Mutex<()>,
+    /// See [`Store::set_comment_versions_kept`].
+    comment_versions_kept: std::sync::atomic::AtomicUsize,
 }
 
 #[derive(Debug)]
@@ -117,11 +132,39 @@ impl Store {
             inner: Arc::new(Inner {
                 pool,
                 sqlite_writers: tokio::sync::Mutex::new(()),
+                comment_versions_kept: std::sync::atomic::AtomicUsize::new(
+                    usize::try_from(comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT)
+                        .unwrap_or(usize::MAX),
+                ),
             }),
         };
         schema::migrate(&store).await?;
         data_steps::run(&store).await?;
         Ok(store)
+    }
+
+    /// Returns how the connection pool stands: the connections it holds, those of them
+    /// that are idle, and how many it may hold.
+    pub fn pool_status(&self) -> PoolStatus {
+        let (size, idle, max) = match &self.inner.pool {
+            Pool::Sqlite(pool) => (
+                pool.size(),
+                pool.num_idle(),
+                pool.options().get_max_connections(),
+            ),
+            Pool::Postgres(pool) => (
+                pool.size(),
+                pool.num_idle(),
+                pool.options().get_max_connections(),
+            ),
+        };
+        // Read one after the other, the two can pass each other: no more are idle than
+        // there are.
+        PoolStatus {
+            connections: size,
+            idle: u32::try_from(idle).unwrap_or(u32::MAX).min(size),
+            max_connections: max,
+        }
     }
 
     /// Returns the kind of database this store is connected to.
@@ -173,14 +216,15 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
+        let kept = self.comment_versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(ConnRef::Sqlite(&mut conn))).await
+                operation(&mut Scope::new(ConnRef::Sqlite(&mut conn), kept)).await
             }
             Pool::Postgres(pool) => {
                 let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(ConnRef::Postgres(&mut conn))).await
+                operation(&mut Scope::new(ConnRef::Postgres(&mut conn), kept)).await
             }
         }
     }
@@ -191,6 +235,7 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
+        let kept = self.comment_versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 // One transaction at a time, in the order they come. SQLite has one
@@ -204,12 +249,12 @@ impl Store {
                 // then tries to write fails with SQLITE_BUSY as soon as another one does
                 // the same, and no busy timeout can resolve that.
                 let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-                let result = operation(&mut Scope::new(ConnRef::Sqlite(&mut tx))).await;
+                let result = operation(&mut Scope::new(ConnRef::Sqlite(&mut tx), kept)).await;
                 finish(result, tx).await
             }
             Pool::Postgres(pool) => {
                 let mut tx = pool.begin().await?;
-                let result = operation(&mut Scope::new(ConnRef::Postgres(&mut tx))).await;
+                let result = operation(&mut Scope::new(ConnRef::Postgres(&mut tx), kept)).await;
                 finish(result, tx).await
             }
         }

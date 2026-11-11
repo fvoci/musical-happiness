@@ -75,35 +75,56 @@
     "name": "post: editor",
     "request": "POST /api/v1/boards/<id:2>/sharing as share-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to sharing the board",
-      "request_id": "<request-id>"
+      "detail": "access denied to sharing the board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "post: with a token of the request's",
     "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "token",
-      "message": "the server makes the read token; a request cannot set it",
-      "request_id": "<request-id>"
+      "detail": "the server makes the read token; a request cannot set it",
+      "errors": [
+        {
+          "detail": "the server makes the read token; a request cannot set it",
+          "pointer": "/token",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "post: nothing said",
     "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "enabled",
-      "message": "enabled must be true or false",
-      "request_id": "<request-id>"
+      "detail": "enabled must be true or false",
+      "errors": [
+        {
+          "detail": "enabled must be true or false",
+          "pointer": "/enabled",
+          "reason": "required"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -130,11 +151,14 @@
     "name": "post: malformed body",
     "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
+      "detail": "EOF while parsing an object at line 1 column 1",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -152,22 +176,28 @@
     "name": "get: editor",
     "request": "GET /api/v1/boards/<id:2>/sharing as share-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to sharing the board",
-      "request_id": "<request-id>"
+      "detail": "access denied to sharing the board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "get: unknown board",
     "request": "GET /api/v1/boards/unknown-board/sharing as share-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -217,22 +247,28 @@
     "name": "board with a wrong read token",
     "request": "GET /api/v1/boards/<id:2>?readToken=wrong as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "board with the token under the old name of the parameter",
     "request": "GET /api/v1/boards/<id:2>?read_token=<secret:1> as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -262,44 +298,56 @@
     "name": "blocks with a wrong read token",
     "request": "GET /api/v1/boards/<id:2>/blocks?readToken=wrong as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "members with the read token",
     "request": "GET /api/v1/boards/<id:2>/members?readToken=<secret:1> as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "insert with the read token",
     "request": "POST /api/v1/boards/<id:2>/blocks?readToken=<secret:1> as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "patch with the read token",
     "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:5>?readToken=<secret:1> as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -323,11 +371,14 @@
     "name": "board with the token from before regenerating",
     "request": "GET /api/v1/boards/<id:2>?readToken=<secret:1> as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -380,11 +431,14 @@
     "name": "board with the token of a disabled share",
     "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -408,11 +462,14 @@
     "name": "board with the token from before disabling",
     "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   }
 ]

@@ -36,7 +36,7 @@ fn retry_after(response: &ApiResponse) -> u64 {
         StatusCode::TOO_MANY_REQUESTS,
         "too many attempts; try again later",
     );
-    let in_body = response.value()["retry_after"]
+    let in_body = response.value()["retryAfter"]
         .as_u64()
         .expect("the body says how long to wait");
     assert_eq!(
@@ -308,6 +308,7 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
         email: format!("{username}@sample.com"),
         password: PASSWORD.to_owned(),
         token: String::new(),
+        display_name: String::new(),
     };
 
     // A registration, a success, and two failures at accounts that do not exist.
@@ -331,6 +332,7 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
         .signup_token;
     let late = RegisterRequest {
         token: signup_token,
+        display_name: String::new(),
         ..register("late")
     };
     retry_after(&th.anonymous().post("/register", &late).await);

@@ -1,5 +1,5 @@
 /**
- * Saving an attached file under its own name.
+ * Saving bytes the page has under a name: an attached file, an archive.
  *
  * The server offers every file as a download under its identifier, not
  * under the name it was uploaded with (`getFile` in `contracts/openapi.json`),
