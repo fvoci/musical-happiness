@@ -515,7 +515,7 @@ type RenderedBody =
 | 자동 완성 목록(사람, 이모지), 이미지 올리기의 자리 표시                      | `src/lib/editor/suggestion-list.ts`, `uploads.ts`                                                          |
 | ELK 배치 엔진의 자리에 넣는 빈 모듈                                          | `src/lib/editor/no-elk.ts`, `vite.config.ts`의 `resolve.alias`                                             |
 | 라이선스: KaTeX 글꼴의 고지, 파일에만 적힌 라이선스, 실리지 않는 패키지      | `tools/licenses/katex-fonts.ts`, `OFL-1.1.txt`, `exceptions.json`, `check.ts`, `notices.ts`, `packages.ts` |
-| 메시지 21개(영어, 한국어)                                                    | `messages-own/editor/`                                                                                     |
+| 메시지 21개(영어, 한국어)                                                    | `messages/`의 `editor_*`                                                                                   |
 | 테스트                                                                       | 아래 "테스트"                                                                                              |
 
 스파이크 화면(`spikes/editor/`)은 이제 제품 부품을 쓴다. 서식 도구 모음은 부품의 `toolbar` 인자로 넘긴다. 예제는 `empty`, `plain`(수식도 다이어그램도 없음), `everything`(수식 포함), `diagrams`, `embeds`, `corners`다. 화면 언어는 주소의 `?locale=ko`로 바꾼다(없으면 영어).

@@ -7,10 +7,6 @@ playwright-report/
 src/lib/i18n/paraglide/
 src/styles/fonts/
 
-# Written by tools/i18n/convert.ts, which decides their formatting. `check`
-# fails when they are not what that tool writes.
-messages/
-
 # Written by tools/templates/convert.ts --write; a test fails when they are stale.
 tools/templates/output/*.json
 tools/templates/output/CHANGES.md

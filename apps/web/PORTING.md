@@ -44,7 +44,7 @@ pnpm --filter web run spikes:e2e
 - `e2e`는 `FVOCI_E2E_URL`이 있으면 그 서버를, 없으면 `tools/preview.ts`를 띄워 대상으로 삼는다. `preview.ts`에는 API가 없다. 제품 시나리오는 브라우저 안의 메모리 구현 위에서 돈다.
 - `e2e`의 프로젝트는 셋이다: `desktop`, `mobile`, `middle`(626×890, 터치). 글꼴 측정 7건은 `desktop`에서만 돈다.
 - 스파이크용: `spikes`(개발 서버), `spikes:build`, `spikes:e2e`.
-- 번역: `i18n:convert`(옮겨 온 번역에서 메시지를 다시 만든다), `i18n:keys`(키 집합 검사).
+- 번역: `i18n:keys`(키 집합 검사).
 - 보조 스크립트: `i18n`(메시지 컴파일), `fonts`(글꼴 도구), `licenses`, `names`, `lint`, `format`, `preview`(빌드 결과를 서버 규칙대로 서빙), `storybook`, `build-storybook`, `look`(앱·스파이크·Storybook을 한 포트에서 본다. `docs/handoff.md`).
 
 ## 마지막 검증
@@ -90,8 +90,7 @@ apps/web/
   src/lib/theme.svelte.ts  밝은·어두운 화면 상태
   src/styles/app.css       디자인 토큰
   src/styles/fonts/        글꼴 도구의 산출물 (git 무시)
-  messages/                메시지 18 로케일 (생성물)
-  messages-own/, messages-fill/, messages-override/   메시지의 원천
+  messages/                메시지 18 로케일 (손으로 고치는 원천)
   tests/                   vitest: logic, state, editor, tokens, tools (node), ui (jsdom)
   e2e/                     Playwright (제품)
   spikes/                  스파이크 화면과 그 Playwright
@@ -577,7 +576,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | 날짜 값의 와이어, 지역 설정의 값, 파일 주소의 전제 | `src/lib/logic/wire.ts`, `regional.ts`, `src/lib/editor/files.ts`                 | 위 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대" |
 | 글꼴: 한국어 세 파일, 한국어·일본어는 CJK 먼저     | `tools/fonts/`, `src/styles/app.css`, `e2e/fonts.spec.ts`                         | 위 "글꼴"                                             |
-| 번역 결정, 한국어 검수 표                          | `messages-override/`, `docs/ko-review.md`                                         | 아래 "번역"                                           |
+| 번역 결정, 한국어 검수 표                          | `messages/`, `docs/ko-review.md`                                                  | 아래 "번역"                                           |
 | 템플릿 산출물                                      | `tools/templates/output/`                                                         | 아래 "내장 템플릿의 변환 산출물"                      |
 | 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 64장), `docs/mobile-proposal.md`(질문 36개) | 그 문서                                               |
 | 본문 읽기 전용 표시기                              | `src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`                       | `docs/spike-editor.md` 9절                            |
@@ -681,12 +680,11 @@ W0 때 남긴 것 가운데 아직 열려 있는 것이다. `{{.BaseURL}}`을 �
 
 2026-11-10 19:00 KST에 변환했고 20:30 KST에 결정을 반영했다.
 
-원본 `webapp/i18n/*.json`을 paraglide 메시지로 바꾸는 스크립트가 `tools/i18n/`에 있고 결과가 `messages/`에 있다. 통계, ICU 조사, 뺀 메시지, 덮어쓴 문구의 목록은 `docs/i18n-conversion.md`에, 고친 한국어와 채운 한국어의 검수 표는 `docs/ko-review.md`에 있다.
+원본 `webapp/i18n/*.json`을 paraglide 메시지로 바꿨다. 변환 도구는 2026-11-11에 지웠고, 그 결과인 `messages/<태그>.json`이 원천이다. 통계, ICU 조사, 뺀 메시지, 덮어쓴 문구의 목록은 `docs/i18n-conversion.md`에, 고친 한국어와 채운 한국어의 검수 표는 `docs/ko-review.md`에 있다.
 
 - 원본이 번들하는 로케일은 17개이고 **한국어는 거기에 없다**(`webapp/src/i18n.tsx`). 변환한 것은 그 17개와 `ko`, 모두 18개다.
 - 메시지 ID는 그대로다. 점과 하이픈이 든 ID는 `m['BoardComponent.add-a-group']()`처럼 부른다.
-- `messages/*.json`은 생성물이다. 원천은 넷이다: 이 앱만의 키는 `messages-own/`, 원본에 없던 한국어는 `messages-fill/ko.json`, **원본의 문구를 손으로 고친 것은 `messages-override/<태그>.json`**(고치기 전의 원본 문구를 함께 적어, 원본이 달라지면 도구가 멈춘다), 포팅하지 않는 id는 `tools/i18n/removed.json`. `pnpm --filter web run i18n:convert`로 다시 만든다. 한국어를 고친 뒤에는 `node tools/i18n/review.ts`로 `ko-review.md`의 표도 다시 쓴다(테스트가 표와 메시지가 같은지 본다).
-- `check`가 생성물이 최신인지(`convert.ts --check`)와 키 집합(`check-keys.ts`)을 본다. 원본이 없을 때는 `messages/`를 원천으로 삼아 같은 검사를 한다(`docs/decisions.md`의 D1–D5).
+- **문구를 고치는 곳은 `messages/<태그>.json` 하나다.** 이 앱만의 키도, 원본에서 온 문구도 거기에 있다. `check`가 키 집합(`check-keys.ts`)을 보고, `pnpm run i18n`(paraglide)이 꼴을 본다.
 - 키 집합 검사: `en`에 없는 키가 어느 로케일에든 있으면 실패, `ko`에 빠진 키가 있으면 실패. 다른 로케일의 빠진 키는 영어로 떨어지므로 개수와 이름만 보고한다. `en`과 `ko`는 384개다(결정 반영 전 390개).
 
 사용자 결정(2026-11-10)을 반영한 것(`docs/i18n-conversion.md`, `docs/ko-review.md`에 상세):

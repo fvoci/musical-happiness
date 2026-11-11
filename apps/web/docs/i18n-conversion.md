@@ -1,6 +1,6 @@
 # 원본 번역의 paraglide 메시지 변환
 
-원본 웹앱(`webapp/`, React, react-intl)의 번역 파일 `webapp/i18n/*.json`을 새 웹앱(`apps/web`, paraglide)의 메시지 파일 `apps/web/messages/*.json`으로 옮긴 기록이다. 숫자와 목록은 `tools/i18n/convert.ts --report`의 출력에서 가져왔다(처음 변환은 2026-11-10 18:49 KST, 아래 "결정을 반영한 것"은 2026-11-10 20:23 KST 실행). 원본 참조는 저장소 기준 상대 경로다. 옛 제품 이름과 옛 회사 이름은 이 문서에 적지 않고 "옛 제품 이름", "옛 회사 이름"이라고 쓴다.
+원본 웹앱(`webapp/`, React, react-intl)의 번역 파일 `webapp/i18n/*.json`을 새 웹앱(`apps/web`, paraglide)의 메시지 파일 `apps/web/messages/*.json`으로 옮긴 기록이다. 숫자와 목록은 변환 도구의 보고에서 가져왔다(처음 변환은 2026-11-10 18:49 KST, 아래 "결정을 반영한 것"은 2026-11-10 20:23 KST 실행). 원본 참조는 저장소 기준 상대 경로다. 옛 제품 이름과 옛 회사 이름은 이 문서에 적지 않고 "옛 제품 이름", "옛 회사 이름"이라고 쓴다.
 
 ## 요약
 
@@ -27,7 +27,7 @@
 | 5. 판단을 미뤘던 메시지: 8개는 남기고, 6개는 빼고, 2개는 다시 쓴다                         | `removed.json`에 6개를 넣었고, 2개는 영어와 한국어를 다시 썼다                                                               | "제거한 메시지", "판단을 미뤘다가 정한 것" |
 | 6. 로케일별로 나눠 받기는 조사만                                                           | 버리는 프로젝트로 네 가지를 해 봤다                                                                                          | "로케일별로 나눠 받기"                     |
 
-이 결정들을 담으려고 도구에 "원본에 있는 문구를 덮어쓰는" 길(`messages-override/`)을 더했다. 아래 "구성과 다시 돌리는 법"에 있다.
+이 결정들을 담으려고 도구에 "원본에 있는 문구를 덮어쓰는" 길(`messages-override/`)을 더했다. 도구와 함께 지금은 지웠다.
 
 ## 번들 로케일과 태그
 
@@ -56,84 +56,13 @@
 | `zh-Hans`            | `zh_Hans.json` | `zh-cn`                     |
 | `zh-Hant`            | `zh_Hant.json` | `zh-tw`                     |
 
-이 표는 `tools/i18n/locales.ts`에 있다. 변환 도구는 실행할 때마다 `webapp/src/i18n.tsx`의 `import` 목록을 읽어 이 표와 다르면 멈춘다. `project.inlang/settings.json`의 `locales`는 이 순서의 18개이고 `baseLocale`은 `en` 그대로다. 원본이 사용자 설정에 저장하던 코드(`pt-br`, `zh-cn`, `zh-tw`)는 새 태그와 다르다. 사용자 설정을 옮긴다면 셋째 열을 써야 한다.
+변환 도구는 실행할 때마다 `webapp/src/i18n.tsx`의 `import` 목록을 읽어 이 표와 다르면 멈췄다. `project.inlang/settings.json`의 `locales`는 이 순서의 18개이고 `baseLocale`은 `en` 그대로다. 원본이 사용자 설정에 저장하던 코드(`pt-br`, `zh-cn`, `zh-tw`)는 새 태그와 다르다. 사용자 설정을 옮긴다면 셋째 열을 써야 한다.
 
-## 구성과 다시 돌리는 법
+## 지금의 구성
 
-```
-webapp/i18n/<파일>.json            원본. ICU MessageFormat. 읽기만 한다
-apps/web/messages-own/<태그>.json   이 앱에만 있는 메시지(app_*, ui_*). inlang 형식. 손으로 고친다
-apps/web/messages-fill/<태그>.json      원본의 그 로케일 파일에 없는 id의 번역. ICU 형식. 손으로 고친다
-apps/web/messages-override/<태그>.json  원본의 그 로케일 파일에 있는 문구를 대신하는 문구. ICU 형식. 손으로 고친다
-apps/web/tools/i18n/removed.json        포팅하지 않는 기능의 id와 이유. 손으로 고친다
-apps/web/tools/i18n/ko-review.json      검수 문서가 쓰는 메모(원 표의 행, 처음 채운 값). 손으로 고친다
-apps/web/messages/<태그>.json           생성물. 손으로 고치지 않는다
-```
-
-```bash
-pnpm --filter web run i18n:convert   # messages/*.json 을 다시 쓴다
-pnpm --filter web run i18n:keys      # 로케일별 키 집합을 en 과 비교한다 (--verbose 로 빠진 키 전부)
-pnpm --filter web run i18n           # paraglide 컴파일
-cd apps/web && node tools/i18n/convert.ts --check    # 생성물이 원천과 같은지만 본다
-cd apps/web && node tools/i18n/convert.ts --report   # 이 문서의 숫자와 목록(JSON)
-cd apps/web && node tools/i18n/review.ts             # 이 문서와 ko-review.md 의 표를 다시 쓴다
-cd apps/web && node tools/i18n/review.ts --check     # 그 표가 메시지와 같은지만 본다
-```
-
-- **생성물과 원천을 나눴다.** `messages/*.json`은 도구가 매번 통째로 다시 쓴다. 거기에 직접 넣은 키는 다음 실행에서 사라진다. 이 앱에만 있는 키는 `messages-own/en.json`과 `messages-own/ko.json`에 넣고 `i18n:convert`를 돌린다. 처음 변환 때 있던 8개(`app_name`, `app_loading`, `ui_*` 6개)를 그리로 옮겼다. 자체 키는 소문자 스네이크 표기여야 하고 원본 id와 겹치면 도구가 멈춘다.
-- **`check`에 두 가지를 넣었다.** `node tools/i18n/convert.ts --check`는 `messages/*.json`이 도구가 쓸 내용과 한 글자라도 다르면 실패한다. `messages/`를 직접 고친 것을 잡기 위한 것이고, 요청에는 없던 추가다. `node tools/i18n/check-keys.ts`는 요청대로다. 어떤 로케일에든 `en`에 없는 키가 있거나 `ko`에 빠진 키가 있으면 실패한다. 다른 로케일의 빠진 키는 개수만 출력한다.
-- **출력 순서.** 자체 키가 먼저(`messages-own/en.json`의 순서), 그다음 원본 id가 `en.json`의 순서로 온다. 모든 로케일이 같은 순서다. 같은 입력이면 같은 바이트가 나온다(테스트가 두 번 돌려 비교한다).
-- **`messages-fill`은 원본 형식이다.** 원본 파일에 빠진 항목을 대신하는 것이라 ICU로 적고, 원본과 같은 변환을 거친다. 원본에 이미 변환되는 문구가 있는 id를 여기에 적으면 도구가 멈춘다. 그런 id는 `messages-override`의 몫이다.
-- **`messages-override`는 원본에 있는 문구를 덮어쓴다.** 항목은 id마다 이렇게 생겼다.
-  ```json
-  "Sidebar.import": { "was": "사이드바 가져요기", "now": "가져오기", "kind": ["typo", "mistranslation"] }
-  ```
-  - `was`는 덮어쓰기 전의 원본 문구다. 도구는 원본의 지금 문구와 `was`가 한 글자라도 다르면 멈춘다. 원본이 바뀌었는데 옛 문구를 보고 쓴 번역이 조용히 남는 일을 막는다. 덮어쓰는 id가 남긴 id가 아니게 됐을 때(제거, 죽은 id, 원본에서 사라짐)와 그 로케일의 원본에 그 id가 없을 때도 멈춘다.
-  - `was`는 이름 치환을 거친 뒤의 문구로 적는다. 옛 이름이 든 원본 문구를 덮어쓸 때도 이 폴더의 파일에 옛 이름을 적지 않기 위해서다. `now`에 옛 이름이 있으면 도구가 멈춘다.
-  - `now`는 원본 형식(ICU)이고 원본 문구와 같은 변환과 검사를 거친다: 구문, 바깥 주소, 영어 메시지에 없는 인자·태그. 걸리면 그 로케일에서 빼는 것이 아니라 도구가 멈춘다. 손으로 쓴 문구이기 때문이다.
-  - `kind`는 왜 덮어썼는지의 목록이다(`name`, `rewrite`, `typo`, `mistranslation`, `omission`, `term`, `form`, `tone`, `particle`, `punctuation`). 도구의 동작에는 쓰이지 않고 보고와 검수 문서의 "구분"이 된다.
-  - 영어(`en.json`)의 항목에만 `"stale": true`를 적을 수 있다. "영어 문구의 뜻이 바뀌었으니 옛 문구의 번역은 내지 않는다"는 뜻이다. 그 id는 자기 `messages-override` 파일에 새 번역을 둔 로케일에서만 번역이 나오고, 나머지 로케일에서는 빠져서 영어로 나온다. 이름만 바꾼 것처럼 번역이 여전히 맞는 고침에는 적지 않는다.
-  - 영어를 덮어쓰면 다른 로케일의 인자·태그 검사는 덮어쓴 영어 문구를 기준으로 한다.
-  - 로케일의 태그가 아닌 이름의 파일이 이 폴더에 있으면 도구가 멈춘다.
-- **`--report`의 로케일마다 `overridden`(id, `was`, `now`, `kind`)과 `stale`(영어가 바뀌어 내지 않은 id)이 있다.** `tools/i18n/review.ts`가 그것으로 `docs/ko-review.md`의 표와 이 문서의 표 넷(로케일별 통계, 결정으로 제거한 메시지, 덮어쓴 문구, 번역을 내지 않은 id)을 쓴다. 문서에서 `<!-- generated:이름 -->`과 `<!-- /generated:이름 -->` 사이가 그 부분이고, 그 밖은 손으로 쓴 글이라 건드리지 않는다. 테스트가 두 문서의 그 부분이 지금의 메시지와 같은지 본다. 이 표들은 자체 키(`messages-own`)의 수를 세지 않는다. 다른 작업이 자체 키를 더해도 문서가 어긋나지 않게 하려는 것이다.
-- `messages/`를 `.prettierignore`에 넣었다. 형식은 도구가 정하고 `--check`가 지킨다.
-- `project.inlang/settings.json`은 도구가 쓰지 않는다. `locales`가 `locales.ts`와 다르면 도구가 멈춘다.
-
-과제가 정한 출력 위치(`messages/<태그>.json`)를 따랐다. 플러그인은 `pathPattern`에 배열을 받아 여러 파일을 합치므로, 자체 키를 합치지 않고 따로 둔 채 플러그인이 합치게 하는 구성도 가능하다. 쓰지 않았다.
-
-### 원본 폴더가 없을 때 (2026-11-10 22:55 KST에 더함)
-
-이 앱만 담은 저장소에는 `webapp/`이 없다. 위의 명령은 거기서도 같은 이름으로 돌고, 도구는 원본이 있는지 보고 둘 가운데 하나로 일한다. 어느 쪽으로 했는지는 출력의 한 줄이 말한다(없을 때: `skipped, the original is not here: …`).
-
-| 무엇                                | 원본이 있을 때                                                                     | 원본이 없을 때                                                                                                                       |
-| ----------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 원본에서 온 문구의 원천             | `webapp/i18n/<파일>.json`                                                          | **`messages/<태그>.json` 자신**. 전에 변환해 둔 결과가 원본을 대신한다(`tools/i18n/standalone.ts`)                                   |
-| 자체 키(`messages-own/`, 묶음 폴더) | 매번 다시 써 넣는다                                                                | 같다. 키를 더하거나 고치거나 빼고 `i18n:convert`를 돌리면 `messages/*.json`에 반영된다                                               |
-| `messages-override/`의 `now`        | 그 id의 문구가 된다                                                                | 같다                                                                                                                                 |
-| `messages-override/`의 `was`        | 원본의 지금 문구와 다르면 멈춘다                                                   | **대조하지 못한다.** 무엇을 바꿨는지의 기록으로만 남는다(검수 표의 "이전")                                                           |
-| `messages-fill/`                    | 원본에 없는 id의 문구가 된다. 원본에 있는 id면 멈춘다                              | 그 id의 문구가 된다. 원본에 있었는지는 알 수 없어 보지 않는다                                                                        |
-| `removed.json`                      | 적힌 id를 뺀다. 원본에 없는 id거나 죽은 id면 멈춘다                                | 적힌 id를 뺀다(새로 적으면 모든 로케일에서 빠진다)                                                                                   |
-| 죽은 id, 변환하지 못한 문구         | 원본 코드를 읽어 가려낸다                                                          | 이미 빠져 있다. 다시 가려내지 않는다                                                                                                 |
-| `convert.ts --check`                | 원본에서 다시 변환한 것과 `messages/`가 같은지. **그리고 원본 없이 돌려도 같은지** | `messages/`를 원천으로 다시 만든 것과 같은지(자체 키, 덮어쓴 문구, 채운 문구가 반영됐는지와 순서)                                    |
-| `check-keys.ts`                     | `messages/`와 `project.inlang`만 읽는다                                            | 같다                                                                                                                                 |
-| `review.ts`                         | 두 문서의 생성 부분을 모두 쓴다                                                    | `ko-review.md`는 모두, 이 문서는 "덮어쓴 문구" 표만 쓴다. 원본을 세는 세 부분(`stats`, `removed-by-decision`, `stale`)은 그대로 둔다 |
-| 테스트(`tests/tools/i18n.test.ts`)  | 전부                                                                               | 원본을 다시 변환하는 두 묶음 36건을 건너뛴다(한 줄을 찍는다). 메시지 파일에 대한 것, 원본 없는 변환, 문서의 표는 돈다                |
-
-**원본이 없을 때 원본에서 온 문구를 고치는 법**은 전과 같다. `messages/`를 직접 고치지 않는다.
-
-1. 이미 `messages-override/<태그>.json`에 항목이 있는 id: `now`를 고친다.
-2. 원본에 없어 채운 id(`messages-fill/<태그>.json`): 그 파일의 문구를 고친다.
-3. 그 밖의 id: `messages-override/<태그>.json`에 새 항목을 더한다. `was`에 지금 `messages/<태그>.json`의 문구를, `now`에 새 문구를, `kind`에 이유를 적는다. 둘 다 ICU 형식이다(이 메시지들에서는 `{이름}`은 그대로, 굵은 글씨는 `{#b}…{/b}`가 아니라 `<b>…</b>`).
-4. `pnpm --filter web run i18n:convert`, 한국어를 고쳤으면 `cd apps/web && node tools/i18n/review.ts`.
-
-알아 둘 것:
-
-- **항목을 지워도 원본 문구로 돌아가지 않는다.** 원본이 있을 때는 `messages-override`의 항목을 지우면 원본 문구가 다시 나왔다. 원본이 없으면 `messages/`에 남아 있는 것은 `now`이고, 항목을 지우면 그 문구가 그대로 남는다. 원본 문구는 항목의 `was`에 적혀 있다. `now`를 `was`와 같게 적으면 도구가 멈추므로, 원본 문구로 되돌릴 때는 항목을 지우고 `messages/<태그>.json`의 그 줄을 `was`의 문구로 고친다(그 파일의 꼴로: `<b>`는 `{#b}`).
-- **`messages/`를 직접 고친 것은, 다른 원천이 그 id를 말하지 않는 한 남는다.** 원본이 없으면 그 파일이 원천이라 도구가 되돌릴 근거가 없다. 다만 기록(이전 문구, 이유)이 남지 않고 검수 표에도 나오지 않으므로 위 3번을 쓴다. 그 id에 `messages-override`나 `messages-fill`의 항목이 있으면 다음 실행이 직접 고친 것을 덮어쓴다.
-- 직접 고친 문구도 변환이 쓸 수 있는 꼴이어야 한다: 글자, `{인자}`, `{#태그}…{/태그}`. 영어 메시지에 없는 인자·태그, 바깥 주소, 옛 이름이 있으면 도구가 멈춘다(원본의 문구에 하던 검사와 같다). 변형이 있는 메시지(배열 꼴)는 자체 키에만 쓸 수 있다.
-- **자체 키와 원본 id는 생김새로 가른다.** 자체 키는 소문자 스네이크 표기(`^[a-z][a-z0-9_]*$`)이고 원본 id 376개 가운데 그렇게 생긴 것은 없다(원본이 있을 때의 변환이 그런 id에서 멈춘다). 그래서 원본 없이도 `messages/en.json`의 키를 둘로 나눌 수 있다.
-- **두 길이 같은 결과를 내는지는 원본이 있는 곳에서 검사한다.** `convert.ts --check`와 테스트("is what the message files give without the original")가 18개 파일의 바이트, id마다의 원문, 덮어쓴·채운·빠진 목록을 견준다. 원본을 떼어 내기 전까지 이 검사가 "떼어 내도 된다"를 지킨다.
-- 원본의 위치는 `tools/original.ts`가 정한다: 저장소 루트의 `webapp/`, 또는 환경 변수 `FVOCI_ORIGINAL_WEBAPP`, 또는 `convert.ts --original <폴더>`.
+- 변환 도구(`tools/` 아래의 변환기, 원천 폴더 `messages-own/`·`messages-fill/`·`messages-override/`, 뺀 id의 목록)는 2026-11-11에 지웠다(사용자 결정). 그 결과인 `messages/<태그>.json`이 원천이고 손으로 고친다.
+- `pnpm --filter web run i18n:keys`(`check`에도 있다)가 로케일별 키 집합을 `en`과 견준다. `en`에 없는 키가 있거나 `ko`에 빠진 키가 있으면 실패한다.
+- 아래의 표와 수는 변환했을 때의 기록이다. 덮어쓴 문구의 "이전"(원본 문구)은 이 문서와 `docs/ko-review.md`의 표에만 남아 있다.
 
 ## 코드에서 메시지를 부르는 법
 
@@ -167,7 +96,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ## ICU 조사
 
-조사 대상은 번들 17개와 `ko`의 원본 파일 전체다. 제거한 메시지도 센다. 원본의 파서(react-intl 5가 쓰는 것)와 같은 규칙으로 파싱했다(`tools/i18n/icu.ts`).
+조사 대상은 번들 17개와 `ko`의 원본 파일 전체다. 제거한 메시지도 센다. 원본의 파서(react-intl 5가 쓰는 것)와 같은 규칙으로 파싱했다(변환 도구의 ICU 파서).
 
 | 로케일    | 메시지 | 글자만 | 인자: 메시지/개수 | 태그: 메시지/개수 | plural·select·selectordinal·`#` | number·date·time | `''` | 아포스트로피 인용 | 글자 아포스트로피 | 구문 오류 | en과 인자·태그가 다름 |
 | --------- | -----: | -----: | ----------------: | ----------------: | ------------------------------: | ---------------: | ---: | ----------------: | ----------------: | --------: | --------------------: |
@@ -208,7 +137,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 설치된 `@inlang/plugin-message-format` 4.6.0의 형식을 그 패키지의 README와 `dist/index.js`(패턴·선언·매치 파서)로 확인했다. 메시지 값은 문자열(단순 메시지)이거나, 객체 하나를 담은 배열(복합 메시지: `declarations`, `selectors`, `match`)이다. 패턴 안에서 `{…}`는 자리표시자이고 글자 `{`, `}`, `\`는 `\{`, `\}`, `\\`로 쓴다. `{#b}…{/b}`는 마크업, `{n: number}`는 함수가 붙은 자리표시자다. 선언은 `input x`, `local y = x: plural`이고, 매치 키는 `선택자=값, 선택자=값`이며 `*`가 나머지 전부다.
 
-실제 자료에 나오는 구문은 처음 넷이다. 나머지는 자료에 없지만 지원하고, 단위 테스트가 변환 결과와 paraglide로 컴파일한 뒤의 실행 결과를 함께 확인한다(`tests/tools/i18n.test.ts`).
+실제 자료에 나오는 구문은 처음 넷이다. 나머지는 자료에 없지만 지원하고, 변환 도구의 단위 테스트가 변환 결과와 paraglide로 컴파일한 뒤의 실행 결과를 함께 확인했다.
 
 | 구문              | 변환 전 (ICU)                                                 | 변환 후 (inlang)                                                                                                                      |
 | ----------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -242,9 +171,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ## 로케일별 통계
 
-이 표는 `tools/i18n/review.ts`가 쓴다.
-
-<!-- generated:stats -->
+이 표는 변환 도구가 썼다.
 
 | 로케일    | 원본 파일      | 원본 메시지 | 변환 | 그 가운데 덮어씀 | 변환 안 함 | 영어가 바뀌어 내지 않음 | 제거: 미포팅 | 제거: 죽은 id | 채움 | 남긴 id 가운데 빠짐 |
 | --------- | -------------- | ----------- | ---- | ---------------- | ---------- | ----------------------- | ------------ | ------------- | ---- | ------------------- |
@@ -267,8 +194,6 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 | `zh-Hans` | `zh_Hans.json` | 449         | 363  | 1                | 0          | 2                       | 33           | 51            | 0    | 13                  |
 | `zh-Hant` | `zh_Hant.json` | 449         | 363  | 0                | 0          | 2                       | 33           | 51            | 0    | 13                  |
 
-<!-- /generated:stats -->
-
 - "원본 메시지"는 원본 파일의 키 수다. "변환 + 변환 안 함 + 영어가 바뀌어 내지 않음 + 제거: 미포팅 + 제거: 죽은 id"가 그 수와 같다.
 - "그 가운데 덮어씀"은 "변환"에 들어 있는 수다. 원본의 문구 대신 `messages-override`의 문구가 나간 id다.
 - "영어가 바뀌어 내지 않음"은 영어 문구를 다시 써서 옛 번역을 내지 않은 id다(`ShareBoard.searchPlaceholder`, `OnboardingTour.CopyLink.Body` 가운데 그 로케일의 원본에 있는 것).
@@ -288,7 +213,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ## 제거한 메시지
 
-새 앱이 포팅하지 않는 기능에서만 쓰이는 메시지 34개다. 처음 변환이 28개를 뺐고, 판단을 미뤘던 것 가운데 6개를 결정에 따라 더 뺐다(마지막 소절). 목록과 이유는 `tools/i18n/removed.json`에 있다. id마다 `webapp/src`(테스트와 스냅숏 제외)에서 문자열 리터럴로 찾아 쓰이는 파일을 확인했다. 도구가 실행할 때마다 같은 검색을 하므로 "쓰던 파일" 열은 그 출력이다.
+새 앱이 포팅하지 않는 기능에서만 쓰이는 메시지 34개다. 처음 변환이 28개를 뺐고, 판단을 미뤘던 것 가운데 6개를 결정에 따라 더 뺐다(마지막 소절). 목록과 이유는 아래 표에 있다. id마다 `webapp/src`(테스트와 스냅숏 제외)에서 문자열 리터럴로 찾아 쓰이는 파일을 확인했다. "쓰던 파일" 열은 변환 도구가 한 같은 검색의 출력이다.
 
 ### 클라우드 한도와 업그레이드 안내 (13개)
 
@@ -351,9 +276,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ### 결정으로 뺀 것 (6개)
 
-처음 변환이 판단을 미루고 남겼던 메시지다. 제품 책임자의 결정(2026-11-10)으로 뺐다. `removed.json`의 `guest-accounts`(3개), `old-notice`(1개), `upgrade-tour-step`(2개)이다. 이 표는 `tools/i18n/review.ts`가 쓴다.
-
-<!-- generated:removed-by-decision -->
+처음 변환이 판단을 미루고 남겼던 메시지다. 제품 책임자의 결정(2026-11-10)으로 뺐다. `removed.json`의 `guest-accounts`(3개), `old-notice`(1개), `upgrade-tour-step`(2개)이다.
 
 | id                                    | 영어 문구                                                                                                                                                                                                                                                                              | 쓰던 파일 (`webapp/src/` 아래)                                      |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
@@ -363,8 +286,6 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 | `Error.mobileweb`                     | Mobile web support is currently in early beta. Not all functionality may be present.                                                                                                                                                                                                   | `pages/boardPage/boardPage.tsx`                                     |
 | `SidebarTour.SidebarCategories.Body`  | All your boards are now organized under your new sidebar. No more switching between workspaces. One-time custom categories based on your prior workspaces may have automatically been created for you as part of your v7.2 upgrade. These can be removed or edited to your preference. | `components/onboardingTour/sidebarCategories/sidebarCategories.tsx` |
 | `SidebarTour.SidebarCategories.Title` | Sidebar categories                                                                                                                                                                                                                                                                     | `components/onboardingTour/sidebarCategories/sidebarCategories.tsx` |
-
-<!-- /generated:removed-by-decision -->
 
 - `badge.guest`, `guest-no-board.*`: 게스트 계정의 배지와, 게스트가 볼 보드가 없을 때의 화면이다. 서버 설계 문서에는 게스트라는 말이 없다(저장소 루트의 `docs/s6-design.md`를 찾아봤다).
 - `Error.mobileweb`: 모바일 웹 지원이 초기 베타라는 옛 제품의 안내다.
@@ -449,8 +370,6 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 - 다시 쓴 두 메시지의 영어 문구는 내가 쓴 것이다. `ShareBoard.searchPlaceholder`의 새 문구는 템플릿을 공유할 때 같은 자리에 나오던 `ShareTemplate.searchPlaceholder`와 같다.
 - "다른 로케일은 번역을 내지 않는다"는 영어 항목의 `"stale": true`로 적었다. 어느 로케일에서 빠졌는지는 아래 표다. `ru`의 `ShareBoard.searchPlaceholder`는 원본 번역이 이미 "사람 검색"이라는 뜻이었지만(`Поиск людей`) 결정대로 함께 뺐다. 각 로케일이 `ShareTemplate.searchPlaceholder`의 번역을 이 id에 다시 쓰는 길도 있다. 하지 않았다.
 
-<!-- generated:stale -->
-
 | 로케일    | 번역을 내지 않은 id                                            |
 | --------- | -------------------------------------------------------------- |
 | `de`      | `OnboardingTour.CopyLink.Body`, `ShareBoard.searchPlaceholder` |
@@ -464,8 +383,6 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 | `tr`      | `OnboardingTour.CopyLink.Body`, `ShareBoard.searchPlaceholder` |
 | `zh-Hans` | `OnboardingTour.CopyLink.Body`, `ShareBoard.searchPlaceholder` |
 | `zh-Hant` | `OnboardingTour.CopyLink.Body`, `ShareBoard.searchPlaceholder` |
-
-<!-- /generated:stale -->
 
 ## 이름 치환
 
@@ -529,9 +446,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ### 덮어쓴 문구 (한국어 밖)
 
-`messages-override`의 `en`과 다른 로케일의 항목 전부다. 이 표는 `tools/i18n/review.ts`가 쓴다. 한국어 130개는 `docs/ko-review.md`에 있다.
-
-<!-- generated:overrides -->
+`en`과 다른 로케일에서 덮어쓴 문구 전부다. 한국어 130개는 `docs/ko-review.md`에 있다.
 
 | 로케일    | id                                | 구분                       | 이전                                                                                                                       | 이후                                                                                                                      |
 | --------- | --------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -566,8 +481,6 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 | `sv`      | `error.not-logged-in`             | 제품 이름                  | Din session kan ha löpt ut eller så är du inte inloggad. Logga in igen för att få tillgång till Boards.                    | Din session kan ha löpt ut eller så är du inte inloggad. Logga in igen för att få tillgång till fvoci.                    |
 | `zh-Hans` | `BoardPage.newVersion`            | 제품 이름                  | Boards 的新版本已可用，点击这里重新加载。                                                                                  | fvoci 的新版本已可用，点击这里重新加载。                                                                                  |
 
-<!-- /generated:overrides -->
-
 `en`과 `ko`가 아닌 로케일의 문구는 내가 고친 것이고 그 언어를 쓰는 사람이 보지 않았다.
 
 ## 바깥 URL이 든 메시지
@@ -590,13 +503,13 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ### 채운 번역 (18개)
 
-원본 `ko.json`에 없던 id다. `messages-fill/ko.json`에 있고 고치면 다음 `i18n:convert`에 반영된다. 각 id가 쓰이는 원본 코드를 읽고 옮겼다. 문구는 `docs/ko-review.md`의 표에서 묶음이 "채움"인 행이다.
+원본 `ko.json`에 없던 id다. 지금은 `messages/ko.json`에 있다. 각 id가 쓰이는 원본 코드를 읽고 옮겼다. 문구는 `docs/ko-review.md`의 표에서 묶음이 "채움"인 행이다.
 
 - `Filter.is-after`와 `Filter.isafter`, `Filter.is-before`와 `Filter.isbefore`는 원본에 둘 다 있고 쓰는 곳이 다르다(`octoUtils.tsx`, `filterEntry.tsx`). 같은 문구를 넣었다.
 - `centerPanel.undefined`는 같은 영어 꼴(`No {property}`)의 기존 번역 `BoardComponent.no-property`("{property} 속성 없음")를 따랐다.
 - `TableRow.DuplicateCard`는 실행 취소 설명에 들어간다("카드 복제 실행 취소").
 - "비어 있음"은 띄어 쓴 쪽(`DateRange.empty`)을 따랐다.
-- 18개 가운데 `boardPage.confirm-join-button`과 `boardPage.confirm-join-title`은 처음에 "참여하기", "비공개 보드 참여하기"로 채웠다가, 단추와 제목을 명사구로 통일하면서 "참여", "비공개 보드 참여"로 고쳤다. 채운 문구는 덮어쓰기의 대상이 아니므로 `messages-fill/ko.json`을 바로 고쳤고, 처음 채운 값은 `tools/i18n/ko-review.json`에 적어 검수 문서가 함께 보이게 했다.
+- 18개 가운데 `boardPage.confirm-join-button`과 `boardPage.confirm-join-title`은 처음에 "참여하기", "비공개 보드 참여하기"로 채웠다가, 단추와 제목을 명사구로 통일하면서 "참여", "비공개 보드 참여"로 고쳤다. 채운 문구는 덮어쓰기의 대상이 아니므로 채운 파일을 바로 고쳤고, 처음 채운 값은 검수 문서의 표에 함께 적었다.
 
 ### 고친 번역 (130개)
 
@@ -607,7 +520,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 - 값 뒤에 붙어 이름에 따라 틀리던 조사는 문장을 바꿔 없앴다.
 - 제품 이름 "Boards"를 "보드"로 옮겼던 네 문구는 `fvoci`로 고쳤다.
 - 영어를 다시 쓴 두 메시지는 한국어도 다시 옮겼다.
-- 고친 문구는 모두 `messages-override/ko.json`에 있다. 원본 `ko.json`은 건드리지 않았다.
+- 고친 문구는 지금 `messages/ko.json`에 있고, 고치기 전의 원본 문구는 `docs/ko-review.md`의 표에 있다.
 
 ## 측정
 
@@ -627,7 +540,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 - **JS가 847바이트 늘어난 까닭.** 빈 화면이 쓰는 메시지는 `app_name`과 `app_loading` 둘이고 다른 메시지의 문구는 번들에 없다. 늘어난 것은 로케일 분기다. paraglide는 메시지 함수마다 로케일별 분기를 만들고, 번역이 없는 로케일도 영어 함수의 별칭과 분기를 하나씩 갖는다(`n==='ca'?Mr(e):…`). 로케일이 2개에서 18개가 되면서 쓰는 메시지마다 약 420바이트가 붙었다.
 - **메시지를 다 쓰게 되면.** 메시지 모듈 하나에 그 메시지의 모든 로케일 문구가 들어간다. 메시지 셋을 더 쓴 빌드는 33,849바이트였다(+2,081, br 12,200). `messages/*.json`의 합은 334,589바이트이고 `en`만은 21,950바이트였다(결정을 반영한 뒤에는 321,433바이트와 21,196바이트). 화면이 메시지를 다 쓰면 18개 로케일의 문구가 한 번들에 들어간다. 메시지 384개를 다 쓰는 진입 파일로 재면 287,431바이트(br 62,308)다. 로케일별로 나누는 방법과 그 크기는 아래 "로케일별로 나눠 받기"에 있다.
-- **CSS가 180바이트 늘어난 까닭.** 메시지와는 상관없다. Tailwind가 `tools/`도 클래스 후보로 훑는데, `tools/i18n/inlang.ts`에 있는 낱말 `ordinal`이 Tailwind의 `ordinal` 유틸리티로 잡혀 규칙 하나가 생겼다. 테스트 파일을 쓰기 전에 `src/styles/app.css`에 `@source not '../../tools/i18n';`을 넣어 빌드하니 95,162바이트로 돌아왔다(2026-11-10 18:44 KST). 지금은 `tests/tools/i18n.test.ts`에도 같은 낱말이 있어 그 한 줄로는 95,342바이트 그대로다. `tools`와 `tests`를 통째로 빼면 94,852바이트다(2026-11-10 18:54 KST). 기준 커밋보다도 310바이트 작으니, 기준에서도 이 두 폴더의 낱말이 규칙을 만들고 있었다는 뜻이다. 확인한 뒤 되돌렸고 `app.css`는 고치지 않았다.
+- **CSS가 180바이트 늘어난 까닭.** 메시지와는 상관없다. Tailwind가 `tools/`도 클래스 후보로 훑는데, 번역 변환 도구(지금은 지웠다)에 있던 낱말 `ordinal`이 Tailwind의 `ordinal` 유틸리티로 잡혀 규칙 하나가 생겼다. 테스트 파일을 쓰기 전에 `src/styles/app.css`에 그 폴더를 빼는 `@source not` 한 줄을 넣어 빌드하니 95,162바이트로 돌아왔다(2026-11-10 18:44 KST). 그때는 그 도구의 테스트에도 같은 낱말이 있어 그 한 줄로는 95,342바이트 그대로였다. `tools`와 `tests`를 통째로 빼면 94,852바이트다(2026-11-10 18:54 KST). 기준 커밋보다도 310바이트 작으니, 기준에서도 이 두 폴더의 낱말이 규칙을 만들고 있었다는 뜻이다. 확인한 뒤 되돌렸고 `app.css`는 고치지 않았다.
 - `svelte-check`가 보는 파일은 2,736개다(컴파일 결과 포함).
 
 ## 로케일별로 나눠 받기
@@ -719,12 +632,12 @@ W2에서는 먼저 실제 화면이 쓰는 메시지로 1을 다시 재고, 나�
 - **기본 카테고리의 이름.** `SidebarCategories.CategoryMenu.DeleteModal.Body`의 한국어는 기본 카테고리를 서버가 주는 이름 그대로 "Boards 카테고리"라고 부른다. 화면에서 그 이름을 번역해 보여 주기로 하면 이 문구도 함께 바꿔야 한다.
 - **값이 없는 인자.** react-intl은 `undefined`인 인자를 빈 문자열로 넣고 paraglide는 `undefined`라는 글자를 넣는다. `centerPanel.undefined`는 원본이 `groupByProperty?.name`을 넘긴다.
 - **select의 입력.** 컴파일된 메시지는 값을 `===`로 비교한다. ICU는 문자열로 바꿔 비교한다. 불리언을 넘기던 호출은 문자열로 넘겨야 한다. 지금 자료에는 select가 없다.
-- **번역 파일에 없는 id.** 원본 코드에는 `en.json`에 없는 id가 있다. 테마 이름 4개(`Sidebar.default-theme`, `dark-theme`, `light-theme`, `system-theme`: 코드의 `displayName`이 문구다)와 시험용 메뉴 4개(`ViewHeader.test-*`)다. 변환 대상이 아니다. 테마 메뉴를 옮길 때 문구를 `messages-own`에 새로 넣어야 한다.
+- **번역 파일에 없는 id.** 원본 코드에는 `en.json`에 없는 id가 있다. 테마 이름 4개(`Sidebar.default-theme`, `dark-theme`, `light-theme`, `system-theme`: 코드의 `displayName`이 문구다)와 시험용 메뉴 4개(`ViewHeader.test-*`)다. 변환 대상이 아니다. 테마 메뉴를 옮길 때 문구를 `messages/`에 새로 넣어야 한다.
 - **`en.json`과 코드의 기본 문구가 다른 곳이 있다.** 예: `CardDetail.limited-body`. 원본은 영어에서도 `en.json`을 쓰므로 `en.json`을 따랐다. 남긴 메시지 전체를 코드의 기본 문구와 대조하지는 않았다.
 
 ## 확인하지 못한 것
 
-- **원본 파서와의 일치.** `tools/i18n/icu.ts`는 원본이 쓰는 파서의 규칙(아포스트로피, 태그, `#`, 오류 조건)을 그 소스에 대한 기억으로 옮긴 것이다. 그 라이브러리는 설치돼 있지 않아 같은 입력으로 나란히 돌려 보지 못했다. 실제 자료에는 글자, 글자 아포스트로피, 단순 인자, `<b>` 태그만 있으므로 차이가 날 수 있는 곳은 이 넷의 처리뿐이다.
+- **원본 파서와의 일치.** 변환 도구의 ICU 파서는 원본이 쓰는 파서의 규칙(아포스트로피, 태그, `#`, 오류 조건)을 그 소스에 대한 기억으로 옮긴 것이었다. 그 라이브러리는 설치돼 있지 않아 같은 입력으로 나란히 돌려 보지 못했다. 실제 자료에는 글자, 글자 아포스트로피, 단순 인자, `<b>` 태그만 있으므로 차이가 날 수 있는 곳은 이 넷의 처리뿐이다.
 - **plural·select 계열의 변환.** 실제 자료가 없어 테스트의 문구로만 확인했다. paraglide로 컴파일해 `en`과 `ru`에서 결과를 맞춰 봤다(one·few·many·other, `=0`, `offset`, 서수, 중첩).
 - **변환하지 않은 3개가 원본에서 영어로 나왔는지.** react-intl의 동작에 대한 이해이고 원본을 실행해 보지 않았다.
 - **죽은 id의 판정.** `webapp/src`에서 문자열 리터럴로 찾은 결과다. 이 저장소에 없는 코드가 쓰던 id는 알 수 없다.
