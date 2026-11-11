@@ -13,7 +13,7 @@
  * its text as one document (`body`), a card list comes without bodies, and
  * a body is written with the `updateAt` it was read at so that a stale write
  * is refused with 409. Where the design says nothing and something had to be
- * made up, the place is listed in `docs/contract-assumptions.md`.
+ * made up and is still open, it is listed in `docs/contract-assumptions.md`.
  *
  * No method promises an order. Whatever is shown in an order is sorted by
  * the client (`order.ts`).

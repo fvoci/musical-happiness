@@ -4,7 +4,7 @@
  * `lib/logic/wire.ts`), one into the other.
  *
  * Where the two differ the screens' shape stays and the difference is
- * settled here; each place is listed in `docs/contract-assumptions.md`.
+ * settled here; what is still open is listed in `docs/contract-assumptions.md`.
  */
 import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';

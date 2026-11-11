@@ -429,7 +429,7 @@ export class ServerBackend implements Backend, Account {
   /**
    * A comment is a block under the card with the text as its body
    * (`docs/contract-pending.md`, 1). The contract's `NewBlock` does not list
-   * `body`, but the server takes it there (`docs/contract-assumptions.md`, 8).
+   * `body`, but the server takes it there (`docs/contract-assumptions.md`, H8).
    */
   async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
     const block = {
