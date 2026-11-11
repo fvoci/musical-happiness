@@ -26,7 +26,7 @@ import {
   withTimeOfDay,
   withoutTime,
 } from '$lib/logic/date-entry.ts';
-import { calendarDate, type CalendarDate } from '$lib/logic/dates.ts';
+import { calendarDate, startOfDay, type CalendarDate } from '$lib/logic/dates.ts';
 import { formatDateValue } from '$lib/logic/wire.ts';
 
 import { at, ZONES } from '../support/zones.ts';
@@ -72,14 +72,14 @@ describe('the clock of a time zone', () => {
           const wall = { date: calendarDate(year, month, dayOfMonth), hour, minute };
           const moment = instantOfWallTime(wall, zone);
           const shown = wallTimeOf(moment, zone);
-          // A time the clocks skip is read back as the time they jumped to;
-          // every other time is read back as it was entered.
-          if (shown.hour === hour && shown.minute === minute) {
-            expect(shown.date).toBe(wall.date);
-          } else {
-            expect(moment).toBeGreaterThan(
-              instantOfWallTime({ ...wall, hour: 0, minute: 0 }, zone),
-            );
+          // A time the clocks skip is read back as the time they jumped to,
+          // later on the same day and never before the day starts (which is
+          // that time itself when the skipped time is midnight); every other
+          // time is read back as it was entered.
+          expect(shown.date).toBe(wall.date);
+          if (shown.hour !== hour || shown.minute !== minute) {
+            expect(shown.hour * 60 + shown.minute).toBeGreaterThan(hour * 60 + minute);
+            expect(moment).toBeGreaterThanOrEqual(startOfDay(wall.date, zone));
           }
           // And the moment always reads back as itself.
           expect(instantOfWallTime(shown, zone, occurrenceOf(moment, zone))).toBe(moment);
@@ -122,6 +122,17 @@ describe('a time the clocks skip', () => {
     const howe = 'Australia/Lord_Howe';
     const asked = instantOfWallTime({ date: day('2026-10-04'), hour: 2, minute: 10 }, howe);
     expect(wallTimeOf(asked, howe)).toEqual({ date: '2026-10-04', hour: 2, minute: 40 });
+  });
+
+  it('is the start of the day when it is midnight itself', () => {
+    // Havana, 8 March 2015: the clocks went from 00:00 to 01:00. Midnight was
+    // asked for, and the day's first moment, 01:00, is what is given: the
+    // same moment the day starts at, not a later one.
+    const havana = 'America/Havana';
+    const asked = instantOfWallTime({ date: day('2015-03-08'), hour: 0, minute: 0 }, havana);
+    expect(asked).toBe(Date.UTC(2015, 2, 8, 5, 0));
+    expect(wallTimeOf(asked, havana)).toEqual({ date: '2015-03-08', hour: 1, minute: 0 });
+    expect(asked).toBe(startOfDay(day('2015-03-08'), havana));
   });
 
   it('can be midnight itself', () => {

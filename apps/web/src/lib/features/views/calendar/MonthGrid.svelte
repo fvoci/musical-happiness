@@ -12,17 +12,28 @@
   What can be pressed depends on the pointer, not on the width (C2):
 
   - With a mouse, the number of a day opens the cards of the day, a bar
-    opens its card, "+N" opens the cards of the day.
+    opens its card, "+N" opens the cards of the day. A "+" at the top right
+    of a cell, there while it is pointed at, makes a card on that day
+    (question C11, answer B), and while the day's number has the focus. It
+    is no stop of the Tab key and hidden from screen readers: the cards of
+    the day end with "New card on …", which every reader reaches.
   - With a finger, the whole cell is one button that opens the cards of the
     day. A bar is a picture.
+
+  A week (`week`, question C17) is one row as high as the box: every card of
+  it is drawn, nothing says "+N", and a bar is two lines (its title, then its
+  time or days), 2.75rem high, which a finger can press too.
 
   The days are one stop of the Tab key: the picked day takes the focus, and
   the arrow keys move it a day or a week (`onmove`).
 -->
 <script lang="ts">
+  import PlusIcon from '@lucide/svelte/icons/plus';
+
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { foldWeek, inMonth, layWeek, type Month } from '$lib/logic/calendar.ts';
   import type { CalendarDate } from '$lib/logic/dates.ts';
+  import type { Card, PropertyTemplate } from '$lib/logic/wire.ts';
   import {
     displayDay,
     displayDayLong,
@@ -44,12 +55,18 @@
     selected: CalendarDate;
     /** The main pointer is a finger. */
     finger: boolean;
+    /** One week, every card in it, bars of two lines. */
+    week?: boolean;
+    /** The properties the view turned on that a card has: the second line of a week's bar. */
+    shownOf?: (card: Card) => readonly PropertyTemplate[];
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
     /** A day was pressed: its cards are wanted. */
     onpick: (date: CalendarDate) => void;
     /** An arrow key moves the picked day by this many days. */
     onmove: (by: number) => void;
+    /** Makes a card on a day; none where no card can be made here. */
+    oncreate?: (date: CalendarDate) => void;
   }
 
   let {
@@ -59,10 +76,13 @@
     today,
     selected,
     finger,
+    week = false,
+    shownOf = () => [],
     cardHref,
     onOpenCard,
     onpick,
     onmove,
+    oncreate,
   }: Props = $props();
 
   const locale = $derived(placed.locale);
@@ -77,14 +97,22 @@
   }
 
   // The row of numbers is 1.75rem and a bar with its gap 1.5rem; a week is never lower than 5.5rem.
+  /** The bars of each week, laid once. */
+  const laid = $derived(weeks.map((days) => layWeek(days, placed.spans)));
+
   const lanes = $derived.by(() => {
+    if (week) {
+      // As many rows as the week's cards need: none is folded into "+N".
+      return Math.max(1, ...(laid[0] ?? []).map((segment) => segment.lane + 1));
+    }
     const row = Math.max(rem(5.5), height / Math.max(1, weeks.length));
     return Math.max(1, Math.floor((row - rem(1.75) - 2) / rem(1.5)));
   });
 
   const rows = $derived(
-    weeks.map((week) => ({ week, ...foldWeek(layWeek(week, placed.spans), lanes) })),
+    weeks.map((days, at) => ({ week: days, ...foldWeek(laid[at] ?? [], lanes) })),
   );
+  const barRow = $derived(week ? '2.875rem' : '1.5rem');
 </script>
 
 <div data-testid="month-grid" data-lanes={lanes} class="flex min-h-0 flex-1 flex-col">
@@ -104,7 +132,7 @@
       <div
         data-week={row.week[0]}
         class="relative grid grid-cols-7 border-b last:border-b-0"
-        style:grid-template-rows="1.75rem repeat({lanes}, 1.5rem) minmax(0, 1fr)"
+        style:grid-template-rows="1.75rem repeat({lanes}, {barRow}) minmax(0, 1fr)"
       >
         {#each row.week as date, column (date)}
           {@const isToday = date === today}
@@ -112,7 +140,7 @@
           {@const label = placed.dayName(date, displayDayLong(date, locale))}
           {@const cell = [
             'relative row-span-full row-start-1 flex min-w-0 items-start border-r text-left last:border-r-0',
-            !inMonth(date, month) && 'bg-muted/50 text-muted-foreground',
+            !week && !inMonth(date, month) && 'bg-muted/50 text-muted-foreground',
           ]}
           {#snippet number()}
             <span
@@ -150,7 +178,7 @@
               {@render number()}
             </button>
           {:else}
-            <div data-day={date} class={[cell, 'p-0.5']} style:grid-column={column + 1}>
+            <div data-day={date} class={[cell, 'group/day p-0.5']} style:grid-column={column + 1}>
               <button
                 type="button"
                 data-day-button
@@ -168,6 +196,23 @@
               >
                 {@render number()}
               </button>
+              {#if oncreate}
+                {@const create = oncreate}
+                <button
+                  type="button"
+                  tabindex={-1}
+                  aria-hidden="true"
+                  data-new-card={date}
+                  aria-label={m.calendar_new_card_on({ day: displayDay(date, locale) })}
+                  title={m.calendar_new_card_on({ day: displayDay(date, locale) })}
+                  class="ml-auto flex size-6 items-center justify-center rounded-sm text-muted-foreground opacity-0 group-focus-within/day:opacity-100 group-hover/day:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100"
+                  onclick={() => {
+                    create(date);
+                  }}
+                >
+                  <PlusIcon class="size-4" aria-hidden="true" />
+                </button>
+              {/if}
             </div>
           {/if}
 
@@ -213,7 +258,7 @@
                 'z-10 min-w-0 self-start',
                 segment.fromBefore ? 'pl-0' : 'pl-0.5',
                 segment.toAfter ? 'pr-0' : 'pr-0.5',
-                finger && 'pointer-events-none',
+                finger && !week && 'pointer-events-none',
               ]}
               style:grid-column="{segment.column + 1} / span {segment.length}"
               style:grid-row={segment.lane + 2}
@@ -225,7 +270,9 @@
                 time={segment.fromBefore ? undefined : placed.time(card)}
                 fromBefore={segment.fromBefore}
                 toAfter={segment.toAfter}
-                pressable={!finger}
+                pressable={!finger || week}
+                tall={week}
+                detail={week ? placed.detail(card, shownOf(card)) : undefined}
                 href={cardHref(card.id)}
                 onopen={onOpenCard}
               />
