@@ -1060,16 +1060,10 @@ async fn get_blocks_of_templates() {
     th.teardown().await;
 }
 
-/// Whoever reads a shared board by its read token alone, without a session or as a user
-/// who is no member, is told no user's identifier: not who wrote a block, nor who its
-/// body mentions, nor who the values of person properties and the filters of views
-/// name. A member reading with the token is.
-#[tokio::test]
-async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
-    let th = Setup::local_mode().start().await.init_basic().await;
-    let boards = boards_with_roles(&th).await;
-    let me = th.client.me().await;
-    let editor = boards.editor.me().await;
+/// Fills the board with user identifiers: person properties, a card whose body mentions
+/// `me` and whose values name `me` and `editor`, and a view that filters and groups by
+/// them.
+async fn board_with_people(th: &TestServer, board_id: &str, me: &str, editor: &str) {
     let people = json!([
         {"id": "owner", "name": "Owner", "type": "person"},
         {"id": "team", "name": "Team", "type": "multiPerson"},
@@ -1078,57 +1072,77 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     ]);
     th.client
         .patch(
-            &format!("/boards/{}", boards.board.id),
+            &format!("/boards/{board_id}"),
             &json!({"updatedCardProperties": people}),
         )
         .await
         .check_ok();
-    let mention = json!({"type": "mention", "attrs": {"userId": me.id}});
+    let mention = json!({"type": "mention", "attrs": {"userId": me}});
     let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [mention]}]});
     th.client
         .post(
-            &format!("/boards/{}/cards", boards.board.id),
+            &format!("/boards/{board_id}/cards"),
             &json!({
                 "title": "mentions",
                 "body": body,
-                "properties": {"owner": me.id, "team": [me.id, editor.id], "note": me.id},
+                "properties": {"owner": me, "team": [me, editor], "note": me, "gone": me},
             }),
         )
         .await
         .check_created();
-    let filter = json!({"operation": "and", "filters": [
-        {"propertyId": "owner", "condition": "includes", "values": [me.id]},
-        {"operation": "or", "filters": [
-            {"propertyId": "by", "condition": "includes", "values": [me.id]},
-            {"propertyId": "note", "condition": "includes", "values": [me.id]},
+    let mut view = new_block(board_id, BlockType::View, "view");
+    view.fields = fields(json!({
+        "filter": {"operation": "and", "filters": [
+            {"propertyId": "owner", "condition": "includes", "values": [me]},
+            {"operation": "or", "filters": [
+                {"propertyId": "by", "condition": "includes", "values": [me]},
+                {"propertyId": "note", "condition": "includes", "values": [me]},
+            ]},
         ]},
-    ]});
-    let mut view = new_block(&boards.board.id, BlockType::View, "view");
-    view.fields.insert("filter".to_owned(), filter);
+        "groupById": "owner",
+        "hiddenOptionIds": [me, ""],
+        "collapsedOptionIds": [editor],
+    }));
     insert_one(&th.client, &view).await;
+}
+
+/// What the blocks of [`board_with_people`] say about people.
+fn people_in(blocks: &Value) -> Value {
+    let of_type = |block_type: &str| {
+        blocks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|block| block["type"] == block_type)
+            .cloned()
+            .unwrap_or_else(|| panic!("a {block_type} is read: {blocks}"))
+    };
+    let card = of_type("card");
+    let view = of_type("view");
+    json!({
+        "createdBy": card["createdBy"],
+        "mention": card["body"]["content"][0]["content"][0]["attrs"]["userId"],
+        "properties": card["fields"]["properties"],
+        "filter": view["fields"]["filter"],
+        "hidden": view["fields"]["hiddenOptionIds"],
+        "collapsed": view["fields"]["collapsedOptionIds"],
+        "viewBy": view["modifiedBy"],
+    })
+}
+
+/// Whoever reads a shared board by its read token without being a member, without a
+/// session or signed in, is told no user's identifier: not who wrote a block, nor who
+/// its body mentions, nor whom person properties name in values, filters and the groups
+/// of views. A member reading with the token is.
+#[tokio::test]
+async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let me = th.client.me().await;
+    let editor = boards.editor.me().await;
+    board_with_people(&th, &boards.board.id, &me.id, &editor.id).await;
     let read_token = th.share(&boards.board.id).await;
     let path = format!("{}?readToken={read_token}", blocks_path(&boards.board.id));
-    let read = |blocks: &Value| -> Value {
-        let card = blocks
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|block| block["type"] == "card")
-            .expect("the card is read");
-        let view = blocks
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|block| block["type"] == "view")
-            .expect("the view is read");
-        json!({
-            "createdBy": card["createdBy"],
-            "mention": card["body"]["content"][0]["content"][0]["attrs"]["userId"],
-            "properties": card["fields"]["properties"],
-            "filter": view["fields"]["filter"],
-            "viewBy": view["modifiedBy"],
-        })
-    };
     let hidden = json!({
         "createdBy": "",
         "mention": "",
@@ -1140,31 +1154,38 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
                 {"propertyId": "note", "condition": "includes", "values": [me.id]},
             ]},
         ]},
+        "hidden": [""],
+        "collapsed": [],
         "viewBy": "",
     });
 
     // As JSON: the answer is a shape that is only sent, which the allowlist of a write
     // refuses.
     let blocks = th.anonymous().get(&path).await.value();
-    assert_eq!(read(&blocks), hidden, "nobody, to the token alone");
+    assert_eq!(people_in(&blocks), hidden, "nobody, to the token alone");
     let blocks = th.client2.get(&path).await.value();
-    assert_eq!(read(&blocks), hidden, "nobody, to a user who is no member");
-    let blocks = th.client.get(&path).await.value();
-    let shown = read(&blocks);
+    assert_eq!(
+        people_in(&blocks),
+        hidden,
+        "nobody, to a user who is no member"
+    );
+    let shown = people_in(&th.client.get(&path).await.value());
     assert_eq!(shown["mention"], json!(me.id), "the user, to a member");
     assert_eq!(
         shown["properties"]["team"],
         json!([me.id, editor.id]),
         "{shown}"
     );
+    assert_eq!(shown["properties"]["gone"], json!(me.id), "{shown}");
     assert_eq!(
         shown["filter"]["filters"][0]["values"],
         json!([me.id]),
         "{shown}"
     );
+    assert_eq!(shown["hidden"], json!([me.id, ""]), "{shown}");
     let blocks = th.client.get(&blocks_path(&boards.board.id)).await.value();
     assert_eq!(
-        read(&blocks),
+        people_in(&blocks),
         shown,
         "the token changes nothing for a member"
     );

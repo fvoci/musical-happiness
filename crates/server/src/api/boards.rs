@@ -197,10 +197,9 @@ async fn handle_create_board(
 /// A board
 ///
 /// For a user who may see the board: a member of it, or for an open board anyone in
-/// its team. With the board's read token no session is needed. Who reads by the token
-/// alone, without a session or as a user who could not see the board without it, is
-/// not told who made the board or changed it last (`createdBy` and `modifiedBy` are
-/// empty).
+/// its team. With the board's read token no session is needed. Who reads with the token
+/// and is no member of the board, without a session or signed in, is not told who made
+/// the board or changed it last (`createdBy` and `modifiedBy` are empty).
 #[utoipa::path(
     get,
     path = "/boards/{boardId}",
@@ -222,28 +221,31 @@ async fn handle_get_board(
         return Err(AppError::unauthorized("access denied to board"));
     }
 
-    let board = app.board(&board_id).await?;
-
-    // An open board is for every user of its team; a private one for its members, and
-    // for nobody else it exists, unless they have the read token.
-    let sees = !user_id.is_empty()
-        && (match board.board_type {
-            BoardType::Private => false,
-            BoardType::Open => {
-                !user_is_guest(&app, user_id).await?
-                    && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
-            }
-        } || app
-            .has_permission_to_board(user_id, &board_id, BoardPermission::ViewBoard)
-            .await?);
-    if !sees && !has_valid_read_token {
+    let mut board = app.board(&board_id).await?;
+    if has_valid_read_token {
+        if !app.is_board_reader(user_id, &board_id).await? {
+            board.hide_people();
+        }
+    } else if !sees_board_without_token(&app, user_id, &board).await? {
         return Err(AppError::not_found("board"));
     }
-    let mut board = board;
-    if !sees {
-        board.hide_people();
-    }
     Ok(json_response(&board))
+}
+
+/// Whether a signed-in user sees the board without its read token: an open board is
+/// for every user of its team, a private one for its members.
+async fn sees_board_without_token(
+    app: &App,
+    user_id: &str,
+    board: &Board,
+) -> Result<bool, AppError> {
+    let open_to_the_team = board.board_type == BoardType::Open
+        && !user_is_guest(app, user_id).await?
+        && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam);
+    Ok(open_to_the_team
+        || app
+            .has_permission_to_board(user_id, &board.id, BoardPermission::ViewBoard)
+            .await?)
 }
 
 /// Change a board

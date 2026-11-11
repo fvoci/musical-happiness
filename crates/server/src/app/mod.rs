@@ -284,6 +284,18 @@ impl App {
         }
     }
 
+    /// Returns whether the user is a member of the board who may read it. Who reads a
+    /// shared board by its read token and is not one is told no user's identifier
+    /// (`Board::hide_people`, `Block::hide_people`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn is_board_reader(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
+        self.has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
+            .await
+    }
+
     /// Returns the membership of a user on a board, if there is one.
     ///
     /// # Errors

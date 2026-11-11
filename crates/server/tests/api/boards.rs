@@ -958,8 +958,8 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
         "the shared board, without its creator and modifier"
     );
 
-    // A user who could not see the board without the token reads it as the token's
-    // reader; one who could reads it as they would without it.
+    // A signed-in user who is no member reads it as the token's reader; a member as a
+    // member.
     let private = board_with_admin(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Private, "private shared board"),
@@ -976,14 +976,21 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
     );
     let read: Board = th.client.get(&path).await.ok_json();
     assert_eq!(read.created_by, user1.id, "a member reads as a member");
+    // So on an open board, which a user of its team sees without the token as it is.
     let read: Board = th
         .client2
         .get(&format!("/boards/{}?readToken={sharing_token}", board.id))
         .await
         .ok_json();
+    assert_eq!(read.created_by, "", "with the token, as its reader");
+    let read: Board = th
+        .client2
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .ok_json();
     assert_eq!(
         read.created_by, user1.id,
-        "a user of the team sees an open board without the token"
+        "without it, as a user of the team"
     );
 
     th.teardown().await;

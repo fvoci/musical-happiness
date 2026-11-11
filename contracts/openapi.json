@@ -2311,7 +2311,7 @@
         ]
       },
       "get": {
-        "description": "For a user who may see the board: a member of it, or for an open board anyone in\nits team. With the board's read token no session is needed. Who reads by the token\nalone, without a session or as a user who could not see the board without it, is\nnot told who made the board or changed it last (`createdBy` and `modifiedBy` are\nempty).",
+        "description": "For a user who may see the board: a member of it, or for an open board anyone in\nits team. With the board's read token no session is needed. Who reads with the token\nand is no member of the board, without a session or signed in, is not told who made\nthe board or changed it last (`createdBy` and `modifiedBy` are empty).",
         "operationId": "getBoard",
         "parameters": [
           {
@@ -2484,7 +2484,7 @@
     },
     "/api/v1/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed. Who reads by the token alone, without a\nsession or as a user who could not read the blocks without it, is told no user's\nidentifier: `createdBy` and `modifiedBy` are empty, so is the `userId` of every\nmention in a body, and so is each user in the values of the board's person\nproperties (`person`, `multiPerson`, `createdBy`, `updatedBy`), in a card's\n`fields.properties` and in the clauses of a view's `fields.filter`. A list keeps its\nlength: how many people a card has still shows.\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed. Who reads with the token and is no member\nof the board, without a session or signed in, is told no user's identifier:\n`createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a\nbody, and so is each user that the board's person properties (`person`,\n`multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in\nthe clauses of a view's `fields.filter`; a list keeps its length, so how many people\na card has still shows. A card's values of properties the board does not define are\nleft out, and a view grouped by a person property keeps of `visibleOptionIds`,\n`hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of\nthe cards without a value (`\"\"`).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {

@@ -660,6 +660,22 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         "{message}"
     );
 
+    // A member who follows the block by the token, with no team subscription, is told
+    // all of it.
+    let member = Socket::connect_as(&th.client).await;
+    let (_member, message) = follow_block_on(&th, member, &block, &token).await;
+    assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
+    assert_eq!(
+        message.pointer(mention),
+        Some(&json!(user1.id)),
+        "{message}"
+    );
+    assert_eq!(
+        message["block"]["fields"]["properties"],
+        json!({"owner": user1.id, "team": [user1.id, user1.id]}),
+        "{message}"
+    );
+
     th.teardown().await;
 }
 

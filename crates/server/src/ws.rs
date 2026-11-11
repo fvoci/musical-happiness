@@ -13,7 +13,8 @@ use std::time::Duration;
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, Session,
+    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig,
+    PersonProperties, Session,
 };
 use fvoci_store::Store;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
-use crate::permissions::{TeamPermission, has_permission_to_team};
+use crate::permissions::{
+    BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
+};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -508,8 +511,8 @@ impl Hub {
     /// parent, that a block changed.
     ///
     /// A listener of the block whose connection has no session, or whose user is no
-    /// member of the board, follows it by the read token alone and is told no user's
-    /// identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
+    /// member of the board who may read it, follows it by the read token alone and is
+    /// told no user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
     pub async fn broadcast_block_change(&self, team_id: &str, block: &Block) {
         let followers = self.block_followers(block);
         // Most changes happen with nobody listening; do not ask the store then.
@@ -533,9 +536,12 @@ impl Hub {
         // A connection that listens both as a board member and to the block itself
         // gets the message once per subscription.
         for (id, user_id) in followers {
-            let member =
-                !user_id.is_empty() && members.iter().any(|member| member.user_id == user_id);
-            if member {
+            let reader = !user_id.is_empty()
+                && members.iter().any(|member| {
+                    member.user_id == user_id
+                        && member_has_permission(member, BoardPermission::ViewBoard)
+                });
+            if reader {
                 recipients.push(id);
             } else {
                 by_token.push(id);
@@ -550,8 +556,18 @@ impl Hub {
         if by_token.is_empty() {
             return;
         }
-        let people = match self.inner.store.get_board(&block.board_id).await {
-            Ok(board) => board.person_properties(),
+        // A block without fields names nobody there, such as the block of a deletion.
+        let people = if block.fields.is_empty() {
+            Ok(PersonProperties::default())
+        } else {
+            self.inner
+                .store
+                .get_board(&block.board_id)
+                .await
+                .map(|board| board.person_properties())
+        };
+        let people = match people {
+            Ok(people) => people,
             Err(error) => {
                 // Without the board's person properties the block cannot be told
                 // without its people: it is not told.

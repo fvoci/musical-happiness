@@ -367,12 +367,13 @@ impl Block {
         malformed
     }
 
-    /// The block as it goes to whoever reads by a read token alone, who is nobody the
-    /// server knows (`docs/s6-design.md`, decision 7), or a user who is no member of the
-    /// board: no `createdBy` or `modifiedBy`, no user in the mentions of the body, and
-    /// in `fields` none in the values of the board's person properties (`people`), of a
-    /// card's `properties` or of a view's `filter`. A user's identifier tells when they
-    /// signed up.
+    /// The block as it goes to whoever reads by a read token alone without being a
+    /// member of the board, who is nobody the server knows (`docs/s6-design.md`,
+    /// decision 7): no `createdBy` or `modifiedBy`, no user in the mentions of the body,
+    /// and in `fields` none that the board's person properties name (`people`): in a
+    /// card's `properties` ([`PersonProperties::hide_values`]) and in a view's filter and
+    /// groups ([`PersonProperties::hide_view_fields`]). A user's identifier tells when
+    /// they signed up.
     pub fn hide_people(&mut self, people: &PersonProperties) {
         self.created_by.clear();
         self.modified_by.clear();
@@ -382,8 +383,8 @@ impl Block {
         if let Some(Value::Object(values)) = self.fields.get_mut("properties") {
             people.hide_values(values);
         }
-        if let Some(filter) = self.fields.get_mut("filter") {
-            people.hide_filter_values(filter);
+        if self.block_type == BlockType::View {
+            people.hide_view_fields(&mut self.fields);
         }
     }
 
