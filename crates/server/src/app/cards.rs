@@ -10,6 +10,25 @@ use super::{App, ChangeNotification};
 use crate::auth::now_millis;
 use crate::error::AppError;
 
+/// Whether a list of cards gives each card its preview.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardPreviews {
+    /// It does not.
+    Without,
+    /// Each card has the file of its body's first image and the beginning of its
+    /// plain text.
+    With,
+}
+
+impl From<CardPreviews> for Previews {
+    fn from(previews: CardPreviews) -> Self {
+        match previews {
+            CardPreviews::Without => Self::Without,
+            CardPreviews::With => Self::With,
+        }
+    }
+}
+
 /// Which cards of a board a `page` and `per_page` pair asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CardRange {
@@ -88,7 +107,7 @@ impl App {
 
     /// Returns cards of a board, in no particular order: page number `page`, counted
     /// from zero, of pages of `per_page` cards. A `per_page` of zero or less asks for
-    /// all cards, whatever the page. With [`Previews::With`] each card has its preview.
+    /// all cards, whatever the page. With [`CardPreviews::With`] each card has its preview.
     ///
     /// # Errors
     ///
@@ -99,7 +118,7 @@ impl App {
         board_id: &str,
         page: i64,
         per_page: i64,
-        previews: Previews,
+        previews: CardPreviews,
     ) -> Result<Vec<Card>, AppError> {
         let mut filter = BlockFilter::board(board_id).with_type(BlockType::Card);
         match CardRange::new(page, per_page) {
@@ -107,7 +126,10 @@ impl App {
             CardRange::Page(paging) => filter.paging = Some(paging),
             CardRange::Nothing => return Ok(Vec::new()),
         }
-        let blocks = self.store().get_listed_blocks(&filter, previews).await?;
+        let blocks = self
+            .store()
+            .get_listed_blocks(&filter, previews.into())
+            .await?;
 
         let now = now_millis();
         blocks

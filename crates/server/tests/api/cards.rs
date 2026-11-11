@@ -505,7 +505,7 @@ async fn app_create_card_error_scenario() {
 
     let cards = th
         .app
-        .cards_for_board(&board.id, 0, 0, fvoci_store::Previews::Without)
+        .cards_for_board(&board.id, 0, 0, fvoci_server::app::CardPreviews::Without)
         .await
         .expect("the cards are read");
     assert_eq!(cards, [], "nothing was created");
@@ -535,7 +535,7 @@ async fn app_get_cards_success_scenario() {
 
     let cards = th
         .app
-        .cards_for_board(&board.id, 0, 0, fvoci_store::Previews::Without)
+        .cards_for_board(&board.id, 0, 0, fvoci_server::app::CardPreviews::Without)
         .await
         .expect("the cards are read");
 
@@ -565,7 +565,7 @@ async fn app_get_cards_error_scenario() {
 
     let cards = th
         .app
-        .cards_for_board(&board.id, 0, 0, fvoci_store::Previews::Without)
+        .cards_for_board(&board.id, 0, 0, fvoci_server::app::CardPreviews::Without)
         .await
         .expect("the cards are read");
     assert!(cards.is_empty(), "nothing was stored: {cards:?}");

@@ -32,6 +32,7 @@ mod users;
 
 pub use auth::Admission;
 pub use blocks::ChangeNotification;
+pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
