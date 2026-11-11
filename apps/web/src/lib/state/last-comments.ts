@@ -4,7 +4,8 @@
  * least as new as the card's last one, and after a comment is deleted the
  * card is read again.
  *
- * Only such a reading lowers a card's time. Any other answer or reading may
+ * Such a reading, and a reading of the whole board again (`begin` and
+ * `settle`), may lower a card's time. Any other answer or reading may
  * have been made before a comment that was heard since (a comment does not
  * change a card's `updateAt`, by which readings are otherwise told apart),
  * so it is taken at the later of the two times. A card in a change message
@@ -54,9 +55,11 @@ export class LastComments {
     this.#cardOf.set(comment.id, comment.parentId);
     const cards = this.#host.cards();
     const card = cards.find((each) => each.id === comment.parentId);
-    if (!card || (card.lastCommentAt ?? 0) >= comment.createAt) return;
+    if (!card || (card.lastCommentAt ?? 0) > comment.createAt) return;
+    // Counted also when it is the time the card has (brought back while the card is read again).
     this.#count += 1;
     this.#raised.set(card.id, { at: comment.createAt, count: this.#count });
+    if (card.lastCommentAt === comment.createAt) return;
     this.#host.setCards(
       cards.map((each) => (each === card ? { ...card, lastCommentAt: comment.createAt } : each)),
     );
@@ -81,6 +84,18 @@ export class LastComments {
       else void this.#reread(cardId);
     }
     if (unknown) void this.#reread('');
+  }
+
+  /** A mark to tell, when a reading of the board comes back, which comments were heard since it began. */
+  begin(): number {
+    return this.#count;
+  }
+
+  /** A card of a reading of the board begun at `mark`: its time, unless a comment heard since is newer. */
+  settle(card: CardSummary, mark: number): CardSummary {
+    const raised = this.#raised.get(card.id);
+    if (!raised || raised.count <= mark || raised.at <= (card.lastCommentAt ?? 0)) return card;
+    return { ...card, lastCommentAt: raised.at };
   }
 
   /** A card that came another way than a re-reading: never earlier than the time it has. */

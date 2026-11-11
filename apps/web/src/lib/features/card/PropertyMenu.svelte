@@ -71,20 +71,21 @@
   let moveUp = $state<HTMLButtonElement>();
   let moveDown = $state<HTMLButtonElement>();
 
-  /** The move button pressed last, while the focus is to stay on the moves. */
-  let pressed = $state<-1 | 1 | undefined>();
+  /** A move not shown yet, whose button may then be off: not state, read once. */
+  let pending: { step: -1 | 1; from: number } | undefined;
 
   function move(step: -1 | 1): void {
-    pressed = step;
+    pending = { step, from: place };
     void board.moveProperty(template.id, step);
   }
 
-  // At an end now, the button pressed is off and would lose the focus: the other one takes it.
+  // Once the move shows at an end, the button pressed is off and would lose the focus: the other one takes it.
   $effect(() => {
-    const atTop = place <= 0;
-    const atBottom = place >= order.length - 1;
-    if (pressed === -1 && atTop) moveDown?.focus();
-    else if (pressed === 1 && atBottom) moveUp?.focus();
+    if (!pending || place === pending.from) return;
+    const { step } = pending;
+    pending = undefined;
+    if (step === -1 && place <= 0) moveDown?.focus();
+    else if (step === 1 && place >= order.length - 1) moveUp?.focus();
   });
 
   // A name that changes elsewhere replaces the text, unless the menu is open on it.

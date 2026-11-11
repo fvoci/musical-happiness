@@ -1115,7 +1115,7 @@ export class MemoryBackend implements Backend {
     if (top?.type === 'comment') {
       const role = this.#roleOn(boardId);
       if (!mayDeleteComment(role, top.createdBy === this.userId)) {
-        fail(403, "access denied to restore other users' comments");
+        fail(403, "access denied to undelete other users' comments");
       }
     }
     this.world.deletedBlocks.delete(blockId);

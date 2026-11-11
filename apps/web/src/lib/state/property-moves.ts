@@ -31,17 +31,17 @@ export class PropertyMoves {
   }
 
   /** Moves the property a place up (`-1`) or down (`1`): whether it moved; rejects when refused. */
-  move(propertyId: string, step: -1 | 1): Promise<boolean> {
-    const turn = this.#queue.then(() => this.#move(propertyId, step));
+  move(propertyId: string, step: -1 | 1, among?: readonly string[]): Promise<boolean> {
+    const turn = this.#queue.then(() => this.#move(propertyId, step, among));
     this.#queue = turn.catch(() => undefined);
     return turn;
   }
 
-  async #move(propertyId: string, step: -1 | 1): Promise<boolean> {
+  async #move(propertyId: string, step: -1 | 1, among?: readonly string[]): Promise<boolean> {
     const board = this.#host.board();
     if (!board) return false;
     const ids = board.cardProperties.map((template) => template.id);
-    const order = movedProperty(ids, propertyId, step);
+    const order = movedProperty(ids, propertyId, step, among);
     if (sameOrder(ids, order)) return false;
     this.#host.show(withPropertyOrder(board, order));
     try {

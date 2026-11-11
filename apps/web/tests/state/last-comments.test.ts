@@ -183,4 +183,42 @@ describe('an open board', () => {
     await settle();
     expect(cards).not.toHaveBeenCalled();
   });
+
+  it('takes a lower time from reading the board again after the connection was back', async () => {
+    const { board, other, world, betaId } = await onBeta();
+    const before = board.card(betaId)?.lastCommentAt ?? 0;
+    const posted = await other.createComment(board.boardId, betaId, text('soon gone'));
+    await settle();
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+    // Deleted while the connection was down: nothing is heard of it, then the board is read again.
+    world.blocks.delete(posted.id);
+    world.tellBoard(board.boardId, { kind: 'resync' });
+    await settle();
+    await vi.waitFor(() => {
+      expect(board.card(betaId)?.lastCommentAt).toBe(before);
+    });
+  });
+
+  it('keeps the time of a comment brought back while the card was read again for its deletion', async () => {
+    const { board, backend, other, betaId } = await onBeta();
+    const posted = await other.createComment(board.boardId, betaId, text('back again'));
+    await settle();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = backend.card.bind(backend);
+    vi.spyOn(backend, 'card').mockImplementationOnce(async (boardId, cardId) => {
+      const answer = await real(boardId, cardId);
+      await held;
+      return answer;
+    });
+    await backend.deleteBlock(board.boardId, posted.id);
+    await settle();
+    await backend.restoreBlock(board.boardId, posted.id);
+    await settle();
+    release();
+    await settle();
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+  });
 });

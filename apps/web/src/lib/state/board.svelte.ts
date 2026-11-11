@@ -351,6 +351,7 @@ export class BoardStore {
   async #refresh(): Promise<void> {
     if (this.status !== 'ready') return;
     this.#refreshing += 1;
+    const heard = this.#lastComments.begin();
     const reading = this.#refreshing;
     const cardsBefore = this.cards.map((card) => card.id);
     const viewsBefore = this.views.map((view) => view.id);
@@ -367,7 +368,7 @@ export class BoardStore {
       if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
       this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
       const shown = this.cards;
-      const read = cards.map((card) => this.#lastComments.merge(card, this.card(card.id)));
+      const read = cards.map((card) => this.#lastComments.settle(card, heard));
       this.cards = reread(shown, read, cardsBefore, (card) => this.#cardWrites.receive(card));
       if (membersTold === this.#membersTold) {
         this.members = members;
@@ -774,25 +775,24 @@ export class BoardStore {
   }
 
   /**
-   * Moves a card property of the board a place up (`-1`) or down (`1`): its
+   * Moves a card property a place up (`-1`) or down (`1`) among `among` (by default all): its
    * own request (`reorderCardProperties`), shown at once; undo moves it back.
    */
-  async moveProperty(propertyId: string, step: -1 | 1): Promise<void> {
+  async moveProperty(propertyId: string, step: -1 | 1, among?: readonly string[]): Promise<void> {
     // A move that found the property at an end moved nothing: its undo moves nothing back.
     let moved = false;
     await this.#perform(
       async () => {
-        moved = await this.#propertyMoves.move(propertyId, step);
+        moved = await this.#propertyMoves.move(propertyId, step, among);
       },
       async () => {
-        if (moved) await this.#propertyMoves.move(propertyId, step === 1 ? -1 : 1);
+        if (moved) await this.#propertyMoves.move(propertyId, step === 1 ? -1 : 1, among);
       },
       'moveProperty',
     );
   }
 
   readonly #propertyMoves = propertyMovesOf(this);
-
   // ------------------------------------------------------------ sharing
 
   /** Whether anybody of the team may find and join the board. */

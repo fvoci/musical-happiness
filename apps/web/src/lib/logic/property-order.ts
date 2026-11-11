@@ -4,14 +4,22 @@
  */
 import type { Board } from './wire.ts';
 
-/** The identifiers with one moved a place up (`-1`) or down (`1`); as they are at an end. */
-export function movedProperty(ids: readonly string[], propertyId: string, step: -1 | 1): string[] {
-  const from = ids.indexOf(propertyId);
-  const to = from + step;
-  if (from < 0 || to < 0 || to >= ids.length) return [...ids];
-  const next = [...ids];
-  next.splice(from, 1);
-  next.splice(to, 0, propertyId);
+/**
+ * The identifiers with one moved a place up (`-1`) or down (`1`) among
+ * `among` (by default all of them): past the next of those, over any that
+ * are not among them; as they are at an end.
+ */
+export function movedProperty(
+  ids: readonly string[],
+  propertyId: string,
+  step: -1 | 1,
+  among: readonly string[] = ids,
+): string[] {
+  const counted = ids.filter((id) => id === propertyId || among.includes(id));
+  const neighbour = counted[counted.indexOf(propertyId) + step];
+  if (!counted.includes(propertyId) || neighbour === undefined) return [...ids];
+  const next = ids.filter((id) => id !== propertyId);
+  next.splice(next.indexOf(neighbour) + (step === 1 ? 1 : 0), 0, propertyId);
   return next;
 }
 

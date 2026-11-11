@@ -27,26 +27,34 @@
   const toggles = $derived(
     propertyToggles(board.board?.cardProperties ?? [], view.fields.viewType),
   );
-  const order = $derived(board.board?.cardProperties.map((template) => template.id) ?? []);
+  /** The properties the panel lists, in the board's order: a move counts among these. */
+  const order = $derived(toggles.map((toggle) => toggle.id));
 
   let list = $state<HTMLElement>();
-  /** The property moved last, and which way: the focus follows it. */
-  let moved = $state<{ id: string; step: -1 | 1 } | undefined>();
-  /** Its new place, for a screen reader. */
-  let told = $state('');
+  /** The property moved last, for a screen reader: where it is now. */
+  let announced = $state<string | undefined>();
+  const told = $derived.by(() => {
+    const at = announced === undefined ? -1 : order.indexOf(announced);
+    const name = toggles[at]?.template.name;
+    return name === undefined
+      ? ''
+      : m.view_property_moved({ name, place: at + 1, count: order.length });
+  });
+  /** A move whose row is to keep the focus once it shows: not state, read once. */
+  let pending: { id: string; step: -1 | 1; from: number } | undefined;
 
   function move(propertyId: string, step: -1 | 1): void {
-    moved = { id: propertyId, step };
-    void board.moveProperty(propertyId, step);
+    announced = propertyId;
+    pending = { id: propertyId, step, from: order.indexOf(propertyId) };
+    void board.moveProperty(propertyId, step, order);
   }
 
-  // Once the order shows the move: the moved row's button keeps the focus, or the other one at an end.
+  // Once the move shows: the moved row's button keeps the focus, or the other one at an end.
   $effect(() => {
-    const at = moved ? order.indexOf(moved.id) : -1;
-    if (!moved || at < 0) return;
-    const { id, step } = moved;
-    const name = toggles.find((toggle) => toggle.id === id)?.template.name ?? '';
-    told = m.view_property_moved({ name, place: at + 1, count: order.length });
+    const at = pending ? order.indexOf(pending.id) : -1;
+    if (!pending || at < 0 || at === pending.from) return;
+    const { id, step } = pending;
+    pending = undefined;
     void tick().then(() => {
       const row = list?.querySelector(`[data-row="${CSS.escape(id)}"]`);
       const buttons = row?.querySelectorAll<HTMLButtonElement>('button[data-action^="move-"]');

@@ -18,6 +18,15 @@ describe('an order of properties', () => {
     expect(movedProperty(['a', 'b', 'c'], 'a', -1)).toEqual(['a', 'b', 'c']);
     expect(movedProperty(['a', 'b', 'c'], 'c', 1)).toEqual(['a', 'b', 'c']);
     expect(movedProperty(['a', 'b'], 'x', 1)).toEqual(['a', 'b']);
+    // Among those a list shows: past the next of them, over one it hides.
+    expect(movedProperty(['a', 'h', 'b', 'c'], 'a', 1, ['a', 'b', 'c'])).toEqual([
+      'h',
+      'b',
+      'a',
+      'c',
+    ]);
+    expect(movedProperty(['a', 'h', 'b'], 'b', -1, ['a', 'b'])).toEqual(['b', 'a', 'h']);
+    expect(movedProperty(['h', 'a', 'b'], 'a', -1, ['a', 'b'])).toEqual(['h', 'a', 'b']);
   });
 
   it('puts a board in it, keeping one it does not name after the others', () => {
