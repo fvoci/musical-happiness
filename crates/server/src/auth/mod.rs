@@ -22,6 +22,8 @@ const SESSION_USE_RECORDING_INTERVAL_MILLIS: i64 = 10 * 60 * 1000;
 /// Looks up sessions and checks read tokens.
 #[derive(Debug, Clone)]
 pub struct Authenticator {
+    /// A handle that names no organization: sessions are nobody's, and whose a shared
+    /// board is, the store's directory finds out by the token.
     store: Store,
     session_idle_millis: i64,
     public_shared_boards: bool,

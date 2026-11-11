@@ -57,6 +57,16 @@ pub(crate) struct TestServer {
     directory: PathBuf,
 }
 
+/// As whom a test server connects to PostgreSQL.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum DatabaseRole {
+    /// The role of the tests, which the wall between organizations holds.
+    #[default]
+    HeldByTheWall,
+    /// A superuser, whom no policy holds.
+    Superuser,
+}
+
 /// How a test server differs from the default one.
 #[derive(Debug, Default)]
 pub(crate) struct Setup {
@@ -67,6 +77,7 @@ pub(crate) struct Setup {
     configure: Vec<fn(&mut Configuration)>,
     admin_socket: Option<PathBuf>,
     tls_files: Option<TlsFiles>,
+    database_role: DatabaseRole,
     /// Whether the built-in templates are imported at startup. Off by default so a
     /// server starts quickly; the counterpart of the original's `SkipTemplateInit`.
     with_templates: bool,
@@ -93,6 +104,13 @@ impl Setup {
             public_shared_boards: true,
             ..Self::default()
         }
+    }
+
+    /// Connects to PostgreSQL as a superuser: for the tests of what the server makes
+    /// of a role that the wall between organizations does not hold.
+    pub(crate) fn connecting_as_superuser(mut self) -> Self {
+        self.database_role = DatabaseRole::Superuser;
+        self
     }
 
     /// Imports the built-in templates at startup, for tests that need them.
@@ -150,7 +168,10 @@ impl Setup {
         )
         .expect("a static file is written");
 
-        let database = TestDatabase::create(&directory).await;
+        let database = match self.database_role {
+            DatabaseRole::HeldByTheWall => TestDatabase::create(&directory).await,
+            DatabaseRole::Superuser => TestDatabase::create_as_superuser(&directory).await,
+        };
         let mut config = Configuration {
             db_type: database.db_type().as_str().to_owned(),
             db_config: database.dbconfig().to_owned(),
@@ -176,7 +197,14 @@ impl Setup {
         }
 
         seed_teams(&config).await;
-        let mut server = Server::new(config, &self.base_path).await?;
+        let mut server = match Server::new(config, &self.base_path).await {
+            Ok(server) => server,
+            Err(error) => {
+                // The database of a server that did not start is of no further use.
+                database.remove().await;
+                return Err(error);
+            }
+        };
         if let Some(tls_files) = self.tls_files {
             server = server.with_tls_files(tls_files);
         }

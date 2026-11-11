@@ -119,14 +119,27 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
     // first made a board in it through the team's route.
     let hidden = not_there(&ts.client.get(&format!("/w/{TEST_TEAM_ID}/boards")).await);
     assert_eq!(hidden["message"], "workspace not found", "{hidden}");
+    // The system's workspace is nobody's to work in, a member's neither.
+    let user1 = ts.client.me().await.id;
+    ts.system_store()
+        .add_workspace_member(
+            fvoci_store::SYSTEM_WORKSPACE_ID,
+            &user1,
+            WorkspaceRole::Member,
+        )
+        .await
+        .expect("a membership of the system's workspace is stored");
     for nothing in [
         UNKNOWN_ID,
         "no-identifier",
+        "%FF",
         fvoci_store::SYSTEM_WORKSPACE_ID,
     ] {
         let absent = not_there(&ts.client.get(&format!("/w/{nothing}/boards")).await);
         assert_eq!(absent, hidden, "{nothing} answers as a workspace of others");
     }
+    let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
+    assert_eq!(listed.len(), 1, "the system's is not listed: {listed:?}");
     ts.anonymous()
         .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
         .await
@@ -138,7 +151,7 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
 
     // Let in, the user finds the workspace and its boards; a guest finds only the
     // boards they are on.
-    let (user1, user2) = (ts.client.me().await.id, ts.client2.me().await.id);
+    let user2 = ts.client2.me().await.id;
     let store = ts.app.store();
     store
         .add_workspace_member(TEST_TEAM_ID, &user1, WorkspaceRole::Member)
@@ -268,6 +281,39 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         &ts.client2
             .get(&format!("/w/{their_workspace}/boards"))
             .await,
+    );
+    // Let into the workspace as a guest, without belonging to their organization, the
+    // user finds the workspace, and in it the boards they are on: none.
+    let user2 = ts.client2.me().await.id;
+    theirs
+        .add_workspace_member(&their_workspace, &user2, WorkspaceRole::Guest)
+        .await
+        .expect("the second user is let in as a guest");
+    let boards: Vec<Board> = ts
+        .client2
+        .get(&format!("/w/{their_workspace}/boards"))
+        .await
+        .ok_json();
+    assert!(boards.is_empty(), "a guest is on no board: {boards:?}");
+    let listed: Vec<UserWorkspace> = ts.client2.get("/users/me/workspaces").await.ok_json();
+    assert_eq!(listed.len(), 2, "theirs is among the guest's: {listed:?}");
+
+    // The order of the list is by the age of the organization, not by its identifier:
+    // made older than the server's, theirs comes first.
+    let aged = theirs
+        .execute_unchecked("UPDATE organizations SET create_at = 1")
+        .await
+        .expect("their organization is made the older");
+    assert_eq!(aged, 1, "their organization, and no other");
+    let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
+    let found: Vec<&str> = listed
+        .iter()
+        .map(|workspace| workspace.id.as_str())
+        .collect();
+    assert_eq!(
+        found,
+        [their_workspace.as_str(), ROOT_TEAM_ID],
+        "the older first"
     );
 
     // The routes that name no workspace work in the server's one organization: their

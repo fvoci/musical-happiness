@@ -66,8 +66,9 @@ const MAX_CONNECTIONS: u32 = 10;
 /// another organization. SQLite has no such policy, and holds one organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tenant {
-    /// No organization: the tables of the organizations read as empty and take no row.
-    /// What belongs to no organization (users, sessions) is reached as ever.
+    /// No organization: the tables of the organizations, and the table of the
+    /// organizations itself, read as empty and take no row. What belongs to no
+    /// organization (users, sessions) is reached as ever.
     #[default]
     Unset,
     /// The rows of this organization.
@@ -275,6 +276,31 @@ impl Store {
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.text(0),
                 None => Ok(String::new()),
+            }
+        })
+        .await
+    }
+
+    /// The name of the role the store connects as, if the wall between organizations
+    /// does not hold it: a PostgreSQL superuser, or a role with `BYPASSRLS`, passes
+    /// every row-level security policy. `None` for a role the wall holds, and on
+    /// SQLite, which has no wall and one organization.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn role_past_the_wall(&self) -> Result<Option<String>, StoreError> {
+        if self.dialect() == Dialect::Sqlite {
+            return Ok(None);
+        }
+        self.with_conn(async |scope| {
+            let sql = scope.sql(
+                "SELECT rolname::text FROM pg_roles \
+                 WHERE rolname = current_user AND (rolsuper OR rolbypassrls)",
+            );
+            match scope.fetch_optional(sql).await? {
+                Some(row) => row.text(0).map(Some),
+                None => Ok(None),
             }
         })
         .await

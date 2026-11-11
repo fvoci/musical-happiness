@@ -104,7 +104,9 @@ impl Server {
                 "{BASE_PATH_ENV} must be empty or an absolute path such as /boards, not {base_path:?}"
             );
         }
-        let store = only_organization_scope(connect_store(&config).await?).await?;
+        let store = connect_store(&config).await?;
+        check_the_wall_holds(&store, &config).await?;
+        let store = only_organization_scope(store).await?;
         let files =
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
@@ -369,13 +371,51 @@ async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
     }
 }
 
+/// Looks at the role the server connects to PostgreSQL as: a superuser, or a role with
+/// `BYPASSRLS`, passes the policies that keep the rows of the organizations apart, and
+/// the safety net below the server's own checks is not there.
+///
+/// # Errors
+///
+/// Fails for such a role if `org_creation` is `open`: a server that takes in several
+/// organizations does not start without the net. With the one organization of
+/// `first_user_only` it starts, and says so (the default user of a database container
+/// is a superuser, and a server set up that way goes on working).
+async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::Result<()> {
+    let Some(role) = store
+        .role_past_the_wall()
+        .await
+        .context("reading the role of the database connection")?
+    else {
+        return Ok(());
+    };
+    if config.org_creation == config::ORG_CREATION_OPEN {
+        bail!(
+            "the database role {role:?} is a superuser or has BYPASSRLS, so the row-level \
+             security policies that keep organizations apart do not hold it; with \
+             org_creation \"open\" the server connects as a role that is neither \
+             (ALTER ROLE ... NOSUPERUSER NOBYPASSRLS, and make it the owner of the tables)"
+        );
+    }
+    tracing::warn!(
+        role,
+        "the database role is a superuser or has BYPASSRLS: the row-level security \
+         policies that keep organizations apart do not hold it. The server works; the \
+         safety net below its own checks is off"
+    );
+    Ok(())
+}
+
 /// A handle to the store that reaches the rows of the one organization the server
 /// works in: the oldest, made now, with its first workspace, if the database has none.
 ///
 /// TEMPORARY. Every route that names no workspace works in this organization, as do
 /// the websocket connections. A route that names its workspace gets its organization
-/// from there; when all do, this function and its one call go, and what is left
-/// without an organization shows by reaching nothing.
+/// from there; when all do, this function and its one call go. On PostgreSQL what is
+/// left without an organization then shows by reaching nothing; SQLite has no wall, and
+/// shows only the statements that name the organization themselves (the teams and the
+/// members), so that run tells less. The first organization of an empty database is
+/// made here too, and needs another place then.
 async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
     // The first workspace of an organization that is made now: the root team, with a
     // fresh signup token.

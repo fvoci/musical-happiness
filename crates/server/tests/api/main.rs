@@ -22,6 +22,7 @@ mod imports;
 mod limits;
 mod login_limits;
 mod onboarding;
+mod organizations;
 mod paths;
 mod properties;
 mod search;

@@ -5,7 +5,9 @@
 //! `FVOCI_STORE_TEST_CONN_STRING` for PostgreSQL, `FVOCI_S3_TEST_ENDPOINT` together with
 //! `FVOCI_S3_TEST_BUCKET` for the object store (for CI, where the services are given).
 //! A PostgreSQL URL given so must name a role that is no superuser, has `NOBYPASSRLS`
-//! and has `CREATE` on the database: the tests refuse any other.
+//! and has `CREATE` on the database: the tests refuse any other. With it goes
+//! `FVOCI_STORE_TEST_SUPERUSER_CONN_STRING`, the URL of a superuser of the same
+//! database, for the tests of what the server makes of such a role.
 
 use std::path::Path;
 
@@ -18,6 +20,7 @@ use crate::steps::{self, Step};
 /// The variables the store's test support reads.
 const DB_TYPE_ENV: &str = "FVOCI_STORE_TEST_DB_TYPE";
 const CONN_STRING_ENV: &str = "FVOCI_STORE_TEST_CONN_STRING";
+const SUPERUSER_CONN_STRING_ENV: &str = "FVOCI_STORE_TEST_SUPERUSER_CONN_STRING";
 
 /// The variable that makes the regression tests record instead of compare.
 const REGRESSION_UPDATE_ENV: &str = "FVOCI_REGRESSION_UPDATE";
@@ -70,13 +73,20 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
 
     if matches!(databases, Databases::All | Databases::Postgres) {
         parts.push(Step::new("tests on PostgreSQL", || {
-            let url = match env(CONN_STRING_ENV) {
+            let (url, superuser_url) = match env(CONN_STRING_ENV) {
                 Some(url) => {
                     steps::say(&format!(
                         "    using the PostgreSQL of {CONN_STRING_ENV}; its role must be no \
                          superuser, have NOBYPASSRLS and have CREATE on the database"
                     ));
-                    url
+                    let Some(superuser_url) = env(SUPERUSER_CONN_STRING_ENV) else {
+                        bail!(
+                            "{CONN_STRING_ENV} is set without {SUPERUSER_CONN_STRING_ENV}: \
+                             the tests of a role the policies do not hold need the URL of a \
+                             superuser of the same database"
+                        );
+                    };
+                    (url, superuser_url)
                 }
                 None => containers::prepare_postgres(&mut uses.borrow_mut())?,
             };
@@ -91,7 +101,11 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
                     "--package",
                     "fvoci-server",
                 ],
-                &[(DB_TYPE_ENV, "postgres"), (CONN_STRING_ENV, &url)],
+                &[
+                    (DB_TYPE_ENV, "postgres"),
+                    (CONN_STRING_ENV, &url),
+                    (SUPERUSER_CONN_STRING_ENV, &superuser_url),
+                ],
             )
         }));
     }

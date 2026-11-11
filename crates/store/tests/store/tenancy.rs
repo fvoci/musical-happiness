@@ -297,6 +297,17 @@ async fn assert_behind_the_wall(
     let policy = policies
         .get(&(table.to_owned(), "org_wall".to_owned()))
         .unwrap_or_else(|| panic!("{table} has the policy org_wall"));
+    if table == "organizations" {
+        // The same wall, by the organization's own identifier.
+        let (command, permissive, using, check) = wall;
+        let using = using.as_deref().map(|using| using.replace("org_id", "id"));
+        assert_eq!(
+            policy,
+            &(command.clone(), permissive.clone(), using, check.clone()),
+            "{table}: the policy is the one of boards, by its identifier"
+        );
+        return;
+    }
     assert_eq!(policy, wall, "{table}: the policy is the one of boards");
     let (nullable, default): (String, Option<String>) = sqlx::query_as(
         "SELECT is_nullable::text, column_default::text FROM information_schema.columns \
@@ -529,10 +540,14 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
         assert!(our_rows > 0, "{table}: the test stores a row of ours");
-        assert!(
-            their_rows > our_rows,
-            "{table}: theirs are more ({their_rows}) than ours ({our_rows})"
-        );
+        if table == "organizations" {
+            assert_eq!((our_rows, their_rows), (1, 1), "each reaches itself alone");
+        } else {
+            assert!(
+                their_rows > our_rows,
+                "{table}: theirs are more ({their_rows}) than ours ({our_rows})"
+            );
+        }
         assert_eq!(count(&unset).await, 0, "{table}: no organization named");
         assert_eq!(
             count(&test.system()).await,
@@ -688,6 +703,94 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
         .await
         .expect("the user is added");
     assert_eq!(access(&outside, &test.workspace_id).await, None);
+    // And somebody let into a workspace without belonging to the organization is in
+    // the workspace, as nothing in the organization.
+    let visitor = common::user(&unset, "visitor").await;
+    test.add_workspace_member(&second_workspace, &visitor, WorkspaceRole::Guest)
+        .await
+        .expect("the visitor is let in");
+    assert_eq!(
+        access(&visitor, &second_workspace).await,
+        Some((None, WorkspaceRole::Guest))
+    );
+
+    test.teardown().await;
+}
+
+/// A workspace that is not in use is nobody's to work in, a member's neither: the
+/// system's workspace, a workspace in the trash, and the workspaces of an organization
+/// that was deleted are not found and not listed.
+#[tokio::test]
+async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let user_id = common::user(&test, "member").await;
+    let second_workspace = common::team(&test).await;
+    test.add_workspace_member(&second_workspace, &user_id, WorkspaceRole::Member)
+        .await
+        .expect("the user is let into the second workspace");
+    test.for_org(SYSTEM_ORG_ID)
+        .expect("an identifier")
+        .add_workspace_member(SYSTEM_WORKSPACE_ID, &user_id, WorkspaceRole::Member)
+        .await
+        .expect("a membership of the system's workspace is stored");
+
+    let found = async |workspace_id: &str| {
+        unset
+            .resolve_workspace(&user_id, workspace_id)
+            .await
+            .expect("the workspace is resolved")
+            .is_some()
+    };
+    let listed = async || {
+        unset
+            .workspaces_of_user(&user_id)
+            .await
+            .expect("the workspaces are listed")
+            .into_iter()
+            .map(|workspace| workspace.id)
+            .collect::<Vec<String>>()
+    };
+    assert!(!found(SYSTEM_WORKSPACE_ID).await, "the system's workspace");
+    assert_eq!(
+        listed().await,
+        [test.workspace_id.clone(), second_workspace.clone()],
+        "the two of the organization, and not the system's"
+    );
+
+    let system = test.system();
+    let trashed = system
+        .execute_unchecked(&format!(
+            "UPDATE teams SET delete_at = 5 WHERE id = '{second_workspace}'"
+        ))
+        .await
+        .expect("the workspace is put in the trash");
+    assert_eq!(trashed, 1, "the second workspace");
+    assert!(!found(&second_workspace).await, "a workspace in the trash");
+    assert!(found(&test.workspace_id).await, "the other is still there");
+    assert_eq!(
+        listed().await,
+        std::slice::from_ref(&test.workspace_id),
+        "without the one in the trash"
+    );
+
+    let deleted = system
+        .execute_unchecked(&format!(
+            "UPDATE organizations SET delete_at = 5 WHERE id = '{}'",
+            test.org_id
+        ))
+        .await
+        .expect("the organization is deleted");
+    assert_eq!(deleted, 1, "the organization");
+    assert!(
+        !found(&test.workspace_id).await,
+        "of a deleted organization"
+    );
+    assert_eq!(
+        listed().await,
+        Vec::<String>::new(),
+        "nothing of it is listed"
+    );
 
     test.teardown().await;
 }
@@ -766,6 +869,18 @@ async fn an_sqlite_database_holds_one_organization() {
     test.teardown().await;
 }
 
+/// The Rust files below a directory.
+fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(directory).expect("a source directory") {
+        let path = entry.expect("an entry").path();
+        if path.is_dir() {
+            rust_sources(&path, found);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            found.push(path);
+        }
+    }
+}
+
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
 /// every organization: the store itself, the directory, the changes of the data after
 /// a migration, and the one function of the server that its housekeeping works
@@ -780,22 +895,12 @@ fn the_systems_reach_is_asked_for_in_few_places() {
         "store/src/data_steps.rs",
         "server/src/housekeeping.rs",
     ];
-    fn sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
-        for entry in std::fs::read_dir(directory).expect("a source directory") {
-            let path = entry.expect("an entry").path();
-            if path.is_dir() {
-                sources(&path, found);
-            } else if path.extension().is_some_and(|extension| extension == "rs") {
-                found.push(path);
-            }
-        }
-    }
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("the crates directory");
     let mut files = Vec::new();
     for source in ["store/src", "server/src"] {
-        sources(&crates.join(source), &mut files);
+        rust_sources(&crates.join(source), &mut files);
     }
     assert!(files.len() > 50, "the sources are found: {}", files.len());
     let mut asking = Vec::new();
@@ -826,6 +931,53 @@ fn the_systems_reach_is_asked_for_in_few_places() {
     let mut allowed = ALLOWED.map(str::to_owned).to_vec();
     allowed.sort();
     assert_eq!(asking, allowed, "the files that ask for the system's reach");
+}
+
+/// The files of the server that say whose rows a handle reaches: the extractor of the
+/// workspace routes, the templates (as the system organization), the start (the one
+/// organization of the routes that name no workspace), the housekeeping, and the
+/// application's own `scoped`. A handler that named an organization by what a request
+/// says, past the extractor, would open the wall from the inside.
+#[test]
+fn the_server_names_an_organization_for_a_handle_in_few_places() {
+    const ALLOWED: [&str; 5] = [
+        "api/workspace.rs",
+        "app/mod.rs",
+        "app/templates.rs",
+        "housekeeping.rs",
+        "lib.rs",
+    ];
+    let server = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory")
+        .join("server/src");
+    let mut files = Vec::new();
+    rust_sources(&server, &mut files);
+    let mut naming = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file).expect("a source file");
+        let names = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .any(|line| {
+                [".scoped(", "for_org(", "Tenant::org(", "Tenant::Org("]
+                    .iter()
+                    .any(|naming| line.contains(naming))
+            });
+        if names {
+            naming.push(
+                file.strip_prefix(&server)
+                    .expect("under the server's sources")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+    }
+    naming.sort();
+    assert_eq!(
+        naming, ALLOWED,
+        "the files that name an organization for a handle"
+    );
 }
 
 /// What a server that knew nothing of organizations left in every table: three users
@@ -1084,6 +1236,7 @@ async fn assert_every_row_is_behind_the_wall(unset: &Store, ours: &Store) {
     // Every row is the organization's, but what hangs on the template, which
     // is the system's; ours reads the template's board and card besides.
     let expected = [
+        ("organizations", 1, 1),
         ("teams", 2, 1),
         ("organization_members", 4, 0),
         ("workspace_members", 7, 0),
@@ -1307,4 +1460,37 @@ async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
     );
 
     test.teardown().await;
+}
+
+/// The store tells whether the wall holds the role it connects as: the role of the
+/// tests it does, a superuser it does not, and SQLite has no role to ask about.
+#[tokio::test]
+async fn the_store_names_a_role_that_is_past_the_wall() {
+    let test = common::setup().await;
+    assert_eq!(
+        test.role_past_the_wall().await.expect("the role is read"),
+        None,
+        "the role of the tests is held"
+    );
+    test.teardown().await;
+
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let directory = Path::new(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
+    let database = fvoci_store::testing::TestDatabase::create_as_superuser(&directory).await;
+    let store = Store::connect(database.db_type(), database.dbconfig())
+        .await
+        .expect("a store connects as the superuser");
+    let role = store.role_past_the_wall().await.expect("the role is read");
+    assert!(role.is_some(), "a superuser is past the wall");
+    // Past it indeed: what a handle of no organization must not reach, it reaches.
+    common::organization(&store, "anybody's").await;
+    assert_eq!(
+        store.count_rows("teams").await.expect("counted"),
+        2,
+        "the superuser reads the workspace and the system's through a handle of no organization"
+    );
+    store.close().await;
+    database.remove().await;
 }

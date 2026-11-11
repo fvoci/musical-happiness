@@ -107,8 +107,10 @@ pub(crate) async fn connect_past_the_store(dbconfig: &str) -> PgConnection {
             .await
             .expect("the tables are looked up");
     if has_organizations {
+        // The system's reach first: without it the organizations are out of reach too.
         sqlx::raw_sql(
-            "SELECT set_config('fvoci.system', 'on', false), set_config('fvoci.org', \
+            "SELECT set_config('fvoci.system', 'on', false); \
+             SELECT set_config('fvoci.org', \
              COALESCE((SELECT id::text FROM organizations WHERE NOT is_system \
              ORDER BY create_at, id LIMIT 1), ''), false)",
         )

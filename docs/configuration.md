@@ -51,6 +51,7 @@
 | `dbtype` | `FVOCI_DBTYPE` | 문자열 | `"sqlite3"` | `sqlite3` 또는 `postgres` |
 | `dbconfig` | `FVOCI_DBCONFIG` | 문자열 | `"./fvoci.db"` | 연결 문자열. SQLite는 파일의 경로, PostgreSQL은 `postgres://사용자:비밀번호@호스트:포트/DB?sslmode=disable` 꼴이다. 다른 테이블과 한 DB를 나눠 쓰려면 `search_path`로 이 서버만의 스키마를 준다. 비밀번호가 들어 있을 수 있어 로그에 남기지 않는다 |
 | `dbpingattempts` | `FVOCI_DBPINGATTEMPTS` | 정수(0 이상) | `5` | 시작할 때 DB에 닿으려고 해 보는 횟수. 0이어도 한 번은 해 본다 |
+| `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 조직을 누가 만드는가. `first_user_only`는 서버에 조직이 하나다(첫 사용자의 것). `open`은 가입하는 사람마다 조직을 만드는 서비스용이고 `dbtype`이 `postgres`여야 한다(SQLite는 조직 하나만 담는다. 아니면 시작하지 않는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 시작하지 않고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 조직을 만드는 조작은 아직 없어서 지금은 이 검사만 한다 |
 
 ## 키: 파일 저장소
 

@@ -172,6 +172,17 @@ BEGIN
     END LOOP;
 END $$;
 
+-- An organization itself is behind the same wall: a transaction reaches the row of
+-- the organization it names (its name, its settings) and of no other. Which
+-- organization there is to name is found out with the system's reach
+-- (crates/store/src/directory.rs).
+ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organizations FORCE ROW LEVEL SECURITY;
+CREATE POLICY org_wall ON organizations USING (
+    id = (SELECT NULLIF(current_setting('fvoci.org', true), '')::uuid)
+    OR (SELECT current_setting('fvoci.system', true)) = 'on'
+);
+
 -- The built-in templates are read by every organization: their boards and blocks,
 -- which are all the system organization holds. Reading only, and only by a transaction
 -- that names an organization; the wall above keeps everybody but the system

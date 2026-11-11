@@ -24,6 +24,11 @@ pub const DB_TYPE_ENV: &str = "FVOCI_STORE_TEST_DB_TYPE";
 /// The environment variable that holds the PostgreSQL URL for tests.
 pub const CONN_STRING_ENV: &str = "FVOCI_STORE_TEST_CONN_STRING";
 
+/// The environment variable that holds the PostgreSQL URL of a superuser, for the tests
+/// of what the server makes of a role that the wall between organizations does not
+/// hold. `cargo xtask test` sets it to the superuser of its container.
+pub const SUPERUSER_CONN_STRING_ENV: &str = "FVOCI_STORE_TEST_SUPERUSER_CONN_STRING";
+
 /// Which database the tests run against, as the environment says ([`DB_TYPE_ENV`]).
 ///
 /// # Panics
@@ -47,6 +52,15 @@ pub struct TestDatabase {
     cleanup: Cleanup,
 }
 
+/// As whom a test database is made and connected to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// The role of [`CONN_STRING_ENV`], which the policies hold.
+    HeldByTheWall,
+    /// The role of [`SUPERUSER_CONN_STRING_ENV`], which they do not.
+    Superuser,
+}
+
 #[derive(Debug)]
 enum Cleanup {
     SqliteFile(PathBuf),
@@ -63,6 +77,23 @@ impl TestDatabase {
     /// database cannot be created. This is test support; a broken setup should fail the
     /// test loudly.
     pub async fn create(directory: &Path) -> Self {
+        Self::create_as(directory, Role::HeldByTheWall).await
+    }
+
+    /// Creates an empty database as [`TestDatabase::create`] does, but on PostgreSQL as
+    /// a superuser, whom no policy holds: for the tests of what the server makes of
+    /// such a role, and for nothing else. On SQLite it is a database like any other.
+    ///
+    /// # Panics
+    ///
+    /// Panics as [`TestDatabase::create`] does, and if the environment asks for
+    /// PostgreSQL without giving the URL of a superuser
+    /// ([`SUPERUSER_CONN_STRING_ENV`]).
+    pub async fn create_as_superuser(directory: &Path) -> Self {
+        Self::create_as(directory, Role::Superuser).await
+    }
+
+    async fn create_as(directory: &Path, role: Role) -> Self {
         // An identifier has hyphens; a file name takes them, a schema name does not.
         let name = new_id().replace('-', "_");
         let db_type = db_type_of_the_tests();
@@ -78,12 +109,18 @@ impl TestDatabase {
                 }
             }
             DbType::Postgres => {
-                let url = std::env::var(CONN_STRING_ENV).unwrap_or_else(|_| {
-                    panic!("{CONN_STRING_ENV} must hold a PostgreSQL URL for PostgreSQL test runs")
+                let variable = match role {
+                    Role::HeldByTheWall => CONN_STRING_ENV,
+                    Role::Superuser => SUPERUSER_CONN_STRING_ENV,
+                };
+                let url = std::env::var(variable).unwrap_or_else(|_| {
+                    panic!("{variable} must hold a PostgreSQL URL for PostgreSQL test runs")
                 });
                 let schema = format!("t_{name}");
                 let mut connection = connect(&url).await;
-                refuse_a_role_the_policies_pass(&mut connection).await;
+                if role == Role::HeldByTheWall {
+                    refuse_a_role_the_policies_pass(&mut connection).await;
+                }
                 run(&mut connection, format!("CREATE SCHEMA {schema}")).await;
                 let separator = if url.contains('?') { '&' } else { '?' };
                 Self {
@@ -165,10 +202,11 @@ async fn refuse_a_role_the_policies_pass(connection: &mut PgConnection) {
 
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
-pub const GLOBAL_TABLES: [&str; 7] = crate::schema::GLOBAL_TABLES;
+pub const GLOBAL_TABLES: [&str; 6] = crate::schema::GLOBAL_TABLES;
 
-/// The tables that hold rows of organizations, each behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 17] = crate::schema::ORG_TABLES;
+/// The tables that hold rows of organizations, and the organizations themselves, each
+/// behind the wall on PostgreSQL.
+pub const ORG_TABLES: [&str; 18] = crate::schema::ORG_TABLES;
 
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data

@@ -154,6 +154,10 @@ pub struct Configuration {
     /// The authentication mode. Only `native` is supported.
     #[serde(rename = "authmode")]
     pub auth_mode: String,
+    /// Who may make an organization: `first_user_only`, the one organization of the
+    /// first user, or `open`, anybody who signs up. `open` needs PostgreSQL, and a
+    /// database role that the wall between organizations holds.
+    pub org_creation: String,
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
@@ -257,6 +261,7 @@ impl Default for Configuration {
             show_email_address: false,
             show_full_name: false,
             auth_mode: "native".to_owned(),
+            org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
             websocket_ping_seconds: 30,
             compress_responses: true,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
@@ -315,6 +320,7 @@ impl std::fmt::Debug for Configuration {
             .field("show_email_address", &self.show_email_address)
             .field("show_full_name", &self.show_full_name)
             .field("auth_mode", &self.auth_mode)
+            .field("org_creation", &self.org_creation)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
             .field("compress_responses", &self.compress_responses)
             .field("max_request_bytes", &self.max_request_bytes)
@@ -373,7 +379,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 52] = [
+const ENV_KEYS: [(&str, EnvKind); 53] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -405,6 +411,7 @@ const ENV_KEYS: [(&str, EnvKind); 52] = [
     ("showemailaddress", EnvKind::Flag),
     ("showfullname", EnvKind::Flag),
     ("authmode", EnvKind::Text),
+    ("org_creation", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
     ("compress_responses", EnvKind::Flag),
     ("max_request_bytes", EnvKind::Number),
@@ -542,6 +549,11 @@ fn is_unset(value: &Value) -> bool {
         Value::Bool(true) | Value::Object(_) => false,
     }
 }
+
+/// `org_creation`: the server has the one organization of its first user.
+pub const ORG_CREATION_FIRST_USER_ONLY: &str = "first_user_only";
+/// `org_creation`: whoever signs up makes an organization.
+pub const ORG_CREATION_OPEN: &str = "open";
 
 impl Configuration {
     /// Reads the configuration file at `path` and applies environment overrides from the
@@ -711,6 +723,22 @@ impl Configuration {
             bail!(
                 "authMode {:?} is not supported; this server only has native authentication",
                 self.auth_mode
+            );
+        }
+        if ![ORG_CREATION_FIRST_USER_ONLY, ORG_CREATION_OPEN].contains(&self.org_creation.as_str())
+        {
+            bail!(
+                "org_creation {:?} is not known; use {ORG_CREATION_FIRST_USER_ONLY:?} or \
+                 {ORG_CREATION_OPEN:?}",
+                self.org_creation
+            );
+        }
+        // SQLite holds one organization, and nothing would keep several apart.
+        if self.org_creation == ORG_CREATION_OPEN && self.db_type != "postgres" {
+            bail!(
+                "org_creation is {ORG_CREATION_OPEN:?}, which needs dbtype \"postgres\": a \
+                 database of type {:?} holds one organization",
+                self.db_type
             );
         }
         // Zero would listen on any free port, not on one the operator can name.
@@ -1313,6 +1341,33 @@ mod tests {
             }
         }
         defaults
+    }
+
+    /// `org_creation` is one of two words, and `open` is for PostgreSQL.
+    #[test]
+    fn org_creation_is_first_user_only_or_open_and_open_needs_postgresql() {
+        let with = |org_creation: &str, db_type: &str| Configuration {
+            org_creation: org_creation.to_owned(),
+            db_type: db_type.to_owned(),
+            ..Configuration::default()
+        };
+        assert_eq!(Configuration::default().org_creation, "first_user_only");
+        for db_type in ["sqlite3", "postgres"] {
+            with("first_user_only", db_type)
+                .check()
+                .expect("one organization on either database");
+        }
+        with("open", "postgres")
+            .check()
+            .expect("several organizations on PostgreSQL");
+        let refused = with("open", "sqlite3").check().expect_err("not on SQLite");
+        assert!(refused.to_string().contains("postgres"), "{refused}");
+        for unknown in ["", "Open", "everybody"] {
+            let refused = with(unknown, "postgres")
+                .check()
+                .expect_err("a word that is none of the two");
+            assert!(refused.to_string().contains("org_creation"), "{refused}");
+        }
     }
 
     #[test]

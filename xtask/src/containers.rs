@@ -100,6 +100,15 @@ impl Container {
         )
     }
 
+    /// The PostgreSQL URL of the container's superuser, for the tests of what the
+    /// server makes of a role the policies do not hold.
+    pub(crate) fn postgres_superuser_url(&self) -> String {
+        format!(
+            "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{}/{POSTGRES_DATABASE}?sslmode=disable",
+            self.host_port
+        )
+    }
+
     /// The `host:port` the S3 storage test connects to.
     pub(crate) fn s3_endpoint(&self) -> String {
         format!("localhost:{}", self.host_port)
@@ -453,13 +462,14 @@ fn wait_until(what: &str, mut probe: impl FnMut() -> Result<()>) -> Result<()> {
     }
 }
 
-/// Makes sure PostgreSQL runs and accepts connections. Returns the URL for the tests.
+/// Makes sure PostgreSQL runs and accepts connections. Returns the URLs for the tests:
+/// of the role they connect as, and of the superuser.
 ///
 /// # Errors
 ///
 /// Fails if docker is missing, the container cannot be started, or the database does
 /// not accept connections in time.
-pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
+pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<(String, String)> {
     let container = Container::postgres()?;
     container.ensure_running(uses)?;
     wait_until(&container.name, || {
@@ -501,7 +511,7 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
         "    {}: accepting connections on port {}, the tests connect as {POSTGRES_TEST_ROLE}",
         container.name, container.host_port
     ));
-    Ok(container.postgres_url())
+    Ok((container.postgres_url(), container.postgres_superuser_url()))
 }
 
 /// The statements that make [`POSTGRES_TEST_ROLE`] what the tests need, whether it is
@@ -737,6 +747,11 @@ mod tests {
             probe().postgres_url(),
             "postgres://fvoci_app:fvoci-test@localhost:15999/fvoci?sslmode=disable",
             "the URL the store's test support reads, of the role that is no superuser"
+        );
+        assert_eq!(
+            probe().postgres_superuser_url(),
+            "postgres://fvoci:fvoci-test@localhost:15999/fvoci?sslmode=disable",
+            "and the superuser's, for the tests of a role the policies do not hold"
         );
         assert_eq!(
             probe().s3_endpoint(),

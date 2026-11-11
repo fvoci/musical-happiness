@@ -4,6 +4,7 @@
 //! workspace, with the application reaching the rows of the workspace's organization.
 //! For anybody else the workspace is not there (404), whether it exists or not.
 
+use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, RawPathParams, State};
 use axum::http::request::Parts;
 use fvoci_model::{Board, Session, UserWorkspace, WorkspaceRole};
@@ -31,8 +32,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// Extraction fails with 401 without a session, and with 404 unless the session's user
 /// is a member of the workspace: one that is another's and one that does not exist
-/// answer alike. What it hands the handler is all the handler needs to stay behind the
-/// wall: the application as the workspace's organization reaches it.
+/// answer alike. The application it hands the handler is behind the wall between
+/// organizations, reaching the rows of the workspace's organization and no other. It
+/// is not narrowed to the workspace: the organization's other workspaces are in its
+/// reach, and a handler asks for what is in this one by `workspace_id`.
 #[derive(Debug)]
 pub(crate) struct Ws {
     /// The application, reaching the rows of the workspace's organization.
@@ -50,10 +53,14 @@ impl FromRequestParts<App> for Ws {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let session = session_of(app, &parts.headers, &parts.extensions).await?;
-        // A path that cannot be read names no workspace the user could be in.
-        let params = RawPathParams::from_request_parts(parts, app)
-            .await
-            .map_err(|_| workspace_not_found())?;
+        let params = match RawPathParams::from_request_parts(parts, app).await {
+            Ok(params) => params,
+            // A path that is no text names no workspace the user could be in.
+            Err(RawPathParamsRejection::InvalidUtf8InPathParam(_)) => {
+                return Err(workspace_not_found());
+            }
+            Err(_) => return Err(AppError::internal("the route has no path parameters")),
+        };
         let workspace_id = params
             .iter()
             .find(|(name, _)| *name == WORKSPACE_ID)
@@ -64,7 +71,12 @@ impl FromRequestParts<App> for Ws {
             .resolve_workspace(&session.user_id, &workspace_id)
             .await?
             .ok_or_else(workspace_not_found)?;
-        let app = app.scoped(Tenant::org(&access.org_id)?);
+        // What the store answered is an identifier; one that is none is the server's
+        // fault, not the request's.
+        let tenant = Tenant::org(&access.org_id).map_err(|error| {
+            AppError::from(error).context("the organization of a workspace as the store has it")
+        })?;
+        let app = app.scoped(tenant);
         Ok(Self {
             app,
             session,

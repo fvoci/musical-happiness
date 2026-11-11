@@ -108,26 +108,24 @@ const STEPS: [Step; 11] = [
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const ORGANIZATIONS_VERSION: i64 = 90;
 
-/// The tables that are no organization's: the accounts, what is true of the
-/// installation, and the organizations themselves. Every other table of the schema
-/// is one of [`ORG_TABLES`].
+/// The tables that are no organization's: the accounts and what is true of the
+/// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const GLOBAL_TABLES: [&str; 7] = [
+pub(crate) const GLOBAL_TABLES: [&str; 6] = [
     "_sqlx_migrations",
     "data_steps",
     "instance",
-    "organizations",
     "preferences",
     "sessions",
     "users",
 ];
 
-/// The tables that hold rows of organizations. On PostgreSQL each is behind the wall:
-/// row-level security enabled and forced, with the policy `org_wall`. A test of the
-/// store reads the catalog to see that every table of the schema is in this list or in
-/// [`GLOBAL_TABLES`], and that it is so.
+/// The tables that hold rows of organizations, and the organizations themselves. On
+/// PostgreSQL each is behind the wall: row-level security enabled and forced, with the
+/// policy `org_wall`. A test of the store reads the catalog to see that every table of
+/// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 17] = [
+pub(crate) const ORG_TABLES: [&str; 18] = [
     "blocks",
     "board_members",
     "boards",
@@ -139,6 +137,7 @@ pub(crate) const ORG_TABLES: [&str; 17] = [
     "file_info",
     "file_refs",
     "organization_members",
+    "organizations",
     "sharing",
     "subscriptions",
     "teams",
@@ -321,6 +320,7 @@ mod tests {
     #[test]
     fn the_check_of_later_migrations_sees_what_it_is_there_to_see() {
         for touching in [
+            "UPDATE organizations SET name = 'ours'",
             "INSERT INTO data_steps (name) SELECT b.title FROM users AS u, boards AS b;",
             "DELETE FROM sessions USING boards WHERE sessions.user_id = boards.created_by",
             "ALTER TABLE boards ADD COLUMN color TEXT; UPDATE users SET email = ''",

@@ -138,7 +138,9 @@ impl App {
     /// are configured and their HTTP client cannot be set up.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
         store.set_comment_versions_kept(config.max_comment_versions);
-        let auth = Authenticator::new(store.clone(), &config)?;
+        // The authenticator reads what is no organization's (sessions), and asks the
+        // directory whose a shared board is: it is given no organization to reach.
+        let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;
         let login_limiter = LoginLimiter::new(Limits::from_config(&config));
         let password_work = HashQueue::new(
             usize::try_from(config.password_hash_concurrency).unwrap_or(usize::MAX),
