@@ -104,3 +104,54 @@ async fn logins_registrations_and_live_sessions_are_counted() {
     );
     server.teardown().await;
 }
+
+/// A login with a name and an email address reads the same, whether the name is an
+/// account or not: the count of the database's reads tells nothing of it.
+#[tokio::test]
+async fn a_login_reads_alike_whether_its_name_is_an_account() {
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let reads = |body: &str| {
+        sample(
+            body,
+            "fvoci_db_call_duration_seconds_count",
+            &[
+                ("access", "read"),
+                ("db", server.app.store().db_type().as_str()),
+            ],
+        )
+        .unwrap_or_default()
+    };
+    let attempt = async |username: &str| {
+        let status = server
+            .anonymous()
+            .post(
+                "/login",
+                &serde_json::json!({
+                    "type": "normal", "username": username,
+                    "email": "nobody@example.com", "password": "not the password",
+                }),
+            )
+            .await
+            .status;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{username}");
+    };
+    // The scrapes after the first read the same each: within five seconds the
+    // readiness is kept, and the live sessions within a minute.
+    scrape(&server).await;
+    let before = reads(&scrape(&server).await);
+    attempt(USER1_USERNAME).await;
+    let between = reads(&scrape(&server).await);
+    attempt("nobody-at-all").await;
+    let after = reads(&scrape(&server).await);
+    assert_eq!(
+        between - before,
+        after - between,
+        "an account and no account read alike"
+    );
+    server.teardown().await;
+}

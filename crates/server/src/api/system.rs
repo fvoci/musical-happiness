@@ -39,10 +39,11 @@ async fn handle_hello() -> &'static str {
 /// Whether the server can serve
 ///
 /// The check that the server is ready: the database answers a statement, and the file
-/// storage can be used, each within two seconds. The checks are made anew at most
-/// every five seconds, in the background: only the first request after the start waits
-/// for them (a probe's timeout of three seconds is enough), the others get the last
-/// answer. Neither answer says why a check failed: the log does.
+/// storage can be used, each within two seconds; on S3 the check lists the bucket under
+/// a key, which needs the permission to list it. An answer is kept five seconds; a
+/// request after that waits for the checks made anew, up to two and a half seconds
+/// (a probe's timeout of three seconds is enough), and else gets the answer before.
+/// Neither answer says why a check failed: the log does.
 #[utoipa::path(
     get,
     path = "/ready",

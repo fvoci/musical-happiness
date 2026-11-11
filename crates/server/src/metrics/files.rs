@@ -93,8 +93,9 @@ pub(crate) enum FilesOutcome {
     /// It failed: the disk or the object store gave an error, or the path the server
     /// made could not be used.
     Failed,
-    /// It ended without an answer of the storage's: its request gave it up, or what a
-    /// put was to store stopped coming or was refused (a limit, a client gone).
+    /// It ended without an answer of the storage's: it was given up with its task (a
+    /// shutdown), or what a put was to store stopped coming or was refused (a limit, a
+    /// client gone).
     Abandoned,
 }
 
@@ -117,8 +118,8 @@ impl FilesMetrics {
         let operations = HistogramVec::new(
             HistogramOpts::new(
                 "files_operation_duration_seconds",
-                "How long operations on the file storage took, also those given up by \
-                 their request or whose bytes stopped coming, by backend (local, s3) and \
+                "How long operations on the file storage took, also those given up with \
+                 their task or whose bytes stopped coming, by backend (local, s3) and \
                  operation (put, which includes the time the bytes take to come; get \
                  until the bytes can be read; head, copy, delete, rename; and on s3 the \
                  steps of an upload in parts: multipart_create, multipart_part, \
@@ -151,8 +152,8 @@ impl FilesMetrics {
 }
 
 impl Metrics {
-    /// Starts the count of the failures of every operation `backend` has at zero, so
-    /// that the first failure is an increase.
+    /// Makes the count of the failures of every operation `backend` has, at zero if it
+    /// is not there yet, so that the first failure is an increase.
     pub(crate) fn files_known(&self, backend: FilesBackend) {
         let Some(kept) = &self.kept else {
             return;
@@ -164,8 +165,7 @@ impl Metrics {
         for operation in FilesOperation::ON_EVERY_BACKEND.iter().chain(multipart) {
             kept.files
                 .failures
-                .with_label_values(&[backend.as_str(), operation.as_str()])
-                .reset();
+                .with_label_values(&[backend.as_str(), operation.as_str()]);
         }
     }
 

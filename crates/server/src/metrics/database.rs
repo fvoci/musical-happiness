@@ -49,7 +49,9 @@ pub(crate) enum DbOutcome {
     Answered,
     /// It did not: the database failed it.
     Failed,
-    /// Its caller gave it up first.
+    /// It was given up first: by a scrape's or a readiness check's timeout, or with
+    /// its task (a websocket's, the server's shutdown). A request's handler is run to
+    /// its end however its client goes.
     Abandoned,
 }
 
@@ -82,7 +84,8 @@ impl DatabaseMetrics {
                 "How long calls of the database took, each one transaction (or one \
                  connection for a read on SQLite) from its start to its end, the wait for \
                  a connection and on SQLite a writer's turn included, and also of the \
-                 calls given up by their request; by db (sqlite3, postgres) and access \
+                 calls given up (a scrape's or a readiness check's timeout, a shutdown); \
+                 by db (sqlite3, postgres) and access \
                  (read, write: a transaction that may write, or a call in which a \
                  statement wrote); its count is the number of calls.",
             )
@@ -124,15 +127,14 @@ impl DatabaseMetrics {
 }
 
 impl Metrics {
-    /// Starts the count of the failed calls on a database of `db` at zero, so that the
-    /// first failure is an increase.
+    /// Makes the count of the failed calls on a database of `db`, at zero if it is not
+    /// there yet, so that the first failure is an increase.
     pub(crate) fn db_known(&self, db: Database) {
         if let Some(kept) = &self.kept {
             for access in [DbAccess::Read, DbAccess::Write] {
                 kept.database
                     .failures
-                    .with_label_values(&[db.as_str(), access.as_str()])
-                    .reset();
+                    .with_label_values(&[db.as_str(), access.as_str()]);
             }
         }
     }

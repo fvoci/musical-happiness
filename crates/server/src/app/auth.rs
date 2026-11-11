@@ -429,7 +429,7 @@ fn login_outcome<T>(result: &Result<T, AppError>) -> LoginOutcome {
 }
 
 /// Counts a login into the metrics when it is dropped: as it ended, or as given up if
-/// its request went away first.
+/// its task was stopped first (the server shut down).
 struct LoginEnding<'m> {
     metrics: &'m Metrics,
     outcome: LoginOutcome,

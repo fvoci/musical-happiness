@@ -14,9 +14,12 @@ use crate::metrics::ReadyCheck;
 /// How long an answer of the checks stays fresh.
 const FRESH_FOR: Duration = Duration::from_secs(5);
 
-/// How long one check may take before it counts as failing. Only the first caller ever
-/// waits for the checks; the others get the last answer while it is made anew.
+/// How long one check may take before it counts as failing.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long a caller that finds the answer stale waits for the one being made anew,
+/// before it takes the stale one: a little more than a check may take.
+const WAIT_FOR_ANSWER: Duration = Duration::from_millis(2500);
 
 /// How one check came out. Its words are the whole answer: no cause of a failure
 /// leaves the server, the log has it.
@@ -92,16 +95,17 @@ impl Default for Kept {
 }
 
 impl Kept {
-    /// The answer, made by `make` if there is none fresh: the first caller ever waits
-    /// for it, the callers at that moment for the same one; once there is an answer, a
-    /// caller that finds it stale gets it as it is, and one task makes it anew.
+    /// The answer, made by `make` if there is none fresh. Callers at the same moment
+    /// share one making of it, in a task of its own. The first caller ever waits for it;
+    /// a caller that finds the answer stale waits for the new one too, but not longer
+    /// than [`WAIT_FOR_ANSWER`], after which it gets the stale one.
     async fn get<F>(&self, make: impl FnOnce() -> F) -> Readiness
     where
         F: Future<Output = Readiness> + Send + 'static,
     {
         match self.shared.last() {
             Some((at, readiness)) if at.elapsed() < FRESH_FOR => readiness,
-            Some((_, readiness)) => {
+            Some((_, stale)) => {
                 if let Ok(making) = Arc::clone(&self.shared.making).try_lock_owned() {
                     let shared = Arc::clone(&self.shared);
                     let checks = make();
@@ -110,7 +114,12 @@ impl Kept {
                         shared.keep(checks.await);
                     });
                 }
-                readiness
+                // The lock is fair: it comes once the making under way has kept its
+                // answer.
+                match tokio::time::timeout(WAIT_FOR_ANSWER, self.shared.making.lock()).await {
+                    Ok(_made) => self.shared.last().map_or(stale, |(_, readiness)| readiness),
+                    Err(_) => stale,
+                }
             }
             None => {
                 let _making = self.shared.making.lock().await;
@@ -126,9 +135,9 @@ impl Kept {
 }
 
 impl App {
-    /// Whether the server is ready, as the checks found it within the last five seconds
-    /// or so: the database and the file storage, side by side, two seconds each at
-    /// most. Only the first caller ever waits for the checks.
+    /// Whether the server is ready, as the checks found it within the last five
+    /// seconds, or made anew for this caller: the database and the file storage, side
+    /// by side, two seconds each at most. See `Kept::get` for who waits.
     pub async fn readiness(&self) -> Readiness {
         let app = self.clone();
         self.inner
@@ -224,7 +233,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn an_answer_is_kept_fresh_and_then_given_while_it_is_made_anew() {
+    async fn an_answer_is_kept_fresh_and_made_anew_once_when_stale() {
         let kept = Kept::default();
         let made = Arc::new(AtomicU32::new(0));
         assert_eq!(
@@ -236,23 +245,34 @@ mod tests {
         assert_eq!(made.load(Ordering::SeqCst), 1);
 
         tokio::time::advance(FRESH_FOR).await;
-        assert_eq!(
-            kept.get(maker(&made, NOT_READY)).await,
-            READY,
-            "stale, given as it is"
+        let (first, second) = tokio::join!(
+            kept.get(maker(&made, NOT_READY)),
+            kept.get(maker(&made, READY)),
         );
         assert_eq!(
-            kept.get(maker(&made, NOT_READY)).await,
-            READY,
-            "while it is made anew, by one task"
+            (first, second),
+            (NOT_READY, NOT_READY),
+            "stale: the new answer"
         );
-        tokio::task::yield_now().await;
         assert_eq!(made.load(Ordering::SeqCst), 2, "made anew once");
         assert_eq!(
             kept.get(maker(&made, READY)).await,
             NOT_READY,
-            "the new answer"
+            "fresh again"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stale_answer_is_given_if_the_new_one_takes_too_long() {
+        let kept = Kept::default();
+        let made = Arc::new(AtomicU32::new(0));
+        kept.get(maker(&made, READY)).await;
+        tokio::time::advance(FRESH_FOR).await;
+        let slow = || async {
+            tokio::time::sleep(WAIT_FOR_ANSWER * 2).await;
+            NOT_READY
+        };
+        assert_eq!(kept.get(slow).await, READY, "the stale one, in time");
     }
 
     #[tokio::test]

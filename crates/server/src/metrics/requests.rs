@@ -101,11 +101,12 @@ impl RequestMetrics {
             .observe(duration.as_secs_f64());
     }
 
-    /// Starts the count of each of `problems`, the names of the server's problems, and
-    /// of [`OTHER_PROBLEM`] at zero, so that the first answer of each is a change.
+    /// Makes the count of each of `problems`, the names of the server's problems, and
+    /// of [`OTHER_PROBLEM`], at zero if it is not there yet, so that the first answer of
+    /// each is a change. A count that is there stays as it is.
     pub(crate) fn know_problems(&self, problems: &[&'static str]) {
         for problem in problems.iter().copied().chain([OTHER_PROBLEM]) {
-            self.problems.with_label_values(&[problem]).reset();
+            self.problems.with_label_values(&[problem]);
         }
     }
 

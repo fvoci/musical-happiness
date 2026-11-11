@@ -39,8 +39,8 @@ impl ReadyMetrics {
         let ready = IntGauge::with_opts(
             Opts::new(
                 "ready",
-                "Whether the server is ready to serve, as GET /api/v1/ready answers (at \
-                 most five seconds old): 1 if every check is ok, else 0.",
+                "Whether the server is ready to serve, as GET /api/v1/ready answers (kept \
+                 five seconds): 1 if every check is ok, else 0.",
             )
             .namespace(PREFIX),
         )?;

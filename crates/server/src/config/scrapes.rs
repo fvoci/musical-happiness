@@ -217,6 +217,44 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_variable_leaves_the_token_of_the_file() {
+        let env = |name: &str| (name == "FVOCI_PROMETHEUSTOKEN").then(String::new);
+        let config =
+            Configuration::parse(r#"{"prometheustoken": "from-the-file"}"#, env).expect("valid");
+        assert_eq!(config.prometheus_token, "from-the-file");
+        assert!(config.metrics_token().is_some(), "a scrape still needs it");
+    }
+
+    #[test]
+    fn a_token_that_is_no_text_is_refused_without_repeating_it() {
+        for value in ["98765432109876", "1.5e3", "true"] {
+            let error = format!(
+                "{:#}",
+                Configuration::parse(&format!(r#"{{"prometheustoken": {value}}}"#), |_| None)
+                    .expect_err("no string")
+            );
+            assert!(error.contains("prometheustoken"), "{error}");
+            assert!(!error.contains(value), "{error}");
+        }
+    }
+
+    #[test]
+    fn a_token_without_an_address_is_a_warning() {
+        let config = Configuration {
+            prometheus_token: TOKEN.to_owned(),
+            ..Configuration::default()
+        };
+        let warnings = config.check().expect("valid");
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("prometheustoken")),
+            "{warnings:?}"
+        );
+        assert!(warnings.iter().all(|warning| !warning.contains(TOKEN)));
+    }
+
+    #[test]
     fn the_token_is_read_from_the_environment_too() {
         let env = |name: &str| (name == "FVOCI_PROMETHEUSTOKEN").then(|| TOKEN.to_owned());
         let config =

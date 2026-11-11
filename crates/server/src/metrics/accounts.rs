@@ -21,7 +21,8 @@ pub(crate) enum LoginOutcome {
     Limited,
     /// The server could not check it: the database or the password work failed.
     Failed,
-    /// Its request went away before it ended.
+    /// Its task was stopped before it ended: the server shut down. (A request's handler
+    /// is run to its end however its client goes.)
     Abandoned,
 }
 
@@ -77,8 +78,8 @@ impl AccountMetrics {
                 "How many attempts to sign in with a password ended, by outcome: \
                  succeeded, invalid_credentials (no such account or a wrong password, \
                  which are not told apart), limited (a login limit, or the password work \
-                 was too busy), failed (the server could not check it), abandoned (its \
-                 request went away first). An attempt the server could not read is not \
+                 was too busy), failed (the server could not check it), abandoned (the \
+                 server shut down first). An attempt the server could not read is not \
                  counted.",
             )
             .namespace(PREFIX),
