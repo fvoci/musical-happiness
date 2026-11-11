@@ -283,8 +283,10 @@ describe('the view draws what the editor draws', () => {
     templates.map((entry, index) => [`${index + 1}. ${entry.template} / ${entry.card}`, entry.doc]),
   )('template document %s', (_name, doc) => {
     expectSameShape(doc);
-    // The editor took the document as it is, so both drew the same thing.
-    expect(toStoredDoc(editor?.getJSON() as DocNode)).toEqual(doc);
+    // The editor took the document as it is, so both drew the same thing. In
+    // the stored form: some templates write the start of a list at 1, which
+    // the stored form leaves out.
+    expect(toStoredDoc(editor?.getJSON() as DocNode)).toEqual(toStoredDoc(doc));
   });
 
   it.each(Object.entries(HAND_MADE))('hand-made document: %s', (_name, doc) => {

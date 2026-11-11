@@ -47,8 +47,7 @@ export interface BodyEditorProps {
    * with what the editor would store for it, or with `undefined` when the
    * document was refused and the editor is read-only. For a valid document
    * that is the document itself, but for what the editor settles its own
-   * way (a numbered list always carries the number it starts at; the marks
-   * of a text come in the editor's order).
+   * way (the marks of a text come in the editor's order).
    */
   onLoad?: (stored: DocNode | null | undefined) => void;
 }

@@ -1989,9 +1989,6 @@
         "content": [
           {
             "type": "orderedList",
-            "attrs": {
-              "start": 1
-            },
             "content": [
               {
                 "type": "listItem",
@@ -2288,9 +2285,6 @@
         "content": [
           {
             "type": "orderedList",
-            "attrs": {
-              "start": 1
-            },
             "content": [
               {
                 "type": "listItem",
