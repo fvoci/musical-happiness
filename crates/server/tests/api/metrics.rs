@@ -672,7 +672,7 @@ async fn a_local_only_server_serves_metrics_without_a_host_on_its_loopback() {
 
 #[tokio::test]
 async fn with_a_token_set_a_scrape_must_send_it() {
-    const TOKEN: &str = "a-token-for-the-scrapes";
+    const TOKEN: &str = "a-token-for-the-scrapes-of-32-chars";
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
         .configure(|config| TOKEN.clone_into(&mut config.prometheus_token))
