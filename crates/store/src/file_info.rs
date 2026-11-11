@@ -7,7 +7,7 @@
 use fvoci_model::FileInfo;
 
 use crate::Store;
-use crate::db::{Id, Row, Scope};
+use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
 
 pub(crate) const FILE_INFO_COLUMNS: &str =
@@ -53,6 +53,43 @@ impl Store {
     pub async fn save_file_info(&self, file_info: &FileInfo) -> Result<(), StoreError> {
         self.with_conn(async |scope| save_file_info(scope, file_info).await)
             .await
+    }
+}
+
+impl Store {
+    /// Returns up to `limit` places that file records name, live or kept with a board in
+    /// the trash, after `after` in their order: a page of every record the handle
+    /// reaches, for the comparison of the records with the file storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn recorded_paths_after(
+        &self,
+        after: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let (trashed_path, trashed_files) = match scope.dialect() {
+                Dialect::Sqlite => ("json_extract(f.value, '$.path')", "json_each(d.files) AS f"),
+                Dialect::Postgres => (
+                    "f.value ->> 'path'",
+                    "json_array_elements(d.files) AS f(value)",
+                ),
+            };
+            let mut sql = scope.sql(&format!(
+                "SELECT path FROM (SELECT path FROM file_info UNION SELECT {trashed_path} AS path \
+                 FROM deleted_boards AS d, {trashed_files}) AS recorded WHERE path > "
+            ));
+            sql.bind(after).push_bind(" ORDER BY path LIMIT ", limit);
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect()
+        })
+        .await
     }
 }
 

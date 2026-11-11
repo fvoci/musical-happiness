@@ -15,7 +15,7 @@ use object_store::{
 };
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
-use super::{FileStream, StorageError};
+use super::{FileStream, ObjectListing, StorageError, StoredObject};
 use crate::config::AmazonS3Config;
 
 /// Files kept in a bucket of an S3-compatible object store, the `filess3config` setting.
@@ -176,6 +176,26 @@ impl S3Files {
             Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
             Err(error) => Err(StorageError::ObjectStore(error)),
         }
+    }
+
+    pub(super) fn list(&self) -> ObjectListing {
+        let prefix = (!self.prefix.is_empty()).then(|| Path::from(self.prefix.as_str()));
+        let strip = if self.prefix.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", self.prefix)
+        };
+        self.store
+            .list(prefix.as_ref())
+            .map(move |meta| {
+                let meta = meta.map_err(StorageError::ObjectStore)?;
+                let key = meta.location.as_ref();
+                Ok(StoredObject {
+                    path: key.strip_prefix(&strip).unwrap_or(key).to_owned(),
+                    modified_at: meta.last_modified.timestamp_millis(),
+                })
+            })
+            .boxed()
     }
 
     pub(super) async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {

@@ -2,7 +2,7 @@
 //! written, doomed with the record that goes, and kept apart by organization.
 
 use fvoci_model::{FileInfo, Upload, new_id};
-use fvoci_store::{DbType, LooseObject, LooseState, Store, Tenant};
+use fvoci_store::{DbType, LooseObject, LooseState, SYSTEM_ORG_ID, Store, Tenant};
 
 use crate::common;
 
@@ -419,5 +419,45 @@ async fn another_organizations_write_holds_a_doomed_place() {
         .expect("theirs is being written");
     let held = test.held_objects(&["boards/p"], None).await.expect("read");
     assert!(held.contains("boards/p"), "their write holds it");
+    test.teardown().await;
+}
+
+/// What a comparison of the storage with the records dooms, by the system's handle, is
+/// the organization's whose board the place names, live or in the trash, and the system
+/// organization's when it names none; once.
+#[tokio::test]
+async fn an_unrecorded_object_is_doomed_as_its_boards_organizations() {
+    let test = common::setup().await;
+    let (board_id, user_id) = board(&test).await;
+    let (trashed_board, _) = board(&test).await;
+    test.delete_board(&trashed_board, &user_id)
+        .await
+        .expect("the board goes to the trash");
+    let ours = format!("boards/20261112/{board_id}/stray.png");
+    let trashed = format!("boards/20261112/{trashed_board}/stray.png");
+    let nobodys = "boards/20261112/stray.png";
+    let system = test.system();
+    let paths = [ours.as_str(), trashed.as_str(), nobodys];
+    assert_eq!(system.doom_unrecorded(&paths).await.expect("doomed"), 3);
+    assert_eq!(
+        system.doom_unrecorded(&paths).await.expect("doomed"),
+        0,
+        "once"
+    );
+    let listed = test.loose_objects().await.expect("listed");
+    if common::db_type() == DbType::Postgres {
+        let mut expected = [ours.as_str(), trashed.as_str()];
+        expected.sort_unstable();
+        assert_eq!(paths_in(&listed, LooseState::Doomed), expected, "ours");
+        let system_org = test.for_org(SYSTEM_ORG_ID).expect("an identifier");
+        let listed = system_org.loose_objects().await.expect("listed");
+        assert_eq!(
+            paths_in(&listed, LooseState::Doomed),
+            [nobodys],
+            "the system organization's"
+        );
+    } else {
+        assert_eq!(listed.len(), 3, "{listed:?}");
+    }
     test.teardown().await;
 }

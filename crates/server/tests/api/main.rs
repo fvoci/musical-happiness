@@ -28,6 +28,7 @@ mod onboarding;
 mod organizations;
 mod paths;
 mod properties;
+mod reconcile;
 mod refusals;
 mod search;
 mod sharing;

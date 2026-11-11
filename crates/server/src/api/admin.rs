@@ -1,6 +1,6 @@
 //! The administration API: setting a user's password without knowing the old one, which
-//! also ends every session of that user, and making a user an administrator of the
-//! instance.
+//! also ends every session of that user, making a user an administrator of the
+//! instance, and comparing the file storage with the records.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
 //! able to open the socket file is the credential. There is no session and no cross-site
@@ -14,9 +14,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use serde::Deserialize;
 
-use super::{ApiResult, decode_json, no_content};
+use super::{ApiResult, decode_json, json_response, no_content};
 use crate::Peer;
-use crate::app::App;
+use crate::app::{App, Unrecorded};
+use crate::auth::now_millis;
 use crate::error::AppError;
 
 pub(super) fn routes() -> Router<App> {
@@ -28,6 +29,10 @@ pub(super) fn routes() -> Router<App> {
         .route(
             &format!("{}/admin/users/{{username}}/admin", super::PREFIX),
             post(handle_admin_make_admin),
+        )
+        .route(
+            &format!("{}/admin/files/reconcile", super::PREFIX),
+            post(handle_reconcile_files),
         )
         .route_layer(middleware::from_fn(require_unix_connection))
         // The socket speaks the API's language for what it does not have as well.
@@ -81,6 +86,41 @@ async fn handle_admin_make_admin(
     let user = app.make_admin_by_username(&username).await?;
     tracing::info!(user_id = %user.id, "made an administrator through the administration socket");
     Ok(no_content())
+}
+
+/// The body of a request to compare the file storage with the records; none for a
+/// report alone.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReconcileFilesData {
+    /// Whether to doom the objects nothing names that are older than a day, for the
+    /// housekeeping to remove. Absent, false.
+    #[serde(default)]
+    remove_unrecorded: bool,
+}
+
+/// Compares the file storage with the records of every organization: the objects
+/// nothing names, and the places records name where the storage holds nothing. Without
+/// a body, or with `removeUnrecorded` false, it changes nothing. With it true, the
+/// objects nothing names that are older than a day are doomed: the housekeeping
+/// removes them at its next run, asking again whether something holds them. A record
+/// without its object is reported and never changed.
+async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResult {
+    let data: Option<ReconcileFilesData> = if body.is_empty() {
+        None
+    } else {
+        decode_json(&body)?
+    };
+    let unrecorded = if data.is_some_and(|data| data.remove_unrecorded) {
+        Unrecorded::Doom
+    } else {
+        Unrecorded::Report
+    };
+    let report = app
+        .housekeeping()
+        .reconcile_files(unrecorded, now_millis())
+        .await?;
+    Ok(json_response(&report))
 }
 
 #[cfg(test)]

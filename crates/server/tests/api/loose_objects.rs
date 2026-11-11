@@ -19,7 +19,7 @@ const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
 
 /// Uploads a file to a new board and returns the board and the file's place in the
 /// file storage.
-async fn uploaded(ts: &TestServer, data: &[u8]) -> (String, String) {
+pub(crate) async fn uploaded(ts: &TestServer, data: &[u8]) -> (String, String) {
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let response = upload(&ts.client, &board.id, "a.txt", data).await;
     response.check_created();
@@ -32,7 +32,7 @@ async fn uploaded(ts: &TestServer, data: &[u8]) -> (String, String) {
     (board.id, info.path)
 }
 
-async fn exists(ts: &TestServer, path: &str) -> bool {
+pub(crate) async fn exists(ts: &TestServer, path: &str) -> bool {
     ts.app
         .files()
         .exists(path)
@@ -40,7 +40,7 @@ async fn exists(ts: &TestServer, path: &str) -> bool {
         .expect("the storage is read")
 }
 
-async fn remove_doomed(ts: &TestServer, now: i64) -> RemovedObjects {
+pub(crate) async fn remove_doomed(ts: &TestServer, now: i64) -> RemovedObjects {
     ts.app
         .housekeeping()
         .remove_doomed_objects(now)
@@ -466,7 +466,7 @@ async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
 }
 
 /// Every listed object, of every organization.
-async fn all_listed(ts: &TestServer) -> Vec<fvoci_store::LooseObject> {
+pub(crate) async fn all_listed(ts: &TestServer) -> Vec<fvoci_store::LooseObject> {
     ts.app
         .housekeeping()
         .store()

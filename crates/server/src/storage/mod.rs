@@ -46,6 +46,19 @@ pub enum StorageError {
 /// The bytes of a stored file, as a stream of chunks.
 pub type FileStream = BoxStream<'static, Result<Bytes, StorageError>>;
 
+/// A stored file as a listing of the storage finds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredObject {
+    /// Its place: the path a record names it by.
+    pub path: String,
+    /// When it was last written, in milliseconds since the Unix epoch.
+    pub modified_at: i64,
+}
+
+/// Every stored file, as a stream: read as it is taken, a page or a directory at a
+/// time, in no order.
+pub type ObjectListing = BoxStream<'static, Result<StoredObject, StorageError>>;
+
 /// The configured file backend.
 #[derive(Debug, Clone)]
 pub enum FileBackend {
@@ -209,6 +222,18 @@ impl FileBackend {
             Self::S3(files) => files.rename(from, to).await,
             #[cfg(feature = "test-util")]
             Self::Faulty(inner, _) => Box::pin(inner.rename(from, to)).await,
+        }
+    }
+
+    /// Lists every stored file: on the local disk, the files under the root but for
+    /// the directories whose name starts with a dot (the files being written, the
+    /// temporary files); in the object store, the objects under the path prefix.
+    pub fn list(&self) -> ObjectListing {
+        match self {
+            Self::Local(files) => files.list(),
+            Self::S3(files) => files.list(),
+            #[cfg(feature = "test-util")]
+            Self::Faulty(inner, _) => inner.list(),
         }
     }
 
