@@ -8,6 +8,8 @@
  * is placed again whenever the editor reports the cursor's rectangle anew,
  * which it does on every change and when the window is resized.
  */
+import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
+
 import type { SuggestionEntry, SuggestionRenderer } from './extensions.ts';
 
 export interface SuggestionListOptions {
@@ -19,108 +21,120 @@ export interface SuggestionListOptions {
 
 let lists = 0;
 
-export function suggestionList(options: SuggestionListOptions): NonNullable<SuggestionRenderer> {
-  return () => {
-    let list: HTMLDivElement | undefined;
-    let entries: SuggestionEntry[] = [];
-    let active = 0;
-    let choose: (entry: SuggestionEntry) => void = () => undefined;
-    let owner: HTMLElement | undefined;
-    const id = `doc-suggestions-${(lists += 1)}`;
+/** One opening of the list, with its DOM, selection and owner kept together. */
+class SuggestionList {
+  #list: HTMLDivElement | undefined;
+  #entries: SuggestionEntry[] = [];
+  #active = 0;
+  #choose: (entry: SuggestionEntry) => void = () => undefined;
+  #owner: HTMLElement | undefined;
+  readonly #id = `doc-suggestions-${(lists += 1)}`;
+  readonly #options: SuggestionListOptions;
 
-    function place(rect: DOMRect | null | undefined): void {
-      if (!list || !rect) return;
-      const view = list.ownerDocument.defaultView;
-      const width = view?.innerWidth ?? 0;
-      const height = view?.innerHeight ?? 0;
-      const box = list.getBoundingClientRect();
-      // Under the cursor's line; above it when there is no room below. Never past an edge.
-      const below = rect.bottom + 4;
-      const top = below + box.height > height && rect.top - 4 - box.height >= 0;
-      list.style.left = `${Math.max(4, Math.min(rect.left, width - box.width - 4))}px`;
-      list.style.top = `${top ? rect.top - 4 - box.height : below}px`;
-    }
+  constructor(options: SuggestionListOptions) {
+    this.#options = options;
+  }
 
-    function draw(rect: DOMRect | null | undefined): void {
-      if (!list) return;
-      const page = list.ownerDocument;
-      list.replaceChildren(
-        ...entries.map((entry, index) => {
-          const option = page.createElement('div');
-          option.setAttribute('role', 'option');
-          option.setAttribute('id', `${id}-${index}`);
-          option.setAttribute('aria-selected', String(index === active));
-          option.dataset.value = entry.value;
-          option.textContent = entry.label;
-          // `mousedown`, and prevented: a click must not take the focus out of the editor.
-          option.addEventListener('mousedown', (event) => {
-            event.preventDefault();
-            choose(entry);
-          });
-          return option;
-        }),
-      );
-      list.hidden = entries.length === 0;
-      if (entries.length > 0) owner?.setAttribute('aria-activedescendant', `${id}-${active}`);
-      else owner?.removeAttribute('aria-activedescendant');
-      place(rect);
-    }
+  #place(rect: DOMRect | null | undefined): void {
+    if (!this.#list || !rect) return;
+    const view = this.#list.ownerDocument.defaultView;
+    const width = view?.innerWidth ?? 0;
+    const height = view?.innerHeight ?? 0;
+    const box = this.#list.getBoundingClientRect();
+    // Under the cursor's line; above it when there is no room below. Never past an edge.
+    const below = rect.bottom + 4;
+    const top = below + box.height > height && rect.top - 4 - box.height >= 0;
+    this.#list.style.left = `${Math.max(4, Math.min(rect.left, width - box.width - 4))}px`;
+    this.#list.style.top = `${top ? rect.top - 4 - box.height : below}px`;
+  }
 
-    function close(): void {
-      list?.remove();
-      list = undefined;
-      owner?.removeAttribute('aria-activedescendant');
-      owner?.removeAttribute('aria-controls');
-    }
+  #draw(rect: DOMRect | null | undefined): void {
+    if (!this.#list) return;
+    const page = this.#list.ownerDocument;
+    this.#list.replaceChildren(
+      ...this.#entries.map((entry, index) => {
+        const option = page.createElement('div');
+        option.setAttribute('role', 'option');
+        option.setAttribute('id', `${this.#id}-${index}`);
+        option.setAttribute('aria-selected', String(index === this.#active));
+        option.dataset.value = entry.value;
+        option.textContent = entry.label;
+        // `mousedown`, and prevented: a click must not take the focus out of the editor.
+        option.addEventListener('mousedown', (event) => {
+          event.preventDefault();
+          const choose = this.#choose;
+          choose(entry);
+        });
+        return option;
+      }),
+    );
+    this.#list.hidden = this.#entries.length === 0;
+    if (this.#entries.length > 0)
+      this.#owner?.setAttribute('aria-activedescendant', `${this.#id}-${this.#active}`);
+    else this.#owner?.removeAttribute('aria-activedescendant');
+    this.#place(rect);
+  }
 
-    return {
-      onStart(props) {
-        owner = props.editor.view.dom;
-        const page = owner.ownerDocument;
-        list = page.createElement('div');
-        list.setAttribute('role', 'listbox');
-        list.setAttribute('id', id);
-        list.setAttribute('aria-label', options.label());
-        list.setAttribute('class', 'doc-suggestions');
-        list.dataset.suggestions = options.kind;
-        page.body.append(list);
-        owner.setAttribute('aria-controls', id);
-        entries = props.items;
-        active = 0;
-        choose = props.command;
-        draw(props.clientRect?.());
-      },
-      onUpdate(props) {
-        entries = props.items;
-        active = Math.min(active, Math.max(0, entries.length - 1));
-        choose = props.command;
-        draw(props.clientRect?.());
-      },
-      onKeyDown({ event }) {
-        if (!list || entries.length === 0) return false;
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          const step = event.key === 'ArrowDown' ? 1 : -1;
-          active = (active + step + entries.length) % entries.length;
-          draw(undefined);
-          // Not every page can scroll an element into view (a simulated one cannot).
-          const chosen: Partial<Element> | null = list.querySelector('[aria-selected="true"]');
-          chosen?.scrollIntoView?.({ block: 'nearest' });
-          return true;
-        }
-        if (event.key === 'Enter' || event.key === 'Tab') {
-          const entry = entries[active];
-          if (entry) choose(entry);
-          return true;
-        }
-        if (event.key === 'Escape') {
-          close();
-          return true;
-        }
-        return false;
-      },
-      onExit() {
-        close();
-      },
-    };
+  #close(): void {
+    this.#list?.remove();
+    this.#list = undefined;
+    this.#owner?.removeAttribute('aria-activedescendant');
+    this.#owner?.removeAttribute('aria-controls');
+  }
+
+  onStart = (props: SuggestionProps<SuggestionEntry, SuggestionEntry>): void => {
+    this.#owner = props.editor.view.dom;
+    const page = this.#owner.ownerDocument;
+    this.#list = page.createElement('div');
+    this.#list.setAttribute('role', 'listbox');
+    this.#list.setAttribute('id', this.#id);
+    this.#list.setAttribute('aria-label', this.#options.label());
+    this.#list.setAttribute('class', 'doc-suggestions');
+    this.#list.dataset.suggestions = this.#options.kind;
+    page.body.append(this.#list);
+    this.#owner.setAttribute('aria-controls', this.#id);
+    this.#entries = props.items;
+    this.#active = 0;
+    this.#choose = props.command;
+    this.#draw(props.clientRect?.());
   };
+
+  onUpdate = (props: SuggestionProps<SuggestionEntry, SuggestionEntry>): void => {
+    this.#entries = props.items;
+    this.#active = Math.min(this.#active, Math.max(0, this.#entries.length - 1));
+    this.#choose = props.command;
+    this.#draw(props.clientRect?.());
+  };
+
+  onKeyDown = ({ event }: SuggestionKeyDownProps): boolean => {
+    if (!this.#list || this.#entries.length === 0) return false;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      this.#active = (this.#active + step + this.#entries.length) % this.#entries.length;
+      this.#draw(undefined);
+      // Not every page can scroll an element into view (a simulated one cannot).
+      const chosen: Partial<Element> | null = this.#list.querySelector('[aria-selected="true"]');
+      chosen?.scrollIntoView?.({ block: 'nearest' });
+      return true;
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const entry = this.#entries[this.#active];
+      const choose = this.#choose;
+      if (entry) choose(entry);
+      return true;
+    }
+    if (event.key === 'Escape') {
+      this.#close();
+      return true;
+    }
+    return false;
+  };
+
+  onExit = (): void => {
+    this.#close();
+  };
+}
+
+export function suggestionList(options: SuggestionListOptions): NonNullable<SuggestionRenderer> {
+  return () => new SuggestionList(options);
 }
