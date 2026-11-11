@@ -28,6 +28,7 @@ mod login_limits;
 mod loose_objects;
 mod metrics;
 mod metrics_accounts;
+mod metrics_listener;
 mod metrics_outcomes;
 mod onboarding;
 mod organizations;

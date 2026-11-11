@@ -48,11 +48,15 @@ async fn require_token(
     let Some(token) = &token else {
         return next.run(request).await;
     };
-    let challenge = match bearer(request.headers()) {
-        Some(presented) if token.admits(presented) => return next.run(request).await,
+    let challenge = match credentials(request.headers()) {
+        Credentials::Bearer(presented) if token.admits(presented) => {
+            return next.run(request).await;
+        }
         // A token was sent, and is not this one (RFC 6750, 3.1).
-        Some(_) => "Bearer realm=\"metrics\", error=\"invalid_token\"",
-        None => "Bearer realm=\"metrics\"",
+        Credentials::Bearer(_) => "Bearer realm=\"metrics\", error=\"invalid_token\"",
+        // More than one way of sending a token (RFC 6750, 3.1).
+        Credentials::Several => "Bearer realm=\"metrics\", error=\"invalid_request\"",
+        Credentials::None => "Bearer realm=\"metrics\"",
     };
     let mut refused = AppError::unauthorized("a scrape needs the bearer token").into_response();
     refused
@@ -61,14 +65,35 @@ async fn require_token(
     refused
 }
 
-/// The bearer token of the `Authorization` header (RFC 6750): after the scheme, which is
-/// read without regard to case, and the spaces.
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    let value = headers.get(AUTHORIZATION)?.to_str().ok()?;
-    let (scheme, token) = value.split_once(' ')?;
-    scheme
-        .eq_ignore_ascii_case("bearer")
-        .then(|| token.trim_start_matches(' '))
+/// What the `Authorization` headers of a scrape send.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Credentials<'h> {
+    /// No bearer token: no header, or one of another scheme or that is no text.
+    None,
+    /// One header with a bearer token (RFC 6750, 2.1): after the scheme, which is read
+    /// without regard to case, and the spaces.
+    Bearer(&'h str),
+    /// More than one header. None of them is taken: which one would be is the order
+    /// of the headers, which a proxy may change.
+    Several,
+}
+
+/// What the `Authorization` headers of `headers` send.
+fn credentials(headers: &HeaderMap) -> Credentials<'_> {
+    let mut values = headers.get_all(AUTHORIZATION).iter();
+    let Some(value) = values.next() else {
+        return Credentials::None;
+    };
+    if values.next().is_some() {
+        return Credentials::Several;
+    }
+    let bearer = value.to_str().ok().and_then(|value| {
+        let (scheme, token) = value.split_once(' ')?;
+        scheme
+            .eq_ignore_ascii_case("bearer")
+            .then(|| token.trim_start_matches(' '))
+    });
+    bearer.map_or(Credentials::None, Credentials::Bearer)
 }
 
 /// Answers a scrape: reads what is measured by asking, then writes all.
@@ -211,6 +236,35 @@ mod tests {
             assert!(!log.contains(TOKEN), "the token is not logged: {log}");
             assert!(!log.contains("the-token"), "nor a guess: {log}");
         }
+    }
+
+    #[test]
+    fn more_than_one_authorization_header_sends_no_token() {
+        let right = format!("Bearer {TOKEN}");
+        for values in [
+            [&right[..], "Bearer wrong"],
+            ["Bearer wrong", &right[..]],
+            [&right[..], &right[..]],
+            ["", &right[..]],
+        ] {
+            let mut headers = HeaderMap::new();
+            for value in values {
+                headers.append(
+                    AUTHORIZATION,
+                    HeaderValue::from_str(value).expect("a value"),
+                );
+            }
+            assert_eq!(credentials(&headers), Credentials::Several, "{values:?}");
+        }
+        let mut headers = HeaderMap::new();
+        assert_eq!(credentials(&headers), Credentials::None);
+        headers.insert(AUTHORIZATION, HeaderValue::from_static("Basic abc"));
+        assert_eq!(credentials(&headers), Credentials::None, "another scheme");
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&right).expect("a value"),
+        );
+        assert_eq!(credentials(&headers), Credentials::Bearer(TOKEN));
     }
 
     #[tokio::test]
