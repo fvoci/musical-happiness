@@ -261,7 +261,8 @@ async fn check_and_copy_body_files(
 /// Inserts blocks under identifiers the server makes; the identifiers of the request
 /// only link its blocks to each other. All blocks are inserted or none, and they are
 /// listed afterwards in the order the request had them in. Comments need the role of a
-/// commenter, everything else that of an editor.
+/// commenter, everything else that of an editor. A comment is on a card of the board,
+/// and no block is below a comment (400 at the block's `parentId`).
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks",
@@ -432,7 +433,8 @@ async fn handle_delete_block(
 /// Bring a deleted block back
 ///
 /// Restores a block of the board from the trash, with the blocks that went there with
-/// it. A block whose parent is gone has nowhere to come back to: 404. For who may
+/// it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
+/// may no longer hold it (a comment off a card, a block below a comment): 409. For who may
 /// delete what comes back, as `deleteBlock` has it: editors, a comment its author from
 /// the commenter's role up, and a comment of somebody else the board's admins only
 /// (403, `access denied to undelete other users' comments`). What decides is what was
@@ -547,7 +549,9 @@ async fn handle_get_comment_versions(
 /// editor may not change it. The commenter's role changes a comment's text (its body);
 /// moving a comment to another card (`parentId`) or making it a block of another type
 /// is for editors, and making a block of somebody else a comment for the board's admins.
-/// The block's `modifiedBy` and `updateAt` say who changed it and when.
+/// A comment goes only on a card of the board, no block goes below a comment (400 at
+/// `parentId`), and a card with comments stays a card (400 at `type`). The block's
+/// `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,
     path = "/boards/{boardId}/blocks/{blockId}",

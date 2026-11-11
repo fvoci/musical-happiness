@@ -180,6 +180,7 @@ pub(crate) async fn require_delete_permission(
 /// go with it. A comment takes the replies below it, so who deletes it, or brings it
 /// back, must be allowed that for each of them too: nobody takes away the comment of
 /// somebody else by deleting their own. Each permission is asked once, the top's first.
+/// For a comment this is a guard: the store keeps anything from being below one.
 pub(crate) async fn require_deletion_permission(
     app: &App,
     user_id: &str,

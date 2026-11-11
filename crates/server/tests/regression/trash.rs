@@ -52,7 +52,7 @@ pub(crate) async fn trash(s: &mut Session) {
         "insert a comment and a text on the card",
     )
     .await;
-    let (comment, text) = (id_of(&created[0]), id_of(&created[1]));
+    let text = id_of(&created[1]);
     let created = new_blocks(
         s,
         &alice,
@@ -61,11 +61,11 @@ pub(crate) async fn trash(s: &mut Session) {
             "d1",
             &board,
             "attachment",
-            "Below the comment",
-            &comment,
+            "Below the text",
+            &text,
             json!({})
         )]),
-        "insert a block below the comment",
+        "insert a block below the text",
     )
     .await;
     let deep = id_of(&created[0]);

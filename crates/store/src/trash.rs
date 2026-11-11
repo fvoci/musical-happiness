@@ -22,6 +22,7 @@ use crate::Store;
 use crate::blocks::{self, Paging, parents_first};
 use crate::boards;
 use crate::category_boards::{self, BoardPlace};
+use crate::comment_places;
 use crate::comment_versions;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
@@ -181,7 +182,9 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if no block of that identifier is in the trash,
     /// or there is nothing to restore it to: its board does not exist (any more, or is
-    /// in the trash itself), or the block it was on does not.
+    /// in the trash itself), or the block it was on does not. Returns
+    /// [`StoreError::NotRestorable`] if a block at the top would come back where it may
+    /// not be: a comment off a card, or any block below a comment.
     pub async fn undelete_block(&self, block_id: &str, user_id: &str) -> Result<Block, StoreError> {
         self.transaction(async |scope| undelete_block(scope, block_id, user_id).await)
             .await
@@ -521,22 +524,34 @@ pub(crate) async fn undelete_block(
     let deletion_id = row.id(0)?;
 
     // For the blocks at the top of what was deleted, the block they were on must be
-    // there too.
-    let mut sql = scope.sql("SELECT id, parent_id FROM deleted_blocks WHERE deletion_id = ");
+    // there too, and still one they may be on.
+    let mut sql = scope.sql("SELECT block FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(&deletion_id));
-    let family: Vec<(String, String)> = scope
+    let family: Vec<Block> = scope
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| Ok((row.id(0)?, row.id(1)?)))
+        .map(|row| block_from_json(row, 0))
         .collect::<Result<_, StoreError>>()?;
-    let coming_back: HashSet<&str> = family.iter().map(|(id, _)| id.as_str()).collect();
-    for (_, parent_id) in &family {
-        if parent_id.is_empty() || coming_back.contains(parent_id.as_str()) {
+    let coming_back: HashSet<&str> = family.iter().map(|block| block.id.as_str()).collect();
+    for block in &family {
+        if coming_back.contains(block.parent_id.as_str()) {
             continue;
         }
-        if blocks::find_block(scope, parent_id).await?.is_none() {
-            return Err(block_not_in_trash());
+        let parent = if block.parent_id.is_empty() {
+            None
+        } else {
+            let Some(parent) = blocks::find_block(scope, &block.parent_id).await? else {
+                return Err(block_not_in_trash());
+            };
+            Some(parent)
+        };
+        let parent_type = parent.as_ref().map(|parent| &parent.block_type);
+        if let Some(source) = comment_places::restore_refusal(&block.block_type, parent_type) {
+            return Err(StoreError::NotRestorable {
+                id: block.id.clone(),
+                source,
+            });
         }
     }
 

@@ -121,67 +121,203 @@ async fn a_commenter_deletes_and_brings_back_their_own_comment() {
     );
 }
 
-/// Not in the original (user decision 2026-11-11 22:13 KST). Deleting a comment takes
-/// the replies below it, so a reply of somebody else keeps the author of the comment
-/// from deleting it and bringing it back, as the reply itself would: the board's admins
-/// do both. The author's own replies are no hindrance.
+/// The refusal of a comment that is not on a card.
+const OFF_A_CARD: &str = "the parent of a comment is a card of the board";
+/// The refusal of a block below a comment.
+const BELOW_A_COMMENT: &str = "a comment is the parent of no block";
+
+/// Not in the original (contract B1, decided 2026-11-11 by the coordinating session).
+/// A comment is on a card of its board and nothing is below it, however a block is
+/// written: a new comment, a block that becomes one and a block that moves are refused
+/// (400) at the `parentId` of the request, and a card that has comments stays a card.
 #[tokio::test]
-async fn a_reply_of_somebody_else_keeps_a_comment_from_being_deleted_by_its_author() {
+async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let card = &content.card;
+    let comment = &content.comment;
+
+    let attachment = insert_one(
+        &th.client,
+        &child_of(card, BlockType::Attachment, "attachment"),
+    )
+    .await;
+    for (new, refusal) in [
+        (
+            new_block(board_id, BlockType::Comment, "on the board"),
+            OFF_A_CARD,
+        ),
+        (
+            child_of(&attachment, BlockType::Comment, "on an attachment"),
+            OFF_A_CARD,
+        ),
+        (child_of(comment, BlockType::Comment, "a reply"), OFF_A_CARD),
+        (
+            child_of(comment, BlockType::Attachment, "below"),
+            BELOW_A_COMMENT,
+        ),
+    ] {
+        let response = th.client.insert_blocks(board_id, &[new]).await;
+        response.check_error(StatusCode::BAD_REQUEST, refusal);
+        assert_eq!(response.refused_at(), "/0/parentId");
+    }
+
+    // A move, alone, in a batch and with the board.
+    let path = block_path(board_id, &comment.id);
+    for (target, refusal) in [
+        (board_id.as_str(), OFF_A_CARD),
+        (attachment.id.as_str(), OFF_A_CARD),
+    ] {
+        let response = th.client.patch(&path, &json!({"parentId": target})).await;
+        response.check_error(StatusCode::BAD_REQUEST, refusal);
+        assert_eq!(response.refused_at(), "/parentId");
+    }
+    let under_comment = json!({"parentId": comment.id});
+    let response = th
+        .client
+        .patch(&block_path(board_id, &attachment.id), &under_comment)
+        .await;
+    response.check_error(StatusCode::BAD_REQUEST, BELOW_A_COMMENT);
+    assert_eq!(response.refused_at(), "/parentId");
+    let response = th
+        .client
+        .patch(
+            &blocks_path(board_id),
+            &json!({"blockIds": [attachment.id], "blockPatches": [under_comment]}),
+        )
+        .await;
+    response.check_error(StatusCode::BAD_REQUEST, BELOW_A_COMMENT);
+    assert_eq!(response.refused_at(), "/blockPatches/0/parentId");
+    let response = th
+        .client
+        .patch(
+            "/boards-and-blocks",
+            &json!({
+                "boardIds": [board_id], "boardPatches": [{}],
+                "blockIds": [attachment.id], "blockPatches": [under_comment],
+            }),
+        )
+        .await;
+    response.check_error(StatusCode::BAD_REQUEST, BELOW_A_COMMENT);
+    assert_eq!(response.refused_at(), "/blockPatches/0/parentId");
+
+    // A change of type: a block with blocks below it becomes no comment, and a card
+    // with comments no view.
+    insert_one(
+        &th.client,
+        &child_of(&attachment, BlockType::Attachment, "below the attachment"),
+    )
+    .await;
+    let view = insert_one(&th.client, &new_block(board_id, BlockType::View, "view")).await;
+    for (block, to) in [(&attachment, "comment"), (card, "view"), (&view, "comment")] {
+        let response = th
+            .client
+            .patch(&block_path(board_id, &block.id), &json!({"type": to}))
+            .await;
+        response.check_error(
+            StatusCode::BAD_REQUEST,
+            "the type would leave a comment off a card",
+        );
+        assert_eq!(response.refused_at(), "/type", "{to}");
+    }
+
+    // On a card it is all as before: a comment is made, moved to another card, and a
+    // block below a card becomes one.
+    let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
+    th.client
+        .patch(&path, &json!({"parentId": second.id}))
+        .await
+        .check_no_content();
+    let leaf = insert_one(&th.client, &child_of(card, BlockType::Attachment, "leaf")).await;
+    th.client
+        .patch(&block_path(board_id, &leaf.id), &json!({"type": "comment"}))
+        .await
+        .check_no_content();
+}
+
+/// Not in the original (contract B1). A block comes back from the trash only where it
+/// may be: a comment whose card became a view, or a block whose parent became a
+/// comment, while it was in the trash, is refused (409) and stays there.
+#[tokio::test]
+async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let refused = |what: &str| format!("the block cannot come back where it was: {what}");
+
+    delete(&boards.commenter, &content.comment).await;
+    th.client
+        .patch(
+            &block_path(board_id, &content.card.id),
+            &json!({"type": "view"}),
+        )
+        .await
+        .check_no_content();
+    boards
+        .commenter
+        .post(&undelete_path(board_id, &content.comment.id), &json!({}))
+        .await
+        .check_error(StatusCode::CONFLICT, &refused(OFF_A_CARD));
+
+    let card = insert_one(&th.client, &new_block(board_id, BlockType::Card, "card 2")).await;
+    let middle = insert_one(
+        &th.client,
+        &child_of(&card, BlockType::Attachment, "middle"),
+    )
+    .await;
+    let below = insert_one(
+        &th.client,
+        &child_of(&middle, BlockType::Attachment, "below"),
+    )
+    .await;
+    delete(&th.client, &below).await;
+    th.client
+        .patch(
+            &block_path(board_id, &middle.id),
+            &json!({"type": "comment"}),
+        )
+        .await
+        .check_no_content();
+    th.client
+        .post(&undelete_path(board_id, &below.id), &json!({}))
+        .await
+        .check_error(StatusCode::CONFLICT, &refused(BELOW_A_COMMENT));
+    let read = blocks_of(&th.client, board_id).await;
+    let read = titles(&read);
+    assert!(
+        !read.contains(&"comment") && !read.contains(&"below"),
+        "both still in the trash: {read:?}"
+    );
+}
+
+/// Not in the original (user decision 2026-11-11 22:13 KST). The author of a comment
+/// deletes it and brings it back, also after an admin deleted it: who may delete it may
+/// bring it back. (Deleting a comment would take what is below it, and a block of
+/// somebody else there would refuse it; a comment has nothing below it, so that check
+/// is left as a guard.)
+#[tokio::test]
+async fn the_author_of_a_comment_deleted_by_an_admin_brings_it_back() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
     let content = card_with_content(&th, &boards).await;
     let board_id = &boards.board.id;
     let own = &content.comment;
-    let path = block_path(board_id, &own.id);
     let back = undelete_path(board_id, &own.id);
 
-    insert_one(
-        &boards.commenter,
-        &child_of(own, BlockType::Comment, "my own reply"),
-    )
-    .await;
-    let reply = insert_one(
-        &boards.editor,
-        &child_of(own, BlockType::Comment, "a reply"),
-    )
-    .await;
-    boards.commenter.delete(&path).await.check_error(
-        StatusCode::FORBIDDEN,
-        "access denied to delete other users' comments",
-    );
-    assert_eq!(
-        blocks_of(&th.client, board_id).await.len(),
-        5,
-        "nothing was deleted"
-    );
-
-    delete(&th.client, own).await;
-    boards.commenter.post(&back, &json!({})).await.check_error(
-        StatusCode::FORBIDDEN,
-        "access denied to undelete other users' comments",
-    );
-    th.client.post(&back, &json!({})).await.check_ok();
-
-    // Without the reply of somebody else, the author deletes the comment and brings
-    // it back with their own reply, also after an admin deleted it.
-    delete(&boards.editor, &reply).await;
     delete(&boards.commenter, own).await;
     boards.commenter.post(&back, &json!({})).await.check_ok();
     delete(&th.client, own).await;
     boards.commenter.post(&back, &json!({})).await.check_ok();
-    let read = blocks_of(&th.client, board_id).await;
-    assert!(
-        titles(&read).contains(&"comment") && titles(&read).contains(&"my own reply"),
-        "{:?}",
-        titles(&read)
-    );
+    assert!(titles(&blocks_of(&th.client, board_id).await).contains(&"comment"));
 }
 
 /// Not in the original (user decision 2026-11-11 21:00 KST). What comes back is the
-/// whole deletion, so the block that was deleted decides: a block below somebody else's
-/// comment, deleted with it, does not bring the comment back for an editor, and a
-/// comment of somebody else that went with its card comes back with the card, which an
-/// editor may delete and bring back.
+/// whole deletion, so the block that was deleted decides: a comment of somebody else
+/// that went with its card comes back with the card, which an editor may delete and
+/// bring back, naming the card or the comment.
 #[tokio::test]
 async fn a_deletion_comes_back_as_its_top_block_allows() {
     let th = Setup::native().start().await.init_basic().await;
@@ -189,32 +325,6 @@ async fn a_deletion_comes_back_as_its_top_block_allows() {
     let content = card_with_content(&th, &boards).await;
     let board_id = &boards.board.id;
     let others = &content.comment;
-
-    // The editor's reply below the commenter's comment, deleted with it by the admin.
-    let reply = insert_one(
-        &boards.editor,
-        &child_of(others, BlockType::Comment, "a reply"),
-    )
-    .await;
-    delete(&th.client, others).await;
-    boards
-        .editor
-        .post(&undelete_path(board_id, &reply.id), &json!({}))
-        .await
-        .check_error(
-            StatusCode::FORBIDDEN,
-            "access denied to undelete other users' comments",
-        );
-    th.client
-        .post(&undelete_path(board_id, &reply.id), &json!({}))
-        .await
-        .check_ok();
-    let read = blocks_of(&th.client, board_id).await;
-    assert!(
-        titles(&read).contains(&"comment") && titles(&read).contains(&"a reply"),
-        "both back by the admin: {:?}",
-        titles(&read)
-    );
 
     // The card, deleted by the editor with the commenter's comment on it: the editor
     // brings it back, naming the card or the comment.
@@ -574,17 +684,12 @@ async fn an_editor_moves_their_own_comment_and_an_admin_anybodys() {
         )
         .await
         .check_ok();
-    // A comment on the board itself: naming the board as its parent moves nothing.
-    let on_board = insert_one(
-        &boards.commenter,
-        &new_block(board_id, BlockType::Comment, "on the board"),
-    )
-    .await;
+    // Naming the card a comment is on moves nothing: the commenter may.
     boards
         .commenter
         .patch(
-            &block_path(board_id, &on_board.id),
-            &json!({"parentId": board_id, "title": "still on the board"}),
+            &path,
+            &json!({"parentId": content.card.id, "title": "still on the card"}),
         )
         .await
         .check_no_content();

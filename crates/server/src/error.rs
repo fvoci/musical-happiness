@@ -694,6 +694,9 @@ impl From<StoreError> for AppError {
                 source:
                     source @ (BlockError::ParentNotOnBoard
                     | BlockError::ParentBelowBlock
+                    | BlockError::CommentNotOnCard
+                    | BlockError::ParentIsComment
+                    | BlockError::TypeStrandsComments
                     | BlockError::BodyNotAllowed
                     | BlockError::NulInTitle
                     | BlockError::InvalidCardField { .. }
@@ -710,6 +713,9 @@ impl From<StoreError> for AppError {
                 Self::bad_request("an identifier in the request is not a valid identifier")
             }
             StoreError::Conflict(_) => Self::conflict(error),
+            StoreError::NotRestorable { source, .. } => Self::conflict(format_args!(
+                "the block cannot come back where it was: {source}"
+            )),
             // The message names no times: the client has the time it read the block
             // at, and reads the block again for the one it has now.
             StoreError::Stale { .. } => {
@@ -765,10 +771,13 @@ impl From<BlockError> for AppError {
             BlockError::BodyNotAllowed => Self::bad_request(error).with_field("body"),
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
             BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
-            BlockError::TypeNotCurrent(_) => Self::bad_request(error).with_field("type"),
-            BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock => {
-                Self::bad_request(error).with_field("parentId")
+            BlockError::TypeNotCurrent(_) | BlockError::TypeStrandsComments => {
+                Self::bad_request(error).with_field("type")
             }
+            BlockError::ParentNotOnBoard
+            | BlockError::ParentBelowBlock
+            | BlockError::CommentNotOnCard
+            | BlockError::ParentIsComment => Self::bad_request(error).with_field("parentId"),
             BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),
         }
     }
