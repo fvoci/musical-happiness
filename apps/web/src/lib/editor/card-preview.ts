@@ -41,12 +41,14 @@ function withoutMentions(node: DocNode): DocNode {
   };
 }
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+/** Made when first needed: a browser without it fails at a preview, not at loading the app. */
+let graphemes: Intl.Segmenter | undefined;
 
 /** At most the length, cut between characters as they are seen, without white space at its end. */
 function cut(text: string): string {
   let units = 0;
   let end = text.length;
+  graphemes ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
   for (const { segment, index } of graphemes.segment(text)) {
     units += segment.length;
     if (units > PREVIEW_TEXT_LENGTH) {

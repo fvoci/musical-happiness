@@ -24,6 +24,16 @@ describe('a card preview', () => {
       image('second'),
     );
     expect(cardPreviewOf(body).imageFileId).toBe('first');
+    const table = doc({
+      type: 'table',
+      content: [
+        {
+          type: 'tableRow',
+          content: [{ type: 'tableCell', content: [paragraph(words('x')), image('cell')] }],
+        },
+      ],
+    });
+    expect(cardPreviewOf(table).imageFileId).toBe('cell');
   });
 
   it('gives a line per block, nothing for a mention, a formula its source', () => {
@@ -50,7 +60,9 @@ describe('a card preview', () => {
     // A letter with its combining accent stays whole.
     const accent = cardPreviewOf(doc(paragraph(words(`${'a'.repeat(199)}é`)))).text;
     expect(accent).toBe('a'.repeat(199));
-    const spaced = cardPreviewOf(doc(paragraph(words(`${'a'.repeat(150)}   ${'b'.repeat(60)}`))));
+    // A cut that ends in spaces loses them.
+    const spaced = cardPreviewOf(doc(paragraph(words(`${'a'.repeat(198)}   b`))));
+    expect(spaced.text).toBe('a'.repeat(198));
     expect(spaced.text.length).toBeLessThanOrEqual(PREVIEW_TEXT_LENGTH);
     expect(cardPreviewOf(doc(paragraph(words('Done.   '))))).toEqual({
       imageFileId: '',

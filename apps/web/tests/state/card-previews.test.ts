@@ -43,16 +43,28 @@ describe('the previews of a gallery', () => {
     const { board, backend, other } = await openFirstBoard();
     const alpha = board.realCards.find((card) => card.title === 'Alpha');
     if (!alpha) throw new Error('no card');
-    backend.latency = 20;
+    // The reading takes its answer before the write, and gives it after the write's message.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = backend.cardPreviews.bind(backend);
+    vi.spyOn(backend, 'cardPreviews').mockImplementationOnce(async (boardId) => {
+      const answer = await real(boardId);
+      await held;
+      return answer;
+    });
     const previews = new CardPreviews(backend, board.boardId);
     const stop = previews.start();
-    // Written while the reading is on its way: the message is newer.
+    await settle();
     const now = await other.card(board.boardId, alpha.id);
     await other.writeCardBody(board.boardId, alpha.id, {
       body: text('newer'),
       readAt: now.updateAt,
     });
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle();
+    release();
+    await settle();
     expect(previews.of(alpha.id)?.text).toBe('newer');
     stop();
   });
