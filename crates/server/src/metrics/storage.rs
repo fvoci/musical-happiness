@@ -1,12 +1,12 @@
 //! The metrics of the database and the files: the connection pool, the open uploads,
 //! and the exports and imports of archives that hold their place.
 
+use std::fmt::Display;
 use std::time::Duration;
 
 use prometheus::{IntCounter, IntGauge, IntGaugeVec, Opts, Registry};
 
 use super::{Metrics, PREFIX};
-use crate::app::App;
 
 /// How long a scrape waits for the database to count the open uploads. Shorter than
 /// Prometheus's own timeout of a scrape (10 s by default), so that a pool that is
@@ -32,6 +32,26 @@ impl ArchiveWork {
             Self::Import => "import",
         }
     }
+}
+
+/// The connection pool of the database, as a scrape finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Pool {
+    /// The connections the pool holds, in use or idle.
+    pub(crate) connections: u32,
+    /// The connections the pool holds that are idle.
+    pub(crate) idle: u32,
+    /// The most connections the pool may hold.
+    pub(crate) max_connections: u32,
+}
+
+/// The uploads in parts that are open, as a scrape finds them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OpenUploads {
+    /// How many there are.
+    pub(crate) sessions: i64,
+    /// The sum of their sizes, in bytes.
+    pub(crate) bytes: i64,
 }
 
 /// The metrics of the database and the files.
@@ -116,37 +136,49 @@ impl StorageMetrics {
 }
 
 impl Metrics {
-    /// Reads what is measured by asking, for a scrape: the pool and the open uploads.
-    /// The uploads stay as they were if the database cannot be read in time, which is
-    /// counted, or another scrape is reading them.
-    pub(super) async fn read_storage(&self, app: &App) {
+    /// Sets how many exports and how many imports of archives hold their place.
+    pub(crate) fn set_archives_running(&self, exports: usize, imports: usize) {
         let Some(kept) = &self.kept else {
             return;
         };
-        let storage = &kept.storage;
-        let (exports, imports) = app.archives_running();
         for (work, running) in [
             (ArchiveWork::Export, exports),
             (ArchiveWork::Import, imports),
         ] {
-            storage
+            kept.storage
                 .archives
                 .with_label_values(&[work.as_str()])
                 .set(i64::try_from(running).unwrap_or(i64::MAX));
         }
-        let pool = app.store().pool_status();
+    }
+
+    /// Sets the connection pool of the database.
+    pub(crate) fn set_pool(&self, pool: Pool) {
+        let Some(kept) = &self.kept else {
+            return;
+        };
+        let storage = &kept.storage;
         storage.pool_connections.set(i64::from(pool.connections));
         storage.pool_idle.set(i64::from(pool.idle));
         storage.pool_max.set(i64::from(pool.max_connections));
+    }
+
+    /// Sets the open uploads to what `read` answers, for a scrape. `read` is what asks
+    /// the database; it is not polled if no metrics are kept or another scrape is
+    /// reading. The uploads stay as they were then, and if `read` fails or does not
+    /// answer in time, which is counted.
+    pub(crate) async fn read_open_uploads<E: Display>(
+        &self,
+        read: impl Future<Output = Result<OpenUploads, E>>,
+    ) {
+        let Some(kept) = &self.kept else {
+            return;
+        };
+        let storage = &kept.storage;
         let Ok(_reading) = storage.reading_uploads.try_lock() else {
             return;
         };
-        let read = tokio::time::timeout(
-            UPLOADS_READ_TIMEOUT,
-            app.store().open_uploads(crate::auth::now_millis()),
-        )
-        .await;
-        match read {
+        match tokio::time::timeout(UPLOADS_READ_TIMEOUT, read).await {
             Ok(Ok(open)) => {
                 storage.uploads_open.set(open.sessions);
                 storage.uploads_open_bytes.set(open.bytes);

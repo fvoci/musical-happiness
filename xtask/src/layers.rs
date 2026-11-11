@@ -57,9 +57,12 @@ impl Layer {
 ///   transaction to keep, and what it needs it asks of the logic.
 /// * **logic** does not know HTTP: no `axum`, no request, response, header or status.
 ///   What it decides can be asked from a test or a task as well as from a handler.
+/// * **metrics** is what HTTP and the logic count into, and knows neither of them nor
+///   the store: a number of the database reaches it through the logic. Serving the
+///   metrics and measuring requests are HTTP's.
 ///
-/// A module of the server that is not listed under `logic` is HTTP: the one that may do
-/// least with the data.
+/// A module of the server that is not listed under another layer is HTTP: the one that
+/// may do least with the data.
 pub(crate) const LAYERS: &[Layer] = &[
     Layer {
         name: "http",
@@ -86,7 +89,7 @@ pub(crate) const LAYERS: &[Layer] = &[
             "reqwest::StatusCode",
             "reqwest::Version",
         ],
-        may_use: &["logic", "model"],
+        may_use: &["logic", "metrics", "model"],
         handles: &[],
     },
     Layer {
@@ -101,7 +104,13 @@ pub(crate) const LAYERS: &[Layer] = &[
             "fvoci_server::storage",
             "fvoci_server::webhook",
         ],
-        may_use: &["store", "model"],
+        may_use: &["metrics", "store", "model"],
+        handles: &[],
+    },
+    Layer {
+        name: "metrics",
+        owns: &["fvoci_server::metrics", "prometheus"],
+        may_use: &[],
         handles: &[],
     },
     Layer {

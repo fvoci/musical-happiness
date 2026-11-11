@@ -84,6 +84,13 @@ fn a_path_belongs_to_the_layer_with_the_longest_claim() {
     );
     assert_eq!(name("fvoci_store::Store"), Some("store"));
     assert_eq!(name("axum::http::StatusCode"), Some("http"));
+    assert_eq!(name("fvoci_server::metrics::requests"), Some("metrics"));
+    assert_eq!(name("prometheus::Registry"), Some("metrics"));
+    assert_eq!(
+        name("fvoci_server::metrics_listener"),
+        Some("http"),
+        "serving the metrics is HTTP"
+    );
     assert_eq!(name("tokio::sync::Mutex"), None, "in no layer");
 }
 
@@ -562,18 +569,19 @@ fn every_dependency_of_the_read_crates_is_placed() {
 
 #[test]
 fn an_entry_of_the_table_that_is_no_module_is_noticed() {
-    let logic: Vec<(&str, &str)> = LAYERS
+    let modules: Vec<(&str, &str)> = LAYERS
         .iter()
-        .filter(|layer| layer.name == "logic")
-        .flat_map(|layer| layer.owns.iter().map(|module| (*module, "")))
+        .flat_map(|layer| layer.owns)
+        .filter(|owned| owned.starts_with("fvoci_server::"))
+        .map(|module| (*module, ""))
         .collect();
     assert_eq!(
-        sources(&logic).stale_layers(),
+        sources(&modules).stale_layers(),
         Vec::<String>::new(),
         "every module of the table is there"
     );
     assert_eq!(
-        sources(&logic[1..]).stale_layers(),
+        sources(&modules[1..]).stale_layers(),
         [
             "fvoci_server::app is listed as logic and is no module: correct the table in \
           xtask/src/layers.rs"
@@ -686,6 +694,39 @@ fn what_the_rule_allows_is_not_reported() {
     assert_eq!(
         broken("fvoci_model::board", "use fvoci_store::Store;"),
         ["model>store fvoci_store::Store"]
+    );
+}
+
+#[test]
+fn the_metrics_are_counted_into_and_name_no_other_layer() {
+    let counting = "use crate::metrics::{LoginLimit, Metrics}; \
+                    fn f(metrics: &Metrics) { metrics.login_refused(LoginLimit::AddressBusy); }";
+    assert!(
+        broken("fvoci_server::auth::limiter", counting).is_empty(),
+        "the logic counts"
+    );
+    assert!(
+        broken("fvoci_server::ws", counting).is_empty(),
+        "HTTP counts"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_server::metrics::storage",
+            "use prometheus::IntGauge; use axum::response::Response; use crate::app::App; \
+             async fn read(app: &App) { app.store().pool_status(); }"
+        ),
+        [
+            "metrics>http axum::response::Response",
+            "metrics>logic fvoci_server::app::App",
+            "metrics>logic fvoci_server::app::App",
+            "metrics>store .store().pool_status"
+        ],
+        "the metrics answer no request and ask neither the logic nor the database"
+    );
+    assert_eq!(
+        broken("fvoci_store::boards", "use prometheus::IntGauge;"),
+        ["store>metrics prometheus::IntGauge"],
+        "the store does not count: what is measured of it, the logic reads"
     );
 }
 
@@ -945,6 +986,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
         "auth",
         "config",
         "error",
+        "metrics",
         "permissions",
         "scheduler",
         "storage",
@@ -955,7 +997,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
     write(
         &root,
         "crates/server/src/lib.rs",
-        "pub mod api; pub mod app; mod auth; mod config; mod error; mod permissions; \
+        "pub mod api; pub mod app; mod auth; mod config; mod error; mod metrics; mod permissions; \
          mod scheduler; mod storage; mod webhook;",
     );
     let exact = "crates/server/src/api/mod.rs .store().purge 1\n\
@@ -978,7 +1020,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
     write(
         &root,
         "crates/server/src/lib.rs",
-        "pub mod api; pub mod app; mod auth; mod config; mod error; mod permissions; \
+        "pub mod api; pub mod app; mod auth; mod config; mod error; mod metrics; mod permissions; \
          mod scheduler; mod storage;",
     );
     write(&root, EXCEPTIONS, exact);
@@ -988,7 +1030,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
     write(
         &root,
         "crates/server/src/lib.rs",
-        "pub mod api; pub mod app; mod auth; mod config; mod error; mod permissions; \
+        "pub mod api; pub mod app; mod auth; mod config; mod error; mod metrics; mod permissions; \
          mod scheduler; mod storage; mod webhook;",
     );
     run(&root).expect("the module is back");

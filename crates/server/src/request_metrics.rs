@@ -1,5 +1,6 @@
-//! The metrics of HTTP requests on the API's listener: how many are being answered, and
-//! how long each took, by method, route and status.
+//! Measuring the HTTP requests on the API's listener: how many are being answered, and
+//! how long each took, by method, route and status. The metrics themselves are
+//! [`RequestMetrics`]; here is the middleware that counts into them.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -8,9 +9,8 @@ use axum::extract::{MatchedPath, Request, State};
 use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::Response;
-use prometheus::{HistogramOpts, HistogramVec, IntGauge, Opts, Registry};
 
-use super::{Metrics, PREFIX};
+use crate::metrics::{Metrics, RequestMetrics};
 
 /// The route of a request that matched none: a page of the web app, a path that is no
 /// route, under the API or elsewhere.
@@ -21,53 +21,6 @@ const ABANDONED: &str = "abandoned";
 
 /// The method of a request that is none of the methods the server has routes for.
 const OTHER_METHOD: &str = "other";
-
-/// The upper bounds of the buckets of the request durations, in seconds: from a
-/// cached read to an import or an export of a large archive.
-const DURATION_BUCKETS: [f64; 14] = [
-    0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
-];
-
-/// The metrics of HTTP requests.
-#[derive(Debug)]
-pub(super) struct HttpMetrics {
-    /// How long requests took until their answer's head, by method, route and status.
-    duration: HistogramVec,
-    /// How many requests are being answered.
-    in_flight: IntGauge,
-}
-
-impl HttpMetrics {
-    /// Makes the metrics and registers them in `registry`.
-    pub(super) fn register(registry: &Registry) -> prometheus::Result<Self> {
-        let duration = HistogramVec::new(
-            HistogramOpts::new(
-                "http_request_duration_seconds",
-                "How long requests to the API's listener took until the head of their \
-                 answer, by method (or other), route template (or unmatched) and status (or \
-                 abandoned, when the client went away first); its count is the number \
-                 of requests.",
-            )
-            .namespace(PREFIX)
-            .buckets(DURATION_BUCKETS.to_vec()),
-            &["method", "route", "status"],
-        )?;
-        let in_flight = IntGauge::with_opts(
-            Opts::new(
-                "http_requests_in_flight",
-                "How many requests to the API's listener are being answered, until the \
-                 head of their answer.",
-            )
-            .namespace(PREFIX),
-        )?;
-        registry.register(Box::new(duration.clone()))?;
-        registry.register(Box::new(in_flight.clone()))?;
-        Ok(Self {
-            duration,
-            in_flight,
-        })
-    }
-}
 
 /// Where the template of the route a request is routed to is put, once routing has
 /// found it: given to the request by [`measure_requests`] and filled by [`note_route`],
@@ -107,13 +60,13 @@ pub(crate) async fn measure_requests(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let Some(kept) = measured.metrics.kept.as_ref() else {
+    let Some(requests) = measured.metrics.requests() else {
         return next.run(request).await;
     };
     let route = RouteSlot::default();
     request.extensions_mut().insert(route.clone());
     let measuring = Measuring::start(
-        &kept.http,
+        requests,
         method_label(request.method()),
         route,
         &measured.base_path,
@@ -126,7 +79,7 @@ pub(crate) async fn measure_requests(
 /// A request being measured: counted as being answered while it lives, and measured
 /// as [`ABANDONED`] if it is dropped before it is finished.
 struct Measuring<'a> {
-    http: &'a HttpMetrics,
+    requests: &'a RequestMetrics,
     method: &'static str,
     route: RouteSlot,
     base_path: &'a str,
@@ -136,14 +89,14 @@ struct Measuring<'a> {
 
 impl<'a> Measuring<'a> {
     fn start(
-        http: &'a HttpMetrics,
+        requests: &'a RequestMetrics,
         method: &'static str,
         route: RouteSlot,
         base_path: &'a str,
     ) -> Self {
-        http.in_flight.inc();
+        requests.started();
         Self {
-            http,
+            requests,
             method,
             route,
             base_path,
@@ -163,16 +116,14 @@ impl<'a> Measuring<'a> {
         let route = slot
             .get()
             .map_or(UNMATCHED, |path| route_label(path.as_str(), self.base_path));
-        self.http
-            .duration
-            .with_label_values(&[self.method, route, status])
-            .observe(self.started.elapsed().as_secs_f64());
+        self.requests
+            .took(self.method, route, status, self.started.elapsed());
     }
 }
 
 impl Drop for Measuring<'_> {
     fn drop(&mut self) {
-        self.http.in_flight.dec();
+        self.requests.ended();
         if !self.finished {
             self.observe(ABANDONED);
         }

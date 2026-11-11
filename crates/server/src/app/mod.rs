@@ -55,7 +55,7 @@ use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
-use crate::metrics::Metrics;
+use crate::metrics::{Metrics, OpenUploads, Pool};
 use crate::permissions::{
     BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
 };
@@ -341,8 +341,35 @@ impl App {
 
     /// How many exports and how many imports hold their place, as their limits count
     /// them: for the metrics.
-    pub(crate) fn archives_running(&self) -> (usize, usize) {
+    fn archives_running(&self) -> (usize, usize) {
         (self.inner.exports.held(), self.inner.imports.held())
+    }
+
+    /// Reads into the metrics what is measured by asking, for a scrape: the archives
+    /// that hold their place, the connection pool and the open uploads. The uploads
+    /// stay as they were if the database cannot be read in time, which is counted, or
+    /// another scrape is reading them.
+    pub(crate) async fn read_storage_metrics(&self) {
+        let metrics = self.metrics();
+        if !metrics.is_kept() {
+            return;
+        }
+        let (exports, imports) = self.archives_running();
+        metrics.set_archives_running(exports, imports);
+        let pool = self.store().pool_status();
+        metrics.set_pool(Pool {
+            connections: pool.connections,
+            idle: pool.idle,
+            max_connections: pool.max_connections,
+        });
+        let open_uploads = async {
+            let open = self.store().open_uploads(crate::auth::now_millis()).await?;
+            Ok::<_, fvoci_store::StoreError>(OpenUploads {
+                sessions: open.sessions,
+                bytes: open.bytes,
+            })
+        };
+        metrics.read_open_uploads(open_uploads).await;
     }
 
     /// Takes the place of an import of the user's, as [`Self::start_export`] does.

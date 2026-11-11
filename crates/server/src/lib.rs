@@ -10,6 +10,7 @@ pub mod client_address;
 pub mod config;
 pub mod error;
 pub mod metrics;
+pub mod metrics_listener;
 pub mod permissions;
 pub mod problems;
 pub mod scheduler;
@@ -119,7 +120,7 @@ impl Server {
         let app = App::new(config, store, files)?;
         // Before the slow work below: an address that is taken is reported at once.
         let metrics_listener = match app.config().metrics_address()? {
-            Some(address) => Some(metrics::bind(&address).await?),
+            Some(address) => Some(metrics_listener::bind(&address).await?),
             None => None,
         };
         app.root_team().await.context("unable to get root team")?;
@@ -198,7 +199,7 @@ impl Server {
         // Nesting puts the API's routes into this router, so they get the layer too; its
         // fallbacks do not, and their answers are measured as unmatched.
         let routes = if measured {
-            routes.route_layer(middleware::from_fn(metrics::note_route))
+            routes.route_layer(middleware::from_fn(request_metrics::note_route))
         } else {
             routes
         };
@@ -220,11 +221,11 @@ impl Server {
         let routes = self.with_request_layers(routes, &self.base_path);
         if measured {
             routes.layer(middleware::from_fn_with_state(
-                metrics::Measured {
+                request_metrics::Measured {
                     metrics: self.app.metrics().clone(),
                     base_path: self.base_path.as_str().into(),
                 },
-                metrics::measure_requests,
+                request_metrics::measure_requests,
             ))
         } else {
             routes
@@ -426,7 +427,7 @@ fn spawn_metrics_server(
     app: &App,
     stop: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-    let router = metrics::router(app.clone());
+    let router = metrics_listener::router(app.clone());
     if let Ok(address) = listener.local_addr() {
         tracing::info!(%address, "metrics server started");
     }
@@ -852,6 +853,7 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
 
 pub mod connection;
 mod request_log;
+mod request_metrics;
 
 mod tls;
 
