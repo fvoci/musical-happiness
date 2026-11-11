@@ -32,7 +32,7 @@
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter web run check     # paraglide 컴파일 → svelte-check → eslint → prettier --check → 라이선스 검사 → 이름 검사 → 메시지 파일 최신 여부 → 로케일 키 집합 검사
+pnpm --filter web run check     # paraglide 컴파일 → svelte-check → eslint → prettier --check → 라이선스 검사 → 이름 검사 → 로케일 키 집합 검사
 pnpm --filter web run test      # paraglide 컴파일 → vitest를 TZ=UTC, Asia/Seoul, Pacific/Kiritimati 로 세 번
 pnpm --filter web run build     # paraglide 컴파일 → 글꼴 도구 → vite build
 pnpm --filter web run e2e       # Playwright. 먼저 build 가 있어야 한다

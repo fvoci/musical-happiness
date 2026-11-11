@@ -66,7 +66,7 @@
 
 ## 3. 템플릿 산출물의 주소
 
-`url` 속성의 값 가운데 바깥 주소 32건을 전에는 모두 비웠다. 이제 도메인으로 갈라, 원본 회사로 가는 것만 빼고 나머지는 `example.com` 아래로 옮겼다(변환기의 `rewriteLinkValue`). 산출물을 다시 만들었다(2026-11-10 22:40 KST).
+`url` 속성의 값 가운데 바깥 주소 32건을 전에는 모두 비웠다. 이제 도메인으로 갈라, 원본 회사로 가는 것만 빼고 나머지는 `example.com` 아래로 옮겼다(2026-11-10 22:40 KST). 아래는 그때의 수이고, 그 뒤 게시물 1건을 뺌으로 바꿔 지금은 뺀 것 22, 옮긴 것 10이다(`decisions.md`의 42, 템플릿 폴더의 `CHANGES.md`).
 
 | 전      | 지금                           | 건수 | 무엇                                                         |
 | ------- | ------------------------------ | ---: | ------------------------------------------------------------ |
@@ -75,9 +75,8 @@
 | 합계 32 | 합계 32                        |      |                                                              |
 
 - 옮긴 값: `liminarycorp.com` → `https://liminarycorp.example.com`(나머지 넷도 같은 꼴), `https://www.toolbox.com/tech/…` → `https://toolbox.example.com/tech/…`, 그림 4건 → `https://user-images.githubusercontent.example.com/…gif`, 게시물 → `https://twitter.example.com/fvoci/status/…`.
-- 글에서 바뀐 곳의 합계는 전과 같은 47곳이다(9 + 5 + 1 + 21 + 11). 바뀐 파일: 템플릿 파일 셋(`08-user-research-sessions.json`, `09-competitive-analysis.json`, `10-content-calendar.json`), `index.json`(건수), `changes.json`, `CHANGES.md`. 손으로 쓴 `README.md`의 표와 설명도 고쳤다.
+- 글에서 바뀐 곳의 합계는 전과 같은 47곳이다(9 + 5 + 1 + 21 + 11).
 - 본문의 바깥 링크 처리(결정 14: 링크와 그 문장을 뺀다)는 그대로다(1건).
-- **서버 쪽에 전달할 것**: `index.json`의 `changes`에 `example-link-value` 키가 생겼다. 카드의 `url` 속성 값 11개가 빈 값이 아니라 `https://…example.com…`이다.
 
 ## 마지막 실행
 

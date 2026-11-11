@@ -3,7 +3,7 @@
 내장 템플릿 13개가 사는 단 하나의 자리다. 서버가 이 폴더의 `NN-<키>.json`을 바이너리에 넣고(`src/app/templates.rs`의 `TEMPLATE_FILES`), 웹앱의 메모리 구현도 같은 파일을 읽는다(`apps/web/src/lib/state/memory/seed.ts`). 원본의 템플릿 아카이브에서 한 번 변환해 만들었고, 변환기는 지웠다.
 
 - **글은 이 폴더의 템플릿 파일에서 손으로 고친다.** 서버의 템플릿을 고친 판으로 다시 넣게 하려면 `src/app/templates.rs`의 `DEFAULT_TEMPLATE_VERSION`을 올린다.
-- 파일을 더하거나 빼면 `TEMPLATE_FILES`도 고친다. 서버의 테스트(`tests/api/templates.rs`)가 이 폴더의 파일과 서버가 내는 템플릿을 견준다.
+- 파일을 더하거나 빼면 `TEMPLATE_FILES`와 서버 테스트(`tests/api/templates.rs`)의 템플릿 수 13도 고친다. 그 테스트가 이 폴더의 파일과 서버가 내는 템플릿을 견준다.
 - 웹앱의 테스트(`apps/web/tests/tools/builtin-templates.test.ts`)가 본문이 편집기의 검증을 지나는지, 원본의 이름과 바깥 주소가 없는지, 날짜 값의 모양과 템플릿 안의 참조를 본다.
 - 테스트가 수를 고정한다: 템플릿 13개와 그 키, 카드 77·본문 58·뷰 38, 예시 주소인 링크 값 10, 날짜 값 19. 카드나 값을 빼거나 더하면 `builtin-templates.test.ts`의 그 수를 함께 고친다.
 - `CHANGES.md`는 변환이 글에서 바꾼 47곳과 검수할 때 볼 것의 목록이다(변환했을 때의 기록).

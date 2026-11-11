@@ -24,7 +24,7 @@
 | 2. 네덜란드어 `medefvocigebruikers`                                                        | `andere fvoci-gebruikers`로 고쳤다                                                                                           | "이름 치환"                                |
 | 3. 이상해 보이는 기존 한국어를 고치고 용어를 통일                                          | 한국어 130개를 덮어썼다                                                                                                      | `docs/ko-review.md`                        |
 | 4. 검수 문서                                                                               | `docs/ko-review.md`                                                                                                          | 그 문서                                    |
-| 5. 판단을 미뤘던 메시지: 8개는 남기고, 6개는 빼고, 2개는 다시 쓴다                         | `removed.json`에 6개를 넣었고, 2개는 영어와 한국어를 다시 썼다                                                               | "제거한 메시지", "판단을 미뤘다가 정한 것" |
+| 5. 판단을 미뤘던 메시지: 8개는 남기고, 6개는 빼고, 2개는 다시 쓴다                         | 6개를 뺐고, 2개는 영어와 한국어를 다시 썼다                                                                                  | "제거한 메시지", "판단을 미뤘다가 정한 것" |
 | 6. 로케일별로 나눠 받기는 조사만                                                           | 버리는 프로젝트로 네 가지를 해 봤다                                                                                          | "로케일별로 나눠 받기"                     |
 
 이 결정들을 담으려고 도구에 "원본에 있는 문구를 덮어쓰는" 길(`messages-override/`)을 더했다. 도구와 함께 지금은 지웠다.
@@ -276,7 +276,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ### 결정으로 뺀 것 (6개)
 
-처음 변환이 판단을 미루고 남겼던 메시지다. 제품 책임자의 결정(2026-11-10)으로 뺐다. `removed.json`의 `guest-accounts`(3개), `old-notice`(1개), `upgrade-tour-step`(2개)이다.
+처음 변환이 판단을 미루고 남겼던 메시지다. 제품 책임자의 결정(2026-11-10)으로 뺐다. 묶음으로는 `guest-accounts`(3개), `old-notice`(1개), `upgrade-tour-step`(2개)이다.
 
 | id                                    | 영어 문구                                                                                                                                                                                                                                                                              | 쓰던 파일 (`webapp/src/` 아래)                                      |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
@@ -357,7 +357,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AdminBadge.SystemAdmin`, `AdminBadge.TeamAdmin`                                                                            | 시스템 관리자·팀 관리자는 옛 회사 제품의 계정 종류다                                                                                                                                        | 남긴다. 팀을 유지하고 인스턴스 관리자가 생긴다                                                                                                                                                                  |
 | `ShareBoard.teamPermissionsText`, `shareBoard.confirm-change-team-role.*` 3개, `error.back-to-team`, `error.team-undefined` | 팀 개념을 전제한다                                                                                                                                                                          | 남긴다. 같은 이유다                                                                                                                                                                                             |
-| `badge.guest`, `guest-no-board.title`, `guest-no-board.subtitle`                                                            | 게스트는 옛 회사 제품의 계정 종류다                                                                                                                                                         | 뺀다(`removed.json`의 `guest-accounts`)                                                                                                                                                                         |
+| `badge.guest`, `guest-no-board.title`, `guest-no-board.subtitle`                                                            | 게스트는 옛 회사 제품의 계정 종류다                                                                                                                                                         | 뺀다(묶음 `guest-accounts`)                                                                                                                                                                                     |
 | `Error.mobileweb`                                                                                                           | "Mobile web support is currently in early beta"라는 옛 제품의 안내다                                                                                                                        | 뺀다(`old-notice`)                                                                                                                                                                                              |
 | `SidebarTour.SidebarCategories.Title`, `.Body`                                                                              | 둘러보기 단계지만 본문이 옛 제품의 v7.2 업그레이드와 워크스페이스 폐지를 설명한다                                                                                                           | 뺀다(`upgrade-tour-step`). 이 단계의 링크 글자(`.Link`)는 처음 변환 때 이미 뺐다                                                                                                                                |
 | `ShareBoard.searchPlaceholder`                                                                                              | 문구가 "Search for people and channels"다. 채널 연결은 포팅하지 않는다                                                                                                                      | 사람만 찾는 문구로 다시 쓴다. 영어 "Search for people", 한국어 "사용자 검색". 다른 로케일은 번역을 내지 않는다                                                                                                  |
@@ -386,9 +386,9 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ## 이름 치환
 
-- **옛 제품 이름.** 18개 파일에서 `Sidebar.about`에만 있었고(`el`을 뺀 17개 로케일), 그 메시지는 제거했다. 남은 메시지에는 없다. 도구는 남는 문구에 이 이름이 있으면 대소문자와 상관없이 `fvoci`로 바꾼다.
+- **옛 제품 이름.** 18개 파일에서 `Sidebar.about`에만 있었고(`el`을 뺀 17개 로케일), 그 메시지는 제거했다. 남은 메시지에는 없다. 변환 도구는 남는 문구에 이 이름이 있으면 대소문자와 상관없이 `fvoci`로 바꿨다. 지금은 `tests/tools/i18n.test.ts`가 메시지 파일에 이 이름이 없는지 본다.
 - **옛 회사 이름.** `OnboardingTour.AddComments.Body` 하나에 있다(13개 로케일). 댓글에서 다른 사용자를 @멘션하라는 문구에서 "이 제품의 사용자"를 가리키므로 `fvoci`로 바꿨다. 한국어는 한글로 음역해 적혀 있어서 그 표기도 함께 바꾼다. 치환은 기계적이다. `nl`은 이름이 합성어 안에 들어가 `medefvocigebruikers`가 됐었다. 결정 2에 따라 `messages-override/nl.json`에서 `andere fvoci-gebruikers`("다른 fvoci 사용자들". `sv`의 `andra fvoci-användare`와 같은 꼴)로 고쳤다. 한국어는 빠진 말이 있어 문장을 다시 옮겼다(`docs/ko-review.md`).
-- 도구는 이 메시지가 아닌 곳에서 옛 회사 이름을 만나면 멈춘다. 회사나 그 회사의 다른 제품에 관한 문구는 치환이 아니라 판단이 필요하기 때문이다. 지금은 그런 문구가 없다.
+- 변환 도구는 이 메시지가 아닌 곳에서 옛 회사 이름을 만나면 멈췄다. 지금은 같은 테스트가 메시지 파일에 그 이름(한글 표기 포함)이 없는지 본다.
 - 라틴 문자와 한글 말고 다른 문자로 음역한 표기(키릴, 가나 등)가 있는지 몇 가지 철자로 찾아봤고 없었다. 모든 철자를 다 찾았다고는 할 수 없다.
 
 `OnboardingTour.AddComments.Body`의 치환 결과다. `ko`와 `nl`은 치환한 문구를 다시 덮어썼으므로 화면에 나오는 것은 아래 "덮어쓴 문구" 표와 `docs/ko-review.md`의 문구다.
@@ -485,7 +485,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 ## 바깥 URL이 든 메시지
 
-없다. 18개 원본 파일의 모든 문구에서 `http://`, `https://`, `www.`, `이름.com|org|net|io|html` 꼴을 찾았고 한 건도 없었다. 원본의 바깥 링크는 문구가 아니라 코드에 있다(`sidebarUserMenu.tsx`, `topBar.tsx`, `messages/versionMessage.tsx`, `onboardingTour/sidebarCategories/sidebarCategories.tsx`, `globalHeader/globalHeader.tsx`, `constants.ts`의 `archiveHelpPage`). 그 링크의 글자였던 메시지 5개는 위에서 제거했다. 도구는 남는 문구에서 주소를 발견하면 그 메시지를 변환하지 않고 이유를 적는다.
+없다. 18개 원본 파일의 모든 문구에서 `http://`, `https://`, `www.`, `이름.com|org|net|io|html` 꼴을 찾았고 한 건도 없었다. 원본의 바깥 링크는 문구가 아니라 코드에 있다(`sidebarUserMenu.tsx`, `topBar.tsx`, `messages/versionMessage.tsx`, `onboardingTour/sidebarCategories/sidebarCategories.tsx`, `globalHeader/globalHeader.tsx`, `constants.ts`의 `archiveHelpPage`). 그 링크의 글자였던 메시지 5개는 위에서 제거했다. 도구는 남는 문구에서 주소를 발견하면 그 메시지를 변환하지 않고 이유를 적는다. 지금은 `tests/tools/i18n.test.ts`가 메시지 파일에서 같은 꼴을 찾는다.
 
 ## 한국어
 
