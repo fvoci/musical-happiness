@@ -368,7 +368,7 @@ S6의 1단계(오류 응답과 경로 규칙)에서 이 규칙에 걸린 항목�
 - **로그인·가입·비밀번호 변경 등의 잘못된 JSON 본문은 500이다.** 디코드 오류를 분류하지 않고 넘긴다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 잘못된 본문은 어느 라우트에서나 400 `bad_request`다(설계 1.3).
 - **없는 경로와 메서드가 틀린 경로는 200과 `index.html`이다.** → **S6에서 정리됨(2026-11-10 18:37 KST):** 경로 규칙(설계 2.3)을 구현했다. API 접두어 아래의 모르는 경로와 끝 슬래시는 JSON 404, 아는 경로의 다른 메서드는 JSON 405와 `Allow`, 화면 경로의 `GET`·`HEAD`만 `index.html`이고 끝 슬래시는 308, 그 밖의 메서드는 405(`Allow: GET, HEAD`). 테스트 `tests/api/paths.rs`(기준 경로 없이, 있을 때, 끝 슬래시로 설정했을 때).
 - **single-user 모드에서 `POST /users ["single-user"]`와 `GET /users/single-user`는 404다.** 가상 사용자를 만든 뒤 "누가 누구를 볼 수 있나"를 정하려고 DB에서 다시 찾는다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 둘 다 가상 사용자를 답한다(`users::single_user_mode`).
-- **카테고리 WebSocket 이벤트는 사용자의 연결 중 팀을 구독한 첫 번째 하나에만 간다**(`server/ws/server.go` `getListenerForUser`). 다른 탭은 받지 못한다.
+- **카테고리 WebSocket 이벤트는 사용자의 연결 중 팀을 구독한 첫 번째 하나에만 간다**(`server/ws/server.go` `getListenerForUser`). 다른 탭은 받지 못한다. → **정리됨(2026-11-11 13:10 KST):** 그 팀을 구독한 연결 모두에 간다.
 - **블록 구독과 보드 멤버 구독을 함께 가진 연결은 같은 블록 변경을 구독 수만큼 받는다.**
 - **`/users/me?channelID=x`는 채널이 있든 없든 `permissions: ["create_post"]`를 붙인다**(standalone의 채널 권한 검사는 항상 참). → **S6에서 정리됨(2026-11-10 18:37 KST):** `channelID`를 읽지 않는다. `permissions`는 응답에 없다.
 - **세션 정리 기준은 `max(31일, session_expire_time)`이다**(`server/server/server.go:258-261`). 10분마다 돈다.

@@ -128,7 +128,8 @@ impl Store {
                 return Ok(());
             }
             let mut sql = scope.sql("UPDATE categories SET sort_order = CASE id");
-            let sort_orders = (0..).map(|position: i64| position * CATEGORY_SORT_ORDER_GAP);
+            // From the first gap, not from 0: a new category is put at 0, before them all.
+            let sort_orders = (1..).map(|position: i64| position * CATEGORY_SORT_ORDER_GAP);
             for (sort_order, category_id) in sort_orders.zip(&new_order) {
                 sql.push_bind(" WHEN ", Id(category_id))
                     .push_bind(" THEN ", sort_order);

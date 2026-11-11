@@ -993,8 +993,9 @@ mod tests {
         );
     }
 
-    /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the first of a
-    /// user's listeners in the team is the one that is told about their categories.
+    /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
+    /// a user in the team are the ones that are told about their categories, every tab of
+    /// the user and no other user's.
     #[test]
     fn team_subscription_subscribe_users_to_team_retrieve_by_user() {
         let mut listeners = Listeners::default();
@@ -1014,6 +1015,15 @@ mod tests {
 
         let found = listeners.of_user(team_id, "fake-user-id");
         assert_eq!(found, [user1], "the user's listener is found");
+
+        let other_tab = add_listener(&mut listeners, "fake-user-id");
+        subscribe_to_team(&mut listeners, other_tab, team_id);
+        let mut found = listeners.of_user(team_id, "fake-user-id");
+        found.sort_unstable();
+        let mut both = vec![user1, other_tab];
+        both.sort_unstable();
+        assert_eq!(found, both, "both tabs of the user, not the other user's");
+        listeners.remove(other_tab);
 
         for id in [anonymous, user1, user2] {
             listeners.remove(id);

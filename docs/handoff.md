@@ -58,8 +58,9 @@
 
   이 묶음에서 "사용자 결정 필요"로 남긴 것(까닭과 권고는 적힌 자리에):
 
-  - 공유 보드의 익명 독자에게 가는 본문의 `mention.userId`(`docs/contract-pending.md` 1절).
-  - 받지만 아무 일도 하지 않는 설정 키(`logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`)를 지울지, S3의 키를 `FVOCI_*` 환경 변수로 받을지(`docs/configuration.md`. 권고는 아래 "설정"). `authmode`와 `prometheusaddress`는 지우지 않는다(사용자 결정, 05:04 KST. 6절의 후속 후보).
+  - 웹앱의 질문 가운데 계약의 모양이나 권한에 걸린 것(`docs/contract-pending.md` 9절의 "사용자 결정 필요" 줄).
+  - 공유 보드의 익명 독자에게 가는 본문의 `mention.userId`(`docs/contract-pending.md` 1절). 결정됨(11:05 KST), tracer-bullet 17.
+  - 받지만 아무 일도 하지 않는 설정 키(`logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`)를 지울지, S3의 키를 `FVOCI_*` 환경 변수로 받을지(`docs/configuration.md`. 권고는 아래 "설정"). 결정됨(11:05 KST), tracer-bullet 18과 19. `authmode`와 `prometheusaddress`는 지우지 않는다(사용자 결정, 05:04 KST. 6절의 후속 후보).
 
 - **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. 권고: (1) `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 "없앤 키"로 옮겨 값이 있으면 시작하지 않게 한다(지금은 경고만 하거나 말없이 무시해, 적은 운영자가 효과가 있다고 믿는다). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). (2) S3는 `accesskeyid`를 비우면 표준 `AWS_*` 변수를 읽으므로 비밀 키를 파일 밖에 둘 길이 이미 있다. 그래도 `bucket`, `endpoint`, `region`, `pathprefix`처럼 배포마다 다른 값은 `FVOCI_FILESS3CONFIG_BUCKET` 꼴로 받게 하기를 권한다(컨테이너 하나로 여러 환경을 띄울 수 있다). 비밀 키는 `AWS_*`를 권하는 쪽으로 문서에 적어 두었다.
 
@@ -189,7 +190,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 - 같은 이름의 컨테이너가 다른 포트에 게시돼 있으면 xtask가 거절한다.
 - 패닉으로 끝난 테스트는 PostgreSQL에 `t_*` 스키마를 남긴다. 해는 없다. 컨테이너를 지우면 함께 없어진다.
 - `/tmp`는 RAM이다. 빌드 산출물과 큰 파일은 워크트리의 `target/` 아래에 둔다.
-- **빌드 크기.** `[profile.dev]`의 `debug = "line-tables-only"`(2026-11-11). 깨끗한 빌드에서 잰 값: 디버그 정보 전부(2) 빌드 89초·`target` 6.6 GB·서버 바이너리 317 MB, `line-tables-only` 56초·3.78 GB·124 MB, `1` 59초·4.41 GB·185 MB, `0` 57초·2.80 GB·76 MB. clippy는 어느 것이나 28–34초.
+- **빌드 크기.** `[profile.dev]`의 `debug = "line-tables-only"`(2026-11-11 12:49 KST). 깨끗한 빌드에서 잰 값: 디버그 정보 전부(2) 빌드 89초·`target` 6.6 GB·서버 바이너리 317 MB, `line-tables-only` 56초·3.78 GB·124 MB, `1` 59초·4.41 GB·185 MB, `0` 57초·2.80 GB·76 MB. clippy는 어느 것이나 28–34초.
 - 태그 `parity-s5`는 이 저장소의 원격에도 있다.
 
 컨테이너를 만드는 명령과 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `~/atlas/musical-happiness-carry/server/README.md` 4–5절에 있다. 그 문서는 컨테이너를 지우기 전(03:12–03:19 KST)에 쓰였다. 컨테이너가 떠 있다는 말과 스키마의 수는 지금과 다르다.

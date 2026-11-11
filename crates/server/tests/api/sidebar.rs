@@ -1986,8 +1986,8 @@ async fn reorder_categories_over_the_api() {
         .collect();
     assert_eq!(
         places,
-        [0, 10, 20],
-        "the listing tells each category's place"
+        [10, 20, 30],
+        "the listing tells each category's place, from the first gap"
     );
 
     // Preserved quirk: only the count and the membership are checked, so naming one
@@ -2001,6 +2001,11 @@ async fn reorder_categories_over_the_api() {
         sorted(new_order.to_vec()),
         "every category is still listed"
     );
+
+    // A new category comes first, also after a reorder.
+    let new = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "New")).await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
+    assert_eq!(ids(&listed)[0], new.id, "the new category is first");
 
     th.teardown().await;
 }
