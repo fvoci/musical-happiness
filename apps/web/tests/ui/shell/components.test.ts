@@ -324,7 +324,9 @@ describe('the sidebar over a workspace', () => {
     const { onAddBoard, onOpenSettings } = await mount();
     await fireEvent.click(screen.getByRole('button', { name: 'Add board' }));
     expect(onAddBoard).toHaveBeenCalledOnce();
-    await fireEvent.click(screen.getByRole('button', { name: '김하나: account and settings' }));
+    await fireEvent.click(
+      screen.getByRole('button', { name: '김하나 (@hana): account and settings' }),
+    );
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 

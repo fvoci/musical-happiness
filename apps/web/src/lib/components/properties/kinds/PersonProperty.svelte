@@ -1,7 +1,7 @@
 <!--
   The value of a person property: one person, or several. A person is picked
-  from the list the caller passes; typing narrows the list by user name,
-  nickname, first and last name.
+  from the list the caller passes, shown as "Display name (@login)" or by the
+  login name alone; typing narrows the list by either name.
 
   An identifier that is not in the list is shown as an unknown user: the
   value still says someone is there, and that someone can be taken out.
@@ -13,7 +13,7 @@
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { fullName, userDisplayName } from '$lib/logic/users.ts';
+  import { userDisplayName } from '$lib/logic/users.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { cn } from '$lib/utils.js';
 
@@ -26,8 +26,6 @@
     ids: readonly string[];
     multiple: boolean;
     users: readonly PropertyUser[];
-    /** One of the name formats of logic/users.ts. */
-    nameFormat?: string;
     editable: boolean;
     /** Shown where there is no value; empty for nothing. */
     placeholder: string;
@@ -42,7 +40,6 @@
     ids,
     multiple,
     users,
-    nameFormat = '',
     editable,
     placeholder,
     presentation = 'popover',
@@ -56,18 +53,10 @@
 
   const nameOf = (id: string): string => {
     const user = users.find((candidate) => candidate.id === id);
-    return user
-      ? userDisplayName(user, nameFormat) || user.username
-      : m['centerPanel.unknown-user']();
+    return user ? userDisplayName(user) : m['centerPanel.unknown-user']();
   };
 
-  const searchTexts = (user: PropertyUser): string[] => [
-    user.username,
-    user.nickname,
-    user.firstname,
-    user.lastname,
-    fullName(user),
-  ];
+  const searchTexts = (user: PropertyUser): string[] => [user.username, user.displayName];
 
   function pick(user: PropertyUser): void {
     if (!multiple) {

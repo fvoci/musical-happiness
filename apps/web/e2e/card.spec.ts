@@ -835,7 +835,7 @@ test('comments: written with the button and with Ctrl+Enter, lines become paragr
   const mine = list.last();
   await expect(mine.locator('p').filter({ hasText: 'First line' })).toHaveText('First line');
   await expect(mine.locator('p').filter({ hasText: 'Second line' })).toHaveText('Second line');
-  await expect(mine).toContainText('김하나');
+  await expect(mine).toContainText('김하나 (@hana)');
   const bodies = await page.evaluate(
     async ({ boardId, cardId }) =>
       (await window.fvociDev.backend.comments(boardId, cardId)).map((each) => each.body),

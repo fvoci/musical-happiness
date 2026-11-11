@@ -28,7 +28,6 @@
     weekStart?: Weekday;
     /** How many options a select property has. */
     optionCount?: number;
-    nameFormat?: string;
   }
 </script>
 
@@ -50,7 +49,6 @@
     hourCycle = 'h12',
     weekStart = 7,
     optionCount = 4,
-    nameFormat = 'nickname_full_name',
   }: PropertyStoryProps = $props();
 
   const NAMES: Partial<Record<PropertyType, string>> = {
@@ -72,12 +70,12 @@
   };
 
   const users: PropertyUser[] = [
-    { id: 'u-jisoo', username: 'jisoo', nickname: '', firstname: '지수', lastname: '김' },
-    { id: 'u-minho', username: 'minho', nickname: '민호', firstname: 'Minho', lastname: 'Lee' },
-    { id: 'u-ada', username: 'ada', nickname: '', firstname: 'Ada', lastname: 'Lovelace' },
-    { id: 'u-grace', username: 'grace', nickname: '', firstname: 'Grace', lastname: 'Hopper' },
-    { id: 'u-haru', username: 'haru', nickname: '', firstname: '하루', lastname: '박' },
-    { id: 'u-bot', username: 'deploy-bot', nickname: '', firstname: '', lastname: '' },
+    { id: 'u-jisoo', username: 'jisoo', displayName: '김지수' },
+    { id: 'u-minho', username: 'minho', displayName: '민호' },
+    { id: 'u-ada', username: 'ada', displayName: 'Ada Lovelace' },
+    { id: 'u-grace', username: 'grace', displayName: 'Grace Hopper' },
+    { id: 'u-haru', username: 'haru', displayName: '박하루' },
+    { id: 'u-bot', username: 'deploy-bot', displayName: '' },
   ];
 
   const BASE_OPTIONS = ['할 일 To do', '진행 중 In progress', '검토 Review', '완료 Done'];
@@ -132,7 +130,6 @@
         {startOpen}
         showEmptyPlaceholder
         {users}
-        {nameFormat}
         {locale}
         {regional}
         presentation={surface}
@@ -165,16 +162,7 @@
   <section class="grid gap-2">
     <h2 class="text-xs font-medium text-muted-foreground">표시 Display</h2>
     <div class="w-56 rounded-md border">
-      <PropertyValue
-        {template}
-        {card}
-        value={stored}
-        mode="display"
-        {users}
-        {nameFormat}
-        {locale}
-        {regional}
-      />
+      <PropertyValue {template} {card} value={stored} mode="display" {users} {locale} {regional} />
     </div>
   </section>
 

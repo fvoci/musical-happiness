@@ -7,6 +7,8 @@
   description of the board from where the whole header of a view fits. A
   narrow pane keeps the title and the two arrows.
 
+  Its editors find the board's deleted cards here ("Deleted cards").
+
   The title is a field for a reader who may change the board, and plain text
   for one who may not; a board that can only be read says so next to it. The
   button that slides the sidebar in stands at the left where nothing else on
@@ -16,18 +18,20 @@
   import MenuIcon from '@lucide/svelte/icons/menu';
   import Redo2Icon from '@lucide/svelte/icons/redo-2';
   import Share2Icon from '@lucide/svelte/icons/share-2';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { cardTrash, type Trash, type Workspace } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
 
   import BoardIcon from './BoardIcon.svelte';
   import BoardTitle from './BoardTitle.svelte';
   import ShareDialog from './ShareDialog.svelte';
+  import TrashDialog from './TrashDialog.svelte';
 
   interface Props {
     workspace: Workspace;
@@ -43,6 +47,9 @@
   let { workspace, boardId, boardHref, menuButton, onOpenSidebar }: Props = $props();
 
   let sharing = $state(false);
+  let trashOpen = $state(false);
+  /** The deleted cards of the board, read anew each time they are shown. */
+  let trash = $state.raw<Trash | undefined>(undefined);
 
   /** How many faces are shown before the rest become a number. */
   const FACES = 4;
@@ -59,6 +66,15 @@
   const members = $derived(store?.orderedMembers ?? []);
   /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
   const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
+  /** The trash of cards is for the board's editors, as the server has it. */
+  const canRestoreCards = $derived(store?.canEdit === true);
+
+  function openTrash(): void {
+    if (!store) return;
+    trash = cardTrash(store);
+    trashOpen = true;
+    void trash.read();
+  }
 </script>
 
 <header
@@ -159,6 +175,17 @@
     </Button>
   {/if}
 
+  {#if canRestoreCards}
+    <IconButton
+      label={m.shell_trash_cards()}
+      data-testid="open-card-trash"
+      aria-haspopup="dialog"
+      onclick={openTrash}
+    >
+      <Trash2Icon />
+    </IconButton>
+  {/if}
+
   <IconButton
     label={m['UndoRedoHotKeys.canUndo']()}
     data-testid="undo"
@@ -176,6 +203,18 @@
     <Redo2Icon />
   </IconButton>
 </header>
+
+{#if store && canRestoreCards}
+  <TrashDialog
+    bind:open={trashOpen}
+    {trash}
+    {workspace}
+    title={m.shell_trash_cards()}
+    description={m.shell_trash_cards_description()}
+    untitled={m['KanbanCard.untitled']()}
+    testId="card-trash"
+  />
+{/if}
 
 {#if store && canShare}
   <ShareDialog

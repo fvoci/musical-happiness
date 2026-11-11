@@ -337,7 +337,6 @@
             locale={face.locale}
             regional={face.regional}
             users={face.users}
-            nameFormat={face.nameFormat}
             lifted
             count={carriedCount}
           />

@@ -20,23 +20,14 @@
     templates: readonly PropertyTemplate[];
     visiblePropertyIds: readonly string[];
     users: readonly PropertyUser[];
-    nameFormat: string;
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
     /** Given where the list has its own heading: the column. A sheet has its title. */
     onclose?: () => void;
   }
 
-  let {
-    placed,
-    templates,
-    visiblePropertyIds,
-    users,
-    nameFormat,
-    cardHref,
-    onOpenCard,
-    onclose,
-  }: Props = $props();
+  let { placed, templates, visiblePropertyIds, users, cardHref, onOpenCard, onclose }: Props =
+    $props();
 
   const uid = $props.id();
   const rows = $derived({
@@ -44,7 +35,6 @@
     templates,
     visiblePropertyIds,
     users,
-    nameFormat,
     cardHref,
     onOpenCard,
   });

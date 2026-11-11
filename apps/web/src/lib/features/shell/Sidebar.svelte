@@ -1,7 +1,7 @@
 <!--
   The sidebar: the name of the app, a field that narrows the boards down by
-  title (and asks the backend for the boards it finds beyond them), the categories with their boards, and at the foot "Add board" and
-  the reader's account (which opens the settings).
+  title (and asks the backend for the boards it finds beyond them), the categories with their boards, and at the foot "Add board",
+  the trash of boards (`TrashDialog.svelte`) and the reader's account (which opens the settings).
 
   This is the content only. Where it sits (beside the board, or over the page
   as a drawer) is the shell's business, and nothing in here is drawn anew
@@ -16,6 +16,7 @@
   import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchIcon from '@lucide/svelte/icons/search';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import XIcon from '@lucide/svelte/icons/x';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
@@ -23,12 +24,13 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Board } from '$lib/logic/wire.ts';
-  import type { Category, Workspace } from '$lib/state/index.ts';
+  import { boardTrash, type Category, type Trash, type Workspace } from '$lib/state/index.ts';
   import { Input } from '$lib/ui/input/index.js';
 
   import { BoardSearch } from './board-search.svelte.ts';
   import CategoryNameDialog from './CategoryNameDialog.svelte';
   import SidebarList from './SidebarList.svelte';
+  import TrashDialog from './TrashDialog.svelte';
 
   interface Props {
     workspace: Workspace;
@@ -89,6 +91,18 @@
   function submitName(name: string): void {
     if (naming.mode === 'create') void workspace.createCategory(name);
     else if (name !== naming.category.name) void workspace.renameCategory(naming.category.id, name);
+  }
+
+  // --------------------------------------------------------------- trash
+
+  let trashOpen = $state(false);
+  /** The deleted boards, read anew each time they are shown. */
+  let trash = $state.raw<Trash | undefined>(undefined);
+
+  function openTrash(): void {
+    trash = boardTrash(workspace);
+    trashOpen = true;
+    void trash.read();
   }
 
   // ------------------------------------------------------------ deleting
@@ -207,6 +221,16 @@
   </button>
   <button
     type="button"
+    data-testid="open-trash"
+    aria-haspopup="dialog"
+    class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
+    onclick={openTrash}
+  >
+    <Trash2Icon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+    <span class="min-w-0 flex-1 truncate">{m.shell_trash()}</span>
+  </button>
+  <button
+    type="button"
     data-testid="open-settings"
     aria-label={m.shell_account_of({ name: myName })}
     aria-haspopup="dialog"
@@ -223,6 +247,16 @@
     <span class="min-w-0 flex-1 truncate">{myName}</span>
   </button>
 </div>
+
+<TrashDialog
+  bind:open={trashOpen}
+  {trash}
+  {workspace}
+  title={m.shell_trash()}
+  description={m.shell_trash_boards_description()}
+  untitled={m['Sidebar.untitled-board']()}
+  testId="board-trash"
+/>
 
 <CategoryNameDialog
   bind:open={namingOpen}
