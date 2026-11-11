@@ -10,10 +10,10 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{PROBLEM_MEDIA_TYPE, Problem};
 
-use crate::error::{AppError, ErrorKind, INTERNAL_MESSAGE};
+use crate::error::{AppError, ErrorKind};
 
 /// The response with `problem` as its body, as `application/problem+json`.
-pub(crate) fn problem_response(problem: &Problem) -> Response {
+fn problem_response(problem: &Problem) -> Response {
     // A problem is a handful of strings and numbers; serializing it cannot fail. If it
     // ever did, the status alone still says what kind of error it is.
     let body = serde_json::to_vec(problem).unwrap_or_default();
@@ -44,7 +44,6 @@ pub(crate) async fn problems_only(request: Request, next: Next) -> Response {
     });
     let message = match kind {
         ErrorKind::BadRequest => "the request is malformed",
-        ErrorKind::Internal => INTERNAL_MESSAGE,
         _ => status
             .canonical_reason()
             .unwrap_or("the request was refused"),
@@ -54,7 +53,7 @@ pub(crate) async fn problems_only(request: Request, next: Next) -> Response {
         "an answer that was no problem was made one"
     );
     let (parts, _) = response.into_parts();
-    let mut problem = AppError::new(kind, message).into_response();
+    let mut problem = AppError::of_kind(kind, message).into_response();
     for (name, value) in &parts.headers {
         if ![CONTENT_TYPE, CONTENT_LENGTH, CONTENT_ENCODING].contains(name) {
             problem.headers_mut().insert(name, value.clone());

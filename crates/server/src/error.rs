@@ -210,7 +210,7 @@ pub fn type_reference(name: &str) -> String {
 }
 
 /// The text every server error is answered with; what went wrong is in the log.
-pub(crate) const INTERNAL_MESSAGE: &str = "internal server error";
+const INTERNAL_MESSAGE: &str = "internal server error";
 
 /// The `reason` of what was refused when neither the error nor the check that refused
 /// it tells a finer one.
@@ -292,8 +292,7 @@ impl std::error::Error for AppError {
 }
 
 impl AppError {
-    /// An error of the kind `kind` that tells the client `message`.
-    pub(crate) fn new(kind: ErrorKind, message: impl std::fmt::Display) -> Self {
+    fn new(kind: ErrorKind, message: impl std::fmt::Display) -> Self {
         Self {
             kind,
             message: message.to_string(),
@@ -304,6 +303,20 @@ impl AppError {
             retry_after: None,
             cause: None,
         }
+    }
+
+    /// An error of the kind `kind`, for an answer that no code of this server made:
+    /// `words` is what it tells the client, but for a server error, which says what
+    /// every server error says.
+    pub(crate) fn of_kind(kind: ErrorKind, words: &str) -> Self {
+        Self::new(
+            kind,
+            if kind == ErrorKind::Internal {
+                INTERNAL_MESSAGE
+            } else {
+                words
+            },
+        )
     }
 
     /// A 429 error: too many attempts, try again after `wait`. The wait is told in
