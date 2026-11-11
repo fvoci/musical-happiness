@@ -2,10 +2,9 @@
  * The data boundary: everything a screen can read, write and listen to.
  *
  * Screens never talk to a server. They use the stores of this folder, and
- * the stores use one `Backend`. Today the only implementation keeps its data
- * in memory (`memory/`); when the server's contract is published, an
- * implementation that calls the server takes its place and nothing above
- * this file changes.
+ * the stores use one `Backend`: the one that calls the server (`lib/api/`),
+ * or the one that keeps its data in memory (`memory/`) for working without a
+ * server. Nothing above this file knows which.
  *
  * The shapes follow the server design (its `docs/s6-design.md`): errors are
  * `{error, message, reason?, field?, limit?}` with the status codes of its
@@ -13,7 +12,7 @@
  * its text as one document (`body`), a card list comes without bodies, and
  * a body is written with the `updateAt` it was read at so that a stale write
  * is refused with 409. Where the design says nothing and something had to be
- * made up, the place is listed in `docs/contract-assumptions.md`.
+ * made up and is still open, it is listed in `docs/contract-assumptions.md`.
  *
  * No method promises an order. Whatever is shown in an order is sorted by
  * the client (`order.ts`).
@@ -327,6 +326,12 @@ export interface Backend {
   /** Takes the board, its blocks and its members back out of the trash. */
   restoreBoard(boardId: string): Promise<Board>;
   members(boardId: string): Promise<BoardMember[]>;
+  /**
+   * Makes the reader a member of an open board of their team, with the
+   * board's minimum role. Until then such a board is readable but its views,
+   * cards and members are refused (403).
+   */
+  joinBoard(boardId: string): Promise<BoardMember>;
 
   // The reader's sidebar.
   categories(teamId: string): Promise<Category[]>;
@@ -354,6 +359,11 @@ export interface Backend {
   // Comments and attachments of a card.
   comments(boardId: string, cardId: string): Promise<Comment[]>;
   createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment>;
+  /**
+   * Replaces the text of a comment. Rejects with 409 when the comment changed
+   * since `readAt`, and with 400 when the body is empty: a comment has a text.
+   */
+  patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment>;
   attachments(boardId: string, cardId: string): Promise<Attachment[]>;
   createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment>;
 
@@ -365,11 +375,13 @@ export interface Backend {
 
   // Files.
   /**
-   * Uploads a file of a board. Small files go in one request and large ones
-   * in parts (server design 5.6); which, and the retrying of a part, is the
-   * implementation's business.
+   * Uploads a file of a board. The server takes it in parts (an upload
+   * session); the parts and the retrying of one are the implementation's
+   * business.
    */
   upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
+  /** The bytes of a file. */
+  fileBytes(boardId: string, fileId: string): Promise<Blob>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
   fileUrl(boardId: string, fileId: string): string | undefined;
 

@@ -226,20 +226,25 @@ describe('BodyEditor', () => {
   });
 
   it('names mentioned people through the caller, and again when the names become known', async () => {
+    const [U1, U2, U3] = [
+      '01930000-0000-7000-8000-00000000c001',
+      '01930000-0000-7000-8000-00000000c002',
+      '01930000-0000-7000-8000-00000000c003',
+    ];
     const body = doc(
-      paragraph(mention('u1'), text(' and '), mention('u2'), text(' and '), mention('u3')),
+      paragraph(mention(U1), text(' and '), mention(U2), text(' and '), mention(U3)),
     );
-    const users = [{ id: 'u2', name: '이도윤' }];
+    const users = [{ id: U2, name: '이도윤' }];
     const { container, rerender } = render(BodyEditor, { doc: body, users });
     const names = () =>
       Array.from(container.querySelectorAll('[data-mention]')).map((node) => node.textContent);
-    expect(names()).toEqual(['@u1', '@이도윤', '@u3']);
+    expect(names()).toEqual([`@${U1}`, '@이도윤', `@${U3}`]);
     await rerender({
       doc: body,
       users,
-      resolveUser: (userId: string) => (userId === 'u1' ? '김하늘' : undefined),
+      resolveUser: (userId: string) => (userId === U1 ? '김하늘' : undefined),
     });
-    expect(names()).toEqual(['@김하늘', '@이도윤', '@u3']);
+    expect(names()).toEqual(['@김하늘', '@이도윤', `@${U3}`]);
     // The document still holds identifiers only.
     expect(JSON.stringify(editorIn(container).getJSON())).not.toContain('김하늘');
   });
@@ -283,6 +288,38 @@ describe('images given to the editor as files', () => {
     expect(give(editorIn(container), [picture()])).toBe(false);
     expect(container.querySelector('.doc-upload')).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('takes no picture the server would not have drawn (an SVG)', () => {
+    const uploadImage = vi.fn((_file: File) => Promise.resolve('file-1'));
+    const { container } = render(BodyEditor, { doc: null, uploadImage });
+    expect(
+      give(editorIn(container), [new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })]),
+    ).toBe(false);
+    expect(uploadImage).not.toHaveBeenCalled();
+  });
+
+  it('puts no picture into an editor that was locked while it went up', async () => {
+    let finish: (fileId: string) => void = () => undefined;
+    const uploadImage = vi.fn(
+      (_file: File) =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const onChange = vi.fn<(body: DocNode | null) => void>();
+    const { container, rerender } = render(BodyEditor, {
+      doc: doc(paragraph(text('before'))),
+      onChange,
+      uploadImage,
+    });
+    expect(give(editorIn(container), [picture()])).toBe(true);
+    await rerender({ doc: doc(paragraph(text('before'))), onChange, uploadImage, editable: false });
+    finish('file-1');
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-upload')).toBeNull();
+    });
+    expect(JSON.stringify(editorIn(container).getJSON())).not.toContain('file-1');
   });
 
   it('uploads a pasted picture, holds its place meanwhile, and stores only the identifier', async () => {

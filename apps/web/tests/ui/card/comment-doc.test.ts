@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { validateDoc } from '$lib/editor/schema.ts';
-import { commentDoc } from '$lib/features/card/comment-doc.ts';
+import { commentDoc, commentText } from '$lib/features/card/comment-doc.ts';
 
 const paragraph = (text: string): object => ({
   type: 'paragraph',
@@ -63,5 +63,28 @@ describe('the document of a comment', () => {
 
   it('is a body the server accepts', () => {
     expect(validateDoc(commentDoc('one\n\ntwo'))).toEqual([]);
+  });
+});
+
+describe('the text a stored comment is edited as', () => {
+  it('gives a line per paragraph, and the same comment again when stored', () => {
+    const doc = commentDoc('first line\n  indented\nlast');
+    expect(commentText(doc)).toBe('first line\n  indented\nlast');
+    expect(commentDoc(commentText(doc) ?? '')).toEqual(doc);
+  });
+
+  it('gives nothing for a comment that is more than plain paragraphs', () => {
+    expect(commentText(null)).toBeUndefined();
+    expect(
+      commentText({
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'b', marks: [{ type: 'bold' }] }] },
+        ],
+      }),
+    ).toBeUndefined();
+    expect(
+      commentText({ type: 'doc', content: [{ type: 'heading', attrs: { level: 1 } }] }),
+    ).toBeUndefined();
   });
 });

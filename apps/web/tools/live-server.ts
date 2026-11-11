@@ -54,6 +54,11 @@ writeFileSync(
       filespath: path.join(data, 'files'),
       // The tests sign in many times from one address.
       login_address_attempts_per_minute: 1000,
+      // The smallest part the server allows, so that a test file of a few
+      // MiB goes up in more than one part.
+      upload_part_bytes: 5 * 1024 * 1024,
+      // A board shared by a read token, to see what an anonymous reader gets.
+      enablepublicsharedboards: true,
     },
     null,
     2,

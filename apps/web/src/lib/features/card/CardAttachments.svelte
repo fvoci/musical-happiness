@@ -21,6 +21,8 @@
   import type { BoardStore, CardStore, Upload } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import { saveBlob } from './download.ts';
+
   interface Props {
     board: BoardStore;
     card: CardStore;
@@ -68,6 +70,31 @@
     over = false;
     attach(event.dataTransfer?.files);
   }
+
+  /**
+   * A plain press on a file's link saves it under its own name (download.ts);
+   * one with a modifier key does what the browser does with a link.
+   */
+  function onDownload(event: MouseEvent, fileId: string, name: string): void {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    // A file being read is not read again by another press.
+    if (downloading.includes(fileId)) return;
+    downloading = [...downloading, fileId];
+    void card
+      .fileBytes(fileId)
+      .then((bytes) => {
+        if (bytes) saveBlob(bytes, name);
+      })
+      .finally(() => {
+        downloading = downloading.filter((id) => id !== fileId);
+      });
+  }
+
+  /** Files whose bytes are being read, to be saved. */
+  let downloading = $state<string[]>([]);
 
   const percent = (upload: Upload): number =>
     upload.totalBytes > 0
@@ -139,7 +166,11 @@
                 <a
                   href={url}
                   download={attachment.name}
+                  onclick={(event) => {
+                    onDownload(event, attachment.fileId, attachment.name);
+                  }}
                   title={m.card_attachment_download({ name: attachment.name })}
+                  aria-busy={downloading.includes(attachment.fileId)}
                   class="block truncate underline-offset-2 hover:underline roomy:py-1"
                 >
                   {attachment.name}
@@ -147,7 +178,7 @@
               {:else}
                 <p class="truncate">{attachment.name}</p>
               {/if}
-              <!-- 0: the server's attachment says no size (\`contract-assumptions.md\`, B2). -->
+              <!-- 0: an attachment another client made may say no size. -->
               {#if attachment.size > 0}
                 <p class="text-xs text-muted-foreground">{humanFileSize(attachment.size)}</p>
               {/if}

@@ -445,13 +445,18 @@ describe('where the editor and the view are set up alike', () => {
     const doc: DocNode = {
       type: 'doc',
       content: [
-        { type: 'paragraph', content: [{ type: 'mention', attrs: { userId: 'user-gone' } }] },
+        {
+          type: 'paragraph',
+          content: [{ type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c003' } }],
+        },
       ],
     };
     const fromEditor = drawWithEditor(doc).view.dom.querySelector('[data-mention]');
     const view = drawWithView(doc);
     if (!view.ok) throw new Error('not drawn');
-    expect(view.fragment.querySelector('[data-mention]')?.textContent).toBe('@user-gone');
-    expect(fromEditor?.textContent).toBe('@user-gone');
+    expect(view.fragment.querySelector('[data-mention]')?.textContent).toBe(
+      '@01930000-0000-7000-8000-00000000c003',
+    );
+    expect(fromEditor?.textContent).toBe('@01930000-0000-7000-8000-00000000c003');
   });
 });

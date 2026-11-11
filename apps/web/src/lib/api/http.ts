@@ -37,6 +37,12 @@ export interface RequestOptions {
   query?: Record<string, string | number | undefined>;
   /** Sent as JSON. */
   json?: unknown;
+  /** Sent as they are (`application/octet-stream`), in place of `json`. */
+  bytes?: Blob;
+  /** More headers. */
+  headers?: Record<string, string>;
+  /** Gives the request up; it then rejects with the signal's reason. */
+  signal?: AbortSignal;
 }
 
 /** Talks to one server: the one the page came from, under the path the app is served at. */
@@ -63,6 +69,18 @@ export class Http {
     return `${this.basePath}${filled}${text ? `?${text}` : ''}`;
   }
 
+  /** Reads the bytes at a path (a file). Rejects as `request` does. */
+  async bytes(path: ApiPath, params: Record<string, string> = {}): Promise<Blob> {
+    let response: Response;
+    try {
+      response = await fetch(this.url(path, params), { credentials: 'same-origin' });
+    } catch {
+      throw new BackendError(0, { message: `GET ${path}: no answer` });
+    }
+    if (!response.ok) throw await errorOf(response);
+    return response.blob();
+  }
+
   /**
    * Sends a request and reads the answer: its JSON, or undefined for 204.
    * Rejects with a `BackendError`: the server's error body, or `network`
@@ -78,8 +96,12 @@ export class Http {
     // Every request but a reading one needs it; with it, a page of another
     // origin cannot make the browser send one (contract, "Requests that change something").
     if (method !== 'GET') headers['X-Requested-With'] = 'XMLHttpRequest';
-    let body: string | undefined;
-    if (options.json !== undefined) {
+    Object.assign(headers, options.headers);
+    let body: string | Blob | undefined;
+    if (options.bytes !== undefined) {
+      headers['Content-Type'] = 'application/octet-stream';
+      body = options.bytes;
+    } else if (options.json !== undefined) {
       headers['Content-Type'] = 'application/json';
       body = JSON.stringify(options.json);
     }
@@ -90,8 +112,10 @@ export class Http {
         headers,
         body,
         credentials: 'same-origin',
+        signal: options.signal,
       });
-    } catch {
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
       throw new BackendError(0, { message: `${method} ${path}: no answer` });
     }
     if (!response.ok) throw await errorOf(response);

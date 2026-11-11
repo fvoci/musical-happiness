@@ -31,12 +31,10 @@ import {
   isBackendError,
   isCardBlock,
   isViewBlock,
-  type Attachment,
   type CardDraft,
   type CardPatch,
   type CardSummary,
   type Change,
-  type Comment,
   type ViewDraft,
 } from './backend.ts';
 import { droppedCardOrder, placeAmongAll } from './card-order.ts';
@@ -101,6 +99,8 @@ export class BoardStore {
   status = $state<LoadStatus>('idle');
   /** The board does not exist, or the reader may not see it: the two look the same. */
   missing = $state(false);
+  /** The board is open and the reader no member of it: shown with a way to join (`join`). */
+  joinable = $state(false);
   board = $state.raw<Board | undefined>(undefined);
   views = $state.raw<BoardView[]>([]);
   /** Every card of the board, card templates included, in no order. */
@@ -147,6 +147,17 @@ export class BoardStore {
     return this.canEdit && createdBy === this.workspace.me?.id;
   }
 
+  /**
+   * Whether the reader may change the text of a comment written by
+   * `createdBy`: their own, when they may edit the board. The server lets an
+   * editor change anyone's comment and a commenter none (`patchBlock`); the
+   * screen offers only one's own until the user's decision (B1 in
+   * `docs/contract-assumptions.md`) is in the server.
+   */
+  canEditComment(createdBy: string): boolean {
+    return this.canEdit && createdBy === this.workspace.me?.id;
+  }
+
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
@@ -167,6 +178,7 @@ export class BoardStore {
   async load(): Promise<void> {
     this.status = 'loading';
     this.missing = false;
+    this.joinable = false;
     try {
       // Listen first: a change made while the lists are being read is not lost.
       this.#stopWatching?.();
@@ -188,11 +200,58 @@ export class BoardStore {
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;
-      else this.workspace.report('load', error);
+      else if (isBackendError(error) && error.status === 403 && (await this.#openToJoin())) {
+        this.joinable = true;
+      } else this.workspace.report('load', error);
     }
   }
 
+  /**
+   * Whether the board refused is an open board the reader may join: one of
+   * their team that they are no member of reads as itself, while its views,
+   * cards and members are refused. Its title and description are then shown
+   * with a way to join (the user's decision, H5).
+   */
+  async #openToJoin(): Promise<boolean> {
+    try {
+      const board = await this.#backend.board(this.boardId);
+      if (board.type !== 'O' || board.isTemplate) return false;
+      this.board = board;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Joins the open board shown (`joinable`) and opens it. False (and told) when that failed. */
+  async join(): Promise<boolean> {
+    if (this.joining) return false;
+    this.joining = true;
+    try {
+      await this.#backend.joinBoard(this.boardId);
+    } catch (error) {
+      // Made private or deleted meanwhile: there is nothing to join.
+      if (isBackendError(error) && error.status === 404) {
+        this.joinable = false;
+        this.missing = true;
+      } else this.workspace.report('save', error);
+      return false;
+    } finally {
+      this.joining = false;
+    }
+    // Left meanwhile (the address changed): the board is not read for nobody.
+    if (this.#closed) return false;
+    // The sidebar hears of it from the server (a member message reads it again).
+    await this.load();
+    return this.status === 'ready';
+  }
+
+  /** The reader asked to join (`join`) and the answer has not come. */
+  joining = $state(false);
+  #closed = false;
+
   close(): void {
+    this.#closed = true;
     this.#stopWatching?.();
     this.#stopWatching = undefined;
     this.openCard?.close();
@@ -256,6 +315,12 @@ export class BoardStore {
         if (!this.board || change.board.updateAt >= this.board.updateAt) this.board = change.board;
         break;
       case 'boardDeleted':
+        // An open board may only have been closed to the reader (taken off
+        // it): read again, it shows as one to join, or as gone.
+        if (this.board?.type === 'O' && !this.board.isTemplate && !this.#closed) {
+          void this.load();
+          break;
+        }
         this.missing = true;
         this.status = 'failed';
         break;
@@ -346,11 +411,6 @@ export class BoardStore {
   /** A card came back from the backend, outside of the card list's own writes. */
   receiveCard(card: CardSummary): void {
     this.#receiveCard(card);
-  }
-
-  /** A comment or attachment of the open card changed. */
-  receiveChild(block: Comment | Attachment): void {
-    this.openCard?.receive(block);
   }
 
   async #perform<T>(

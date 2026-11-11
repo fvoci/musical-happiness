@@ -107,10 +107,13 @@ export function watchErrors(page: Page): string[] {
 
 /**
  * What a test board is made of: a select property "Status", a text property
- * "Note", and one kanban view grouped by "Status".
+ * "Note", a date property "Due", and one kanban view grouped by "Status".
  */
 export interface BoardPlan {
   title: string;
+  /** `O`: open to the team, anyone may join. `P` (the default): members only. */
+  type?: 'O' | 'P';
+  description?: string;
   /** The options of "Status", in order. */
   statuses?: string[];
   cards?: { title: string; status?: string; note?: string }[];
@@ -143,8 +146,9 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     await api.post('/api/v1/boards', {
       data: {
         teamId,
-        type: 'P',
+        type: plan.type ?? 'P',
         title: plan.title,
+        ...(plan.description ? { description: plan.description } : {}),
         cardProperties: [
           {
             id: 'status',
@@ -157,6 +161,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
             })),
           },
           { id: 'note', name: 'Note', type: 'text', options: [] },
+          { id: 'due', name: 'Due', type: 'date', options: [] },
         ],
       },
     }),

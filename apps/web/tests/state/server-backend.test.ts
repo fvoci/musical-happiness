@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ServerBackend } from '$lib/api/backend.ts';
+import { cardOfBlock } from '$lib/api/convert.ts';
 import { isBackendError } from '$lib/state/index.ts';
 
 interface Sent {
@@ -41,6 +42,7 @@ afterEach(() => {
 
 const BLOCK = {
   boardId: 'b',
+  body: null,
   parentId: 'c',
   createAt: 1,
   updateAt: 2,
@@ -65,7 +67,7 @@ describe('the server backend', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 
-  it('makes a card from a draft, and refuses one with a body before sending it', async () => {
+  it('makes a card from a draft, its body along', async () => {
     const sent = serve({
       ...BLOCK,
       id: 'c1',
@@ -73,7 +75,9 @@ describe('the server backend', () => {
       icon: '',
       isTemplate: false,
       properties: { status: 'todo' },
-      contentOrder: [],
+      hasBody: false,
+      tasksTotal: 0,
+      tasksDone: 0,
     });
     const backend = new ServerBackend('');
     const card = await backend.createCard('b', { properties: { status: 'todo' } });
@@ -88,14 +92,83 @@ describe('the server backend', () => {
       fields: { properties: { status: 'todo' } },
     });
 
-    const refused = await backend
-      .createCard('b', { body: { type: 'doc', content: [{ type: 'paragraph' }] } })
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }],
+    };
+    await backend.createCard('b', { title: 'Copy', body });
+    expect(sent[1]?.body).toMatchObject({ title: 'Copy', body });
+  });
+
+  it('makes a comment as a block under the card, its text the body', async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }],
+    };
+    const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: '', body }], 201);
+    const comment = await new ServerBackend('').createComment('b', 'c', body);
+    expect(sent[0]).toMatchObject({
+      url: '/api/v1/boards/b/blocks',
+      method: 'POST',
+      body: [{ boardId: 'b', parentId: 'c', type: 'comment', body }],
+    });
+    expect(comment).toMatchObject({ id: 'm', type: 'comment', body });
+  });
+
+  it('changes a comment by its block with the version it was read at, and reads it again', async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
+    };
+    const comment = { ...BLOCK, id: 'm', type: 'comment', title: '', updateAt: 9, body };
+    const sent: Sent[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      sent.push({
+        url,
+        method: init.method ?? 'GET',
+        headers: {},
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+      });
+      return Promise.resolve(
+        init.method === 'PATCH'
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify([comment]), { status: 200 }),
+      );
+    });
+    const changed = await new ServerBackend('').patchComment('b', 'm', { body, readAt: 7 });
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'GET /api/v1/boards/b/blocks?blockId=m',
+      'PATCH /api/v1/boards/b/blocks/m',
+      'GET /api/v1/boards/b/blocks?blockId=m',
+    ]);
+    expect(sent[1]?.body).toEqual({ body, readAt: 7 });
+    expect(changed).toMatchObject({ id: 'm', body, updateAt: 9 });
+
+    // No text is no comment: refused before anything is sent.
+    const none = serve([]);
+    const empty = await new ServerBackend('')
+      .patchComment('b', 'm', { body: null, readAt: 1 })
       .catch((error: unknown) => error);
-    expect(isBackendError(refused) && refused.reason).toBe('not_wired');
-    expect(sent).toHaveLength(1);
+    expect(isBackendError(empty) && empty.status).toBe(400);
+    expect(none).toHaveLength(0);
+
+    // A block that is not a comment is not changed.
+    const other = serve([{ ...BLOCK, id: 'c', type: 'card', title: 'x' }]);
+    const refused = await new ServerBackend('')
+      .patchComment('b', 'c', { body, readAt: 1 })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(404);
+    expect(other.map((one) => one.method)).toEqual(['GET']);
   });
 
   it("reads a card's comments and attachments as blocks under it", async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body' }] }],
+    };
+    serve([{ ...BLOCK, id: 'n', type: 'comment', title: '', body }]);
+    expect((await new ServerBackend('').comments('b', 'c'))[0]?.body).toEqual(body);
+    // One stored before comments had bodies: its title, a paragraph a line.
     const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: 'Looks good\nShip it' }]);
     const backend = new ServerBackend('');
     const [comment] = await backend.comments('b', 'c');
@@ -138,10 +211,17 @@ describe('changing a card on the server', () => {
     title: 'Card',
     icon: '',
     isTemplate: false,
-    contentOrder: [],
+    body: null,
+    hasBody: false,
+    tasksTotal: 0,
+    tasksDone: 0,
   };
 
-  /** A server of one card whose values are `values`; it keeps what it is sent. */
+  /**
+   * A server of one card whose values are `values`. It keeps what it is
+   * sent as the server does: the values set are merged in, the ones named
+   * cleared.
+   */
   function oneCard(values: Record<string, unknown>): {
     sent: Sent[];
     card: () => typeof CARD & { properties: Record<string, unknown> };
@@ -162,19 +242,17 @@ describe('changing a card on the server', () => {
       // A little wait, as a network has: two changes could pass each other.
       await new Promise((resolve) => setTimeout(resolve, 5));
       if (init.method === 'PATCH' && url.endsWith('/cards/c1')) {
-        const patch = body as { title?: string; updatedProperties?: Record<string, unknown> };
-        const replaced = patch.updatedProperties && Object.keys(patch.updatedProperties).length > 0;
-        card = {
-          ...card,
-          title: patch.title ?? card.title,
-          properties: replaced ? (patch.updatedProperties ?? {}) : card.properties,
+        const patch = body as {
+          title?: string;
+          updatedProperties?: Record<string, unknown>;
+          deletedProperties?: string[];
         };
-      }
-      if (init.method === 'PATCH' && url.endsWith('/blocks/c1')) {
-        const fields = (body as { updatedFields: { properties?: Record<string, unknown> } })
-          .updatedFields;
-        card = { ...card, properties: fields.properties ?? card.properties };
-        return new Response(null, { status: 204 });
+        const properties = { ...card.properties, ...patch.updatedProperties };
+        for (const id of patch.deletedProperties ?? []) {
+          // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the patch names them
+          delete properties[id];
+        }
+        card = { ...card, title: patch.title ?? card.title, properties };
       }
       return new Response(JSON.stringify(card), { status: 200 });
     });
@@ -188,68 +266,120 @@ describe('changing a card on the server', () => {
     expect(sent[0]?.body).toEqual({ title: 'New' });
   });
 
-  it('sends every value of the card, the ones it keeps too', async () => {
-    const { sent, card } = oneCard({ a: '1', b: '2' });
-    await new ServerBackend('').patchCard('b', 'c1', {
-      updatedProperties: { b: '3' },
+  it('sends the values it sets and the ones it clears, and nothing else, without reading the card', async () => {
+    const { sent, card } = oneCard({ a: '1', b: '2', c: '3' });
+    const answer = await new ServerBackend('').patchCard('b', 'c1', {
+      updatedProperties: { b: '4' },
       deletedProperties: ['a'],
     });
-    expect(sent.at(-1)?.body).toEqual({ updatedProperties: { b: '3' } });
-    expect(card().properties).toEqual({ b: '3' });
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['PATCH /api/v1/cards/c1']);
+    expect(sent[0]?.body).toEqual({ updatedProperties: { b: '4' }, deletedProperties: ['a'] });
+    expect(card().properties).toEqual({ b: '4', c: '3' });
+    expect(answer.fields.properties).toEqual({ b: '4', c: '3' });
   });
 
-  it('takes away the last value through the block', async () => {
-    const { sent, card } = oneCard({ a: '1' });
-    const answer = await new ServerBackend('').patchCard('b', 'c1', { deletedProperties: ['a'] });
-    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'GET /api/v1/cards/c1',
-      'PATCH /api/v1/boards/b/blocks/c1',
-      'GET /api/v1/cards/c1',
-    ]);
-    expect(card().properties).toEqual({});
-    expect(answer.fields.properties).toEqual({});
-  });
-
-  it('sends two quick changes of one card one after the other, so neither undoes the other', async () => {
-    const { card } = oneCard({});
-    const backend = new ServerBackend('');
-    await Promise.all([
-      backend.patchCard('b', 'c1', { updatedProperties: { a: '1' } }),
-      backend.patchCard('b', 'c1', { updatedProperties: { b: '2' } }),
-    ]);
-    expect(card().properties).toEqual({ a: '1', b: '2' });
-  });
-
-  it('clears the last value with a new title: the title by the card patch, the values by the block', async () => {
+  it('takes away the last value by the card patch, with a new title', async () => {
     const { sent, card } = oneCard({ a: '1' });
     await new ServerBackend('').patchCard('b', 'c1', { title: 'T', deletedProperties: ['a'] });
-    expect(sent.filter((one) => one.method === 'PATCH').map((one) => [one.url, one.body])).toEqual([
-      ['/api/v1/cards/c1', { title: 'T' }],
-      ['/api/v1/boards/b/blocks/c1', { updatedFields: { properties: {} } }],
+    expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
+      ['PATCH', '/api/v1/cards/c1', { title: 'T', deletedProperties: ['a'] }],
     ]);
     expect(card()).toMatchObject({ title: 'T', properties: {} });
   });
 
-  it('sends nothing when the values come out as they were', async () => {
-    const { sent } = oneCard({});
-    const answer = await new ServerBackend('').patchCard('b', 'c1', { deletedProperties: ['x'] });
-    expect(sent.map((one) => one.method)).toEqual(['GET']);
-    expect(answer.id).toBe('c1');
+  it('sends two quick changes of one card one after the other, in the order they were made', async () => {
+    const { sent, card } = oneCard({});
+    const backend = new ServerBackend('');
+    await Promise.all([
+      backend.patchCard('b', 'c1', { updatedProperties: { a: '1' } }),
+      backend.patchCard('b', 'c1', { updatedProperties: { a: '2' } }),
+    ]);
+    expect(sent.map((one) => one.body)).toEqual([
+      { updatedProperties: { a: '1' } },
+      { updatedProperties: { a: '2' } },
+    ]);
+    expect(card().properties).toEqual({ a: '2' });
   });
 
-  it('keeps a clearing that was saved when only reading the card back fails', async () => {
-    let calls = 0;
-    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
-      calls += 1;
-      if (calls === 3) return Promise.reject(new TypeError('offline'));
-      if (init.method === 'PATCH') return Promise.resolve(new Response(null, { status: 204 }));
-      return Promise.resolve(
-        new Response(JSON.stringify({ ...CARD, properties: { a: '1' } }), { status: 200 }),
-      );
+  it('reads the badges of a card from the server, and works them out from a block’s body', async () => {
+    serve({ ...CARD, properties: {}, hasBody: true, tasksTotal: 3, tasksDone: 1 });
+    const answer = await new ServerBackend('').patchCard('b', 'c1', { title: 'x' });
+    expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1 });
+    expect(answer).not.toHaveProperty('body');
+    const block = cardOfBlock({
+      ...BLOCK,
+      id: 'c2',
+      type: 'card',
+      title: 'With tasks',
+      fields: { properties: {} },
+      body: {
+        type: 'doc',
+        content: [
+          {
+            type: 'taskList',
+            content: [
+              { type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph' }] },
+              { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] },
+            ],
+          },
+        ],
+      },
     });
-    const answer = await new ServerBackend('').patchCard('b', 'c1', { deletedProperties: ['a'] });
-    expect(calls).toBe(3);
-    expect(answer.fields.properties).toEqual({});
+    expect(block).toMatchObject({ hasBody: true, tasksTotal: 2, tasksDone: 1 });
+    expect(block).not.toHaveProperty('body');
+  });
+});
+
+describe('joining an open board on the server', () => {
+  it('asks to join by the board and gives the membership', async () => {
+    const sent = serve({
+      boardId: 'b',
+      userId: 'u',
+      roles: '',
+      schemeAdmin: false,
+      schemeEditor: true,
+      schemeCommenter: true,
+      schemeViewer: true,
+    });
+    const member = await new ServerBackend('').joinBoard('b');
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['POST /api/v1/boards/b/join']);
+    expect(member).toMatchObject({ boardId: 'b', userId: 'u', schemeEditor: true });
+  });
+});
+
+describe('writing a card’s body on the server', () => {
+  const body = {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
+  };
+  const CARD = {
+    ...BLOCK,
+    id: 'c1',
+    title: 'Card',
+    icon: '',
+    isTemplate: false,
+    properties: {},
+    hasBody: true,
+    tasksTotal: 0,
+    tasksDone: 0,
+  };
+
+  it('sends the body with the version it was read at, and gives the stored card', async () => {
+    const sent = serve({ ...CARD, body, updateAt: 8 });
+    const stored = await new ServerBackend('').writeCardBody('b', 'c1', { body, readAt: 5 });
+    expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
+      ['PATCH', '/api/v1/cards/c1', { body, readAt: 5 }],
+    ]);
+    expect(stored).toMatchObject({ id: 'c1', body, updateAt: 8, hasBody: true });
+  });
+
+  it('sends no body as null, and lets a refusal for a stale version through as 409', async () => {
+    const sent = serve({ error: 'conflict', message: 'stale' }, 409);
+    const refused = await new ServerBackend('')
+      .writeCardBody('b', 'c1', { body: null, readAt: 5 })
+      .catch((error: unknown) => error);
+    expect(sent[0]?.body).toEqual({ body: null, readAt: 5 });
+    expect(isBackendError(refused) && refused.status).toBe(409);
   });
 });
 

@@ -4,8 +4,8 @@ import type { DocNode } from '$lib/editor/schema.ts';
 import { HAND_MADE, WITH_DIAGRAMS } from '../../tests/support/body-docs.ts';
 
 export const USERS: { id: string; name: string }[] = [
-  { id: 'user-ada', name: 'Ada Lovelace' },
-  { id: 'user-kim', name: '김하늘' },
+  { id: '01930000-0000-7000-8000-00000000c002', name: 'Ada Lovelace' },
+  { id: '01930000-0000-7000-8000-00000000c001', name: '김하늘' },
   { id: 'user-sato', name: '佐藤 花子' },
   { id: 'user-lee', name: '이도윤' },
 ];
@@ -42,9 +42,9 @@ const PLAIN: DocNode[] = [
     text('다음 주 '),
     text('목요일', 'bold'),
     text('까지 끝낼 일을 정리했습니다. 담당은 '),
-    { type: 'mention', attrs: { userId: 'user-kim' } },
+    { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c001' } },
     text(' 님, 검토는 '),
-    { type: 'mention', attrs: { userId: 'user-ada' } },
+    { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c002' } },
     text(' 님입니다.'),
   ),
   { type: 'heading', attrs: { level: 2 }, content: [text('할 일')] },

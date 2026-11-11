@@ -6,25 +6,21 @@
  * app sets the resolver once it knows the board and the base path, and the
  * editor's image node asks here.
  *
- * What the address may assume about the server (its design, sections 5.1 and
- * 5.6; the server's side of it is not built yet, and the app sets a resolver
- * for the in-memory backend in the meantime, src/app/App.svelte):
+ * What the address assumes about the server (`getFile` in the contract;
+ * the app sets the resolver, src/app/App.svelte):
  *
  * - The session is a cookie that scripts cannot read. The app never holds a
- *   token, so an address carries none, and nothing is fetched by script to be
- *   turned into a blob address: `<img src>` and plain links name the file
- *   directly and the browser sends the cookie. A shared, read-only board is
- *   the one case where the address carries something: the read token of that
- *   board, in the query.
+ *   token, so an address carries none: `<img src>` names the file directly
+ *   and the browser sends the cookie. A shared, read-only board would be the
+ *   one case where the address carries something: its read token, in the
+ *   query (`getFile` takes `readToken`); the app has no such view yet. (Saving an attachment under its own
+ *   name reads its bytes by script, features/card/download.ts: the server
+ *   names the download after the file's identifier.)
  * - `GET` needs no extra request header, which is what lets a tag fetch a file.
  * - The API lives under `/api/v1`, below the base path the server is given.
- * - There is no single-user mode and no token of its own to append for it.
- * - A large file goes up in pieces (an upload session: create, send the
- *   numbered pieces, complete). The server names the size of a piece, 8 MiB
- *   unless configured otherwise; a file no larger than one piece may go up in
- *   a single request. A file has an identifier, and so an address, only once
- *   the upload is complete; until then the editor shows a placeholder and
- *   not an image node.
+ * - A file goes up in parts through an upload session (`api/upload.ts`). It
+ *   has an identifier, and so an address, only once the upload is complete;
+ *   until then the editor shows a placeholder and not an image node.
  */
 
 export type FileUrlResolver = (fileId: string) => string | undefined;
