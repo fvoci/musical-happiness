@@ -60,6 +60,9 @@ impl Layer {
 /// * **metrics** is what HTTP and the logic count into, and knows neither of them nor
 ///   the store: a number of the database reaches it through the logic. Serving the
 ///   metrics and measuring requests are HTTP's.
+/// * **collab** is the body of a card as a Y document, without input or output. Only
+///   the logic asks it, and only it names `yrs`: bytes from outside are read there,
+///   after its scan, and nowhere else.
 ///
 /// A module of the server that is not listed under another layer is HTTP: the one that
 /// may do least with the data.
@@ -104,7 +107,13 @@ pub(crate) const LAYERS: &[Layer] = &[
             "fvoci_server::storage",
             "fvoci_server::webhook",
         ],
-        may_use: &["metrics", "store", "model"],
+        may_use: &["metrics", "collab", "store", "model"],
+        handles: &[],
+    },
+    Layer {
+        name: "collab",
+        owns: &["fvoci_collab", "yrs"],
+        may_use: &["model"],
         handles: &[],
     },
     Layer {
@@ -133,6 +142,7 @@ pub(crate) const LAYERS: &[Layer] = &[
 pub(crate) const CRATES: &[(&str, &str)] = &[
     ("fvoci_server", "crates/server/src"),
     ("fvoci_store", "crates/store/src"),
+    ("fvoci_collab", "crates/collab/src"),
     ("fvoci_model", "crates/model/src"),
 ];
 

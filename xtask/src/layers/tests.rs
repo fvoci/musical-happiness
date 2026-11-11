@@ -1079,6 +1079,7 @@ fn planted_workspace(name: &str) -> std::path::PathBuf {
         "use fvoci_store::Store;\nuse axum::response::Response;\n",
     );
     write(&root, "crates/store/src/lib.rs", "use fvoci_model::Board;");
+    write(&root, "crates/collab/src/lib.rs", "use fvoci_model::Board;");
     write(&root, "crates/model/src/lib.rs", "");
     root
 }
@@ -1111,6 +1112,7 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
             "fvoci-store.workspace = true\naxum = \"1\"\ntokio = { version = \"1\" }",
         ),
         ("store", "sqlx.workspace = true"),
+        ("collab", "yrs.workspace = true"),
         ("model", ""),
     ] {
         write(
