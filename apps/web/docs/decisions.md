@@ -1502,7 +1502,7 @@ tracer-bullet마다, 올리기 전에 새 하위 에이전트가 커밋 범위�
 **500줄을 넘는 파일** (✔ 줄 수는 `wc -l`로 다시 셌다)
 
 - `logic/wire.ts` 886, `state/memory/backend.ts` 762, `drag/sortable.svelte.ts` 741, `state/board.svelte.ts` 643, `logic/drop-target.ts` 563. `.svelte` 부품은 500줄을 넘는 것이 없다(가장 큰 것이 `Kanban.svelte` 491).
-- 테스트: `e2e/table.spec.ts` 1,563, `tests/tools/i18n.test.ts` 1,359, `e2e/card.spec.ts` 1,253, `e2e/view-header.spec.ts` 1,204, `tests/logic/filter.test.ts` 1,031.
+- 테스트: `e2e/table.spec.ts` 1,563, `e2e/card.spec.ts` 1,253, `e2e/view-header.spec.ts` 1,204, `tests/logic/filter.test.ts` 1,031.
 - 나누지 않은 까닭: `wire.ts`와 메모리 구현은 서버의 계약이 나오면 생성된 타입과 실제 구현으로 바뀌는 자리라 지금 나누면 두 번 일한다. `board.svelte.ts`는 선택지 편집을 저장소로 모을 때(위) 함께 가른다. 끌기 둘은 W1의 것이다. 테스트는 화면 하나에 스펙 하나로 두었다.
 
 ## 원본과 견준 것

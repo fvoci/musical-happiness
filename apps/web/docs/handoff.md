@@ -205,7 +205,7 @@
 
 - **문서에 시각을 미리 적지 않는다.** 일이 끝날 시각을 어림해 적었다가 여러 번 고쳤다. `date`를 찍고 그 값을 적는다.
 - **이름 검사는 산출물도 본다.** 템플릿의 "바뀐 곳 목록"은 이전 문구에 원본의 이름이 들어가므로 `{old product name}`, `{old company name}`으로 가려서 쓴다(`tools/templates/rewrite.ts`의 `maskOldNames`).
-- **생성물을 Prettier가 다시 접는다.** `JSON.stringify(…, null, 2)`의 배열 모양은 Prettier의 것과 다르다. 도구가 쓰는 파일은 `.prettierignore`에 넣고, "최신인가"는 테스트가 본다(`messages/`, `tools/templates/output/`).
+- **생성물을 Prettier가 다시 접는다.** `JSON.stringify(…, null, 2)`의 배열 모양은 Prettier의 것과 다르다. 도구가 쓰는 파일은 `.prettierignore`에 넣고, "최신인가"는 검사가 본다(`src/lib/api/contract.ts`).
 - **충돌을 풀며 체리픽한 커밋은 `git cherry`가 "같은 변경"으로 알아보지 못한다.** 화면 조립 때 메시지 파일의 충돌을 풀며 들어온 커밋이 그랬다. 워크트리를 지워도 되는지는 워킹 트리가 깨끗한지와 내용이 들어왔는지를 따로 확인한다.
 - **다른 커밋의 트리를 `target/` 아래에 풀고 거기서 `pnpm exec`를 부르면 안 된다.** pnpm이 심볼릭 링크를 타고 `apps/web/node_modules`에 잠금 파일 없이 설치한다. 한 번 겪었고, 지우고 `--frozen-lockfile`로 다시 설치했다. 추적되는 파일에는 영향이 없었다.
 

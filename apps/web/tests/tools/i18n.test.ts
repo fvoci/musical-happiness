@@ -12,6 +12,104 @@ import { COMPLETE_LOCALES, compareKeys, keyErrors, messageKeys } from '../../too
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
 
+/** The texts of a message: the message itself, or every text among its variants. */
+function textsOf(message: unknown): string[] {
+  if (typeof message === 'string') return [message];
+  if (typeof message === 'object' && message !== null) {
+    return Object.values(message).flatMap(textsOf);
+  }
+  return [];
+}
+
+interface Placeholders {
+  /** The names of the values put in at run time: `{name}`, `{count: number}`. */
+  values: Set<string>;
+  /** The names of the tags: `{#b}…{/b}`, `{#br/}`. */
+  tags: Set<string>;
+  /** What paraglide would take as text or leave open instead of refusing. */
+  problems: string[];
+}
+
+/** The values and tags of a text in the inlang message format, and what is not closed. */
+function placeholdersOf(text: string): Placeholders {
+  const values = new Set<string>();
+  const tags = new Set<string>();
+  const problems: string[] = [];
+  const open: string[] = [];
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '\\') {
+      index += 1;
+    } else if (char === '}') {
+      problems.push(`a "}" that closes nothing at ${index}`);
+    } else if (char === '{') {
+      const end = text.indexOf('}', index);
+      const next = text.indexOf('{', index + 1);
+      if (end === -1 || (next !== -1 && next < end)) {
+        problems.push(`a "{" that is not closed at ${index}`);
+        continue;
+      }
+      const inside = text.slice(index + 1, end).trim();
+      index = end;
+      if (inside.startsWith('#')) {
+        const standalone = inside.endsWith('/');
+        const name = inside.slice(1, standalone ? -1 : undefined).trim();
+        tags.add(name);
+        if (!standalone) open.push(name);
+      } else if (inside.startsWith('/')) {
+        const name = inside.slice(1).trim();
+        if (open.pop() !== name) problems.push(`{/${name}} closes no {#${name}}`);
+      } else {
+        values.add(inside.split(/[\s:]/)[0] ?? inside);
+      }
+    }
+  }
+  for (const name of open) problems.push(`{#${name}} is not closed`);
+  return { values, tags, problems };
+}
+
+/** The placeholders of every text of a message, together. */
+function placeholdersOfMessage(message: unknown): Placeholders {
+  const all: Placeholders = { values: new Set(), tags: new Set(), problems: [] };
+  for (const one of textsOf(message).map(placeholdersOf)) {
+    for (const value of one.values) all.values.add(value);
+    for (const tag of one.tags) all.tags.add(tag);
+    all.problems.push(...one.problems);
+  }
+  return all;
+}
+
+describe('the values and tags of a message', () => {
+  it('are read from the text, with escaped braces left out', () => {
+    const found = placeholdersOf(
+      'Move {#b}{name}{/b} and {count: number} cards \\{not this\\}{#br/}',
+    );
+    expect([...found.values]).toEqual(['name', 'count']);
+    expect([...found.tags]).toEqual(['b', 'br']);
+    expect(found.problems).toEqual([]);
+  });
+
+  it('are refused when a brace or a tag is not closed, or closes nothing', () => {
+    expect(placeholdersOf('Hi {name').problems).toHaveLength(1);
+    expect(placeholdersOf('Hi name}').problems).toHaveLength(1);
+    expect(placeholdersOf('{#b}bold').problems).toEqual(['{#b} is not closed']);
+    expect(placeholdersOf('bold{/b}').problems).toEqual(['{/b} closes no {#b}']);
+  });
+
+  it('are read from every variant of a message with variants', () => {
+    const message = [
+      {
+        declarations: ['input count', 'local countPlural = count: plural'],
+        selectors: ['countPlural'],
+        match: { 'countPlural=one': '{count} card', 'countPlural=*': '{#b}{count}{/b} cards' },
+      },
+    ];
+    const found = placeholdersOfMessage(message);
+    expect([...found.values]).toEqual(['count']);
+    expect([...found.tags]).toEqual(['b']);
+  });
+});
+
 describe('key sets', () => {
   it('names what is missing and what is extra, in the order of the files', () => {
     expect(compareKeys(['a', 'b', 'c', 'd'], ['d', 'x', 'b', 'y'])).toEqual({
@@ -111,6 +209,35 @@ describe('the message files', () => {
     );
   });
 
+  it('use only the values and tags of the English message, each closed', () => {
+    const english = messages('en');
+    const problems: string[] = [];
+    for (const locale of settings.locales) {
+      for (const [id, message] of Object.entries(messages(locale))) {
+        const own = placeholdersOfMessage(message);
+        const base = placeholdersOfMessage(english[id]);
+        for (const problem of own.problems) problems.push(`${locale} ${id}: ${problem}`);
+        for (const value of own.values) {
+          if (!base.values.has(value))
+            problems.push(`${locale} ${id}: {${value}} is not in English`);
+        }
+        for (const tag of own.tags) {
+          if (!base.tags.has(tag)) problems.push(`${locale} ${id}: {#${tag}} is not in English`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it('leave the two rewritten English messages untranslated but in Korean', () => {
+    for (const id of ['ShareBoard.searchPlaceholder', 'OnboardingTour.CopyLink.Body']) {
+      expect(messages('ko')[id]).toBeDefined();
+      for (const locale of settings.locales.filter((one) => one !== 'en' && one !== 'ko')) {
+        expect(messages(locale)[id], `${locale} ${id}`).toBeUndefined();
+      }
+    }
+  });
+
   // A Korean particle depends on how the word before it ends (을/를, 이/가, …),
   // so it cannot follow a value that is put in at run time: `{name}` or the end
   // of a tag, `{/b}`.
@@ -123,8 +250,8 @@ describe('the message files', () => {
   });
 
   it('have no Korean particle right after a value', () => {
-    const risky = Object.entries(messages('ko')).filter(
-      ([, text]) => typeof text === 'string' && particleAfterValue.test(text),
+    const risky = Object.entries(messages('ko')).filter(([, message]) =>
+      textsOf(message).some((text) => particleAfterValue.test(text)),
     );
     expect(risky.map(([id]) => id)).toEqual([]);
   });
