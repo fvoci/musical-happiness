@@ -120,6 +120,7 @@ test('a Gantt view made on a board without a card relation has no arrows until o
   await chooseDependencies(page, 'after');
   await expect(arrows(page)).toHaveCount(1);
   await expect(gantt(page)).toHaveAttribute('data-edges', '1');
+  await expect.poll(async () => (await storedFields(page)).dependencyPropertyId).toBe('after');
   // The first choice taken back: the view names no relation again, as before it.
   await page.evaluate(() => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.undoLast());
   await expect(arrows(page)).toHaveCount(0);

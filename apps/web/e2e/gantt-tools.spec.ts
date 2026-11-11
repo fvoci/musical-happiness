@@ -1,9 +1,9 @@
 /**
  * What is done to a Gantt view on the in-memory backend: grouping it, its
- * zoom, the cards without a date, and how it draws and scrolls a board of
- * 2,000 cards (the figures are printed, for a person to read).
+ * zoom, and the cards without a date. A board of 2,000 cards is in
+ * gantt-many.spec.ts.
  */
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
   arrows,
@@ -11,11 +11,14 @@ import {
   bars,
   dayScale,
   gantt,
+  goTo,
   NOW,
   openGantt,
   openRelated,
   scroller,
+  setDates,
   storedFields,
+  type Backend,
   type Dev,
 } from './gantt.support.ts';
 import { dialog, fitPane, paneOf } from './kanban.support.ts';
@@ -79,11 +82,18 @@ test('grouped as a table is: a heading before the cards of each group, the arrow
   const headings = gantt(page).locator('[data-group]');
   await expect(headings).toHaveCount(select.options.length + 1);
   const dated = ['Drag cards', 'Share a board', 'Create a new card', 'Filter and sort cards'];
-  for (const option of [{ id: '', value: `No ${select.name}` }, ...select.options]) {
+  const groups = [{ id: '', value: `No ${select.name}` }, ...select.options];
+  // In the order of a table: the cards without a value first, then the options as the board has them.
+  expect(
+    await headings.evaluateAll((all) => all.map((each) => each.getAttribute('data-group'))),
+  ).toEqual(groups.map((option) => option.id));
+  for (const option of groups) {
     const heading = gantt(page).locator(`[data-group="${option.id}"]`);
     const count = dated.filter((title) => (optionOf[title] ?? '') === option.id).length;
     await expect(heading.locator('[data-slot="group-name"]')).toHaveText(option.value);
-    await expect(heading.locator('[data-slot="group-count"]')).toContainText(String(count));
+    await expect(heading.locator('[data-slot="group-count"] [aria-hidden]')).toHaveText(
+      String(count),
+    );
   }
   // Each card is under the heading of its option: the rows follow the headings down the page.
   const order = await gantt(page)
@@ -132,13 +142,26 @@ test('the zoom steps through days, weeks and months, and the view keeps it', asy
     expect(Math.abs(box.width - days * scale.width)).toBeLessThan(1);
   }
 
+  /** Where the line of today is across the page; it has to be among the days, clear of the titles. */
+  async function todayAt(): Promise<number> {
+    const box = await line.boundingBox();
+    const titles = await gantt(page).locator('[data-gantt-corner]').boundingBox();
+    const days = await scroller(page).boundingBox();
+    if (!box || !titles || !days) throw new Error('nothing to measure');
+    expect(box.x).toBeGreaterThan(titles.x + titles.width);
+    expect(box.x).toBeLessThan(days.x + days.width);
+    return box.x;
+  }
+  const stored = async (): Promise<unknown> => (await storedFields(page)).ganttZoom;
+
   await expect(step).toContainText('Zoom: Weeks');
+  const start = await todayAt();
   await zoomIn.click();
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'day');
   await expect(step).toContainText('Zoom: Days');
-  expect((await storedFields(page)).ganttZoom).toBe('day');
-  // Today, which was in sight, still is.
-  await expect(line).toBeInViewport();
+  await expect.poll(stored).toBe('day');
+  // Today, which was in sight, stays where it was.
+  await expect.poll(async () => Math.abs((await todayAt()) - start)).toBeLessThan(2);
   // A mark for each day, under the name of the month.
   const first = (await gantt(page).getAttribute('data-first')) ?? '';
   const last = (await gantt(page).getAttribute('data-last')) ?? '';
@@ -156,9 +179,9 @@ test('the zoom steps through days, weeks and months, and the view keeps it', asy
   await zoomOut.click();
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'month');
   await expect(step).toContainText('Zoom: Months');
-  expect((await storedFields(page)).ganttZoom).toBe('month');
+  await expect.poll(stored).toBe('month');
   await expect(zoomOut).toHaveAttribute('aria-disabled', 'true');
-  await expect(line).toBeInViewport();
+  await todayAt();
   // Months under years, on whole months.
   expect(((await gantt(page).getAttribute('data-first')) ?? '').slice(8)).toBe('01');
   await expect(gantt(page).locator('[data-upper]').first()).toHaveText('2026');
@@ -166,19 +189,48 @@ test('the zoom steps through days, weeks and months, and the view keeps it', asy
   // A day is a fifth of a rem wide: the bar of one day is widened to be seen.
   const narrow = await bar(page, 'Drag cards').boundingBox();
   expect(Math.round(narrow?.width ?? 0)).toBe(8);
-  // Back in: the days that were in the middle before zooming out are there again.
-  await zoomIn.click();
+  // One undo takes one step back, once the step is written.
+  await page.evaluate(() => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.undoLast());
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'week');
+  await expect.poll(stored).toBe('week');
+});
+
+test('zooming out and back in comes back to the days the reader was at, until "Today" is asked for', async ({
+  page,
+}, info) => {
+  await openGantt(page, info);
+  // A card the summer after next: there is a long way to scroll.
+  await setDates(page, { 'Filter and sort cards': { from: '2028-06-01' } });
+  const line = page.getByTestId('gantt-today-line');
+  const left = (): Promise<number> => scroller(page).evaluate((element) => element.scrollLeft);
+  const zoomed = async (press: 'gantt-zoom-in' | 'gantt-zoom-out', zoom: string): Promise<void> => {
+    await page.getByTestId(press).click();
+    await expect(gantt(page)).toHaveAttribute('data-zoom', zoom);
+    await expect.poll(async () => (await storedFields(page)).ganttZoom).toBe(zoom);
+  };
+  // Away from today: a year on, among the weeks.
+  await scroller(page).evaluate((element) => {
+    element.scrollLeft = 4000;
+  });
+  await expect(line).not.toBeInViewport();
+  const before = await left();
+  // At months the whole chart is nearly in sight and the box is hardly scrolled.
+  await zoomed('gantt-zoom-out', 'month');
+  expect(await left()).toBeLessThan(before / 2);
+  await zoomed('gantt-zoom-in', 'week');
+  await expect.poll(async () => Math.abs((await left()) - before)).toBeLessThan(3);
+
+  // "Today" lets go of that place, also when it does not have to move the box.
+  await zoomed('gantt-zoom-out', 'month');
+  await scroller(page).evaluate((element) => {
+    element.scrollLeft = 0;
+  });
+  await page.getByTestId('gantt-today').click();
+  await zoomed('gantt-zoom-in', 'week');
   await expect(line).toBeInViewport();
-  await zoomOut.click();
-  await expect(gantt(page)).toHaveAttribute('data-zoom', 'month');
-  // One undo takes one step back.
-  await page.evaluate(() =>
-    (
-      window as unknown as { fvociDev: { workspace: { undoLast(): Promise<void> } } }
-    ).fvociDev.workspace.undoLast(),
-  );
-  await expect(gantt(page)).toHaveAttribute('data-zoom', 'week');
+  const titles = await gantt(page).locator('[data-gantt-corner]').boundingBox();
+  const today = await line.boundingBox();
+  expect(today?.x ?? 0).toBeGreaterThan((titles?.x ?? 0) + (titles?.width ?? 0));
 });
 
 test('the cards without a date are counted above the chart and listed on asking', async ({
@@ -220,26 +272,6 @@ test('the cards without a date are counted above the chart and listed on asking'
   }
   await expect(list).toHaveCount(0);
 });
-
-const MANY = 2000;
-
-interface Backend {
-  latency: number;
-  teams(): Promise<{ id: string }[]>;
-  boards(teamId: string): Promise<{ id: string; title: string }[]>;
-  board(boardId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
-  patchBoard(boardId: string, patch: Record<string, unknown>): Promise<unknown>;
-  createCard(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
-  createView(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
-}
-
-/** Goes to an address of the app the way a link does: the data in memory stays as it is. */
-async function goTo(page: Page, address: string): Promise<void> {
-  await page.evaluate((path) => {
-    history.pushState(null, '', path);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }, address);
-}
 
 test('a reader who may not change the view zooms for the visit, and the view stays as it was', async ({
   page,
@@ -285,190 +317,4 @@ test('a reader who may not change the view zooms for the visit, and the view sta
   await page.getByTestId('gantt-zoom-out').click();
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'month');
   expect((await storedFields(page)).ganttZoom).toBe('week');
-});
-
-// --------------------------------------------------------- 2,000 cards
-
-/**
- * Gives a board the page is not showing 2,000 dated cards, each coming after
- * the one before it, and a Gantt view of them; then shows that view, by the
- * app's own way of going to an address. Answers how long the view took to
- * be drawn, in milliseconds.
- */
-async function openMany(page: Page, info: TestInfo): Promise<number> {
-  await page.clock.setFixedTime(NOW);
-  await page.goto('/');
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  await fitPane(page, paneOf(info));
-  const path = await page.evaluate(async (count) => {
-    const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
-    backend.latency = 0;
-    const teams = await backend.teams();
-    const boards = await backend.boards(teams[0]?.id ?? '');
-    const boardId = boards.find((board) => board.title === 'Sprint Planner')?.id ?? '';
-    const due = (await backend.board(boardId)).cardProperties.find(
-      (property) => property.name === 'Due Date',
-    );
-    if (!due) throw new Error('no board "Sprint Planner" with a Due Date');
-    await backend.patchBoard(boardId, {
-      updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
-    });
-    const day = (offset: number): string =>
-      new Date(Date.UTC(2026, 9, 1) + offset * 86_400_000).toISOString().slice(0, 10);
-    let before: string | undefined;
-    for (let at = 0; at < count; at += 1) {
-      // Eight in nine are of several days; some one in nine starts before the one it comes after ends.
-      const from = (at * 7) % 240;
-      const made = await backend.createCard(boardId, {
-        title: `Task ${String(at + 1)}`,
-        properties: {
-          [due.id]: { from: day(from), to: day(from + (at % 9)) },
-          ...(before ? { after: [before] } : {}),
-        },
-      });
-      before = made.id;
-    }
-    const view = await backend.createView(boardId, {
-      title: 'Many',
-      fields: {
-        viewType: 'gantt',
-        dateDisplayPropertyId: due.id,
-        dependencyPropertyId: 'after',
-        ganttZoom: 'week',
-        sortOptions: [],
-        visiblePropertyIds: ['__title'],
-        visibleOptionIds: [],
-        hiddenOptionIds: [],
-        collapsedOptionIds: [],
-        filter: { operation: 'and', filters: [] },
-        cardOrder: [],
-        columnWidths: {},
-        columnCalculations: {},
-        kanbanCalculations: {},
-        defaultTemplateId: '',
-      },
-    });
-    return `/board/${boardId}/${view.id}`;
-  }, MANY);
-  // Timed on the page, from the change of address to the second frame after the last bar is there.
-  const drawn = await page.evaluate(
-    ([address, count]) =>
-      new Promise<number>((resolve) => {
-        const started = performance.now();
-        history.pushState(null, '', address);
-        window.dispatchEvent(new PopStateEvent('popstate'));
-        const look = (): void => {
-          if (document.querySelectorAll('[data-bar]').length < count) {
-            requestAnimationFrame(look);
-            return;
-          }
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              resolve(Math.round(performance.now() - started));
-            });
-          });
-        };
-        requestAnimationFrame(look);
-      }),
-    [path, MANY] as const,
-  );
-  await expect(gantt(page)).toBeVisible();
-  expect(await bars(page).count()).toBeGreaterThanOrEqual(MANY);
-  return drawn;
-}
-
-/** Scrolls a box a step a frame and answers the time each frame took, in milliseconds. */
-async function scrollFrames(
-  page: Page,
-  axis: 'scrollTop' | 'scrollLeft',
-  step: number,
-  frames: number,
-): Promise<number[]> {
-  return scroller(page).evaluate(
-    (element, [property, by, count]) =>
-      new Promise<number[]>((resolve) => {
-        const times: number[] = [];
-        let last = performance.now();
-        const frame = (now: number): void => {
-          times.push(now - last);
-          last = now;
-          if (times.length > count) {
-            // The first interval is the wait for the first frame, not a frame.
-            resolve(times.slice(1));
-            return;
-          }
-          element[property] += by;
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
-      }),
-    [axis, step, frames] as const,
-  );
-}
-
-/** The middle, the 95th of a hundred, and the longest of some times, rounded to a tenth. */
-function summary(times: number[]): { median: number; p95: number; max: number } {
-  const sorted = [...times].sort((a, b) => a - b);
-  const at = (part: number): number =>
-    Math.round((sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * part))] ?? 0) * 10) /
-    10;
-  return { median: at(0.5), p95: at(0.95), max: at(1) };
-}
-
-test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames that are measured', async ({
-  page,
-}, info) => {
-  test.setTimeout(180_000);
-  const drawn = await openMany(page, info);
-  await expect(gantt(page)).toHaveAttribute('data-edges', String(MANY - 1));
-  await expect(arrows(page)).toHaveCount(MANY - 1);
-  expect(Number(await gantt(page).getAttribute('data-late'))).toBeGreaterThan(100);
-
-  const down = summary(await scrollFrames(page, 'scrollTop', 90, 120));
-  const across = summary(await scrollFrames(page, 'scrollLeft', 40, 120));
-  expect(await scroller(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(9000);
-
-  // One card renamed: how long the page is busy before it can draw again.
-  const renamed = await page.evaluate(async () => {
-    const store = (
-      window as unknown as {
-        fvociDev: {
-          workspace: {
-            board: {
-              cards: { id: string; title: string }[];
-              setCardTitle(cardId: string, title: string): Promise<void>;
-            };
-          };
-        };
-      }
-    ).fvociDev.workspace.board;
-    const card = store.cards.find((each) => each.title === 'Task 1000');
-    if (!card) throw new Error('no card to rename');
-    const started = performance.now();
-    const written = store.setCardTitle(card.id, 'Task 1000, renamed');
-    await new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(resolve));
-    });
-    const busy = performance.now() - started;
-    await written;
-    return Math.round(busy);
-  });
-  await expect(bar(page, 'Task 1000, renamed')).toHaveCount(1);
-
-  const figures = {
-    project: info.project.name,
-    cards: MANY,
-    arrows: MANY - 1,
-    drawnMs: drawn,
-    scrollDownFrameMs: down,
-    scrollAcrossFrameMs: across,
-    renameOneCardMs: renamed,
-  };
-  // Printed for a person to read, with the output of the run.
-  process.stdout.write(`[gantt 2000] ${JSON.stringify(figures)}\n`);
-  info.annotations.push({ type: 'gantt 2000', description: JSON.stringify(figures) });
-  // Generous bounds: the figures are for reading, the bounds catch a chart that stopped scrolling.
-  expect(down.median).toBeLessThan(100);
-  expect(across.median).toBeLessThan(100);
-  expect(renamed).toBeLessThan(2000);
 });

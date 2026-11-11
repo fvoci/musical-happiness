@@ -103,6 +103,8 @@
     if (!scroller) return;
     const x = (xOfDay(axis, date) + axis.dayWidth / 2) * rem();
     scroller.scrollLeft = Math.max(0, x - daysRoom() * part);
+    // The reader asked for this day: no earlier one is held any more.
+    held = undefined;
   }
 
   /** Another zoom: the view's where the reader may change the view, theirs for the visit where not. */
@@ -115,23 +117,38 @@
   /** The axis the page shows; the one before it, while a new one is being drawn. Not reactive. */
   let drawn: Axis | undefined;
   /**
-   * The day that was held in the middle the last time the axis changed
-   * (counted in days from `HELD_FROM`, with its fraction), and where the box
-   * was scrolled to for it. Until the reader scrolls, that day is held again:
-   * at a far zoom the whole chart may be in sight and the box not scrolled at
-   * all, and zooming back in must come back to where the reader was, not to
-   * whatever then lay in the middle. Not reactive.
+   * The day that was held in its place the last time the axis changed (in
+   * days from `HELD_FROM`, with its fraction), how far into the days in
+   * sight it was held, and where the box was scrolled to for it. Until the
+   * reader scrolls, that day is held again: at a far zoom the whole chart
+   * may be in sight and the box not scrolled at all, and zooming back in
+   * must come back to where the reader was, not to whatever then lay in the
+   * middle. Not reactive.
    */
-  let held: { day: number; left: number } | undefined;
+  let held: { day: number; at: number; left: number } | undefined;
   const HELD_FROM = calendarDate(2000, 1, 1);
+
+  /**
+   * What to hold while the axis changes: today where its line is in sight
+   * (it stays where it is), else the day in the middle of what is in sight.
+   */
+  function toHold(before: Axis, left: number): { day: number; at: number } {
+    const room = daysRoom();
+    const from = daysBetween(HELD_FROM, before.first);
+    // Today on the axis that is still drawn, not on the one that is coming.
+    const todayDays = daysBetween(before.first, today) + 0.5;
+    const todayAt = todayDays * before.dayWidth * rem() - left;
+    if (todayAt >= 0 && todayAt <= room) return { day: from + todayDays, at: todayAt };
+    return { day: from + (left + room / 2) / rem() / before.dayWidth, at: room / 2 };
+  }
 
   /*
    * The days in sight stay in sight when the axis changes under them: the
    * zoom, or its first day (a card dated earlier than any before, another
    * "display by", a filter). An effect, because where a box is scrolled to
-   * is the page's and not ours: before the page is drawn again the middle
-   * of what is in sight is read off the old axis, and once it is drawn the
-   * box is scrolled to the same day on the new one.
+   * is the page's and not ours: before the page is drawn again the place of
+   * a day is read off the old axis, and once it is drawn the box is scrolled
+   * to bring that day to the same place on the new one.
    */
   $effect.pre(() => {
     const next = axis;
@@ -139,17 +156,35 @@
     drawn = next;
     if (!scroller || !before) return;
     if (before.first === next.first && before.dayWidth === next.dayWidth) return;
-    const half = daysRoom() / 2;
     const left = scroller.scrollLeft;
-    const day =
-      held && Math.abs(held.left - left) < 1
-        ? held.day
-        : daysBetween(HELD_FROM, before.first) + (left + half) / rem() / before.dayWidth;
+    const hold =
+      held && Math.abs(held.left - left) < 1 ? held : untrack(() => toHold(before, left));
     void tick().then(() => {
       if (!scroller) return;
-      const x = (day - daysBetween(HELD_FROM, next.first)) * next.dayWidth * rem();
-      scroller.scrollLeft = Math.max(0, x - half);
-      held = { day, left: scroller.scrollLeft };
+      const x = (hold.day - daysBetween(HELD_FROM, next.first)) * next.dayWidth * rem();
+      scroller.scrollLeft = Math.max(0, x - hold.at);
+      held = { day: hold.day, at: hold.at, left: scroller.scrollLeft };
+    });
+  });
+
+  /*
+   * A bar that has the focus keeps it when the rows are laid out again. The
+   * rows stand in blocks (below), and a card added or taken away above moves
+   * rows from one block to the next: such a row is made again, and the focus
+   * that was on its bar would fall to the page. Before the rows are drawn the
+   * focused bar is noted, and afterwards the focus is put back on it.
+   */
+  $effect.pre(() => {
+    // Read, so that this runs again whenever the rows are laid out anew.
+    const blocks = chart.blocks;
+    const active = document.activeElement;
+    const cardId = active instanceof HTMLElement ? active.dataset.bar : undefined;
+    if (blocks.length === 0 || cardId === undefined || !scroller?.contains(active)) return;
+    void tick().then(() => {
+      if (document.activeElement !== document.body) return;
+      scroller
+        ?.querySelector<HTMLElement>(`[data-bar="${CSS.escape(cardId)}"]`)
+        ?.focus({ preventScroll: true });
     });
   });
 
@@ -386,12 +421,15 @@
               laid out or painted until it comes near (`content-visibility`).
               Blocks and not single rows: the page looks at every such box on
               every frame of scrolling, and thousands of them halve the frames.
+              A skipped block is as high as its rows, worked out and not
+              remembered from when it was last drawn: rows change their height
+              with the reader's density, and a block its number of rows.
             -->
             <ul role="list" aria-label={m.gantt_rows()} class="relative">
               {#each chart.blocks as block, at (at)}
                 <div
                   role="presentation"
-                  class="[contain-intrinsic-block-size:auto_calc(var(--gantt-row)*var(--rows))] [content-visibility:auto]"
+                  class="[contain-intrinsic-block-size:calc(var(--gantt-row)*var(--rows))] [content-visibility:auto]"
                   style:--rows={block.length}
                 >
                   {#each block as line (`${line.kind}:${line.id}`)}

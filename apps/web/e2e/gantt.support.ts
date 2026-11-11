@@ -220,3 +220,22 @@ export async function arrowEnds(
       return { start: at(0), end: at(drawn.getTotalLength()) };
     });
 }
+
+/** What the tests ask of the backend in memory, beside the page. */
+export interface Backend {
+  latency: number;
+  teams(): Promise<{ id: string }[]>;
+  boards(teamId: string): Promise<{ id: string; title: string }[]>;
+  board(boardId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
+  patchBoard(boardId: string, patch: Record<string, unknown>): Promise<unknown>;
+  createCard(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
+  createView(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
+}
+
+/** Goes to an address of the app the way a link does: the data in memory stays as it is. */
+export async function goTo(page: Page, address: string): Promise<void> {
+  await page.evaluate((path) => {
+    history.pushState(null, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, address);
+}
