@@ -239,7 +239,10 @@ async fn handle_upload_file(
     if declared.is_some_and(|length| length > limit.bytes.saturating_add(FORM_ALLOWANCE)) {
         // A client that waits for `100 Continue` has sent nothing yet, and reading the
         // form would invite it to. It gets its answer at once.
-        if !headers.contains_key(EXPECT) {
+        let waits_to_send = headers
+            .get(EXPECT)
+            .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"100-continue"));
+        if !waits_to_send {
             drain_form(&mut multipart).await;
         }
         return Err(limit.refusal());
@@ -303,13 +306,16 @@ impl Reading {
         }
     }
 
-    fn store(self, state: &AtomicU8) {
-        let value = match self {
+    fn value(self) -> u8 {
+        match self {
             Self::Fine => 0,
             Self::TooLarge => 1,
             Self::Unreadable => 2,
-        };
-        state.store(value, Ordering::Relaxed);
+        }
+    }
+
+    fn store(self, state: &AtomicU8) {
+        state.store(self.value(), Ordering::Relaxed);
     }
 }
 
@@ -360,8 +366,7 @@ async fn store_field(
     field: Field<'_>,
     limit: SingleUploadLimit,
 ) -> Result<String, AppError> {
-    let state = AtomicU8::new(0);
-    Reading::Fine.store(&state);
+    let state = AtomicU8::new(Reading::Fine.value());
     let mut received: u64 = 0;
     let bytes = field.map(|chunk| {
         let chunk = chunk.map_err(|error| {

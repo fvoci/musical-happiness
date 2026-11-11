@@ -17,6 +17,7 @@ pub struct ClientConfig {
     /// The server's feature flags.
     #[serde(deserialize_with = "null_as_default")]
     pub feature_flags: BTreeMap<String, String>,
-    /// The largest upload the server accepts, in bytes. Zero, the default, is no limit.
+    /// The largest upload the server accepts, in bytes; always more than zero (100 MiB
+    /// unless the server is configured otherwise).
     pub max_file_size: i64,
 }

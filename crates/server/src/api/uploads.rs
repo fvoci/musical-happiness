@@ -40,8 +40,8 @@ struct NewUpload {
     /// The name of the file, 1 to 255 characters. The stored file keeps its extension,
     /// as `uploadFile` keeps it.
     name: String,
-    /// The size of the file in bytes. More than `maxFileSize` of `getClientConfig`,
-    /// where that is more than zero, is 413.
+    /// The size of the file in bytes. More than `maxFileSize` of `getClientConfig` is
+    /// 413.
     size: i64,
     /// The content type of the file, at most 255 characters. The server does not go by
     /// it: what a file is served as follows from its name.
@@ -148,7 +148,7 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 /// Opens an upload of a file to the board in parts. The answer says how large the
 /// parts are and how many; send each with `putUploadPart`, in any order and again
 /// after a failure, then `completeUpload`. A file larger than `maxFileSize` of
-/// `getClientConfig`, where that is more than zero, is 413. A user has at most 8
+/// `getClientConfig` is 413. A user has at most 8
 /// uploads open, holding back at most twice `maxFileSize` together, and the server's
 /// open uploads hold back at most what it is configured for: an upload over one of
 /// these is 429, with the reason `too_many_uploads`, `uploads_pending` or

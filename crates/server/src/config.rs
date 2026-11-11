@@ -174,8 +174,9 @@ pub struct Configuration {
     pub websocket_ping_seconds: u64,
     /// The largest body, in bytes, of a request to an API route that takes JSON. A
     /// larger one is refused with 413. It does not apply to file uploads, which are
-    /// bounded by `maxfilesize` (and not at all at its default of 0), nor to archive
-    /// imports, which have no limit on the request yet.
+    /// limited to one part (`upload_part_bytes`) as they are read, nor to the parts of
+    /// uploads, limited to their size, nor to archive imports, which have no limit on
+    /// the request yet.
     pub max_request_bytes: u64,
     /// How many days a deleted board or block stays in the trash, where it can be
     /// restored from, before it is removed for good.
@@ -573,8 +574,14 @@ impl Configuration {
             );
         }
         // Less would refuse the largest file with 429 every time, as if it might fit later.
-        if self.max_pending_upload_bytes < self.max_file_size.unsigned_abs() {
-            bail!("max_pending_upload_bytes must be at least maxfilesize");
+        // Positive, as checked above.
+        let max_file_size = u64::try_from(self.max_file_size).unwrap_or(0);
+        if self.max_pending_upload_bytes < max_file_size {
+            bail!(
+                "max_pending_upload_bytes must be at least maxfilesize ({max_file_size}), \
+                 not {}",
+                self.max_pending_upload_bytes
+            );
         }
         Ok(())
     }

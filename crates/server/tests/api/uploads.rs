@@ -832,4 +832,53 @@ async fn an_upload_closed_just_before_its_end_gets_the_grace() {
         .expect("the clean-up runs");
     assert_eq!(removed, 0, "the completion is left alone");
     assert_eq!(part_numbers(&parts_dir(&ts, &upload_id)), ["1"]);
+    let removed = ts
+        .app
+        .clean_up_uploads(expires_at - 1000 + CLOSED_UPLOAD_GRACE_MILLIS + 1)
+        .await
+        .expect("the clean-up runs");
+    assert_eq!(removed, 1, "after the grace it is thrown away");
+    assert!(!parts_dir(&ts, &upload_id).exists());
+}
+
+/// A client that waits for `100 Continue` before it sends a file that is declared too
+/// large is answered at once, and is not invited to send it.
+#[tokio::test]
+async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let address = ts.base_url.trim_start_matches("http://").to_owned();
+    let request = format!(
+        "POST /api/v1/boards/{}/files HTTP/1.1\r\nHost: {address}\r\n\
+         Authorization: Bearer {}\r\nX-Requested-With: XMLHttpRequest\r\n\
+         Content-Type: multipart/form-data; boundary=edge\r\n\
+         Content-Length: {}\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n",
+        board.id,
+        ts.client.token,
+        PART * 4
+    );
+    let mut stream = tokio::net::TcpStream::connect(&address)
+        .await
+        .expect("the server accepts the connection");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("the headers are sent");
+
+    // Nothing of the body is sent: the answer comes, or the test runs out of time.
+    let mut answer = Vec::new();
+    let read = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        stream.read_to_end(&mut answer),
+    )
+    .await;
+    assert!(read.is_ok(), "the answer came without the body");
+    let answer = String::from_utf8_lossy(&answer);
+    assert!(
+        answer.starts_with("HTTP/1.1 413"),
+        "refused, not asked to continue: {answer}"
+    );
+    assert!(answer.contains("upload_in_parts"), "{answer}");
 }
