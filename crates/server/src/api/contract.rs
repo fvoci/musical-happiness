@@ -116,8 +116,8 @@ the address of a page of text about the kind; `/problems` lists them, and so doe
 problem with a `reason` has the `type` of that name, written with hyphens, and any other the \
 `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer \
 into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or \
-the name of a header (`header`). `limit` is the number of bytes a body that was too large \
-(413) may have. `instance` is the request, `urn:uuid:` and its `requestId`. A session that \
+the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body \
+that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that \
 is missing or over is 401. What the user may not see is 404, as if it were not there; what \
 they may see but not do is 403. A path that is no operation is 404 too, and a method an \
 operation's path does not have is 405.

@@ -90,13 +90,16 @@ const copy = <T>(value: T): T => structuredClone(value);
 function fail(
   status: ErrorStatus,
   detail: string,
-  extra: { field?: string; limit?: number } = {},
+  extra: { field?: string; within?: string; reason?: string; limit?: number } = {},
 ): never {
-  const { field, limit } = extra;
+  const { field, within, reason, limit } = extra;
+  const entry = field === undefined ? undefined : refusedMember(field, detail, reason);
+  // A member of a map the request carries is under the map's own member.
+  if (entry && within !== undefined) entry.pointer = `/${within}${entry.pointer ?? ''}`;
   throw new BackendError(status, {
     ...problemOf(status, detail),
     ...(limit === undefined ? {} : { limit }),
-    ...(field === undefined ? {} : { errors: [refusedMember(field, detail)] }),
+    ...(entry === undefined ? {} : { errors: [entry] }),
   });
 }
 
@@ -360,9 +363,20 @@ export class MemoryBackend implements Backend {
       ),
     );
     for (const [key, value] of Object.entries(updated)) {
-      if (!SCREEN_STATE_KEY.test(key)) fail(400, 'invalid key', { field: key });
+      if (!SCREEN_STATE_KEY.test(key)) {
+        fail(400, 'invalid key', {
+          field: key,
+          within: 'updatedFields',
+          reason: 'invalid_characters',
+        });
+      }
       if (new TextEncoder().encode(value).length > LIMITS.screenStateValueBytes) {
-        fail(400, 'value too long', { field: key, limit: LIMITS.screenStateValueBytes });
+        fail(400, 'value too long', {
+          field: key,
+          within: 'updatedFields',
+          reason: 'too_long',
+          limit: LIMITS.screenStateValueBytes,
+        });
       }
       next[key] = value;
     }

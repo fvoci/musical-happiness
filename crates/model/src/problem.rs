@@ -42,9 +42,8 @@ pub struct Problem {
     /// `getCards`, `createCard` and `patchCard` list everything their check of the
     /// request's own shape refuses, the first 100; so does the check of a category's
     /// own members. Every other refusal names the one thing it is about: what is only
-    /// known from what is stored, a block of a request with several, a member that
-    /// does not agree with the path, and the first node of a document (`body`) that
-    /// may not be stored.
+    /// known from what is stored, a block of a request with several, and the first
+    /// node of a document (`body`) that may not be stored.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<InvalidInput>,
     /// The limit that was exceeded.

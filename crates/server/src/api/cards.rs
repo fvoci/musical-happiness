@@ -32,6 +32,18 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_card, handle_patch_card))
 }
 
+/// Reads the `page` and `perPage` of a list that is answered in pages. Both are read,
+/// so that a request with both wrong is told of both.
+pub(super) fn page_params(query: Option<&str>) -> Result<(i64, i64), AppError> {
+    let page = int_query_param(query, "page", DEFAULT_PAGE);
+    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE);
+    match (page, per_page) {
+        (Ok(page), Ok(per_page)) => Ok((page, per_page)),
+        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
+        (Err(page), Err(per_page)) => Err(page.and(per_page)),
+    }
+}
+
 /// Reads a whole number from a query parameter; `default` if the parameter is absent
 /// or empty.
 pub(super) fn int_query_param(
@@ -160,14 +172,7 @@ async fn handle_get_cards(
     )
     .await?;
 
-    // Both parameters are read, so that a request with both wrong is told of both.
-    let page = int_query_param(query, "page", DEFAULT_PAGE);
-    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE);
-    let (page, per_page) = match (page, per_page) {
-        (Ok(page), Ok(per_page)) => (page, per_page),
-        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => return Err(refusal),
-        (Err(page), Err(per_page)) => return Err(page.and(per_page)),
-    };
+    let (page, per_page) = page_params(query)?;
 
     let cards = app.cards_for_board(&board_id, page, per_page).await?;
     tracing::debug!(

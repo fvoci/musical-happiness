@@ -240,7 +240,11 @@ async fn handle_import(
     }
     // Refused, the upload stays: the import can be asked for again.
     let _slot = app.start_import(user_id)?;
-    app.import_upload(&upload).await?;
+    // What is refused of the archive's boards and blocks is in the archive, not in the
+    // request, which names the upload alone.
+    app.import_upload(&upload)
+        .await
+        .map_err(AppError::outside_the_request)?;
     Ok(no_content())
 }
 

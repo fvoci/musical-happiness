@@ -110,6 +110,8 @@ export class BackendError extends Error {
   readonly errors: readonly InvalidInput[];
   readonly limit: number | undefined;
   readonly retryAfter: number | undefined;
+  /** The server's name for the request, to report a failure by. */
+  readonly requestId: string | undefined;
 
   constructor(status: ErrorStatus | 0, problem?: Partial<Problem>) {
     super(problem?.detail ?? problem?.title ?? (status === 0 ? 'no answer' : `status ${status}`));
@@ -120,6 +122,7 @@ export class BackendError extends Error {
     this.errors = problem?.errors ?? [];
     this.limit = problem?.limit;
     this.retryAfter = problem?.retryAfter;
+    this.requestId = problem?.requestId;
   }
 
   /** The entry of `errors` about the member of the request body at this JSON Pointer, if there is one. */

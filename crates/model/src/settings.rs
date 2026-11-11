@@ -12,7 +12,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 use crate::JsonMap;
-use crate::refusal::{RefusalReason, Refusals};
+use crate::refusal::{RefusalReason, Refusals, shown_name};
 
 /// The text is no value of the setting it was read as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -501,7 +501,7 @@ impl SettingChange {
     fn read(name: &str, value: &serde_json::Value) -> Result<Self, SettingsError> {
         let setting =
             SettingName::from_name(name).ok_or_else(|| SettingsError::UnknownSetting {
-                name: name.to_owned(),
+                name: shown_name(name),
             })?;
         let invalid = || SettingsError::InvalidValue {
             name: setting.as_str(),

@@ -1149,7 +1149,22 @@ async fn a_malformed_card_block_is_refused() {
             )
             .await;
         response.check_bad_request();
-        assert_eq!(response.refused_at(), "/fields", "{fields}");
+        assert_eq!(
+            response.refused_at(),
+            "/updatedFields",
+            "the member of the patch: {fields}"
+        );
+        let batch = json!({"blockIds": [nulls.id], "blockPatches": [{"updatedFields": fields}]});
+        let response = th
+            .client
+            .patch(&format!("/boards/{}/blocks", board.id), &batch)
+            .await;
+        response.check_bad_request();
+        assert_eq!(
+            response.refused_at(),
+            "/blockPatches/0/updatedFields",
+            "{fields}"
+        );
     }
     // Another block may hold such fields: only a card is read as one.
     let view = Block {

@@ -485,6 +485,17 @@ impl AppError {
         self
     }
 
+    /// Says that what was refused is no member of the request body: for what is
+    /// checked of something the request only names, as an archive is by its upload.
+    /// The words of the error still say what is wrong.
+    #[must_use]
+    pub fn outside_the_request(mut self) -> Self {
+        self.subject = None;
+        self.refused
+            .retain(|refused| !matches!(refused.place, Place::Body(_)));
+        self
+    }
+
     /// Says that what was refused at the JSON Pointer `from` is at `to` in the request:
     /// for a request that names a member otherwise than what it changes does, as a
     /// patch's `updatedProperties` are a board's `properties`.
@@ -1047,6 +1058,16 @@ mod tests {
             pointers(board().among_blocks(["b1"], "/blocks")),
             [],
             "one of several boards: nowhere to point"
+        );
+        assert_eq!(
+            pointers(refused().outside_the_request()),
+            [],
+            "what is checked of an archive is no member of the request"
+        );
+        assert_eq!(
+            refused().outside_the_request().body().detail,
+            "the title holds the character U+0000",
+            "the words still say what is wrong"
         );
         let other = AppError::bad_request("no").with_field("blockIds");
         assert_eq!(

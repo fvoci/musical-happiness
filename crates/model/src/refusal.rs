@@ -46,6 +46,19 @@ refusal_reasons! {
     Invalid => "invalid";
 }
 
+/// How much of a name of the client's own the words of a refusal show.
+pub const NAME_SHOWN_CHARS: usize = 64;
+
+/// A name of the client's own as the words of a refusal show it: at most
+/// [`NAME_SHOWN_CHARS`] characters of it, since it may be as long as a request.
+#[must_use]
+pub fn shown_name(name: &str) -> String {
+    match name.char_indices().nth(NAME_SHOWN_CHARS) {
+        Some((end, _)) => format!("{}…", &name[..end]),
+        None => name.to_owned(),
+    }
+}
+
 /// One member of a request body that a check refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {

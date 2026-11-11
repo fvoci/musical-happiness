@@ -283,7 +283,9 @@ async fn handle_patch_boards_and_blocks(
         .patch_boards_and_blocks(&patches, user_id)
         .await
         .map_err(|error| {
-            error.among_blocks(patches.block_ids.iter().map(String::as_str), PATCHES)
+            error
+                .moved(super::blocks::BLOCK_FIELDS, super::blocks::PATCH_FIELDS)
+                .among_blocks(patches.block_ids.iter().map(String::as_str), PATCHES)
         })?;
     Ok(json_response(&result))
 }

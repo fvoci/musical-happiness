@@ -156,6 +156,19 @@ async fn the_requests_of_a_user_list_everything_they_refuse() {
         "in the order of the names"
     );
 
+    // A name of the client's own is not sent back whole in the words: it may be long.
+    let long = "n".repeat(300);
+    let response = th.client.patch("/users/me", &json!({&long: 1})).await;
+    response.check_error(
+        StatusCode::BAD_REQUEST,
+        &format!("there is no member {:?}", format!("{}…", "n".repeat(64))),
+    );
+    assert_eq!(
+        response.refused_at(),
+        format!("/{long}"),
+        "the place is exact"
+    );
+
     let before = th.client.get("/users/me/settings").await.value();
     let response = th
         .client

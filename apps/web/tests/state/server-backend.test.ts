@@ -418,6 +418,7 @@ describe('writing a card’s body on the server', () => {
       message: 'the user name is taken',
       limit: 7,
       retryAfter: 3,
+      requestId: 'r1',
     });
     // An entry that does not say why is no entry.
     expect(refused.errors).toEqual([

@@ -598,9 +598,12 @@ export interface paths {
         put?: never;
         /**
          * Bring a deleted board back
-         * @description Restores a board from the trash with its blocks and its members. Its sharing, its
-         *     places in the sidebars and the subscriptions to its blocks ended with the deletion
-         *     and stay ended. For who was an admin of the board when it was deleted; to anybody
+         * @description Restores a board from the trash with its blocks and its members. Each user who had
+         *     filed it, and can see it again, finds it where it was in the sidebar (the same
+         *     category and place, hidden or not) or in the default category if that one was
+         *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
+         *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
+         *     the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody
          *     who was no member there is no such board.
          */
         post: operations["undeleteBoard"];
@@ -2406,9 +2409,8 @@ export interface components {
              *     `getCards`, `createCard` and `patchCard` list everything their check of the
              *     request's own shape refuses, the first 100; so does the check of a category's
              *     own members. Every other refusal names the one thing it is about: what is only
-             *     known from what is stored, a block of a request with several, a member that
-             *     does not agree with the path, and the first node of a document (`body`) that
-             *     may not be stored.
+             *     known from what is stored, a block of a request with several, and the first
+             *     node of a document (`body`) that may not be stored.
              */
             errors?: components["schemas"]["InvalidInput"][];
             /** @description The request this answer is to: `urn:uuid:` and the `requestId`. */

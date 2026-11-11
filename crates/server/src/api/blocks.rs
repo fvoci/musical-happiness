@@ -54,6 +54,11 @@ fn optional_query_param(query: Option<&str>, name: &str) -> Option<String> {
 /// The refusal to change what is on a board.
 const CHANGES_DENIED: &str = "access denied to make board changes";
 
+/// The JSON Pointers to the fields of a block and to the member of a patch that changes
+/// them.
+pub(super) const BLOCK_FIELDS: &str = "/fields";
+pub(super) const PATCH_FIELDS: &str = "/updatedFields";
+
 /// The JSON Pointer to the patches of a `BlockPatchBatch`.
 const PATCHES: &str = "/blockPatches";
 
@@ -555,8 +560,11 @@ async fn handle_patch_block(
     app.check_body_files(&board_id, patch.body.new_body())
         .await?;
 
+    // The store names what it refuses as a block has it; a patch has it under another
+    // name.
     app.patch_block(&block_id, &patch, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| error.moved(BLOCK_FIELDS, PATCH_FIELDS))?;
     tracing::debug!(board_id, block_id, "PATCH Block");
     Ok(no_content())
 }
@@ -627,7 +635,11 @@ async fn handle_patch_blocks(
 
     app.patch_blocks(&board.team_id, &batch, user_id, notification)
         .await
-        .map_err(|error| error.among_blocks(batch.block_ids.iter().map(String::as_str), PATCHES))?;
+        .map_err(|error| {
+            error
+                .moved(BLOCK_FIELDS, PATCH_FIELDS)
+                .among_blocks(batch.block_ids.iter().map(String::as_str), PATCHES)
+        })?;
     tracing::debug!(patches = batch.block_ids.len(), "PATCH Blocks");
     Ok(no_content())
 }

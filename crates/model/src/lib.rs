@@ -77,7 +77,7 @@ pub use deleted_item::DeletedItem;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
-pub use refusal::{Refusal, RefusalReason, Refusals};
+pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
     ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,

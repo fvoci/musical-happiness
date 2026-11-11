@@ -6,7 +6,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use fvoci_model::{
     BoardMember, RefusalReason, Refusals, User, UserPreferencesPatch, UserSettings,
-    UserSettingsPatch, display_name,
+    UserSettingsPatch, display_name, shown_name,
 };
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
@@ -149,7 +149,7 @@ async fn handle_patch_me(
             (other, _) => refused.refuse(
                 other,
                 RefusalReason::Unknown,
-                format!("there is no member {other:?}"),
+                format!("there is no member {:?}", shown_name(other)),
             ),
         }
     }
