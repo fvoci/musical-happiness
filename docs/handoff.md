@@ -88,7 +88,7 @@
 ## 1. 검증
 
 ```bash
-cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 계약, 라이선스·권고. 외부 서비스 없음
+cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 계약, 라이선스·권고. 외부 서비스 없음
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
 cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
@@ -97,7 +97,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 일곱 단계 PASS |
+| `cargo xtask check` | 여덟 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 남은 위반은 `xtask/exceptions/layers.txt`(줄어들 수만 있다) |
 | `cargo xtask test` | SQLite 1,095건, PostgreSQL 956건, S3 7건, 실패 0(2026-11-11, `fvoci/server-next`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |

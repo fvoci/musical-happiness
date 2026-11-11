@@ -1,0 +1,78 @@
+# Uses that break the rule of the layers (xtask/src/layers.rs) and are still in the
+# code: a file, what it names, and how many times.
+#
+# This list only shrinks. `cargo xtask check` fails for a use that is not here, and for
+# a line whose use is gone, until the line is removed or its count lowered. A new use
+# is not added here: the code asks the layer it may name instead.
+#
+# http -> store: the HTTP layer names the store, or reaches it through `.store()`.
+# logic -> http: the logic names axum, HTTP types, or a module of the HTTP layer.
+
+crates/server/src/api/archive.rs     fvoci_store::PublicBoards                            1
+crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Exclude                   1
+crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Include                   1
+crates/server/src/api/auth.rs        .store().is_bootstrapped                             1
+crates/server/src/api/boards.rs      fvoci_store::PublicBoards                            1
+crates/server/src/api/boards.rs      fvoci_store::PublicBoards::Exclude                   1
+crates/server/src/api/boards.rs      fvoci_store::PublicBoards::Include                   1
+crates/server/src/api/categories.rs  fvoci_store::BoardVisibility                         1
+crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Hidden                 1
+crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Visible                1
+crates/server/src/api/mod.rs         fvoci_store::DuplicateAs                             1
+crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Copy                       1
+crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Template                   1
+crates/server/src/api/search.rs      fvoci_store::PublicBoards                            1
+crates/server/src/api/search.rs      fvoci_store::PublicBoards::Exclude                   1
+crates/server/src/api/search.rs      fvoci_store::PublicBoards::Include                   1
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange                           1
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange::Off                      1
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange::On                       1
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange::OnWithNewToken           1
+crates/server/src/api/users.rs       .store().get_members_for_user                        1
+crates/server/src/api/users.rs       fvoci_store::InstanceRole                            1
+crates/server/src/api/users.rs       fvoci_store::InstanceRole::Administrator             1
+crates/server/src/api/users.rs       fvoci_store::InstanceRole::User                      1
+crates/server/src/api/users.rs       fvoci_store::Preference                              1
+crates/server/src/app/mod.rs         fvoci_server::web::WebRoot                           1
+crates/server/src/app/mod.rs         fvoci_server::web::WebRoot::new                      1
+crates/server/src/app/mod.rs         fvoci_server::ws::Hub                                1
+crates/server/src/app/mod.rs         fvoci_server::ws::Hub::new                           1
+crates/server/src/auth/token.rs      axum::http::HeaderMap                                1
+crates/server/src/auth/token.rs      axum::http::HeaderMap::new                           1
+crates/server/src/auth/token.rs      axum::http::HeaderValue                              1
+crates/server/src/auth/token.rs      axum::http::HeaderValue::from_static                 6
+crates/server/src/auth/token.rs      axum::http::HeaderValue::from_str                    1
+crates/server/src/auth/token.rs      axum::http::Uri                                      1
+crates/server/src/auth/token.rs      axum::http::header::AUTHORIZATION                    1
+crates/server/src/auth/token.rs      axum::http::header::COOKIE                           1
+crates/server/src/auth/token.rs      axum::http::header::ORIGIN                           1
+crates/server/src/config.rs          fvoci_server::client_address::TrustedProxies::parse  1
+crates/server/src/error.rs           axum::Json                                           1
+crates/server/src/error.rs           axum::body::to_bytes                                 1
+crates/server/src/error.rs           axum::http::HeaderValue                              1
+crates/server/src/error.rs           axum::http::HeaderValue::from                        1
+crates/server/src/error.rs           axum::http::StatusCode                               1
+crates/server/src/error.rs           axum::http::StatusCode::BAD_REQUEST                  1
+crates/server/src/error.rs           axum::http::StatusCode::CONFLICT                     1
+crates/server/src/error.rs           axum::http::StatusCode::FORBIDDEN                    1
+crates/server/src/error.rs           axum::http::StatusCode::INTERNAL_SERVER_ERROR        1
+crates/server/src/error.rs           axum::http::StatusCode::METHOD_NOT_ALLOWED           1
+crates/server/src/error.rs           axum::http::StatusCode::NOT_FOUND                    1
+crates/server/src/error.rs           axum::http::StatusCode::PAYLOAD_TOO_LARGE            1
+crates/server/src/error.rs           axum::http::StatusCode::TOO_MANY_REQUESTS            1
+crates/server/src/error.rs           axum::http::StatusCode::UNAUTHORIZED                 1
+crates/server/src/error.rs           axum::http::header::CONTENT_TYPE                     1
+crates/server/src/error.rs           axum::http::header::RETRY_AFTER                      1
+crates/server/src/error.rs           axum::response::IntoResponse                         1
+crates/server/src/error.rs           axum::response::Response                             1
+crates/server/src/lib.rs             .store().clean_up_sessions                           1
+crates/server/src/lib.rs             .store().close                                       1
+crates/server/src/lib.rs             .store().collect_unreferenced_files                  1
+crates/server/src/lib.rs             .store().purge_trash                                 1
+crates/server/src/lib.rs             fvoci_store::DbType                                  1
+crates/server/src/lib.rs             fvoci_store::Store                                   1
+crates/server/src/lib.rs             fvoci_store::Store::connect                          1
+crates/server/src/lib.rs             fvoci_store::StoreError::Database                    1
+crates/server/src/ws.rs              .store.get_block                                     1
+crates/server/src/ws.rs              .store.get_members_for_board                         1
+crates/server/src/ws.rs              fvoci_store::Store                                   1

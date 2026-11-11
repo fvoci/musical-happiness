@@ -11,6 +11,10 @@ publish.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
+# Reading the sources for the checks of layers and lengths. Lines come from the spans,
+# which `span-locations` keeps outside a procedural macro. License: MIT OR Apache-2.0.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = { version = "2", default-features = false, features = ["full", "parsing", "visit"] }
 
 [lints]
 workspace = true

@@ -1,7 +1,7 @@
 //! Development tasks of the fvoci workspace, run as `cargo xtask <command>`.
 //!
-//! * `cargo xtask check` — formatting, lints, unit tests, documentation, names and
-//!   licenses. Starts no external service.
+//! * `cargo xtask check` — formatting, lints, unit tests, documentation, names, layers
+//!   and licenses. Starts no external service.
 //! * `cargo xtask test` — every test on SQLite and on PostgreSQL, and the S3 storage
 //!   test. Prepares the containers the tests need.
 //! * `cargo xtask openapi` — fails if `contracts/openapi.json` is not the document the
@@ -9,6 +9,7 @@
 
 mod check;
 mod containers;
+mod layers;
 mod openapi;
 mod steps;
 mod test;
@@ -28,8 +29,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Formatting, lints, unit tests, documentation, names and licenses. Starts no
-    /// external service.
+    /// Formatting, lints, unit tests, documentation, names, layers and licenses. Starts
+    /// no external service.
     Check {
         /// Leaves out the dependency check (`cargo deny`), which reads the advisory
         /// database from the network.
