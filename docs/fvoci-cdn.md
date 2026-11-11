@@ -103,7 +103,7 @@ Allowed HTTP methods에서 고를 수 있는 조합은 `GET, HEAD` / `GET, HEAD,
 | 요청 길이(경로, 쿼리 문자열, 헤더 포함, 본문 제외) | 32,768바이트. URL은 8,192바이트 | [Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) |
 
 - Response timeout은 CloudFront가 요청을 오리진에 넘긴 뒤 응답을 기다리는 시간이자, 응답 패킷 사이의 최대 간격이다. `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` 요청은 시간이 지나면 연결을 끊고 재시도하지 않는다.
-- 아카이브 가져오기(`POST /api/v1/teams/{team}/archive/import`)처럼 서버가 본문을 다 받은 뒤 응답하기까지 30초를 넘길 수 있는 요청은 response timeout을 늘려야 한다. 넘기면 CloudFront가 504로 답한다.
+- 아카이브 가져오기(`POST /api/v1/w/{workspaceId}/archive/import`)처럼 서버가 본문을 다 받은 뒤 응답하기까지 30초를 넘길 수 있는 요청은 response timeout을 늘려야 한다. 넘기면 CloudFront가 504로 답한다.
 - 업로드 본문을 전송하는 시간이 response timeout에 포함되는지는 문서에서 확인하지 못했다. 큰 파일로 직접 시험해야 한다.
 - Keep-alive timeout이 효과를 내려면 오리진이 지속 연결을 허용해야 한다.
 - CloudFront의 본문 한도는 크므로, 실제 한도는 서버의 `maxfilesize`와 중간 프록시 설정이 정한다.

@@ -57,7 +57,7 @@
 - `BlockPatch.readAt`은 지금 쓰인다: `patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`의 패치에 있으면 `patchCard`처럼 검사하고 어긋나면 409다.
 - 있는 블록을 고칠 때마다 `updateAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
 - 휴지통에서 되살린 카드와 복제한 카드는 본문과 할 일 수를 그대로 갖는다.
-- **읽기 토큰의 독자와 사용자 ID(사용자 결정 2026-11-11 11:05, 14:25 KST).** 읽기 토큰으로 읽고 보드의 구성원(보기 역할부터)이 아닌 독자(세션이 없거나, 로그인했어도. 열린 보드의 팀 사용자도 토큰으로 읽으면 그렇다)에게 나가는 보드와 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이고, 보드의 사람 속성(`type`이 `person`, `multiPerson`, `createdBy`, `updatedBy`)이 가리키는 사람이 카드의 `fields.properties`와 뷰의 `fields.filter` 절에서 사람마다 빈 문자열이다(목록의 길이는 그대로). 카드의 값 가운데 보드가 정의하지 않은 속성의 것(지운 사람 속성이 남긴 것)은 빠지고, 사람 속성으로 묶은 뷰의 `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`, `kanbanCalculations`에는 값 없는 묶음(`""`)만 남는다. HTTP(`getBoard`, `getBlocks`, `getCards`의 카드도 같다)와 WebSocket(`UPDATE_BLOCK`) 모두. 그 독자가 받는 응답 가운데 사용자 ID를 싣는 자리는 이것뿐이다(`getFile`, `getFileInfo`는 싣지 않는다). 사람 속성을 `text` 같은 다른 종류로 바꾸면 남은 값은 그 종류의 값으로 그대로 나간다. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다.
+- **읽기 토큰의 독자와 사용자 ID(사용자 결정 2026-11-11 11:05, 14:25 KST).** 읽기 토큰으로 읽고 보드의 구성원(보기 역할부터)이 아닌 독자(세션이 없거나, 로그인했어도. 열린 보드의 워크스페이스 사용자도 토큰으로 읽으면 그렇다)에게 나가는 보드와 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이고, 보드의 사람 속성(`type`이 `person`, `multiPerson`, `createdBy`, `updatedBy`)이 가리키는 사람이 카드의 `fields.properties`와 뷰의 `fields.filter` 절에서 사람마다 빈 문자열이다(목록의 길이는 그대로). 카드의 값 가운데 보드가 정의하지 않은 속성의 것(지운 사람 속성이 남긴 것)은 빠지고, 사람 속성으로 묶은 뷰의 `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`, `kanbanCalculations`에는 값 없는 묶음(`""`)만 남는다. HTTP(`getBoard`, `getBlocks`, `getCards`의 카드도 같다)와 WebSocket(`UPDATE_BLOCK`) 모두. 그 독자가 받는 응답 가운데 사용자 ID를 싣는 자리는 이것뿐이다(`getFile`, `getFileInfo`는 싣지 않는다). 사람 속성을 `text` 같은 다른 종류로 바꾸면 남은 값은 그 종류의 값으로 그대로 나간다. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다.
 
 **들어간 것(tracer-bullet 6, 2026-11-11 08:42 KST).** 표의 나머지 넷(블록의 `type`, `contentOrder`, `moveContentBlock`, `fields` 한도)이 들어갔다. 이로써 이 표는 모두 계약 파일에 있다.
 
@@ -182,15 +182,15 @@
 - 가져오기는 블록이 보이는 파일을 새 보드의 파일로 바꾼다. 이미지·첨부 블록의 `fileId`와 `attachmentId`, 본문의 이미지가 모두 바뀐다(8절의 결함에서 뺐다). 아카이브에 파일이 없는 이름은 블록의 필드에서 빈 이름이 되고, 본문의 이미지는 빈 문단이 된다(남는 것이 빈 문단뿐이면 본문이 없다). 복제도 같다.
 - 가져오기는 속성의 종류에 맞지 않는 값을 `null`로 바꾼다(2절, 복제와 같다). 예전 모양의 날짜 값을 새 모양으로 바꾸는 일은 하지 않는다. 판 3의 아카이브에는 예전 모양이 없다.
 
-**들어간 것(tracer-bullet 9a, 2026-11-11 10:55 KST).** 내보내기(`exportBoardArchive`, `exportTeamArchive`)는 아카이브를 메모리에 모으지 않고 서버의 임시 파일에 다 쓴 뒤 보낸다. 응답에 `Content-Length`가 생겼다. 쓰다 실패하면 200을 보내기 전의 오류 응답이다(반쯤 나간 200이 없다). 아카이브의 내용과 형식은 그대로다. 가져오기의 올리기 세션은 9b다.
+**들어간 것(tracer-bullet 9a, 2026-11-11 10:55 KST).** 내보내기(`exportBoardArchive`, `exportWorkspaceArchive`)는 아카이브를 메모리에 모으지 않고 서버의 임시 파일에 다 쓴 뒤 보낸다. 응답에 `Content-Length`가 생겼다. 쓰다 실패하면 200을 보내기 전의 오류 응답이다(반쯤 나간 200이 없다). 아카이브의 내용과 형식은 그대로다. 가져오기의 올리기 세션은 9b다.
 
 **들어간 것(tracer-bullet 9b, 2026-11-11 11:19 KST).** 가져오기가 4절의 올리기 세션을 쓴다. **`importArchive`의 요청 모양이 바뀌었다**(결정된 변경이다).
 
-- 새 조작 `createImportUpload`(`POST /teams/{teamId}/archive/uploads`). 요청과 답은 `createUpload`와 같다(`name`, `size`, `contentType` → `uploadId`, `partSize`, `partCount`, `expiresAt`). 권한은 가져오기와 같다(그 팀의 사용자이고 게스트가 아님). `size`가 `maxImportSize`를 넘으면 413이다.
+- 새 조작 `createImportUpload`(`POST /w/{workspaceId}/archive/uploads`). 요청과 답은 `createUpload`와 같다(`name`, `size`, `contentType` → `uploadId`, `partSize`, `partCount`, `expiresAt`). 권한은 가져오기와 같다(그 워크스페이스에서 일하는 사용자이고 서버의 게스트가 아님). `size`가 `maxImportSize`를 넘으면 413이다.
 - 부분은 `putUploadPart`로 보낸다(파일과 같다). 아카이브의 부분은 저장소가 S3여도 서버의 임시 자리에 받는다(가져오기가 ZIP을 임의 접근으로 읽는다).
-- `importArchive`(`POST /teams/{teamId}/archive/import`)의 본문은 `multipart/form-data`가 아니라 JSON `{"uploadId": "…"}`다. 답은 그대로 204다. 설계 5.6의 9번은 "완료가 가져오기를 실행한다"였는데, `completeUpload`의 답(`fileId`)과 권한(보드)이 파일의 것이라 가져오기는 제 조작에서 업로드를 이름으로 받게 했다. 빠진 부분이 있으면 400이고 업로드는 열린 채 남는다. 그 밖에는 가져오기가 성공하든 실패하든 업로드가 끝난다. 다른 사용자의 업로드와 끝난 업로드는 404, 파일의 업로드나 다른 팀의 업로드는 400(`errors`가 `uploadId`의 자리를 가리킨다)이다. 가져올 때 권한이 없으면 403이고 업로드를 버린다(완료와 같다).
+- `importArchive`(`POST /w/{workspaceId}/archive/import`)의 본문은 `multipart/form-data`가 아니라 JSON `{"uploadId": "…"}`다. 답은 그대로 204다. 설계 5.6의 9번은 "완료가 가져오기를 실행한다"였는데, `completeUpload`의 답(`fileId`)과 권한(보드)이 파일의 것이라 가져오기는 제 조작에서 업로드를 이름으로 받게 했다. 빠진 부분이 있으면 400이고 업로드는 열린 채 남는다. 그 밖에는 가져오기가 성공하든 실패하든 업로드가 끝난다. 다른 사용자의 업로드와 끝난 업로드는 404, 파일의 업로드나 다른 워크스페이스의 업로드는 400(`errors`가 `uploadId`의 자리를 가리킨다)이다. 가져올 때 권한이 없으면 403이고 업로드를 버린다(완료와 같다).
 - `completeUpload`에 아카이브의 업로드를 주면 400(`errors`가 `uploadId`의 자리를 가리킨다)이고 업로드는 남는다.
-- `getUpload`의 답에 `purpose`(`file` | `import`)와 `teamId`가 생겼다. 아카이브의 업로드는 `boardId`가 빈 문자열, 파일의 업로드는 `teamId`가 빈 문자열이다.
+- `getUpload`의 답에 `purpose`(`file` | `import`)와 `workspaceId`가 생겼다. 아카이브의 업로드는 `boardId`가 빈 문자열, 파일의 업로드는 `workspaceId`가 빈 문자열이다.
 - `getClientConfig`에 `maxImportSize`(설정 `max_import_bytes`, 기본 256 MiB)가 생겼다. 사용자 한 명의 열린 업로드가 걸어 두는 크기의 한도는 `maxFileSize`와 `maxImportSize` 가운데 큰 것의 두 배가 됐다(기본 512 MiB).
 - 아카이브의 한도(설계 4.2): 항목 10,000개, 풀린 합계 1 GiB, `board.jsonl` 64 MiB(전에는 70 MiB이고 400), 파일 항목 하나는 `maxFileSize`(전에는 항목마다 256 MiB이고 400). 넘으면 413이고 `limit`이 그 한도다(항목 수는 개수, 나머지는 바이트). 무엇을 만들기 전에 모든 항목을 한 번 읽어 보므로 한도를 넘는 아카이브는 아무것도 만들지 않는다.
 - 맨 위의 `version.json`이 64 KiB를 넘으면 이 서버의 아카이브가 아니라서 400이다(다른 판의 것과 같다). 보드 디렉터리 안의 같은 이름은 파일 항목의 한도(`maxFileSize`)를 받고, 가져오지는 않는다.
@@ -223,18 +223,18 @@
 
 | 무엇 | 지금 |
 |---|---|
-| ID 목록으로 묻는 조회가 `POST`다 | `getUsers`(`POST /users`), `getTeamUsersById`(`POST /teams/{teamId}/users`). 없는 ID나 두 번 적은 ID가 있으면 요청 전체가 거절된다 |
-| 검색어 없는 `getTeamUsers` | 모든 사용자가 아니라 가장 오래된 열 명이다(검색과 같은 한도) |
-| `searchTeamBoards` | 경로의 팀으로 좁히지 않는다. 사용자가 찾을 수 있는 모든 팀의 보드를 찾는다 |
+| ID 목록으로 묻는 조회가 `POST`다 | `getUsers`(`POST /users`), `getWorkspaceUsersById`(`POST /w/{workspaceId}/users`). 없는 ID나 두 번 적은 ID가 있으면 요청 전체가 거절된다 |
+| 검색어 없는 `getWorkspaceUsers` | 모든 사용자가 아니라 가장 오래된 열 명이다(검색과 같은 한도) |
+| `searchWorkspaceBoards` | 경로의 워크스페이스로 좁히지 않는다. 사용자가 찾을 수 있는 모든 워크스페이스의 보드를 찾는다 |
 | 동작을 경로 끝에 붙인 라우트 | `duplicate`, `undelete`, `join`, `leave`, `hide`, `unhide`, `onboard` |
 | 구독의 경로 | `DELETE /subscriptions/{blockId}/{subscriberId}`, `GET /subscriptions/{subscriberId}`. 아래 (1) |
 | 구독자의 종류 `channel` | 스키마 `SubscriberType`에 있으나 서버는 `user`만 받는다 |
 | `deleteAt` | 있는 것에서는 늘 0이다(지운 것은 휴지통에 있다). WebSocket의 삭제 알림이 쓴다 |
-| 팀의 `title`, `settings` | 값을 정하는 라우트가 없다. 팀은 조직의 워크스페이스이고, 구성원에게만 여는 경로(아니면 404)는 아직 `getMyWorkspaces`와 `getWorkspaceBoards` 둘이다(`title`을 거기서는 `name`이라 부른다). 나머지는 팀 경로 그대로다 |
+| 워크스페이스의 `title`, `settings` | 값을 정하는 라우트가 없다. `getMyWorkspaces`는 `title`을 `name`이라 부른다 |
 | `ping`의 멤버 이름 | `db_type`, `build_number` 등 snake_case다. 주소는 아래 (2) |
 | 요청 스키마와 서버의 해석 | 서버는 계약의 요청 스키마보다 너그럽게 읽는다. 아래 (3) |
 | `NewBlock`의 `createAt`, `updateAt` | 필수이고 1 이상이어야 하지만 서버는 그 값을 쓰지 않는다 |
-| `NewCategory`, `CategoryUpdate`의 `userId`, `teamId`(와 고칠 때의 `id`) | 본문에도 있어야 하고 세션·경로의 값과 같아야 한다. 아래 (4) |
+| `NewCategory`, `CategoryUpdate`의 `userId`, `workspaceId`(와 고칠 때의 `id`) | 본문에도 있어야 하고 세션·경로의 값과 같아야 한다. 아래 (4) |
 | `createCategory`에 `createAt`, `updateAt`을 보내면 | 계약의 `NewCategory`에는 없지만 0이 아닌 값이 오면 서버가 그 값을 쓴다 |
 | `NewBoard`의 `templateVersion` | 클라이언트가 정할 수 있다 |
 | `disableNotify` | 받지만 API로 보이는 효과가 없다(알림을 보내는 쪽이 아직 없다) |
@@ -243,7 +243,7 @@
 | 이미 멤버인 사용자를 넣는 `addMember` | 200과 지금의 멤버십. 역할은 바뀌지 않는다 |
 | `patchCard`의 `updatedProperties`와 `patchBlock`의 `updatedFields.properties` | 앞의 것은 보낸 값만 합치고, 뒤의 것은 값 전체를 바꾼다. 아래 (5) |
 | `getFile`의 `Content-Type` | 모든 파일이 `application/octet-stream`으로 나간다. 아래 (6) |
-| `searchTeamBoards`의 `field=property_name` | 카드 속성의 이름이 아니라 보드 자신의 `properties` 객체에 그 이름의 멤버가 있는지를 본다. 정확히 같은 이름만 찾는다 |
+| `searchWorkspaceBoards`의 `field=property_name` | 카드 속성의 이름이 아니라 보드 자신의 `properties` 객체에 그 이름의 멤버가 있는지를 본다. 정확히 같은 이름만 찾는다 |
 | 역할이 하나도 없는 멤버 | `addMember`, `updateMember`에 역할을 모두 빼고 보내면 보기 권한도 없는 멤버가 된다 |
 | `removeMember`와 `updateMember` | 멤버가 아닌 사용자를 빼면 204, 고치면 404다 |
 | `createCategory`의 `sortOrder` | 보낸 값에 10을 더해 저장하고, 그 사용자의 다른 카테고리도 모두 10씩 민다 |
@@ -251,7 +251,7 @@
 | `hideBoard`, `unhideBoard` | 그 카테고리에 없는 보드여도 204다 |
 | `deleteBoard` 뒤의 `undeleteBoard` | 공유(읽기 토큰), 사이드바의 자리, 구독은 돌아오지 않는다 |
 | `deleteBoardsAndBlocks`의 `blocks` | 검사만 한다. 보드가 자기 블록을 모두 데리고 휴지통에 가고, `undeleteBoard`로만 돌아온다 |
-| `exportTeamArchive` | 없는 팀도 200이다(보드 없는 아카이브) |
+| `exportWorkspaceArchive` | 없는 워크스페이스도, 사용자가 들지 않은 워크스페이스도 200이다(보드 없는 아카이브) |
 | `importArchive` | 전부 아니면 전무가 아니다. 아래 (7) |
 | `onboard` | 부를 때마다 보드를 하나 더 복사한다. 답이 200이다. 아래 (8) |
 | `createSubscription`의 `blockType` | 블록의 실제 종류와 견주지 않고 보낸 대로 저장한다 |
@@ -265,7 +265,7 @@
    - 예외로 400을 답하는 곳이 있다. `patchUserSettings`와 `patchMe`는 모르는 멤버를 거절한다. `createBoard`와 `createCategory`는 `id`를, `setSharing`은 `token`을 거절한다.
    - 스키마가 필수로 적은 멤버가 빠져도 거절하지 않고 빈 값으로 읽는 곳이 있다. `login`의 `password`가 없으면 401이고, `patchBlocks`의 목록이 없으면 204다.
    - 그러니 클라이언트는 계약에 없는 멤버를 보내지 않는다.
-4. **카테고리 요청의 `userId`, `teamId`.** 세션과 경로가 이미 말하는 값이다. 세션과 다른 `userId`는 만들 때 403, 고칠 때 400이다.
+4. **카테고리 요청의 `userId`, `workspaceId`.** 세션과 경로가 이미 말하는 값이다. 세션과 다른 `userId`는 만들 때 403, 고칠 때 400이다.
 5. **카드의 속성 값을 고치는 두 길.** `patchCard`는 `updatedProperties`의 값을 저장된 값에 합치고 `deletedProperties`에 적힌 속성의 값을 지운다(둘에 다 적힌 속성은 지워진다). 보내지 않은 값은 그대로라, 같은 카드의 다른 속성을 거의 동시에 고친 두 요청이 둘 다 남고, 같은 속성이면 나중 것이 남는다. 합치기는 저장소가 보드를 잡은 한 트랜잭션에서 한다. `patchBlock`의 `updatedFields`에 `properties`를 보내면 값 전체가 그것으로 바뀐다(블록의 필드 하나를 바꾸는 규칙 그대로).
 6. **`getFile`의 머리글.** 모든 파일이 `application/octet-stream`과 `Content-Disposition: attachment`로 나간다. 파일 이름은 올린 이름이 아니라 `fileId`다. `Last-Modified`가 응답 시각이라 재검증으로 내려받기를 아끼지 못한다.
 7. **`importArchive`.** 모든 보드를 읽고 검사한 뒤 하나씩 만든다. 검사는 줄의 모양, 블록의 종류, 보드와 블록이 맞는지, 그리고 저장소가 보는 것(보드의 속성 정의, 블록의 제목·`fields`의 종류별 한도·속성 값·본문)이다. 그 검사에 걸리면 아무것도 만들지 않는다. 그 뒤에 실패하면(DB의 오류, 그리고 `board.jsonl` 하나에 보드가 여럿이고 블록의 부모가 자기 것이 아닌 보드인 경우. 이 서버의 아카이브에는 없다) 앞의 보드는 남는다. 크기의 한도는 5절에 있다.
@@ -299,8 +299,8 @@
 | C1, 6절 작업 공간 3 | `createBoardsAndBlocks`가 보드와 첫 뷰를 한 요청으로(한 트랜잭션) 만든다. 서버가 기본 뷰를 넣지는 않는다 |
 | C5 | 맞다. 지워진 보드, 없는 보드, 볼 수 없는 보드는 모두 404다. 열린 보드(`O`)는 구성원이 아니어도 보드는 읽지만, 카드·블록·구성원은 403이다 |
 | C3 | `cardOrder`는 뷰의 `fields`에 그대로 둔다 |
-| D1 | 지금 팀은 하나다. 지금대로 둔다, 그 계획에서 다시 본다 |
-| D2, H1 | 검색 없이 오래된 열 명, 검색으로 열 명까지(대소문자 무시). 구성원의 사용자는 `getMembers` 뒤 `getTeamUsersById`. 팀 전부를 읽는 길은 없다. 지금대로 둔다, 그 계획에서 다시 본다 |
+| D1 | 지금 워크스페이스는 조직마다 하나다. 지금대로 둔다, 그 계획에서 다시 본다 |
+| D2, H1 | 검색 없이 오래된 열 명, 검색으로 열 명까지(대소문자 무시). 구성원의 사용자는 `getMembers` 뒤 `getWorkspaceUsersById`. 워크스페이스 전부를 읽는 길은 없다. 지금대로 둔다, 그 계획에서 다시 본다 |
 | D4 | `getClientConfig`의 `teammateNameDisplay` |
 | E1 | 가정과 다르다: `boardMetadata: [{boardId, hidden}]` |
 | E2, 6절 작업 공간 1 | 넣기(`setBoardCategory`)와 순서(`reorderCategoryBoards`, 그 카테고리의 보드 ID 전부를 새 순서로)가 따로다. 넣기에는 자리가 없다 |
@@ -324,4 +324,4 @@
 | H3 | **결정됨.** `getDeletedCards`(보드의 편집자부터)와 `getDeletedBoards`(관리자였던 보드만). 되살리기는 `undeleteBlock`·`undeleteBoard` |
 | H5 | **결정됨(11:05 KST).** 웹앱이 "참여" 단계를 두고 서버의 `joinBoard`는 그대로다 |
 | G5 | 남이 본문을 고치면 블록 전체(본문까지)가 온다(`contracts/websocket.md` 5절). 지금대로 둔다, 그 계획에서 다시 본다 |
-| H7 | 카테고리의 네 메시지는 그 사용자가 그 팀을 구독한 연결 모두에 간다(tracer-bullet 13) |
+| H7 | 카테고리의 네 메시지는 그 사용자가 그 워크스페이스를 구독한 연결 모두에 간다(tracer-bullet 13) |

@@ -1,6 +1,6 @@
 # fvoci-server 포팅 노트
 
-원본: `server/api`, `server/app`, `server/auth`, `server/ws/server.go`, `server/web`, `server/server`, `server/main`, `server/services/{auth,config,permissions/localpermissions,webhook,scheduler}`.
+원본: `server/api`, `server/app`, `server/auth`, `server/ws/server.go`, `server/web`, `server/server`, `server/main`, `server/services/{auth,config,permissions/localpermissions,webhook,scheduler}`. 원본의 team은 워크스페이스다.
 
 ## 오라클에서 확인한 사실 (2026-11-10)
 
@@ -42,16 +42,16 @@
 | `server/api/api.go` `sessionRequired`, `attachSession` | 추출기 `api::RequiredSession`, `api::OptionalSession` | |
 | `server/api/api.go` `requireCSRFToken` | `api::router`의 route layer | |
 | `server/api/api.go` `errorResponse`, `server/model/errors.go` | `error::AppError` + `IntoResponse` | |
-| `server/api/{auth,users,teams,system,config}.go` | `src/api/{auth,users,teams,system,config}.rs` | 파일 하나가 모듈 하나 |
-| `server/app/{auth,user,teams,clientConfig,server_metadata}.go` | `src/app/{auth,users,teams}.rs`, `src/app/mod.rs` | |
+| `server/api/{auth,users,teams,system,config}.go` | `src/api/{auth,users,workspace,system,config}.rs` | 파일 하나가 모듈 하나 |
+| `server/app/{auth,user,teams,clientConfig,server_metadata}.go` | `src/app/{auth,users,workspaces}.rs`, `src/app/mod.rs` | |
 | `server/ws/server.go` | `ws::Hub` | 연결마다 보내기 큐(512개)를 두고, 못 따라오는 연결은 끊는다 |
 | `server/web/webserver.go` | `web::WebRoot`, `Server::router`의 fallback | |
 | `server/services/webhook` | `webhook::Webhook` | |
 | `server/api/blocks.go`, `server/app/blocks.go` | `src/api/blocks.rs`, `src/app/blocks.rs` | `disableNotify bool` → `app::ChangeNotification::{Send, Suppress}`. `App::{blocks, blocks_for_board, block, insert_block, insert_blocks, patch_block, patch_blocks, delete_block, undelete_block, duplicate_block, last_block_history_entry}` |
-| `server/api/{boards,members,boards_and_blocks}.go`, `server/app/{boards,boards_and_blocks}.go` | `src/api/{boards,members,boards_and_blocks}.rs`, `src/app/{boards,boards_and_blocks}.rs` | `addMember bool` → 메서드 쌍 `create_board` / `create_board_with_admin`(boards-and-blocks도 같다). `App::{board, boards_for_user_and_team, patch_board, delete_board, undelete_board, duplicate_board, members_for_board, add_member_to_board, update_board_member, delete_board_member, create_boards_and_blocks, patch_boards_and_blocks, delete_boards_and_blocks}` |
+| `server/api/{boards,members,boards_and_blocks}.go`, `server/app/{boards,boards_and_blocks}.go` | `src/api/{boards,members,boards_and_blocks}.rs`, `src/app/{boards,boards_and_blocks}.rs` | `addMember bool` → 메서드 쌍 `create_board` / `create_board_with_admin`(boards-and-blocks도 같다). `App::{board, boards_for_user_and_workspace, patch_board, delete_board, undelete_board, duplicate_board, members_for_board, add_member_to_board, update_board_member, delete_board_member, create_boards_and_blocks, patch_boards_and_blocks, delete_boards_and_blocks}` |
 | `server/api/{cards,content_blocks,subscriptions}.go`, `server/app/{cards,content_blocks,subscriptions}.go` | `src/api/{cards,subscriptions}.rs`, `src/app/{cards,subscriptions}.rs` | S7에서 콘텐츠 블록 이동(`content_blocks`)을 걷어 냈다: 카드의 내용이 본문이다(`docs/s6-design.md` 5.7). 그때까지 `where` 문자열 → `app::MovePosition::{Before, After}`. `App::{create_card, cards_for_board, patch_card, card, create_subscription, delete_subscription, subscriptions}(S6까지 `move_content_block`도)` |
 | `server/api/{files,archive,templates,onboarding}.go`, `server/app/{files,export,import,templates,onboarding}.go` | `src/api/{files,archive,templates,onboarding}.rs`, `src/app/{files,export,import,templates,onboarding}.rs` | `App::{save_file, get_file_info, get_file_path, open_stored_file, get_file_reader, move_file, copy_and_update_card_files, export_archive, import_archive, init_templates, template_boards, prepare_onboarding_tour}`. 내장 템플릿은 이 크레이트의 `assets/templates/`에만 있고(웹앱의 메모리 구현도 그 파일을 읽는다) `include_str!`로 바이너리에 넣는다(S7, 설계 3.10). ZIP은 `zip` 크레이트(순수 Rust 압축 백엔드) |
-| `server/api/{categories,sharing,search}.go`, `server/app/{category,category_boards,sharing}.go` | `src/api/{categories,sharing,search}.rs`, `src/app/{category,category_boards,sharing,search}.rs` | `visible bool` → `BoardVisibility`. `App::{category, create_category, update_category, delete_category, reorder_categories, user_category_boards, add_update_user_category_board, reorder_category_boards, set_board_visibility, sharing, upsert_sharing, search_boards_for_user, search_boards_for_user_in_team}` |
+| `server/api/{categories,sharing,search}.go`, `server/app/{category,category_boards,sharing}.go` | `src/api/{categories,sharing,search}.rs`, `src/app/{category,category_boards,sharing,search}.rs` | `visible bool` → `BoardVisibility`. `App::{category, create_category, update_category, delete_category, reorder_categories, user_category_boards, add_update_user_category_board, reorder_category_boards, set_board_visibility, sharing, upsert_sharing, search_boards_for_user, search_boards_for_user_in_workspace}` |
 | `server/api/admin.go`, `api.go`의 `adminRequired`, `server.go`의 로컬 소켓 | `src/api/admin.rs`, `api::admin_router`, `lib.rs`의 `admin_socket` | Unix 소켓으로 들어온 연결만 통과 |
 | `server/services/scheduler` | `scheduler::RecurringTask` | 세션 정리(10분)에 쓴다. 1회성 작업(`CreateTask`)은 쓰는 곳이 없어 옮기지 않았다 |
 | `server/api/{channels,statistics,compliance}.go` | `src/api/{channels,statistics,compliance}.rs` | standalone의 거절 응답만 |
@@ -67,9 +67,9 @@
 
 | 원본 | Rust | 비고 |
 |---|---|---|
-| `localpermissions_test.go` `TestHasPermissionToTeam` | `permissions::tests::has_permission_to_team_cases` | nil 권한 케이스는 타입상 불가능 |
+| `localpermissions_test.go` `TestHasPermissionToTeam` | `permissions::tests::has_permission_to_workspace_cases` | nil 권한 케이스는 타입상 불가능 |
 | `localpermissions_test.go` `TestHasPermissionToBoard` (역할 4종) | `permissions::tests::has_permission_to_board_by_role` | "empty input", "nonexistent member"는 API 테스트에서 멤버 조회와 함께 확인 |
-| `ws/server_test.go` `TestTeamSubscription` | `ws::tests::team_subscription`, `ws::tests::team_subscription_subscribe_users_to_team_retrieve_by_user` | |
+| `ws/server_test.go` `TestTeamSubscription` | `ws::tests::workspace_subscription`, `ws::tests::workspace_subscription_subscribe_users_to_workspace_retrieve_by_user` | |
 | `ws/server_test.go` `TestBlocksSubscription` | `ws::tests::blocks_subscription` | |
 | `ws/server_test.go` `TestGetUserIDForTokenInSingleUserMode` | `ws::tests::get_user_id_for_token_in_single_user_mode` | |
 | `ws/plugin_adapter_test.go`, `ws/helpers_test.go` | — | 플러그인 어댑터 전용 |
@@ -88,8 +88,8 @@
 | `app/auth_test.go` `TestRegisterUser` | `users::register_user_cases` | |
 | `app/auth_test.go` `TestUpdateUserPassword` | `users::app_update_user_password_cases` | |
 | `app/auth_test.go` `TestChangePassword` | `users::app_change_password_cases` | |
-| `app/teams_test.go` `TestGetRootTeam` | `users::app_get_root_team` | "upsert 실패" 케이스는 mock으로만 만들 수 있어 해당 없음 |
-| `app/teams_test.go` `TestGetTeam`, `TestTeamOperations` | — | mock 호출 전달만 확인한다. 저장소 쪽 동작은 `fvoci-store`의 팀 테스트가 덮는다 |
+| `app/teams_test.go` `TestGetRootTeam` | `users::app_get_root_workspace` | "upsert 실패" 케이스는 mock으로만 만들 수 있어 해당 없음 |
+| `app/teams_test.go` `TestGetTeam`, `TestTeamOperations` | — | mock 호출 전달만 확인한다. 저장소 쪽 동작은 `fvoci-store`의 워크스페이스 테스트가 덮는다 |
 | `app/user_test.go` `TestSearchUsers` | `users::users_list_and_profiles` | 팀/시스템 관리자와 채널 케이스는 호스트 애플리케이션 전용 |
 | `integrationtests/user_test.go` `TestUserRegister` | `users::user_register` | |
 | `integrationtests/user_test.go` `TestUserLogin` (2건) | `users::user_login_with_nonexist_user`, `users::user_login_with_registered_user` | |
@@ -99,7 +99,7 @@
 | `integrationtests/user_test.go` `TestUserChangePassword` | `users::user_change_password` | |
 | `integrationtests/user_test.go` `TestTeamUploadFile` | 파일 영역 참고 | |
 
-원본에 없고 포트에서 추가한 테스트: `users::change_password_of_another_user_is_forbidden`(보안 수정), `users::logout_ends_the_session`, `users::user_preferences`, `users::teams`, `users::single_user_mode`, `system::api_requests_need_the_requested_with_header`, `system::api_responses_are_not_cacheable`, `system::unknown_paths_get_the_web_app`, `system::base_path_prefixes_every_route`, `websocket::*`(실제 연결로 인증·구독·수신자 선정·ping 확인), `tests/storage.rs`, 설정 파서 단위 테스트.
+원본에 없고 포트에서 추가한 테스트: `users::change_password_of_another_user_is_forbidden`(보안 수정), `users::logout_ends_the_session`, `users::user_preferences`, `users::workspaces`, `users::single_user_mode`, `system::api_requests_need_the_requested_with_header`, `system::api_responses_are_not_cacheable`, `system::unknown_paths_get_the_web_app`, `system::base_path_prefixes_every_route`, `websocket::*`(실제 연결로 인증·구독·수신자 선정·ping 확인), `tests/storage.rs`, 설정 파서 단위 테스트.
 
 ### 관리자 소켓, 스케줄러, 거절 라우트, TLS, 오류 분류
 
@@ -146,7 +146,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 | `integrationtests/sidebar_test.go` `TestSidebar` | `sidebar::sidebar` | 저장소로 보드를 만드는 같은 흐름이 `sidebar_with_boards_from_the_store` |
 | `TestHideUnhideBoard` | `sidebar::hide_unhide_board` | |
 | `app/category_test.go` `TestCreateCategory` (2건) | `create_category_base_case`, `create_category_creating_invalid_category` | 모르는 타입은 enum으로 만들 수 없어 `create_category_refuses_invalid_requests`에서 HTTP로 확인 |
-| `TestUpdateCategory` (6건) | `update_category_base_case`, `…_updating_invalid_category`, `…_trying_to_update_someone_elses_category`, `…_trying_to_update_some_other_teams_category`, `…_should_not_be_allowed_to_rename_system_category`, `…_should_be_allowed_to_collapse_and_expand_any_category_type` | |
+| `TestUpdateCategory` (6건) | `update_category_base_case`, `…_updating_invalid_category`, `…_trying_to_update_someone_elses_category`, `…_trying_to_update_some_other_workspaces_category`, `…_should_not_be_allowed_to_rename_system_category`, `…_should_be_allowed_to_collapse_and_expand_any_category_type` | |
 | `TestDeleteCategory` (3건) | `delete_category_base_case`, `…_trying_to_delete_already_deleted_category`, `…_trying_to_delete_system_category` | |
 | `TestMoveBoardsToDefaultCategory` (2건) | `move_boards_to_default_category_when_default_category_already_exists`, `…_doesnt_already_exists` | 삭제를 통해 |
 | `TestReorderCategories` (2건) | `reorder_categories_base_case`, `…_not_specifying_all_categories_should_fail` | |
@@ -168,7 +168,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 | 원본 | Rust (`tests/api/boards.rs`, `boards_and_blocks.rs`) | 비고 |
 |---|---|---|
 | `integrationtests/board_test.go` `TestGetBoards` (2건) | `get_boards_a_non_authenticated_client_should_be_rejected`, `get_boards_should_only_return_the_boards_that_the_user_is_a_member_of` | |
-| `TestCreateBoard` (비로그인, public, private, invalid 3건) | `create_board_a_non_authenticated_user_should_be_rejected`, `create_board_create_public_board`(+`…_and_its_blocks`), `create_board_create_private_board`(+`…_and_its_blocks`), `create_board_create_invalid_board_{invalid_board_type,no_type,no_team_id}` | |
+| `TestCreateBoard` (비로그인, public, private, invalid 3건) | `create_board_a_non_authenticated_user_should_be_rejected`, `create_board_create_public_board`(+`…_and_its_blocks`), `create_board_create_private_board`(+`…_and_its_blocks`), `create_board_create_invalid_board_{invalid_board_type,no_type,no_workspace_id}` | |
 | `TestCreateBoardTemplate` (2건) | `create_board_template_create_{public,private}_board_template`(+`…_and_its_blocks`) | |
 | `TestGetBoard` (6건) | `get_board_*` 6건 | |
 | `TestGetBoardMetadata` 비로그인, 라이선스 없음, 읽기 토큰 | `get_board_metadata_*` 3건 | "query is correct", "Professional license" 케이스는 라이선스가 필요해 해당 없음 |
@@ -185,7 +185,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 | `integrationtests/boards_and_blocks_test.go` `TestCreateBoardsAndBlocks` (7건), `TestPatchBoardsAndBlocks` (11건), `TestDeleteBoardsAndBlocks` (5건) | `create_boards_and_blocks_*` 7건, `patch_boards_and_blocks_*` 11건, `delete_boards_and_blocks_*` 5건 | 전부 옮김 |
 | `app/boards_test.go` `TestAddMemberToBoard` base case, existing membership | `add_member_to_board_base_case`, `add_member_to_board_return_existing_non_synthetic_membership_if_any` | "synthetic membership 변환"은 standalone에 synthetic 멤버가 없어 해당 없음 |
 | `TestPatchBoard` title patch | `app_patch_board_base_case_title_patch` | |
-| `TestPatchBoard` 타입 변경 × 사용자 구성(6건, mock 호출 순서) | `patch_board_type_of_a_template_is_broadcast_to_the_team_users` | 실제 WebSocket으로 동작을 확인 |
+| `TestPatchBoard` 타입 변경 × 사용자 구성(6건, mock 호출 순서) | `patch_board_type_of_a_template_is_broadcast_to_the_workspace_users` | 실제 WebSocket으로 동작을 확인 |
 | `TestPatchBoard` 채널 3건 | `app_patch_board_channel` | |
 | `TestGetBoardCount` | — | 스토어 전달만. 스토어 테스트가 덮는다 |
 | `TestBoardCategory` | `board_category_no_boards_default_category_exists` | |
@@ -218,7 +218,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 |---|---|---|
 | `integrationtests/file_test.go` `TestUploadFile` (4건) | `files::upload_file_a_non_authenticated_user_should_be_rejected`, `…_without_permissions_is_forbidden`, `…_with_permissions`, `…_reaching_the_max_file_size` | |
 | `TestFileInfo` | `files::file_info_of_an_unknown_file_is_null`, `files::file_info_has_the_originals_members` | |
-| `integrationtests/user_test.go` `TestTeamUploadFile` (3건) | `files::team_upload_file_no_permission`, `…_a_board_admin_can_upload`, `…_a_non_member_is_forbidden` | |
+| `integrationtests/user_test.go` `TestTeamUploadFile` (3건) | `files::workspace_upload_file_no_permission`, `…_a_board_admin_can_upload`, `…_a_non_member_is_forbidden` | |
 | `app/files_test.go` `TestSaveFile` | `files::upload_maps_jpeg_to_jpg`, `files::upload_answers_a_generated_name`, 단위 테스트 `destination_path_lays_files_out_as_the_original` | 쓰기 실패 케이스는 mock 전용 |
 | `TestGetFileInfo`, `TestGetFile`, `TestGetFilePath` | `files::file_info_*`, `files::download_has_the_originals_headers`, `files::download_of_an_unknown_file_is_500` | 저장소·백엔드 오류 주입 케이스는 mock 전용 |
 | `TestGetFileReader` (5건) | `files::get_file_reader_moves_a_legacy_root_file` | 오류 주입 4건은 mock 전용 |
@@ -293,7 +293,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 58. **핸들러는 클라이언트가 끊겨도 끝까지 실행된다.** 프레임워크는 연결이 닫히면 핸들러를 버리는데, 그러면 보드는 저장됐지만 카테고리에 안 들어갔거나 브로드캐스트가 빠진 상태가 생긴다. 원본의 핸들러는 항상 끝까지 돈다. API 라우트 전체를 추적되는 태스크로 실행한다(`api::run_to_completion`). 테스트 `system::a_request_is_finished_when_its_client_disconnects`.
 59. **종료.** 진행 중인 요청은 10초까지 기다린 뒤 끊는다(원본은 즉시 닫는다). WebSocket 연결은 종료 때 닫는다. 두 번째 인터럽트는 기다리지 않고 프로세스를 끝낸다.
 60. **시작 때 거절하는 값.** 빈 single-user 토큰(토큰 없는 요청이 전부 통과하게 된다)과 `/`로 시작하지 않거나 `{`, `}`, `*`가 든 base path는 시작 오류다.
-61. **루트 팀을 읽지 못했을 때 가입 토큰을 새로 쓰지 않는다.** 원본은 읽기 실패를 "팀이 없음"으로 보고 새 토큰을 써서, 일시적인 DB 오류 뒤에 초대 링크가 모두 무효가 된다(`server/app/teams.go`). 포트는 "없음"일 때만 만들고 그 밖의 실패는 500이다.
+61. **루트 워크스페이스를 읽지 못했을 때 가입 토큰을 새로 쓰지 않는다.** 원본은 읽기 실패를 "팀이 없음"으로 보고 새 토큰을 써서, 일시적인 DB 오류 뒤에 초대 링크가 모두 무효가 된다(`server/app/teams.go`). 포트는 "없음"일 때만 만들고 그 밖의 실패는 500이다.
 62. **인증 경로의 스토어 실패를 로그에 남긴다.** 응답(401)은 원본과 같다.
 63. **템플릿 가져오기가 도중에 실패하면 남은 내장 템플릿을 지운다.** 보드가 파일보다 먼저 저장되므로, 그대로 두면 다음 시작 때 버전 검사를 통과해 파일 없는 템플릿이 남는다.
 64. **`App`의 옛 경로 폴백(`GetFileReader`, `MoveFile`)은 옮기지 않았다.** 원본의 다운로드 핸들러는 첫 오류 검사에서 끝나 그 분기에 닿지 않는다(`server/api/files.go:146-170`). 닿지 않는 코드에 "파일 이름을 그대로 저장 경로로 쓰는 이동"을 두지 않기로 했다.
@@ -334,7 +334,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 | S6 | `server/api/blocks.go` undelete·duplicate·묶음 패치 | 비멤버가 403과 404의 차이로 보드·블록의 존재 여부를 알 수 있다. 고치면 정상 클라이언트가 보는 상태 코드가 바뀐다 | **S6에서 정리됨(2026-11-10 18:37 KST).** 규칙 B(설계 1.4): 볼 수 없는 것은 없는 것과 같은 404, 볼 수는 있는데 못 하는 것은 403. 비공개 보드의 비멤버는 그 보드와 블록·카드·멤버·공유·파일의 모든 라우트에서 없는 보드와 같은 답을 받는다. 테스트 `visibility::what_a_user_cannot_see_answers_as_what_does_not_exist`가 42개 요청을 "있지만 숨겨진 것"과 "없는 것"으로 한 번씩 보내 상태·코드·문구가 같은지 비교한다 |
 | S7 | — | (보안 수정 표로 옮김: 삽입의 `sourceBoardID` 권한 검사) | — |
 | S8 | `server/api/sharing.go` | 공유 토큰을 클라이언트가 정한다. 한 글자 토큰, 여러 보드에 같은 토큰, 빈 토큰(`enabled: true`)도 저장된다(빈 토큰은 조회되지 않아 쓸 수 없다). 서버가 토큰을 만들면 와이어 계약이 바뀐다 | 원본대로 (`sharing::post_sharing_stores_the_token_the_client_chose`) |
-| S9 | `server/app/category.go` `UpdateCategory` | 남의 카테고리에 대한 `PUT`이 상태에 따라 404·403으로 갈려 ID의 존재 여부를 알 수 있다. ID는 무작위다 | **S6에서 정리됨(2026-11-10 18:37 KST).** 남의 카테고리, 다른 팀의 카테고리, 지워진 카테고리, 없는 카테고리가 수정·삭제·보드 넣기·숨기기·보드 재정렬에서 모두 404 `category not found`다(`App::user_category`). 지워진 카테고리를 다시 지우면 전에는 그 카테고리를 답했지만 이제 404다 |
+| S9 | `server/app/category.go` `UpdateCategory` | 남의 카테고리에 대한 `PUT`이 상태에 따라 404·403으로 갈려 ID의 존재 여부를 알 수 있다. ID는 무작위다 | **S6에서 정리됨(2026-11-10 18:37 KST).** 남의 카테고리, 다른 워크스페이스의 카테고리, 지워진 카테고리, 없는 카테고리가 수정·삭제·보드 넣기·숨기기·보드 재정렬에서 모두 404 `category not found`다(`App::user_category`). 지워진 카테고리를 다시 지우면 전에는 그 카테고리를 답했지만 이제 404다 |
 | S10 | — | (의도적 차이 57로 옮김: 기본 카테고리 생성의 경쟁 조건은 포트에서 관찰되어 고쳤다) | — |
 | S11 | `server/api/cards.go:279-284`, `content_blocks.go`, `subscriptions.go` | 카드 조회·패치, 이동, 구독 생성이 권한보다 존재 확인을 먼저 해, 로그인한 사용자가 블록 ID의 존재 여부(카드 라우트는 카드인지까지)를 알 수 있다. S6과 같은 종류 | **S6에서 정리됨(2026-11-10 18:37 KST).** ID만 받는 라우트는 블록의 보드를 읽을 수 없으면 없는 블록과 같은 404를 답한다(`require_permission_through`). 카드 라우트는 카드가 아닌 블록도 같은 404다. 보드를 읽을 수 있지만 권한이 모자라면 403 |
 | S12 | `server/app/subscriptions.go` | 보드에서 빠진 멤버의 구독이 남는다(목록 조회와 해지는 가능, 새 구독은 불가). `subscriberType: "channel"`에 사용자 ID를 넣어도 저장된다 | **S6에서 정리됨(2026-11-10), 앞부분.** 멤버가 보드에서 빠지면(관리자가 제거하든 스스로 나가든) 그 사용자가 그 보드의 블록에 건 구독을 멤버십 삭제와 같은 트랜잭션에서 끝낸다(해지와 같은 표시. 지워진 블록의 구독도 포함). 다른 보드의 구독과 남아 있는 멤버의 구독은 그대로이고, 제거가 거절되면 아무것도 바뀌지 않는다. 다시 멤버가 되면 다시 구독할 수 있다. 테스트 `subscriptions::leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blocks`, `subscriptions::subscription_by_every_member_of_the_board_still_works`(빠진 뒤에는 구독이 없고 해지는 404), 스토어 `subscriptions::delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that_board`. **남은 것:** `subscriberType: "channel"`은 그대로 저장된다. 채널 개념을 없앨 때 함께 정리한다(`docs/s6-design.md` 1.6). **S6에서 정리됨(2026-11-10 18:37 KST), 남은 부분:** `subscriberType`은 `user`만 받는다. `channel`은 400이다(결정 4). |
@@ -363,12 +363,12 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 S6의 1단계(오류 응답과 경로 규칙)에서 이 규칙에 걸린 항목을 한꺼번에 정리했다. 정리한 항목에는 "S6에서 정리됨"과 지금의 동작을 붙였고, 표시가 없는 항목은 그대로다.
 
 - **세션은 요청마다 갱신된다.** 저장소가 세션의 `update_at`을 읽지 않아 항상 0이고, 그래서 "갱신 시점이 지났나" 검사가 늘 참이다(`server/auth/auth.go:46-53`, `sqlstore/session.go`).
-- **`GET /teams/{아무 ID}`는 루트 팀과 `signupToken`을 돌려준다**(`server/api/teams.go:106-131`). 보안 결정 대기 항목이기도 하다.
+- **`GET /teams/{아무 ID}`는 루트 팀과 `signupToken`을 돌려준다**(`server/api/teams.go:106-131`). → **정리됨:** `GET /w/{workspaceId}`는 그 워크스페이스에서 일하는 사용자에게만 답하고, `signupToken`은 관리자에게만 있다.
 - **이메일 로그인의 not-found 검사가 반전되어 있다**(`server/app/auth.go:89-96`). not-found가 아닌 DB 오류가 삼켜질 뿐, 클라이언트가 보는 응답은 같다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 로그인 실패(없는 사용자, 틀린 비밀번호)는 401 `unauthorized`·`reason: invalid_credentials` 하나이고, 저장소 오류는 삼키지 않고 500이다.
 - **로그인·가입·비밀번호 변경 등의 잘못된 JSON 본문은 500이다.** 디코드 오류를 분류하지 않고 넘긴다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 잘못된 본문은 어느 라우트에서나 400 `bad_request`다(설계 1.3).
 - **없는 경로와 메서드가 틀린 경로는 200과 `index.html`이다.** → **S6에서 정리됨(2026-11-10 18:37 KST):** 경로 규칙(설계 2.3)을 구현했다. API 접두어 아래의 모르는 경로와 끝 슬래시는 JSON 404, 아는 경로의 다른 메서드는 JSON 405와 `Allow`, 화면 경로의 `GET`·`HEAD`만 `index.html`이고 끝 슬래시는 308, 그 밖의 메서드는 405(`Allow: GET, HEAD`). 테스트 `tests/api/paths.rs`(기준 경로 없이, 있을 때, 끝 슬래시로 설정했을 때).
 - **single-user 모드에서 `POST /users ["single-user"]`와 `GET /users/single-user`는 404다.** 가상 사용자를 만든 뒤 "누가 누구를 볼 수 있나"를 정하려고 DB에서 다시 찾는다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 둘 다 가상 사용자를 답한다(`users::single_user_mode`).
-- **카테고리 WebSocket 이벤트는 사용자의 연결 중 팀을 구독한 첫 번째 하나에만 간다**(`server/ws/server.go` `getListenerForUser`). 다른 탭은 받지 못한다. → **정리됨(2026-11-11 13:10 KST):** 그 팀을 구독한 연결 모두에 간다.
+- **카테고리 WebSocket 이벤트는 사용자의 연결 중 팀을 구독한 첫 번째 하나에만 간다**(`server/ws/server.go` `getListenerForUser`). 다른 탭은 받지 못한다. → **정리됨(2026-11-11 13:10 KST):** 그 워크스페이스를 구독한 연결 모두에 간다.
 - **블록 구독과 보드 멤버 구독을 함께 가진 연결은 같은 블록 변경을 구독 수만큼 받는다.**
 - **`/users/me?channelID=x`는 채널이 있든 없든 `permissions: ["create_post"]`를 붙인다**(standalone의 채널 권한 검사는 항상 참). → **S6에서 정리됨(2026-11-10 18:37 KST):** `channelID`를 읽지 않는다. `permissions`는 응답에 없다.
 - **세션 정리 기준은 `max(31일, session_expire_time)`이다**(`server/server/server.go:258-261`). 10분마다 돈다.
@@ -442,12 +442,12 @@ S6의 1단계(오류 응답과 경로 규칙)에서 이 규칙에 걸린 항목�
 | Should | 느린 WebSocket 연결을 "끊는다"고 했지만 닫히지 않는다 | 반영. 취소 토큰으로 읽기 쪽을 끝내고, 쓰기 쪽은 5초 뒤 중단한다 |
 | Should | 종료 때 연결 대기에 시간 제한이 없고 두 번째 Ctrl-C가 무시된다 | 반영(의도적 차이 59) |
 | Should | 인증 경로의 스토어 실패가 로그 없이 401이 된다 | 반영(의도적 차이 62) |
-| Should | `root_team`이 읽기 실패를 "팀 없음"으로 보고 가입 토큰을 바꾼다 | 반영(의도적 차이 61) |
+| Should | `root_workspace`가 읽기 실패를 "워크스페이스 없음"으로 보고 가입 토큰을 바꾼다 | 반영(의도적 차이 61) |
 | Should | 빈 single-user 토큰이 모든 요청을 통과시킨다 | 반영(의도적 차이 60) |
 | Should | `api/*.rs`에 거의 같은 헬퍼가 중복 | 반영. `api/access.rs`(권한 확인), `api/body.rs`(본문 디코딩), `change_notification`·`duplicate_as`는 `api/mod.rs`. 디코더를 정책 enum 하나로 합치는 것까지는 하지 않았다(호출부가 원본의 핸들러별 차이를 이름으로 드러내는 편이 읽기 쉽다) |
 | Should | 필요 이상으로 넓은 공개 범위 | 부분 반영. 지적된 세 항목은 `pub(crate)`로 줄였다. `api`·`permissions`·`scheduler`·`ws` 모듈을 비공개로 돌리는 것은 하지 않았다(통합 테스트가 `Server`·`App`의 공개 API로 이 타입들에 닿는다) |
 | Should | `lib.rs`에 인라인 모듈 셋 | 반영. `request_log.rs`, `tls.rs`, `admin_socket.rs`(와 Unix가 아닌 플랫폼용 `admin_socket_unsupported.rs`) |
-| Should | 브로드캐스트 경로가 듣는 사람이 없어도 스토어를 조회하고 수신자마다 본문을 복사한다 | 부분 반영. 팀에 듣는 연결이 없으면 조회하지 않고, 본문은 공유한다. 블록 여러 개를 한 번의 멤버 조회로 묶는 것은 하지 않았다(원본처럼 블록마다 따로 브로드캐스트한다) |
+| Should | 브로드캐스트 경로가 듣는 사람이 없어도 스토어를 조회하고 수신자마다 본문을 복사한다 | 부분 반영. 워크스페이스에 듣는 연결이 없으면 조회하지 않고, 본문은 공유한다. 블록 여러 개를 한 번의 멤버 조회로 묶는 것은 하지 않았다(원본처럼 블록마다 따로 브로드캐스트한다) |
 | Consider | `null_as_default` 문서, 중복된 공백이 든 오류 문구, 사용자 목록의 반복 조회, 웹훅 로그의 URL, 정적 파일 이름의 이중 디코딩 | 반영 |
 | Consider | 설정 값의 enum화, 저장소 쓰기의 원자성, WebSocket 메시지 크기 제한과 구독 자료구조, 테스트 DB 스키마 정리, 그 밖의 작은 지적 | 반영하지 않음. 동작에 영향이 없거나(구조), 원본과 달라지는 변경이다(메시지 크기 제한) |
 

@@ -75,8 +75,8 @@ export interface paths {
         };
         /**
          * Search the boards
-         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches the
-         *     term: a title matches if every word of the term, as spaces divide it, is somewhere
+         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         *     the term: a title matches if every word of the term, as spaces divide it, is somewhere
          *     in it, whatever the case of the letters (of every letter, not only ASCII). Templates
          *     are never found. `%` and `_` are characters like any other. Oldest first.
          */
@@ -1385,11 +1385,11 @@ export interface paths {
         };
         /**
          * Search the boards, asked through a workspace
-         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches the
-         *     term as `searchBoards` matches it, or with `field=property_name` those whose own
-         *     `properties` have a member of exactly that name, whatever its value (`null` too). The workspace of the path is not part of
-         *     the search: the boards of every workspace are searched. A `field` that is neither is 400.
-         *     Oldest first.
+         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         *     the term as `searchBoards` matches it, or with `field=property_name` those whose own
+         *     `properties` have a member of exactly that name, whatever its value (`null` too). The
+         *     workspace of the path is not part of the search: the boards of every workspace are
+         *     searched. A `field` that is neither is 400. Oldest first.
          */
         get: operations["searchWorkspaceBoards"];
         put?: never;

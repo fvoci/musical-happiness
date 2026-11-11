@@ -83,7 +83,7 @@
 - **`generate_block_ids`:** `contentOrder`가 배열이 아닌 블록은 그 블록의 `defaultTemplateId`가 참조로 수집되지 않는다(`server/model/blockid.go:33-41`의 `continue`).
 - **`DeleteBoardsAndBlocks::validate`는 보드만 요구한다.** 블록 목록은 비어도 된다.
 - **비밀번호 최소 길이 8은 바이트 수다**(`server/model/auth.go:128`).
-- **오류 메시지 문구는 원본 그대로다**(`"Board IDs do not match"`, `"invalid card, ID is missing"`, `"category team id ID cannot be empty"` 등). 응답의 `detail` 멤버로 나가므로 Rust 관례(소문자, 마침표 없음)에 맞추지 않았다.
+- **오류 메시지 문구는 원본 그대로다**(`"Board IDs do not match"`, `"invalid card, ID is missing"` 등. 원본의 팀은 워크스페이스로 바꿔 말한다). 응답의 `detail` 멤버로 나가므로 Rust 관례(소문자, 마침표 없음)에 맞추지 않았다.
 
 ## S3–S5에서 바뀐 것
 
