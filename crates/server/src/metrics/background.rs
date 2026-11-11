@@ -1,5 +1,6 @@
 //! The metrics of the background work and the login limits: how often the hourly jobs
-//! ran, failed and last ran, and how many attempts to sign in the limits refused.
+//! ran and failed, when they last ran and last did all their work, and how many attempts
+//! to sign in the limits refused.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -210,11 +211,53 @@ impl Metrics {
         }
     }
 
+    /// When `job` last ran and last did all its work, for tests.
+    #[cfg(test)]
+    fn job_times(&self, job: Job) -> (f64, f64) {
+        self.kept.as_ref().map_or((0.0, 0.0), |kept| {
+            let label = [job.as_str()];
+            (
+                kept.background.last_run.with_label_values(&label).get(),
+                kept.background.last_success.with_label_values(&label).get(),
+            )
+        })
+    }
+
     /// How many attempts `limit` refused, for tests.
     #[cfg(test)]
     pub(crate) fn login_refusals(&self, limit: LoginLimit) -> u64 {
         self.kept.as_ref().map_or(0, |kept| {
             kept.background.login_refusals[limit.index()].get()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_run_is_a_run_and_no_success() {
+        let metrics = Metrics::kept().expect("the metrics register");
+        metrics.job_ran(Job::PurgeTrash, JobOutcome::Done);
+        let (ran, succeeded) = metrics.job_times(Job::PurgeTrash);
+        assert!(ran > 0.0, "it ran");
+        assert!(
+            (succeeded - ran).abs() < f64::EPSILON,
+            "and did all its work"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        metrics.job_ran(Job::PurgeTrash, JobOutcome::Failed);
+        let (ran_again, still) = metrics.job_times(Job::PurgeTrash);
+        assert!(ran_again > ran, "the failed run is the last run");
+        assert!(
+            (still - succeeded).abs() < f64::EPSILON,
+            "the success stays the one before"
+        );
+        assert_eq!(
+            metrics.job_times(Job::CleanUpUploads),
+            (0.0, 0.0),
+            "another job has not run"
+        );
     }
 }

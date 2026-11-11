@@ -826,8 +826,8 @@ impl Configuration {
     /// # Errors
     ///
     /// Returns an error if the address is not empty and no `host:port`: the host a name,
-    /// an IPv4 address, an IPv6 address in brackets, or nothing for every interface; the
-    /// port a number up to 65535.
+    /// an IPv4 address, an IPv6 address in brackets, or nothing; the port a number up to
+    /// 65535.
     pub fn metrics_address(&self) -> anyhow::Result<Option<MetricsAddress>> {
         let text = self.prometheus_address.as_str();
         if text.is_empty() {
@@ -836,7 +836,7 @@ impl Configuration {
         let mut address = MetricsAddress::parse(text).ok_or_else(|| {
             anyhow::anyhow!(
                 "prometheusaddress must be empty or host:port, such as 127.0.0.1:9092 or \
-                 :9092 for every interface, not {text:?}"
+                 :9092 for every interface (the loopback with localOnly), not {text:?}"
             )
         })?;
         // A server that listens on the loopback only does so for its metrics too: the
