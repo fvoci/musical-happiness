@@ -1891,7 +1891,7 @@
         "type": "object"
       },
       "Team": {
-        "description": "A team. A server has exactly one.",
+        "description": "A team: a workspace of an organization, as the routes that name a team call it.",
         "properties": {
           "id": {
             "description": "The team's identifier.",

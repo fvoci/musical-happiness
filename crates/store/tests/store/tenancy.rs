@@ -1562,3 +1562,98 @@ fn few_tests_connect_as_a_superuser() {
     connecting.sort();
     assert_eq!(connecting, ALLOWED, "the files that connect as a superuser");
 }
+
+/// The plain case of a database from before: one team and three users. It becomes one
+/// organization with one workspace, the team, and every user is a member of both.
+#[tokio::test]
+async fn a_database_with_one_team_becomes_one_organization_with_one_workspace() {
+    let database = common::empty_database().await;
+    fvoci_store::testing::migrate_to_before_organizations(&database).await;
+    let (team_id, admin, member, left) = (new_id(), new_id(), new_id(), new_id());
+    common::execute_raw(
+        &common::raw_dbconfig(&database),
+        &format!(
+            "INSERT INTO users (id, username, email, password_hash, create_at, update_at, \
+             delete_at, is_admin, display_name) VALUES \
+             ('{admin}', 'admin', 'admin@example.com', '', 10, 10, 0, true, ''), \
+             ('{member}', 'member', 'member@example.com', '', 20, 20, 0, false, ''), \
+             ('{left}', 'left', 'left@example.com', '', 30, 30, 40, false, ''); \
+             UPDATE instance SET bootstrapped = true; \
+             INSERT INTO teams (id, signup_token, settings, modified_by, create_at, update_at) \
+             VALUES ('{team_id}', 'the-token', '{{}}', NULL, 100, 100);"
+        ),
+    )
+    .await;
+
+    let unset = Store::connect(database.db_type(), database.dbconfig())
+        .await
+        .expect("the store migrates the database");
+    // One organization, and the system's.
+    assert_eq!(
+        unset
+            .system()
+            .count_rows("organizations")
+            .await
+            .expect("counted"),
+        2,
+        "the organization and the system's"
+    );
+    let org_id = unset
+        .only_organization(&Team::default())
+        .await
+        .expect("the organization");
+    let ours = unset.for_org(&org_id).expect("an identifier");
+    // One workspace: the team.
+    let teams = ours.get_teams().await.expect("the teams");
+    let ids: Vec<&str> = teams.iter().map(|team| team.id.as_str()).collect();
+    assert_eq!(ids, [team_id.as_str()], "the one workspace");
+    assert_eq!(
+        unset.system().count_rows("teams").await.expect("counted"),
+        2,
+        "the workspace and the system's"
+    );
+    // Every user is a member of the organization and of the workspace.
+    for (user, org_role, role) in [
+        (&admin, OrgRole::Admin, WorkspaceRole::Admin),
+        (&member, OrgRole::Member, WorkspaceRole::Member),
+        (&left, OrgRole::Member, WorkspaceRole::Member),
+    ] {
+        let access = unset
+            .resolve_workspace(user, &team_id)
+            .await
+            .expect("the workspace is resolved")
+            .expect("a member of the workspace");
+        assert_eq!(access.org_id, org_id, "of the one organization");
+        assert_eq!(
+            (access.org_role, access.workspace_role),
+            (Some(org_role), role),
+            "a member of both"
+        );
+        let listed = unset
+            .workspaces_of_user(user)
+            .await
+            .expect("the workspaces are listed");
+        assert_eq!(listed.len(), 1, "one workspace: {listed:?}");
+    }
+    assert_eq!(
+        unset
+            .system()
+            .count_rows("organization_members")
+            .await
+            .expect("counted"),
+        3,
+        "the three users, and nobody else"
+    );
+    assert_eq!(
+        unset
+            .system()
+            .count_rows("workspace_members")
+            .await
+            .expect("counted"),
+        3,
+        "the three users, in the one workspace"
+    );
+
+    unset.close().await;
+    database.remove().await;
+}

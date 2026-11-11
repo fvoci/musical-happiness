@@ -2650,7 +2650,7 @@ export interface components {
             /** @description The kind of entity that subscribes. */
             subscriberType: components["schemas"]["SubscriberType"];
         };
-        /** @description A team. A server has exactly one. */
+        /** @description A team: a workspace of an organization, as the routes that name a team call it. */
         Team: {
             /** @description The team's identifier. */
             id: string;

@@ -1,4 +1,5 @@
-//! Teams.
+//! Teams: the workspaces of an organization, under the name the routes that are not
+//! moved under a workspace yet call them by.
 
 use std::fmt;
 
@@ -7,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::JsonMap;
 use crate::serde_util::null_as_default;
 
-/// A team. A server has exactly one.
+/// A team: a workspace of an organization, as the routes that name a team call it.
 #[derive(Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Team {
