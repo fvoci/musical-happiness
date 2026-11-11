@@ -7,8 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
-use axum::extract::connect_info::Connected;
-use axum::serve::{IncomingStream, Listener};
+use axum::serve::Listener;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 use tokio_rustls::TlsAcceptor;
@@ -16,8 +15,6 @@ use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::pem::PemObject as _;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::server::TlsStream;
-
-use crate::request_log::Peer;
 
 /// The TLS settings of a listener.
 pub(crate) type ServerConfig = Arc<rustls::ServerConfig>;
@@ -153,12 +150,6 @@ impl Listener for TlsListener {
 
     fn local_addr(&self) -> io::Result<Self::Addr> {
         self.tcp.local_addr()
-    }
-}
-
-impl Connected<IncomingStream<'_, TlsListener>> for Peer {
-    fn connect_info(stream: IncomingStream<'_, TlsListener>) -> Self {
-        Self::Tcp(*stream.remote_addr())
     }
 }
 

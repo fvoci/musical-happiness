@@ -94,7 +94,7 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 | 세션 | `HttpOnly` 쿠키나 `Authorization: Bearer`로 전한다. 한가함 14일, 절대 90일에 끝난다 | G, H |
 | 관리자 | 처음 가입한 사용자가 관리자다. 가입 토큰은 관리자만 본다 | G |
 | 공유 | 읽기 토큰은 서버가 만든다. 공유를 끄면 토큰을 지운다 | G |
-| 사용자 설정 | 계정의 표시 설정 일곱과, 한도가 있는 화면 상태의 주머니 | G |
+| 사용자 설정 | 계정의 표시 설정 여덟과, 한도가 있는 화면 상태의 주머니 | G |
 | 최소 역할 | 모든 보드에 있다. 참여와 추가가 그 역할을 준다 | G |
 | 로그인 제한 | 이름과 주소의 쌍마다 점점 길어지는 대기, 이름마다의 잠금, 주소마다의 분당 횟수, 해시 대기열. 거절은 429다 | I |
 | 이름 | 경로, 질의 매개변수, JSON 멤버가 한 표기다 | L |
@@ -430,14 +430,14 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| **설정은 계정의 것이고 닫힌 집합이다.** `GET /users/me/settings`가 일곱 설정을 모두 답한다(저장된 값이 없으면 기본값): `timeZone`(`"auto"` 또는 IANA 이름), `weekStart`(auto·sunday·monday·saturday), `hourCycle`(auto·h12·h23), `theme`(auto·light·dark), `cardOpen`(center·side·full, 기본 center), `density`(auto·compact·comfortable), `haptics`(불리언, 기본 true). 뒤의 넷은 사용자가 구현 중에 더했다 | 설계 5.8의 C | `fvoci_model::{UserSettings, UserSettingsPatch}`(`crates/model/src/settings.rs`) |
+| **설정은 계정의 것이고 닫힌 집합이다.** `GET /users/me/settings`가 여덟 설정을 모두 답한다(저장된 값이 없으면 기본값): `timeZone`(`"auto"` 또는 IANA 이름), `weekStart`(auto·sunday·monday·saturday), `hourCycle`(auto·h12·h23), `theme`(auto·light·dark), `cardOpen`(center·side·full, 기본 center), `density`(auto·compact·comfortable), `haptics`(불리언, 기본 true), `language`(`"auto"` 또는 모양만 검사한 언어 태그). `theme`부터 넷은 사용자가 구현 중에, `language`는 2026-11-11에 더했다 | 설계 5.8의 C | `fvoci_model::{UserSettings, UserSettingsPatch}`(`crates/model/src/settings.rs`) |
 | `PATCH /users/me/settings`: 보낸 멤버만 바꾸고 모든 설정을 답한다. `null`은 기본값으로 되돌린다. 모르는 멤버(`locale`, `timezone`)와 그 설정이 가질 수 없는 값은 400이고 `field`가 그 멤버다. 한 멤버라도 틀리면 아무것도 저장되지 않는다. 값은 대소문자를 구별한다 | 같은 곳. 계약이 설정을 전부 말한다 | `api/users.rs` |
 | 시간대 이름은 바이너리에 넣은 IANA DB로 본다(`chrono-tz` 0.10). 옛 별칭(`Asia/Calcutta`)은 받아서 받은 그대로 저장한다. `"auto"`는 풀지 않는다 | 설계 5.8의 B. 배치마다 답이 같다 | `fvoci_model::TimeZone` |
 | **화면 상태의 주머니에 한도가 있다.** 주머니의 라우트는 `GET`·`PATCH /users/me/client-state`다(L절에서 `GET /users/me/config`, `PUT /users/{id}/config`를 바꿨다). 키는 `[A-Za-z0-9_.-]` 1–64자, 값은 4 KiB까지, 사용자당 100개. 넘으면 400(`field: updatedFields`, 개수는 `limit: 100`). 개수는 변경과 같은 트랜잭션에서 센다. 답은 `{이름: 값}` 객체다 | 설계 5.8. 전에는 아무 이름, 아무 크기, 아무 개수가 들어갔다 | `UserPreferencesPatch::validate`, `StoreError::TooManyPreferences` |
 | 저장: 둘 다 `preferences` 테이블, `category`가 `settings`와 `client`다(전에는 하나, `fvoci`). 같은 이름의 설정과 주머니 항목은 서로 다른 것이다. 이 빌드가 모르는 설정 이름이나 읽지 못하는 값의 행은 건너뛰고 그 설정은 기본값이다 | 설계 5.8. 다른 빌드가 쓴 값이 설정 전체를 깨뜨리지 않는다 | `Store::{get_user_settings, patch_user_settings}` |
 | 오류 본문의 `limit`는 바이트(413)뿐 아니라 개수에도 쓴다 | 주머니의 한도를 알려 준다 | `AppError::with_limit` |
 
-**고정하는 것.** 회귀 시나리오 `settings`가 기본값, 일곱 설정의 변경과 되돌리기, 설정마다의 거절 문구, 주머니의 한도를 고정한다. 테스트는 모델 단위 `settings::tests`, API `users::settings_*`와 `client_state_*`, 스토어의 둘이다.
+**고정하는 것.** 회귀 시나리오 `settings`가 기본값, 여덟 설정의 변경과 되돌리기, 설정마다의 거절 문구, 주머니의 한도를 고정한다. 테스트는 모델 단위 `settings::tests`, API `users::settings_*`와 `client_state_*`, 스토어의 둘이다.
 
 #### 최소 역할에서 바뀐 것
 

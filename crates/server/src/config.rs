@@ -192,8 +192,13 @@ pub struct Configuration {
     /// with which the comment was posted, and the newest. At least 1.
     pub max_comment_versions: u32,
     /// How many exports (`exportBoardArchive`, `exportTeamArchive`) the server runs at
-    /// once; a user runs one at a time. At least 1.
+    /// once; a user runs one at a time. An export runs until its archive is sent. At
+    /// least 1.
     pub max_concurrent_exports: u32,
+    /// How long, in seconds, an export's download may send nothing before it is given
+    /// up: its place among the exports and its temporary file are given back, and the
+    /// connection is broken. At least 1.
+    pub export_stall_seconds: u64,
     /// How many imports (`importArchive`) the server runs at once; a user runs one at a
     /// time. At least 1.
     pub max_concurrent_imports: u32,
@@ -272,6 +277,7 @@ impl Default for Configuration {
             max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
             max_comment_versions: DEFAULT_MAX_COMMENT_VERSIONS,
             max_concurrent_exports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
+            export_stall_seconds: 60,
             max_concurrent_imports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
             trusted_proxies: Vec::new(),
             login_pair_free_failures: 5,
@@ -331,6 +337,7 @@ impl std::fmt::Debug for Configuration {
             .field("max_import_bytes", &self.max_import_bytes)
             .field("max_comment_versions", &self.max_comment_versions)
             .field("max_concurrent_exports", &self.max_concurrent_exports)
+            .field("export_stall_seconds", &self.export_stall_seconds)
             .field("max_concurrent_imports", &self.max_concurrent_imports)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("login_pair_free_failures", &self.login_pair_free_failures)
@@ -379,7 +386,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 53] = [
+const ENV_KEYS: [(&str, EnvKind); 54] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -422,6 +429,7 @@ const ENV_KEYS: [(&str, EnvKind); 53] = [
     ("max_import_bytes", EnvKind::Number),
     ("max_comment_versions", EnvKind::Number),
     ("max_concurrent_exports", EnvKind::Number),
+    ("export_stall_seconds", EnvKind::Number),
     ("max_concurrent_imports", EnvKind::Number),
     ("trusted_proxies", EnvKind::List),
     ("login_pair_free_failures", EnvKind::Number),
@@ -654,6 +662,12 @@ impl Configuration {
         }
     }
 
+    /// How long an export's download may send nothing before it is given up
+    /// (`export_stall_seconds`).
+    pub fn export_stall(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.export_stall_seconds)
+    }
+
     /// Checks the limits on uploads: none turns a limit off, and they fit together.
     fn check_upload_limits(&self) -> anyhow::Result<()> {
         // An S3 multipart upload takes no smaller part but the last, and none larger.
@@ -710,6 +724,10 @@ impl Configuration {
         }
         if self.max_concurrent_imports == 0 {
             bail!("max_concurrent_imports must be at least 1");
+        }
+        // Zero would give up every download before its first piece.
+        if self.export_stall_seconds == 0 {
+            bail!("export_stall_seconds must be at least 1");
         }
         Ok(())
     }
@@ -929,6 +947,8 @@ mod tests {
         assert_eq!(config.max_import_bytes, 256 * 1024 * 1024);
         assert_eq!(config.max_comment_versions, 50);
         assert_eq!(config.max_concurrent_exports, 2);
+        assert_eq!(config.export_stall_seconds, 60);
+        assert_eq!(config.export_stall(), std::time::Duration::from_secs(60));
         assert_eq!(config.max_concurrent_imports, 2);
         assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");
@@ -1170,7 +1190,11 @@ mod tests {
             error(r#"{"max_comment_versions": 0}"#).contains("max_comment_versions"),
             "a comment keeps at least the text it was posted with"
         );
-        for key in ["max_concurrent_exports", "max_concurrent_imports"] {
+        for key in [
+            "max_concurrent_exports",
+            "max_concurrent_imports",
+            "export_stall_seconds",
+        ] {
             assert!(
                 error(&format!(r#"{{"{key}": 0}}"#)).contains(key),
                 "{key}: none at all would refuse every one"

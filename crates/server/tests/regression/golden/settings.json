@@ -9,6 +9,7 @@
       "density": "auto",
       "haptics": true,
       "hourCycle": "auto",
+      "language": "auto",
       "theme": "auto",
       "timeZone": "auto",
       "weekStart": "auto"
@@ -35,6 +36,7 @@
       "density": "compact",
       "haptics": false,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "dark",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -50,6 +52,7 @@
       "density": "compact",
       "haptics": false,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "dark",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -65,6 +68,7 @@
       "density": "auto",
       "haptics": true,
       "hourCycle": "auto",
+      "language": "auto",
       "theme": "auto",
       "timeZone": "auto",
       "weekStart": "auto"
@@ -80,6 +84,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -95,6 +100,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Seoul",
       "weekStart": "monday"
@@ -110,6 +116,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Calcutta",
       "weekStart": "monday"
@@ -212,6 +219,18 @@
     }
   },
   {
+    "name": "patch: no shape of a language tag",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "language",
+      "message": "language must be \"auto\" or a language tag such as \"ko\" or \"en-US\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
     "name": "patch: a number",
     "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
@@ -279,6 +298,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Calcutta",
       "weekStart": "monday"
@@ -314,6 +334,7 @@
       "density": "compact",
       "haptics": true,
       "hourCycle": "h23",
+      "language": "ko",
       "theme": "auto",
       "timeZone": "Asia/Calcutta",
       "weekStart": "monday"

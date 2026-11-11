@@ -4,7 +4,7 @@ use std::num::IntErrorKind;
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use fvoci_model::{BlockType, Card, CardError, CardPatch};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch};
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -22,9 +22,9 @@ use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
 /// The page of cards a request without `page` gets.
-const DEFAULT_PAGE: i64 = 0;
+pub(super) const DEFAULT_PAGE: i64 = 0;
 /// The number of cards a page has in a request without `perPage`.
-const DEFAULT_PER_PAGE: i64 = 100;
+pub(super) const DEFAULT_PER_PAGE: i64 = 100;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -34,7 +34,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// Reads a whole number from a query parameter; `default` if the parameter is absent
 /// or empty.
-fn int_query_param(query: Option<&str>, name: &str, default: i64) -> Result<i64, AppError> {
+pub(super) fn int_query_param(
+    query: Option<&str>,
+    name: &str,
+    default: i64,
+) -> Result<i64, AppError> {
     let text = query_param(query, name);
     if text.is_empty() {
         return Ok(default);
@@ -49,7 +53,7 @@ fn int_query_param(query: Option<&str>, name: &str, default: i64) -> Result<i64,
 }
 
 /// Returns the card with the given identifier for a handler of `/cards/{cardId}`, if
-/// the user has the permission on the card's board.
+/// the user has the permission on the card's board: its block, read once.
 ///
 /// The path names a card and no board. So for a user who may not read the card's board
 /// there is no such card, and neither is there for anyone if the block is no card.
@@ -59,7 +63,7 @@ async fn card_with_permission(
     card_id: &str,
     permission: BoardPermission,
     denial: &str,
-) -> Result<Card, AppError> {
+) -> Result<Block, AppError> {
     const WHAT: &str = "card";
     let block = match app.block(card_id).await {
         Ok(block) => block,
@@ -70,7 +74,7 @@ async fn card_with_permission(
     if block.block_type != BlockType::Card {
         return Err(AppError::not_found(WHAT));
     }
-    app.card(card_id).await
+    Ok(block)
 }
 
 /// Make a card
@@ -194,6 +198,7 @@ async fn handle_patch_card(
         "access denied to patch card",
     )
     .await?;
+    // The block, read to check the permission, is the card as it was.
     let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
     app.check_body_files(&card.board_id, document.new_body())
         .await?;
@@ -224,7 +229,7 @@ async fn handle_get_card(
     Path(card_id): Path<String>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    let card = card_with_permission(
+    let block = card_with_permission(
         &app,
         user_id,
         &card_id,
@@ -232,6 +237,7 @@ async fn handle_get_card(
         "access denied to fetch card",
     )
     .await?;
+    let card = app.card_of_block(&block).await?;
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))
 }

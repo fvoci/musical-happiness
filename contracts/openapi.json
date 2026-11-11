@@ -520,6 +520,11 @@
             "description": "Whether the card is a template.",
             "type": "boolean"
           },
+          "lastCommentAt": {
+            "description": "When the card's last comment was posted (the `createAt` of the newest of its\ncomments, the blocks of the type `comment` directly on it), in milliseconds since\nthe Unix epoch; zero if it has none. Changing a comment does not change it; a\ndeleted comment does not count, and counts again with its time if restored. A\ncomment does not change the card's `updateAt`. A new comment comes as\n`UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is\nread again for it. A number sent here in a request is ignored.",
+            "format": "int64",
+            "type": "integer"
+          },
           "modifiedBy": {
             "description": "The identifier of the user who last modified the card.",
             "type": "string"
@@ -561,6 +566,7 @@
           "icon",
           "id",
           "isTemplate",
+          "lastCommentAt",
           "modifiedBy",
           "properties",
           "tasksDone",
@@ -893,6 +899,35 @@
         },
         "required": [
           "boards"
+        ],
+        "type": "object"
+      },
+      "DeletedItem": {
+        "description": "A card or a board in the trash, with as much as it takes to decide whether to bring\nit back (`undeleteBlock`, `undeleteBoard`).",
+        "properties": {
+          "deletedAt": {
+            "description": "When it was deleted, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deletedBy": {
+            "description": "The identifier of who deleted it, who may no longer exist; empty if not known.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The identifier of the card or the board.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Its title when it was deleted.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deletedAt",
+          "deletedBy",
+          "id",
+          "title"
         ],
         "type": "object"
       },
@@ -1690,6 +1725,14 @@
               }
             ]
           },
+          "language": {
+            "description": "`auto`, for the language of the browser, or a language tag such as `ko` or\n`en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at most 64\ncharacters; the server keeps no list of languages, and keeps a tag as given.",
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "theme": {
             "oneOf": [
               {
@@ -2076,6 +2119,10 @@
             "$ref": "#/components/schemas/HourCycle",
             "description": "How the hours of a day are written."
           },
+          "language": {
+            "description": "The language of the interface: `auto` for the browser's, or a language tag such\nas `ko` or `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at\nmost 64 characters. The server keeps no list of languages, and answers a tag as\nit was given, case and all: compare tags without regard to case.",
+            "type": "string"
+          },
           "theme": {
             "$ref": "#/components/schemas/Theme",
             "description": "The colors of the interface."
@@ -2096,7 +2143,8 @@
           "theme",
           "cardOpen",
           "density",
-          "haptics"
+          "haptics",
+          "language"
         ],
         "type": "object"
       },
@@ -2524,7 +2572,7 @@
     },
     "/api/v1/boards/{boardId}/archive/export": {
       "get": {
-        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a ZIP of version\n3: `version.json`, and per board a directory with `board.jsonl` (one `board`,\n`block` or `boardMember` per line, in the shapes of this contract, bodies included)\nand the files the blocks show, the images of bodies among them.\n\nA user runs one export at a time, and the server as many as its setting\n`max_concurrent_exports` (2 unless set); an export runs until its archive is written,\nand its download does not count. Over either it is 429 with the reason `export_running` or `server_exports_busy`, and\nis to be asked for again later.",
+        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a ZIP of version\n3: `version.json`, and per board a directory with `board.jsonl` (one `board`,\n`block` or `boardMember` per line, in the shapes of this contract, bodies included)\nand the files the blocks show, the images of bodies among them.\n\nA user runs one export at a time, and the server as many as its setting\n`max_concurrent_exports` (2 unless set). Over either it is 429 with the reason\n`export_running` or `server_exports_busy`, and is to be asked for again later. An\nexport runs until its archive is sent or the client goes away; a download that takes\nnothing for `export_stall_seconds` (60 unless set) is given up, and its connection\nbroken before the archive's end.",
         "operationId": "exportBoardArchive",
         "parameters": [
           {
@@ -3123,7 +3171,7 @@
             }
           },
           {
-            "description": "How many cards a page has. Left out, 100. Zero or less asks for all cards.",
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
             "in": "query",
             "name": "perPage",
             "required": false,
@@ -3883,9 +3931,75 @@
         ]
       }
     },
+    "/api/v1/boards/{boardId}/trash/cards": {
+      "get": {
+        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages\ncut that order. A `page` or `perPage` that is no whole number is 400.",
+        "operationId": "getDeletedCards",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted cards of the page."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The deleted cards of a board",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
     "/api/v1/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Its sharing, its\nplaces in the sidebars and the subscriptions to its blocks ended with the deletion\nand stay ended. For who was an admin of the board when it was deleted; to anybody\nwho was no member there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted; to anybody\nwho was no member there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {
@@ -5450,6 +5564,72 @@
           }
         },
         "summary": "The templates of a team",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/trash/boards": {
+      "get": {
+        "description": "One page of the team's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the team.",
+        "operationId": "getDeletedBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted boards of the page."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The deleted boards of a team",
         "tags": [
           "boards"
         ]

@@ -757,7 +757,8 @@ async fn a_large_file_is_whole_in_the_archive() {
 
 /// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one export at a
 /// time and the server `max_concurrent_exports` (2): over either, an export of a board or
-/// of a team is 429 with a reason. An export holds its place until it is sent.
+/// of a team is 429 with a reason. An export holds its place until it is sent
+/// (`app::download`'s tests).
 #[tokio::test]
 async fn exports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -788,4 +789,149 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
     // The place of a sent export is given back.
     export_board(&ts.client, &board.id).await.check_ok();
     ts.client2.get(&team_export).await.check_ok();
+}
+
+/// A board with three attachments of 6 MiB that do not compress (a request takes 8 MiB at
+/// most), so that its archive is larger than what the connection's buffers take in.
+async fn board_with_large_archive(ts: &TestServer) -> Board {
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+    let mut attachments = Vec::new();
+    for index in 0..3 {
+        let data: Vec<u8> = (0..6 * 1024 * 1024)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state.to_le_bytes()[0]
+            })
+            .collect();
+        let response =
+            crate::files::upload(&ts.client, &board.id, &format!("noise{index}.bin"), &data).await;
+        response.check_created();
+        attachments.push(Block {
+            id: new_id(),
+            parent_id: board.id.clone(),
+            board_id: board.id.clone(),
+            block_type: BlockType::Attachment,
+            fields: serde_json::json!({"fileId": crate::files::uploaded_id(&response)})
+                .as_object()
+                .expect("an object")
+                .clone(),
+            create_at: 1,
+            update_at: 1,
+            ..Block::default()
+        });
+    }
+    ts.client
+        .insert_blocks(&board.id, &attachments)
+        .await
+        .check_created();
+    board
+}
+
+/// The temporary archives in the exports directory.
+fn temporary_archives(ts: &TestServer) -> usize {
+    std::fs::read_dir(ts.app.config().tmp_dir().join("exports")).map_or(0, Iterator::count)
+}
+
+/// Asks for a board's archive on a connection of its own that takes little (a small
+/// receive buffer, whatever the host's defaults), and reads nothing of the answer.
+async fn stalled_download(ts: &TestServer, board_id: &str) -> tokio::net::TcpStream {
+    let address: std::net::SocketAddr = ts
+        .base_url
+        .trim_start_matches("http://")
+        .parse()
+        .expect("the test server listens on an address");
+    let socket = tokio::net::TcpSocket::new_v4().expect("a socket");
+    socket
+        .set_recv_buffer_size(16 * 1024)
+        .expect("a small receive buffer");
+    let mut stream = socket.connect(address).await.expect("connected");
+    let request = format!(
+        "GET /api/v1/boards/{board_id}/archive/export HTTP/1.1\r\nHost: localhost\r\n\
+         Authorization: Bearer {}\r\nX-Requested-With: XMLHttpRequest\r\n\r\n",
+        ts.client.token
+    );
+    tokio::io::AsyncWriteExt::write_all(&mut stream, request.as_bytes())
+        .await
+        .expect("the request is sent");
+    stream
+}
+
+/// Waits for `done`, up to a minute: enough for a machine under any load, and only a
+/// test that fails anyway waits that long.
+async fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !done() {
+        assert!(tokio::time::Instant::now() < deadline, "{what}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+/// Not in the original (coordinator's decision 2026-11-11 16:20 KST). A client that takes
+/// nothing for `export_stall_seconds` has the file removed, then the place given back,
+/// and its connection broken short of the archive's end. Only what must happen is waited
+/// for, so the outcome does not depend on how busy the machine is; that the place is held
+/// while a download goes on is `app::download`'s test, on the paused clock.
+#[tokio::test]
+async fn a_download_that_takes_nothing_is_given_up() {
+    let ts = Setup::native()
+        .configure(|config| config.export_stall_seconds = 1)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = board_with_large_archive(&ts).await;
+    let me = ts.client.me().await;
+
+    // The head of the answer comes once the archive is written and its place taken.
+    let mut stalled = stalled_download(&ts, &board.id).await;
+    let mut head = Vec::new();
+    let mut buffer = vec![0; 64 * 1024];
+    while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            tokio::io::AsyncReadExt::read(&mut stalled, &mut buffer),
+        )
+        .await
+        .expect("the answer comes")
+        .expect("read");
+        assert!(read > 0, "the answer has a head");
+        head.extend_from_slice(&buffer[..read]);
+    }
+    let head_text = String::from_utf8_lossy(&head).into_owned();
+    assert!(head_text.starts_with("HTTP/1.1 200"), "{head_text}");
+    let head_end = head_text.find("\r\n\r\n").expect("the end of the head") + 4;
+    let length: usize = head_text
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse().ok())?
+        })
+        .expect("the archive's length");
+
+    until("the place is given back", || {
+        ts.app.start_export(&me.id).is_ok()
+    })
+    .await;
+    assert_eq!(temporary_archives(&ts), 0, "the file went before the place");
+
+    // What came after the head is of the archive.
+    let mut received = head.len() - head_end;
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        loop {
+            match tokio::io::AsyncReadExt::read(&mut stalled, &mut buffer).await {
+                Ok(0) | Err(_) => break,
+                Ok(read) => received += read,
+            }
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the connection is broken");
+    assert!(
+        received < length,
+        "{received} bytes of an archive of {length}"
+    );
 }
