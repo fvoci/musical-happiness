@@ -2,10 +2,9 @@
  * The data boundary: everything a screen can read, write and listen to.
  *
  * Screens never talk to a server. They use the stores of this folder, and
- * the stores use one `Backend`. Today the only implementation keeps its data
- * in memory (`memory/`); when the server's contract is published, an
- * implementation that calls the server takes its place and nothing above
- * this file changes.
+ * the stores use one `Backend`: the one that calls the server (`lib/api/`),
+ * or the one that keeps its data in memory (`memory/`) for working without a
+ * server. Nothing above this file knows which.
  *
  * The shapes follow the server design (its `docs/s6-design.md`): errors are
  * the problem details of RFC 9457 with the status codes of its section 1.3, identifiers are made by the server, a card or a comment has
@@ -418,9 +417,9 @@ export interface Backend {
 
   // Files.
   /**
-   * Uploads a file of a board. Small files go in one request and large ones
-   * in parts (server design 5.6); which, and the retrying of a part, is the
-   * implementation's business.
+   * Uploads a file of a board. The server takes it in parts (an upload
+   * session); the parts and the retrying of one are the implementation's
+   * business.
    */
   upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
   /** The bytes of a file. */

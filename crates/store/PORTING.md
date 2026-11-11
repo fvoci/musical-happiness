@@ -7,7 +7,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 
 - **실행 계층 (`src/db.rs`)**: SQL 문장 하나를 두 DB가 함께 쓴다(`$n` 자리표시자). 값은 전부 바인딩하고, 테이블 접두사만 문자열로 들어간다(접속 시 식별자인지 검사). 방언 차이(JSON 캐스트, history 타임스탬프)는 `Sql`/`Scope`가 처리한다.
 - **트랜잭션**: 문장이 둘 이상인 쓰기는 두 DB 모두에서 트랜잭션으로 실행한다. SQLite는 `BEGIN IMMEDIATE`로 연다.
-- **스키마 (`schema/*.sql`, `src/schema.rs`)**: 빈 DB에는 버전 40 최종 스키마를 한 번에 만들고 원본과 같은 마이그레이션 기록(SQLite `db_migrations`, PostgreSQL `{prefix}schema_migrations`)과 데이터 마이그레이션 완료 키 3개를 쓴다. 버전 40이 아닌 DB는 거절한다.
+- **스키마 (`schema/*.sql`, `src/schema.rs`)**: sqlx의 migrator가 단계를 차례로 적용하고 `_sqlx_migrations`에 기록한다. 기록 없이 `blocks` 테이블이 있는 DB, 더 새 서버가 올린 DB, 고쳐 쓴 이력은 거절한다.
 - **SQLite 저널 모드**는 바꾸지 않는다(WAL을 켜지 않음). 인메모리 DB는 연결 하나로 쓴다.
 
 ## 스키마 대조 (2026-11-10)
