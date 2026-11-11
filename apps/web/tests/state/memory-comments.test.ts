@@ -71,19 +71,23 @@ describe('who changes and deletes a comment', () => {
     expect(world.blocks.get(mine.id)?.body).toEqual(text('by an admin'));
   });
 
-  it('its author with the editor’s role deletes it; only an admin deletes anybody else’s', async () => {
+  it('its author with the commenter’s role deletes it and brings it back; anybody else’s is for an admin', async () => {
     const { world, backend, other, boardId, cardId } = await onAlpha();
     const first = await backend.createComment(boardId, cardId, text('one'));
     const second = await backend.createComment(boardId, cardId, text('two'));
 
-    setRole(world, boardId, backend, 'commenter');
+    setRole(world, boardId, backend, 'viewer');
     expect(await statusOf(backend.deleteBlock(boardId, first.id))).toBe(403);
-    setRole(world, boardId, other, 'editor');
-    expect(await statusOf(other.deleteBlock(boardId, first.id))).toBe(403);
-    setRole(world, boardId, backend, 'editor');
+    setRole(world, boardId, backend, 'commenter');
     expect(await statusOf(backend.deleteBlock(boardId, first.id))).toBe('ok');
+    // Somebody else's, deleted or in the trash, is not an editor's.
+    setRole(world, boardId, other, 'editor');
+    expect(await statusOf(other.restoreBlock(boardId, first.id))).toBe(403);
+    expect(await statusOf(other.deleteBlock(boardId, second.id))).toBe(403);
+    expect(await statusOf(backend.restoreBlock(boardId, first.id))).toBe('ok');
     setRole(world, boardId, other, 'admin');
     expect(await statusOf(other.deleteBlock(boardId, second.id))).toBe('ok');
+    expect(await statusOf(other.restoreBlock(boardId, second.id))).toBe('ok');
   });
 });
 

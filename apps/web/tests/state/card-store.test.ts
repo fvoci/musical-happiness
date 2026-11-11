@@ -379,7 +379,7 @@ describe('deleted and brought back', () => {
 });
 
 describe('who deletes a comment', () => {
-  it('an admin anyone’s, an editor their own, a commenter none', async () => {
+  it('an admin anyone’s, an editor or a commenter their own, a viewer none', async () => {
     const { board, workspace } = await openAlpha();
     const me = workspace.me?.id ?? '';
     const as = (
@@ -396,6 +396,8 @@ describe('who deletes a comment', () => {
     as({ schemeEditor: true });
     expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
     as({ schemeCommenter: true });
+    expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
+    as({});
     expect(board.canDeleteComment(me)).toBe(false);
   });
 });

@@ -1208,6 +1208,13 @@ export class MemoryBackend implements Backend {
       fail(404, 'the parent of the block is gone');
     }
     this.#board(boardId);
+    const top = deleted.blocks[0];
+    if (top?.type === 'comment') {
+      const role = this.#roleOn(boardId);
+      if (!mayDeleteComment(role, top.createdBy === this.userId)) {
+        fail(403, "access denied to restore other users' comments");
+      }
+    }
     this.world.deletedBlocks.delete(blockId);
     for (const block of deleted.blocks) {
       // As the server: whoever restores is the last to change each block, now.

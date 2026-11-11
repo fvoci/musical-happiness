@@ -155,13 +155,13 @@ export class BoardStore {
   readonly canComment = $derived(this.canEdit || this.role === 'commenter');
 
   /**
-   * Whether the reader may delete a comment written by `createdBy`: an
-   * editor their own, an admin anyone's. A commenter cannot delete even
-   * their own (`deleteBlock` in `contracts/openapi.json`).
+   * Whether the reader may delete a comment written by `createdBy`, and
+   * bring it back: their own when they may comment, anyone's when they are
+   * an admin (the user's decision of 2026-11-11 22:13 KST).
    */
   canDeleteComment(createdBy: string): boolean {
     if (this.role === 'admin') return true;
-    return this.canEdit && createdBy === this.workspace.me?.id;
+    return this.canComment && createdBy === this.workspace.me?.id;
   }
 
   /**

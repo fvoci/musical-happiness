@@ -140,10 +140,10 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
       /No mushrooms, please/,
     );
   }
-  // The commenter changes their own and deletes none; the editor neither on somebody
+  // The commenter changes and deletes their own; the editor neither on somebody
   // else's; the admin both.
   await expect(editOf(guestPage)).toHaveCount(1);
-  await expect(deleteOf(guestPage)).toHaveCount(0);
+  await expect(deleteOf(guestPage)).toHaveCount(1);
   await expect(editOf(helperPage)).toHaveCount(0);
   await expect(deleteOf(helperPage)).toHaveCount(0);
   await expect(editOf(hostPage)).toHaveCount(1);

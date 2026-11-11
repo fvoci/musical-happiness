@@ -27,10 +27,10 @@ export function mayChangeComment(role: Role, isAuthor: boolean): boolean {
   return isAuthor && (role === 'editor' || role === 'commenter');
 }
 
-/** Its author deletes a comment with the editor's role; anybody else's is for the admins. */
+/** Its author deletes a comment, and brings it back, with the commenter's role; anybody else's is for the admins. */
 export function mayDeleteComment(role: Role, isAuthor: boolean): boolean {
   if (role === 'admin') return true;
-  return isAuthor && role === 'editor';
+  return isAuthor && (role === 'editor' || role === 'commenter');
 }
 
 /**
