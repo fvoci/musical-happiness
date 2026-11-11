@@ -12,7 +12,8 @@ use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::password::{Verdict, hash_password, verify_against_no_account, verify_password};
 use crate::auth::secret::{new_secret, token_digest};
-use crate::error::{AppError, Reason};
+use crate::error::{AppError, ErrorKind, Reason};
+use crate::metrics::LoginOutcome;
 
 /// What a registration came with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +41,22 @@ impl App {
     /// address, for its address at this account, or for the account. Returns one and the
     /// same 401 if no such user exists or the password is wrong, after the same work.
     pub async fn login(
+        &self,
+        username: &str,
+        email: &str,
+        password: &str,
+        user_agent: &str,
+        address: Option<IpAddr>,
+    ) -> Result<String, AppError> {
+        let result = self
+            .check_login(username, email, password, user_agent, address)
+            .await;
+        self.metrics().login_ended(login_outcome(&result));
+        result
+    }
+
+    /// The work of [`App::login`], unmeasured.
+    async fn check_login(
         &self,
         username: &str,
         email: &str,
@@ -264,6 +281,7 @@ impl App {
         };
         match stored {
             Ok(()) => {
+                self.metrics().registered();
                 if user.is_admin {
                     tracing::info!(user_id = %user.id, "the first user is the administrator");
                 }
@@ -369,6 +387,19 @@ enum Lookup<'a> {
 }
 
 /// The refusal of a login, whatever was wrong.
+/// How a login that answered `result` ended, for the metrics: by the kind of its error,
+/// which is the same for an unknown account and a wrong password.
+fn login_outcome<T>(result: &Result<T, AppError>) -> LoginOutcome {
+    match result {
+        Ok(_) => LoginOutcome::Succeeded,
+        Err(error) => match error.kind() {
+            ErrorKind::Unauthorized => LoginOutcome::InvalidCredentials,
+            ErrorKind::RateLimited => LoginOutcome::Limited,
+            _ => LoginOutcome::Failed,
+        },
+    }
+}
+
 fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
 }
@@ -410,5 +441,30 @@ impl App {
         let (hash, password) = (hash.to_owned(), password.to_owned());
         self.password_work(move || verify_password(&hash, &password))
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_login_ends_in_one_of_four_outcomes_by_the_kind_of_its_error() {
+        let ended = |result: Result<(), AppError>| login_outcome(&result);
+        assert_eq!(ended(Ok(())), LoginOutcome::Succeeded);
+        assert_eq!(
+            ended(Err(incorrect_login())),
+            LoginOutcome::InvalidCredentials
+        );
+        assert_eq!(
+            ended(Err(AppError::rate_limited(std::time::Duration::from_secs(
+                1
+            )))),
+            LoginOutcome::Limited
+        );
+        assert_eq!(
+            ended(Err(AppError::internal("the database is gone"))),
+            LoginOutcome::Failed
+        );
     }
 }

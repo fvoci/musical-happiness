@@ -14,14 +14,18 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
+use scrape_read::ScrapeRead;
 
+mod accounts;
 mod background;
 mod database;
 mod files;
 mod requests;
+mod scrape_read;
 mod storage;
 mod websocket;
 
+pub(crate) use accounts::LoginOutcome;
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
@@ -53,6 +57,7 @@ struct Kept {
     database: database::DatabaseMetrics,
     files: files::FilesMetrics,
     background: background::BackgroundMetrics,
+    accounts: accounts::AccountMetrics,
 }
 
 impl Metrics {
@@ -92,6 +97,7 @@ impl Metrics {
         let database = database::DatabaseMetrics::register(&registry)?;
         let files = files::FilesMetrics::register(&registry)?;
         let background = background::BackgroundMetrics::register(&registry)?;
+        let accounts = accounts::AccountMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
@@ -101,6 +107,7 @@ impl Metrics {
                 database,
                 files,
                 background,
+                accounts,
             })),
         })
     }

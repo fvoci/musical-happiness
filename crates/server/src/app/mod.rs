@@ -397,9 +397,9 @@ impl App {
     }
 
     /// Reads into the metrics what is measured by asking, for a scrape: the archives
-    /// that hold their place, the connection pool and the open uploads. The uploads
-    /// stay as they were if the database cannot be read in time, which is counted, or
-    /// another scrape is reading them.
+    /// that hold their place, the connection pool, the open uploads and the live
+    /// sessions. The last two stay as they were if the database cannot be read in time,
+    /// which is counted, or another scrape is reading them.
     pub(crate) async fn read_storage_metrics(&self) {
         let metrics = self.metrics();
         if !metrics.is_kept() {
@@ -413,14 +413,20 @@ impl App {
             idle: pool.idle,
             max_connections: pool.max_connections,
         });
+        let now = crate::auth::now_millis();
         let open_uploads = async {
-            let open = self.store().open_uploads(crate::auth::now_millis()).await?;
+            let open = self.store().open_uploads(now).await?;
             Ok::<_, fvoci_store::StoreError>(OpenUploads {
                 sessions: open.sessions,
                 bytes: open.bytes,
             })
         };
-        metrics.read_open_uploads(open_uploads).await;
+        let idle_since = now.saturating_sub(self.config().session_idle_millis());
+        let live_sessions = self.store().count_live_sessions(now, idle_since);
+        tokio::join!(
+            metrics.read_open_uploads(open_uploads),
+            metrics.read_live_sessions(live_sessions),
+        );
     }
 
     /// Takes the place of an import of the user's, as [`Self::start_export`] does.
