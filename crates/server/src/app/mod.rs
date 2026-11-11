@@ -10,11 +10,16 @@ mod boards_and_blocks;
 mod cards;
 mod category;
 mod category_boards;
+mod doomed;
 mod export;
 mod files;
 mod import;
 mod onboarding;
 mod search;
+mod slots;
+
+use slots::Busy;
+pub use slots::Slot;
 mod sharing;
 mod subscriptions;
 mod teams;
@@ -46,7 +51,7 @@ use crate::auth::Authenticator;
 use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::config::Configuration;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 use crate::permissions::{
     BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
 };
@@ -88,6 +93,10 @@ struct Inner {
     /// The memory the parts of uploads to the object store may take while they are
     /// received, in KiB (`uploads::PARTS_IN_MEMORY`).
     part_memory: Arc<tokio::sync::Semaphore>,
+    /// The exports that run.
+    exports: slots::Slots,
+    /// The imports that run.
+    imports: slots::Slots,
 }
 
 /// What `ping` reports about the server.
@@ -123,6 +132,7 @@ impl App {
     /// Returns an error if `serverRoot` or an allowed origin is no URL, or if webhooks
     /// are configured and their HTTP client cannot be set up.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
+        store.set_comment_versions_kept(config.max_comment_versions);
         let auth = Authenticator::new(store.clone(), &config)?;
         let login_limiter = LoginLimiter::new(Limits::from_config(&config));
         let password_work = HashQueue::new(
@@ -137,6 +147,10 @@ impl App {
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;
         let part_memory = uploads::part_memory_kib(config.upload_part_bytes);
+        let slots =
+            |capacity: u32| slots::Slots::new(usize::try_from(capacity).unwrap_or(usize::MAX));
+        let exports = slots(config.max_concurrent_exports);
+        let imports = slots(config.max_concurrent_imports);
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
@@ -153,6 +167,8 @@ impl App {
                 opening_upload: tokio::sync::Mutex::new(()),
                 upload_turns: uploads::UploadTurns::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
+                exports,
+                imports,
             }),
         })
     }
@@ -282,6 +298,57 @@ impl App {
             Err(error) => Err(AppError::from(anyhow::Error::from(error))
                 .context("reading the membership of a board")),
         }
+    }
+
+    /// Takes the place of an export of the user's, given back when the [`Slot`] is
+    /// dropped.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 429 if the user has an export running (reason `export_running`) or the
+    /// server runs as many as `max_concurrent_exports` (reason `server_exports_busy`).
+    pub fn start_export(&self, user_id: &str) -> Result<Slot, AppError> {
+        self.inner.exports.take(user_id).map_err(|busy| match busy {
+            Busy::User => AppError::limited(
+                "an export of yours is running; try again when it is done",
+                Reason::ExportRunning,
+            ),
+            Busy::Server => AppError::limited(
+                "the server runs as many exports as it may; try again later",
+                Reason::ServerExportsBusy,
+            ),
+        })
+    }
+
+    /// Takes the place of an import of the user's, as [`Self::start_export`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 429 if the user has an import running (reason `import_running`) or the
+    /// server runs as many as `max_concurrent_imports` (reason `server_imports_busy`).
+    pub fn start_import(&self, user_id: &str) -> Result<Slot, AppError> {
+        self.inner.imports.take(user_id).map_err(|busy| match busy {
+            Busy::User => AppError::limited(
+                "an import of yours is running; try again when it is done",
+                Reason::ImportRunning,
+            ),
+            Busy::Server => AppError::limited(
+                "the server runs as many imports as it may; try again later",
+                Reason::ServerImportsBusy,
+            ),
+        })
+    }
+
+    /// Returns whether the user is a member of the board who may read it. Who reads a
+    /// shared board by its read token and is not one is told no user's identifier
+    /// (`Board::hide_people`, `Block::hide_people`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn is_board_reader(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
+        self.has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
+            .await
     }
 
     /// Returns the membership of a user on a board, if there is one.

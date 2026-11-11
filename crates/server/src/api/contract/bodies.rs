@@ -229,6 +229,15 @@ pub(crate) struct AdminChange {
     is_admin: bool,
 }
 
+/// What a user changes of their account. A member that is left out stays as it is.
+#[derive(Debug, ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub(crate) struct AccountChange {
+    /// The name to be shown by: at most 64 UTF-16 code units without control
+    /// characters. Empty or `null` for none, and the login name is shown.
+    display_name: Option<String>,
+}
+
 /// The settings to change. A member that is left out stays as it is; one that is `null`
 /// goes back to its default.
 #[derive(Debug, ToSchema)]

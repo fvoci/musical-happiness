@@ -214,6 +214,7 @@
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
+      "displayName": "",
       "id": "<id:1>",
       "isAdmin": false,
       "updateAt": "<ts>",

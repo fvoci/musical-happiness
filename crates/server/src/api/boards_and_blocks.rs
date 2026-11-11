@@ -20,9 +20,13 @@ use super::decode_object_with;
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
 use super::{objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
+use super::{require_block_change_permission, require_block_type_change_permission};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
+
+/// The refusal of a change to a block of a board the user may not change cards on.
+const MODIFYING_CARDS_DENIED: &str = "access denied to modifying cards";
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(
@@ -243,7 +247,7 @@ async fn handle_patch_boards_and_blocks(
         }
     }
 
-    require_blocks_of_boards(&app, user_id, &patches.block_ids, &board_ids).await?;
+    require_block_patches(&app, user_id, &patches, &board_ids).await?;
     for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
         if let Some(body) = patch.body.new_body() {
             let block = app.block(block_id).await?;
@@ -261,6 +265,9 @@ fn not_a_block_of_the_boards() -> AppError {
     AppError::bad_request("the request names a block that is not on its boards")
 }
 
+/// Checks that every block is on one of the boards, and that the user may change cards
+/// there. The same answer for a block that does not exist and for one on a board the
+/// request does not list, so that nothing is said about blocks of other boards.
 async fn require_blocks_of_boards(
     app: &App,
     user_id: &str,
@@ -268,26 +275,49 @@ async fn require_blocks_of_boards(
     board_ids: &HashSet<&str>,
 ) -> Result<(), AppError> {
     for block_id in block_ids {
-        // One answer for a block that does not exist and for one on a board the request
-        // does not list, so that nothing is said about blocks of other boards.
-        let block = match app.block(block_id).await {
-            Ok(block) if board_ids.contains(block.board_id.as_str()) => block,
-            Ok(_) => return Err(not_a_block_of_the_boards()),
-            Err(error) if error.is_not_found() => {
-                return Err(not_a_block_of_the_boards());
-            }
-            Err(error) => return Err(error),
-        };
+        let block = block_of_boards(app, block_id, board_ids).await?;
         require_board_permission(
             app,
             user_id,
             &block.board_id,
             BoardPermission::ManageBoardCards,
-            "access denied to modifying cards",
+            MODIFYING_CARDS_DENIED,
         )
         .await?;
     }
     Ok(())
+}
+
+/// Checks that every block the request patches is on one of its boards, and that the
+/// user may apply its patch to it as `patchBlock` would.
+async fn require_block_patches(
+    app: &App,
+    user_id: &str,
+    patches: &PatchBoardsAndBlocks,
+    board_ids: &HashSet<&str>,
+) -> Result<(), AppError> {
+    for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
+        let block = block_of_boards(app, block_id, board_ids).await?;
+        require_block_change_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
+        require_block_type_change_permission(app, user_id, &block, patch, MODIFYING_CARDS_DENIED)
+            .await?;
+    }
+    Ok(())
+}
+
+/// The block, if it is on one of the boards; [`not_a_block_of_the_boards`] if it does
+/// not exist or is on another board.
+async fn block_of_boards(
+    app: &App,
+    block_id: &str,
+    board_ids: &HashSet<&str>,
+) -> Result<Block, AppError> {
+    match app.block(block_id).await {
+        Ok(block) if board_ids.contains(block.board_id.as_str()) => Ok(block),
+        Ok(_) => Err(not_a_block_of_the_boards()),
+        Err(error) if error.is_not_found() => Err(not_a_block_of_the_boards()),
+        Err(error) => Err(error),
+    }
 }
 
 /// Delete boards and blocks together

@@ -71,6 +71,11 @@ pub(super) async fn require_import_access(
 /// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
 /// `block` or `boardMember` per line, in the shapes of this contract, bodies included)
 /// and the files the blocks show, the images of bodies among them.
+///
+/// A user runs one export at a time, and the server as many as its setting
+/// `max_concurrent_exports` (2 unless set); an export runs until its archive is written,
+/// and its download does not count. Over either it is 429 with the reason `export_running` or `server_exports_busy`, and
+/// is to be asked for again later.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/archive/export",
@@ -105,17 +110,19 @@ async fn handle_export_board(
     )
     .await?;
     let board = app.board(&board_id).await?;
+    let slot = app.start_export(user_id)?;
     let archive = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
         .await?;
+    drop(slot);
     Ok(archive_response(archive))
 }
 
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download with its length, in the format of `exportBoardArchive`. A team that
-/// is not there is not refused: its archive has no boards.
+/// as a download with its length, in the format of `exportBoardArchive`, and under its
+/// limits. A team that is not there is not refused: its archive has no boards.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/archive/export",
@@ -148,7 +155,9 @@ async fn handle_export_team(
         .boards_for_user_and_team(user_id, &team_id, public)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
+    let slot = app.start_export(user_id)?;
     let archive = app.export_archive(&team_id, &ids).await?;
+    drop(slot);
     Ok(archive_response(archive))
 }
 
@@ -176,6 +185,10 @@ async fn handle_export_team(
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
 /// those before it stay.
+///
+/// A user runs one import at a time, and the server as many as its setting
+/// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
+/// `import_running` or `server_imports_busy`; the upload stays open, to be named again.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/archive/import",
@@ -213,6 +226,8 @@ async fn handle_import(
         }
         return Err(refusal);
     }
+    // Refused, the upload stays: the import can be asked for again.
+    let _slot = app.start_import(user_id)?;
     app.import_upload(&upload).await?;
     Ok(no_content())
 }

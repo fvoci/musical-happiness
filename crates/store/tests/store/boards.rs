@@ -4176,6 +4176,8 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         update_at: 0,
         delete_at: 0,
         board_id: board.id.clone(),
+        // Only a comment whose body was changed has one.
+        edited_at: 0,
     };
     test.insert_blocks(&mut [card], &author_id)
         .await

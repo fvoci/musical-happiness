@@ -328,6 +328,11 @@ fn cases() -> Vec<Case> {
             |h, i| format!("/boards/{}/blocks/{}/duplicate", h.board[i], h.card[i]),
             no_body,
         ),
+        case(
+            Method::GET,
+            |h, i| format!("/boards/{}/blocks/{}/versions", h.board[i], h.card[i]),
+            no_body,
+        ),
         // Its cards, by the board and by themselves.
         case(
             Method::GET,
@@ -475,6 +480,11 @@ fn mixed_cases() -> Vec<Case> {
         case(
             Method::POST,
             |h, i| format!("/boards/{}/blocks/{}/duplicate", h.own_board, h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::GET,
+            |h, i| format!("/boards/{}/blocks/{}/versions", h.own_board, h.card[i]),
             no_body,
         ),
         case(
@@ -833,6 +843,11 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (
             Method::POST,
             format!("/boards/{board}/blocks/{{}}/duplicate"),
+            Value::Null,
+        ),
+        (
+            Method::GET,
+            format!("/boards/{board}/blocks/{{}}/versions"),
             Value::Null,
         ),
         (

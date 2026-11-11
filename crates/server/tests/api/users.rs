@@ -22,6 +22,7 @@ fn register_request(password: &str) -> RegisterRequest {
         email: FAKE_EMAIL.to_owned(),
         password: password.to_owned(),
         token: String::new(),
+        display_name: String::new(),
     }
 }
 
@@ -328,7 +329,13 @@ async fn a_registration_answers_the_user_that_was_made() {
         assert_eq!(
             members,
             [
-                "createAt", "deleteAt", "id", "isAdmin", "updateAt", "username"
+                "createAt",
+                "deleteAt",
+                "displayName",
+                "id",
+                "isAdmin",
+                "updateAt",
+                "username"
             ],
             "{username}: the members of the answer, sorted: {made}"
         );
@@ -392,6 +399,7 @@ async fn get_me_logged_in() {
         json!({
             "id": me.id,
             "username": FAKE_USERNAME,
+            "displayName": "",
             "createAt": me.create_at,
             "updateAt": me.update_at,
             "deleteAt": 0,
@@ -506,6 +514,7 @@ async fn users_list_and_profiles() {
         json!({
             "id": user2.id,
             "username": "user2",
+            "displayName": "",
             "createAt": user2.create_at,
             "updateAt": user2.update_at,
             "deleteAt": 0,
@@ -1440,4 +1449,113 @@ async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
     assert_eq!(response.error_reason(), "invalid_credentials");
 
     th.teardown().await;
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). A user may have a name to be
+/// shown by: given at registration or not, changed by the user (`patchMe`), cleared with
+/// an empty name or `null`, and found by the search as the login name is. At most 64
+/// UTF-16 code units and no control characters.
+#[tokio::test]
+async fn a_user_has_a_display_name_of_their_choosing() {
+    let th = Setup::native().start().await.init_basic().await;
+    let team = th.app.root_team().await.expect("the root team");
+    let registered = th
+        .anonymous()
+        .post(
+            "/register",
+            &json!({"username": "jim", "email": "jim@sample.com", "password": PASSWORD,
+                    "token": team.signup_token, "displayName": "Jim Halpert"}),
+        )
+        .await;
+    registered.check_created();
+    assert_eq!(registered.value()["displayName"], json!("Jim Halpert"));
+    let jim = th.login("jim", PASSWORD).await;
+
+    let me = th.client.me().await;
+    assert_eq!(me.display_name, "", "none unless chosen");
+    let changed: User = th
+        .client
+        .patch("/users/me", &json!({"displayName": "Michael Scott 🎉"}))
+        .await
+        .ok_json();
+    assert_eq!(changed.display_name, "Michael Scott 🎉");
+    assert_eq!(th.client.me().await.display_name, "Michael Scott 🎉");
+
+    // Found by either name, whatever the case.
+    let search = |query: &str| format!("/teams/{ROOT_TEAM_ID}/users?search={query}");
+    let found: Vec<User> = jim.get(&search("scott")).await.ok_json();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].id, me.id);
+    assert_eq!(found[0].display_name, "Michael Scott 🎉", "others see it");
+    let found: Vec<User> = th.client.get(&search("HALPERT")).await.ok_json();
+    assert_eq!(found.len(), 1, "{found:?}");
+
+    // The limits: 64 UTF-16 code units, no control characters, no other member.
+    let longest = format!("{}🎉", "가".repeat(62));
+    th.client
+        .patch("/users/me", &json!({"displayName": longest}))
+        .await
+        .check_ok();
+    for (body, field) in [
+        (
+            json!({"displayName": format!("{}🎉", "가".repeat(63))}),
+            "displayName",
+        ),
+        (json!({"displayName": "two\nlines"}), "displayName"),
+        (json!({"displayName": "a\u{0}b"}), "displayName"),
+        (json!({"displayName": "\u{200B}"}), "displayName"),
+        (json!({"displayName": "\u{202E}evil"}), "displayName"),
+        (json!({"displayName": "line\u{2028}break"}), "displayName"),
+        (json!({"displayName": 1}), "displayName"),
+        (json!({"username": "renamed"}), "username"),
+    ] {
+        let response = th.client.patch("/users/me", &body).await;
+        response.check_bad_request();
+        assert_eq!(
+            response.value()["field"],
+            json!(field),
+            "{body}: {}",
+            response.text()
+        );
+    }
+    assert_eq!(
+        th.client.me().await.display_name,
+        longest,
+        "nothing changed"
+    );
+    let response = th
+        .anonymous()
+        .post(
+            "/register",
+            &json!({"username": "pam", "email": "pam@sample.com", "password": PASSWORD,
+                    "token": team.signup_token, "displayName": "x".repeat(65)}),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("displayName"));
+    // Left out or null at registration: none.
+    for (username, extra) in [("dwight", None), ("angela", Some(Value::Null))] {
+        let mut body = json!({"username": username, "email": format!("{username}@sample.com"),
+                              "password": PASSWORD, "token": team.signup_token});
+        if let Some(value) = extra {
+            body["displayName"] = value;
+        }
+        let made = th.anonymous().post("/register", &body).await;
+        made.check_created();
+        assert_eq!(made.value()["displayName"], json!(""), "{username}");
+    }
+
+    // White space around a name goes; empty, blank or null: none.
+    let trimmed: User = jim
+        .patch("/users/me", &json!({"displayName": "  Jim  "}))
+        .await
+        .ok_json();
+    assert_eq!(trimmed.display_name, "Jim");
+    for cleared in [json!(""), json!("   "), Value::Null] {
+        let user: User = jim
+            .patch("/users/me", &json!({"displayName": cleared}))
+            .await
+            .ok_json();
+        assert_eq!(user.display_name, "");
+    }
 }

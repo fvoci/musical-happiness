@@ -227,6 +227,7 @@ impl From<Card> for Block {
             update_at: card.update_at,
             delete_at: card.delete_at,
             board_id: card.board_id,
+            edited_at: 0,
         }
     }
 }

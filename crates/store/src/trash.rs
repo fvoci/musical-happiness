@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 use crate::Store;
 use crate::blocks::{self, parents_first};
 use crate::boards;
+use crate::comment_versions;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
@@ -175,7 +176,9 @@ impl Store {
                  AND board_id NOT IN (SELECT id FROM deleted_boards)",
             );
             records += scope.execute(sql).await?;
-            // What the blocks gone for good showed is shown no more.
+            // What the blocks gone for good showed is shown no more, and the texts
+            // the comments among them had go with them.
+            comment_versions::forget_gone_comments(scope).await?;
             file_refs::forget_gone_blocks(scope).await?;
             file_refs::mark(scope, None).await?;
             Ok(Purged { records, files })
@@ -259,7 +262,7 @@ pub(crate) async fn delete_block(
     let mut sql = with_tree_of(scope, block_id);
     sql.push(&format!(
         "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree)",
-        blocks::BLOCK_COLUMNS
+        blocks::block_read_columns()
     ));
     let doomed = blocks::fetch_blocks(scope, sql).await?;
     if doomed.is_empty() {

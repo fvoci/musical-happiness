@@ -19,6 +19,7 @@ mod card;
 mod card_property;
 mod category;
 mod client_config;
+mod comment_version;
 mod date_value;
 mod error_response;
 mod file_info;
@@ -33,8 +34,9 @@ mod user;
 
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
-    AuthParamError, ChangePasswordRequest, LoginRequest, MAXIMUM_PASSWORD_BYTES,
-    MINIMUM_PASSWORD_LENGTH, RegisterRequest, check_new_password, is_email_valid,
+    AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
+    MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, RegisterRequest, check_new_password,
+    display_name, is_email_valid,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
@@ -56,8 +58,8 @@ pub use body::{
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{
-    CardPropertyError, DATE_PROPERTY_TYPE, clear_values_of_another_kind, validate_block_properties,
-    validate_card_property_definitions, validate_card_property_kinds,
+    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, clear_values_of_another_kind,
+    validate_block_properties, validate_card_property_definitions, validate_card_property_kinds,
     validate_card_property_values,
 };
 pub use category::{
@@ -65,6 +67,7 @@ pub use category::{
     CategoryBoards, CategoryError, CategoryType,
 };
 pub use client_config::ClientConfig;
+pub use comment_version::CommentVersion;
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
