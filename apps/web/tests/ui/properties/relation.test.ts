@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { createCard, RELATION_LIMIT, type Card } from '$lib/logic/wire.ts';
+import { createCard, RELATION_LIMIT, setCardProperty, type Card } from '$lib/logic/wire.ts';
 
 import { fireEvent, mount, press, screen, type, valueButton, within } from './support.ts';
 
@@ -192,5 +192,50 @@ describe('a relation property, opened', () => {
     await fireEvent.click(button());
     await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
     expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2', 'card-3']);
+  });
+});
+
+describe('a relation read as an order', () => {
+  /** card-2 comes after the card under test, and card-3 after card-2. */
+  function ordered(): Map<string, Card> {
+    const cards = cardsOf({
+      'card-1': 'A card',
+      'card-2': 'Design the form',
+      'card-3': 'Build the form',
+      'card-4': 'Ship it',
+    });
+    const named = (id: string): Card => {
+      const found = cards.get(id);
+      if (!found) throw new Error(`no ${id}`);
+      return found;
+    };
+    setCardProperty(named('card-2'), 'property-relation', ['card-1']);
+    setCardProperty(named('card-3'), 'property-relation', ['card-2']);
+    return cards;
+  }
+
+  it('does not offer a card that would close a loop, however far, and says how many', async () => {
+    mount('relation', [], { cards: ordered(), preventLoops: true });
+    await fireEvent.click(button());
+    expect(rows()).toEqual(['Ship it']);
+    expect(screen.getByText('Not offered: 2. Picking them would make a loop.')).toBeInTheDocument();
+  });
+
+  it('offers every card where the relation is not read as an order', async () => {
+    mount('relation', [], { cards: ordered() });
+    await fireEvent.click(button());
+    expect(rows()).toEqual(['Build the form', 'Design the form', 'Ship it']);
+  });
+
+  it('shows a loop that is there already, and lets the card in it be taken out', async () => {
+    const { container, onChange } = mount('relation', ['card-3'], {
+      cards: ordered(),
+      preventLoops: true,
+    });
+    expect(chips(container)).toEqual(['Build the form']);
+    await fireEvent.click(button());
+    expect(rows()).toEqual(['Build the form', 'Ship it']);
+    await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([]);
   });
 });

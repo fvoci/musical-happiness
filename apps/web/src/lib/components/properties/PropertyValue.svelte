@@ -17,6 +17,7 @@
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { DisplayContext } from '$lib/logic/format.ts';
+  import { cardsClosingLoop, relationEdges } from '$lib/logic/dependencies.ts';
   import { propertyBehavior } from '$lib/logic/properties.ts';
   import { parseRelationValue, plainPropertyValue } from '$lib/logic/wire.ts';
 
@@ -52,6 +53,7 @@
     innerTabindex,
     cards = NO_CARDS,
     onOpenCard,
+    preventLoops = false,
   }: PropertyValueProps = $props();
 
   const type = $derived(template.type);
@@ -80,6 +82,16 @@
     const shown = behavior.displayValue(value, card, template, context);
     return typeof shown === 'string' ? shown : '';
   });
+
+  /**
+   * The cards a relation may not name without closing a loop. Worked out
+   * only when the list of a relation is open: nothing reads it otherwise.
+   */
+  const closingLoop = $derived(
+    preventLoops && type === 'relation'
+      ? cardsClosingLoop(relationEdges(cards.values(), template.id), card.id)
+      : undefined,
+  );
 
   const change = (next: Parameters<NonNullable<PropertyValueProps['onChange']>>[0]): void => {
     if (editable) onChange?.(next);
@@ -156,6 +168,7 @@
     ids={parseRelationValue(value)}
     {cards}
     {locale}
+    excluded={closingLoop}
     {editable}
     placeholder={empty(m['PropertyValueElement.empty'])}
     {presentation}

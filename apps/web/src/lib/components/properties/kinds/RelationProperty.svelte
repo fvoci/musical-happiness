@@ -118,6 +118,13 @@
     ].map((entry) => entry.card);
   });
   const listed = $derived(matches.slice(0, LIST_LIMIT));
+  /** How many cards are not offered because they may not be picked. */
+  const leftOut = $derived.by(() => {
+    if (!excluded) return 0;
+    const picked = new Set(shown);
+    return candidates.filter((entry) => excluded.has(entry.card.id) && !picked.has(entry.card.id))
+      .length;
+  });
 
   /** Writes the value: only cards that are there, each once, so that the identifiers of deleted ones go. */
   function write(next: readonly string[]): void {
@@ -126,7 +133,7 @@
 
   function pick(card: Card): void {
     if (shown.includes(card.id)) write(shown.filter((id) => id !== card.id));
-    else if (!full) write([...shown, card.id]);
+    else if (!full && !excluded?.has(card.id)) write([...shown, card.id]);
   }
 
   const chipClass =
@@ -237,6 +244,11 @@
         {#if matches.length > listed.length}
           <p class="px-2 py-1 text-sm text-muted-foreground" data-slot="relation-more">
             {m.property_relation_more({ count: matches.length - listed.length })}
+          </p>
+        {/if}
+        {#if leftOut > 0}
+          <p class="px-2 py-1 text-sm text-muted-foreground" data-slot="relation-left-out">
+            {m.property_relation_loop({ count: leftOut })}
           </p>
         {/if}
         <!-- There from the start, so that the line said when the value fills up is heard. -->

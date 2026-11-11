@@ -76,6 +76,11 @@ export interface PropertyValueProps extends OptionCallbacks, ReaderContext {
   cards?: ReadonlyMap<string, Card>;
   /** Opens another card: a card a relation names is opened by pressing it. */
   onOpenCard?: (cardId: string) => void;
+  /**
+   * A relation is read as an order ("comes after"): a card that would close
+   * a loop is not offered. A loop that is there already is only shown.
+   */
+  preventLoops?: boolean;
   /** Puts a text on the clipboard; defaults to the browser's clipboard. */
   copyText?: (text: string) => void | Promise<void>;
   /**

@@ -127,6 +127,7 @@
   "property_relation_full": "No more than {count} cards can be picked.",
   "property_relation_more": "More cards: {count}. Type to narrow the list.",
   "property_relation_picked": "Picked cards",
+  "property_relation_loop": "Not offered: {count}. Picking them would make a loop.",
   "editor_body_label": "Body",
   "editor_body_unreadable": "This body cannot be edited here. It was saved by a newer version of the app, or it is damaged.",
   "editor_suggest_people": "People",
