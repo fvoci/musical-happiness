@@ -226,8 +226,10 @@ impl FileBackend {
     }
 
     /// Lists every stored file: on the local disk, the files under the root but for
-    /// the directories whose name starts with a dot (the files being written, the
-    /// temporary files); in the object store, the objects under the path prefix.
+    /// those in a directory at the root whose name starts with a dot (the files being
+    /// written, the temporary files), in a directory the server may not read, or whose
+    /// name is no text; in the object store, the objects under the path prefix, by
+    /// their keys as the object store encodes them.
     pub fn list(&self) -> ObjectListing {
         match self {
             Self::Local(files) => files.list(),

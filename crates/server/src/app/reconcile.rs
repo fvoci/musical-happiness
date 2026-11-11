@@ -3,15 +3,17 @@
 //!
 //! It runs over every organization: the objects of all of them share the storage. The
 //! storage is read a page at a time and the records a page at a time, so that neither
-//! is held in memory whole. What nothing names is doomed, if asked for, and only once
-//! it is older than [`UNRECORDED_MIN_AGE_MILLIS`]; the housekeeping removes it, asking
-//! again first whether something holds it. A record without its object is reported
-//! and never changed: what to do with it is not the server's to say.
+//! is held in memory whole. What nothing names is doomed, if asked for, only at a place
+//! of the server's making and only once it is older than [`UNRECORDED_MIN_AGE_MILLIS`];
+//! the housekeeping removes it, asking again first whether something holds it. What
+//! nothing names elsewhere in the storage is reported and never changed, nor is a
+//! record without its object: what to do with those is not the server's to say.
 
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use serde::Serialize;
 
 use super::App;
+use super::files::is_server_place;
 use super::uploads::UPLOAD_LIFETIME_MILLIS;
 use crate::error::AppError;
 use crate::storage::{StorageError, StoredObject};
@@ -34,7 +36,8 @@ const LOOKUPS_AT_ONCE: usize = 16;
 pub enum Unrecorded {
     /// Reports them, and changes nothing.
     Report,
-    /// Reports them, and dooms those older than [`UNRECORDED_MIN_AGE_MILLIS`].
+    /// Reports them, and dooms those at places of the server's making that are older
+    /// than [`UNRECORDED_MIN_AGE_MILLIS`].
     Doom,
 }
 
@@ -62,9 +65,13 @@ impl Found {
 pub struct Reconciliation {
     /// The objects the storage holds.
     pub objects: u64,
-    /// The objects that nothing names: no record, live or in the trash, no write under
-    /// way, no upload session.
+    /// The objects at places of the server's making that nothing names: no record,
+    /// live or in the trash, no write under way, no upload session.
     pub unrecorded: Found,
+    /// The objects nothing names at places the server does not make, such as another
+    /// application's in the same bucket or the server's own temporary files under the
+    /// files directory: reported, and never doomed.
+    pub foreign: Found,
     /// How many of them this comparison doomed.
     pub doomed: u64,
     /// The places the records name.
@@ -98,6 +105,10 @@ impl App {
             let held = self.store().held_objects(&paths, None).await?;
             let mut doomed = Vec::new();
             for object in page.iter().filter(|object| !held.contains(&object.path)) {
+                if !is_server_place(&object.path) {
+                    report.foreign.note(&object.path);
+                    continue;
+                }
                 report.unrecorded.note(&object.path);
                 if object.modified_at <= old_enough {
                     doomed.push(object.path.as_str());

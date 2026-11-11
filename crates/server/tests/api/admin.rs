@@ -415,6 +415,7 @@ mod socket {
                 json!({
                     "objects": 1,
                     "unrecorded": {"count": 1, "paths": [stray]},
+                    "foreign": {"count": 0, "paths": []},
                     "doomed": 0,
                     "records": 0,
                     "missing": {"count": 0, "paths": []},

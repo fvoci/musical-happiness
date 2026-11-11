@@ -77,11 +77,19 @@ impl Store {
                     "json_array_elements(d.files) AS f(value)",
                 ),
             };
-            let mut sql = scope.sql(&format!(
-                "SELECT path FROM (SELECT path FROM file_info UNION SELECT {trashed_path} AS path \
-                 FROM deleted_boards AS d, {trashed_files}) AS recorded WHERE path > "
-            ));
-            sql.bind(after).push_bind(" ORDER BY path LIMIT ", limit);
+            // Each side takes its own page first, so that the live records are read a
+            // page at a time by their index; the trash has none to read by.
+            let mut sql = scope
+                .sql("SELECT path FROM (SELECT * FROM (SELECT path FROM file_info WHERE path > ");
+            sql.bind(after)
+                .push_bind(" ORDER BY path LIMIT ", limit)
+                .push(&format!(
+                    ") AS live UNION SELECT * FROM (SELECT {trashed_path} AS path FROM \
+                     deleted_boards AS d, {trashed_files} WHERE {trashed_path} > "
+                ))
+                .bind(after)
+                .push_bind(" ORDER BY 1 LIMIT ", limit)
+                .push_bind(") AS trashed) AS recorded ORDER BY path LIMIT ", limit);
             scope
                 .fetch_all(sql)
                 .await?

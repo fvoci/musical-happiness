@@ -93,18 +93,19 @@ async fn handle_admin_make_admin(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReconcileFilesData {
-    /// Whether to doom the objects nothing names that are older than a day, for the
-    /// housekeeping to remove. Absent, false.
+    /// Whether to doom the objects nothing names at places of the server's making that
+    /// are older than a day, for the housekeeping to remove. Absent, false.
     #[serde(default)]
     remove_unrecorded: bool,
 }
 
 /// Compares the file storage with the records of every organization: the objects
-/// nothing names, and the places records name where the storage holds nothing. Without
-/// a body, or with `removeUnrecorded` false, it changes nothing. With it true, the
-/// objects nothing names that are older than a day are doomed: the housekeeping
-/// removes them at its next run, asking again whether something holds them. A record
-/// without its object is reported and never changed.
+/// nothing names, at places of the server's making and elsewhere, and the places
+/// records name where the storage holds nothing. Without a body, or with
+/// `removeUnrecorded` false, it changes nothing. With it true, the objects nothing
+/// names at places of the server's making that are older than a day are doomed: the
+/// housekeeping removes them at its next run, asking again whether something holds
+/// them. The others, and a record without its object, are reported and never changed.
 async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResult {
     let data: Option<ReconcileFilesData> = if body.is_empty() {
         None

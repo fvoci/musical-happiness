@@ -180,11 +180,10 @@ impl S3Files {
 
     pub(super) fn list(&self) -> ObjectListing {
         let prefix = (!self.prefix.is_empty()).then(|| Path::from(self.prefix.as_str()));
-        let strip = if self.prefix.is_empty() {
-            String::new()
-        } else {
-            format!("{}/", self.prefix)
-        };
+        // The listing names keys as the object store encodes them: the prefix too.
+        let strip = prefix
+            .as_ref()
+            .map_or_else(String::new, |prefix| format!("{}/", prefix.as_ref()));
         self.store
             .list(prefix.as_ref())
             .map(move |meta| {

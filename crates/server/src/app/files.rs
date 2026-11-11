@@ -433,6 +433,33 @@ impl App {
     }
 }
 
+/// Whether a place of the file storage has the shape of one the server makes
+/// ([`FilePlace::new`]): `boards/<YYYYMMDD>/<board>/<stored name>`, the stored name a
+/// secret of letters, digits, `-` and `_`, with a plain extension or none. Anything
+/// else in the storage is none of the server's making, whatever names it.
+pub(crate) fn is_server_place(path: &str) -> bool {
+    let mut parts = path.split('/');
+    let (Some(root), Some(day), Some(board), Some(name), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return false;
+    };
+    let (secret, extension) = name.split_once('.').unwrap_or((name, ""));
+    root == UPLOADS_ROOT
+        && day.len() == 8
+        && day.bytes().all(|byte| byte.is_ascii_digit())
+        && fvoci_model::is_id(board)
+        && !secret.is_empty()
+        && secret
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+
 /// The record of a file of `board_id` of `size` bytes stored at `place`, made now.
 fn file_info(board_id: &str, place: FilePlace, size: u64) -> FileInfo {
     FileInfo {
@@ -571,6 +598,27 @@ mod tests {
             "x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         ] {
             assert_eq!(stored_extension(name), "", "name {name:?}");
+        }
+    }
+
+    #[test]
+    fn a_place_the_server_makes_has_its_shape() {
+        let place = FilePlace::new("01890000-0000-7000-8000-000000000001", "a.PNG");
+        assert!(is_server_place(&place.path), "{}", place.path);
+        let plain = FilePlace::new("01890000-0000-7000-8000-000000000001", "noext");
+        assert!(is_server_place(&plain.path), "{}", plain.path);
+        for other in [
+            "boards/20261112/x.png",
+            "boards/2026111/01890000-0000-7000-8000-000000000001/x.png",
+            "boards/20261112/not-an-id/x.png",
+            "b/boards/20261112/01890000-0000-7000-8000-000000000001/x.png",
+            "boards/20261112/01890000-0000-7000-8000-000000000001/x%y.png",
+            "boards/20261112/01890000-0000-7000-8000-000000000001/.png",
+            "boards/20261112/01890000-0000-7000-8000-000000000001/a.b.png",
+            "tmp/uploads/abc/1.xyz",
+            "data/users/x",
+        ] {
+            assert!(!is_server_place(other), "{other}");
         }
     }
 

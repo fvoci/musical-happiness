@@ -461,3 +461,44 @@ async fn an_unrecorded_object_is_doomed_as_its_boards_organizations() {
     }
     test.teardown().await;
 }
+
+/// The places the records name, live or kept with a board in the trash, read a page at a
+/// time after the last one read, each once and in order.
+#[tokio::test]
+async fn the_recorded_places_are_read_a_page_at_a_time() {
+    let test = common::setup().await;
+    let (live_board, user_id) = board(&test).await;
+    let (trashed_board, _) = board(&test).await;
+    let mut expected = Vec::new();
+    for (board_id, names) in [
+        (&live_board, ["b", "d", "f"]),
+        (&trashed_board, ["a", "c", "e"]),
+    ] {
+        for name in names {
+            let path = format!("boards/{name}");
+            test.save_file_info(&file_at(board_id, &path))
+                .await
+                .expect("a file of the board");
+            expected.push(path);
+        }
+    }
+    test.delete_board(&trashed_board, &user_id)
+        .await
+        .expect("the board goes to the trash");
+    expected.sort_unstable();
+    let mut read = Vec::new();
+    let mut after = String::new();
+    loop {
+        let page = test
+            .system()
+            .recorded_paths_after(&after, 2)
+            .await
+            .expect("a page");
+        assert!(page.len() <= 2, "{page:?}");
+        let Some(last) = page.last() else { break };
+        after.clone_from(last);
+        read.extend(page);
+    }
+    assert_eq!(read, expected);
+    test.teardown().await;
+}

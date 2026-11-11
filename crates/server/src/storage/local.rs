@@ -188,6 +188,12 @@ impl Walk {
                     Ok(entries) => entries,
                     // The root before the first write, or a directory gone meanwhile.
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    // A directory under the root the server may not read (a volume's
+                    // `lost+found`) holds none of its files.
+                    Err(error) if !directory.is_empty() => {
+                        tracing::warn!(%error, directory, "a directory under the files could not be read");
+                        continue;
+                    }
                     Err(error) => return Err(error.into()),
                 };
                 self.entries = Some((directory, entries));
@@ -197,20 +203,33 @@ impl Walk {
                 self.entries = None;
                 continue;
             };
-            let name = entry.file_name().to_string_lossy().into_owned();
+            // A name that is no text names no stored file: no record can name it.
+            let Ok(name) = entry.file_name().into_string() else {
+                tracing::warn!(directory, "a file whose name is no text is left out");
+                continue;
+            };
             let path = if directory.is_empty() {
                 name.clone()
             } else {
                 format!("{directory}/{name}")
             };
-            let kind = entry.file_type().await?;
+            // An entry removed since it was read, as by the housekeeping, is gone.
+            let kind = match entry.file_type().await {
+                Ok(kind) => kind,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
             if kind.is_dir() {
                 // The files being written and the temporary files are no stored files.
                 if !(directory.is_empty() && name.starts_with('.')) {
                     self.directories.push(path);
                 }
             } else if kind.is_file() {
-                let modified = entry.metadata().await?.modified()?;
+                let modified = match entry.metadata().await {
+                    Ok(metadata) => metadata.modified()?,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error.into()),
+                };
                 let since_epoch = modified
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default();

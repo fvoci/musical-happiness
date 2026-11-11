@@ -1,11 +1,12 @@
 //! The comparison of the file storage with the records: what it reports, and that it
 //! dooms only when asked, only what nothing names, and only what is old enough.
 
-use fvoci_model::new_id;
+use fvoci_model::{Upload, UploadPurpose, new_id};
 use fvoci_server::app::{
     Found, Reconciliation, RemovedObjects, UNRECORDED_MIN_AGE_MILLIS, Unrecorded,
 };
 use fvoci_server::auth::now_millis;
+use fvoci_server::auth::secret::new_secret;
 use fvoci_server::config::Configuration;
 
 use crate::common::{Setup, TestServer};
@@ -20,10 +21,11 @@ async fn reconcile(ts: &TestServer, unrecorded: Unrecorded, now: i64) -> Reconci
         .expect("the comparison runs")
 }
 
-/// A recorded file, one kept with its board in the trash, one being written, an object
-/// nothing names and a record whose object is gone: the comparison reports the last
-/// two, changes nothing unless asked, dooms only what nothing names and only once it is
-/// old enough, and the housekeeping removes that alone.
+/// A recorded file, one kept with its board in the trash, one being written, one an
+/// upload session makes, an object nothing names, one not of the server's making and a
+/// record whose object is gone: the comparison reports the last three, changes nothing
+/// unless asked, dooms only what nothing names at a place of the server's making and
+/// only once it is old enough, and the housekeeping removes that alone.
 async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
     let (board_id, recorded) = uploaded(ts, b"recorded").await;
     let (trashed_board, trashed) = uploaded(ts, b"in the trash").await;
@@ -40,7 +42,27 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
         .await
         .expect("marked");
     let stray = format!("boards/20261112/{board_id}/stray.txt");
-    for path in [&writing, &stray] {
+    let uploading = format!("boards/20261112/{board_id}/uploading.txt");
+    ts.app
+        .store()
+        .create_upload(&Upload {
+            id: new_secret(),
+            user_id: ts.client.me().await.id,
+            purpose: UploadPurpose::File,
+            board_id: board_id.clone(),
+            name: "uploading.txt".to_owned(),
+            size: 5,
+            part_size: 5,
+            create_at: now_millis(),
+            expires_at: now_millis() + 60_000,
+            path: uploading.clone(),
+            ..Upload::default()
+        })
+        .await
+        .expect("a session makes its file there");
+    // Not of the server's making, as another application's in the same bucket.
+    let foreign = "another-application/old.txt".to_owned();
+    for path in [&writing, &stray, &uploading, &foreign] {
         ts.app
             .files()
             .write(path, &mut &b"bytes"[..])
@@ -50,10 +72,14 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
 
     let later = now_millis() + UNRECORDED_MIN_AGE_MILLIS + 60_000;
     let expected = Reconciliation {
-        objects: 4,
+        objects: 6,
         unrecorded: Found {
             count: 1,
             paths: vec![stray.clone()],
+        },
+        foreign: Found {
+            count: 1,
+            paths: vec![foreign.clone()],
         },
         doomed: 0,
         records: 3,
@@ -98,7 +124,7 @@ async fn the_comparison_reports_and_dooms_only_when_asked(ts: &TestServer) {
         "the housekeeping removes it"
     );
     assert!(!exists(ts, &stray).await, "it is gone");
-    for path in [&recorded, &trashed, &writing] {
+    for path in [&recorded, &trashed, &writing, &uploading, &foreign] {
         assert!(exists(ts, path).await, "{path} is kept");
     }
 }
