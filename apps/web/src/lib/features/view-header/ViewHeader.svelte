@@ -48,7 +48,7 @@
   import FilterEditor from './FilterEditor.svelte';
   import PropertiesPanel from './PropertiesPanel.svelte';
   import SortEditor from './SortEditor.svelte';
-  import { NEW_VIEW_TITLES, viewTitle, type Icon } from './texts.ts';
+  import { asideTools, NEW_VIEW_TITLES, viewTitle, type Icon } from './texts.ts';
   import {
     dependenciesChoices,
     dependenciesName,
@@ -63,6 +63,7 @@
     newViewFields,
     sortOffered,
     type AddableViewType,
+    type DisplayByChoice,
   } from './view-fields.ts';
   import ViewMenu from './ViewMenu.svelte';
   import ViewSwitcher from './ViewSwitcher.svelte';
@@ -112,12 +113,11 @@
   let sortOpen = $state(false);
 
   /**
-   * After a tool without a button of its own closes in the folded row, the
-   * focus goes to "…", where the tool was opened from: its own element is
-   * not there to take the focus back.
+   * After a tool without a button of its own closes (in the folded row; with
+   * `always`, in either), the focus goes to "…", where it was opened from.
    */
-  function closedAside(open: boolean): void {
-    if (open || row) return;
+  function closedAside(open: boolean, always = false): void {
+    if (open || (row && !always)) return;
     void tick().then(() => header?.querySelector<HTMLElement>('[data-tool="more"]')?.focus());
   }
 
@@ -194,69 +194,63 @@
     })),
   ]);
 
-  // -------------------------------------------------------- display by
+  // --------------------------------------- display by, and dependencies
 
-  const displayActions = $derived<MenuAction[]>(
-    displayByChoices(view, templates, placedByName).map(({ write, ...line }) => ({
+  /** The lines of a list of choices: choosing one that changes the view writes it. */
+  function choiceActions(
+    choices: readonly DisplayByChoice[],
+    member: 'dateDisplayPropertyId' | 'dependencyPropertyId',
+  ): MenuAction[] {
+    return choices.map(({ write, ...line }) => ({
       ...line,
-      run: () => {
-        if (write)
-          void board.setViewFields(view.id, { dateDisplayPropertyId: line.id }, 'displayBy');
-      },
-    })),
-  );
-
-  // ------------------------------------------------------ dependencies
-
-  const dependenciesActions = $derived<MenuAction[]>(
-    dependenciesChoices(view, templates, m.viewheader_group_none()).map(({ write, ...line }) => ({
-      ...line,
+      // The line of "none" has the empty identifier, which names nothing in the markup.
       id: line.id || 'none',
       run: () => {
-        if (write)
-          void board.setViewFields(view.id, { dependencyPropertyId: line.id }, 'dependencies');
+        if (write) void board.setViewFields(view.id, { [member]: line.id }, member);
       },
-    })),
+    }));
+  }
+  const displayActions = $derived(
+    choiceActions(displayByChoices(view, templates, placedByName), 'dateDisplayPropertyId'),
+  );
+  const dependenciesActions = $derived(
+    choiceActions(
+      dependenciesChoices(view, templates, m.viewheader_group_none()),
+      'dependencyPropertyId',
+    ),
   );
 
   // ------------------------------------------------------------- "…"
 
-  // What a line of "…" does: it opens its tool.
-  const openSort = (): void => void (sortOpen = true);
-  const openDisplay = (): void => void (displayOpen = true);
-  const openDepends = (): void => void (dependenciesOpen = true);
-  const openGroup = (): void => void (groupOpen = true);
-  const openProperties = (): void => void (propertiesOpen = true);
+  /** The lines of "…" for the tools that have no button of their own in the row as it is. */
+  const asideActions = $derived(
+    asideTools(
+      {
+        row,
+        sort: sorting ? sortCount : undefined,
+        displayBy: displayBy ? placedByName : undefined,
+        dependencies: dependencies ? dependsOnName : undefined,
+        group: grouping.offered ? groupName : undefined,
+      },
+      {
+        sort: () => void (sortOpen = true),
+        'display-by': () => void (displayOpen = true),
+        dependencies: () => void (dependenciesOpen = true),
+        group: () => void (groupOpen = true),
+        properties: () => void (propertiesOpen = true),
+      },
+    ),
+  );
 
-  /** The lines of "…" for the tools that have no button of their own in the folded row. */
-  const asideActions = $derived.by<MenuAction[]>(() => {
-    if (row) return [];
-    const line = (
-      id: string,
-      label: string,
-      icon: Icon,
-      hint: string | undefined,
-      run: () => void,
-    ): MenuAction => ({ id, label, icon, ...(hint === undefined ? {} : { hint }), run });
-    const sortHint = sortCount > 0 ? String(sortCount) : undefined;
-    return [
-      sorting && line('sort', m['ViewHeader.sort'](), ArrowUpDownIcon, sortHint, openSort),
-      displayBy &&
-        line('display-by', m.viewheader_display_by(), CalendarDaysIcon, placedByName, openDisplay),
-      dependencies &&
-        line('dependencies', m.viewheader_dependencies(), GitForkIcon, dependsOnName, openDepends),
-      grouping.offered && line('group', m.viewheader_group_by(), LayersIcon, groupName, openGroup),
-      line('properties', m['ViewHeader.properties'](), EyeIcon, undefined, openProperties),
-    ].filter((each) => each !== false);
-  });
-
-  /** A tool that is not drawn in the folded row: an unseen element where "…" is, for its popover to open at. */
-  const ASIDE = 'invisible absolute top-1/2 right-1.5 size-8 -translate-y-1/2 roomy:size-touch';
+  /** A tool that is not drawn: an unseen element where "…" is in the row, for its popover to open at. */
+  const ASIDE = 'invisible absolute top-1/2 size-8 -translate-y-1/2 roomy:size-touch';
+  const asideAt = $derived([ASIDE, row ? 'right-26' : 'right-1.5']);
 </script>
 
 <!--
   The button of a tool. In the whole row: its icon, its word, and a count.
-  In the folded row: the icon and the count, or (`aside`) nothing to see.
+  In the folded row: the icon and the count, or (`aside`) nothing to see;
+  `always`: nothing to see in either row.
 -->
 {#snippet tool(
   props: Record<string, unknown>,
@@ -264,7 +258,7 @@
   ToolIcon: Icon,
   label: string,
   count: number,
-  aside: boolean,
+  aside: boolean | 'always',
 )}
   <Button
     {...props}
@@ -273,7 +267,11 @@
     aria-label={count > 0 ? `${label} (${count})` : label}
     class={[
       'shrink-0 roomy:h-touch',
-      row ? 'max-w-56' : aside ? ASIDE : 'gap-1 px-2 roomy:min-w-touch',
+      aside === 'always' || (aside && !row)
+        ? asideAt
+        : row
+          ? 'max-w-56'
+          : 'gap-1 px-2 roomy:min-w-touch',
     ]}
   >
     <!--
@@ -387,8 +385,11 @@
           subtitle={viewTitle(view)}
           word={m.viewheader_dependencies_by({ property: dependsOnName })}
           actions={dependenciesActions}
+          aside="always"
           {tool}
-          onchange={closedAside}
+          onchange={(open: boolean) => {
+            closedAside(open, true);
+          }}
         />
       {/if}
 

@@ -1,11 +1,16 @@
 /** The words and icons the parts of the header share. */
+import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
 import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
 import ChartGanttIcon from '@lucide/svelte/icons/chart-gantt';
+import EyeIcon from '@lucide/svelte/icons/eye';
+import GitForkIcon from '@lucide/svelte/icons/git-fork';
+import LayersIcon from '@lucide/svelte/icons/layers';
 import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
 import SquareKanbanIcon from '@lucide/svelte/icons/square-kanban';
 import TableIcon from '@lucide/svelte/icons/table-2';
 import type { Component } from 'svelte';
 
+import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import type { FilterConditionMessages } from '$lib/logic/filter-conditions.ts';
 import {
@@ -93,4 +98,50 @@ export function propertyName(propertyId: string, templates: readonly PropertyTem
     templates.find((template) => template.id === propertyId)?.name ??
     m.viewheader_unknown_property()
   );
+}
+
+/** The tools of the header that "…" can open. */
+export type AsideTool = 'sort' | 'display-by' | 'dependencies' | 'group' | 'properties';
+
+/** What the header offers for the view it shows; a tool that is not offered is undefined. */
+export interface AsideOffer {
+  /** The whole header is one row: the tools have buttons of their own, but for "dependencies". */
+  row: boolean;
+  /** How many sorts the view has. */
+  sort: number | undefined;
+  /** The name of what each list has chosen. */
+  displayBy: string | undefined;
+  dependencies: string | undefined;
+  group: string | undefined;
+}
+
+/**
+ * The lines of "…" for the tools that have no button of their own: in the
+ * folded row most of them; in the whole row "dependencies" alone (a fifth
+ * tool with its word would leave no room for the tabs of the views).
+ */
+export function asideTools(offer: AsideOffer, open: Record<AsideTool, () => void>): MenuAction[] {
+  const line = (id: AsideTool, label: string, icon: Icon, hint?: string): MenuAction => ({
+    id,
+    label,
+    icon,
+    ...(hint === undefined ? {} : { hint }),
+    run: open[id],
+  });
+  const folded = !offer.row;
+  const sorts = offer.sort ? String(offer.sort) : undefined;
+  return [
+    folded &&
+      offer.sort !== undefined &&
+      line('sort', m['ViewHeader.sort'](), ArrowUpDownIcon, sorts),
+    folded &&
+      offer.displayBy !== undefined &&
+      line('display-by', m.viewheader_display_by(), CalendarDaysIcon, offer.displayBy),
+    offer.dependencies !== undefined &&
+      line('dependencies', m.viewheader_dependencies(), GitForkIcon, offer.dependencies),
+    folded &&
+      offer.group !== undefined &&
+      line('group', m.viewheader_group_by(), LayersIcon, offer.group),
+    folded && line('properties', m['ViewHeader.properties'](), EyeIcon),
+  ].filter((each) => each !== false);
 }

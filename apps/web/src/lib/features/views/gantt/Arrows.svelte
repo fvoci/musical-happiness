@@ -10,15 +10,16 @@
 
   An arrow between two cards whose dates are out of order is dashed, and one
   that lies on a loop is dotted: the colour they also get is not the only
-  sign. The bar of the card says the same with a mark and in words.
+  sign. The row of the card says the same with a mark by its title, and its
+  bar in words.
 
   For the eye only: a bar says to a screen reader which cards it comes after.
 -->
 <script lang="ts">
-  import { arrowHead, arrowPath, type Arrow } from '$lib/logic/gantt.ts';
+  import type { ArrowLine } from './chart.svelte.ts';
 
   interface Props {
-    arrows: readonly Arrow[];
+    arrows: readonly ArrowLine[];
     /** The width of the axis in rem, and how many rows there are. */
     width: number;
     rows: number;
@@ -40,7 +41,7 @@
     viewBox="0 0 {width} {rows}"
     preserveAspectRatio="none"
   >
-    {#each arrows as arrow (`${arrow.from}\u0000${arrow.to}`)}
+    {#each arrows as arrow (arrow.key)}
       <g
         data-arrow
         data-from={arrow.from}
@@ -50,7 +51,7 @@
         class={[(arrow.late || arrow.loop) && 'text-destructive']}
       >
         <path
-          d={arrowPath(arrow.points)}
+          d={arrow.path}
           fill="none"
           stroke="currentColor"
           stroke-width="1.5"
@@ -59,7 +60,7 @@
           stroke-dasharray={arrow.late ? DASHED : arrow.loop ? DOTTED : undefined}
           vector-effect="non-scaling-stroke"
         />
-        <path d={arrowHead(arrow.points)} fill="currentColor" />
+        <path d={arrow.head} fill="currentColor" />
       </g>
     {/each}
   </svg>

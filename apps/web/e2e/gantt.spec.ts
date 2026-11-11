@@ -1,120 +1,31 @@
 /**
  * The Gantt view on the in-memory backend: making one, cards as bars on
- * their days, the line of today, the keys that walk the bars, the arrows of
- * a card relation, what is out of order or on a loop, and a narrow page.
- *
- * The clock of the page is fixed at 2026-11-10 01:00 in Seoul (still the
- * 9th in UTC, so that a day taken from UTC would show), and so is its time
- * zone; the language is English, whose weeks start on Sunday.
+ * their days, the line of today, the keys that walk the bars, and a narrow
+ * page. The arrows are in gantt-relations.spec.ts; grouping, the zoom and
+ * the cards without a date in gantt-tools.spec.ts.
  */
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
+import {
+  addGantt,
+  bar,
+  bars,
+  dayScale,
+  gantt,
+  NOW,
+  openGantt,
+  openRelated,
+  scroller,
+  setAfter,
+  setDates,
+  storedFields,
+  WELCOME,
+  type Dev,
+} from './gantt.support.ts';
 import { dialog, openView } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
 
-const WELCOME = ['Welcome to fvoci!', 'Onboarding'] as const;
-const NOW = new Date('2026-11-09T16:00:00Z'); // 01:00 on the 10th in Seoul
-
 test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
-
-const gantt = (page: Page): Locator => page.getByTestId('gantt');
-const scroller = (page: Page): Locator => page.getByTestId('gantt-scroller');
-const bars = (page: Page): Locator => gantt(page).locator('[data-bar]');
-const bar = (page: Page, title: string): Locator =>
-  gantt(page)
-    .locator('[data-row]')
-    .filter({ has: page.locator('[data-row-title]', { hasText: title }) })
-    .locator('[data-bar]');
-
-/** A date value as the wire has it: a day as text, a moment as milliseconds. */
-type Stored = { from: string | number; to?: string | number } | undefined;
-
-interface Store {
-  boardId: string;
-  board: { cardProperties: { id: string; name: string; type: string }[] };
-  cards: { id: string; title: string }[];
-  views: { id: string; title: string; fields: Record<string, unknown> }[];
-  setCardProperty(cardId: string, propertyId: string, value: unknown): Promise<void>;
-  changeBoard(change: (board: Store['board']) => Store['board']): Promise<void>;
-  deleteCards(cardIds: string[]): Promise<void>;
-}
-interface Dev {
-  workspace: { board: Store };
-  backend: {
-    views(boardId: string): Promise<{ id: string; fields: Record<string, unknown> }[]>;
-  };
-}
-
-/** Gives cards of the open board a value of "Due Date", through the board store. */
-async function setDates(page: Page, values: Record<string, Stored>): Promise<void> {
-  await page.evaluate(async (wanted) => {
-    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
-    for (const [title, value] of Object.entries(wanted)) {
-      const card = store.cards.find((each) => each.title === title);
-      if (!card || !due) throw new Error(`no card "${title}" or no Due Date`);
-      await store.setCardProperty(card.id, due.id, value);
-    }
-  }, values);
-}
-
-/** The fields of the view that is open, as the backend keeps them. */
-async function storedFields(page: Page): Promise<Record<string, unknown>> {
-  const viewId = /\/board\/[^/]+\/([^/]+)/.exec(new URL(page.url()).pathname)?.[1] ?? '';
-  return page.evaluate(async (id) => {
-    const { workspace, backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const views = await backend.views(workspace.board.boardId);
-    return views.find((view) => view.id === id)?.fields ?? {};
-  }, viewId);
-}
-
-/** Adds a Gantt view to the board that is open, from the list of kinds. */
-async function addGantt(page: Page): Promise<void> {
-  const header = page.getByTestId('view-header');
-  if ((await header.getAttribute('data-layout')) === 'row') {
-    await header.locator('[data-tool="add-view"]').click();
-    await page.getByRole('menuitem', { name: 'Gantt', exact: true }).click();
-  } else {
-    await header.locator('[data-tool="views"]').click();
-    await page.getByRole('menuitem', { name: 'Add Gantt view' }).click();
-  }
-  await expect(gantt(page)).toBeVisible();
-  await expect(scroller(page)).toBeVisible();
-}
-
-/** A Gantt view of the welcome board with a few dated cards. */
-async function openGantt(page: Page, info: TestInfo): Promise<void> {
-  await page.clock.setFixedTime(NOW);
-  await openView(page, info, ...WELCOME);
-  await setDates(page, {
-    'Drag cards': { from: '2026-11-12' },
-    // Twelve days: 12 to 23 November.
-    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
-    // 08:00 on the 10th in Seoul.
-    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
-    'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
-  });
-  await addGantt(page);
-  await expect(bars(page)).toHaveCount(4);
-}
-
-/** Where a day begins across the page, and how wide a day is: read off the marks of the axis. */
-async function dayScale(page: Page): Promise<{ x: (date: string) => number; width: number }> {
-  const marks = await gantt(page)
-    .locator('[data-tick]')
-    .evaluateAll((ticks) =>
-      ticks.slice(0, 2).map((tick) => ({
-        date: tick.getAttribute('data-tick') ?? '',
-        x: tick.getBoundingClientRect().x,
-      })),
-    );
-  const [first, second] = marks;
-  if (!first || !second) throw new Error('the axis has no marks');
-  const days = (from: string, to: string): number =>
-    Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
-  const width = (second.x - first.x) / days(first.date, second.date);
-  return { x: (date) => first.x + days(first.date, date) * width, width };
-}
 
 test('a Gantt view is made from the list of kinds, placed by the first date, zoomed to weeks', async ({
   page,
@@ -172,19 +83,57 @@ test('a dated card is a bar from its first day to its last, a card without a dat
   await lies('Create a new card', '2026-11-10', 1);
   // Into the next month.
   await lies('Filter and sort cards', '2026-12-03', 2);
-  await expect(bar(page, 'Share a board')).toHaveAccessibleName('Share a board, November 12 – 23');
+  await expect(bar(page, 'Share a board')).toHaveAccessibleName(
+    'Share a board, November 12 – November 23',
+  );
   await expect(bar(page, 'Create a new card')).toHaveAccessibleName(
     '8:00 AM Create a new card, November 10',
   );
   // Every row is a card with a bar.
   await expect(gantt(page).locator('[data-row]')).toHaveCount(4);
+
+  // The day of a moment is the day in the time zone of the reader's settings,
+  // not of the device: 23:00 UTC on the 9th is 15:00 on the 9th in Los Angeles.
+  await page.evaluate(() =>
+    (window as unknown as { fvociDev: Dev }).fvociDev.workspace.changeSettings({
+      timeZone: 'America/Los_Angeles',
+    }),
+  );
+  await expect(bar(page, 'Create a new card')).toHaveAccessibleName(
+    '3:00 PM Create a new card, November 9',
+  );
+  await lies('Create a new card', '2026-11-09', 1);
+});
+
+test('a bar in another year says its year: the marks of the days are not read out', async ({
+  page,
+}, info) => {
+  await openGantt(page, info);
+  await setDates(page, {
+    'Drag cards': { from: '2025-03-01' },
+    'Share a board': { from: '2026-12-30', to: '2027-01-02' },
+  });
+  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('Drag cards, March 1, 2025');
+  await expect(bar(page, 'Share a board')).toHaveAccessibleName(
+    'Share a board, December 30, 2026 – January 2, 2027',
+  );
 });
 
 test('today has a line through the chart, in sight when the view opens', async ({ page }, info) => {
-  await openGantt(page, info);
+  // A card a year and a half back: the axis begins long before today, and
+  // the chart has to be scrolled for today to be in sight.
+  await page.clock.setFixedTime(NOW);
+  await openView(page, info, ...WELCOME);
+  await setDates(page, {
+    'Drag cards': { from: '2025-05-01' },
+    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
+  });
+  await addGantt(page);
+  await expect(bars(page)).toHaveCount(2);
   const line = page.getByTestId('gantt-today-line');
   await expect(line).toHaveAttribute('data-day', '2026-11-10');
   await expect(line).toBeInViewport();
+  expect(await scroller(page).evaluate((element) => element.scrollLeft)).toBeGreaterThan(1000);
   const scale = await dayScale(page);
   const box = await line.boundingBox();
   if (!box) throw new Error('no line of today');
@@ -192,15 +141,32 @@ test('today has a line through the chart, in sight when the view opens', async (
   expect(Math.abs(box.x + box.width / 2 - (scale.x('2026-11-10') + scale.width / 2))).toBeLessThan(
     1.5,
   );
-  // "Today" brings it back after the days were scrolled away: a card next spring makes room to.
-  await setDates(page, { 'Create a new view': { from: '2027-04-01' } });
-  await expect(bars(page)).toHaveCount(5);
+  // "Today" brings it back after the days were scrolled away.
   await scroller(page).evaluate((element) => {
-    element.scrollLeft = element.scrollWidth;
+    element.scrollLeft = 0;
   });
   await expect(line).not.toBeInViewport();
   await page.getByTestId('gantt-today').click();
   await expect(line).toBeInViewport();
+});
+
+test('the days in sight stay in sight when a card moves the start of the axis', async ({
+  page,
+}, info) => {
+  await openGantt(page, info);
+  // A card next summer: the days go on to the right of what is in sight, so
+  // that the box can be scrolled to wherever today comes to lie.
+  await setDates(page, { 'Filter and sort cards': { from: '2027-06-01' } });
+  const line = page.getByTestId('gantt-today-line');
+  await expect(line).toBeInViewport();
+  const before = await line.boundingBox();
+  await expect(gantt(page)).toHaveAttribute('data-first', '2026-10-25');
+  await setDates(page, { 'Drag cards': { from: '2025-11-12' } });
+  await expect(gantt(page)).toHaveAttribute('data-first', '2025-10-26');
+  await expect(line).toBeInViewport();
+  await expect
+    .poll(async () => Math.abs(((await line.boundingBox())?.x ?? -999) - (before?.x ?? 0)))
+    .toBeLessThan(2);
 });
 
 test('the titles stay at the left and the marks at the top while the chart scrolls', async ({
@@ -217,11 +183,15 @@ test('the titles stay at the left and the marks at the top while the chart scrol
     .poll(async () => (await scroller(page).evaluate((element) => element.scrollLeft)) > 0)
     .toBe(true);
   const after = { title: await title.boundingBox(), axis: await axis.boundingBox() };
-  expect(after.title?.x).toBe(before.title?.x);
-  expect(after.axis?.y).toBe(before.axis?.y);
-  // The column of titles leaves most of a narrow page to the days.
   const box = await scroller(page).boundingBox();
-  expect((after.title?.width ?? 0) / (box?.width ?? 1)).toBeLessThan(0.4);
+  if (!before.title || !before.axis || !after.title || !after.axis || !box) {
+    throw new Error('nothing to measure');
+  }
+  expect(after.title.x).toBe(before.title.x);
+  expect(after.axis.y).toBe(before.axis.y);
+  // The column of titles leaves most of a narrow page to the days.
+  expect(after.title.width).toBeGreaterThan(80);
+  expect(after.title.width / box.width).toBeLessThan(0.4);
 });
 
 test('the bars are one stop of Tab, the arrows walk them, and a bar opens its card', async ({
@@ -230,12 +200,25 @@ test('the bars are one stop of Tab, the arrows walk them, and a bar opens its ca
   await openGantt(page, info);
   const stops = gantt(page).locator('[data-bar][tabindex="0"]');
   await expect(stops).toHaveCount(1);
-  await stops.focus();
-  const first = await stops.getAttribute('data-bar');
+  // From the last button of the row above, Tab goes to the one bar and then out of the chart.
+  await page.getByTestId('gantt-undated').focus();
+  await page.keyboard.press('Tab');
+  await expect(bars(page).first()).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(scroller(page).locator(':focus')).toHaveCount(0);
+  // The titles are for a pointer: none is in the order of Tab.
+  await expect(gantt(page).locator('[data-row-title]:not([tabindex="-1"])')).toHaveCount(0);
+
+  await bars(page).first().focus();
   await page.keyboard.press('ArrowDown');
+  await expect(bars(page).nth(1)).toBeFocused();
   await expect(stops).toHaveCount(1);
-  await expect(stops).toBeFocused();
-  expect(await stops.getAttribute('data-bar')).not.toBe(first);
+  await expect(bars(page).nth(1)).toHaveAttribute('tabindex', '0');
+  await page.keyboard.press('ArrowUp');
+  await expect(bars(page).first()).toBeFocused();
+  // At the top the key stays where it is.
+  await page.keyboard.press('ArrowUp');
+  await expect(bars(page).first()).toBeFocused();
   await page.keyboard.press('End');
   await expect(bars(page).last()).toBeFocused();
   await page.keyboard.press('Home');
@@ -248,312 +231,40 @@ test('the bars are one stop of Tab, the arrows walk them, and a bar opens its ca
   await expect(dialog(page)).toHaveCount(0);
   // The focus comes back to the bar the card was opened from.
   await expect(bars(page).first()).toBeFocused();
-});
 
-test('the title of a row opens its card too', async ({ page }, info) => {
-  await openGantt(page, info);
-  await gantt(page).locator('[data-row-title]', { hasText: 'Share a board' }).click();
-  await expect(dialog(page)).toBeVisible();
-  await expect(dialog(page).locator('[data-card-title]')).toHaveValue('Share a board');
-});
-
-// ------------------------------------------------------- dependencies
-
-const arrows = (page: Page): Locator => gantt(page).locator('[data-arrow]');
-
-/** Gives the board a card relation "After" (identifier `after`). */
-async function addRelation(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    await store.changeBoard((board) => ({
-      ...board,
-      cardProperties: [
-        ...board.cardProperties,
-        { id: 'after', name: 'After', type: 'relation', options: [] },
-      ],
-    }));
-  });
-}
-
-/** Writes on each card named the cards it comes after, by their titles; other text is kept as an identifier. */
-async function setAfter(page: Page, values: Record<string, string[]>): Promise<void> {
-  await page.evaluate(async (wanted) => {
-    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const idOf = (title: string): string =>
-      store.cards.find((each) => each.title === title)?.id ?? title;
-    for (const [title, before] of Object.entries(wanted)) {
-      await store.setCardProperty(idOf(title), 'after', before.map(idOf));
-    }
-  }, values);
-}
-
-/** Chooses a line of "dependencies" in the header, whichever way the header is laid out. */
-async function chooseDependencies(page: Page, action: string): Promise<void> {
-  const header = page.getByTestId('view-header');
-  if ((await header.getAttribute('data-layout')) === 'row') {
-    await header.locator('[data-tool="dependencies"]').click();
-  } else {
-    await header.locator('[data-tool="more"]').click();
-    await page.locator('[role="menuitem"][data-action="dependencies"]').click();
-  }
-  await page.locator(`[role="menuitem"][data-action="${action}"]`).click();
-}
-
-/** What "dependencies" says it reads. */
-async function expectDependencies(page: Page, name: string): Promise<void> {
-  const header = page.getByTestId('view-header');
-  if ((await header.getAttribute('data-layout')) === 'row') {
-    await expect(header.locator('[data-tool="dependencies"]')).toHaveAccessibleName(
-      `Dependencies: ${name}`,
-    );
-    return;
-  }
-  await header.locator('[data-tool="more"]').click();
-  await expect(page.locator('[role="menuitem"][data-action="dependencies"]')).toContainText(name);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('[role="menuitem"][data-action="dependencies"]')).toHaveCount(0);
-}
-
-/** A Gantt view of the welcome board with dated cards and a relation between them. */
-async function openRelated(page: Page, info: TestInfo): Promise<void> {
-  await page.clock.setFixedTime(NOW);
-  await openView(page, info, ...WELCOME);
-  await setDates(page, {
-    'Drag cards': { from: '2026-11-12' },
-    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
-    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
-    'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
-  });
-  await addRelation(page);
-  await setAfter(page, {
-    // After two cards, one of them deleted since, and after itself.
-    'Share a board': ['Create a new card', 'a-card-that-is-gone', 'Share a board'],
-    'Filter and sort cards': ['Share a board', 'Drag cards'],
-    // A card without a date: it has no bar for an arrow to reach.
-    'Create a new view': ['Drag cards'],
-  });
-  await addGantt(page);
-  await expect(bars(page)).toHaveCount(4);
-}
-
-test('a new Gantt view reads the first card relation, and draws one arrow for each edge', async ({
-  page,
-}, info) => {
-  await openRelated(page, info);
-  await expectDependencies(page, 'After');
-  expect((await storedFields(page)).dependencyPropertyId).toBe('after');
-  // Three edges between cards that have a bar; the deleted card, the card
-  // itself and the card without a date give none.
-  await expect(gantt(page)).toHaveAttribute('data-edges', '3');
-  await expect(arrows(page)).toHaveCount(3);
-  const ends = await arrows(page).evaluateAll((drawn) =>
-    drawn.map((arrow) => [arrow.getAttribute('data-from'), arrow.getAttribute('data-to')]),
-  );
-  const ids = await page.evaluate(() => {
-    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    return Object.fromEntries(store.cards.map((card) => [card.title, card.id]));
-  });
-  expect(ends).toEqual([
-    [ids['Create a new card'], ids['Share a board']],
-    [ids['Share a board'], ids['Filter and sort cards']],
-    [ids['Drag cards'], ids['Filter and sort cards']],
-  ]);
-  // A bar says which cards it comes after.
-  await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'Filter and sort cards, December 3 – 4. After Share a board and Drag cards.',
-  );
-  await expect(bar(page, 'Drag cards')).toHaveAccessibleName('Drag cards, November 12');
-});
-
-test('an arrow goes from the end of the card that comes first to the start of the one after', async ({
-  page,
-}, info) => {
-  await openRelated(page, info);
-  await expect(arrows(page)).toHaveCount(3);
-  await bar(page, 'Share a board').scrollIntoViewIfNeeded();
-  /** The first and the last point of the line of an arrow, on the page. */
-  const line = await arrows(page)
-    .first()
-    .locator('path')
-    .first()
-    .evaluate((path) => {
-      const drawn = path as SVGPathElement;
-      const matrix = drawn.getScreenCTM();
-      if (!matrix) throw new Error('the arrow is not drawn');
-      const at = (length: number): { x: number; y: number } => {
-        const point = drawn.getPointAtLength(length).matrixTransform(matrix);
-        return { x: point.x, y: point.y };
-      };
-      return { start: at(0), end: at(drawn.getTotalLength()) };
-    });
-  const from = await bar(page, 'Create a new card').boundingBox();
-  const to = await bar(page, 'Share a board').boundingBox();
-  if (!from || !to) throw new Error('no bars to measure');
-  expect(Math.abs(line.start.x - (from.x + from.width))).toBeLessThan(1.5);
-  expect(Math.abs(line.start.y - (from.y + from.height / 2))).toBeLessThan(1.5);
-  expect(Math.abs(line.end.x - to.x)).toBeLessThan(1.5);
-  expect(Math.abs(line.end.y - (to.y + to.height / 2))).toBeLessThan(1.5);
-});
-
-test('"dependencies" in the header turns the arrows off and on, and the view keeps the choice', async ({
-  page,
-}, info) => {
-  await openRelated(page, info);
-  await expect(arrows(page)).toHaveCount(3);
-  await chooseDependencies(page, 'none');
-  await expect(arrows(page)).toHaveCount(0);
-  await expect(page.getByTestId('gantt-arrows')).toHaveCount(0);
-  await expectDependencies(page, 'None');
-  expect((await storedFields(page)).dependencyPropertyId).toBe('');
-  await chooseDependencies(page, 'after');
-  await expect(arrows(page)).toHaveCount(3);
-  expect((await storedFields(page)).dependencyPropertyId).toBe('after');
-});
-
-test('a Gantt view made on a board without a card relation has no arrows until one is chosen', async ({
-  page,
-}, info) => {
-  await openGantt(page, info);
-  await expectDependencies(page, 'None');
-  expect((await storedFields(page)).dependencyPropertyId).toBeUndefined();
-  await addRelation(page);
-  await setAfter(page, { 'Share a board': ['Create a new card'] });
-  await expect(arrows(page)).toHaveCount(0);
-  await chooseDependencies(page, 'after');
-  await expect(arrows(page)).toHaveCount(1);
-  await expect(gantt(page)).toHaveAttribute('data-edges', '1');
-});
-
-test('the arrows of a card go with it when it is deleted', async ({ page }, info) => {
-  await openRelated(page, info);
-  await expect(arrows(page)).toHaveCount(3);
-  await page.evaluate(async () => {
-    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const gone = store.cards.find((card) => card.title === 'Share a board');
-    if (!gone) throw new Error('no card to delete');
-    await store.deleteCards([gone.id]);
-  });
-  // The value of "Filter and sort cards" still names the deleted card: no arrow for it.
+  // The card of the stop loses its date: the stop is on another bar, still one.
+  await page.keyboard.press('End');
+  const last = (await gantt(page).locator('[data-row-title]').last().textContent()) ?? '';
+  await setDates(page, { [last.trim()]: undefined });
   await expect(bars(page)).toHaveCount(3);
-  await expect(arrows(page)).toHaveCount(1);
-  await expect(gantt(page)).toHaveAttribute('data-edges', '1');
+  await expect(stops).toHaveCount(1);
 });
 
-// ------------------------------------------- out of order, and loops
-
-/** The dashes of the line of an arrow between two cards, by their titles; null for a solid line. */
-async function dashes(page: Page, from: string, to: string): Promise<string | null> {
-  const ids = await page.evaluate(() => {
-    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    return Object.fromEntries(store.cards.map((card) => [card.title, card.id]));
-  });
-  return gantt(page)
-    .locator(`[data-arrow][data-from="${ids[from] ?? ''}"][data-to="${ids[to] ?? ''}"] path`)
-    .first()
-    .getAttribute('stroke-dasharray');
-}
-
-test('a card that starts before a card it comes after has ended is marked, counted and said', async ({
+test('the title of a row opens its card, and gives the focus back without scrolling the days', async ({
   page,
 }, info) => {
-  await openRelated(page, info);
-  // "Share a board" starts on the day "Drag cards" ends: that is in order.
-  await setAfter(page, { 'Share a board': ['Create a new card', 'Drag cards'] });
-  await expect(arrows(page)).toHaveCount(4);
-  await expect(gantt(page)).toHaveAttribute('data-late', '0');
-  await expect(page.getByTestId('gantt-late')).toHaveCount(0);
-  await expect(gantt(page).locator('[data-mark]')).toHaveCount(0);
-
-  // "Filter and sort cards" now starts three days before "Share a board" ends.
-  await setDates(page, { 'Filter and sort cards': { from: '2026-11-20', to: '2026-11-21' } });
-  await expect(gantt(page)).toHaveAttribute('data-late', '1');
-  await expect(arrows(page)).toHaveCount(4);
-  await expect(gantt(page).locator('[data-arrow][data-late]')).toHaveCount(1);
-  // Not by colour alone: the line is dashed, the others are not.
-  expect(await dashes(page, 'Share a board', 'Filter and sort cards')).toBe('6 4');
-  expect(await dashes(page, 'Drag cards', 'Filter and sort cards')).toBeNull();
-  // A mark next to the title and one after the bar.
-  const row = gantt(page)
-    .locator('[data-row]')
-    .filter({ has: page.locator('[data-row-title]', { hasText: 'Filter and sort cards' }) });
-  await expect(row.locator('[data-mark="late"]')).toHaveCount(2);
-  await expect(gantt(page).locator('[data-mark]')).toHaveCount(2);
-  await expect(bar(page, 'Filter and sort cards')).toHaveAccessibleName(
-    'Filter and sort cards, November 20 – 21. After Share a board and Drag cards. Out of order: starts before the end of Share a board.',
-  );
-  // The row above the chart counts them, and goes to the card.
-  const count = page.getByTestId('gantt-late');
-  await expect(count).toHaveAccessibleName('Out of order: 1. Show the next.');
-  await expect(count.locator('[data-count]')).toHaveText('1');
-  await count.click();
+  await openGantt(page, info);
+  // A bar far from what is in sight: its title is at hand, the bar is not.
+  await setDates(page, { 'Filter and sort cards': { from: '2028-03-01' } });
+  await page.getByTestId('gantt-today').click();
+  const title = gantt(page).locator('[data-row-title]', { hasText: 'Filter and sort cards' });
+  const before = await scroller(page).evaluate((element) => element.scrollLeft);
+  await title.click();
+  await expect(dialog(page)).toBeVisible();
+  await expect(dialog(page).locator('[data-card-title]')).toHaveValue('Filter and sort cards');
+  await page.keyboard.press('Escape');
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(title).toBeFocused();
+  expect(await scroller(page).evaluate((element) => element.scrollLeft)).toBe(before);
+  // Tab goes on from the row: to its bar.
+  await page.keyboard.press('Tab');
   await expect(bar(page, 'Filter and sort cards')).toBeFocused();
-  await expect(bar(page, 'Filter and sort cards')).toBeInViewport();
-
-  // Dates are not moved for the reader: the card is where its value says.
-  const stored = await page.evaluate(() => {
-    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
-    const card = store.cards.find((each) => each.title === 'Filter and sort cards');
-    return (card as unknown as { fields: { properties: Record<string, unknown> } }).fields
-      .properties[due?.id ?? ''];
-  });
-  expect(stored).toEqual({ from: '2026-11-20', to: '2026-11-21' });
-
-  // Put back in order, nothing is marked.
-  await setDates(page, { 'Filter and sort cards': { from: '2026-11-23', to: '2026-11-24' } });
-  await expect(page.getByTestId('gantt-late')).toHaveCount(0);
-  await expect(gantt(page).locator('[data-mark]')).toHaveCount(0);
-});
-
-test('cards on a loop are marked, counted and said, the arrows between them dotted', async ({
-  page,
-}, info) => {
-  await openRelated(page, info);
-  await expect(page.getByTestId('gantt-loops')).toHaveCount(0);
-  // "Create a new card" → "Share a board" → "Filter and sort cards" → "Create a new card".
-  await setAfter(page, { 'Create a new card': ['Filter and sort cards'] });
-  await expect(arrows(page)).toHaveCount(4);
-  await expect(gantt(page).locator('[data-arrow][data-loop]')).toHaveCount(3);
-  // In order and on the loop: dotted. The one that closes it runs backwards in time: dashed.
-  expect(await dashes(page, 'Create a new card', 'Share a board')).toBe('0.1 4.5');
-  expect(await dashes(page, 'Filter and sort cards', 'Create a new card')).toBe('6 4');
-  expect(await dashes(page, 'Drag cards', 'Filter and sort cards')).toBeNull();
-  await expect(gantt(page).locator('[data-bar][data-loop]')).toHaveCount(3);
-  await expect(bar(page, 'Drag cards')).not.toHaveAttribute('data-loop');
-  await expect(bar(page, 'Share a board')).toHaveAccessibleName(
-    'Share a board, November 12 – 23. After Create a new card. On a loop: following what it comes after leads back to it.',
-  );
-  const count = page.getByTestId('gantt-loops');
-  await expect(count).toHaveAccessibleName('On a loop: 3. Show the next.');
-  await expect(page.getByTestId('gantt-late')).toHaveAccessibleName(
-    'Out of order: 1. Show the next.',
-  );
-  // The button walks the cards of the loop, from the top and round again.
-  const onLoop = gantt(page).locator('[data-bar][data-loop]');
-  for (const at of [0, 1, 2, 0]) {
-    await count.click();
-    await expect(onLoop.nth(at)).toBeFocused();
-  }
-});
-
-test('a loop through a card without a date still marks the cards that have a bar', async ({
-  page,
-}, info) => {
-  await openRelated(page, info);
-  // "Drag cards" ↔ "Create a new view", which has no date and so no bar and no arrow.
-  await setAfter(page, { 'Drag cards': ['Create a new view'] });
-  await expect(arrows(page)).toHaveCount(3);
-  await expect(gantt(page).locator('[data-arrow][data-loop]')).toHaveCount(0);
-  await expect(bar(page, 'Drag cards')).toHaveAttribute('data-loop', '');
-  await expect(page.getByTestId('gantt-loops')).toHaveAccessibleName(
-    'On a loop: 1. Show the next.',
-  );
 });
 
 /**
  * Pictures for a person to look at, in `target/screens/gantt/` when
  * `FVOCI_SCREENS` is set. The test runs either way: what it checks on the
- * way (nothing wider than the page at 390 pixels) holds with or without
+ * way (nothing of the chart beyond the page at 390 pixels) holds with or without
  * pictures.
  */
 test('the chart in light and dark, and at 390 pixels', async ({ page }, info) => {
@@ -562,13 +273,19 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
       await page.screenshot({ path: `${screensDir('gantt')}/gantt-${name}.png` });
     }
   };
-  await openGantt(page, info);
+  await openRelated(page, info);
   await setDates(page, {
     'Manage tasks with cards': { from: '2026-11-05', to: '2026-11-11' },
     'Create your own board': { from: '2026-11-16', to: '2026-11-20' },
-    'Create a new view': { from: '2026-11-30', to: '2026-12-02' },
+    'Share cards on Channels': { from: '2026-11-25', to: '2026-12-01' },
+  });
+  // One relation out of order: "Create your own board" starts before "Share a board" ends.
+  await setAfter(page, {
+    'Create your own board': ['Share a board'],
+    'Share cards on Channels': ['Create your own board'],
   });
   await expect(bars(page)).toHaveCount(7);
+  await expect(page.getByTestId('gantt-late')).toBeVisible();
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     if (scheme === 'dark') await expect(page.locator('html')).toHaveClass(/\bdark\b/);
@@ -577,12 +294,30 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
   }
   await page.emulateMedia({ colorScheme: 'light' });
 
+  // Closer and farther, and a loop.
+  await page.getByTestId('gantt-zoom-in').click();
+  await expect(gantt(page)).toHaveAttribute('data-zoom', 'day');
+  await shoot(`${info.project.name}-days`);
+  await page.getByTestId('gantt-zoom-out').click();
+  await page.getByTestId('gantt-zoom-out').click();
+  await expect(gantt(page)).toHaveAttribute('data-zoom', 'month');
+  await shoot(`${info.project.name}-months`);
+  await page.getByTestId('gantt-zoom-in').click();
+  await setAfter(page, { 'Create a new card': ['Share cards on Channels'] });
+  await expect(page.getByTestId('gantt-loops')).toBeVisible();
+  await shoot(`${info.project.name}-loop`);
+
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByTestId('gantt-today-line')).toBeVisible();
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  );
-  expect(overflow).toBe(0);
   await page.getByTestId('gantt-today').click();
+  await expect(page.getByTestId('gantt-today-line')).toBeInViewport();
+  // The chart and the row above it end where the page does; the days scroll inside.
+  for (const part of [scroller(page), page.getByTestId('gantt-toolbar')]) {
+    const box = await part.boundingBox();
+    if (!box) throw new Error('a part of the chart is not on the page');
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+  }
+  const last = await page.getByTestId('gantt-undated').boundingBox();
+  expect((last?.x ?? 0) + (last?.width ?? 999)).toBeLessThanOrEqual(390);
   await shoot(`390-${info.project.name}`);
 });

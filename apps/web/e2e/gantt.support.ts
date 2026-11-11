@@ -1,0 +1,186 @@
+/**
+ * What the browser tests of the Gantt view share: a Gantt view of the
+ * welcome board with dated cards (and a card relation between them), the
+ * parts of the chart on the page, and reading days off the marks of its axis.
+ *
+ * The clock of the page is fixed at 2026-11-10 01:00 in Seoul (still the
+ * 9th in UTC, so that a day taken from UTC would show), and so is its time
+ * zone (`test.use` in each file); the language is English, whose weeks
+ * start on Sunday.
+ */
+import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+
+import { openView } from './kanban.support.ts';
+
+export const WELCOME = ['Welcome to fvoci!', 'Onboarding'] as const;
+export const NOW = new Date('2026-11-09T16:00:00Z'); // 01:00 on the 10th in Seoul
+export const gantt = (page: Page): Locator => page.getByTestId('gantt');
+export const scroller = (page: Page): Locator => page.getByTestId('gantt-scroller');
+export const bars = (page: Page): Locator => gantt(page).locator('[data-bar]');
+export const bar = (page: Page, title: string): Locator =>
+  gantt(page)
+    .locator('[data-row]')
+    .filter({ has: page.locator('[data-row-title]', { hasText: title }) })
+    .locator('[data-bar]');
+
+/** A date value as the wire has it: a day as text, a moment as milliseconds. */
+export type Stored = { from: string | number; to?: string | number } | undefined;
+
+export interface Store {
+  boardId: string;
+  board: { cardProperties: { id: string; name: string; type: string }[] };
+  cards: { id: string; title: string }[];
+  views: { id: string; title: string; fields: Record<string, unknown> }[];
+  setCardProperty(cardId: string, propertyId: string, value: unknown): Promise<void>;
+  changeBoard(change: (board: Store['board']) => Store['board']): Promise<void>;
+  deleteCards(cardIds: string[]): Promise<void>;
+}
+export interface Dev {
+  workspace: { board: Store; changeSettings(patch: Record<string, string>): Promise<void> };
+  backend: {
+    views(boardId: string): Promise<{ id: string; fields: Record<string, unknown> }[]>;
+  };
+}
+
+/** Gives cards of the open board a value of "Due Date", through the board store. */
+export async function setDates(page: Page, values: Record<string, Stored>): Promise<void> {
+  await page.evaluate(async (wanted) => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    for (const [title, value] of Object.entries(wanted)) {
+      const card = store.cards.find((each) => each.title === title);
+      if (!card || !due) throw new Error(`no card "${title}" or no Due Date`);
+      await store.setCardProperty(card.id, due.id, value);
+    }
+  }, values);
+}
+
+/** The fields of the view that is open, as the backend keeps them. */
+export async function storedFields(page: Page): Promise<Record<string, unknown>> {
+  const viewId = /\/board\/[^/]+\/([^/]+)/.exec(new URL(page.url()).pathname)?.[1] ?? '';
+  return page.evaluate(async (id) => {
+    const { workspace, backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+    const views = await backend.views(workspace.board.boardId);
+    return views.find((view) => view.id === id)?.fields ?? {};
+  }, viewId);
+}
+
+/** Adds a Gantt view to the board that is open, from the list of kinds. */
+export async function addGantt(page: Page): Promise<void> {
+  const header = page.getByTestId('view-header');
+  if ((await header.getAttribute('data-layout')) === 'row') {
+    await header.locator('[data-tool="add-view"]').click();
+    await page.getByRole('menuitem', { name: 'Gantt', exact: true }).click();
+  } else {
+    await header.locator('[data-tool="views"]').click();
+    await page.getByRole('menuitem', { name: 'Add Gantt view' }).click();
+  }
+  await expect(gantt(page)).toBeVisible();
+  await expect(scroller(page)).toBeVisible();
+}
+
+/** A Gantt view of the welcome board with a few dated cards. */
+export async function openGantt(page: Page, info: TestInfo): Promise<void> {
+  await page.clock.setFixedTime(NOW);
+  await openView(page, info, ...WELCOME);
+  await setDates(page, {
+    'Drag cards': { from: '2026-11-12' },
+    // Twelve days: 12 to 23 November.
+    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
+    // 08:00 on the 10th in Seoul.
+    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
+    'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
+  });
+  await addGantt(page);
+  await expect(bars(page)).toHaveCount(4);
+}
+
+/** Where a day begins across the page, and how wide a day is: read off the marks of the axis. */
+export async function dayScale(
+  page: Page,
+): Promise<{ x: (date: string) => number; width: number }> {
+  const marks = await gantt(page)
+    .locator('[data-tick]')
+    .evaluateAll((ticks) =>
+      ticks.slice(0, 2).map((tick) => ({
+        date: tick.getAttribute('data-tick') ?? '',
+        x: tick.getBoundingClientRect().x,
+      })),
+    );
+  const [first, second] = marks;
+  if (!first || !second) throw new Error('the axis has no marks');
+  const days = (from: string, to: string): number =>
+    Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+  const width = (second.x - first.x) / days(first.date, second.date);
+  return { x: (date) => first.x + days(first.date, date) * width, width };
+}
+
+// ------------------------------------------------------- dependencies
+
+export const arrows = (page: Page): Locator => gantt(page).locator('[data-arrow]');
+
+/** Gives the board a card relation "After" (identifier `after`). */
+export async function addRelation(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    await store.changeBoard((board) => ({
+      ...board,
+      cardProperties: [
+        ...board.cardProperties,
+        { id: 'after', name: 'After', type: 'relation', options: [] },
+      ],
+    }));
+  });
+}
+
+/** Writes on each card named the cards it comes after, by their titles; other text is kept as an identifier. */
+export async function setAfter(page: Page, values: Record<string, string[]>): Promise<void> {
+  await page.evaluate(async (wanted) => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const idOf = (title: string): string =>
+      store.cards.find((each) => each.title === title)?.id ?? title;
+    for (const [title, before] of Object.entries(wanted)) {
+      await store.setCardProperty(idOf(title), 'after', before.map(idOf));
+    }
+  }, values);
+}
+
+/** Chooses a line of "dependencies": the tool is behind "…" of the header, in either layout. */
+export async function chooseDependencies(page: Page, action: string): Promise<void> {
+  await page.getByTestId('view-header').locator('[data-tool="more"]').click();
+  await page.locator('[role="menuitem"][data-action="dependencies"]').click();
+  await page.locator(`[role="menuitem"][data-action="${action}"]`).click();
+  await expect(page.locator('[role="menuitem"]')).toHaveCount(0);
+}
+
+/** What "dependencies" says it reads, on its line of "…". */
+export async function expectDependencies(page: Page, name: string): Promise<void> {
+  await page.getByTestId('view-header').locator('[data-tool="more"]').click();
+  const line = page.locator('[role="menuitem"][data-action="dependencies"]');
+  await expect(line).toContainText('Dependencies');
+  await expect(line).toContainText(name);
+  await page.keyboard.press('Escape');
+  await expect(line).toHaveCount(0);
+}
+
+/** A Gantt view of the welcome board with dated cards and a relation between them. */
+export async function openRelated(page: Page, info: TestInfo): Promise<void> {
+  await page.clock.setFixedTime(NOW);
+  await openView(page, info, ...WELCOME);
+  await setDates(page, {
+    'Drag cards': { from: '2026-11-12' },
+    'Share a board': { from: '2026-11-12', to: '2026-11-23' },
+    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
+    'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
+  });
+  await addRelation(page);
+  await setAfter(page, {
+    // After two cards, one of them deleted since, and after itself.
+    'Share a board': ['Create a new card', 'a-card-that-is-gone', 'Share a board'],
+    'Filter and sort cards': ['Share a board', 'Drag cards'],
+    // A card without a date: it has no bar for an arrow to reach.
+    'Create a new view': ['Drag cards'],
+  });
+  await addGantt(page);
+  await expect(bars(page)).toHaveCount(4);
+}

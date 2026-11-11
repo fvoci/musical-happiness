@@ -6,8 +6,8 @@
   relation as its dependencies, an arrow goes from each card to the cards
   that come after it; dates are never moved. A card that starts before a
   card it comes after has ended is out of order (ending and starting on the
-  same day is in order): its arrow is dashed, its bar and its title carry a
-  mark, its bar says so in words, and the row above the chart counts them.
+  same day is in order): its arrow is dashed, its title carries a mark, its
+  bar says so in words, and the row above the chart counts them.
   Cards on a loop are marked and counted the same way.
 
   One box scrolls both ways. The titles of the cards are a column at its
@@ -36,8 +36,8 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { page, Room } from '$lib/layout/room.svelte.ts';
-  import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
-  import { DAY_WIDTH, dayAt, xOfDay, zoomOf } from '$lib/logic/gantt.ts';
+  import { calendarDate, dateOfInstant, daysBetween, type CalendarDate } from '$lib/logic/dates.ts';
+  import { DAY_WIDTH, xOfDay, zoomOf, type Axis } from '$lib/logic/gantt.ts';
   import type { GanttZoom } from '$lib/logic/wire.ts';
 
   import { MinuteClock } from '../calendar/clock.svelte.ts';
@@ -105,15 +105,53 @@
     scroller.scrollLeft = Math.max(0, x - daysRoom() * part);
   }
 
-  /** Another zoom: the day in the middle of what is in sight stays there. */
-  async function setZoom(next: GanttZoom): Promise<void> {
+  /** Another zoom: the view's where the reader may change the view, theirs for the visit where not. */
+  function setZoom(next: GanttZoom): void {
     if (next === zoom) return;
-    const middle = scroller ? dayAt(axis, (scroller.scrollLeft + daysRoom() / 2) / rem()) : today;
     if (board.canEdit) void board.setViewFields(view.id, { ganttZoom: next }, 'ganttZoom');
     else ownZoom = next;
-    await tick();
-    showDay(middle, 1 / 2);
   }
+
+  /** The axis the page shows; the one before it, while a new one is being drawn. Not reactive. */
+  let drawn: Axis | undefined;
+  /**
+   * The day that was held in the middle the last time the axis changed
+   * (counted in days from `HELD_FROM`, with its fraction), and where the box
+   * was scrolled to for it. Until the reader scrolls, that day is held again:
+   * at a far zoom the whole chart may be in sight and the box not scrolled at
+   * all, and zooming back in must come back to where the reader was, not to
+   * whatever then lay in the middle. Not reactive.
+   */
+  let held: { day: number; left: number } | undefined;
+  const HELD_FROM = calendarDate(2000, 1, 1);
+
+  /*
+   * The days in sight stay in sight when the axis changes under them: the
+   * zoom, or its first day (a card dated earlier than any before, another
+   * "display by", a filter). An effect, because where a box is scrolled to
+   * is the page's and not ours: before the page is drawn again the middle
+   * of what is in sight is read off the old axis, and once it is drawn the
+   * box is scrolled to the same day on the new one.
+   */
+  $effect.pre(() => {
+    const next = axis;
+    const before = drawn;
+    drawn = next;
+    if (!scroller || !before) return;
+    if (before.first === next.first && before.dayWidth === next.dayWidth) return;
+    const half = daysRoom() / 2;
+    const left = scroller.scrollLeft;
+    const day =
+      held && Math.abs(held.left - left) < 1
+        ? held.day
+        : daysBetween(HELD_FROM, before.first) + (left + half) / rem() / before.dayWidth;
+    void tick().then(() => {
+      if (!scroller) return;
+      const x = (day - daysBetween(HELD_FROM, next.first)) * next.dayWidth * rem();
+      scroller.scrollLeft = Math.max(0, x - half);
+      held = { day, left: scroller.scrollLeft };
+    });
+  });
 
   /**
    * The box, once it is drawn: it starts with today in sight. The column of
@@ -143,6 +181,38 @@
   const stop = $derived(
     focused !== undefined && chart.bars.has(focused) ? focused : chart.cardLines[0]?.id,
   );
+
+  /**
+   * The card whose title opened it. The card gives the focus back to what
+   * opened it, and CardDialog would hand it on to the card's bar (`data-card`)
+   * and so scroll the days to wherever that bar is: for this card the bar
+   * does not say it is the card's, and the focus stays on the title.
+   */
+  let viaTitle = $state<string | undefined>(undefined);
+
+  /** The title of a row was pressed: the Tab key goes on from this row, and its card opens. */
+  function openFromTitle(cardId: string): void {
+    focused = cardId;
+    viaTitle = cardId;
+    onOpenCard(cardId);
+  }
+
+  /**
+   * A bar took the focus: the stop of the Tab key is on it from now on. The
+   * page brings a focused bar into the box by itself, but knows nothing of
+   * the column of titles that lies over the box's left: a bar that begins
+   * under it is scrolled out from under it. (Room kept at the left by the
+   * style sheet, `scroll-padding`, would do it too, and would scroll the
+   * days away whenever a title took the focus: the titles lie in that room.)
+   */
+  function barFocused(cardId: string, bar: HTMLElement): void {
+    focused = cardId;
+    viaTitle = undefined;
+    if (!scroller) return;
+    const titles = scroller.querySelector('[data-gantt-corner]')?.getBoundingClientRect().right;
+    const hidden = (titles ?? 0) - bar.getBoundingClientRect().left;
+    if (hidden > 0) scroller.scrollLeft -= hidden + rem() / 2;
+  }
 
   function focusBar(cardId: string | undefined): void {
     if (cardId === undefined) return;
@@ -254,7 +324,7 @@
       focusNext(chart.loopIds);
     }}
     {zoom}
-    onzoom={(next: GanttZoom) => void setZoom(next)}
+    onzoom={setZoom}
     undated={chart.placed.undated.length}
     {undatedOpen}
     bind:undatedButton
@@ -266,7 +336,7 @@
     {#if box.measured}
       <div
         data-testid="gantt-scroller"
-        class="min-h-0 flex-1 scroll-pt-12 scroll-pl-(--gantt-title) overflow-auto overscroll-contain"
+        class="min-h-0 flex-1 scroll-pt-12 overflow-auto overscroll-contain"
         {@attach attachScroller}
       >
         <div
@@ -294,22 +364,37 @@
             <div aria-hidden="true" class="pointer-events-none absolute inset-0">
               <div class="sticky left-0 h-full w-(--gantt-title) border-r bg-background"></div>
             </div>
-            <ul aria-label={m.gantt_rows()} class="relative">
-              {#each chart.lines as line (`${line.kind}:${line.id}`)}
-                {#if line.kind === 'group'}
-                  <GroupRow {line} />
-                {:else}
-                  <BarRow
-                    {line}
-                    current={line.id === stop}
-                    href={cardHref(line.id)}
-                    onopen={onOpenCard}
-                    onkeys={barKeys}
-                    onfocused={(cardId: string) => {
-                      focused = cardId;
-                    }}
-                  />
-                {/if}
+            <!--
+              `role`: a list without bullets is not announced as one everywhere.
+              The rows stand in blocks, and a block that is out of view is not
+              laid out or painted until it comes near (`content-visibility`).
+              Blocks and not single rows: the page looks at every such box on
+              every frame of scrolling, and thousands of them halve the frames.
+            -->
+            <ul role="list" aria-label={m.gantt_rows()} class="relative">
+              {#each chart.blocks as block, at (at)}
+                <div
+                  role="presentation"
+                  class="[contain-intrinsic-block-size:auto_calc(var(--gantt-row)*var(--rows))] [content-visibility:auto]"
+                  style:--rows={block.length}
+                >
+                  {#each block as line (`${line.kind}:${line.id}`)}
+                    {#if line.kind === 'group'}
+                      <GroupRow {line} />
+                    {:else}
+                      <BarRow
+                        {line}
+                        current={line.id === stop}
+                        href={cardHref(line.id)}
+                        viaTitle={line.id === viaTitle}
+                        onopen={onOpenCard}
+                        onopentitle={openFromTitle}
+                        onkeys={barKeys}
+                        onfocused={barFocused}
+                      />
+                    {/if}
+                  {/each}
+                </div>
               {:else}
                 <li
                   data-testid="gantt-empty"

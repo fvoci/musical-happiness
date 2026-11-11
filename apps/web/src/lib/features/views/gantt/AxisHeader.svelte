@@ -25,6 +25,9 @@
   }
 
   let { axis, scale, todayX, today, locale }: Props = $props();
+
+  /** A name of the upper row follows the scrolling only in a box with room to: in rem. */
+  const NAME_ROOM = 8;
 </script>
 
 <div
@@ -42,12 +45,18 @@
     {#each scale.upper as tick (tick.date)}
       <div
         data-upper={tick.date}
-        class="absolute top-0 h-6 overflow-clip border-l first:border-l-0"
+        class={['absolute top-0 h-6 overflow-clip', tick.x > 0 && 'border-l']}
         style:left="{tick.x}rem"
         style:width="{tick.width}rem"
       >
+        <!-- A box too narrow for a name (a month cut at an end of the axis) shortens it in place. -->
         <span
-          class="sticky left-(--gantt-title) inline-block px-2 py-1 font-medium whitespace-nowrap text-foreground"
+          class={[
+            'px-2 py-1 font-medium text-foreground',
+            tick.width >= NAME_ROOM
+              ? 'sticky left-(--gantt-title) inline-block whitespace-nowrap'
+              : 'block truncate',
+          ]}
         >
           {upperLabel(axis.zoom, tick.date, locale)}
         </span>
@@ -57,7 +66,8 @@
       <div
         data-tick={tick.date}
         class={[
-          'absolute top-6 flex h-6 items-center overflow-clip border-t border-l tabular-nums first:border-l-0',
+          'absolute top-6 flex h-6 items-center overflow-clip border-t tabular-nums',
+          tick.x > 0 && 'border-l',
           axis.zoom === 'day' ? 'justify-center' : 'px-1.5',
           axis.zoom === 'day' && tick.date === today && 'font-semibold text-foreground',
         ]}
@@ -67,9 +77,9 @@
         {lowerLabel(axis.zoom, tick.date, locale)}
       </div>
     {/each}
-    <!-- Where the line of today begins. -->
+    <!-- Where the line of today begins: inside the row, so that the corner covers it too. -->
     <div
-      class="absolute bottom-0 size-2 -translate-x-1/2 translate-y-1/2 rounded-full bg-primary"
+      class="absolute bottom-0 h-1.5 w-2 -translate-x-1/2 rounded-t-full bg-primary"
       style:left="{todayX}rem"
     ></div>
   </div>

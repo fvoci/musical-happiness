@@ -8,6 +8,8 @@ import { displayProperty } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
 import type { BoardGroup } from '$lib/logic/group.ts';
 import {
+  arrowHead,
+  arrowPath,
   arrowsOf,
   axisOf,
   barsOf,
@@ -17,7 +19,6 @@ import {
   relationsOf,
   rowsOf,
   scaleOf,
-  type Arrow,
   type Axis,
   type Bar,
   type ChartRelations,
@@ -29,6 +30,9 @@ import type { BoardView, Card, GanttZoom, PropertyTemplate } from '$lib/logic/wi
 import type { BoardStore } from '$lib/state/index.ts';
 
 import { Placed } from '../calendar/placed.ts';
+
+import { Kept } from './kept.ts';
+import { daysLabel } from './names.ts';
 
 export interface ChartSource {
   board: () => BoardStore;
@@ -75,6 +79,20 @@ export interface GroupLine {
 }
 
 export type ChartLine = CardLine | GroupLine;
+
+/** An arrow as drawn: its ends, its marks, and its line and head as SVG paths. */
+export interface ArrowLine {
+  key: string;
+  from: string;
+  to: string;
+  late: boolean;
+  loop: boolean;
+  path: string;
+  head: string;
+}
+
+/** How many rows stand in one block of the list (Gantt.svelte). */
+const BLOCK = 25;
 
 const PERSON_KINDS: readonly string[] = ['person', 'createdBy', 'updatedBy'];
 
@@ -185,12 +203,30 @@ export class GanttChart {
     ),
   );
 
-  readonly arrows = $derived.by<Arrow[]>(() =>
-    arrowsOf(this.relations, this.bars, this.axis.width),
+  readonly #keptArrows = new Kept<ArrowLine>();
+
+  /** One arrow for each edge. */
+  readonly arrows = $derived.by<ArrowLine[]>(() =>
+    this.#keptArrows.keep(
+      arrowsOf(this.relations, this.bars, this.axis.width).map((arrow) => ({
+        key: edgeKey(arrow),
+        from: arrow.from,
+        to: arrow.to,
+        late: arrow.late,
+        loop: arrow.loop,
+        path: arrowPath(arrow.points),
+        head: arrowHead(arrow.points),
+      })),
+      (arrow) => arrow.key,
+    ),
   );
 
   /** For each card, the cards it comes after, in the order of its value. */
   readonly #before = $derived.by(() => cardsBefore(this.relations.edges));
+
+  readonly #listFormat = $derived.by(
+    () => new Intl.ListFormat(this.#board.workspace.locale, { type: 'conjunction' }),
+  );
 
   /** The titles of cards as a list in the reader's language: "A, B and C". */
   #listed(cardIds: readonly string[]): string {
@@ -198,9 +234,44 @@ export class GanttChart {
       const card = this.placed.card(id);
       return card ? [this.placed.title(card)] : [];
     });
-    return new Intl.ListFormat(this.#board.workspace.locale, { type: 'conjunction' }).format(
-      titles,
-    );
+    return this.#listFormat.format(titles);
+  }
+
+  /**
+   * The names worked out so far, by card. A card that changes is a new
+   * object, so a name is worked out again only for the card that changed,
+   * not for every card of the chart whenever one of them does; everything
+   * else a name is made of starts the names over.
+   */
+  readonly #named = $derived.by(() => ({
+    // What a name is made of besides its card: kept here so that the names start over with it.
+    of: [this.template, this.#regional, this.#board.workspace.locale, this.#year],
+    names: new WeakMap<Card, string>(),
+  }));
+
+  /** The year of today: a day in another year is said with its year. */
+  readonly #year = $derived.by(() => Number(this.#source.today().slice(0, 4)));
+
+  /** The title of a card (after its time, where its value has one) and its days. */
+  #titleAndDays(card: Card): string {
+    const { names } = this.#named;
+    const known = names.get(card);
+    if (known !== undefined) return known;
+    const time = this.placed.time(card);
+    const title = time
+      ? m.calendar_time_title({ time, title: this.placed.title(card) })
+      : this.placed.title(card);
+    const span = this.placed.span(card.id);
+    const name = span
+      ? m.calendar_card_days({
+          title,
+          days: daysLabel(span, this.#board.workspace.locale, this.#year, (first, last) =>
+            m.gantt_days_range({ first, last }),
+          ),
+        })
+      : title;
+    names.set(card, name);
+    return name;
   }
 
   /** The cards that `cardId` comes after and starts too early for. */
@@ -216,7 +287,7 @@ export class GanttChart {
   #name(card: Card): string {
     const before = this.#before.get(card.id);
     const late = this.#lateBefore(card.id);
-    const name = this.placed.name(card);
+    const name = this.#titleAndDays(card);
     return [
       before ? m.gantt_bar_after({ name, cards: this.#listed(before) }) : name,
       late.length > 0 ? m.gantt_bar_late({ cards: this.#listed(late) }) : undefined,
@@ -226,9 +297,24 @@ export class GanttChart {
       .join(' ');
   }
 
+  readonly #keptLines = new Kept<ChartLine>();
+
   /** The rows as drawn. */
   readonly lines = $derived.by<ChartLine[]>(() =>
-    this.rows.flatMap((row): ChartLine[] => {
+    this.#keptLines.keep(this.#linesNow(), (line) => `${line.kind}:${line.id}`),
+  );
+
+  /** The rows in blocks, for the list to skip the ones that are out of view. */
+  readonly blocks = $derived.by<ChartLine[][]>(() => {
+    const blocks: ChartLine[][] = [];
+    for (let at = 0; at < this.lines.length; at += BLOCK) {
+      blocks.push(this.lines.slice(at, at + BLOCK));
+    }
+    return blocks;
+  });
+
+  #linesNow(): ChartLine[] {
+    return this.rows.flatMap((row): ChartLine[] => {
       if (row.kind === 'group') return this.#groupLine(row);
       const card = this.placed.card(row.id);
       const bar = this.bars.get(row.id);
@@ -245,8 +331,8 @@ export class GanttChart {
           loop: this.relations.loopCards.has(row.id),
         },
       ];
-    }),
-  );
+    });
+  }
 
   /** The rows of cards, from the top: what the arrow keys walk. */
   readonly cardLines = $derived.by(() => this.lines.filter((line) => line.kind === 'card'));

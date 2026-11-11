@@ -12,6 +12,7 @@ import {
   reverseSort,
   sortCandidates,
 } from '$lib/features/view-header/sort-edit.ts';
+import { asideTools, type AsideOffer } from '$lib/features/view-header/texts.ts';
 import {
   dependenciesChoices,
   dependenciesName,
@@ -336,5 +337,55 @@ describe('the sort of a view', () => {
     expect(moveSort(options, 1, 1)).toBe(options);
     expect(reverseSort(options, 5)).toBe(options);
     expect(removeSort(options, 5)).toBe(options);
+  });
+});
+
+describe('the lines of "…" for the tools without a button', () => {
+  const open = {
+    sort: () => undefined,
+    'display-by': () => undefined,
+    dependencies: () => undefined,
+    group: () => undefined,
+    properties: () => undefined,
+  };
+  const gantt: AsideOffer = {
+    row: false,
+    sort: 2,
+    displayBy: 'Due',
+    dependencies: 'After',
+    group: 'None',
+  };
+  const ids = (offer: AsideOffer): string[] => asideTools(offer, open).map((line) => line.id);
+
+  it('are every tool the view offers in the folded row, each with its choice', () => {
+    expect(ids(gantt)).toEqual(['sort', 'display-by', 'dependencies', 'group', 'properties']);
+    const lines = asideTools(gantt, open);
+    expect(lines.map((line) => line.hint)).toEqual(['2', 'Due', 'After', 'None', undefined]);
+    // A view without a sort set says no number; a kind of view without a tool has no line.
+    expect(asideTools({ ...gantt, sort: 0 }, open)[0]?.hint).toBeUndefined();
+    expect(
+      ids({
+        row: false,
+        sort: undefined,
+        displayBy: 'Due',
+        dependencies: undefined,
+        group: undefined,
+      }),
+    ).toEqual(['display-by', 'properties']);
+  });
+
+  it('are "dependencies" alone in the whole row, where the other tools have buttons', () => {
+    expect(ids({ ...gantt, row: true })).toEqual(['dependencies']);
+    expect(ids({ ...gantt, row: true, dependencies: undefined })).toEqual([]);
+  });
+
+  it('open the tool they name', () => {
+    const opened: string[] = [];
+    const lines = asideTools(gantt, {
+      ...open,
+      dependencies: () => void opened.push('dependencies'),
+    });
+    lines.find((line) => line.id === 'dependencies')?.run();
+    expect(opened).toEqual(['dependencies']);
   });
 });

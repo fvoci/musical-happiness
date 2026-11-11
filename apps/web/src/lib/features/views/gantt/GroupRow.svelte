@@ -14,7 +14,7 @@
 
 <li
   data-group={line.id}
-  class="relative z-1 flex h-(--gantt-row) border-b border-border/60 bg-muted/50 [contain-intrinsic-block-size:auto_var(--gantt-row)] [content-visibility:auto]"
+  class="relative z-1 flex h-(--gantt-row) border-b border-border/60 bg-muted/50"
 >
   <div class="sticky left-0 flex max-w-64 min-w-0 items-center gap-1.5 px-3">
     {#if line.color === undefined}

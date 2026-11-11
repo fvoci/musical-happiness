@@ -109,7 +109,9 @@ test('a Gantt view of the server draws dated cards as bars, and keeps its "displ
   await expect(gantt).toHaveAttribute('data-zoom', 'week');
   await expect(gantt.locator('[data-bar]')).toHaveCount(2);
   await expect(bar(page, 'Pick apples')).toHaveAccessibleName('Pick apples, November 12');
-  await expect(bar(page, 'Press cider')).toHaveAccessibleName('Press cider, November 12 – 17');
+  await expect(bar(page, 'Press cider')).toHaveAccessibleName(
+    'Press cider, November 12 – November 17',
+  );
   /** How many days a bar is wide, by the marks of the axis (a week each). */
   const daysWide = async (title: string): Promise<number> => {
     const week = await gantt.locator('[data-tick]').nth(1).boundingBox();
