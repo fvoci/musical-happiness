@@ -104,7 +104,7 @@ impl Server {
                 "{BASE_PATH_ENV} must be empty or an absolute path such as /boards, not {base_path:?}"
             );
         }
-        let store = connect_store(&config).await?;
+        let store = only_organization_scope(connect_store(&config).await?).await?;
         let files =
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
@@ -365,6 +365,23 @@ async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
             Err(error) => return Err(error).context("connecting to the database"),
         }
     }
+}
+
+/// A handle to the store that reaches the rows of the one organization the server
+/// works in: the oldest, made now if the database has none.
+///
+/// TEMPORARY. Every route that names no workspace works in this organization, as do
+/// the websocket connections. A route that names its workspace gets its organization
+/// from there; when all do, this function and its one call go, and what is left
+/// without an organization shows by reaching nothing.
+async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
+    let org_id = store
+        .only_organization()
+        .await
+        .context("unable to get the organization")?;
+    store
+        .for_org(&org_id)
+        .context("the organization's identifier")
 }
 
 /// Tells browsers not to say where a request comes from when a page of this server

@@ -597,9 +597,7 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
         common::execute_raw(&test.dbconfig(), statement).await;
     }
 
-    let store = Store::connect(common::db_type(), &test.dbconfig())
-        .await
-        .expect("the store migrates the database");
+    let store = test.reconnect().await;
     let read = store.get_block(&card.id).await.expect("the card is read");
     assert_eq!(read.body, None, "{read:?}");
     assert_eq!(read.title, "from before");
@@ -721,9 +719,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
     common::insert_blocks(&test, &mut blocks, &user_id).await;
     test.store.close().await;
     store_previous_shapes(&test.dbconfig(), &blocks).await;
-    let store = Store::connect(common::db_type(), &test.dbconfig())
-        .await
-        .expect("the store starts");
+    let store = test.reconnect().await;
     for in_trash in [&blocks[2], &blocks[3]] {
         store
             .delete_block(&in_trash.id, &user_id)
@@ -741,9 +737,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
     )
     .await;
 
-    let store = Store::connect(common::db_type(), &test.dbconfig())
-        .await
-        .expect("the store does the step");
+    let store = test.reconnect().await;
     store
         .undelete_board(trashed_board, &user_id)
         .await
@@ -778,9 +772,7 @@ async fn the_date_value_step_rewrites_what_was_stored_before() {
     store.close().await;
 
     // Done once: the step's row is gone, and the server starts without it.
-    let store = Store::connect(common::db_type(), &test.dbconfig())
-        .await
-        .expect("the store starts again");
+    let store = test.reconnect().await;
     store.close().await;
     let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM data_steps")
         .await
@@ -837,9 +829,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     }
     let migrated_at = crate::blocks::now_millis();
 
-    let store = Store::connect(common::db_type(), &test.dbconfig())
-        .await
-        .expect("the store migrates the database");
+    let store = test.reconnect().await;
     let collected = |before: i64| {
         let store = &store;
         async move {
@@ -949,9 +939,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     )
     .await;
 
-    let store = Store::connect(common::db_type(), &test.dbconfig())
-        .await
-        .expect("the store does the step");
+    let store = test.reconnect().await;
     for kept in &blocks[..4] {
         store.get_block(&kept.id).await.expect("the block stays");
     }

@@ -254,6 +254,9 @@ pub(crate) enum ConnRef<'c> {
 #[derive(Debug)]
 pub(crate) struct Scope<'c> {
     conn: ConnRef<'c>,
+    /// Whether a statement ran that may have changed something: anything but a plain
+    /// `SELECT`.
+    wrote: bool,
     /// How many earlier versions of a comment are kept
     /// ([`crate::Store::set_comment_versions_kept`]).
     comment_versions_kept: usize,
@@ -293,8 +296,15 @@ impl<'c> Scope<'c> {
     pub(crate) fn new(conn: ConnRef<'c>, comment_versions_kept: usize) -> Self {
         Self {
             conn,
+            wrote: false,
             comment_versions_kept,
         }
+    }
+
+    /// Whether the operation ran a statement that may have changed something. One that
+    /// only read has nothing to commit.
+    pub(crate) fn wrote(&self) -> bool {
+        self.wrote
     }
 
     /// How many earlier versions of a comment are kept, at least one.
@@ -324,6 +334,7 @@ impl<'c> Scope<'c> {
     ///
     /// A value bound as an identifier that is not one matches no row.
     pub(crate) async fn fetch_all(&mut self, sql: Sql) -> Result<Vec<Row>, StoreError> {
+        self.wrote |= !is_plain_select(&sql.text);
         // The text is built from literals in this crate; every value is a bound
         // parameter.
         let text = AssertSqlSafe(sql.text);
@@ -358,6 +369,7 @@ impl<'c> Scope<'c> {
         if let Some(invalid) = sql.invalid_id {
             return Err(StoreError::InvalidId(invalid));
         }
+        self.wrote = true;
         let text = AssertSqlSafe(sql.text);
         match &mut self.conn {
             ConnRef::Sqlite(conn) => Ok(bind_params!(sqlx::query(text), sql.params, sqlite_id)
@@ -370,6 +382,13 @@ impl<'c> Scope<'c> {
                 .rows_affected()),
         }
     }
+}
+
+/// Whether a statement is a `SELECT` and nothing else, as this crate writes them: one
+/// that changes nothing. A statement that begins otherwise (`WITH ... DELETE`, an
+/// `UPDATE ... RETURNING`) counts as one that may write, whatever it does.
+fn is_plain_select(text: &str) -> bool {
+    text.trim_start().starts_with("SELECT ")
 }
 
 /// A result row from either database, read by column position.
@@ -465,6 +484,30 @@ impl Row {
         match self.json(index, column)? {
             Value::Object(map) => Ok(map),
             _ => Ok(fvoci_model::JsonMap::new()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_plain_select;
+
+    #[test]
+    fn only_a_statement_that_begins_with_select_is_taken_for_a_read() {
+        assert!(
+            is_plain_select("SELECT id FROM boards WHERE id = $1"),
+            "a read"
+        );
+        assert!(is_plain_select("  SELECT 1"), "leading white space");
+        for statement in [
+            "WITH gone AS (DELETE FROM blocks RETURNING id) SELECT id FROM gone",
+            "DELETE FROM data_steps WHERE name = $1 RETURNING name",
+            "UPDATE users SET update_at = $1 RETURNING id",
+            "INSERT INTO boards (id) VALUES ($1) RETURNING id",
+            "select 1",
+            "SELECTED",
+        ] {
+            assert!(!is_plain_select(statement), "{statement}");
         }
     }
 }

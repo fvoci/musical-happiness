@@ -15,7 +15,8 @@ use fvoci_model::new_id;
 use sqlx::Connection as _;
 use sqlx::postgres::PgConnection;
 
-use crate::DbType;
+use crate::error::StoreError;
+use crate::{DbType, Store};
 
 /// The environment variable that selects the database kind for tests.
 pub const DB_TYPE_ENV: &str = "FVOCI_STORE_TEST_DB_TYPE";
@@ -151,4 +152,38 @@ async fn refuse_a_role_the_policies_pass(connection: &mut PgConnection) {
          {bypasses}). The tests need a role that is no superuser, has NOBYPASSRLS and has \
          CREATE on the database; `cargo xtask test` makes one in its container"
     );
+}
+
+impl Store {
+    /// How many rows of a table this handle reaches, with no condition: for the tests
+    /// of the wall between organizations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn count_rows(&self, table: &str) -> Result<i64, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql(&format!("SELECT count(*) FROM {table}"));
+            match scope.fetch_optional(sql).await? {
+                Some(row) => row.int(0),
+                None => Ok(0),
+            }
+        })
+        .await
+    }
+
+    /// Runs one statement as this handle does its own, and returns how many rows it
+    /// changed: for the tests of what the database refuses whatever the server asks.
+    /// Nothing checks the text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn execute_unchecked(&self, statement: &str) -> Result<u64, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql(statement);
+            scope.execute(sql).await
+        })
+        .await
+    }
 }
