@@ -501,7 +501,7 @@ Playwright에서 `setViewportSize`로 창을 바꿔 본 것이다(`calendar.spec
 
 ### 없던 것
 
-이 안을 쓸 때 로직에 없던 것 가운데 날의 요일, 주와 달의 격자, 막대 배치와 접기, 표시 기준 찾기(C15), 날짜 있는 카드 가르기는 `src/lib/logic/calendar.ts`로, 달·요일·범위의 이름은 `format.ts`로 옮겨졌다(단위 테스트 `tests/logic/calendar.test.ts`). 막대와 그날의 목록은 일찍 시작한 것, 긴 것, 시각이 없는 것, 이른 시각 순이고, 그래도 같으면 뷰의 카드 순서(`BoardStore.cardsOf`)다. 남은 것은 값을 통째로 며칠 옮기기(양 끝을 함께, 길이를 지키며)와 한쪽만 늘이기다(V2, V5).
+이 안을 쓸 때 로직에 없던 것 가운데 날의 요일, 주와 달의 격자, 막대 배치와 접기, 표시 기준 찾기(C15), 날짜 있는 카드 가르기는 `src/lib/logic/calendar.ts`로, 달·요일·범위의 이름은 `format.ts`로 옮겨졌다(단위 테스트 `tests/logic/calendar.test.ts`). 막대와 그날의 목록은 일찍 시작한 것, 긴 것, 시각이 없는 것, 이른 시각 순이고, 그래도 같으면 뷰의 카드 순서(`BoardStore.cardsOf`)다. 값을 통째로 며칠 옮기기(양 끝을 함께, 길이와 시각을 지키며)는 `movedValue`와 `datesWritable`로 더해졌고(V2), 남은 것은 한쪽만 늘이기다(V5).
 
 ## 스파이크에 있는 것
 

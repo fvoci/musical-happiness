@@ -7,7 +7,19 @@
  * zone of the device: which day a moment falls on is decided by the reader's
  * time zone, passed in, and the first day of the week is an argument.
  */
-import { addDays, calendarDate, dateOfInstant, daysBetween, type CalendarDate } from './dates.ts';
+import { withDay } from './date-entry.ts';
+import {
+  addDays,
+  calendarDate,
+  comparePoints,
+  dateOfInstant,
+  dateOfPoint,
+  daysBetween,
+  daysOf,
+  type CalendarDate,
+  type DatePoint,
+  type DateValue,
+} from './dates.ts';
 import { propertyBehavior } from './properties.ts';
 import type { Weekday } from './regional.ts';
 import { cardProperty, parseDateValue, type Card, type PropertyTemplate } from './wire.ts';
@@ -272,4 +284,51 @@ export function foldWeek(segments: readonly Segment[], lanes: number): Folded {
     }
   }
   return { shown, more };
+}
+
+// ------------------------------------------------------- changing a date
+
+/**
+ * Whether the dates of a calendar can be changed on it: only when its cards
+ * are placed by a date property. When they were made or last changed is
+ * written by the server, and a board with no date at all places its cards
+ * by when they were made (question C14).
+ */
+export function datesWritable(template: PropertyTemplate | undefined): boolean {
+  return template?.type === 'date';
+}
+
+/**
+ * A date value moved whole so that its first day is `first`, for a reader in
+ * `timeZone` (question C10). Both ends move by the same number of days, so a
+ * range keeps its length in days; a moment keeps its time of day on the
+ * reader's clock (`withDay`). A range stored backwards comes out in order. An
+ * empty value becomes that day.
+ *
+ * On a day the clocks skip, a time in the skipped hour lands later
+ * (date-entry.ts); an end that would then come before the start keeps the
+ * range's length in time instead.
+ */
+export function movedValue(value: DateValue, first: CalendarDate, timeZone: string): DateValue {
+  const days = daysOf(value, timeZone);
+  if (!value.from || !days) return { from: { date: first } };
+  const by = daysBetween(days.first, first);
+  const shift = (point: DatePoint): DatePoint =>
+    withDay(point, addDays(dateOfPoint(point, timeZone), by), timeZone);
+  const backwards = value.to !== undefined && comparePoints(value.from, value.to, timeZone) > 0;
+  const start = backwards && value.to ? value.to : value.from;
+  const end = backwards ? value.from : value.to;
+  const from = shift(start);
+  if (!end) return { from };
+  const to = shift(end);
+  if (
+    from.instant !== undefined &&
+    to.instant !== undefined &&
+    start.instant !== undefined &&
+    end.instant !== undefined &&
+    to.instant < from.instant
+  ) {
+    return { from, to: { instant: from.instant + (end.instant - start.instant) } };
+  }
+  return { from, to };
 }

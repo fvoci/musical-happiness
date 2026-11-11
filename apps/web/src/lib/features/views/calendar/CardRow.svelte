@@ -4,7 +4,8 @@
   where it is listed under a day (`date`), its time on its first day (the
   time is the start's) and for a card of several days which of them this
   is ("November 9 – 13 · Day 2 of 5"). Under it, the properties the view
-  turned on (question C5).
+  turned on (question C5). At its end, for someone who may edit, the card's
+  "…" (CardMenu), whose first line changes its date.
 
   A line is 2.5rem high for a mouse and 3rem for a finger.
 -->
@@ -14,7 +15,9 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { daysBetween, type CalendarDate } from '$lib/logic/dates.ts';
   import type { Card, PropertyTemplate } from '$lib/logic/wire.ts';
+  import type { BoardStore } from '$lib/state/index.ts';
 
+  import CardMenu from './CardMenu.svelte';
   import type { Placed } from './placed.ts';
 
   interface Props {
@@ -28,6 +31,9 @@
     nameFormat: string;
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
+    board: BoardStore;
+    /** Opens the picker of a day for a card; none where dates cannot be set. */
+    onChangeDate?: (cardId: string) => void;
   }
 
   let {
@@ -40,6 +46,8 @@
     nameFormat,
     cardHref,
     onOpenCard,
+    board,
+    onChangeDate,
   }: Props = $props();
 
   const span = $derived(date ? placed.span(card.id) : undefined);
@@ -65,22 +73,33 @@
   }
 </script>
 
-<li data-card={card.id} class="rounded-lg hover:bg-muted">
-  <a
-    href={cardHref(card.id)}
-    class="flex min-h-10 min-w-0 flex-col justify-center rounded-lg px-3 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-12"
-    onclick={open}
-  >
-    <span class={['truncate', !card.title && 'text-muted-foreground']}>
-      {placed.title(card)}
-    </span>
-    {#if time || range}
-      <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-        {#if time}<span class="shrink-0">{time}</span>{/if}
-        {#if range}<span class="truncate">{range} · {dayOf}</span>{/if}
+<li data-card={card.id} class="group/card rounded-lg hover:bg-muted">
+  <div class="flex min-w-0 items-center pr-1">
+    <a
+      href={cardHref(card.id)}
+      class="flex min-h-10 min-w-0 flex-1 flex-col justify-center rounded-lg px-3 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-12"
+      onclick={open}
+    >
+      <span class={['truncate', !card.title && 'text-muted-foreground']}>
+        {placed.title(card)}
       </span>
+      {#if time || range}
+        <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          {#if time}<span class="shrink-0">{time}</span>{/if}
+          {#if range}<span class="truncate">{range} · {dayOf}</span>{/if}
+        </span>
+      {/if}
+    </a>
+    {#if board.canEdit}
+      <CardMenu
+        {board}
+        {card}
+        title={placed.title(card)}
+        dated={placed.span(card.id) !== undefined}
+        {onChangeDate}
+      />
     {/if}
-  </a>
+  </div>
   {#if shown.length > 0}
     <div class="flex min-w-0 flex-wrap items-center gap-x-1 px-1 pb-1 text-xs">
       {#each shown as template (template.id)}

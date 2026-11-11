@@ -4,8 +4,9 @@
   narrow box, or in a popover next to the cell (then with a button that
   closes it; question C3, answer A).
 
-  A line of it is a CardRow: the card's title, time and days, and the
-  properties the view turned on.
+  A line of it is a CardRow: the card's title, time and days, the
+  properties the view turned on, and its "…". Where dates cannot be changed
+  here, a line under the heading says why.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -16,6 +17,7 @@
   import type { CalendarDate } from '$lib/logic/dates.ts';
   import { displayDayLong } from '$lib/logic/format.ts';
   import type { PropertyTemplate } from '$lib/logic/wire.ts';
+  import type { BoardStore } from '$lib/state/index.ts';
 
   import CardRow from './CardRow.svelte';
   import type { Placed } from './placed.ts';
@@ -30,6 +32,14 @@
     nameFormat: string;
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
+    board: BoardStore;
+    /** Opens the picker of a day for a card; none where dates cannot be set. */
+    onChangeDate?: (cardId: string) => void;
+    /**
+     * Why no date can be changed on this calendar, where none can: it is
+     * placed by when cards were made or changed (question C14).
+     */
+    fixed?: string;
     /** Given where the list can be closed: a popover. */
     onclose?: () => void;
   }
@@ -44,6 +54,9 @@
     nameFormat,
     cardHref,
     onOpenCard,
+    board,
+    onChangeDate,
+    fixed,
     onclose,
   }: Props = $props();
 
@@ -57,6 +70,8 @@
     nameFormat,
     cardHref,
     onOpenCard,
+    board,
+    onChangeDate,
   });
 </script>
 
@@ -83,6 +98,9 @@
       <div class="h-8 roomy:h-touch"></div>
     {/if}
   </header>
+  {#if fixed}
+    <p data-testid="dates-fixed" class="px-4 pb-1 text-xs text-muted-foreground">{fixed}</p>
+  {/if}
 
   <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
     {#each cards as card (card.id)}

@@ -12,6 +12,10 @@
   - narrower: a small grid of numbers, dots and lines over the list of the
     picked day (question C1, answer A).
 
+  A card's date is changed from the "…" of its line in a list: a picker of
+  days (DayPicker) moves it whole (questions C9, C10). Where the cards are
+  placed by a date nobody sets, no line offers it and the lists say why.
+
   The month in view and the day picked are kept here, above the parts that
   draw them: a window that changes size swaps the grid of bars for the small
   grid, and the two must not take the month and the day with them. They are
@@ -25,6 +29,7 @@
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { fingerPointer, insets, page, PaneRoom } from '$lib/layout/room.svelte.ts';
   import {
+    datesWritable,
     displayProperty,
     firstOf,
     inMonth,
@@ -40,6 +45,7 @@
   import type { ViewProps } from '../props.ts';
 
   import DayList from './DayList.svelte';
+  import DayPicker from './DayPicker.svelte';
   import MiniMonth from './MiniMonth.svelte';
   import MonthGrid from './MonthGrid.svelte';
   import { MinuteClock } from './clock.svelte.ts';
@@ -156,6 +162,7 @@
     focusDay();
   }
 
+  const writable = $derived(datesWritable(template));
   const rows = $derived({
     placed,
     templates,
@@ -163,8 +170,17 @@
     users: board.workspace.users,
     nameFormat: board.workspace.nameFormat,
     cardHref,
+    board,
+    onChangeDate: writable ? (cardId: string) => void changeDate(cardId) : undefined,
   });
-  const lists = $derived({ ...rows, today });
+  const fixed = $derived(
+    writable
+      ? undefined
+      : m.calendar_dates_fixed({
+          property: template?.name ?? m['PropertyType.CreatedTime'](),
+        }),
+  );
+  const lists = $derived({ ...rows, today, fixed });
 
   /** Opens or closes the cards without a date; the list of a day gives way to them. */
   async function toggleUndated(): Promise<void> {
@@ -218,6 +234,28 @@
   function openFromList(cardId: string): void {
     dayOpen = false;
     chosenCard = cardId;
+  }
+
+  // ------------------------------------------------------ changing a date
+
+  /** The card whose date the picker of a day changes, and whether the picker is open. */
+  let changing = $state<string | undefined>(undefined);
+  let pickerOpen = $state(false);
+
+  /** "Change date" in a card's menu: the lists close, and the picker opens by the picked day. */
+  async function changeDate(cardId: string): Promise<void> {
+    dayOpen = false;
+    undatedOpen = false;
+    changing = cardId;
+    await tick();
+    pickerOpen = true;
+  }
+
+  /** The picker has closed: the focus goes to the card's day, or back to "No date". */
+  async function pickerClosed(dated: boolean): Promise<void> {
+    await tick();
+    if (dated) focusDay();
+    else undatedButton?.focus();
   }
 
   /** On a sheet the card opens at once; the sheet gives the focus back itself. */
@@ -301,6 +339,19 @@
     {/if}
   </div>
 </div>
+
+<DayPicker
+  bind:cardId={changing}
+  bind:open={pickerOpen}
+  {board}
+  {placed}
+  {template}
+  {selected}
+  {today}
+  {sheet}
+  onmoved={select}
+  onclosed={(dated: boolean) => void pickerClosed(dated)}
+/>
 
 {#if sheet}
   <BottomSheet
