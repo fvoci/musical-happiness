@@ -33,7 +33,8 @@
     onOpenCard: (cardId: string) => void;
     board: BoardStore;
     /** Opens the picker of a day for a card; none where dates cannot be set. */
-    onChangeDate?: (cardId: string) => void;
+    /** Opens the picker of a day for a card, by this line; none where dates cannot be set. */
+    onChangeDate?: (cardId: string, line: HTMLElement | undefined) => void;
     /** The id of what the card's "…" is described by: why its date cannot be changed here. */
     describedBy?: string;
   }
@@ -67,6 +68,16 @@
   );
   const shown = $derived(faceProperties(card, templates, visiblePropertyIds));
 
+  /** The line itself, for the picker to hang by. Not reactive. */
+  let line: HTMLElement | undefined;
+
+  function attachLine(element: HTMLElement): () => void {
+    line = element;
+    return () => {
+      line = undefined;
+    };
+  }
+
   function open(event: MouseEvent): void {
     // A new tab or window is the browser's to open.
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -76,7 +87,7 @@
   }
 </script>
 
-<li data-card={card.id} class="group/card rounded-lg hover:bg-muted">
+<li data-card={card.id} class="group/card rounded-lg hover:bg-muted" {@attach attachLine}>
   <div class="flex min-w-0 items-center pr-1">
     <a
       href={cardHref(card.id)}
@@ -99,7 +110,10 @@
         {card}
         title={placed.title(card)}
         dated={placed.span(card.id) !== undefined}
-        {onChangeDate}
+        onChangeDate={onChangeDate &&
+          ((cardId: string) => {
+            onChangeDate(cardId, line);
+          })}
         {describedBy}
       />
     {/if}

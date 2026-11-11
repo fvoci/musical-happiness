@@ -26,7 +26,7 @@
     onOpenCard: (cardId: string) => void;
     board: BoardStore;
     /** Opens the picker of a day for a card; none where dates cannot be set. */
-    onChangeDate?: (cardId: string) => void;
+    onChangeDate?: (cardId: string, line: HTMLElement | undefined) => void;
     /** Given where the list has its own heading: the column. A sheet has its title. */
     onclose?: () => void;
   }

@@ -97,9 +97,10 @@
    * small grid), else the day the card's list was of, or "No date".
    */
   const anchor = $derived(
-    (line ?? span)
-      ? `[data-testid="calendar"] [data-day="${selected}"]`
-      : '[data-testid="calendar-undated"]',
+    line ??
+      (span
+        ? `[data-testid="calendar"] [data-day="${selected}"]`
+        : '[data-testid="calendar-undated"]'),
   );
   const weekStartsOn = $derived((placed.regional.weekStart % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
 

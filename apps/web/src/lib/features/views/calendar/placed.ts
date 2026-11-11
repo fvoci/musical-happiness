@@ -112,7 +112,8 @@ export class Placed {
       hourCycle: this.regional.hourCycle,
     };
     const words = shown
-      .filter((template) => !WORDLESS.has(template.type))
+      // The date the card is placed by is on the line already, as its time and days.
+      .filter((template) => !WORDLESS.has(template.type) && template.id !== this.template?.id)
       .flatMap((template) => {
         const text = propertyBehavior(template.type).displayValue(
           card.fields.properties[template.id],

@@ -33,7 +33,7 @@
   import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { fingerPointer, page, PaneRoom } from '$lib/layout/room.svelte.ts';
-  import { datesWritable, displayProperty } from '$lib/logic/calendar.ts';
+  import { datesWritable, displayProperty, weekOf, weeksOfMonth } from '$lib/logic/calendar.ts';
   import { addDays, dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
   import type { Card } from '$lib/logic/wire.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -88,7 +88,17 @@
    */
   let undatedOpen = $derived<boolean>(sheet && false);
 
-  const weeks = $derived(period.weeks(regional.weekStart));
+  /**
+   * The first day of the week drawn, in a week. A string, so that the arrow
+   * keys inside a week change nothing below it: the week, and every card's
+   * place in it, are worked out again only for another week.
+   */
+  const weekFirst = $derived(
+    scale === 'week' ? weekOf(selected, regional.weekStart)[0] : undefined,
+  );
+  const weeks = $derived(
+    weekFirst ? [weekOf(weekFirst, regional.weekStart)] : weeksOfMonth(month, regional.weekStart),
+  );
   const placed = $derived(new Placed(cards, template, regional, locale, weeks.flat()));
 
   const finger = $derived(fingerPointer.current);
@@ -163,7 +173,9 @@
     nameFormat: board.workspace.nameFormat,
     cardHref,
     board,
-    onChangeDate: writable ? (cardId: string) => void changeDate(cardId) : undefined,
+    onChangeDate: writable
+      ? (cardId: string, line: HTMLElement | undefined) => void changeDate(cardId, line)
+      : undefined,
   });
   const fixed = $derived(
     writable
@@ -246,10 +258,9 @@
   let changingLine = $state<HTMLElement | null>(null);
 
   /** "Change date" in a card's menu: the lists close, and the picker opens by the picked day. */
-  async function changeDate(cardId: string): Promise<void> {
+  async function changeDate(cardId: string, line?: HTMLElement): Promise<void> {
     // A line of a list in the calendar's box stays on screen: the picker hangs by it.
-    changingLine =
-      body?.querySelector<HTMLElement>(`li[data-card="${CSS.escape(cardId)}"]`) ?? null;
+    changingLine = line && body?.contains(line) ? line : null;
     dayOpen = false;
     undatedOpen = false;
     changing = cardId;
@@ -291,7 +302,7 @@
   class="flex h-full min-h-0 flex-col"
 >
   <Toolbar
-    title={periodTitle(scale, weeks, month, locale)}
+    title={periodTitle(scale, weeks, month, locale, today)}
     {scale}
     onscale={(next: Scale) => {
       dayOpen = false;

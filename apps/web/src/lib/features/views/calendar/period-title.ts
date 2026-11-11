@@ -1,7 +1,7 @@
 /**
  * What the calendar's row calls what it shows: the month, or the days of the
- * week with the year (the month's name short, to fit a narrow pane), in the
- * reader's language.
+ * week (the month's name short and the year only out of this one, to fit a
+ * narrow pane), in the reader's language.
  */
 import { firstOf, type Month } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
@@ -23,28 +23,37 @@ function utcNoon(date: CalendarDate): Date {
   return day;
 }
 
-/** What the calendar's row calls what it shows: "November 2026", or "Nov 8 – 14, 2026". */
+/**
+ * What the calendar's row calls what it shows: "November 2026", or a week,
+ * "Nov 8 – 14" in the year of `today` and "Dec 27, 2026 – Jan 2, 2027" out of
+ * it. The year is left out where it goes without saying: a narrow pane has
+ * room for little more than the days.
+ */
 export function periodTitle(
   scale: Scale,
   weeks: readonly (readonly CalendarDate[])[],
   month: Month,
   locale: string,
+  today: CalendarDate,
 ): string {
   const week = weeks[0];
   const first = week?.[0];
   const last = week?.at(-1);
   if (scale === 'month' || !first || !last) return displayMonth(firstOf(month), locale);
-  let format = rangeFormatters.get(locale);
+  const year = today.slice(0, 4);
+  const withYear = first.slice(0, 4) !== year || last.slice(0, 4) !== year;
+  const key = `${locale}|${String(withYear)}`;
+  let format = rangeFormatters.get(key);
   if (!format) {
     format = new Intl.DateTimeFormat(locale, {
       timeZone: 'UTC',
       calendar: 'gregory',
-      year: 'numeric',
-      // Short, so that the week fits the row of a narrow pane: "Nov 8 – 14, 2026".
+      ...(withYear ? { year: 'numeric' } : {}),
+      // Short, so that the week fits the row of a narrow pane.
       month: 'short',
       day: 'numeric',
     });
-    rangeFormatters.set(locale, format);
+    rangeFormatters.set(key, format);
   }
   return format.formatRange(utcNoon(first), utcNoon(last));
 }

@@ -37,7 +37,7 @@
     onOpenCard: (cardId: string) => void;
     board: BoardStore;
     /** Opens the picker of a day for a card; none where dates cannot be set. */
-    onChangeDate?: (cardId: string) => void;
+    onChangeDate?: (cardId: string, line: HTMLElement | undefined) => void;
     /**
      * Why no date can be changed on this calendar, where none can: it is
      * placed by when cards were made or changed (question C14).

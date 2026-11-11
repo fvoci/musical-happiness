@@ -97,22 +97,28 @@ describe('a week', () => {
 const plain = (text: string): string => text.replace(/\s/gu, ' ');
 
 describe('what the row calls it', () => {
-  it('is the month, or the days of the week with the year, in the reader’s language', () => {
+  it('is the month, or the days of the week, with the year only out of today’s, in the reader’s language', () => {
     const period = new Period('view-title', TODAY);
-    expect(periodTitle('month', period.weeks(7), period.month, 'en-US')).toBe('November 2026');
+    expect(periodTitle('month', period.weeks(7), period.month, 'en-US', TODAY)).toBe(
+      'November 2026',
+    );
     period.scale = 'week';
-    expect(plain(periodTitle('week', period.weeks(7), period.month, 'en-US'))).toBe(
-      'Nov 8 – 14, 2026',
+    expect(plain(periodTitle('week', period.weeks(7), period.month, 'en-US', TODAY))).toBe(
+      'Nov 8 – 14',
     );
-    expect(plain(periodTitle('week', period.weeks(7), period.month, 'ko-KR'))).toBe(
-      '2026년 11월 8일~14일',
+    expect(plain(periodTitle('week', period.weeks(7), period.month, 'ko-KR', TODAY))).toBe(
+      '11월 8일~14일',
     );
+    // Another year than today's says which.
+    expect(
+      plain(periodTitle('week', period.weeks(7), period.month, 'en-US', day('2027-01-04'))),
+    ).toBe('Nov 8 – 14, 2026');
   });
 
   it('names both months and years of a week across the new year', () => {
     const period = new Period('view-title-2', day('2026-12-30'));
     period.scale = 'week';
-    expect(plain(periodTitle('week', period.weeks(1), period.month, 'en-US'))).toBe(
+    expect(plain(periodTitle('week', period.weeks(1), period.month, 'en-US', TODAY))).toBe(
       'Dec 28, 2026 – Jan 3, 2027',
     );
   });

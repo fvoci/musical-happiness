@@ -62,7 +62,9 @@
     const part = list?.querySelector<HTMLElement>(`[data-agenda-day="${date}"]`);
     if (!list || !part) return;
     const top = part.offsetTop;
-    const seen = top >= list.scrollTop && top + 40 <= list.scrollTop + list.clientHeight;
+    // Seen: its heading and its first lines, or all of it where it is shorter.
+    const room = Math.min(part.offsetHeight, 160);
+    const seen = top >= list.scrollTop && top + room <= list.scrollTop + list.clientHeight;
     if (!seen) list.scrollTop = top;
   }
 
@@ -122,7 +124,8 @@
   >
     {#each week as date (date)}
       {@const cards = placed.on(date)}
-      <section data-agenda-day={date} aria-labelledby="{uid}-{date}" class="pt-2">
+      <!-- Not a section: seven named regions would be seven landmarks; the heading names the day. -->
+      <div data-agenda-day={date} class="pt-2">
         <h3
           id="{uid}-{date}"
           class={[
@@ -161,7 +164,7 @@
             >
           </button>
         {/if}
-      </section>
+      </div>
     {/each}
   </div>
 </div>

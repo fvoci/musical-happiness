@@ -52,7 +52,7 @@ class Scales {
   }
 }
 
-/** Month or week of every calendar view; the view's header and the calendar read the same. */
+/** Month or week of every calendar view, as this device remembers them. */
 export const scales = new Scales();
 
 export class Period {

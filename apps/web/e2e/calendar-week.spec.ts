@@ -48,7 +48,7 @@ test('a week with the keys alone: its days, the arrows a week on, and back to th
   await openCalendar(page, info);
   await expect(calendar(page)).toHaveAttribute('data-scale', 'month');
   await chooseByKeys(page, 'week');
-  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14');
   await expect(calendar(page).locator('[data-week]')).toHaveCount(wide(info) ? 1 : 0);
   if (!wide(info)) {
     await expect(page.getByTestId('week-agenda').locator('[data-agenda-day]')).toHaveCount(7);
@@ -62,14 +62,14 @@ test('a week with the keys alone: its days, the arrows a week on, and back to th
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 10/);
   await page.keyboard.press('ArrowDown');
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 17/);
-  await expect.poll(() => titleText(page)).toBe('Nov 15 – 21, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 15 – 21');
 
   await page.getByRole('button', { name: 'Next week' }).click();
-  await expect.poll(() => titleText(page)).toBe('Nov 22 – 28, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 22 – 28');
   await page.getByRole('button', { name: 'Next week' }).click();
-  await expect.poll(() => titleText(page)).toBe('Nov 29 – Dec 5, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 29 – Dec 5');
   await page.getByTestId('calendar-today').click();
-  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14');
 
   await chooseByKeys(page, 'month');
   await expect(title(page)).toHaveText('November 2026');
@@ -119,7 +119,7 @@ test('the week is remembered for the view on this device, after a reload', async
   await chooseByKeys(page, 'week');
   await page.reload();
   await expect(calendar(page)).toHaveAttribute('data-scale', 'week');
-  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14');
   // The month in view is not kept: a new load is at today.
   await expect(dayButton(page, '2026-11-10')).toHaveAttribute('aria-current', 'date');
 });
