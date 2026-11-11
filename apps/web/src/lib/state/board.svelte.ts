@@ -115,6 +115,11 @@ export class BoardStore {
   readonly orderedViews = $derived.by(() => orderViews(this.views, this.workspace.locale));
   /** The cards that are cards, not templates for new ones. */
   readonly realCards = $derived(this.cards.filter((card) => !card.fields.isTemplate));
+  /** The real cards by identifier: a card a relation names is shown when it is here. */
+  readonly cardsById: ReadonlyMap<string, CardSummary> = $derived(
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- made anew from the cards, never changed
+    new Map(this.realCards.map((card) => [card.id, card])),
+  );
   readonly orderedMembers = $derived.by(() =>
     orderMembers(
       this.members,
@@ -279,6 +284,7 @@ export class BoardStore {
         usernameOf: (userId) => this.workspace.userName(userId),
         locale: this.workspace.locale,
         timeZone: this.workspace.regional.timeZone,
+        cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
       },
     );
   }

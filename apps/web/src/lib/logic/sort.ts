@@ -12,6 +12,7 @@ import { diagnostics } from './diagnostics.ts';
 import {
   cardProperty,
   parseDateValue,
+  parseRelationValue,
   plainPropertyValue,
   TITLE_COLUMN_ID,
   type BoardView,
@@ -81,6 +82,8 @@ export interface SortContext {
   locale: string;
   /** The reader's time zone, an IANA name: decides which day a date with a time is on. */
   timeZone: string;
+  /** The title of a card of the board; undefined for one that is not there (deleted). */
+  cardTitle?: (cardId: string) => string | undefined;
 }
 
 /** The value a card is sorted by, per kind of property: absent when the card has none. */
@@ -117,6 +120,16 @@ function sortKey(card: Card, template: PropertyTemplate, context: SortContext): 
     case 'multiPerson': {
       const ids = Array.isArray(stored) ? stored : stored ? [stored] : [];
       return text(ids.map(username).join(', '));
+    }
+    case 'relation': {
+      // By the titles shown, in the order picked; cards that are not there are not shown.
+      const { cardTitle } = context;
+      if (!cardTitle) return text(parseRelationValue(value).join(', '));
+      return text(
+        parseRelationValue(value)
+          .flatMap((id) => cardTitle(id) ?? [])
+          .join(', '),
+      );
     }
     default:
       return text(Array.isArray(stored) ? stored.join(', ') : stored);

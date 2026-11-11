@@ -68,6 +68,14 @@ export interface PropertyValueProps extends OptionCallbacks, ReaderContext {
    * value that `formatDateValue` makes.
    */
   onChange?: (value: PropertyValue | undefined) => void;
+  /**
+   * The board's cards that are there, by identifier: what a relation
+   * property picks from and shows. A card it names that is not here
+   * (deleted) is not shown.
+   */
+  cards?: ReadonlyMap<string, Card>;
+  /** Opens another card: a card a relation names is opened by pressing it. */
+  onOpenCard?: (cardId: string) => void;
   /** Puts a text on the clipboard; defaults to the browser's clipboard. */
   copyText?: (text: string) => void | Promise<void>;
   /**

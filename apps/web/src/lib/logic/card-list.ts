@@ -13,7 +13,7 @@ export function cardsOfView(
   templates: readonly PropertyTemplate[],
   view: ViewQuery,
   searchText: string,
-  context: Pick<SortContext, 'lastCommentAt' | 'usernameOf' | 'locale' | 'timeZone'>,
+  context: Pick<SortContext, 'lastCommentAt' | 'usernameOf' | 'locale' | 'timeZone' | 'cardTitle'>,
 ): Card[] {
   let result = cards.filter((card) => !card.limited);
   result = applyFilterGroup(view.filter, templates, result, context);

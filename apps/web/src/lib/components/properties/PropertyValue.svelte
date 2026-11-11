@@ -8,15 +8,22 @@
   needs is an argument: the people to choose from, the reader's language and
   regional settings, how pickers open.
 -->
+<script lang="ts" module>
+  import type { Card } from '$lib/logic/wire.ts';
+
+  const NO_CARDS: ReadonlyMap<string, Card> = new Map();
+</script>
+
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { DisplayContext } from '$lib/logic/format.ts';
   import { propertyBehavior } from '$lib/logic/properties.ts';
-  import { plainPropertyValue } from '$lib/logic/wire.ts';
+  import { parseRelationValue, plainPropertyValue } from '$lib/logic/wire.ts';
 
   import CheckboxProperty from './kinds/CheckboxProperty.svelte';
   import DateProperty from './kinds/DateProperty.svelte';
   import PersonProperty from './kinds/PersonProperty.svelte';
+  import RelationProperty from './kinds/RelationProperty.svelte';
   import SelectProperty from './kinds/SelectProperty.svelte';
   import TextProperty from './kinds/TextProperty.svelte';
   import UrlProperty from './kinds/UrlProperty.svelte';
@@ -43,6 +50,8 @@
     onDeleteOption,
     copyText,
     innerTabindex,
+    cards = NO_CARDS,
+    onOpenCard,
   }: PropertyValueProps = $props();
 
   const type = $derived(template.type);
@@ -139,6 +148,20 @@
     {presentation}
     startOpen={open}
     onChange={change}
+  />
+{:else if type === 'relation'}
+  <RelationProperty
+    name={template.name}
+    cardId={card.id}
+    ids={parseRelationValue(value)}
+    {cards}
+    {editable}
+    placeholder={empty(m['PropertyValueElement.empty'])}
+    {presentation}
+    startOpen={open}
+    onChange={change}
+    {onOpenCard}
+    {innerTabindex}
   />
 {:else if type === 'checkbox'}
   <CheckboxProperty name={template.name} value={text} {editable} onChange={change} />

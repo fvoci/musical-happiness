@@ -7,6 +7,7 @@ import {
   cardProperty,
   isFilterGroup,
   parseDateValue,
+  parseRelationValue,
   plainPropertyValue,
   parseFilterDate,
   type Card,
@@ -20,6 +21,8 @@ import {
 export interface FilterContext {
   /** The reader's time zone, an IANA name such as `Asia/Seoul`: decides which day a moment is on. */
   timeZone: string;
+  /** The title of a card of the board; undefined for one that is not there (deleted). */
+  cardTitle?: (cardId: string) => string | undefined;
 }
 
 /** Whether two clauses filter the same property in the same way. */
@@ -65,6 +68,7 @@ function valueForClause(
   filter: FilterClause,
   template: PropertyTemplate | undefined,
   card: Card,
+  context: FilterContext,
 ): { value: PropertyValue | undefined; dateValue: DateValue | undefined } {
   let value = cardProperty(card, filter.propertyId);
   if (filter.propertyId === 'title') value = card.title;
@@ -80,6 +84,15 @@ function valueForClause(
       return { value: value || card.createdBy, dateValue: undefined };
     case 'updatedBy':
       return { value: value || card.modifiedBy, dateValue: undefined };
+    case 'relation': {
+      // A card that is not there is not shown, and does not count.
+      const { cardTitle } = context;
+      const ids = parseRelationValue(value);
+      return {
+        value: cardTitle ? ids.filter((id) => cardTitle(id) !== undefined) : ids,
+        dateValue: undefined,
+      };
+    }
     default:
       return { value, dateValue: undefined };
   }
@@ -106,7 +119,7 @@ export function isClauseMet(
   context: FilterContext,
 ): boolean {
   const template = templates.find((candidate) => candidate.id === filter.propertyId);
-  const { value, dateValue } = valueForClause(filter, template, card);
+  const { value, dateValue } = valueForClause(filter, template, card, context);
   const first = filter.values[0];
 
   // Text or a list (a date value counts by its key); anything else counts as empty.

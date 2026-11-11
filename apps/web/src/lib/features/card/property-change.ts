@@ -18,6 +18,7 @@
  * |                      | a text kind          | becomes the names of its options            |
  * | person, multi-person | the other of the two | stays; a person keeps the first             |
  * | checkbox             | a text kind          | stays (`true`)                              |
+ * | card relation        | anything else        | removed (it names cards, nothing else does) |
  * | anything             | anything else        | removed                                     |
  *
  * The original carried over less (a select turned into text lost its values)
@@ -40,7 +41,8 @@ import {
 } from '$lib/logic/wire.ts';
 
 /** What the stored value of a kind looks like. `none`: the kind stores nothing on the card. */
-type Shape = 'text' | 'option' | 'options' | 'person' | 'people' | 'date' | 'checkbox' | 'none';
+type Shape =
+  'text' | 'option' | 'options' | 'person' | 'people' | 'date' | 'checkbox' | 'cards' | 'none';
 
 const SHAPES: Record<PropertyType, Shape> = {
   text: 'text',
@@ -55,6 +57,7 @@ const SHAPES: Record<PropertyType, Shape> = {
   multiPerson: 'people',
   date: 'date',
   checkbox: 'checkbox',
+  relation: 'cards',
   file: 'none',
   createdTime: 'none',
   createdBy: 'none',

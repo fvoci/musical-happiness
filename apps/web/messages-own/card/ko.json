@@ -36,5 +36,10 @@
   "card_comment_edit_from": "{when}에 쓴 댓글 고치기",
   "card_comment_edit_field": "댓글 내용",
   "card_comment_save": "저장",
-  "card_comment_conflict": "다른 사람이 이 댓글을 바꿨습니다. 저장하면 이 글을 바꿉니다:"
+  "card_comment_conflict": "다른 사람이 이 댓글을 바꿨습니다. 저장하면 이 글을 바꿉니다:",
+  "property_type_relation": "카드 관계",
+  "property_relation_search": "카드 찾기",
+  "property_relation_open": "{title} 열기",
+  "property_relation_full": "카드는 {count}개까지 고를 수 있습니다.",
+  "property_relation_more": "카드 {count}개가 더 있습니다. 입력해서 좁히세요."
 }
