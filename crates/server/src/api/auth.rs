@@ -206,6 +206,8 @@ async fn handle_register(
         }
         Admission::FirstUserOnly
     } else {
+        // TEMPORARY, with `only_organization_scope`: the root team stands in for what
+        // an invitation will name.
         let team = app.root_team().await?;
         if !tokens_match(&team.signup_token, &register.token) {
             return Err(AppError::forbidden("the signup token is not valid")
@@ -239,7 +241,7 @@ async fn handle_regenerate_signup_token(
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, "access denied to team").await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     require_admin(&app, &session.user_id).await?;
     let team = app
         .regenerate_signup_token(&team_id, &session.user_id)

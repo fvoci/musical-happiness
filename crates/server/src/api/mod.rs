@@ -29,6 +29,7 @@ mod templates;
 mod trash;
 mod uploads;
 mod users;
+mod workspace;
 
 use axum::Json;
 use axum::Router;
@@ -108,7 +109,8 @@ fn routes() -> Routes {
         .merge(teams::routes())
         .merge(templates::routes())
         .merge(uploads::routes())
-        .merge(users::routes());
+        .merge(users::routes())
+        .merge(workspace::routes());
     let uploads = OpenApiRouter::new()
         .merge(files::upload_routes())
         .merge(uploads::part_routes());
@@ -318,22 +320,19 @@ pub(crate) fn duplicate_as(query: Option<&str>) -> DuplicateAs {
 /// The value of a query flag that is set.
 pub(crate) const TRUE: &str = "true";
 
-/// Returns whether the request carries a read token that is valid for the board.
+/// The application for a request that carries a read token valid for the board: it
+/// reaches the board's own organization, and the handler goes on with it. `None` if
+/// the request carries no such token.
 ///
 /// # Errors
 ///
 /// Returns the store's error if the board's sharing cannot be read: that is no "no",
 /// and answered as one it would tell a reader with a good link that the link is dead.
-pub(crate) async fn has_valid_read_token(
+pub(crate) async fn by_read_token(
     app: &App,
     query: Option<&str>,
     board_id: &str,
-) -> Result<bool, AppError> {
-    let read_token = query_param(query, "readToken");
-    if read_token.is_empty() {
-        return Ok(false);
-    }
-    app.authenticator()
-        .is_valid_read_token(board_id, &read_token)
+) -> Result<Option<App>, AppError> {
+    app.enter_shared_board(board_id, &query_param(query, "readToken"))
         .await
 }

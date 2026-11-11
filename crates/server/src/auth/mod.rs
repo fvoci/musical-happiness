@@ -22,6 +22,8 @@ const SESSION_USE_RECORDING_INTERVAL_MILLIS: i64 = 10 * 60 * 1000;
 /// Looks up sessions and checks read tokens.
 #[derive(Debug, Clone)]
 pub struct Authenticator {
+    /// A handle that names no organization: sessions are nobody's, and whose a shared
+    /// board is, the store's directory finds out by the token.
     store: Store,
     session_idle_millis: i64,
     public_shared_boards: bool,
@@ -149,23 +151,33 @@ impl Authenticator {
         board_id: &str,
         read_token: &str,
     ) -> Result<bool, AppError> {
+        Ok(self
+            .org_of_read_token(board_id, read_token)
+            .await?
+            .is_some())
+    }
+
+    /// The organization of the shared board that `read_token` grants read access to:
+    /// the board is read there, whichever organization the request came in for.
+    /// `None` if the token opens nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the lookup fails.
+    pub async fn org_of_read_token(
+        &self,
+        board_id: &str,
+        read_token: &str,
+    ) -> Result<Option<String>, AppError> {
         // With sharing turned off in the configuration no read token opens anything,
         // whatever is stored: an everyday "no", and nothing for the log.
         if !self.public_shared_boards {
-            return Ok(false);
+            return Ok(None);
         }
-        let sharing = match self.store.get_sharing(board_id).await {
-            Ok(sharing) => sharing,
-            Err(error) if error.is_not_found() => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-        // A board that is not shared has no token; nothing matches that, not even
-        // nothing.
-        Ok(
-            sharing.enabled
-                && !sharing.token.is_empty()
-                && tokens_match(&sharing.token, read_token),
-        )
+        // Whose board it is, is not known here, and need not be: the store hands the
+        // organization of a shared board to whoever holds its token, and to nobody
+        // else.
+        Ok(self.store.org_of_shared_board(board_id, read_token).await?)
     }
 }
 

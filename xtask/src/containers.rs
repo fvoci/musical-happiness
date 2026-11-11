@@ -27,10 +27,16 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// The pause between two readiness probes.
 const PROBE_INTERVAL: Duration = Duration::from_millis(500);
 
-/// Test-only credentials of the PostgreSQL container.
+/// Test-only credentials of the PostgreSQL container. This user is the one the image
+/// makes, a superuser: it prepares the database and the tests do not connect as it.
 const POSTGRES_USER: &str = "fvoci";
 const POSTGRES_PASSWORD: &str = "fvoci-test";
 const POSTGRES_DATABASE: &str = "fvoci";
+
+/// The role the tests connect as: no superuser and not exempt from row-level security,
+/// so that the policies of the schema hold for it as they do for a server in use. A
+/// superuser passes every policy, and a test run as one would show nothing of them.
+const POSTGRES_TEST_ROLE: &str = "fvoci_app";
 
 /// The bucket the S3 storage test writes into.
 const S3_BUCKET: &str = "fvoci-test";
@@ -86,8 +92,17 @@ impl Container {
         })
     }
 
-    /// The PostgreSQL URL the tests connect with.
+    /// The PostgreSQL URL the tests connect with, as [`POSTGRES_TEST_ROLE`].
     pub(crate) fn postgres_url(&self) -> String {
+        format!(
+            "postgres://{POSTGRES_TEST_ROLE}:{POSTGRES_PASSWORD}@localhost:{}/{POSTGRES_DATABASE}?sslmode=disable",
+            self.host_port
+        )
+    }
+
+    /// The PostgreSQL URL of the container's superuser, for the tests of what the
+    /// server makes of a role the policies do not hold.
+    pub(crate) fn postgres_superuser_url(&self) -> String {
         format!(
             "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{}/{POSTGRES_DATABASE}?sslmode=disable",
             self.host_port
@@ -263,15 +278,22 @@ impl Uses {
     /// Starts using the container `name`, and returns the lock of its starting and
     /// stopping, held until it is dropped.
     fn claim(&mut self, name: &str) -> Result<File> {
-        let setup = open_lock(&self.file(name, "setup"))?;
-        setup
-            .lock()
-            .with_context(|| format!("waiting for other runs to set up {name}"))?;
+        let setup = self.lock_setup(name)?;
         let used = open_lock(&self.file(name, "use"))?;
         // Never long: a run takes this exclusively only while it holds `setup`.
         used.lock_shared()
             .with_context(|| format!("taking the use of {name}"))?;
         self.held.push((name.to_owned(), used));
+        Ok(setup)
+    }
+
+    /// Waits for the lock of the starting and stopping of the container `name`, held
+    /// until it is dropped: for what else must not be done to it by two runs at once.
+    fn lock_setup(&self, name: &str) -> Result<File> {
+        let setup = open_lock(&self.file(name, "setup"))?;
+        setup
+            .lock()
+            .with_context(|| format!("waiting for other runs to set up {name}"))?;
         Ok(setup)
     }
 
@@ -440,13 +462,14 @@ fn wait_until(what: &str, mut probe: impl FnMut() -> Result<()>) -> Result<()> {
     }
 }
 
-/// Makes sure PostgreSQL runs and accepts connections. Returns the URL for the tests.
+/// Makes sure PostgreSQL runs and accepts connections. Returns the URLs for the tests:
+/// of the role they connect as, and of the superuser.
 ///
 /// # Errors
 ///
 /// Fails if docker is missing, the container cannot be started, or the database does
 /// not accept connections in time.
-pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
+pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<PostgresUrls> {
     let container = Container::postgres()?;
     container.ensure_running(uses)?;
     wait_until(&container.name, || {
@@ -464,11 +487,57 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
             POSTGRES_DATABASE,
         ])
     })?;
+    {
+        // One run at a time: two that alter the role at once fail ("tuple concurrently
+        // updated").
+        let _setup = uses.lock_setup(&container.name)?;
+        docker(&[
+            "exec",
+            &container.name,
+            "psql",
+            "--username",
+            POSTGRES_USER,
+            "--dbname",
+            POSTGRES_DATABASE,
+            "--set",
+            "ON_ERROR_STOP=1",
+            "--quiet",
+            "--command",
+            &test_role_statements(),
+        ])
+        .with_context(|| format!("making the role {POSTGRES_TEST_ROLE} in {}", container.name))?;
+    }
     say(&format!(
-        "    {}: accepting connections on port {}",
+        "    {}: accepting connections on port {}, the tests connect as {POSTGRES_TEST_ROLE}",
         container.name, container.host_port
     ));
-    Ok(container.postgres_url())
+    Ok(PostgresUrls {
+        tests: container.postgres_url(),
+        superuser: container.postgres_superuser_url(),
+    })
+}
+
+/// The PostgreSQL URLs the tests are given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PostgresUrls {
+    /// Of the role the tests connect as, which the policies hold.
+    pub(crate) tests: String,
+    /// Of a superuser, for the tests of what the server makes of such a role.
+    pub(crate) superuser: String,
+}
+
+/// The statements that make [`POSTGRES_TEST_ROLE`] what the tests need, whether it is
+/// there already or not: a role that logs in, is no superuser, is held by row-level
+/// security, and may make schemas in the test database. Every test database is a schema
+/// the role makes, and so owns.
+fn test_role_statements() -> String {
+    format!(
+        "DO $$ BEGIN CREATE ROLE {POSTGRES_TEST_ROLE}; \
+         EXCEPTION WHEN duplicate_object THEN NULL; END $$; \
+         ALTER ROLE {POSTGRES_TEST_ROLE} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB \
+         NOCREATEROLE PASSWORD '{POSTGRES_PASSWORD}'; \
+         GRANT CREATE ON DATABASE {POSTGRES_DATABASE} TO {POSTGRES_TEST_ROLE};"
+    )
 }
 
 /// Makes sure the object store runs and has the test bucket. Returns the endpoint and
@@ -688,13 +757,32 @@ mod tests {
     fn the_test_urls_name_the_host_port() {
         assert_eq!(
             probe().postgres_url(),
+            "postgres://fvoci_app:fvoci-test@localhost:15999/fvoci?sslmode=disable",
+            "the URL the store's test support reads, of the role that is no superuser"
+        );
+        assert_eq!(
+            probe().postgres_superuser_url(),
             "postgres://fvoci:fvoci-test@localhost:15999/fvoci?sslmode=disable",
-            "the URL the store's test support reads"
+            "and the superuser's, for the tests of a role the policies do not hold"
         );
         assert_eq!(
             probe().s3_endpoint(),
             "localhost:15999",
             "host and port, no scheme"
+        );
+    }
+
+    /// The role is made what it must be also where an older run left it otherwise.
+    #[test]
+    fn the_test_role_is_no_superuser_and_is_held_by_row_level_security() {
+        assert_eq!(
+            test_role_statements(),
+            "DO $$ BEGIN CREATE ROLE fvoci_app; \
+             EXCEPTION WHEN duplicate_object THEN NULL; END $$; \
+             ALTER ROLE fvoci_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB \
+             NOCREATEROLE PASSWORD 'fvoci-test'; \
+             GRANT CREATE ON DATABASE fvoci TO fvoci_app;",
+            "made if missing, altered if there, and let make schemas"
         );
     }
 

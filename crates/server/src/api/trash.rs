@@ -80,7 +80,7 @@ async fn handle_get_deleted_boards(
 ) -> ApiResult {
     let query = query.as_deref();
     let user_id = session.user_id.as_str();
-    require_team_access(&app, user_id, &team_id, "access denied to the team").await?;
+    require_team_access(&app, user_id, &team_id).await?;
     let (page, per_page) = page_params(query)?;
     Ok(json_response(
         &app.deleted_boards(&team_id, user_id, page, per_page)

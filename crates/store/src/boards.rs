@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::subscriptions;
+use crate::{members, subscriptions};
 
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
@@ -153,9 +153,7 @@ impl Store {
         user_id: &str,
     ) -> Result<Board, StoreError> {
         self.transaction(async |scope| {
-            if !lock_board(scope, board_id).await? {
-                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
-            }
+            hold_board(scope, board_id).await?;
             let mut board = get_board(scope, board_id).await?;
             board.reorder_card_properties(order)?;
             insert_board(scope, &mut board, user_id).await?;
@@ -258,12 +256,7 @@ impl Store {
             // Held so that "there was one already" is still true when it is answered:
             // without the lock a removal in between would make this say "new" of a
             // membership that does not exist.
-            if !lock_board(scope, &member.board_id).await? {
-                return Err(StoreError::not_found(format_args!(
-                    "board ID={}",
-                    member.board_id
-                )));
-            }
+            hold_board(scope, &member.board_id).await?;
             let mut sql = scope.sql(
                 "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
                  scheme_commenter, scheme_viewer) VALUES (",
@@ -300,7 +293,8 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if there is no such board or no such user.
     pub async fn join_board(&self, board_id: &str, user_id: &str) -> Result<Joined, StoreError> {
         self.transaction(async |scope| {
-            lock_board(scope, board_id).await?;
+            // Nobody joins a board the handle reads and may not change (a built-in template).
+            hold_board(scope, board_id).await?;
             let board = get_board(scope, board_id).await?;
             let minimum = BoardRole::from(board.minimum_role);
             let with_minimum = BoardMember {
@@ -489,8 +483,8 @@ impl Store {
             .await
     }
 
-    /// Returns the templates the server ships with, oldest first. They belong
-    /// to no team in particular: every team is offered them.
+    /// Returns the templates the server ships with, oldest first. They are the system
+    /// organization's, in its workspace: every organization is offered them.
     ///
     /// # Errors
     ///
@@ -616,7 +610,7 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
 
 /// Starts the query for the boards a user can reach: `SELECT DISTINCT` over boards joined
 /// with their memberships, without templates, narrowed to the user's boards and, if
-/// asked for, the open ones. More `AND` conditions on `b` may follow.
+/// asked for, the open ones where the user works. More `AND` conditions on `b` may follow.
 fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: PublicBoards) -> Sql {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
@@ -625,12 +619,10 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
     ));
     sql.bind(false);
     match public_boards {
-        PublicBoards::Include => sql
-            .push_bind(" AND (b.type = ", BoardType::Open.as_str())
-            .push_bind(" OR bm.user_id = ", Id(user_id))
-            .push(")"),
-        PublicBoards::Exclude => sql.push_bind(" AND bm.user_id = ", Id(user_id)),
+        PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
+        PublicBoards::Exclude => sql.push(" AND ("),
     };
+    sql.push_bind("bm.user_id = ", Id(user_id)).push(")");
     sql
 }
 
@@ -805,9 +797,7 @@ pub(crate) async fn patch_board(
     patch.validate().map_err(BoardError::from)?;
     // Held before the board is read: of two patches at once, the second is applied to
     // what the first left.
-    if !lock_board(scope, board_id).await? {
-        return Err(StoreError::not_found(format_args!("board ID={board_id}")));
-    }
+    hold_board(scope, board_id).await?;
     let mut board = get_board(scope, board_id).await?;
     patch.apply(&mut board);
     insert_board(scope, &mut board, user_id).await?;
@@ -928,6 +918,14 @@ pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
         sql.push(" FOR NO KEY UPDATE");
     }
     Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Locks a board as [`lock_board`] does; one that is not there is not found.
+async fn hold_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
+    if lock_board(scope, board_id).await? {
+        return Ok(());
+    }
+    Err(StoreError::not_found(format_args!("board ID={board_id}")))
 }
 
 /// Holds a board that is about to be deleted against everything that is stored for it:

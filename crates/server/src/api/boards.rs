@@ -14,7 +14,7 @@ use super::contract::params::{AsTemplate, BoardId, ReadToken, TeamId, ToTeam};
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, created, decode_json, has_valid_read_token,
+    ApiResult, OptionalSession, RequiredSession, by_read_token, created, decode_json,
     json_response, no_content, query_param,
 };
 use super::{
@@ -131,7 +131,7 @@ async fn handle_get_boards(
     Path(team_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    require_team_access(&app, user_id, &team_id, "access denied to team").await?;
+    require_team_access(&app, user_id, &team_id).await?;
 
     // A guest would see only the boards they are a member of.
     let public_boards = if user_is_guest(&app, user_id).await? {
@@ -178,8 +178,11 @@ async fn handle_create_board(
             "access denied to create private boards",
         ),
     };
-    require_team_in_body(&app, &board.team_id, "teamId").await?;
-    if !app.has_permission_to_team(user_id, &board.team_id, permission) {
+    require_team_in_body(&app, user_id, &board.team_id, "teamId").await?;
+    if !app
+        .has_permission_to_team(user_id, &board.team_id, permission)
+        .await?
+    {
         return Err(AppError::forbidden(denial));
     }
     if user_is_guest(&app, user_id).await? {
@@ -217,10 +220,12 @@ async fn handle_get_board(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let user_id = session.user_id();
-    let has_valid_read_token = has_valid_read_token(&app, query.as_deref(), &board_id).await?;
+    let shared = by_read_token(&app, query.as_deref(), &board_id).await?;
+    let has_valid_read_token = shared.is_some();
     if user_id.is_empty() && !has_valid_read_token {
         return Err(AppError::unauthorized("access denied to board"));
     }
+    let app = shared.unwrap_or(app);
 
     let mut board = app.board(&board_id).await?;
     if has_valid_read_token {
@@ -242,7 +247,9 @@ async fn sees_board_without_token(
 ) -> Result<bool, AppError> {
     let open_to_the_team = board.board_type == BoardType::Open
         && !user_is_guest(app, user_id).await?
-        && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam);
+        && app
+            .has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
+            .await?;
     Ok(open_to_the_team
         || app
             .has_permission_to_board(user_id, &board.id, BoardPermission::ViewBoard)
@@ -413,20 +420,30 @@ async fn handle_duplicate_board(
     let denial = "access denied to board";
     let board = app.board(&board_id).await?;
     if board.is_template && board.board_type == BoardType::Open {
-        // An open template is for everybody in its team, and a built-in one for
-        // everybody.
-        if !board.is_builtin {
-            require_team_access(&app, user_id, &board.team_id, denial).await?;
+        // An open template is for everybody who works in its team and for its
+        // members, and a built-in one for everybody; for anybody else it is not there.
+        if !board.is_builtin
+            && !app.works_in_team(user_id, &board.team_id).await?
+            && !app.is_board_reader(user_id, &board_id).await?
+        {
+            return Err(AppError::not_found("board"));
         }
     } else {
         require_board_permission(&app, user_id, &board_id, BoardPermission::ViewBoard, denial)
             .await?;
     }
     if to_team.is_empty() {
-        to_team.clone_from(&board.team_id);
+        // A copy stays in the board's team. A built-in template is in no team of the
+        // user's organization: its copy goes to the root team (TEMPORARY, with
+        // `only_organization_scope`: to the workspace the route will name).
+        to_team = if board.is_builtin {
+            app.root_team().await?.id
+        } else {
+            board.team_id.clone()
+        };
     }
     // A board without a team, copied to no team, fails here too.
-    require_team_access(&app, user_id, &to_team, "access denied to team").await?;
+    require_team_access(&app, user_id, &to_team).await?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }

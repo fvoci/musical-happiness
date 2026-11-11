@@ -29,6 +29,7 @@ pub(crate) mod tag {
     pub(crate) const AUTH: &str = "auth";
     pub(crate) const USERS: &str = "users";
     pub(crate) const TEAMS: &str = "teams";
+    pub(crate) const WORKSPACES: &str = "workspaces";
     pub(crate) const BOARDS: &str = "boards";
     pub(crate) const MEMBERS: &str = "members";
     pub(crate) const SHARING: &str = "sharing";
@@ -41,7 +42,7 @@ pub(crate) mod tag {
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 13] = [
+const TAGS: [(&str, &str); 14] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -55,6 +56,10 @@ const TAGS: [(&str, &str); 13] = [
         "The user of the session, their settings, and other users.",
     ),
     (tag::TEAMS, "The team and its users."),
+    (
+        tag::WORKSPACES,
+        "The workspaces a user is a member of, and what is in a workspace.",
+    ),
     (tag::BOARDS, "Boards and templates."),
     (tag::MEMBERS, "Who is on a board, and with which role."),
     (tag::SHARING, "Sharing a board with whoever has its link."),
@@ -204,6 +209,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
     ("UserSettings", Members::AsWritten),
+    ("UserWorkspace", Members::All),
+    ("WorkspaceRole", Members::AsWritten),
     // What a request carries.
     ("AccountChange", Members::AsWritten),
     ("AdminChange", Members::AsWritten),

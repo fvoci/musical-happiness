@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 05:05 KST, 고친 때: 15:56 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 18:56 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -51,6 +51,7 @@
 | `dbtype` | `FVOCI_DBTYPE` | 문자열 | `"sqlite3"` | `sqlite3` 또는 `postgres` |
 | `dbconfig` | `FVOCI_DBCONFIG` | 문자열 | `"./fvoci.db"` | 연결 문자열. SQLite는 파일의 경로, PostgreSQL은 `postgres://사용자:비밀번호@호스트:포트/DB?sslmode=disable` 꼴이다. 다른 테이블과 한 DB를 나눠 쓰려면 `search_path`로 이 서버만의 스키마를 준다. 비밀번호가 들어 있을 수 있어 로그에 남기지 않는다 |
 | `dbpingattempts` | `FVOCI_DBPINGATTEMPTS` | 정수(0 이상) | `5` | 시작할 때 DB에 닿으려고 해 보는 횟수. 0이어도 한 번은 해 본다 |
+| `org_creation` | `FVOCI_ORG_CREATION` | 문자열 | `"first_user_only"` | 서버가 조직을 하나만 두는가(`first_user_only`), 여럿을 받는가(`open`). `open`은 `dbtype`이 `sqlite3`이면 시작하지 않는다(SQLite는 조직 하나만 담는다). PostgreSQL에서는 조직의 행을 행 단위 보안 정책이 갈라 둔다. 서버가 붙는 DB 역할이 슈퍼유저이거나 `BYPASSRLS`이면 그 정책이 걸리지 않는다: `open`이면 DB에 아무것도 만들기 전에 시작을 거부하고, `first_user_only`면 경고를 남기고 시작한다. 그 밖의 값은 시작 오류다. 조직을 만드는 조작은 아직 없어서 지금은 이 검사만 한다 |
 
 ## 키: 파일 저장소
 

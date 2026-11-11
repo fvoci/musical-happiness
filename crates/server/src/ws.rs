@@ -24,9 +24,7 @@ use crate::app::Audience;
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::{
-    BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
-};
+use crate::permissions::{BoardPermission, member_has_permission};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -242,12 +240,12 @@ fn remove_from(index: &mut HashMap<String, Vec<ListenerId>>, key: &str, id: List
 #[derive(Debug, Clone)]
 pub struct Hub {
     inner: Arc<HubInner>,
+    pub(crate) audience: Audience,
 }
 
 #[derive(Debug)]
 struct HubInner {
     listeners: Mutex<Listeners>,
-    audience: Audience,
     auth: Authenticator,
     ping_interval: Option<Duration>,
     metrics: Metrics,
@@ -265,11 +263,11 @@ impl Hub {
         Self {
             inner: Arc::new(HubInner {
                 listeners: Mutex::new(Listeners::default()),
-                audience,
                 auth,
                 ping_interval,
                 metrics,
             }),
+            audience,
         }
     }
 
@@ -528,7 +526,8 @@ impl Hub {
 
         match command.action.as_str() {
             "SUBSCRIBE_TEAM" => {
-                if has_permission_to_team(&user_id, &command.team_id, TeamPermission::ViewTeam) {
+                let team = &command.team_id;
+                if self.audience.works_in_team(&user_id, team).await {
                     subscribe_to_team(&mut self.listeners(), id, &command.team_id);
                 } else {
                     tracing::error!(team_id = %command.team_id, user_id, "websocket: no team access");
@@ -554,7 +553,7 @@ impl Hub {
         }
         let mut board_id = String::new();
         for block_id in &command.block_ids {
-            let of_block = self.inner.audience.board_of_block(block_id).await.ok()?;
+            let of_block = self.audience.board_of_block(block_id).await.ok()?;
             if board_id.is_empty() {
                 board_id = of_block;
             } else if board_id != of_block {
@@ -590,7 +589,7 @@ impl Hub {
         if followers.is_empty() && !self.listeners().by_team.contains_key(team_id) {
             return;
         }
-        let members = match self.inner.audience.members(&block.board_id).await {
+        let members = match self.audience.members(&block.board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board's members failed");
@@ -626,7 +625,7 @@ impl Hub {
         let people = if block.fields.is_empty() {
             Ok(PersonProperties::default())
         } else {
-            self.inner.audience.person_properties(&block.board_id).await
+            self.audience.person_properties(&block.board_id).await
         };
         let people = match people {
             Ok(people) => people,
@@ -862,7 +861,7 @@ impl Hub {
         if !self.listeners().by_team.contains_key(team_id) {
             return Vec::new();
         }
-        let members = match self.inner.audience.members(board_id).await {
+        let members = match self.audience.members(board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id, "websocket: reading the board's members failed");

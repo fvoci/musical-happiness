@@ -9,9 +9,14 @@ use sqlx::postgres::PgConnection;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions as _, Connection as _};
 
-/// A store on a database that belongs to one test.
+/// A store on a database that belongs to one test, reaching the rows of the one
+/// organization the test works in.
 pub(crate) struct TestStore {
     pub(crate) store: Store,
+    /// The organization of the test.
+    pub(crate) org_id: String,
+    /// The first workspace of that organization, its default one.
+    pub(crate) workspace_id: String,
     database: TestDatabase,
 }
 
@@ -25,13 +30,7 @@ impl std::ops::Deref for TestStore {
 
 /// Which database the tests run against.
 pub(crate) fn db_type() -> DbType {
-    match std::env::var(fvoci_store::testing::DB_TYPE_ENV) {
-        Ok(name) if !name.trim().is_empty() => name
-            .trim()
-            .parse()
-            .expect("the test database type must be sqlite3 or postgres"),
-        _ => DbType::Sqlite,
-    }
+    fvoci_store::testing::db_type_of_the_tests()
 }
 
 /// Connects a store to a fresh database.
@@ -41,7 +40,28 @@ pub(crate) async fn setup() -> TestStore {
     let store = Store::connect(database.db_type(), database.dbconfig())
         .await
         .expect("a store connects to a fresh database");
-    TestStore { store, database }
+    let (org_id, workspace_id) = organization(&store, "").await;
+    let store = store.for_org(&org_id).expect("an identifier");
+    TestStore {
+        store,
+        org_id,
+        workspace_id,
+        database,
+    }
+}
+
+/// Makes an organization with its first workspace and returns the identifiers of both.
+pub(crate) async fn organization(store: &Store, name: &str) -> (String, String) {
+    let workspace = Team {
+        id: new_id(),
+        signup_token: "signup-token".to_owned(),
+        ..Team::default()
+    };
+    let org_id = store
+        .create_organization(name, &workspace)
+        .await
+        .expect("the organization is made");
+    (org_id, workspace.id)
 }
 
 /// Creates a fresh database without connecting a store to it, for tests of what
@@ -58,6 +78,41 @@ pub(crate) fn raw_dbconfig(database: &TestDatabase) -> String {
         Some(path) => path.display().to_string(),
         None => database.dbconfig().to_owned(),
     }
+}
+
+/// A PostgreSQL connection of the test's own to its database, past the store and past
+/// the wall between organizations: it reaches the rows of all, and a row it stores
+/// without saying whose it is goes to the oldest organization, the one of the test.
+pub(crate) async fn connect_past_the_store(dbconfig: &str) -> PgConnection {
+    let (url, schema) = dbconfig
+        .rsplit_once("search_path=")
+        .expect("the test dbconfig names its schema");
+    let mut conn = PgConnection::connect(url.trim_end_matches(['?', '&']))
+        .await
+        .expect("the test PostgreSQL server accepts connections");
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
+        .execute(&mut conn)
+        .await
+        .expect("the schema is selected");
+    // A database that is not migrated yet has no organizations, and no wall.
+    let has_organizations: bool =
+        sqlx::query_scalar("SELECT to_regclass('organizations') IS NOT NULL")
+            .fetch_one(&mut conn)
+            .await
+            .expect("the tables are looked up");
+    if has_organizations {
+        // The system's reach first: without it the organizations are out of reach too.
+        sqlx::raw_sql(
+            "SELECT set_config('fvoci.system', 'on', false); \
+             SELECT set_config('fvoci.org', \
+             COALESCE((SELECT id::text FROM organizations WHERE NOT is_system \
+             ORDER BY create_at, id LIMIT 1), ''), false)",
+        )
+        .execute(&mut conn)
+        .await
+        .expect("the connection is let past the wall");
+    }
+    conn
 }
 
 /// Runs statements on a connection of its own, past the store.
@@ -79,16 +134,7 @@ pub(crate) async fn execute_raw(dbconfig: &str, sql: &str) {
             conn.close().await.expect("the connection closes");
         }
         DbType::Postgres => {
-            let (url, schema) = dbconfig
-                .rsplit_once("search_path=")
-                .expect("the test dbconfig names its schema");
-            let mut conn = PgConnection::connect(url.trim_end_matches(['?', '&']))
-                .await
-                .expect("the test PostgreSQL server accepts connections");
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
-                .execute(&mut conn)
-                .await
-                .expect("the schema is selected");
+            let mut conn = connect_past_the_store(dbconfig).await;
             sqlx::raw_sql(sql)
                 .execute(&mut conn)
                 .await
@@ -103,6 +149,17 @@ impl TestStore {
     /// PostgreSQL URL with the test's schema.
     pub(crate) fn dbconfig(&self) -> String {
         raw_dbconfig(&self.database)
+    }
+
+    /// A second store on this test's database, as the first is: connected anew (and so
+    /// migrating what the test put back to an older state) and reaching the rows of the
+    /// test's organization.
+    pub(crate) async fn reconnect(&self) -> Store {
+        Store::connect(db_type(), &self.dbconfig())
+            .await
+            .expect("the store connects to the database again")
+            .for_org(&self.org_id)
+            .expect("an identifier")
     }
 
     /// Closes the store and removes its database.
@@ -137,6 +194,19 @@ pub(crate) async fn team(store: &Store) -> String {
     };
     store.create_team(&team).await.expect("the team is stored");
     team.id
+}
+
+/// Stores a team that the users work in, as members of the workspace: its open boards
+/// are theirs to find. Returns its identifier.
+pub(crate) async fn team_of(store: &Store, users: &[&str]) -> String {
+    let team_id = team(store).await;
+    for user_id in users {
+        store
+            .add_workspace_member(&team_id, user_id, fvoci_model::WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the team");
+    }
+    team_id
 }
 
 /// `storetests.InsertBlocks`: inserts each block on its own.
@@ -240,16 +310,7 @@ pub(crate) async fn try_execute_raw(dbconfig: &str, sql: &str) -> Result<u64, sq
             result.map(|done| done.rows_affected())
         }
         DbType::Postgres => {
-            let (url, schema) = dbconfig
-                .rsplit_once("search_path=")
-                .expect("the test dbconfig names its schema");
-            let mut conn = PgConnection::connect(url.trim_end_matches(['?', '&']))
-                .await
-                .expect("the test PostgreSQL server accepts connections");
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
-                .execute(&mut conn)
-                .await
-                .expect("the schema is selected");
+            let mut conn = connect_past_the_store(dbconfig).await;
             let result = sqlx::raw_sql(sql).execute(&mut conn).await;
             conn.close().await.expect("the connection closes");
             result.map(|done| done.rows_affected())

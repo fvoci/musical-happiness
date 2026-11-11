@@ -29,6 +29,19 @@ impl Audience {
         Ok(self.store.get_block(block_id).await?.board_id)
     }
 
+    /// Whether the user works in the team: a member of the workspace who is no guest,
+    /// as the routes that name a team ask it (`App::works_in_team`). A membership that
+    /// cannot be read is no membership here: the connection is not subscribed.
+    pub async fn works_in_team(&self, user_id: &str, team_id: &str) -> bool {
+        match self.store.resolve_workspace(user_id, team_id).await {
+            Ok(access) => access.is_some_and(|access| access.works_there()),
+            Err(error) => {
+                tracing::error!(%error, team_id, "websocket: reading a team's membership failed");
+                false
+            }
+        }
+    }
+
     /// The members of the board.
     ///
     /// # Errors

@@ -928,8 +928,9 @@ export interface paths {
         };
         /**
          * The teams
-         * @description The teams of the server, oldest first. A server has one, and nothing in the API
-         *     makes another. The signup token is there for administrators only.
+         * @description The teams the user works in, oldest first: a team the user is no member of is not
+         *     listed. Nothing in the API makes a team. The signup token is there for
+         *     administrators only.
          */
         get: operations["getTeams"];
         put?: never;
@@ -971,7 +972,8 @@ export interface paths {
          * Export the boards of a team
          * @description An archive of all boards of the team that `getBoards` lists for the user, offered
          *     as a download with its length, in the format of `exportBoardArchive`, and under its
-         *     limits. A team that is not there is not refused: its archive has no boards.
+         *     limits. A team that is not there, or that the user is not in, is not refused: its
+         *     archive has no boards.
          */
         get: operations["exportTeamArchive"];
         put?: never;
@@ -995,7 +997,7 @@ export interface paths {
          * Import an archive
          * @description Makes the boards of an archive in the team, with the user as their admin. The
          *     members the archive names for a board become members of it with the roles they had,
-         *     where they are users of this server. The archive is sent before in parts: open an
+         *     where they are in the team. The archive is sent before in parts: open an
          *     upload with `createImportUpload`, send its parts with `putUploadPart`, then name
          *     the upload here, in place of `completeUpload`. A part missing is 400 and the upload
          *     stays open for it; otherwise the upload ends with the import, whether it succeeds or
@@ -1612,6 +1614,28 @@ export interface paths {
         patch: operations["patchUserSettings"];
         trace?: never;
     };
+    "/api/v1/users/me/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspaces of the user
+         * @description The workspaces the user of the session is a member of, in every organization, with
+         *     what the user is in each. By organization, the oldest first, and in each the oldest
+         *     workspace first.
+         */
+        get: operations["getMyWorkspaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{userId}": {
         parameters: {
             query?: never;
@@ -1646,6 +1670,28 @@ export interface paths {
          *     A body without `isAdmin` is 400.
          */
         put: operations["setUserAdmin"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The boards of a workspace
+         * @description The boards of the workspace that the user is a member of, and the workspace's open
+         *     boards; a guest of the workspace gets only the former. Templates are not among
+         *     them. Oldest first. 404 unless the user is a member of the workspace.
+         */
+        get: operations["getWorkspaceBoards"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2668,7 +2714,7 @@ export interface components {
             /** @description The kind of entity that subscribes. */
             subscriberType: components["schemas"]["SubscriberType"];
         };
-        /** @description A team. A server has exactly one. */
+        /** @description A team: a workspace of an organization, as the routes that name a team call it. */
         Team: {
             /** @description The team's identifier. */
             id: string;
@@ -2840,11 +2886,27 @@ export interface components {
             /** @description The day a week starts on. */
             weekStart: components["schemas"]["WeekStart"];
         };
+        /** @description A workspace as one of its members finds it among theirs. */
+        UserWorkspace: {
+            /** @description The workspace's identifier. */
+            id: string;
+            /** @description The workspace's name; empty if it was given none. */
+            name: string;
+            /** @description The identifier of the organization the workspace belongs to. */
+            orgId: string;
+            /** @description What the user is in the workspace. */
+            role: components["schemas"]["WorkspaceRole"];
+        };
         /**
          * @description The day a week starts on.
          * @enum {string}
          */
         WeekStart: "auto" | "sunday" | "monday" | "saturday";
+        /**
+         * @description What a member of a workspace is in it.
+         * @enum {string}
+         */
+        WorkspaceRole: "admin" | "member" | "guest";
     };
     responses: never;
     parameters: never;
@@ -5678,6 +5740,35 @@ export interface operations {
             };
         };
     };
+    getMyWorkspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspaces. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserWorkspace"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getUser: {
         parameters: {
             query?: never;
@@ -5733,6 +5824,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceBoards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The boards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */

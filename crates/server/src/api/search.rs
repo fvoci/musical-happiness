@@ -50,7 +50,7 @@ async fn handle_search_boards(
             .parse::<BoardSearchField>()
             .map_err(AppError::bad_request)?
     };
-    require_team_access(&app, &session.user_id, &team_id, "access denied to team").await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
 
     // Preserved quirk: the team of the path is not part of the search. The boards found
     // are those of every team (server/api/search.go:171).

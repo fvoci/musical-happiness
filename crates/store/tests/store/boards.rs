@@ -128,8 +128,8 @@ async fn get_boards_for_user_and_team() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let team_id_1 = common::team(&test).await;
-    let team_id_2 = common::team(&test).await;
+    let team_id_1 = common::team_of(&test, &[&user_id, &other_user_id]).await;
+    let team_id_2 = common::team_of(&test, &[&user_id, &other_user_id]).await;
 
     // "should return empty list if no results are found"
     {
@@ -1078,8 +1078,8 @@ struct SearchCase<'a> {
 async fn search_boards_for_user() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id_1 = common::team(&test).await;
-    let team_id_2 = common::team(&test).await;
+    let team_id_1 = common::team_of(&test, &[&user_id]).await;
+    let team_id_2 = common::team_of(&test, &[&user_id]).await;
 
     // "should return empty if user is not a member of any board and there are no public
     // boards on the team"
@@ -2634,7 +2634,7 @@ async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let team_id = common::team(&test).await;
+    let team_id = common::team_of(&test, &[&user_id, &other_user_id]).await;
     let board_id = stored_board(&test, &team_id, &user_id).await;
     let mut card = new_block(&board_id, "", BlockType::Card);
     test.insert_block(&mut card, &user_id)

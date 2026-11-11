@@ -15,6 +15,7 @@ mod doomed;
 mod download;
 mod export;
 mod files;
+mod housekeeping;
 mod import;
 mod onboarding;
 mod search;
@@ -23,13 +24,16 @@ mod slots;
 pub(crate) use download::download;
 use slots::Busy;
 pub use slots::Slot;
+pub(crate) use startup::open_store;
 mod sharing;
+mod startup;
 mod subscriptions;
 mod teams;
 mod templates;
 mod trash;
 mod uploads;
 mod users;
+mod workspaces;
 
 pub use audience::Audience;
 pub use auth::Admission;
@@ -43,13 +47,14 @@ pub use uploads::{
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,
 };
 pub use users::sanitize;
+pub use workspaces::Entered;
 
 use std::sync::Arc;
 
 use anyhow::Context as _;
 
 use fvoci_model::{BoardMember, ClientConfig};
-use fvoci_store::Store;
+use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
 
@@ -71,19 +76,24 @@ use crate::ws::Hub;
 pub const SERVER_VERSION: &str = "8.0.0";
 
 /// The shared state of the server. Cloning is cheap; every clone is the same server.
+///
+/// A handle reaches the rows of one organization, the one its store names
+/// ([`Tenant`]). [`App::scoped`] gives a handle to the same server that reaches other
+/// rows; work that goes on after a request takes its handle along, and with it the
+/// organization.
 #[derive(Debug, Clone)]
 pub struct App {
     inner: Arc<Inner>,
+    store: Store,
+    ws: Hub,
 }
 
 #[derive(Debug)]
 struct Inner {
     config: Configuration,
-    store: Store,
     auth: Authenticator,
     login_limiter: LoginLimiter,
     password_work: HashQueue,
-    ws: Hub,
     files: FileBackend,
     web: WebRoot,
     webhook: Webhook,
@@ -148,7 +158,9 @@ impl App {
             Metrics::none()
         };
         store.set_comment_versions_kept(config.max_comment_versions);
-        let auth = Authenticator::new(store.clone(), &config)?;
+        // The authenticator reads what is no organization's (sessions), and asks the
+        // directory whose a shared board is: it is given no organization to reach.
+        let auth = Authenticator::new(store.scoped(Tenant::Unset), &config)?;
         let login_limiter =
             LoginLimiter::new(Limits::from_config(&config)).with_metrics(metrics.clone());
         let password_work = HashQueue::new(
@@ -173,13 +185,13 @@ impl App {
         let exports = slots(config.max_concurrent_exports);
         let imports = slots(config.max_concurrent_imports);
         Ok(Self {
+            store,
+            ws,
             inner: Arc::new(Inner {
                 config,
-                store,
                 auth,
                 login_limiter,
                 password_work,
-                ws,
                 files,
                 web,
                 webhook,
@@ -205,9 +217,26 @@ impl App {
         &self.inner.config
     }
 
-    /// The database.
+    /// The same server, reaching the rows of `tenant`: of the organization a request
+    /// names, of the system organization that holds the built-in templates, or of all
+    /// ([`Tenant::System`], for the work the server does on nobody's behalf).
+    #[must_use]
+    pub fn scoped(&self, tenant: Tenant) -> Self {
+        let store = self.store.scoped(tenant);
+        // The hub is the same, with the same connections; what it asks about the
+        // boards, to know whom a change is told to, it asks as this handle reaches them.
+        let mut ws = self.ws.clone();
+        ws.audience = Audience::new(store.clone());
+        Self {
+            inner: Arc::clone(&self.inner),
+            ws,
+            store,
+        }
+    }
+
+    /// The database, as this handle reaches it.
     pub fn store(&self) -> &Store {
-        &self.inner.store
+        &self.store
     }
 
     /// The session and read-token checks.
@@ -227,7 +256,7 @@ impl App {
 
     /// The websocket hub.
     pub fn ws(&self) -> &Hub {
-        &self.inner.ws
+        &self.ws
     }
 
     /// The file storage.
@@ -292,14 +321,20 @@ impl App {
         finished
     }
 
-    /// Returns whether a user has a permission in a team.
-    pub fn has_permission_to_team(
+    /// Returns whether a user has a permission in a team: the user works in the team
+    /// ([`App::works_in_team`]), and the permission is one a member of a team has.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn has_permission_to_team(
         &self,
         user_id: &str,
         team_id: &str,
         permission: TeamPermission,
-    ) -> bool {
-        has_permission_to_team(user_id, team_id, permission)
+    ) -> Result<bool, AppError> {
+        Ok(has_permission_to_team(user_id, team_id, permission)
+            && self.works_in_team(user_id, team_id).await?)
     }
 
     /// Returns whether a user has a permission on a board, which follows from their

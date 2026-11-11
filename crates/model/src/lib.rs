@@ -24,6 +24,7 @@ mod date_value;
 mod deleted_item;
 mod file_info;
 mod id;
+mod organization;
 mod problem;
 mod refusal;
 mod serde_util;
@@ -76,6 +77,7 @@ pub use date_value::{
 pub use deleted_item::DeletedItem;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
+pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use settings::{

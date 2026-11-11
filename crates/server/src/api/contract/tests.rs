@@ -340,6 +340,9 @@ fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
         ("BoardType", json!(fvoci_model::BoardType::Private)),
         ("MinimumRole", json!(fvoci_model::MinimumRole::default())),
         ("CategoryType", json!(fvoci_model::CategoryType::default())),
+        ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Admin)),
+        ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Member)),
+        ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Guest)),
     ] {
         let words = schemas[set]["enum"].as_array().expect("words");
         assert!(words.contains(&value), "{value} is none of {words:?}");
@@ -486,6 +489,7 @@ const ORDERS: &[(&str, &str)] = &[
     ),
     ("getMembers", "By the identifier of the user"),
     ("getMyMemberships", "By the identifier of the board"),
+    ("getMyWorkspaces", "the oldest workspace first"),
     (
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
@@ -501,6 +505,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getUsers",
         "Oldest account first, not in the order of the request",
     ),
+    ("getWorkspaceBoards", "Oldest first"),
     ("patchBoardsAndBlocks", "each in the order of the request"),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),

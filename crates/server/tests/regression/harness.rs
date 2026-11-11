@@ -23,11 +23,13 @@ use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::time::Duration;
 
+use fvoci_model::WorkspaceRole;
+use fvoci_store::Store;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::common::{ROOT_TEAM_ID, Setup, TestServer};
+use crate::common::{ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
 use crate::golden;
 
 /// The prefix of every API route.
@@ -218,10 +220,15 @@ pub(crate) const OCTET_STREAM: &str = "application/octet-stream";
 pub(crate) struct Http {
     client: reqwest::Client,
     base_url: String,
+    /// The server's store, past its routes: whoever registers is let into the second
+    /// team of the test server, which no route does.
+    store: Store,
 }
 
 impl Http {
-    pub(crate) fn new(base_url: &str) -> Self {
+    pub(crate) fn new(server: &TestServer) -> Self {
+        let base_url = &server.base_url;
+        let store = server.app.store().clone();
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             // A redirect is an answer to record, not something to follow.
@@ -231,6 +238,7 @@ impl Http {
         Self {
             client,
             base_url: base_url.trim_end_matches('/').to_owned(),
+            store,
         }
     }
 
@@ -322,7 +330,9 @@ impl Http {
             .await
     }
 
-    /// Registers `user` and signs in. Returns the session token.
+    /// Registers `user`, lets them into the second team of the test server, where
+    /// the users of the scenarios work as in the root team, and signs in. Returns the
+    /// session token.
     pub(crate) async fn register(&self, user: &str, signup_token: &str) -> String {
         let mut body = json!({
             "username": user,
@@ -341,6 +351,10 @@ impl Http {
             )
             .await;
         assert_eq!(reply.status, 201, "register {user}: {:?}", reply.body);
+        self.store
+            .add_workspace_member(TEST_TEAM_ID, &reply.string("id"), WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the second team");
         self.login(user).await
     }
 
@@ -420,9 +434,9 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    fn new(base_url: &str) -> Self {
+    fn new(server: &TestServer) -> Self {
         Self {
-            http: Http::new(base_url),
+            http: Http::new(server),
             steps: Vec::new(),
             tokens: HashMap::new(),
             placeholders: Placeholders::default(),
@@ -689,7 +703,7 @@ impl<'s> IntoFuture for Call<'s> {
 /// user `root`, runs the scenario and compares its recording with `golden/<name>.json`.
 pub(crate) async fn record(name: &str, scenario: impl AsyncFnOnce(&mut Session)) {
     let server = start_server().await;
-    let mut session = Session::new(&server.base_url);
+    let mut session = Session::new(&server);
     let root = session.http.register("root", "").await;
     session.tokens.insert("root".to_owned(), root);
     scenario(&mut session).await;

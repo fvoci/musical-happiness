@@ -35,7 +35,9 @@ const KEPT_TYPES: [BlockType; 5] = [
 /// Returns [`StoreError::Database`] if a statement fails, and [`StoreError::Corrupt`] if
 /// stored JSON cannot be read; nothing of the failed step is kept then.
 pub(crate) async fn run(store: &Store) -> Result<(), StoreError> {
+    // The steps change what is stored, whosever it is.
     store
+        .system()
         .transaction(async |scope| {
             // The step is claimed before it is done: of two servers that start at once,
             // the second waits here for the first and then finds nothing to do.

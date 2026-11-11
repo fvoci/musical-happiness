@@ -39,10 +39,11 @@ pub enum BoardPermission {
     ManageOthersComments,
 }
 
-/// Returns whether a user has a permission in a team.
+/// Returns whether a member of a team has a permission in it.
 ///
-/// Every user has every team permission except [`TeamPermission::ManageTeam`]. An empty
-/// user or team identifier has none.
+/// A member has every team permission except [`TeamPermission::ManageTeam`]. An empty
+/// user or team identifier has none. Whether the user is a member of the team is not
+/// asked here: `App::has_permission_to_team` asks it first.
 pub fn has_permission_to_team(user_id: &str, team_id: &str, permission: TeamPermission) -> bool {
     !user_id.is_empty() && !team_id.is_empty() && permission != TeamPermission::ManageTeam
 }

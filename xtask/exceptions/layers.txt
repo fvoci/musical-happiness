@@ -54,7 +54,3 @@ crates/server/src/lib.rs             .store().clean_up_sessions                 
 crates/server/src/lib.rs             .store().close                                       1
 crates/server/src/lib.rs             .store().collect_unreferenced_files                  1
 crates/server/src/lib.rs             .store().purge_trash                                 1
-crates/server/src/lib.rs             fvoci_store::DbType                                  2
-crates/server/src/lib.rs             fvoci_store::Store                                   2
-crates/server/src/lib.rs             fvoci_store::Store::connect                          1
-crates/server/src/lib.rs             fvoci_store::StoreError::Database                    1

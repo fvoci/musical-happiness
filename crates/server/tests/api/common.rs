@@ -37,6 +37,9 @@ pub(crate) const PASSWORD: &str = "Pa$$word";
 pub(crate) const ROOT_TEAM_ID: &str = "00000000-0000-7000-8000-000000000000";
 /// A second team, the one most tests make their boards in.
 pub(crate) const TEST_TEAM_ID: &str = "00000000-0000-7000-8000-000000000001";
+/// A third team of the organization, which nobody is let into: a workspace that is
+/// there and hidden from every user of a test.
+pub(crate) const HIDDEN_TEAM_ID: &str = "00000000-0000-7000-8000-000000000002";
 /// The identifier of nothing: well-formed, and never given to anything.
 pub(crate) const UNKNOWN_ID: &str = "00000000-0000-7000-8000-00000000dead";
 
@@ -59,6 +62,27 @@ pub(crate) struct TestServer {
     directory: PathBuf,
 }
 
+/// As whom a test server connects to PostgreSQL.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum DatabaseRole {
+    /// The role of the tests, which the wall between organizations holds.
+    #[default]
+    HeldByTheWall,
+    /// A superuser, whom no policy holds.
+    Superuser,
+}
+
+/// What is in the database of a test server when it starts.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Database {
+    /// The organization of the tests with its two teams, under the identifiers the
+    /// tests name them by.
+    #[default]
+    Seeded,
+    /// Nothing: as a server finds it at its first start.
+    Empty,
+}
+
 /// How a test server differs from the default one.
 #[derive(Debug, Default)]
 pub(crate) struct Setup {
@@ -69,6 +93,8 @@ pub(crate) struct Setup {
     configure: Vec<fn(&mut Configuration)>,
     admin_socket: Option<PathBuf>,
     tls_files: Option<TlsFiles>,
+    database_role: DatabaseRole,
+    database: Database,
     /// Whether the built-in templates are imported at startup. Off by default so a
     /// server starts quickly; the counterpart of the original's `SkipTemplateInit`.
     with_templates: bool,
@@ -97,6 +123,21 @@ impl Setup {
             public_shared_boards: true,
             ..Self::default()
         }
+    }
+
+    /// Connects to PostgreSQL as a superuser: for the tests of what the server makes
+    /// of a role that the wall between organizations does not hold.
+    pub(crate) fn connecting_as_superuser(mut self) -> Self {
+        self.database_role = DatabaseRole::Superuser;
+        self
+    }
+
+    /// Starts on an empty database, as a server does the first time: the organization
+    /// and its first workspace are the server's to make, and [`ROOT_TEAM_ID`] and
+    /// [`TEST_TEAM_ID`] name nothing.
+    pub(crate) fn on_an_empty_database(mut self) -> Self {
+        self.database = Database::Empty;
+        self
     }
 
     /// Imports the built-in templates at startup, for tests that need them.
@@ -160,7 +201,10 @@ impl Setup {
         )
         .expect("a static file is written");
 
-        let database = TestDatabase::create(&directory).await;
+        let database = match self.database_role {
+            DatabaseRole::HeldByTheWall => TestDatabase::create(&directory).await,
+            DatabaseRole::Superuser => TestDatabase::create_as_superuser(&directory).await,
+        };
         let mut config = Configuration {
             db_type: database.db_type().as_str().to_owned(),
             db_config: database.dbconfig().to_owned(),
@@ -188,8 +232,17 @@ impl Setup {
             change(&mut config);
         }
 
-        seed_teams(&config).await;
-        let mut server = Server::new(config, &self.base_path).await?;
+        if self.database == Database::Seeded {
+            seed_teams(&config).await;
+        }
+        let mut server = match Server::new(config, &self.base_path).await {
+            Ok(server) => server,
+            Err(error) => {
+                // The database of a server that did not start is of no further use.
+                database.remove().await;
+                return Err(error);
+            }
+        };
         if let Some(tls_files) = self.tls_files {
             server = server.with_tls_files(tls_files);
         }
@@ -227,7 +280,7 @@ impl Setup {
     }
 }
 
-/// Stores the two teams of a test server, the root team first.
+/// Stores the organization of a test server and its two teams, the root team first.
 async fn seed_teams(config: &Configuration) {
     let db_type = config
         .db_type
@@ -236,16 +289,20 @@ async fn seed_teams(config: &Configuration) {
     let store = Store::connect(db_type, &config.db_config)
         .await
         .expect("the test database takes the schema");
-    for team_id in [ROOT_TEAM_ID, TEST_TEAM_ID] {
-        let team = Team {
-            id: team_id.to_owned(),
-            signup_token: new_secret(),
-            ..Team::default()
-        };
-        store
-            .create_team(&team)
+    let team = |team_id: &str| Team {
+        id: team_id.to_owned(),
+        signup_token: new_secret(),
+        ..Team::default()
+    };
+    let org_id = store
+        .create_organization("", &team(ROOT_TEAM_ID))
+        .await
+        .expect("the organization of the test server is stored");
+    let ours = store.for_org(&org_id).expect("an identifier");
+    for team_id in [TEST_TEAM_ID, HIDDEN_TEAM_ID] {
+        ours.create_team(&team(team_id))
             .await
-            .expect("a team of the test server is stored");
+            .expect("a further team of the test server is stored");
     }
     store.close().await;
 }
@@ -297,6 +354,15 @@ impl TestServer {
             .clone()
     }
 
+    /// The store as the system organization reaches it: where the built-in templates
+    /// are, which no other organization changes.
+    pub(crate) fn system_store(&self) -> Store {
+        self.app
+            .store()
+            .for_org(fvoci_store::SYSTEM_ORG_ID)
+            .expect("the system organization's identifier")
+    }
+
     /// A client without a session.
     pub(crate) fn anonymous(&self) -> Client {
         Client::new(&self.base_url, "")
@@ -322,11 +388,30 @@ impl TestServer {
             token: signup_token.to_owned(),
             display_name: String::new(),
         };
-        self.anonymous()
+        let user: User = self
+            .anonymous()
             .post("/register", &request)
             .await
-            .check_created();
+            .created_json();
+        self.let_into_the_second_team(&user.id).await;
         self.login(username, password).await
+    }
+
+    /// Lets a user into the second team of the test server, [`TEST_TEAM_ID`], where
+    /// most tests make their boards. Whoever registers is in the root team, the
+    /// organization's default workspace; the users of a test work in both. A server
+    /// started on an empty database has no second team to be let into.
+    pub(crate) async fn let_into_the_second_team(&self, user_id: &str) {
+        match self
+            .app
+            .store()
+            .add_workspace_member(TEST_TEAM_ID, user_id, fvoci_model::WorkspaceRole::Member)
+            .await
+        {
+            Ok(()) => {}
+            Err(error) if error.is_not_found() => {}
+            Err(error) => panic!("the user is let into the second team: {error}"),
+        }
     }
 
     /// `Login`: returns a client signed in as an existing user.

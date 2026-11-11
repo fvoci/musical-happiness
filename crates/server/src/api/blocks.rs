@@ -19,7 +19,7 @@ use super::contract::params::{
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, created, decode_json, has_valid_read_token,
+    ApiResult, OptionalSession, RequiredSession, by_read_token, created, decode_json,
     json_response, no_content, query_param,
 };
 use super::{
@@ -34,7 +34,7 @@ use super::{
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
-use crate::permissions::{BoardPermission, TeamPermission};
+use crate::permissions::BoardPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -77,13 +77,15 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 }
 
 /// Checks that a signed-in user may read the blocks of a board: the members of the
-/// board, and for an open template everyone in its team.
+/// board, and for an open template everyone who works in its team besides.
 async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<(), AppError> {
     if board.is_template && board.board_type == BoardType::Open {
         if !board.is_builtin
-            && !app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
+            && !app.works_in_team(user_id, &board.team_id).await?
+            && !app.is_board_reader(user_id, &board.id).await?
         {
-            return Err(AppError::forbidden("access denied to board template"));
+            // A template of a team the user does not work in is not there.
+            return Err(AppError::not_found("board"));
         }
     } else {
         require_board_permission(
@@ -165,10 +167,12 @@ async fn handle_get_blocks(
     let query = query.as_deref();
     let user_id = session.user_id();
 
-    let has_read_token = has_valid_read_token(&app, query, &board_id).await?;
+    let shared = by_read_token(&app, query, &board_id).await?;
+    let has_read_token = shared.is_some();
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to board"));
     }
+    let app = shared.unwrap_or(app);
     let board = app.board(&board_id).await?;
     let by_token_alone = if has_read_token {
         !app.is_board_reader(user_id, &board_id).await?

@@ -516,7 +516,7 @@ type Row = [u16; ROLES.len()];
 /// compares it with `golden/<name>.txt`.
 pub(crate) async fn record(name: &str, board_type: &str) {
     let server = start_server().await;
-    let http = Http::new(&server.base_url);
+    let http = Http::new(&server);
     let users = Users::register(&http).await;
 
     let mut rows: Vec<(&str, Row)> = Vec::with_capacity(ROUTES.len());

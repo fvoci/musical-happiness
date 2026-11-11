@@ -19,11 +19,6 @@ use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
 
-/// The refusal of the routes that take the team for the thing asked about.
-const ACCESS_DENIED_TO_TEAM: &str = "access denied to team";
-/// The refusal of the routes that reorder or hide, whatever was denied.
-const ACCESS_DENIED_TO_CATEGORY: &str = "access denied to category";
-
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(
@@ -124,7 +119,7 @@ async fn handle_create_category(
 ) -> ApiResult {
     // The team of the path comes first: what is asked of a team that is not there is
     // not looked at.
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     let request = CategoryRequest::decode(&body)?;
     let category = &request.category;
     if category.user_id != session.user_id {
@@ -166,7 +161,7 @@ async fn handle_update_category(
     Path((team_id, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     // Before the body is looked at: another user's category does not exist for this one.
     app.user_category(&team_id, &session.user_id, &category_id)
         .await?;
@@ -209,7 +204,7 @@ async fn handle_delete_category(
     RequiredSession(session): RequiredSession,
     Path((team_id, category_id)): Path<(String, String)>,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     app.delete_category(&category_id, &session.user_id, &team_id)
         .await?;
     Ok(no_content())
@@ -240,7 +235,7 @@ async fn handle_get_user_category_boards(
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     let category_boards = app.user_category_boards(&session.user_id, &team_id).await?;
     Ok(json_response(&category_boards))
 }
@@ -262,7 +257,7 @@ async fn handle_update_category_board(
     RequiredSession(session): RequiredSession,
     Path((team_id, category_id, board_id)): Path<BoardPlace>,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     app.user_category(&team_id, &session.user_id, &category_id)
         .await?;
     require_board_visible(&app, &session.user_id, &board_id).await?;
@@ -295,7 +290,7 @@ async fn handle_reorder_categories(
     Path(team_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_CATEGORY).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     let new_order = decode_order(&body)?;
     let order = app
         .reorder_categories(&session.user_id, &team_id, new_order)
@@ -327,7 +322,7 @@ async fn handle_reorder_category_boards(
     Path((team_id, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_CATEGORY).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     app.user_category(&team_id, &session.user_id, &category_id)
         .await?;
     let new_order = decode_order(&body)?;
@@ -384,7 +379,7 @@ async fn set_board_visibility(
     (team_id, category_id, board_id): &BoardPlace,
     visibility: BoardVisibility,
 ) -> ApiResult {
-    require_team_access(app, user_id, team_id, ACCESS_DENIED_TO_CATEGORY).await?;
+    require_team_access(app, user_id, team_id).await?;
     app.user_category(team_id, user_id, category_id).await?;
     require_board_visible(app, user_id, board_id).await?;
     app.set_board_visibility(team_id, user_id, category_id, board_id, visibility)

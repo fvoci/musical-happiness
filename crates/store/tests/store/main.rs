@@ -4,7 +4,8 @@
 //!
 //! They run against SQLite by default. Set `FVOCI_STORE_TEST_DB_TYPE=postgres` and
 //! `FVOCI_STORE_TEST_CONN_STRING` to a PostgreSQL URL to run them against PostgreSQL; each
-//! test then works in a schema of its own.
+//! test then works in a schema of its own. The role of the URL and the third variable
+//! one test needs are described in `fvoci_store::testing`.
 
 mod blocks;
 mod boards;
@@ -19,5 +20,6 @@ mod setup;
 mod sharing;
 mod subscriptions;
 mod teams;
+mod tenancy;
 mod trash;
 mod users;

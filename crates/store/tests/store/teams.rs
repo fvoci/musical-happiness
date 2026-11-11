@@ -83,14 +83,15 @@ async fn get_all_teams() {
     let test = common::setup().await;
     let store = &test.store;
 
-    // "No teams response"
+    // "No teams response": an organization has its first workspace from the start.
     let got = store.get_teams().await.unwrap();
-    assert!(got.is_empty(), "got {got:?}");
+    let ids: Vec<&str> = got.iter().map(|team| team.id.as_str()).collect();
+    assert_eq!(ids, [test.workspace_id.as_str()], "got {got:?}");
 
     // "Insert multiple team and get all teams"
     // insert
     let team_count = 10;
-    let mut created = Vec::with_capacity(team_count);
+    let mut created = vec![test.workspace_id.clone()];
     for index in 0..team_count {
         let team = Team {
             id: new_id(),
@@ -103,7 +104,7 @@ async fn get_all_teams() {
     }
 
     let got = store.get_teams().await.unwrap();
-    assert_eq!(got.len(), team_count);
+    assert_eq!(got.len(), team_count + 1);
     let ids: Vec<String> = got.into_iter().map(|team| team.id).collect();
     assert_eq!(ids, created, "oldest first: the first is the root team");
 
@@ -122,7 +123,7 @@ async fn team_upserts_keep_each_others_members() {
 
     let team = Team {
         id: new_id(),
-        title: "not stored".to_owned(),
+        title: "the name".to_owned(),
         signup_token: "first".to_owned(),
         settings: settings(json!({ "list": [1, 2], "nested": { "on": true } })),
         modified_by: creator.clone(),
@@ -134,7 +135,7 @@ async fn team_upserts_keep_each_others_members() {
     assert_eq!(created.settings, team.settings);
     assert_eq!(created.modified_by, creator);
     assert!(created.update_at > 5, "the store stamps the time");
-    assert_eq!(created.title, "", "a team has no stored title");
+    assert_eq!(created.title, "the name", "the title is the stored name");
 
     // A new signup token keeps the settings and records who set it.
     store
@@ -163,7 +164,15 @@ async fn team_upserts_keep_each_others_members() {
 
     let all = store.get_teams().await.unwrap();
     let ids: Vec<&str> = all.iter().map(|team| team.id.as_str()).collect();
-    assert_eq!(ids, [team.id.as_str(), bare.id.as_str()], "oldest first");
+    assert_eq!(
+        ids,
+        [
+            test.workspace_id.as_str(),
+            team.id.as_str(),
+            bare.id.as_str()
+        ],
+        "oldest first, after the organization's first workspace"
+    );
 
     // A team is created once.
     let error = store.create_team(&team).await.unwrap_err();
@@ -186,7 +195,7 @@ async fn team_upserts_keep_each_others_members() {
     assert_eq!(missing.to_string(), "{team} not found");
     assert_eq!(
         store.get_teams().await.unwrap().len(),
-        2,
+        3,
         "no team was made"
     );
 

@@ -33,7 +33,6 @@ use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Ve
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use fvoci_store::{DbType, Store};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 use tower_http::compression::predicate::{DefaultPredicate, Predicate};
@@ -113,7 +112,7 @@ impl Server {
                 "{BASE_PATH_ENV} must be empty or an absolute path such as /boards, not {base_path:?}"
             );
         }
-        let store = connect_store(&config).await?;
+        let store = app::open_store(&config).await?;
         let files =
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
@@ -126,7 +125,7 @@ impl Server {
         app.root_team().await.context("unable to get root team")?;
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
-        match app.sweep_temporary_files().await {
+        match app.housekeeping().sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
             Err(error) => tracing::error!(%error, "unable to sweep the temporary files"),
@@ -451,25 +450,6 @@ pub fn listen_address(config: &Configuration) -> String {
     }
 }
 
-/// Connects to the database, trying up to `dbpingattempts` times a second apart, so that
-/// a server started together with its database waits for it.
-async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
-    let db_type: DbType = config.db_type.parse()?;
-    let attempts = config.db_ping_attempts.max(1);
-    let mut attempt = 1;
-    loop {
-        match Store::connect(db_type, &config.db_config).await {
-            Ok(store) => return Ok(store),
-            Err(fvoci_store::StoreError::Database(error)) if attempt < attempts => {
-                tracing::warn!(%error, attempt, attempts, "the database is not reachable yet");
-                attempt += 1;
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-            Err(error) => return Err(error).context("connecting to the database"),
-        }
-    }
-}
-
 /// Tells browsers not to say where a request comes from when a page of this server
 /// leads elsewhere: the address of a shared board carries its read token.
 async fn send_no_referrer(request: Request, next: middleware::Next) -> Response {
@@ -481,9 +461,21 @@ async fn send_no_referrer(request: Request, next: middleware::Next) -> Response 
     response
 }
 
+/// Does the server's housekeeping once, now: what its periodic tasks do, each with the
+/// reach it takes for itself, over every organization. The server does it by itself
+/// while it serves; this is for its tests.
+pub async fn keep_house(app: &App) {
+    clean_up_sessions(app).await;
+    // What became of each job is the metrics' to count, where the tasks run them.
+    let _ = purge_trash(app).await;
+    let _ = collect_unreferenced_files(app).await;
+    clean_up_uploads(app).await;
+}
+
 /// Deletes the sessions that have ended: unused for the idle limit, or past their
 /// absolute limit. What such a session still has open is closed.
 async fn clean_up_sessions(app: &App) {
+    let app = &app.housekeeping();
     let now = auth::now_millis();
     let idle_since = now.saturating_sub(app.config().session_idle_millis());
     match app.store().clean_up_sessions(now, idle_since).await {
@@ -502,6 +494,7 @@ async fn clean_up_sessions(app: &App) {
 /// Removes for good what has been in the trash for longer than `trash_retention_days`,
 /// and the files of the boards that go: nothing says where they are afterwards.
 async fn purge_trash(app: &App) -> JobOutcome {
+    let app = &app.housekeeping();
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let purged = match app.store().purge_trash(deleted_before).await {
         Ok(purged) => purged,
@@ -532,6 +525,7 @@ async fn purge_trash(app: &App) -> JobOutcome {
 /// trash keeps what is deleted (`docs/s6-design.md` 5.7). A file whose record went but
 /// that cannot be removed from the storage is logged: nothing names it any more.
 async fn collect_unreferenced_files(app: &App) -> JobOutcome {
+    let app = &app.housekeeping();
     let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let files = match app.store().collect_unreferenced_files(before).await {
         Ok(files) => files,
@@ -586,6 +580,7 @@ fn start_trash_purge(app: &App) -> RecurringTask {
 
 /// Throws away the upload sessions that have ended, with their parts.
 async fn clean_up_uploads(app: &App) {
+    let app = &app.housekeeping();
     let outcome = match app.clean_up_uploads(auth::now_millis()).await {
         Ok(cleaned) => {
             if cleaned.removed > 0 {

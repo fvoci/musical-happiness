@@ -68,17 +68,16 @@ pub(crate) async fn board_without_members(th: &TestServer, board: Board, user_id
 
 /// Stores one more team, next to the two every test server has, and returns its
 /// identifier.
-pub(crate) async fn another_team(th: &TestServer) -> String {
+pub(crate) async fn another_team(th: &TestServer, member: &str) -> String {
     let team = Team {
         id: new_id(),
         signup_token: new_secret(),
         ..Team::default()
     };
-    th.app
-        .store()
-        .create_team(&team)
-        .await
-        .expect("the team is stored");
+    let (store, role) = (th.app.store(), fvoci_model::WorkspaceRole::Member);
+    store.create_team(&team).await.expect("the team is stored");
+    let let_in = store.add_workspace_member(&team.id, member, role).await;
+    let_in.expect("the user is let into the team");
     team.id
 }
 
@@ -2944,7 +2943,7 @@ async fn duplicate_board_permissions_and_parameters() {
     );
 
     // `toTeam` puts the copy, and its category, into another team.
-    let other_team = another_team(&th).await;
+    let other_team = another_team(&th, &user1.id).await;
     let moved: BoardsAndBlocks =
         duplicate_board(&th.client, &board.id, &format!("?toTeam={other_team}"))
             .await

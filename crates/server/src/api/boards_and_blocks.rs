@@ -120,8 +120,11 @@ async fn handle_create_boards_and_blocks(
         }
     }
 
-    require_team_in_body(&app, team_id, "boards").await?;
-    if !app.has_permission_to_team(user_id, team_id, TeamPermission::ViewTeam) {
+    require_team_in_body(&app, user_id, team_id, "boards").await?;
+    if !app
+        .has_permission_to_team(user_id, team_id, TeamPermission::ViewTeam)
+        .await?
+    {
         return Err(AppError::forbidden("access denied to board template"));
     }
     if user_is_guest(&app, user_id).await? {

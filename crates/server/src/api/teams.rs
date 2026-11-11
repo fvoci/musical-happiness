@@ -21,13 +21,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_team_users, handle_get_team_users_by_id))
 }
 
-/// The refusal of the team routes.
-const TEAM_DENIED: &str = "access denied to team";
-
 /// The teams
 ///
-/// The teams of the server, oldest first. A server has one, and nothing in the API
-/// makes another. The signup token is there for administrators only.
+/// The teams the user works in, oldest first: a team the user is no member of is not
+/// listed. Nothing in the API makes a team. The signup token is there for
+/// administrators only.
 #[utoipa::path(
     get,
     path = "/teams",
@@ -39,7 +37,7 @@ async fn handle_get_teams(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let mut teams = app.teams().await?;
+    let mut teams = app.teams_of_user(&session.user_id).await?;
     if !app.user(&session.user_id).await?.is_admin {
         for team in &mut teams {
             team.signup_token.clear();
@@ -64,8 +62,7 @@ async fn handle_get_team(
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
 ) -> ApiResult {
-    let mut team = app.team(&team_id).await?;
-    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED).await?;
+    let mut team = require_team_access(&app, &session.user_id, &team_id).await?;
     // The signup token lets anyone in who has it: it is for the administrators, who
     // hand it on, and is left out for everybody else.
     if !app.user(&session.user_id).await?.is_admin {
@@ -94,7 +91,7 @@ async fn handle_get_team_users(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let search_query = query_param(query.as_deref(), "search");
-    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     // There are no guests to treat differently, but the user must exist.
     user_is_guest(&app, &session.user_id).await?;
     Ok(json_response(&app.search_team_users(&search_query).await?))
@@ -121,7 +118,7 @@ async fn handle_get_team_users_by_id(
     body: Bytes,
 ) -> ApiResult {
     let user_ids: Vec<String> = decode_json(&body)?;
-    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED).await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
     }

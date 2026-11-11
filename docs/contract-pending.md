@@ -230,7 +230,7 @@
 | 구독의 경로 | `DELETE /subscriptions/{blockId}/{subscriberId}`, `GET /subscriptions/{subscriberId}`. 아래 (1) |
 | 구독자의 종류 `channel` | 스키마 `SubscriberType`에 있으나 서버는 `user`만 받는다 |
 | `deleteAt` | 있는 것에서는 늘 0이다(지운 것은 휴지통에 있다). WebSocket의 삭제 알림이 쓴다 |
-| 팀의 `title`, `settings` | 값을 정하는 라우트가 없다 |
+| 팀의 `title`, `settings` | 값을 정하는 라우트가 없다. 팀은 조직의 워크스페이스이고, 구성원에게만 여는 경로(아니면 404)는 아직 `getMyWorkspaces`와 `getWorkspaceBoards` 둘이다(`title`을 거기서는 `name`이라 부른다). 나머지는 팀 경로 그대로다 |
 | `ping`의 멤버 이름 | `db_type`, `build_number` 등 snake_case다. 주소는 아래 (2) |
 | 요청 스키마와 서버의 해석 | 서버는 계약의 요청 스키마보다 너그럽게 읽는다. 아래 (3) |
 | `NewBlock`의 `createAt`, `updateAt` | 필수이고 1 이상이어야 하지만 서버는 그 값을 쓰지 않는다 |

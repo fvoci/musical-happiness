@@ -38,7 +38,7 @@ async fn handle_get_templates(
     Path(team_id): Path<String>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    require_team_access(&app, user_id, &team_id, "access denied to team").await?;
+    require_team_access(&app, user_id, &team_id).await?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to templates"));
     }

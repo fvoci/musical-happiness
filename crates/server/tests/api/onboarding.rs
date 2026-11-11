@@ -163,8 +163,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
         title: Some("Bienvenue".to_owned()),
         ..fvoci_model::BoardPatch::default()
     };
-    ts.app
-        .store()
+    ts.system_store()
         .patch_board(&built_in.id, &rename, "")
         .await
         .expect("the built-in board is renamed");
