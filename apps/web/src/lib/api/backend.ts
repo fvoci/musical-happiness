@@ -34,7 +34,6 @@ import {
   type CommentVersion,
   type DownloadedFile,
   type DownloadOptions,
-  type Registration,
   type Sharing,
   type SharingChange,
   type Team,
@@ -70,6 +69,7 @@ import {
 import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
+import { ServerRequests } from './requests.ts';
 import { importInParts, uploadInParts } from './upload.ts';
 
 /**
@@ -87,7 +87,7 @@ export function notWired(operation: string): never {
 /** How many files go up at once; the server allows a reader 8 open uploads. */
 const UPLOADS_AT_ONCE = 3;
 
-export class ServerBackend implements Backend, Account {
+export class ServerBackend extends ServerRequests implements Backend, Account {
   readonly #http: Http;
   /** The last change of each card or view on its way, settled either way (`#inTurn`). */
   readonly #writes = new Map<string, Promise<void>>();
@@ -96,7 +96,9 @@ export class ServerBackend implements Backend, Account {
   readonly #live: LiveChanges;
 
   constructor(basePath: string) {
-    this.#http = new Http(basePath);
+    const http = new Http(basePath);
+    super(http);
+    this.#http = http;
     // The page's own origin: the browser sends the session's cookie with it.
     const socket = new URL(`${basePath}/ws`, location.href);
     socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -121,16 +123,6 @@ export class ServerBackend implements Backend, Account {
     await this.#http.request('/api/v1/login', {}, { method: 'POST', json: request });
     // The page's connection was opened with the old cookie, or none.
     this.#live.restart();
-  }
-
-  async register(registration: Registration): Promise<void> {
-    const request: Schemas['RegisterRequest'] = {
-      username: registration.username,
-      email: registration.email,
-      password: registration.password,
-      ...(registration.token ? { token: registration.token } : {}),
-    };
-    await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
   }
 
   async signOut(): Promise<void> {
@@ -307,11 +299,7 @@ export class ServerBackend implements Backend, Account {
     await this.#http.request('/api/v1/boards/{boardId}', { boardId }, { method: 'DELETE' });
   }
 
-  /**
-   * Out of the server's trash. Its place in the sidebar and its public link
-   * do not come back (`docs/contract-pending.md` 7): it shows at the end of
-   * the default category.
-   */
+  /** Out of the server's trash, filed where each person had it (the category messages tell). */
   async restoreBoard(boardId: string): Promise<Board> {
     return boardOf(
       await this.#http.request<Schemas['Board']>(

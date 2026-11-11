@@ -3,17 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import { mount, screen, testCard } from './support.ts';
 
-// The card of the tests was created by user-1 (jisoo, 지수 김).
+// The card of the tests was created by user-1 (jisoo, no display name).
 
 describe('a created by property', () => {
   it('shows who created the card', () => {
     const { container } = mount('createdBy', undefined);
     expect(container).toHaveTextContent('jisoo');
-  });
-
-  it('shows the name the way names are set to be shown', () => {
-    const { container } = mount('createdBy', undefined, { nameFormat: 'full_name' });
-    expect(container).toHaveTextContent('지수 김');
   });
 
   it('shows someone who is not among the people as an unknown user', () => {

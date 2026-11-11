@@ -27,7 +27,6 @@
     templates: readonly PropertyTemplate[];
     visiblePropertyIds: readonly string[];
     users: readonly PropertyUser[];
-    nameFormat: string;
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
     /** Given where the list can be closed: a popover. */
@@ -41,7 +40,6 @@
     templates,
     visiblePropertyIds,
     users,
-    nameFormat,
     cardHref,
     onOpenCard,
     onclose,
@@ -54,7 +52,6 @@
     templates,
     visiblePropertyIds,
     users,
-    nameFormat,
     cardHref,
     onOpenCard,
   });

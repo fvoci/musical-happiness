@@ -255,7 +255,6 @@
           startOpen
           locale={reader.locale}
           regional={reader.regional}
-          nameFormat={reader.nameFormat}
           users={reader.people}
           presentation={reader.presentation}
           cards={host.cards}
@@ -274,7 +273,6 @@
             mode="display"
             locale={reader.locale}
             regional={reader.regional}
-            nameFormat={reader.nameFormat}
             users={reader.users}
             cards={host.cards}
             onOpenCard={host.open}

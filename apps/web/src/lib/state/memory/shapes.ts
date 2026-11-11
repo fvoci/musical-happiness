@@ -5,18 +5,17 @@
  */
 import { cardPreviewOf } from '../../editor/card-preview.ts';
 import { countTasks, MAX_BODY_BYTES, type DocNode } from '../../editor/schema.ts';
-import { createBoardView, createCard, type BoardMember, type BoardView } from '../../logic/wire.ts';
 import {
-  BackendError,
-  problemOf,
-  refusedMember,
-  type Attachment,
-  type CardDetail,
-  type CardSummary,
-  type Comment,
-  type ErrorStatus,
-} from '../backend.ts';
+  createBoardView,
+  createCard,
+  type Board,
+  type BoardMember,
+  type BoardView,
+} from '../../logic/wire.ts';
+import { type Attachment, type CardDetail, type CardSummary, type Comment } from '../backend.ts';
 
+import { withPropertyOrder } from '../../logic/property-order.ts';
+import { fail } from './refuse.ts';
 import type { StoredBlock, StoredCard } from './world.ts';
 
 /** The limits of the server design: section 5.7 (bodies) and 4.2, 5.6 (files). */
@@ -36,28 +35,18 @@ export const copy = <T>(value: T): T => structuredClone(value);
 export const MEMORY_ARCHIVE = 'fvoci-memory-1';
 
 /**
- * Rejects as the server does: with the status and the detail, and, where the
- * refusal is about a member of the request, that member in `errors` (with
- * the reason); a reason about no member is the problem's own (`last_admin`).
+ * The board with its properties in `propertyIds`, which names every one of
+ * them once, as the server takes it; 400 and nothing changes otherwise.
  */
-export function fail(
-  status: ErrorStatus,
-  detail: string,
-  extra: { field?: string; within?: string; reason?: string; limit?: number } = {},
-): never {
-  const { field, within, reason, limit } = extra;
-  const entry = field === undefined ? undefined : refusedMember(field, detail, reason);
-  // A member of a map the request carries is under the map's own member.
-  if (entry && within !== undefined) entry.pointer = `/${within}${entry.pointer ?? ''}`;
-  throw new BackendError(status, {
-    ...problemOf(status, detail),
-    ...(limit === undefined ? {} : { limit }),
-    ...(entry === undefined ? {} : { errors: [entry] }),
-    // A reason of the problem names its type, as on the server (`last_admin`: `/problems/last-admin`).
-    ...(entry === undefined && reason !== undefined
-      ? { reason, type: `/problems/${reason.replaceAll('_', '-')}` }
-      : {}),
-  });
+export function inPropertyOrder(stored: Board, propertyIds: readonly string[]): Board {
+  const ids = stored.cardProperties.map((template) => template.id);
+  if (new Set(propertyIds).size !== propertyIds.length) {
+    fail(400, 'the order names each property of the board once');
+  }
+  if (propertyIds.some((id) => !ids.includes(id)) || propertyIds.length !== ids.length) {
+    fail(400, 'the order names every property of the board');
+  }
+  return withPropertyOrder(stored, propertyIds);
 }
 
 export function summaryOf(card: StoredCard): CardSummary {

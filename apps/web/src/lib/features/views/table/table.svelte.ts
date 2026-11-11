@@ -390,7 +390,6 @@ export class TableController {
     return {
       locale: workspace.locale,
       regional: workspace.regional,
-      nameFormat: workspace.nameFormat,
       users: workspace.users,
       people: this.#board.people,
       presentation: this.#presentation.current,

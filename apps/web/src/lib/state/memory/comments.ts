@@ -7,7 +7,8 @@ import type { DocNode } from '../../editor/schema.ts';
 import type { BoardMember } from '../../logic/wire.ts';
 import type { CommentVersion } from '../backend.ts';
 
-import type { StoredBlock } from './world.ts';
+import { fail } from './refuse.ts';
+import type { StoredBlock, World } from './world.ts';
 
 export type Role = 'admin' | 'editor' | 'commenter' | 'viewer' | '';
 
@@ -67,6 +68,39 @@ export function recordChange(
   kept.push(versionOf(newest + 1, now));
   const cut = newest + 1 - COMMENT_VERSIONS_KEPT;
   return kept.filter((version, index) => index === 0 || version.version > cut);
+}
+
+/**
+ * Writes down a change of a stored comment's text from `before` by `userId`,
+ * its time the comment's `updateAt`; the same text again is no change.
+ */
+export function noteChange(
+  world: World,
+  block: StoredBlock,
+  before: DocNode | null,
+  userId: string,
+): void {
+  const now = block.body ?? null;
+  if (JSON.stringify(before) === JSON.stringify(now)) return;
+  block.editedAt = block.updateAt;
+  world.commentVersions.set(
+    block.id,
+    recordChange(
+      world.commentVersions.get(block.id) ?? [],
+      { body: before, by: block.createdBy, at: block.createAt },
+      { body: now, by: userId, at: block.updateAt },
+    ),
+  );
+}
+
+/** The earlier texts of a comment of the board, also of one in the trash (as on the server); 404 for none. */
+export function versionsOf(world: World, boardId: string, commentId: string): CommentVersion[] {
+  const trashed = [...world.deletedBlocks.values()]
+    .filter((deleted) => deleted.boardId === boardId)
+    .flatMap((deleted) => deleted.blocks);
+  const comment = world.blocks.get(commentId) ?? trashed.find((one) => one.id === commentId);
+  if (comment?.boardId !== boardId || comment.type !== 'comment') fail(404, 'no such comment');
+  return earlierVersions(world.commentVersions.get(commentId) ?? []);
 }
 
 /** The texts of a comment before the one it has now, the first first. */

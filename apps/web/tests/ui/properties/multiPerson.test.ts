@@ -54,7 +54,7 @@ describe('a multi-person property, opened', () => {
     await open();
     expect(list()).toHaveAttribute('aria-multiselectable', 'true');
     expect(row('jisoo')).toHaveAttribute('aria-selected', 'true');
-    expect(row('minho')).toHaveAttribute('aria-selected', 'false');
+    expect(row('Mino (@minho)')).toHaveAttribute('aria-selected', 'false');
   });
 
   it('adds the person that is pressed and stays open', async () => {
@@ -104,7 +104,7 @@ describe('a multi-person property, opened', () => {
   it('narrows the list by typing and picks with Enter', async () => {
     const { onChange } = mount('multiPerson', ['user-1']);
     await open();
-    await type(search(), 'lee');
+    await type(search(), 'mino');
     await press(search(), 'Enter');
     expect(onChange).toHaveBeenCalledExactlyOnceWith(['user-1', 'user-2']);
     expect(search()).toHaveValue('');

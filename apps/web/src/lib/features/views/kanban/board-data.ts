@@ -25,7 +25,6 @@ export interface FaceContext {
   locale: string;
   regional: Regional;
   users: readonly PropertyUser[];
-  nameFormat: string;
 }
 
 export function faceContextOf(board: BoardStore, view: BoardView): FaceContext {
@@ -35,7 +34,6 @@ export function faceContextOf(board: BoardStore, view: BoardView): FaceContext {
     locale: board.workspace.locale,
     regional: board.workspace.regional,
     users: board.workspace.users,
-    nameFormat: board.workspace.nameFormat,
   };
 }
 

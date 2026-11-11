@@ -28,23 +28,16 @@ async function open(): Promise<void> {
 }
 
 describe('a person property, closed', () => {
-  it('shows the person by user name', () => {
+  it('shows the person by their display name and login name', () => {
     mount('person', 'user-2');
-    expect(button()).toHaveAccessibleName('My person minho');
+    expect(button()).toHaveAccessibleName('My person Mino (@minho)');
   });
 
-  it('shows the person the way names are set to be shown', () => {
-    mount('person', 'user-2', { nameFormat: 'nickname_full_name' });
-    expect(button()).toHaveAccessibleName('My person Mino');
-  });
-
-  it('shows the full name when that is the format, and the user name when there is none', async () => {
-    const mounted = mount('person', 'user-1', { nameFormat: 'full_name' });
-    expect(button()).toHaveAccessibleName('My person 지수 김');
-    await mounted.setProps({
-      users: [{ id: 'user-1', username: 'jisoo', nickname: '', firstname: '', lastname: '' }],
-    });
+  it('shows the login name alone when there is no display name, and follows a new one', async () => {
+    const mounted = mount('person', 'user-1');
     expect(button()).toHaveAccessibleName('My person jisoo');
+    await mounted.setProps({ users: [{ id: 'user-1', username: 'jisoo', displayName: '김지수' }] });
+    expect(button()).toHaveAccessibleName('My person 김지수 (@jisoo)');
   });
 
   it('shows a placeholder without a value', () => {
@@ -62,14 +55,15 @@ describe('a person property, opened', () => {
   it('lists the people and marks the one in the value', async () => {
     mount('person', 'user-2');
     await open();
-    expect(names()).toEqual(['jisoo', 'minho', 'ada']);
-    expect(row('minho')).toHaveAttribute('aria-selected', 'true');
+    expect(names()).toEqual(['jisoo', 'Mino (@minho)', 'ada']);
+    expect(row('Mino (@minho)')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('has no entry for the reader themselves: the list is the people passed in', async () => {
     mount('person', '');
     await open();
-    expect(names()).toEqual(USERS.map((user) => user.username));
+    expect(names()).toEqual(['jisoo', 'Mino (@minho)', 'ada']);
+    expect(USERS).toHaveLength(3);
     expect(within(list()).queryByText('Me')).toBeNull();
   });
 
@@ -89,17 +83,15 @@ describe('a person property, opened', () => {
     expect(isOpen()).toBe(false);
   });
 
-  it('narrows the list by user name, nickname, first and last name', async () => {
+  it('narrows the list by login name and display name', async () => {
     mount('person', '');
     await open();
     await type(search(), 'MINO');
-    expect(names()).toEqual(['minho']);
-    await type(search(), 'lovelace');
-    expect(names()).toEqual(['ada']);
-    await type(search(), '지수');
+    expect(names()).toEqual(['Mino (@minho)']);
+    await type(search(), 'minh');
+    expect(names()).toEqual(['Mino (@minho)']);
+    await type(search(), 'JIS');
     expect(names()).toEqual(['jisoo']);
-    await type(search(), 'ada lovelace');
-    expect(names()).toEqual(['ada']);
   });
 
   it('says so when nobody matches, and offers nothing to create', async () => {
@@ -167,6 +159,6 @@ describe('a person property that may not be edited', () => {
 describe('a person property that starts in the editing state', () => {
   it('has its list open at once', () => {
     mount('person', '', { startOpen: true });
-    expect(names()).toEqual(['jisoo', 'minho', 'ada']);
+    expect(names()).toEqual(['jisoo', 'Mino (@minho)', 'ada']);
   });
 });

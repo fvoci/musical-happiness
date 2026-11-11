@@ -12,12 +12,6 @@ import { dateOfInstant } from '$lib/logic/dates.ts';
 import { displayDate, displayDateTime, inputDate } from '$lib/logic/format.ts';
 import { countCheckboxesInMarkdown, ensureProtocol } from '$lib/logic/text.ts';
 import { boardPath, buildUrl } from '$lib/logic/urls.ts';
-import {
-  SHOW_FULL_NAME,
-  SHOW_NICKNAME_FULL_NAME,
-  SHOW_USERNAME,
-  userDisplayName,
-} from '$lib/logic/users.ts';
 import { compareVersions } from '$lib/logic/versions.ts';
 import { createId } from '$lib/logic/wire.ts';
 
@@ -173,46 +167,6 @@ describe('utils', () => {
       const pattern = '/team/:teamId/:boardId?/:viewId?/:cardId?';
 
       expect(boardPath(pattern, params, 'board_id_2')).toBe('/team/team_id_1/board_id_2');
-    });
-  });
-
-  describe('getUserDisplayName test', () => {
-    const user = {
-      id: 'user-id-1',
-      username: 'username_1',
-      email: 'test@email.com',
-      nickname: 'nickname',
-      firstname: 'firstname',
-      lastname: 'lastname',
-    };
-
-    it('should display username, by default', () => {
-      const displayName = userDisplayName(user, '');
-      expect(displayName).toEqual('username_1');
-    });
-    it('should display nickname', () => {
-      const displayName = userDisplayName(user, SHOW_NICKNAME_FULL_NAME);
-      expect(displayName).toEqual('nickname');
-    });
-    it('should display fullname', () => {
-      const displayName = userDisplayName(user, SHOW_FULL_NAME);
-      expect(displayName).toEqual('firstname lastname');
-    });
-    it('should display username', () => {
-      const displayName = userDisplayName(user, SHOW_USERNAME);
-      expect(displayName).toEqual('username_1');
-    });
-    it('should display full name, no nickname', () => {
-      user.nickname = '';
-      const displayName = userDisplayName(user, SHOW_NICKNAME_FULL_NAME);
-      expect(displayName).toEqual('firstname lastname');
-    });
-    it('should display username, no nickname, no full name', () => {
-      user.nickname = '';
-      user.firstname = '';
-      user.lastname = '';
-      const displayName = userDisplayName(user, SHOW_NICKNAME_FULL_NAME);
-      expect(displayName).toEqual('username_1');
     });
   });
 });

@@ -38,7 +38,6 @@
     locale: string;
     regional: Regional;
     users?: readonly PropertyUser[];
-    nameFormat?: string;
     /** The current moment, for a test. */
     now?: number;
     /** Off the board: under the pointer, or carried by the keyboard. */
@@ -68,7 +67,6 @@
     locale,
     regional,
     users = [],
-    nameFormat = '',
     now,
     lifted = false,
     selected = false,
@@ -148,7 +146,6 @@
               value={card.fields.properties[template.id]}
               mode="display"
               {users}
-              {nameFormat}
               {locale}
               {regional}
               {now}

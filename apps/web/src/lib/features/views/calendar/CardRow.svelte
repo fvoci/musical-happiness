@@ -25,22 +25,12 @@
     templates: readonly PropertyTemplate[];
     visiblePropertyIds: readonly string[];
     users: readonly PropertyUser[];
-    nameFormat: string;
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
   }
 
-  let {
-    card,
-    placed,
-    date,
-    templates,
-    visiblePropertyIds,
-    users,
-    nameFormat,
-    cardHref,
-    onOpenCard,
-  }: Props = $props();
+  let { card, placed, date, templates, visiblePropertyIds, users, cardHref, onOpenCard }: Props =
+    $props();
 
   const span = $derived(date ? placed.span(card.id) : undefined);
   const time = $derived(span && span.first === date ? placed.time(card) : undefined);
@@ -92,7 +82,6 @@
             value={card.fields.properties[template.id]}
             mode="display"
             {users}
-            {nameFormat}
             locale={placed.locale}
             regional={placed.regional}
           />

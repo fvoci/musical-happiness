@@ -14,16 +14,10 @@
  */
 import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
 import { storedSize, validateDoc, type DocNode } from '../../editor/schema.ts';
-import {
-  DEFAULT_DISPLAY_SETTINGS,
-  readDisplaySettings,
-  type DisplaySettings,
-} from '../../logic/display.ts';
-import {
-  DEFAULT_REGIONAL_SETTINGS,
-  isTimeZone,
-  readRegionalSettings,
-} from '../../logic/regional.ts';
+import { readDisplaySettings, type DisplaySettings } from '../../logic/display.ts';
+import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
+import { readLanguageSettings } from '../../logic/language.ts';
 import {
   createBoard,
   type BlockPatch,
@@ -51,8 +45,10 @@ import {
   type ChangeListener,
   type Comment,
   type CommentVersion,
+  type DeletedItem,
   type DownloadedFile,
   type DownloadOptions,
+  type Paging,
   type Sharing,
   type SharingChange,
   type Team,
@@ -62,18 +58,27 @@ import {
   type ViewDraft,
 } from '../backend.ts';
 
-import { withPropertyOrder } from '../../logic/property-order.ts';
 import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
 import {
-  earlierVersions,
+  noteChange,
+  versionsOf,
   lastCommentAt,
   mayChangeComment,
   mayDeleteComment,
-  recordChange,
   roleOn,
   type Role,
 } from './comments.ts';
+import { changeDisplayName } from './account.ts';
+import { fail } from './refuse.ts';
+import {
+  deletedBoardsOf,
+  deletedCardsOf,
+  deletion,
+  mayManageCards,
+  placesOf,
+  takeBoardBack,
+} from './trash.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
 import {
@@ -81,8 +86,8 @@ import {
   commentOf,
   copy,
   detailOf,
-  fail,
   imageFileIds,
+  inPropertyOrder,
   LIMITS,
   MEMORY_ARCHIVE,
   memberOf,
@@ -235,6 +240,11 @@ export class MemoryBackend implements Backend {
     return copy(this.world.users.get(this.userId) ?? fail(401, 'no session'));
   }
 
+  async patchMe(patch: { displayName: string | null }): Promise<User> {
+    await this.#enter('patchMe');
+    return copy(changeDisplayName(this.world, this.userId, patch.displayName));
+  }
+
   async teams(): Promise<Team[]> {
     await this.#enter('teams');
     return [copy(this.world.team)];
@@ -261,12 +271,7 @@ export class MemoryBackend implements Backend {
   // ----------------------------------------------------------- settings
 
   #settings(): AccountSettings {
-    return (
-      this.world.settings.get(this.userId) ?? {
-        ...DEFAULT_REGIONAL_SETTINGS,
-        ...DEFAULT_DISPLAY_SETTINGS,
-      }
-    );
+    return this.world.settings.get(this.userId) ?? { ...DEFAULT_ACCOUNT_SETTINGS };
   }
 
   async settings(): Promise<AccountSettings> {
@@ -276,7 +281,7 @@ export class MemoryBackend implements Backend {
 
   async patchSettings(patch: AccountSettingsPatch): Promise<AccountSettings> {
     await this.#enter('patchSettings');
-    const defaults: AccountSettings = { ...DEFAULT_REGIONAL_SETTINGS, ...DEFAULT_DISPLAY_SETTINGS };
+    const defaults = DEFAULT_ACCOUNT_SETTINGS;
     const merged: Record<string, unknown> = { ...this.#settings() };
     for (const [name, value] of Object.entries(patch)) {
       if (!(name in defaults)) fail(400, `unknown setting ${name}`, { field: name });
@@ -288,7 +293,7 @@ export class MemoryBackend implements Backend {
     }
     const display: DisplaySettings = readDisplaySettings(merged);
     const regional = readRegionalSettings(merged);
-    const next: AccountSettings = { ...regional, ...display };
+    const next: AccountSettings = { ...regional, ...display, ...readLanguageSettings(merged) };
     // A value the reader functions fell back on was not one of the allowed ones.
     for (const name of Object.keys(patch) as (keyof AccountSettings)[]) {
       if (patch[name] !== null && patch[name] !== undefined && next[name] !== patch[name]) {
@@ -403,16 +408,7 @@ export class MemoryBackend implements Backend {
     if (role !== 'admin' && role !== 'editor') {
       fail(403, 'access denied to modifying board properties');
     }
-    const stored = this.#board(boardId);
-    const ids = stored.cardProperties.map((template) => template.id);
-    // As the server: every property of the board once, or nothing changes.
-    if (new Set(propertyIds).size !== propertyIds.length) {
-      fail(400, 'the order names each property of the board once');
-    }
-    if (propertyIds.some((id) => !ids.includes(id)) || propertyIds.length !== ids.length) {
-      fail(400, 'the order names every property of the board');
-    }
-    const board = withPropertyOrder(stored, propertyIds);
+    const board = inPropertyOrder(this.#board(boardId), propertyIds);
     board.updateAt = this.world.now();
     board.modifiedBy = this.userId;
     this.world.boards.set(boardId, board);
@@ -425,7 +421,8 @@ export class MemoryBackend implements Backend {
     const board = this.#board(boardId);
     const members = this.world.members.get(boardId) ?? [];
     const blocks = this.world.blocksOf(boardId);
-    this.world.deletedBoards.set(boardId, { board, members, blocks });
+    const places = placesOf(this.world, boardId);
+    this.world.deletedBoards.set(boardId, { board, members, blocks, places, ...deletion(this) });
     for (const block of blocks) this.world.blocks.delete(block.id);
     this.world.boards.delete(boardId);
     this.world.members.delete(boardId);
@@ -440,15 +437,18 @@ export class MemoryBackend implements Backend {
     this.world.tellUsers(userIds, { kind: 'boardDeleted', boardId });
   }
 
+  /** As the server: for who was its admin; filed again where each person had it. */
   async restoreBoard(boardId: string): Promise<Board> {
     await this.#enter('restoreBoard');
-    const deleted = this.world.deletedBoards.get(boardId) ?? fail(404, 'no such board');
-    this.world.deletedBoards.delete(boardId);
-    this.world.boards.set(boardId, deleted.board);
-    this.world.members.set(boardId, deleted.members);
-    for (const block of deleted.blocks) this.world.blocks.set(block.id, block);
-    this.#tellBoard(deleted.board);
-    return copy(deleted.board);
+    const board = takeBoardBack(this.world, this.userId, boardId);
+    this.#tellBoard(board);
+    return copy(board);
+  }
+
+  async deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedBoards');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    return deletedBoardsOf(this.world, this.userId, teamId, paging);
   }
 
   /**
@@ -740,12 +740,14 @@ export class MemoryBackend implements Backend {
     return copy(sharing);
   }
 
-  /** As the server: whatever the case, the oldest first, ten at most. */
+  /** As the server: in either name, whatever the case, the oldest first, ten at most. */
   async searchUsers(teamId: string, query: string): Promise<User[]> {
     await this.#enter('searchUsers');
     const wanted = query.trim().toLowerCase();
     return (await this.users(teamId))
-      .filter((user) => user.username.toLowerCase().includes(wanted))
+      .filter((user) =>
+        [user.username, user.displayName].some((name) => name.toLowerCase().includes(wanted)),
+      )
       .sort((first, second) => first.createAt - second.createAt)
       .slice(0, 10);
   }
@@ -1023,17 +1025,7 @@ export class MemoryBackend implements Backend {
     const before = block.body ?? null;
     block.body = checked;
     this.#touch(block);
-    if (JSON.stringify(before) !== JSON.stringify(checked)) {
-      block.editedAt = block.updateAt;
-      this.world.commentVersions.set(
-        commentId,
-        recordChange(
-          this.world.commentVersions.get(commentId) ?? [],
-          { body: before, by: block.createdBy, at: block.createAt },
-          { body: checked, by: this.userId, at: block.updateAt },
-        ),
-      );
-    }
+    noteChange(this.world, block, before, this.userId);
     this.#tellBlocks(boardId, [block]);
     return commentOf(block);
   }
@@ -1041,13 +1033,7 @@ export class MemoryBackend implements Backend {
   async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
     await this.#enter('commentVersions');
     this.#memberRole(boardId);
-    // Also of a comment in the trash, as on the server.
-    const trashed = [...this.world.deletedBlocks.values()]
-      .filter((deleted) => deleted.boardId === boardId)
-      .flatMap((deleted) => deleted.blocks);
-    const comment = this.world.blocks.get(commentId) ?? trashed.find((one) => one.id === commentId);
-    if (comment?.boardId !== boardId || comment.type !== 'comment') fail(404, 'no such comment');
-    return earlierVersions(this.world.commentVersions.get(commentId) ?? []);
+    return versionsOf(this.world, boardId, commentId);
   }
 
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
@@ -1093,7 +1079,7 @@ export class MemoryBackend implements Backend {
     };
     collect(block);
     for (const each of gone) this.world.blocks.delete(each.id);
-    this.world.deletedBlocks.set(blockId, { boardId, blocks: gone });
+    this.world.deletedBlocks.set(blockId, { boardId, blocks: gone, ...deletion(this) });
     this.world.tellBoard(boardId, {
       kind: 'blocksDeleted',
       boardId,
@@ -1105,19 +1091,19 @@ export class MemoryBackend implements Backend {
     await this.#enter('restoreBlock');
     const deleted = this.world.deletedBlocks.get(blockId);
     if (deleted?.boardId !== boardId) fail(404, 'no such block in the trash');
-    const parent = deleted.blocks[0]?.parentId;
+    // A comment at the top of the deletion comes back by the comment's rule, anything else by an editor's.
+    const top = deleted.blocks[0];
+    if (top?.type === 'comment') {
+      if (!mayDeleteComment(this.#memberRole(boardId), top.createdBy === this.userId)) {
+        fail(403, "access denied to undelete other users' comments");
+      }
+    } else mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');
+    const parent = top?.parentId;
     // A block comes back only under a living parent (or the board itself).
     if (parent !== boardId && parent !== undefined && !this.world.blocks.has(parent)) {
       fail(404, 'the parent of the block is gone');
     }
     this.#board(boardId);
-    const top = deleted.blocks[0];
-    if (top?.type === 'comment') {
-      const role = this.#roleOn(boardId);
-      if (!mayDeleteComment(role, top.createdBy === this.userId)) {
-        fail(403, "access denied to undelete other users' comments");
-      }
-    }
     this.world.deletedBlocks.delete(blockId);
     for (const block of deleted.blocks) {
       // As the server: whoever restores is the last to change each block, now.
@@ -1125,6 +1111,12 @@ export class MemoryBackend implements Backend {
       this.world.blocks.set(block.id, block);
     }
     this.#tellBlocks(boardId, deleted.blocks);
+  }
+
+  async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedCards');
+    mayManageCards(this.world, this.userId, boardId, 'access denied to the trash of the board');
+    return deletedCardsOf(this.world, boardId, paging);
   }
 
   // -------------------------------------------------------------- files

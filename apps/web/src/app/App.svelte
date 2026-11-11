@@ -21,7 +21,13 @@
 
   import { startBackend } from './backend.ts';
   import BoardPage from './BoardPage.svelte';
-  import { chooseLocale, currentLocale, locales } from './locale.ts';
+  import {
+    browserLocale,
+    currentLocale,
+    followAccountLanguage,
+    locales,
+    shownLanguage,
+  } from './locale.ts';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
 
@@ -50,11 +56,38 @@
       const dev = (window as unknown as { fvociDev?: object }).fvociDev;
       if (dev) Object.assign(dev, { workspace: made });
       await made.load();
+      followLanguage(made);
     });
     return () => {
       workspace?.close();
     };
   });
+
+  /**
+   * The page in the language of the account, once its settings are read:
+   * another device may have chosen it. A page that loads again for it says
+   * so; nothing else is to be done on this one.
+   */
+  function followLanguage(loaded: Workspace): boolean {
+    return loaded.status === 'ready' && followAccountLanguage(loaded.settings.language);
+  }
+
+  /** Reads the workspace again after a failure, and follows its language as the first load does. */
+  async function retryLoad(): Promise<void> {
+    if (!workspace) return;
+    await workspace.load();
+    followLanguage(workspace);
+  }
+
+  /**
+   * Saves the language to the account and shows the page in it. A refusal
+   * leaves the page as it is, and says so (`changeSettings`).
+   */
+  async function chooseLanguage(setting: string): Promise<void> {
+    if (!workspace) return;
+    await workspace.changeSettings({ language: setting });
+    if (workspace.settings.language === setting) followAccountLanguage(setting);
+  }
 
   /**
    * Signs out, and starts the page again at its root: nothing of the
@@ -120,6 +153,8 @@
           if (welcome && router.route.boardId !== welcome) router.openBoard(welcome);
         }
       }
+      // Last: the page may load again in the account's language.
+      if (workspace) followLanguage(workspace);
     }}
     onRegister={async (registration: Registration) => {
       await account?.register(registration);
@@ -130,7 +165,7 @@
   <main class="grid min-h-dvh place-items-center p-4">
     <div class="text-center">
       <p class="text-lg font-medium" role="alert">{m.app_load_failed()}</p>
-      <Button class="mt-4 roomy:min-h-touch" onclick={() => void workspace?.load()}>
+      <Button class="mt-4 roomy:min-h-touch" onclick={() => void retryLoad()}>
         {m.app_retry()}
       </Button>
     </div>
@@ -144,11 +179,9 @@
       router.openBoard(boardId);
     }}
     {locales}
-    locale={currentLocale()}
-    onChooseLocale={(tag: string) => {
-      const known = locales.find((locale) => locale === tag);
-      if (known) chooseLocale(known);
-    }}
+    language={shownLanguage(workspace.settings.language)}
+    autoLocale={browserLocale()}
+    onChooseLanguage={(setting: string) => void chooseLanguage(setting)}
     onSignOut={account ? () => void signOut() : undefined}
     onChangePassword={account
       ? async (oldPassword: string, newPassword: string) => {

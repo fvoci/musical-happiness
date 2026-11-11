@@ -12,8 +12,7 @@
  * counter, not from the clock.
  */
 import type { DocNode } from '../../editor/schema.ts';
-import { DEFAULT_DISPLAY_SETTINGS } from '../../logic/display.ts';
-import { DEFAULT_REGIONAL_SETTINGS } from '../../logic/regional.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
 import {
   createBoard,
   type Board,
@@ -77,44 +76,32 @@ const MINUTE = 60_000;
 const PEOPLE: readonly Omit<User, 'id' | 'createAt' | 'updateAt' | 'deleteAt'>[] = [
   {
     username: 'hana',
-    nickname: '김하나',
-    firstname: '하나',
-    lastname: '김',
+    displayName: '김하나',
     email: 'hana@example.com',
   },
   {
     username: 'minjun',
-    nickname: '이민준',
-    firstname: '민준',
-    lastname: '이',
+    displayName: '이민준',
     email: 'minjun@example.com',
   },
   {
     username: 'seoyeon',
-    nickname: '박서연',
-    firstname: '서연',
-    lastname: '박',
+    displayName: '박서연',
     email: 'seoyeon@example.com',
   },
   {
     username: 'alex',
-    nickname: '',
-    firstname: 'Alex',
-    lastname: 'Rivera',
+    displayName: '',
     email: 'alex@example.com',
   },
   {
     username: 'meiling',
-    nickname: '陳美玲',
-    firstname: '美玲',
-    lastname: '陳',
+    displayName: '陳美玲',
     email: 'meiling@example.com',
   },
   {
     username: 'haruto',
-    nickname: '佐藤陽翔',
-    firstname: '陽翔',
-    lastname: '佐藤',
+    displayName: '佐藤陽翔',
     email: 'haruto@example.com',
   },
 ];
@@ -197,7 +184,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   for (const user of users) world.users.set(user.id, user);
   const reader = users[0];
   if (!reader) throw new Error('the seed has no people');
-  world.settings.set(reader.id, { ...DEFAULT_REGIONAL_SETTINGS, ...DEFAULT_DISPLAY_SETTINGS });
+  world.settings.set(reader.id, { ...DEFAULT_ACCOUNT_SETTINGS });
 
   const boardIdOf = new Map<string, string>();
   templates.forEach((template, templateIndex) => {

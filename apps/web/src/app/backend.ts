@@ -12,6 +12,7 @@ import type { Account, Backend } from '$lib/state/index.ts';
 
 import { readBasePath } from './router.svelte.ts';
 import { readDisplaySettings } from '$lib/logic/display.ts';
+import { readLanguageSettings } from '$lib/logic/language.ts';
 import { readRegionalSettings } from '$lib/logic/regional.ts';
 
 export interface StartedBackend {
@@ -54,6 +55,7 @@ async function keepSettings(backend: Backend): Promise<void> {
       await backend.patchSettings({
         ...readRegionalSettings(saved),
         ...readDisplaySettings(saved),
+        ...readLanguageSettings(saved),
       });
   } catch {
     // Nothing kept, or something the backend refuses now: the defaults then.

@@ -8,10 +8,10 @@
  * to tell the reader.
  */
 import { setDisplaySettings } from '../display.svelte.ts';
-import { DEFAULT_DISPLAY_SETTINGS } from '../logic/display.ts';
-import { DEFAULT_REGIONAL_SETTINGS, resolveRegional, type Regional } from '../logic/regional.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
+import { resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
-import { SHOW_NICKNAME_FULL_NAME, userDisplayName } from '../logic/users.ts';
+import { userDisplayName } from '../logic/users.ts';
 import { createBoard as createEmptyBoard, createBoardView, type Board } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
@@ -66,10 +66,7 @@ export interface WorkspaceOptions {
 /** How long a finished transfer stays in sight, in milliseconds. */
 const TRANSFER_STAYS = 6000;
 
-const DEFAULT_SETTINGS: AccountSettings = {
-  ...DEFAULT_REGIONAL_SETTINGS,
-  ...DEFAULT_DISPLAY_SETTINGS,
-};
+const DEFAULT_SETTINGS: AccountSettings = DEFAULT_ACCOUNT_SETTINGS;
 
 export class Workspace {
   readonly backend: Backend;
@@ -131,17 +128,14 @@ export class Workspace {
     return this.#locale();
   }
 
-  /** How names are shown. The server will say; until its contract does, nickname first. */
-  readonly nameFormat = SHOW_NICKNAME_FULL_NAME;
-
   user(userId: string): User | undefined {
     return this.#usersById[userId];
   }
 
-  /** The name to show for a user; undefined for someone the reader cannot see. */
+  /** The name to show for a user ("Display name (@login)"); undefined for someone unknown. */
   userName(userId: string): string | undefined {
     const user = this.#usersById[userId];
-    return user ? userDisplayName(user, this.nameFormat) : undefined;
+    return user ? userDisplayName(user) : undefined;
   }
 
   /** Reads everything the shell needs. Call once; call again to retry after a failure. */
@@ -222,7 +216,7 @@ export class Workspace {
       case 'boardDeleted':
         this.boards = this.boards.filter((board) => board.id !== change.boardId);
         // A deleted board leaves every category (no message says so). Brought
-        // back, it is filed nowhere: it shows at the end of the default category.
+        // back, it is filed again where it was, and the sidebar is told.
         this.categories = this.categories.map((category) => ({
           ...category,
           boardIds: category.boardIds.filter((id) => id !== change.boardId),
@@ -592,14 +586,19 @@ export class Workspace {
           await this.backend.deleteBoard(boardId);
           this.#apply({ kind: 'boardDeleted', boardId });
         },
-        async () => {
-          this.#apply({ kind: 'board', board: await this.backend.restoreBoard(boardId) });
-        },
+        () => this.restoreBoard(boardId),
         'deleteBoard',
       );
     } catch (error) {
       this.report('save', error);
     }
+  }
+
+  /** Brings a deleted board back, the sidebar read first so it shows where it was filed. */
+  async restoreBoard(boardId: string): Promise<void> {
+    const board = await this.backend.restoreBoard(boardId);
+    await this.#refresh();
+    this.#apply({ kind: 'board', board });
   }
 
   // --------------------------------------------------------- categories
