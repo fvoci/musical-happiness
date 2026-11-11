@@ -20,6 +20,10 @@
   - With a finger, the whole cell is one button that opens the cards of the
     day. A bar is a picture.
 
+  A week (`week`, question C17) is one row as high as the box: every card of
+  it is drawn, nothing says "+N", and a bar is two lines (its title, then its
+  time or days), 2.75rem high, which a finger can press too.
+
   The days are one stop of the Tab key: the picked day takes the focus, and
   the arrow keys move it a day or a week (`onmove`).
 -->
@@ -50,6 +54,8 @@
     selected: CalendarDate;
     /** The main pointer is a finger. */
     finger: boolean;
+    /** One week, every card in it, bars of two lines. */
+    week?: boolean;
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
     /** A day was pressed: its cards are wanted. */
@@ -67,6 +73,7 @@
     today,
     selected,
     finger,
+    week = false,
     cardHref,
     onOpenCard,
     onpick,
@@ -87,6 +94,11 @@
 
   // The row of numbers is 1.75rem and a bar with its gap 1.5rem; a week is never lower than 5.5rem.
   const lanes = $derived.by(() => {
+    if (week) {
+      // As many rows as the week's cards need: none is folded into "+N".
+      const laid = layWeek(weeks[0] ?? [], placed.spans);
+      return Math.max(1, ...laid.map((segment) => segment.lane + 1));
+    }
     const row = Math.max(rem(5.5), height / Math.max(1, weeks.length));
     return Math.max(1, Math.floor((row - rem(1.75) - 2) / rem(1.5)));
   });
@@ -113,7 +125,8 @@
       <div
         data-week={row.week[0]}
         class="relative grid grid-cols-7 border-b last:border-b-0"
-        style:grid-template-rows="1.75rem repeat({lanes}, 1.5rem) minmax(0, 1fr)"
+        style:grid-template-rows="1.75rem repeat({lanes}, {week ? '2.875rem' : '1.5rem'}) minmax(0,
+        1fr)"
       >
         {#each row.week as date, column (date)}
           {@const isToday = date === today}
@@ -239,7 +252,7 @@
                 'z-10 min-w-0 self-start',
                 segment.fromBefore ? 'pl-0' : 'pl-0.5',
                 segment.toAfter ? 'pr-0' : 'pr-0.5',
-                finger && 'pointer-events-none',
+                finger && !week && 'pointer-events-none',
               ]}
               style:grid-column="{segment.column + 1} / span {segment.length}"
               style:grid-row={segment.lane + 2}
@@ -251,7 +264,9 @@
                 time={segment.fromBefore ? undefined : placed.time(card)}
                 fromBefore={segment.fromBefore}
                 toAfter={segment.toAfter}
-                pressable={!finger}
+                pressable={!finger || week}
+                tall={week}
+                detail={week ? placed.detail(card) : undefined}
                 href={cardHref(card.id)}
                 onopen={onOpenCard}
               />

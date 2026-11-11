@@ -149,7 +149,7 @@
 
 {#snippet picker()}
   <div data-testid="day-picker" class="flex flex-col gap-1 p-1">
-    <p id="{uid}-hint" class="px-2 pt-1 text-xs text-muted-foreground">{hint}</p>
+    <p id="{uid}-hint" class="max-w-72 px-2 pt-1 text-xs text-muted-foreground">{hint}</p>
     <Calendar
       type="single"
       bind:value={() => (span ? parseDate(span.first) : undefined), pick}

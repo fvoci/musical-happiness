@@ -1,16 +1,18 @@
 <!--
-  The calendar view: the cards of the view placed on the days of a month by
-  one date property (`displayProperty`: the one the view names, or else the
+  The calendar view: the cards of the view placed on the days of a month or
+  of a week (question C17) by one date property (`displayProperty`: the one the view names, or else the
   first kind of date of the board, or else when the card was made).
 
-  Above, a row to go back and on a month and to today. Under it, a box whose
-  width decides what is drawn (docs/calendar-proposal.md):
+  Above, a row to go back and on a month or a week, to today, and between
+  month and week. Under it, a box whose width decides what is drawn
+  (docs/calendar-proposal.md):
 
-  - 34rem and wider: the weeks of the month as a grid of bars. A day opens
-    its cards in a popover next to its cell, or on a sheet on a compact
-    page (questions C2, C3).
+  - 34rem and wider: the weeks of the month as a grid of bars, or one week
+    as high as the box with every card in it. A day opens its cards in a
+    popover next to its cell, or on a sheet on a compact page (C2, C3).
   - narrower: a small grid of numbers, dots and lines over the list of the
-    picked day (question C1, answer A).
+    picked day (C1, answer A), or the strip of a week over the lists of its
+    seven days (WeekAgenda).
 
   A card is made on a day from "New card on …" at the end of the day's list,
   or with a mouse from the "+" of its cell (question C11, answer B).
@@ -18,43 +20,37 @@
   days (DayPicker) moves it whole (questions C9, C10). Where the cards are
   placed by a date nobody sets, no line offers it and the lists say why.
 
-  The month in view and the day picked are kept here, above the parts that
-  draw them: a window that changes size swaps the grid of bars for the small
-  grid, and the two must not take the month and the day with them. They are
-  the state of the screen only; another view, or a new load, starts at
-  today (question C19).
+  Month or week, the month in view and the day picked are kept above the
+  parts that draw them (Period): a window that changes size swaps the grid of
+  bars for the small grid, and must not take them along. Month or week is
+  remembered on the device for each view; the month and the day are the
+  screen's only, and a new load starts at today (question C19).
 -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
 
   import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
-  import { fingerPointer, insets, page, PaneRoom } from '$lib/layout/room.svelte.ts';
-  import {
-    datesWritable,
-    displayProperty,
-    firstOf,
-    inMonth,
-    monthOf,
-    shiftMonth,
-    weeksOfMonth,
-  } from '$lib/logic/calendar.ts';
+  import { fingerPointer, page, PaneRoom } from '$lib/layout/room.svelte.ts';
+  import { datesWritable, displayProperty } from '$lib/logic/calendar.ts';
   import { addDays, dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { displayDayLong, displayMonth } from '$lib/logic/format.ts';
-  import * as Popover from '$lib/ui/popover/index.js';
 
   import type { ViewProps } from '../props.ts';
 
   import DayList from './DayList.svelte';
+  import DayOverlay from './DayOverlay.svelte';
   import DayPicker from './DayPicker.svelte';
   import { CardMaker } from './making.svelte.ts';
   import MiniMonth from './MiniMonth.svelte';
   import MonthGrid from './MonthGrid.svelte';
+  import { periodTitle } from './period-title.ts';
+  import { Period, type Scale } from './period.svelte.ts';
   import { MinuteClock } from './clock.svelte.ts';
   import { Placed } from './placed.ts';
   import Toolbar from './Toolbar.svelte';
   import Undated from './Undated.svelte';
+  import WeekAgenda from './WeekAgenda.svelte';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 
@@ -66,8 +62,13 @@
   /** Today, on the reader's calendar. */
   const today = $derived(dateOfInstant(clock.now, regional.timeZone));
 
-  let month = $state(monthOf(untrack(() => today)));
-  let selected = $state(untrack(() => today));
+  const period = new Period(
+    untrack(() => view.id),
+    untrack(() => today),
+  );
+  const month = $derived(period.month);
+  const selected = $derived(period.selected);
+  const scale = $derived(period.scale);
   /** The box is wide enough for bars. */
   const box = new PaneRoom();
   const bars = $derived(box.columns);
@@ -84,22 +85,8 @@
    * device turned on its side does not raise a sheet unasked.
    */
   let undatedOpen = $derived<boolean>(sheet && false);
-  /**
-   * What a choice in the popover of a day does once the popover has closed:
-   * open a card, or make one. Not reactive.
-   */
-  let afterClose: (() => void) | undefined;
-  let dayPopover = $state<HTMLElement | null>(null);
 
-  /** The focus went somewhere else while the popover closed: a field, "No date". */
-  function focusElsewhere(): boolean {
-    const active = document.activeElement;
-    return (
-      active instanceof HTMLElement && active !== document.body && !dayPopover?.contains(active)
-    );
-  }
-
-  const weeks = $derived(weeksOfMonth(month, regional.weekStart));
+  const weeks = $derived(period.weeks(regional.weekStart));
   const placed = $derived(new Placed(cards, template, regional, locale, weeks.flat()));
 
   const finger = $derived(fingerPointer.current);
@@ -138,21 +125,18 @@
 
   /** Picks a day; a day of another month brings that month into view (question C21). */
   function select(date: CalendarDate): void {
-    selected = date;
-    if (!inMonth(date, month)) month = monthOf(date);
+    period.select(date);
   }
 
-  /** One month on or back. The picked day is today in the month of today, else the first. */
+  /** A month or a week on or back. */
   function step(by: number): void {
     dayOpen = false;
-    month = shiftMonth(month, by);
-    selected = inMonth(today, month) ? today : firstOf(month);
+    period.step(by, today);
   }
 
   function goToday(): void {
     dayOpen = false;
-    month = monthOf(today);
-    selected = today;
+    period.goTo(today);
   }
 
   function pick(date: CalendarDate): void {
@@ -236,14 +220,6 @@
     onOpenCard(cardId);
   }
 
-  /** A card opened from the list of a day: the list closes behind it. */
-  function openFromList(cardId: string): void {
-    dayOpen = false;
-    afterClose = () => {
-      onOpenCard(cardId);
-    };
-  }
-
   // -------------------------------------------------------- making a card
 
   /** Cards can be made on a day: by someone who may edit, where the day is a date to set. */
@@ -256,18 +232,9 @@
       onOpenCard(cardId);
     },
   });
-  const createOn = (date: CalendarDate): Promise<void> => maker.on(date);
-
-  /** "New card on …" in the popover of a day: made once the popover has closed. */
-  function createFromList(date: CalendarDate): void {
-    dayOpen = false;
-    afterClose = () => void createOn(date);
-  }
-
-  function createFromSheet(date: CalendarDate): void {
-    dayOpen = false;
-    void createOn(date);
-  }
+  const createOn = (date: CalendarDate): void => {
+    void maker.on(date);
+  };
 
   // ------------------------------------------------------ changing a date
 
@@ -301,23 +268,23 @@
     if (dated) focusDay();
     else undatedButton?.focus();
   }
-
-  /** On a sheet the card opens at once; the sheet gives the focus back itself. */
-  function openFromSheet(cardId: string): void {
-    dayOpen = false;
-    onOpenCard(cardId);
-  }
 </script>
 
 <div
   data-testid="calendar"
   data-month="{month.year}-{String(month.month).padStart(2, '0')}"
   data-selected={selected}
+  data-scale={scale}
   data-layout={box.measured ? (bars ? 'bars' : 'mini') : undefined}
   class="flex h-full min-h-0 flex-col"
 >
   <Toolbar
-    title={displayMonth(firstOf(month), locale)}
+    title={periodTitle(scale, weeks, month, locale)}
+    {scale}
+    onscale={(next: Scale) => {
+      dayOpen = false;
+      period.scale = next;
+    }}
     onstep={step}
     ontoday={goToday}
     undated={placed.undated.length}
@@ -338,6 +305,7 @@
       {:else if bars}
         <MonthGrid
           {weeks}
+          week={scale === 'week'}
           {placed}
           {month}
           {today}
@@ -347,8 +315,26 @@
           {onOpenCard}
           onpick={pick}
           onmove={(by: number) => void move(by)}
-          oncreate={creatable ? (date: CalendarDate) => void createOn(date) : undefined}
+          oncreate={creatable ? createOn : undefined}
         />
+      {:else if scale === 'week'}
+        <div
+          class={[
+            'flex min-h-0 flex-1 flex-col',
+            board.canEdit && 'pb-[calc(var(--safe-bottom)+5rem)]',
+          ]}
+        >
+          <WeekAgenda
+            week={weeks[0] ?? []}
+            {placed}
+            {today}
+            {selected}
+            rows={{ ...rows, onOpenCard }}
+            onpick={pick}
+            onmove={(by: number) => void move(by)}
+            oncreate={creatable ? createOn : undefined}
+          />
+        </div>
       {:else}
         <MiniMonth
           {weeks}
@@ -370,7 +356,7 @@
             date={selected}
             {...lists}
             {onOpenCard}
-            oncreate={creatable ? (date: CalendarDate) => void createOn(date) : undefined}
+            oncreate={creatable ? createOn : undefined}
           />
         </div>
       {/if}
@@ -418,52 +404,17 @@
   </BottomSheet>
 {/if}
 
-{#if bars && sheet}
-  <BottomSheet bind:open={dayOpen} title={displayDayLong(selected, locale)}>
-    <DayList
-      date={selected}
-      {...lists}
-      onOpenCard={openFromSheet}
-      oncreate={creatable ? createFromSheet : undefined}
-    />
-  </BottomSheet>
-{:else if bars}
-  <Popover.Root bind:open={dayOpen}>
-    <Popover.Content
-      bind:ref={dayPopover}
-      customAnchor={`[data-testid="month-grid"] [data-day="${selected}"]`}
-      side="right"
-      align="start"
-      collisionPadding={insets.collisionPadding}
-      aria-label={displayDayLong(selected, locale)}
-      data-testid="day-popover"
-      class="max-h-[min(30rem,calc(100dvh-1rem))] w-80 max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))] gap-0 p-0 pb-1"
-      onOpenAutoFocus={(event: Event) => {
-        // A finger has not asked for the keyboard, and its ring is not wanted either.
-        if (finger) event.preventDefault();
-      }}
-      onCloseAutoFocus={(event: Event) => {
-        // No trigger to go back to: the focus goes to the day the list was of,
-        // unless the reader has put it somewhere else (a field, "No date").
-        event.preventDefault();
-        if (!undatedOpen && !focusElsewhere()) focusDay();
-        // A card chosen in the list opens now (or is made), with the focus on
-        // its day: that is where the card gives it back when it closes,
-        // unless the card has a bar to go back to (CardDialog, `data-card`).
-        const then = afterClose;
-        afterClose = undefined;
-        then?.();
-      }}
-    >
-      <DayList
-        date={selected}
-        {...lists}
-        onOpenCard={openFromList}
-        oncreate={creatable ? createFromList : undefined}
-        onclose={() => {
-          dayOpen = false;
-        }}
-      />
-    </Popover.Content>
-  </Popover.Root>
+{#if bars}
+  <DayOverlay
+    bind:open={dayOpen}
+    {sheet}
+    {finger}
+    {selected}
+    {locale}
+    {lists}
+    mayFocusDay={() => !undatedOpen}
+    {focusDay}
+    {onOpenCard}
+    oncreate={creatable ? createOn : undefined}
+  />
 {/if}

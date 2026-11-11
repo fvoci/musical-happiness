@@ -3,6 +3,9 @@
   title (and its time, when its value has one). An end that goes on into
   another week is cut square and marked with an arrow.
 
+  In a week (`tall`) it is two lines, 2.75rem high: the title, then
+  `detail` (its time, its days); a finger can press it there too.
+
   With a mouse the bar is a link that opens the card. With a finger it is a
   picture (`pressable` false): 22 pixels are too low to hit, and the cell
   under it takes the tap and opens the cards of the day (question C2).
@@ -22,11 +25,34 @@
     fromBefore: boolean;
     toAfter: boolean;
     pressable: boolean;
+    /** Two lines: a bar of a week. */
+    tall?: boolean;
+    /** The second line of a tall bar. */
+    detail?: string;
     href: string;
     onopen: (cardId: string) => void;
   }
 
-  let { cardId, title, name, time, fromBefore, toAfter, pressable, href, onopen }: Props = $props();
+  let {
+    cardId,
+    title,
+    name,
+    time,
+    fromBefore,
+    toAfter,
+    pressable,
+    tall = false,
+    detail,
+    href,
+    onopen,
+  }: Props = $props();
+
+  const shape = $derived([
+    'flex min-w-0 items-center gap-1 rounded-sm bg-foreground/10 px-1.5 text-xs text-foreground',
+    tall ? 'h-11' : 'h-5.5',
+    fromBefore && 'rounded-l-none',
+    toAfter && 'rounded-r-none',
+  ]);
 
   function open(event: MouseEvent): void {
     // A new tab or window is the browser's to open.
@@ -39,8 +65,15 @@
 
 {#snippet content()}
   {#if fromBefore}<ChevronLeftIcon aria-hidden="true" class="size-3 shrink-0 opacity-60" />{/if}
-  {#if time}<span class="shrink-0 text-muted-foreground">{time}</span>{/if}
-  <span class="truncate">{title}</span>
+  {#if tall}
+    <span class="flex min-w-0 flex-1 flex-col">
+      <span class="truncate font-medium">{title}</span>
+      {#if detail}<span class="truncate text-muted-foreground">{detail}</span>{/if}
+    </span>
+  {:else}
+    {#if time}<span class="shrink-0 text-muted-foreground">{time}</span>{/if}
+    <span class="truncate">{title}</span>
+  {/if}
   {#if toAfter}
     <ChevronRightIcon aria-hidden="true" class="ml-auto size-3 shrink-0 opacity-60" />
   {/if}
@@ -53,24 +86,15 @@
     {href}
     aria-label={name}
     class={[
-      'flex h-5.5 min-w-0 items-center gap-1 rounded-sm bg-foreground/10 px-1.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring can-hover:hover:bg-foreground/15',
-      fromBefore && 'rounded-l-none',
-      toAfter && 'rounded-r-none',
+      shape,
+      'outline-none focus-visible:ring-2 focus-visible:ring-ring can-hover:hover:bg-foreground/15',
     ]}
     onclick={open}
   >
     {@render content()}
   </a>
 {:else}
-  <span
-    data-bar={cardId}
-    aria-hidden="true"
-    class={[
-      'flex h-5.5 min-w-0 items-center gap-1 rounded-sm bg-foreground/10 px-1.5 text-xs text-foreground',
-      fromBefore && 'rounded-l-none',
-      toAfter && 'rounded-r-none',
-    ]}
-  >
+  <span data-bar={cardId} aria-hidden="true" class={shape}>
     {@render content()}
   </span>
 {/if}

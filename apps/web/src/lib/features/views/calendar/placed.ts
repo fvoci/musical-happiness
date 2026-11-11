@@ -88,6 +88,12 @@ export class Placed {
     return displayDayRange(span.first, span.last, this.locale);
   }
 
+  /** The second line of a bar of a week: its time and, for several days, which. */
+  detail(card: Card): string | undefined {
+    const parts = [this.time(card), this.range(card)].filter((part) => part !== undefined);
+    return parts.length > 0 ? parts.join(' · ') : undefined;
+  }
+
   /**
    * What a screen reader hears for a bar: what the bar shows (the time, where
    * the value has one, and the title), then its day or days. A bar stands
