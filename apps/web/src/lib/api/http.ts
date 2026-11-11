@@ -21,7 +21,12 @@ function errorStatus(status: number): ErrorStatus {
   return status in ERROR_KINDS ? (status as ErrorStatus) : 500;
 }
 
-async function errorOf(response: Response): Promise<BackendError> {
+/**
+ * The refusal an answer that is no success stands for, read from its body.
+ * Every request reads its errors here; so does a caller that made its own
+ * request (a download read as it arrives, `download.ts`).
+ */
+export async function errorOf(response: Response): Promise<BackendError> {
   let body: Partial<ErrorBody> | undefined;
   try {
     body = (await response.json()) as Partial<ErrorBody>;

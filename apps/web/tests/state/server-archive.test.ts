@@ -54,7 +54,7 @@ describe('an export', () => {
     ]);
   });
 
-  it('lets a refusal through as every request does, asking for it once more', async () => {
+  it('lets a refusal through as every request does, asking for it once', async () => {
     const urls: string[] = [];
     vi.stubGlobal('fetch', (url: string) => {
       urls.push(url);
@@ -66,7 +66,7 @@ describe('an export', () => {
     });
     const refused = await new ServerBackend('').exportTeam('t1').catch((error: unknown) => error);
     expect(isBackendError(refused) && [refused.status, refused.reason]).toEqual([403, 'x']);
-    expect(urls).toEqual(['/api/v1/teams/t1/archive/export', '/api/v1/teams/t1/archive/export']);
+    expect(urls).toEqual(['/api/v1/teams/t1/archive/export']);
   });
 
   it('reads the name of a Content-Disposition, plain, quoted or encoded', () => {

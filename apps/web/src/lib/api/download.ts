@@ -3,15 +3,12 @@
  * progress: the answer's body is read as it arrives and counted against its
  * length.
  *
- * An answer that is no success is not read here: the request is made once
- * more through `Http.bytes`, whose reading of errors is the one of every
- * request (`http.ts`, which this file may not change). That second request
- * cannot be given up, and a refusal the server counts (429) is counted
- * twice; once errors are read apart from requests, this asks once.
+ * An answer that is no success is read as every other refusal is
+ * (`errorOf` of `http.ts`), from that same answer: nothing is asked twice.
  */
 import { BackendError, type DownloadedFile, type DownloadOptions } from '../state/backend.ts';
 
-import type { ApiPath, Http } from './http.ts';
+import { errorOf, type ApiPath, type Http } from './http.ts';
 
 /** The file name of a `Content-Disposition`, or undefined. */
 export function dispositionName(header: string | null): string | undefined {
@@ -44,11 +41,7 @@ export async function downloadWithProgress(
     throw new BackendError(0, { message: `GET ${path}: no answer` });
   }
   const name = dispositionName(response.headers.get('Content-Disposition')) ?? fallbackName;
-  if (!response.ok) {
-    void response.body?.cancel();
-    // Throws the server's refusal, read as every other one.
-    return { bytes: await http.bytes(path, params), name };
-  }
+  if (!response.ok) throw await errorOf(response);
   const total = Number(response.headers.get('Content-Length') ?? 0) || 0;
   const body = response.body;
   if (!body) return { bytes: await response.blob(), name };
