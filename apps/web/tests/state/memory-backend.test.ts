@@ -52,7 +52,7 @@ describe('reading', () => {
   it('answers 404 for what is not there', async () => {
     const { backend, boardId } = await firstBoard();
     expect((await rejection(backend.board('nope'))).status).toBe(404);
-    expect((await rejection(backend.card(boardId, 'nope'))).kind).toBe('not_found');
+    expect((await rejection(backend.card(boardId, 'nope'))).status).toBe(404);
   });
 
   it('hands out copies: changing an answer changes nothing stored', async () => {
@@ -87,7 +87,7 @@ describe('writing a body', () => {
       backend.writeCardBody(boardId, card.id, { body: text('mine'), readAt: card.updateAt }),
     );
     expect(isConflict(error)).toBe(true);
-    expect(error.kind).toBe('conflict');
+    expect(error.status).toBe(409);
     expect((await backend.card(boardId, card.id)).body).toEqual(text('theirs'));
   });
 
@@ -101,7 +101,8 @@ describe('writing a body', () => {
       }),
     );
     expect(error.status).toBe(400);
-    expect(error.field).toBe('body');
+    expect(error.errors).toEqual([{ pointer: '/body', detail: error.message, reason: 'invalid' }]);
+    expect(error.refusalAt('/body')?.reason).toBe('invalid');
   });
 
   it('refuses an image that names a file of no board, or of another one', async () => {
@@ -123,7 +124,7 @@ describe('writing a body', () => {
         readAt: card.updateAt,
       }),
     );
-    expect(error).toMatchObject({ status: 400, field: 'body' });
+    expect(error).toMatchObject({ status: 400, errors: [{ pointer: '/body' }] });
     expect(error.limit).toBe(LIMITS.bodyBytes);
   });
 
@@ -183,11 +184,11 @@ describe('settings', () => {
     const { backend } = setup();
     const zone = await rejection(backend.patchSettings({ timeZone: 'Mars/Olympus' }));
     expect(zone.status).toBe(400);
-    expect(zone.field).toBe('timeZone');
+    expect(zone.errors.map((entry) => entry.pointer)).toEqual(['/timeZone']);
     const density = await rejection(
       backend.patchSettings({ density: 'huge' as unknown as 'auto' }),
     );
-    expect(density.field).toBe('density');
+    expect(density.errors.map((entry) => entry.pointer)).toEqual(['/density']);
   });
 });
 
@@ -234,7 +235,7 @@ describe('files', () => {
     const error = await rejection(
       backend.upload(boardId, new File(['x'], 'x.txt'), { signal: controller.signal }),
     );
-    expect(error.kind).toBe('network');
+    expect(error.status).toBe(0);
   });
 
   it('leaves the failure asked for the next upload to that one, not to one given up meanwhile', async () => {
@@ -247,7 +248,7 @@ describe('files', () => {
     controller.abort();
     backend.failNext('upload', new BackendError(413, { limit: 1 }));
     // The one given up ends as given up, although the failure was waiting when its turn came.
-    expect((await givenUp).kind).toBe('network');
+    expect((await givenUp).status).toBe(0);
     backend.latency = 0;
     const refused = await rejection(backend.upload(boardId, new File(['y'], 'next.txt')));
     expect(refused.status).toBe(413);

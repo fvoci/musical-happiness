@@ -6,7 +6,7 @@ use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::response::Response;
 use fvoci_model::{
-    ChangePasswordRequest, ErrorBody, LoginRequest, RegisterRequest, Team, User, display_name,
+    ChangePasswordRequest, LoginRequest, Problem, RegisterRequest, Team, User, display_name,
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -83,7 +83,8 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
         (
             status = 429,
             description = "Too many attempts. `retry_after`, and the `Retry-After` header, say how long to wait; there is no `reason`.",
-            body = ErrorBody,
+            body = Problem,
+            content_type = "application/problem+json",
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
         ),
     ),
@@ -159,7 +160,7 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
 /// and the password must have at least 8 characters and at most 1024 bytes; otherwise
-/// the request is 400, and `field` names the member.
+/// the request is 400, and `errors` names the member.
 #[utoipa::path(
     post,
     path = "/register",
@@ -172,7 +173,8 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
         (
             status = 429,
             description = "Too many registrations from where this one comes from, or the server has too much password work to do at the moment.",
-            body = ErrorBody,
+            body = Problem,
+            content_type = "application/problem+json",
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
         ),
     ),
@@ -246,7 +248,7 @@ async fn handle_regenerate_signup_token(
 /// The user's other sessions end, and this one goes on under a new cookie.
 ///
 /// A wrong old password is 400 (not 401: the session is good) with the reason
-/// `invalid_credentials` and the field `oldPassword`. Wrong ones are counted with the
+/// `invalid_credentials`, and `errors` names `oldPassword`. Wrong ones are counted with the
 /// failed logins to the account by its name, and too many are 429, also for a login.
 /// The new password must have at least 8 characters and at most 1024 bytes. A password
 /// that was changed by somebody else while this request was under way is 409.
@@ -265,7 +267,8 @@ async fn handle_regenerate_signup_token(
         (
             status = 429,
             description = "The old password was wrong too often, or the server has too much password work to do at the moment.",
-            body = ErrorBody,
+            body = Problem,
+            content_type = "application/problem+json",
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
         ),
     ),

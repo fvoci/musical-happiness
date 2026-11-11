@@ -366,7 +366,7 @@ impl App {
                 "the upload has parts 1 to {}",
                 upload.part_count()
             ))
-            .with_field("partNumber"));
+            .with_parameter("partNumber"));
         };
         let size = u64::try_from(size).unwrap_or_default();
         if length != size {
@@ -536,7 +536,7 @@ impl App {
             return Err(AppError::bad_request(
                 "the upload is of an archive; import it with importArchive",
             )
-            .with_field("uploadId"));
+            .with_parameter("uploadId"));
         }
         // Before the session is closed, so that a missing part leaves it open.
         self.check_parts(upload).await?;
@@ -971,7 +971,7 @@ where
         return Err(AppError::bad_request(
             "the part's SHA-256 digest is not the one of the Content-Digest header",
         )
-        .with_field("Content-Digest"));
+        .with_header("Content-Digest"));
     }
     file.flush().await.map_err(|error| part_error(&error))?;
     file.sync_all().await.map_err(|error| part_error(&error))?;

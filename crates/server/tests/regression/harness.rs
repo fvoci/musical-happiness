@@ -12,7 +12,8 @@
 //! * millisecond timestamps become `<ts>`;
 //! * the seconds to wait of a 429 (`retry_after`, `Retry-After`) become `<seconds>`;
 //! * values of members named like secrets (`token`, `signupToken`) become `<secret>`, and
-//!   the identifier of the request in an error body becomes `<request-id>`.
+//!   the identifier of the request in an error body becomes `<request-id>`, in its
+//!   `instance` too.
 //!
 //! Lists are recorded in the order they come in: every list the API answers with has a
 //! defined order, and the recording pins it.
@@ -40,6 +41,8 @@ const SECRET_KEYS: [&str; 3] = ["token", "signupToken", "signup_token"];
 
 /// The member of an error body that identifies the request; different in every run.
 const REQUEST_ID_KEY: &str = "request_id";
+/// The member of an error body that names the request as a URN of its identifier.
+const INSTANCE_KEY: &str = "instance";
 
 /// The member of an error body, and the response header, that say how many seconds to
 /// wait: a clock's reading, a second more or less from run to run.
@@ -758,6 +761,8 @@ impl Placeholders {
                     json!("<secret>")
                 } else if key == REQUEST_ID_KEY {
                     json!("<request-id>")
+                } else if key == INSTANCE_KEY && text.starts_with("urn:uuid:") {
+                    json!("urn:uuid:<request-id>")
                 } else {
                     json!(self.text(text))
                 }

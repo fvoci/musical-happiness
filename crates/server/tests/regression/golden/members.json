@@ -71,22 +71,28 @@
     "name": "list: non-member",
     "request": "GET /api/v1/boards/<id:2>/members as members-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "add: non-member adds",
     "request": "POST /api/v1/boards/<id:2>/members as members-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -107,35 +113,56 @@
     "name": "add: no user",
     "request": "POST /api/v1/boards/<id:2>/members as members-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "userId",
-      "message": "empty userId",
-      "request_id": "<request-id>"
+      "detail": "empty userId",
+      "errors": [
+        {
+          "detail": "empty userId",
+          "pointer": "/userId",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "add: unknown user",
     "request": "POST /api/v1/boards/<id:2>/members as members-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "userId",
-      "message": "no such user",
-      "request_id": "<request-id>"
+      "detail": "no such user",
+      "errors": [
+        {
+          "detail": "no such user",
+          "pointer": "/userId",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "add: editor adds",
     "request": "POST /api/v1/boards/<id:2>/members as members-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to modify board members",
-      "request_id": "<request-id>"
+      "detail": "access denied to modify board members",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
@@ -232,57 +259,72 @@
     "name": "update: by editor",
     "request": "PUT /api/v1/boards/<id:2>/members/<id:6> as members-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to modify board members",
-      "request_id": "<request-id>"
+      "detail": "access denied to modify board members",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "update: demote the last admin",
     "request": "PUT /api/v1/boards/<id:2>/members/<id:1> as members-alice",
     "status": 409,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "conflict",
-      "message": "cannot leave a board with no admins",
+      "detail": "cannot leave a board with no admins",
+      "instance": "urn:uuid:<request-id>",
       "reason": "last_admin",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 409,
+      "title": "Last administrator",
+      "type": "/problems/last-admin"
     }
   },
   {
     "name": "update: unknown member",
     "request": "PUT /api/v1/boards/<id:2>/members/unknown-user as members-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "member not found",
-      "request_id": "<request-id>"
+      "detail": "member not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "delete: by editor",
     "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to modify board members",
-      "request_id": "<request-id>"
+      "detail": "access denied to modify board members",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "delete: the last admin",
     "request": "DELETE /api/v1/boards/<id:2>/members/<id:1> as members-alice",
     "status": 409,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "conflict",
-      "message": "cannot leave a board with no admins",
+      "detail": "cannot leave a board with no admins",
+      "instance": "urn:uuid:<request-id>",
       "reason": "last_admin",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 409,
+      "title": "Last administrator",
+      "type": "/problems/last-admin"
     }
   },
   {
@@ -301,11 +343,14 @@
     "name": "join: private board",
     "request": "POST /api/v1/boards/<id:2>/join as members-carol",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -340,11 +385,14 @@
     "name": "join: unknown board",
     "request": "POST /api/v1/boards/unknown-board/join as members-carol",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -357,23 +405,29 @@
     "name": "leave: not a member",
     "request": "POST /api/v1/boards/<id:4>/leave as members-carol",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "leave: the last admin",
     "request": "POST /api/v1/boards/<id:4>/leave as members-alice",
     "status": 409,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "conflict",
-      "message": "cannot leave a board with no admins",
+      "detail": "cannot leave a board with no admins",
+      "instance": "urn:uuid:<request-id>",
       "reason": "last_admin",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 409,
+      "title": "Last administrator",
+      "type": "/problems/last-admin"
     }
   },
   {
@@ -430,33 +484,42 @@
     "name": "minimum role: none",
     "request": "PATCH /api/v1/boards/<id:7> as members-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid-board-minimum-role",
-      "request_id": "<request-id>"
+      "detail": "invalid-board-minimum-role",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "minimum role: admin",
     "request": "PATCH /api/v1/boards/<id:7> as members-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid-board-minimum-role",
-      "request_id": "<request-id>"
+      "detail": "invalid-board-minimum-role",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create a board with no minimum role",
     "request": "POST /api/v1/boards as members-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid-board-minimum-role",
-      "request_id": "<request-id>"
+      "detail": "invalid-board-minimum-role",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -503,11 +566,14 @@
     "name": "a viewer on the board cannot comment",
     "request": "POST /api/v1/boards/<id:7>/blocks as members-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to post card comments",
-      "request_id": "<request-id>"
+      "detail": "access denied to post card comments",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {

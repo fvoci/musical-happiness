@@ -8,8 +8,7 @@
  * this file changes.
  *
  * The shapes follow the server design (its `docs/s6-design.md`): errors are
- * `{error, message, reason?, field?, limit?}` with the status codes of its
- * section 1.3, identifiers are made by the server, a card or a comment has
+ * the problem details of RFC 9457 with the status codes of its section 1.3, identifiers are made by the server, a card or a comment has
  * its text as one document (`body`), a card list comes without bodies, and
  * a body is written with the `updateAt` it was read at so that a stale write
  * is refused with 409. Where the design says nothing and something had to be
@@ -34,56 +33,78 @@ import type {
 
 // ----------------------------------------------------------------- errors
 
-/** The kinds of error, one per status code (server design 1.3). */
-export const ERROR_KINDS = {
-  400: 'bad_request',
-  401: 'unauthorized',
-  403: 'forbidden',
-  404: 'not_found',
-  405: 'method_not_allowed',
-  409: 'conflict',
-  413: 'payload_too_large',
-  429: 'rate_limited',
-  500: 'internal',
-} as const;
+/** The statuses the server answers an error with (server design 1.3). */
+export const ERROR_STATUSES = [400, 401, 403, 404, 405, 409, 412, 413, 416, 429, 500] as const;
 
-export type ErrorStatus = keyof typeof ERROR_KINDS;
-export type ErrorKind = (typeof ERROR_KINDS)[ErrorStatus] | 'network';
+export type ErrorStatus = (typeof ERROR_STATUSES)[number];
 
-/** The body of an error answer, as the server design has it. */
-export interface ErrorBody {
-  error: ErrorKind;
+/**
+ * One thing of a request that was refused, and where it is: exactly one of
+ * `pointer` (a JSON Pointer into the body, `/username`), `parameter` (of the
+ * query or the path) and `header` says.
+ */
+export interface InvalidInput {
+  pointer?: string;
+  parameter?: string;
+  header?: string;
   /** English, for logs and developers. Never shown as it is. */
-  message: string;
-  /** A stable reason within the kind, for choosing the text to show. */
+  detail: string;
+  /** Why, stable: `required`, `too_short`, …, or `invalid` when no finer cause is told. */
+  reason: string;
+}
+
+/** The body of an error answer: the problem details of RFC 9457, as the contract has them (`Problem`). */
+export interface Problem {
+  /** The kind of problem, `/problems/<name>`: the same for every problem of the kind. */
+  type: string;
+  /** The name of the type, in English. */
+  title: string;
+  status: number;
+  /** English, for logs and developers. Never shown as it is. */
+  detail: string;
+  /** The request, as a URN of its identifier. */
+  instance?: string;
+  /** A stable reason within the status, for choosing the text to show. */
   reason?: string;
-  field?: string;
+  /** What of the request was refused, one entry for each. */
+  errors?: InvalidInput[];
   limit?: number;
   request_id?: string;
   /** Seconds, with 429. */
   retry_after?: number;
 }
 
+/** The entry of `errors` for a member of the request body, by its name. */
+export function refusedMember(member: string, detail: string, reason = 'invalid'): InvalidInput {
+  return { pointer: `/${member.replaceAll('~', '~0').replaceAll('/', '~1')}`, detail, reason };
+}
+
 /** What every method of the backend rejects with. */
 export class BackendError extends Error {
-  /** 0 when no answer arrived at all (`network`). */
+  /** 0 when no answer arrived at all. */
   readonly status: ErrorStatus | 0;
-  readonly kind: ErrorKind;
+  /** The kind of problem; `about:blank` when the answer named none (RFC 9457, 4.2). */
+  readonly type: string;
   readonly reason: string | undefined;
-  readonly field: string | undefined;
+  /** What of the request was refused; empty when the error is about nothing of it. */
+  readonly errors: readonly InvalidInput[];
   readonly limit: number | undefined;
   readonly retryAfter: number | undefined;
 
-  constructor(status: ErrorStatus | 0, body?: Partial<ErrorBody>) {
-    const kind = status === 0 ? 'network' : ERROR_KINDS[status];
-    super(body?.message ?? kind);
+  constructor(status: ErrorStatus | 0, problem?: Partial<Problem>) {
+    super(problem?.detail ?? problem?.title ?? (status === 0 ? 'no answer' : `status ${status}`));
     this.name = 'BackendError';
     this.status = status;
-    this.kind = kind;
-    this.reason = body?.reason;
-    this.field = body?.field;
-    this.limit = body?.limit;
-    this.retryAfter = body?.retry_after;
+    this.type = problem?.type ?? 'about:blank';
+    this.reason = problem?.reason;
+    this.errors = problem?.errors ?? [];
+    this.limit = problem?.limit;
+    this.retryAfter = problem?.retry_after;
+  }
+
+  /** The entry of `errors` about the member of the request body at this JSON Pointer, if there is one. */
+  refusalAt(pointer: string): InvalidInput | undefined {
+    return this.errors.find((entry) => entry.pointer === pointer);
   }
 }
 

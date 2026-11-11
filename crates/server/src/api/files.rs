@@ -16,9 +16,9 @@ use axum::http::header::{
     EXPECT, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use futures_util::StreamExt as _;
-use fvoci_model::FileInfo;
+use fvoci_model::{FileInfo, Problem};
 use serde::Serialize;
 use tokio_util::io::StreamReader;
 use utoipa::ToSchema;
@@ -128,8 +128,6 @@ async fn check_read_access(
 /// must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
 /// download: the `Last-Modified` of an answer is the time of that answer, so a request
 /// with the `If-Modified-Since` of an earlier answer gets the whole file again.
-///
-/// 412 and 416 come without an `ErrorBody`.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/files/{fileId}",
@@ -141,8 +139,8 @@ async fn check_read_access(
         (status = 200, description = "The file.", body = inline(Binary), content_type = "application/octet-stream"),
         (status = 206, description = "The range of the file that was asked for.", body = inline(Binary), content_type = "application/octet-stream"),
         (status = 304, description = "Only for a request with `If-None-Match: *`, or with an `If-Modified-Since` that is not before the time of the answer. No body."),
-        (status = 412, description = "The request has an `If-Unmodified-Since` before the time of the answer. No body."),
-        (status = 416, description = "The range is not in the file, or is no range.", body = String, content_type = "text/plain"),
+        (status = 412, description = "The request has an `If-Unmodified-Since` before the time of the answer.", body = Problem, content_type = "application/problem+json"),
+        (status = 416, description = "The range is not in the file, or is no range. A range that is not in the file is answered with a `Content-Range` that tells the file's length.", body = Problem, content_type = "application/problem+json"),
     ),
 )]
 async fn handle_serve_file(
@@ -428,8 +426,10 @@ async fn serve_content(
     if let Some(since) = http_date(request_headers, &IF_UNMODIFIED_SINCE)
         && modtime_after(modtime, since)
     {
-        headers.insert(CONTENT_LENGTH, header_value(&size.to_string()));
-        return Ok((StatusCode::PRECONDITION_FAILED, headers, Body::empty()).into_response());
+        return Err(AppError::precondition_failed(
+            "the file is newer than the If-Unmodified-Since of the request",
+        )
+        .with_header("If-Unmodified-Since"));
     }
     if if_none_match_star(request_headers) || not_modified(request_headers, modtime) {
         headers.remove(CONTENT_TYPE);
@@ -464,32 +464,20 @@ async fn serve_content(
                 .into_response())
         }
         Some(RangeResult::NotSatisfiable) => {
-            headers.insert(CONTENT_RANGE, header_value(&format!("bytes */{size}")));
-            Ok(range_error(headers, "invalid range: failed to overlap"))
+            let mut response = range_error("the range is not in the file").into_response();
+            // What the range could have been: the length of the file.
+            response
+                .headers_mut()
+                .insert(CONTENT_RANGE, header_value(&format!("bytes */{size}")));
+            Ok(response)
         }
-        Some(RangeResult::Invalid) => Ok(range_error(headers, "invalid range")),
+        Some(RangeResult::Invalid) => Err(range_error("the Range header is no range of bytes")),
     }
 }
 
-/// Builds a 416 response with the error message as its body.
-///
-/// Deliberate difference: the original's `http.ServeContent` leaves the `Content-Length`
-/// it set before the range error, so the body is shorter than the declared length. This
-/// port lets the framework set `Content-Length` to the body's real length, because hyper
-/// aborts a response whose body is longer than a manual `Content-Length`, which would be
-/// a hazard for small files.
-fn range_error(mut headers: HeaderMap, message: &str) -> Response {
-    headers.insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static("text/plain; charset=utf-8"),
-    );
-    (
-        StatusCode::RANGE_NOT_SATISFIABLE,
-        headers,
-        // The original's error writer ends the message with a line break.
-        Body::from(format!("{message}\n")),
-    )
-        .into_response()
+/// The 416 for a `Range` the file cannot be served by.
+fn range_error(message: &str) -> AppError {
+    AppError::range_not_satisfiable(message).with_header("Range")
 }
 
 /// The headers every download carries before range and conditional handling.

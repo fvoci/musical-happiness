@@ -21,6 +21,7 @@ import {
   BackendError,
   isBackendError,
   isConflict,
+  refusedMember,
   type Attachment,
   type CardDetail,
   type CardSummary,
@@ -209,7 +210,8 @@ export class CardStore {
     // names nobody, as a body read anonymously has them).
     const problems = body ? validateDoc(body) : [];
     if (problems.length > 0) {
-      throw new BackendError(400, { message: problems[0], field: 'body' });
+      const detail = problems[0] ?? 'invalid body';
+      throw new BackendError(400, { detail, errors: [refusedMember('body', detail)] });
     }
     try {
       const stored = await this.#backend.writeCardBody(this.#boardId, this.cardId, {

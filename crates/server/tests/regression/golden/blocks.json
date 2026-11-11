@@ -362,11 +362,14 @@
     "name": "list: unknown block id",
     "request": "GET /api/v1/boards/<id:2>/blocks?blockId=unknown-block as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -433,33 +436,42 @@
     "name": "list: non-member",
     "request": "GET /api/v1/boards/<id:2>/blocks as blocks-carol",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "list: anonymous",
     "request": "GET /api/v1/boards/<id:2>/blocks as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "list: unknown board",
     "request": "GET /api/v1/boards/unknown-board/blocks as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -473,92 +485,140 @@
     "name": "insert: malformed body",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid type: map, expected a sequence at line 1 column 0",
-      "request_id": "<request-id>"
+      "detail": "invalid type: map, expected a sequence at line 1 column 0",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "insert: no type",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "type",
-      "message": "missing type for block id x1",
-      "request_id": "<request-id>"
+      "detail": "missing type for block id x1",
+      "errors": [
+        {
+          "detail": "missing type for block id x1",
+          "pointer": "/type",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "insert: no createAt",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "createAt",
-      "message": "invalid createAt for block id x1",
-      "request_id": "<request-id>"
+      "detail": "invalid createAt for block id x1",
+      "errors": [
+        {
+          "detail": "invalid createAt for block id x1",
+          "pointer": "/createAt",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "insert: no updateAt",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "updateAt",
-      "message": "invalid updateAt for block id x1",
-      "request_id": "<request-id>"
+      "detail": "invalid updateAt for block id x1",
+      "errors": [
+        {
+          "detail": "invalid updateAt for block id x1",
+          "pointer": "/updateAt",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "insert: other board id",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "boardId",
-      "message": "invalid boardId for block id x1",
-      "request_id": "<request-id>"
+      "detail": "invalid boardId for block id x1",
+      "errors": [
+        {
+          "detail": "invalid boardId for block id x1",
+          "pointer": "/boardId",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "insert: long title",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "error validating block <id:8>: block title size limit exceeded",
-      "request_id": "<request-id>"
+      "detail": "error validating block <id:8>: block title size limit exceeded",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "insert: non-member",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-carol",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "insert: commenter inserts a card",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to make board changes",
-      "request_id": "<request-id>"
+      "detail": "access denied to make board changes",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
@@ -617,55 +677,70 @@
     "name": "patch: commenter",
     "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:6> as blocks-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to make board changes",
-      "request_id": "<request-id>"
+      "detail": "access denied to make board changes",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "patch: non-member",
     "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:6> as blocks-carol",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "patch: unknown block",
     "request": "PATCH /api/v1/boards/<id:2>/blocks/unknown-block as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "patch: malformed body",
     "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:6> as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
+      "detail": "EOF while parsing an object at line 1 column 1",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: long title",
     "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:6> as blocks-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "error validating block <id:6>: block title size limit exceeded",
-      "request_id": "<request-id>"
+      "detail": "error validating block <id:6>: block title size limit exceeded",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -678,22 +753,28 @@
     "name": "patch several: unknown block",
     "request": "PATCH /api/v1/boards/<id:2>/blocks as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "patch several: commenter",
     "request": "PATCH /api/v1/boards/<id:2>/blocks as blocks-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to make board changes",
-      "request_id": "<request-id>"
+      "detail": "access denied to make board changes",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
@@ -881,44 +962,56 @@
     "name": "duplicate: commenter",
     "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/duplicate as blocks-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to modify board cards",
-      "request_id": "<request-id>"
+      "detail": "access denied to modify board cards",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "duplicate: unknown block",
     "request": "POST /api/v1/boards/<id:2>/blocks/unknown-block/duplicate as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "delete: commenter",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as blocks-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to make board changes",
-      "request_id": "<request-id>"
+      "detail": "access denied to make board changes",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "delete: non-member",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as blocks-carol",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -931,22 +1024,28 @@
     "name": "delete: again",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "delete: unknown block",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/unknown-block as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -960,11 +1059,14 @@
     "name": "undelete: commenter",
     "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as blocks-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to make board changes",
-      "request_id": "<request-id>"
+      "detail": "access denied to make board changes",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
@@ -994,22 +1096,28 @@
     "name": "undelete: again",
     "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "undelete: unknown block",
     "request": "POST /api/v1/boards/<id:2>/blocks/unknown-block/undelete as blocks-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
+      "detail": "block not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {

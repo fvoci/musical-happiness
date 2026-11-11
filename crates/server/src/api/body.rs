@@ -81,8 +81,8 @@ fn body_refused(error: BodyError) -> AppError {
 }
 
 /// Takes the member `body` out of each block of a request before the blocks are decoded
-/// and reads it, so that a body that may not be stored is refused as one (`field:
-/// body`). Returns the bodies in the order of the blocks; an element that is no object
+/// and reads it, so that a body that may not be stored is refused as one (`errors`
+/// names `/body`). Returns the bodies in the order of the blocks; an element that is no object
 /// has none.
 ///
 /// # Errors
@@ -149,7 +149,7 @@ pub(crate) fn put_patch_bodies<'a>(
 
 /// Decodes a request body that must be a JSON object and may carry a document under
 /// `body`. The document is checked apart from the rest, so that its refusal names it
-/// (`field: body`). Returns what the member asks for: [`BodyChange::Keep`] if it was
+/// (`errors` names `/body`). Returns what the member asks for: [`BodyChange::Keep`] if it was
 /// left out.
 ///
 /// # Errors

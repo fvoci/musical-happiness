@@ -133,7 +133,8 @@ mod tests {
             let (status, body) = status_for(peer).await;
             assert_eq!(status, StatusCode::NOT_FOUND, "{peer:?}: {body}");
             assert_eq!(
-                body, r#"{"error":"not_found","message":"route not found"}"#,
+                body,
+                r#"{"type":"/problems/not-found","title":"Not found","status":404,"detail":"route not found"}"#,
                 "{peer:?}"
             );
         }

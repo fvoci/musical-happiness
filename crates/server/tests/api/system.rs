@@ -144,8 +144,8 @@ async fn api_responses_are_not_cacheable() {
     );
     assert_eq!(
         refused.header("content-type"),
-        "application/json",
-        "is JSON too"
+        "application/problem+json",
+        "is a problem"
     );
     th.teardown().await;
 }

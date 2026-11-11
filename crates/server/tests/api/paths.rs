@@ -28,11 +28,11 @@ impl Answer {
         self.status == StatusCode::OK && self.body.contains("test web app")
     }
 
-    /// The `error` code of a JSON error body, or the empty string.
-    fn error_code(&self) -> String {
+    /// The `type` of a problem body, or the empty string.
+    fn problem_type(&self) -> String {
         serde_json::from_str::<Value>(&self.body)
             .ok()
-            .and_then(|body| body["error"].as_str().map(str::to_owned))
+            .and_then(|body| body["type"].as_str().map(str::to_owned))
             .unwrap_or_default()
     }
 }
@@ -106,8 +106,15 @@ async fn check_path_rules(origin: &str, base: &str) {
             "{method} {base}{path}: {}",
             answer.body
         );
-        assert_eq!(answer.error_code(), "method_not_allowed", "{method} {path}");
-        assert_eq!(answer.content_type, "application/json", "{method} {path}");
+        assert_eq!(
+            answer.problem_type(),
+            "/problems/method-not-allowed",
+            "{method} {path}"
+        );
+        assert_eq!(
+            answer.content_type, "application/problem+json",
+            "{method} {path}"
+        );
         assert!(
             answer.allow.split(',').any(|name| name.trim() == allowed),
             "{method} {path}: Allow is {:?}, which lacks {allowed}",
@@ -139,8 +146,15 @@ async fn check_path_rules(origin: &str, base: &str) {
                 "{method} {base}{path}: {}",
                 answer.body
             );
-            assert_eq!(answer.error_code(), "not_found", "{method} {path}");
-            assert_eq!(answer.content_type, "application/json", "{method} {path}");
+            assert_eq!(
+                answer.problem_type(),
+                "/problems/not-found",
+                "{method} {path}"
+            );
+            assert_eq!(
+                answer.content_type, "application/problem+json",
+                "{method} {path}"
+            );
         }
     }
 
@@ -148,7 +162,11 @@ async fn check_path_rules(origin: &str, base: &str) {
     // the API's format.
     let answer = ask(origin, Method::POST, &format!("{base}/ws")).await;
     assert_eq!(answer.status, StatusCode::METHOD_NOT_ALLOWED, "POST /ws");
-    assert_eq!(answer.error_code(), "method_not_allowed", "POST /ws");
+    assert_eq!(
+        answer.problem_type(),
+        "/problems/method-not-allowed",
+        "POST /ws"
+    );
     let answer = ask(origin, Method::GET, &format!("{base}/ws")).await;
     assert_eq!(
         answer.status,
@@ -156,8 +174,8 @@ async fn check_path_rules(origin: &str, base: &str) {
         "GET /ws without a handshake: {}",
         answer.body
     );
-    assert_eq!(answer.error_code(), "bad_request", "GET /ws");
-    assert_eq!(answer.content_type, "application/json", "GET /ws");
+    assert_eq!(answer.problem_type(), "/problems/bad-request", "GET /ws");
+    assert_eq!(answer.content_type, "application/problem+json", "GET /ws");
 
     // Static files: the file, or 404; no listing of the directory.
     let file = ask(origin, Method::GET, &format!("{base}/static/main.js")).await;
@@ -298,7 +316,7 @@ async fn the_original_paths_of_routes_that_have_another_path_are_not_found() {
             response.check_error(StatusCode::NOT_FOUND, "route not found");
             assert_eq!(
                 response.header("content-type"),
-                "application/json",
+                "application/problem+json",
                 "{method} {path}"
             );
         }

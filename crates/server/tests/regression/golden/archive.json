@@ -256,33 +256,42 @@
     "name": "export: non-member",
     "request": "GET /api/v1/boards/<id:2>/archive/export as arch-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "export: anonymous",
     "request": "GET /api/v1/boards/<id:2>/archive/export as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "export: unknown board",
     "request": "GET /api/v1/boards/unknown-board/archive/export as arch-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -310,33 +319,42 @@
     "name": "import: anonymous",
     "request": "POST /api/v1/teams/<id:3>/archive/uploads as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "import: not an archive",
     "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid Zip archive: Could not find EOCD",
-      "request_id": "<request-id>"
+      "detail": "invalid Zip archive: Could not find EOCD",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "import: no such upload",
     "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "upload not found",
-      "request_id": "<request-id>"
+      "detail": "upload not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -483,11 +501,14 @@
     "name": "import: legacy format",
     "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid Zip archive: Could not find EOCD",
-      "request_id": "<request-id>"
+      "detail": "invalid Zip archive: Could not find EOCD",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {

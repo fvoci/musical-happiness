@@ -65,8 +65,9 @@ fn client_of(
 /// identifier it gave the request.
 ///
 /// The identifier is a random one of this server's making. It goes into the log line,
-/// into the `x-request-id` response header and into the body of an error answer, so that
-/// what a user reports can be found in the log. An identifier the client sends is not
+/// into the `x-request-id` response header and into the body of an error answer (its
+/// `request_id`, and its `instance` as a URN), so that what a user reports can be found
+/// in the log. An identifier the client sends is not
 /// taken over: it would let a client write into the log.
 ///
 /// The query string is left out because it can carry the read token of a shared board,
@@ -109,6 +110,7 @@ pub(crate) async fn log_request(
 /// body if the response is an error of this server's own format.
 fn identify(mut response: Response, request_id: &str) -> Response {
     if let Some(ReportedError(mut body)) = response.extensions_mut().remove::<ReportedError>() {
+        body.instance = Some(format!("urn:uuid:{request_id}"));
         body.request_id = Some(request_id.to_owned());
         // An error body is a handful of strings; serializing it cannot fail.
         if let Ok(bytes) = serde_json::to_vec(&body) {
@@ -346,12 +348,18 @@ mod tests {
         let (status, body, log) = logged(proxies(&[]), request).await;
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
-        let error: fvoci_model::ErrorBody =
+        let error: fvoci_model::Problem =
             serde_json::from_str(&body).expect("the standard error body");
-        assert_eq!(error.error, "internal", "{body}");
-        assert_eq!(error.message, "internal server error", "{body}");
+        assert_eq!(error.problem_type, "/problems/internal", "{body}");
+        assert_eq!(error.status, 500, "{body}");
+        assert_eq!(error.detail, "internal server error", "{body}");
         let request_id = error.request_id.expect("the identifier of the request");
         assert_eq!(request_id.len(), 36, "a random identifier: {request_id}");
+        assert_eq!(
+            error.instance,
+            Some(format!("urn:uuid:{request_id}")),
+            "the instance is the request: {body}"
+        );
         assert!(
             log.contains(&format!("request_id=\"{request_id}\"")),
             "the log line of the request carries the identifier of the answer: {log}"

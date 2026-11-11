@@ -44,7 +44,8 @@ fn int_query_param(query: Option<&str>, name: &str, default: i64) -> Result<i64,
             IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => "out of range",
             _ => "not a whole number",
         };
-        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}")).with_field(name)
+        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}"))
+            .with_parameter(name)
     })
 }
 

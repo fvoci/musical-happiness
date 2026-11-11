@@ -586,8 +586,8 @@ async fn create_board_create_invalid_board_no_team_id() {
         let response = th.client.post("/boards", &body).await;
         response.check_error(StatusCode::BAD_REQUEST, "no such team");
         assert_eq!(
-            response.value()["field"],
-            json!("teamId"),
+            response.refused_at(),
+            "/teamId",
             "the member at fault: {body}"
         );
     }
@@ -615,7 +615,7 @@ async fn create_board_validates_the_body_like_the_original() {
     ] {
         let response = th.client.send_raw_body(Method::POST, "/boards", body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     for role in ["boss", "", "admin"] {
@@ -654,11 +654,7 @@ async fn create_board_validates_the_body_like_the_original() {
         )
         .await;
     response.check_error(StatusCode::BAD_REQUEST, "new board cannot have an ID");
-    assert_eq!(
-        response.value()["field"],
-        json!("id"),
-        "the member at fault"
-    );
+    assert_eq!(response.refused_at(), "/id", "the member at fault");
 
     assert_no_boards(&th, &user1.id).await;
     th.teardown().await;
@@ -1930,8 +1926,8 @@ async fn add_member_validates_the_body_like_the_original() {
             .await;
         response.check_error(StatusCode::BAD_REQUEST, "no such user");
         assert_eq!(
-            response.value()["field"],
-            json!("userId"),
+            response.refused_at(),
+            "/userId",
             "the member at fault: {no_user}"
         );
     }
@@ -3402,7 +3398,7 @@ async fn join_board_create_and_join_private_board_should_not_succeed() {
         // A private board does not exist for who is no member, so there is nothing
         // to join.
         response.check_error(StatusCode::NOT_FOUND, "board not found");
-        assert_eq!(response.error_code(), "not_found", "{query}");
+        assert_eq!(response.problem_type(), "/problems/not-found", "{query}");
     }
     assert_eq!(members_of(&th, &board.id).await.len(), 1, "nobody joined");
     th.teardown().await;

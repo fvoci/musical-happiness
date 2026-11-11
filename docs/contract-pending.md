@@ -219,14 +219,13 @@
   - 메시지가 싣는 보드, 블록, 카테고리, 멤버는 계약의 `Board`, `Block`, `Category`, `BoardMember`와 같은 모양이다.
   - `UPDATE_BLOCK`이 싣는 블록은 1절의 본문(`body`)을 함께 싣는다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.
-  - 모든 조작의 `default` 응답이 `ErrorBody`다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다.
+  - 모든 조작의 `default` 응답이 `application/problem+json`의 `Problem`(RFC 9457)이다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다. 거절된 입력은 `errors`에 자리(`pointer`, `parameter`, `header`)와 함께 온다.
   - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`, `export_running`, `server_exports_busy`, `import_running`, `server_imports_busy`.
-  - 429와 `Retry-After`는 `login`, `register`, `changePassword`에 따로 적었다.
-  - `getFile`의 412와 416만 `ErrorBody`가 아니다. 412는 본문이 없고 416은 `text/plain`이다.
+  - 429와 `Retry-After`는 `login`, `register`, `changePassword`에, 412와 416은 `getFile`에 따로 적었다. 모두 같은 `Problem`이다.
 - **관리자 소켓의 라우트**(`/api/v1/admin/...`). 로컬 유닉스 소켓에서만 받는다. 계약에 없다.
 - **응답 압축**(tracer-bullet 10, 2026-11-11 11:51 KST). 조작마다 적지 않는다. 모양과 뜻은 바뀌지 않는다.
   - API의 JSON 응답(`Content-Type: application/json`, 32바이트 이상인 것)은 요청의 `Accept-Encoding`에 따라 `zstd`, `br`, `gzip`으로 압축한다. 같은 가중치면 zstd, brotli, gzip 순이다. `deflate`만 받는 클라이언트에는 압축하지 않는다. 압축한 응답은 `Content-Encoding`을 달고 `Content-Length`가 없으며 `Vary: Accept-Encoding`이 붙는다. 브라우저는 스스로 푼다.
-  - 내보내는 아카이브와 파일(`getFile`), 그 밖에 JSON이 아닌 응답과 오류 응답(`ErrorBody`)은 압축하지 않는다. 그래서 내보내기의 `Content-Length`와 `getFile`의 범위 요청은 그대로다.
+  - 내보내는 아카이브와 파일(`getFile`), 그 밖에 JSON이 아닌 응답과 오류 응답(`Problem`)은 압축하지 않는다. 그래서 내보내기의 `Content-Length`와 `getFile`의 범위 요청은 그대로다.
   - `Accept-Encoding`이 압축하지 않은 응답을 거절해도(`identity;q=0`, `*;q=0`) 406으로 답하지 않는다. 그 항목은 없는 것으로 보고, 받을 수 있는 압축이 없으면 압축하지 않은 응답을 한 일의 상태 그대로 보낸다.
   - 설정 `compress_responses`(기본 참)로 끈다. 압축하는 프록시나 CDN 뒤의 배포를 위한 것이다.
   - WebSocket 메시지는 압축하지 않는다.

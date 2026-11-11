@@ -85,67 +85,91 @@
     "name": "create: no boards",
     "request": "POST /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "at least one board is required",
-      "request_id": "<request-id>"
+      "detail": "at least one board is required",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: block of another board",
     "request": "POST /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "boardId",
-      "message": "invalid boardId elsewhere (no board of the request has that id)",
-      "request_id": "<request-id>"
+      "detail": "invalid boardId elsewhere (no board of the request has that id)",
+      "errors": [
+        {
+          "detail": "invalid boardId elsewhere (no board of the request has that id)",
+          "pointer": "/boardId",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: boards of two teams",
     "request": "POST /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "cannot create boards for multiple teams",
-      "request_id": "<request-id>"
+      "detail": "cannot create boards for multiple teams",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: board without type",
     "request": "POST /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid-board-type",
-      "request_id": "<request-id>"
+      "detail": "invalid-board-type",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: malformed body",
     "request": "POST /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
+      "detail": "EOF while parsing an object at line 1 column 1",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: without session",
     "request": "POST /api/v1/boards-and-blocks as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
@@ -236,55 +260,70 @@
     "name": "patch: counts differ",
     "request": "PATCH /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "board ids and patches need to match",
-      "request_id": "<request-id>"
+      "detail": "board ids and patches need to match",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: no boards",
     "request": "PATCH /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "at least one board is required",
-      "request_id": "<request-id>"
+      "detail": "at least one board is required",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: block of an unlisted board",
     "request": "PATCH /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "the request names a block that is not on its boards",
-      "request_id": "<request-id>"
+      "detail": "the request names a block that is not on its boards",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "patch: non-member",
     "request": "PATCH /api/v1/boards-and-blocks as bab-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "patch: unknown board",
     "request": "PATCH /api/v1/boards-and-blocks as bab-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -342,44 +381,56 @@
     "name": "delete: non-member",
     "request": "DELETE /api/v1/boards-and-blocks as bab-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "delete: no boards",
     "request": "DELETE /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "at least one board is required",
-      "request_id": "<request-id>"
+      "detail": "at least one board is required",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "delete: block of an unlisted board",
     "request": "DELETE /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "the request names a block that is not on its boards",
-      "request_id": "<request-id>"
+      "detail": "the request names a block that is not on its boards",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "delete: unknown board",
     "request": "DELETE /api/v1/boards-and-blocks as bab-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -392,11 +443,14 @@
     "name": "board a after delete",
     "request": "GET /api/v1/boards/<id:1> as bab-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   }
 ]

@@ -669,16 +669,74 @@ impl ApiResponse {
         self.json()
     }
 
-    /// The message of an error answer: English text for developers.
+    /// The detail of an error answer: English text for developers.
     #[track_caller]
     pub(crate) fn error_message(&self) -> String {
-        self.error_member("message")
+        self.error_member("detail")
     }
 
-    /// The stable code of an error answer, such as `not_found`.
+    /// The type of an error answer, such as `/problems/not-found`.
     #[track_caller]
-    pub(crate) fn error_code(&self) -> String {
-        self.error_member("error")
+    pub(crate) fn problem_type(&self) -> String {
+        self.error_member("type")
+    }
+
+    /// Where in the request the one thing is that an error answer refused: the JSON
+    /// Pointer of a member of the body as it is, `parameter <name>` or `header <name>`.
+    /// `None` if the answer has no `errors`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `errors` has more than one entry, or the entry not exactly one place.
+    #[track_caller]
+    pub(crate) fn refused_place(&self) -> Option<String> {
+        let mut places = self.refused_places();
+        assert!(places.len() <= 1, "one thing is refused: {}", self.text());
+        places.pop()
+    }
+
+    /// As [`ApiResponse::refused_place`], for an answer that refuses something.
+    #[track_caller]
+    pub(crate) fn refused_at(&self) -> String {
+        self.refused_place()
+            .unwrap_or_else(|| panic!("the answer names nothing it refused: {}", self.text()))
+    }
+
+    /// Where each thing is that an error answer refused, in the order of `errors`, as
+    /// [`ApiResponse::refused_place`] writes it.
+    #[track_caller]
+    pub(crate) fn refused_places(&self) -> Vec<String> {
+        let body = self.value();
+        let Some(errors) = body.get("errors") else {
+            return Vec::new();
+        };
+        let errors = errors.as_array().expect("errors is a list");
+        assert!(!errors.is_empty(), "errors is left out when it is empty");
+        errors
+            .iter()
+            .map(|entry| {
+                for member in ["detail", "reason"] {
+                    assert!(
+                        entry[member].as_str().is_some_and(|text| !text.is_empty()),
+                        "an entry has its {member}: {entry}"
+                    );
+                }
+                let places: Vec<String> = [
+                    ("pointer", ""),
+                    ("parameter", "parameter "),
+                    ("header", "header "),
+                ]
+                .into_iter()
+                .filter_map(|(member, prefix)| {
+                    entry.get(member).map(|place| {
+                        format!("{prefix}{}", place.as_str().expect("a place is text"))
+                    })
+                })
+                .collect();
+                assert_eq!(places.len(), 1, "an entry is in one place: {entry}");
+                places.into_iter().next().unwrap_or_default()
+            })
+            .collect()
     }
 
     /// The stable reason of an error answer, such as `last_admin`; empty if none.
@@ -692,34 +750,76 @@ impl ApiResponse {
         self.value()[member].as_str().unwrap_or_default().to_owned()
     }
 
-    /// Checks that the answer is the error with this status and message, in the one
-    /// format of the API's errors: the code that belongs to the status, the message, and
-    /// the identifier of the request, which the response header repeats.
+    /// Checks that the answer is the error with this status and detail, in the one
+    /// format of the API's errors ([`ApiResponse::check_problem`]).
     #[track_caller]
     pub(crate) fn check_error(&self, status: StatusCode, message: &str) {
         self.check_status(status);
+        let body = self.check_problem();
+        assert_eq!(body["detail"], message, "the detail: {body}");
+    }
+
+    /// Checks that the answer is a problem of RFC 9457 as the API sends it, and returns
+    /// it: `application/problem+json`, the status repeated in the body, the `type` of
+    /// the `reason` or else of the status, its title, and the identifier of the
+    /// request, which `instance` and the response header repeat.
+    #[track_caller]
+    pub(crate) fn check_problem(&self) -> Value {
+        assert_eq!(
+            self.header("content-type"),
+            "application/problem+json",
+            "the content type of an error: {}",
+            self.text()
+        );
         let body = self.value();
-        let code = match status.as_u16() {
-            400 => "bad_request",
+        assert_eq!(body["status"], self.status.as_u16(), "the status: {body}");
+        let of_status = match self.status.as_u16() {
+            400 => "bad-request",
             401 => "unauthorized",
             403 => "forbidden",
-            404 => "not_found",
-            405 => "method_not_allowed",
+            404 => "not-found",
+            405 => "method-not-allowed",
             409 => "conflict",
-            413 => "payload_too_large",
-            429 => "rate_limited",
+            412 => "precondition-failed",
+            413 => "payload-too-large",
+            416 => "range-not-satisfiable",
+            429 => "rate-limited",
             500 => "internal",
             other => panic!("status {other} is no error status of the API"),
         };
-        assert_eq!(body["error"], code, "the error code: {body}");
-        assert_eq!(body["message"], message, "the message: {body}");
+        let name = match body.get("reason") {
+            Some(reason) => reason.as_str().expect("a reason is text").replace('_', "-"),
+            None => of_status.to_owned(),
+        };
+        assert_eq!(
+            body["type"],
+            format!("/problems/{name}"),
+            "the type: {body}"
+        );
+        assert!(
+            body["title"]
+                .as_str()
+                .is_some_and(|title| !title.is_empty()),
+            "the title: {body}"
+        );
+        assert!(body["detail"].is_string(), "the detail: {body}");
         let request_id = body["request_id"].as_str().unwrap_or_default();
         assert!(!request_id.is_empty(), "the request identifier: {body}");
+        assert_eq!(
+            body["instance"],
+            format!("urn:uuid:{request_id}"),
+            "the instance is the request: {body}"
+        );
         assert_eq!(
             self.header("x-request-id"),
             request_id,
             "the header repeats the identifier"
         );
+        for old in ["error", "message", "field"] {
+            assert!(body.get(old).is_none(), "no member {old}: {body}");
+        }
+        self.refused_places();
+        body
     }
 
     /// Checks that the answer is the server error, which never says what went wrong.
@@ -745,6 +845,10 @@ impl ApiResponse {
             "unexpected status; body: {}",
             self.text()
         );
+        // Every error the API answers with is a problem, whatever the test is about.
+        if expected.is_client_error() || expected.is_server_error() {
+            self.check_problem();
+        }
     }
 
     /// `CheckOK`.

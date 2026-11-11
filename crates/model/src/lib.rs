@@ -21,9 +21,9 @@ mod category;
 mod client_config;
 mod comment_version;
 mod date_value;
-mod error_response;
 mod file_info;
 mod id;
+mod problem;
 mod serde_util;
 mod settings;
 mod sharing;
@@ -71,9 +71,9 @@ pub use comment_version::CommentVersion;
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
-pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
+pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
     ClientStateError, Density, HourCycle, ParseSettingError, SettingName, SettingsError, Theme,

@@ -1419,7 +1419,11 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
             let with_token = format!("{route}?{name}={read_token}");
             let response = anonymous.get(&with_token).await;
             response.check_unauthorized();
-            assert_eq!(response.error_code(), "unauthorized", "{with_token}");
+            assert_eq!(
+                response.problem_type(),
+                "/problems/unauthorized",
+                "{with_token}"
+            );
             th.client2
                 .get(&with_token)
                 .await
@@ -1602,7 +1606,7 @@ async fn post_blocks_validation() {
     ] {
         let response = th.client.send_raw_body(Method::POST, &path, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     assert!(
@@ -1817,7 +1821,7 @@ async fn patch_block_refusals() {
     ] {
         let response = client.patch(&path, &title_patch("x")).await;
         response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
-        assert_eq!(response.error_code(), "forbidden", "{who}");
+        assert_eq!(response.problem_type(), "/problems/forbidden", "{who}");
     }
     // For who is no member of the private board it does not exist, whatever the block:
     // the outsider, and an editor of one board on another board's path.
@@ -1857,7 +1861,7 @@ async fn patch_block_refusals() {
             .send_raw_body(Method::PATCH, &card_path, body)
             .await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     let too_long = title_patch(&"a".repeat(BLOCK_TITLE_MAX_CHARS + 1));
@@ -2024,7 +2028,7 @@ async fn patch_blocks_batch_refusals() {
     for body in ["not json", "null", "{\"blockIds\":5}", "[]", "[[], []]"] {
         let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     // A batch is all or none.
@@ -2129,7 +2133,7 @@ async fn delete_block_refusals() {
     ] {
         let response = client.delete(&path).await;
         response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
-        assert_eq!(response.error_code(), "forbidden", "{who}");
+        assert_eq!(response.problem_type(), "/problems/forbidden", "{who}");
     }
     // For who is no member of the private board it does not exist, whatever the block.
     for (client, path) in [
@@ -2707,9 +2711,13 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
         // One answer for a source that is not there and one the user cannot read.
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "source {source}");
         let body: Value = response.json().await.expect("an error body");
-        assert_eq!(body["error"], json!("not_found"), "source {source}");
         assert_eq!(
-            body["message"],
+            body["type"],
+            json!("/problems/not-found"),
+            "source {source}"
+        );
+        assert_eq!(
+            body["detail"],
             json!("source board not found"),
             "source {source}"
         );
@@ -3050,7 +3058,7 @@ async fn a_new_block_of_another_type_is_refused() {
         let block = child_of(&card, BlockType::from(name), name);
         let response = th.client.insert_blocks(&board.id, &[fine, block]).await;
         response.check_bad_request();
-        assert_eq!(response.value()["field"], "type", "{name}");
+        assert_eq!(response.refused_at(), "/type", "{name}");
 
         let response = th
             .client
@@ -3065,7 +3073,7 @@ async fn a_new_block_of_another_type_is_refused() {
             )
             .await;
         response.check_bad_request();
-        assert_eq!(response.value()["field"], "type", "{name} with a board");
+        assert_eq!(response.refused_at(), "/type", "{name} with a board");
     }
     assert_eq!(
         ids(&blocks_of(&th.client, &board.id).await),
@@ -3090,14 +3098,14 @@ async fn a_patch_does_not_make_a_block_of_another_type() {
         .patch(&block_path(&board.id, &card.id), &to_text)
         .await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], "type", "one patch");
+    assert_eq!(response.refused_at(), "/type", "one patch");
     let batch = BlockPatchBatch {
         block_ids: vec![card.id.clone()],
         block_patches: vec![to_text.clone()],
     };
     let response = th.client.patch(&blocks_path(&board.id), &batch).await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], "type", "a batch");
+    assert_eq!(response.refused_at(), "/type", "a batch");
     assert_eq!(
         blocks_of(&th.client, &board.id).await[0].block_type,
         BlockType::Card,
@@ -3138,7 +3146,7 @@ async fn the_fields_of_a_block_are_limited_by_its_type() {
             .await;
         response.check_bad_request();
         assert!(
-            response.value()["message"]
+            response.value()["detail"]
                 .as_str()
                 .is_some_and(|message| message.contains("block fields size limit exceeded")),
             "{block_type} over the limit: {}",

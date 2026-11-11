@@ -135,7 +135,7 @@ async fn an_error_is_not_compressed() {
         assert_eq!(response.status, StatusCode::NOT_FOUND, "{asked}");
         assert_eq!(encoding(&response), "", "{asked}: not compressed");
         let body = response.value();
-        assert_eq!(body["error"], "not_found", "{asked}: {body}");
+        assert_eq!(body["type"], "/problems/not-found", "{asked}: {body}");
         assert!(body["request_id"].is_string(), "{asked}: {body}");
     }
     ts.teardown().await;

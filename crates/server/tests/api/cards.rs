@@ -561,7 +561,7 @@ async fn app_get_cards_error_scenario() {
         .insert_blocks(&board.id, std::slice::from_ref(&block))
         .await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("fields"));
+    assert_eq!(response.refused_at(), "/fields");
 
     let cards = th
         .app
@@ -904,7 +904,7 @@ async fn create_card_refusals() {
     ] {
         let response = th.client.send_raw_body(Method::POST, &path, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     let by_editor = create_card(&roles.editor, &roles.board.id, &card).await;
@@ -989,7 +989,11 @@ async fn get_cards_permissions_and_malformed_paging() {
     for (query, name, reason) in cases {
         let response = th.client.get(&format!("{path}{query}")).await;
         check_error(&response, StatusCode::BAD_REQUEST, &invalid(name, reason));
-        assert_eq!(response.value()["field"], json!(name), "{query}");
+        assert_eq!(
+            response.refused_at(),
+            format!("parameter {name}"),
+            "{query}"
+        );
     }
     // Whether the board can be seen comes first.
     let response = outsider.get(&format!("{path}?page=x")).await;
@@ -1111,7 +1115,7 @@ async fn a_malformed_card_block_is_refused() {
             .insert_blocks(&board.id, std::slice::from_ref(&block))
             .await;
         response.check_bad_request();
-        assert_eq!(response.value()["field"], json!("fields"), "{fields}");
+        assert_eq!(response.refused_at(), "/fields", "{fields}");
 
         // Nor can a card get it by a patch.
         let response = th
@@ -1122,7 +1126,7 @@ async fn a_malformed_card_block_is_refused() {
             )
             .await;
         response.check_bad_request();
-        assert_eq!(response.value()["field"], json!("fields"), "{fields}");
+        assert_eq!(response.refused_at(), "/fields", "{fields}");
     }
     // Another block may hold such fields: only a card is read as one.
     let view = Block {
@@ -1206,7 +1210,7 @@ async fn a_title_with_u0000_is_refused() {
         .insert_blocks(&board.id, std::slice::from_ref(&block))
         .await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("title"));
+    assert_eq!(response.refused_at(), "/title");
 
     let card = create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
     let response = th
@@ -1217,7 +1221,7 @@ async fn a_title_with_u0000_is_refused() {
         )
         .await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("title"));
+    assert_eq!(response.refused_at(), "/title");
 
     for (patch, member) in [
         (json!({"title": "a\u{0}"}), "title"),
@@ -1235,7 +1239,7 @@ async fn a_title_with_u0000_is_refused() {
             .patch(&format!("/boards/{}", board.id), &patch)
             .await;
         response.check_bad_request();
-        assert_eq!(response.value()["field"], json!(member), "{patch}");
+        assert_eq!(response.refused_at(), format!("/{member}"), "{patch}");
     }
     let response = th
         .client
@@ -1245,7 +1249,7 @@ async fn a_title_with_u0000_is_refused() {
         )
         .await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("title"));
+    assert_eq!(response.refused_at(), "/title");
     th.teardown().await;
 }
 
@@ -1380,7 +1384,7 @@ async fn patch_card_refusals() {
     ] {
         let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     let too_long = title_patch(&"a".repeat(BLOCK_TITLE_MAX_CHARS + 1));

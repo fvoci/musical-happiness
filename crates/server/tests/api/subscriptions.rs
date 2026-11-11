@@ -320,7 +320,7 @@ async fn create_subscription_validation() {
     ] {
         let response = th.client.send_raw_body(Method::POST, PATH, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     assert_eq!(

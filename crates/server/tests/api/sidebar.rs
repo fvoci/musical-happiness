@@ -1628,7 +1628,7 @@ async fn create_category_refuses_invalid_requests() {
             StatusCode::FORBIDDEN,
             "a user makes categories for themselves only",
         );
-        assert_eq!(response.value()["field"], json!("userId"), "{body}");
+        assert_eq!(response.refused_at(), "/userId", "{body}");
     }
 
     // Another team than the path's: one that exists, one that does not, and text that
@@ -1679,7 +1679,11 @@ async fn create_category_refuses_invalid_requests() {
     ] {
         let response = th.client.send_raw_body(Method::POST, path, malformed).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{malformed}");
+        assert_eq!(
+            response.problem_type(),
+            "/problems/bad-request",
+            "{malformed}"
+        );
     }
 
     // The server makes the identifier. A request that names one is refused whether or
@@ -1694,11 +1698,7 @@ async fn create_category_refuses_invalid_requests() {
             StatusCode::BAD_REQUEST,
             "a new category cannot have an ID",
         );
-        assert_eq!(
-            response.value()["field"],
-            json!("id"),
-            "the member at fault"
-        );
+        assert_eq!(response.refused_at(), "/id", "the member at fault");
     }
     th.client
         .post(
@@ -1959,7 +1959,7 @@ async fn reorder_categories_over_the_api() {
     for body in refused {
         let response = th.client.put(path, &body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
     th.client
         .send_raw_body(Method::PUT, path, "[")
@@ -2053,7 +2053,7 @@ async fn reorder_category_boards_over_the_api() {
     for body in refused {
         let response = th.client.put(&path, &body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
     th.client
         .send_raw_body(Method::PUT, &path, "{")
@@ -2619,7 +2619,11 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
         let order = [second.id.as_str(), hostile_id, default_id.as_str()];
         let response = th.client.put(path, &order).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "for {hostile_id:?}");
+        assert_eq!(
+            response.problem_type(),
+            "/problems/bad-request",
+            "for {hostile_id:?}"
+        );
 
         // Asked past that check, the store does not run the statement.
         let written = th
@@ -2729,7 +2733,11 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
         let order = [boards[0].as_str(), hostile_id, boards[2].as_str()];
         let response = th.client.put(&path, &order).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "for {hostile_id:?}");
+        assert_eq!(
+            response.problem_type(),
+            "/problems/bad-request",
+            "for {hostile_id:?}"
+        );
         let written = th
             .app
             .store()

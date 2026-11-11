@@ -6,8 +6,8 @@
   account does not sign in on the server, so the page signs in right after
   with what was typed; if that fails, the page is the sign-in form. The
   length of a password is the server's to check (it counts characters, a
-  browser's `minlength` counts UTF-16 units). A refusal is told by its kind and reason, never by
-  the server's own words (`ErrorBody` in `lib/state/backend.ts`).
+  browser's `minlength` counts UTF-16 units). A refusal is told by its status and reason, never by
+  the server's own words (`Problem` in `lib/state/backend.ts`).
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -32,11 +32,12 @@
   let working = $state(false);
   let problem = $state<string | undefined>(undefined);
 
+  /** The members of the requests, by their JSON Pointers, and what the form calls them. */
   const FIELD_LABELS: Record<string, () => string> = {
-    username: () => m.account_username(),
-    email: () => m.account_email(),
-    password: () => m.account_password(),
-    token: () => m.account_token(),
+    '/username': () => m.account_username(),
+    '/email': () => m.account_email(),
+    '/password': () => m.account_password(),
+    '/token': () => m.account_token(),
   };
 
   /** The words for a refusal. */
@@ -60,7 +61,8 @@
     }
     if (error.status === 429) return m.account_rate_limited();
     if (error.status === 401) return m.account_invalid_credentials();
-    const field = error.field === undefined ? undefined : FIELD_LABELS[error.field];
+    const pointer = error.errors[0]?.pointer;
+    const field = pointer === undefined ? undefined : FIELD_LABELS[pointer];
     if (error.status === 400 && field) return m.account_bad_field({ field: field() });
     return m.account_failed();
   }

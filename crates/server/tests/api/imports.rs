@@ -192,10 +192,10 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
         .post(&format!("/uploads/{id}/complete"), &json!({}))
         .await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("uploadId"));
+    assert_eq!(response.refused_at(), "parameter uploadId", "of the path");
     let response = import_upload(&ts.client, ROOT_TEAM_ID, &id).await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("uploadId"));
+    assert_eq!(response.refused_at(), "/uploadId");
     import_upload(&ts.client2, TEST_TEAM_ID, &id)
         .await
         .check_status(StatusCode::NOT_FOUND);
@@ -219,7 +219,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
     let file_upload = upload_id(&response);
     let response = import_upload(&ts.client, TEST_TEAM_ID, &file_upload).await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("uploadId"));
+    assert_eq!(response.refused_at(), "/uploadId");
     ts.teardown().await;
 }
 

@@ -15,7 +15,7 @@ pub(crate) mod params;
 
 use std::collections::BTreeSet;
 
-use fvoci_model::ErrorBody;
+use fvoci_model::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem};
 use serde_json::{Map, Value, json};
 use utoipa::PartialSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -105,10 +105,16 @@ the browser posts itself), which is refused as a foreign origin.
 ## Answers
 
 An operation answers 200 with a body, 201 with what it made, or 204 with no body. Every \
-other status comes with an `ErrorBody`, unless the operation says otherwise (`getFile` \
-does): `error` names the kind of the refusal and goes with the status, `reason` tells apart \
-causes a client must tell apart, `field` names the member of the request that was refused, \
-and `limit` is the number of bytes a body that was too large (413) may have. A session that \
+other status comes with a `Problem`, the problem details of RFC 9457, as \
+`application/problem+json`: `type` names the kind of the problem and is the same for every \
+problem of the kind, `title` is its name, `status` repeats the status and `detail` says what \
+went wrong this time. `type` is `/problems/<name>`, a reference relative to the server, \
+which describes the kind there. `reason` tells apart causes a client must tell apart; a \
+problem with a `reason` has the `type` of that name, written with hyphens, and any other the \
+`type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer \
+into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or \
+the name of a header (`header`). `limit` is the number of bytes a body that was too large \
+(413) may have. `instance` is the request, `urn:uuid:` and its `request_id`. A session that \
 is missing or over is 401. What the user may not see is 404, as if it were not there; what \
 they may see but not do is 403. A path that is no operation is 404 too, and a method an \
 operation's path does not have is 405.
@@ -140,8 +146,9 @@ members the schema does not list is mostly not refused for them. The exceptions:
 const REFUSAL: &str = "The request was refused, or failed. The status says the kind: 400 for a \
 request that is malformed or asks for what cannot be, 401 without a session, 403 for what the \
 user may not do, 404 for what is not there for them, 405 for a method the path does not have, \
-409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 \
-for a failure of the server.";
+409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a \
+body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for \
+a failure of the server.";
 
 /// Which members of a schema are always there.
 #[derive(Debug, Clone, Copy)]
@@ -175,9 +182,13 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CategoryBoards", Members::All),
     ("ClientConfig", Members::All),
     ("CommentVersion", Members::All),
-    ("ErrorBody", Members::Only(&["error", "message"])),
     ("FileInfo", Members::All),
+    ("InvalidInput", Members::Only(&["detail", "reason"])),
     ("OnboardingStart", Members::AsWritten),
+    (
+        "Problem",
+        Members::Only(&["type", "title", "status", "detail"]),
+    ),
     ("ServerMetadata", Members::AsWritten),
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
@@ -341,14 +352,19 @@ fn object_at<'v>(
         .ok_or_else(|| ContractError(format!("the document has no object at {pointer}")))
 }
 
-/// Brings the schemas to what the contract says: `ErrorBody` is among them, none
+/// Brings the schemas to what the contract says: `Problem` is among them, none
 /// carries the defaults of the decoding, and each has the members [`SCHEMAS`] says are
 /// always there.
 fn finish_schemas(document: &mut Value) -> Result<(), ContractError> {
     let schemas = object_at(document, "/components/schemas")?;
-    let error_body = serde_json::to_value(ErrorBody::schema())
-        .map_err(|error| ContractError(format!("the error body has no schema: {error}")))?;
-    schemas.insert("ErrorBody".to_owned(), error_body);
+    for (name, schema) in [
+        ("Problem", Problem::schema()),
+        ("InvalidInput", InvalidInput::schema()),
+    ] {
+        let schema = serde_json::to_value(schema)
+            .map_err(|error| ContractError(format!("{name} has no schema: {error}")))?;
+        schemas.insert(name.to_owned(), schema);
+    }
 
     let listed: BTreeSet<&str> = SCHEMAS.iter().map(|(name, _)| *name).collect();
     if let Some(unlisted) = schemas.keys().find(|name| !listed.contains(name.as_str())) {
@@ -565,7 +581,7 @@ fn finish_operations(document: &mut Value) -> Result<(), ContractError> {
     let refusal = json!({
         "description": REFUSAL,
         "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/ErrorBody" } },
+            PROBLEM_MEDIA_TYPE: { "schema": { "$ref": "#/components/schemas/Problem" } },
         },
     });
     let mut names = BTreeSet::new();
@@ -689,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn every_operation_answers_a_refusal_with_the_error_body() {
+    fn every_operation_answers_a_refusal_with_the_problem() {
         let text = document().expect("the document");
         let document: Value = serde_json::from_str(&text).expect("JSON");
         let paths = document["paths"].as_object().expect("paths");
@@ -697,11 +713,29 @@ mod tests {
         for (path, item) in paths {
             for (method, operation) in item.as_object().expect("a path item") {
                 operations += 1;
+                let content = operation["responses"]["default"]["content"]
+                    .as_object()
+                    .expect("the content of the refusal");
+                assert_eq!(content.len(), 1, "one media type: {method} {path}");
                 assert_eq!(
-                    operation["responses"]["default"]["content"]["application/json"]["schema"]["$ref"],
-                    "#/components/schemas/ErrorBody",
+                    content["application/problem+json"]["schema"]["$ref"],
+                    "#/components/schemas/Problem",
                     "the refusal of {method} {path}"
                 );
+                // A status an operation describes by itself is no other kind of body.
+                for (status, response) in operation["responses"].as_object().expect("responses") {
+                    if !status.starts_with('4') && !status.starts_with('5') {
+                        continue;
+                    }
+                    let content = response["content"]
+                        .as_object()
+                        .expect("an error has a body");
+                    assert_eq!(
+                        content.keys().collect::<Vec<_>>(),
+                        ["application/problem+json"],
+                        "the {status} of {method} {path}"
+                    );
+                }
             }
         }
         assert!(operations > 70, "the document has {operations} operations");

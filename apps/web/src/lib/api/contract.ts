@@ -98,9 +98,9 @@ export interface paths {
         /**
          * A board
          * @description For a user who may see the board: a member of it, or for an open board anyone in
-         *     its team. With the board's read token no session is needed; who reads that way is
-         *     not told who made the board or changed it last (`createdBy` and `modifiedBy` are
-         *     empty).
+         *     its team. With the board's read token no session is needed. Who reads with the token
+         *     and is no member of the board, without a session or signed in, is not told who made
+         *     the board or changed it last (`createdBy` and `modifiedBy` are empty).
          */
         get: operations["getBoard"];
         put?: never;
@@ -137,6 +137,11 @@ export interface paths {
          *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
          *     `block` or `boardMember` per line, in the shapes of this contract, bodies included)
          *     and the files the blocks show, the images of bodies among them.
+         *
+         *     A user runs one export at a time, and the server as many as its setting
+         *     `max_concurrent_exports` (2 unless set); an export runs until its archive is written,
+         *     and its download does not count. Over either it is 429 with the reason `export_running` or `server_exports_busy`, and
+         *     is to be asked for again later.
          */
         get: operations["exportBoardArchive"];
         put?: never;
@@ -157,9 +162,16 @@ export interface paths {
         /**
          * The blocks of a board
          * @description For the board's members, and for an open template everyone in its team. With the
-         *     board's read token no session is needed; who reads that way is not told who made a
-         *     block or changed it last (`createdBy` and `modifiedBy` are empty), nor who is
-         *     mentioned in a body (the `userId` of every mention is empty).
+         *     board's read token no session is needed. Who reads with the token and is no member
+         *     of the board, without a session or signed in, is told no user's identifier:
+         *     `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a
+         *     body, and so is each user that the board's person properties (`person`,
+         *     `multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in
+         *     the clauses of a view's `fields.filter`; a list keeps its length, so how many people
+         *     a card has still shows. A card's values of properties the board does not define are
+         *     left out, and a view grouped by a person property keeps of `visibleOptionIds`,
+         *     `hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of
+         *     the cards without a value (`""`).
          *
          *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
          *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -183,7 +195,9 @@ export interface paths {
         /**
          * Change several blocks
          * @description Applies a patch to each of several blocks of the board, all or none. A body that
-         *     names no block changes nothing and is answered 204 too. For editors.
+         *     names no block changes nothing and is answered 204 too. Each block needs what
+         *     `patchBlock` needs: the editor's role, for a comment its author's commenter role or
+         *     for the comment of somebody else the board's admin role.
          */
         patch: operations["patchBlocks"];
         trace?: never;
@@ -210,8 +224,11 @@ export interface paths {
         head?: never;
         /**
          * Change a block
-         * @description For editors, also for a comment: a commenter cannot change their own comment this
-         *     way.
+         * @description For editors. A comment is changed by its author with the commenter's role, and the
+         *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
+         *     editor may not change it. Making a comment a block of another type is for editors,
+         *     and making a block of somebody else a comment for the board's admins.
+         *     The block's `modifiedBy` and `updateAt` say who changed it and when.
          */
         patch: operations["patchBlock"];
         trace?: never;
@@ -252,6 +269,33 @@ export interface paths {
          *     it. A block whose parent is gone has nowhere to come back to: 404. For editors.
          */
         post: operations["undeleteBlock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/boards/{boardId}/blocks/{blockId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a comment said before
+         * @description The earlier versions of a comment's body: every version but the one it has now, with
+         *     who wrote it and when. The first one first; it is the text the comment was posted
+         *     with, by its author. The server keeps the first version and the newest ones, up to
+         *     its setting `max_comment_versions` in all, so the numbers of the versions may leave
+         *     gaps. Empty for a comment whose body was never changed; the comment's `editedAt` says
+         *     whether it was. For the board's members, also in the trash: the versions go only
+         *     when the comment is gone for good. Not for a reader by the board's read token. A
+         *     block that is no comment is not there (404).
+         */
+        get: operations["getCommentVersions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -356,8 +400,6 @@ export interface paths {
          *     must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
          *     download: the `Last-Modified` of an answer is the time of that answer, so a request
          *     with the `If-Modified-Since` of an earlier answer gets the whole file again.
-         *
-         *     412 and 416 come without an `ErrorBody`.
          */
         get: operations["getFile"];
         put?: never;
@@ -723,8 +765,9 @@ export interface paths {
          *     Registering does not sign in.
          *
          *     The name and the email address must not be blank, the email address must look like
-         *     one, and the password must have at least 8 characters and at most 1024 bytes;
-         *     otherwise the request is 400, and `field` names the member.
+         *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
+         *     and the password must have at least 8 characters and at most 1024 bytes; otherwise
+         *     the request is 400, and `errors` names the member.
          */
         post: operations["register"];
         delete?: never;
@@ -852,8 +895,8 @@ export interface paths {
         /**
          * Export the boards of a team
          * @description An archive of all boards of the team that `getBoards` lists for the user, offered
-         *     as a download with its length, in the format of `exportBoardArchive`. A team that
-         *     is not there is not refused: its archive has no boards.
+         *     as a download with its length, in the format of `exportBoardArchive`, and under its
+         *     limits. A team that is not there is not refused: its archive has no boards.
          */
         get: operations["exportTeamArchive"];
         put?: never;
@@ -897,6 +940,10 @@ export interface paths {
          *
          *     The boards are made one after the other, not all or none: when one of them fails,
          *     those before it stay.
+         *
+         *     A user runs one import at a time, and the server as many as its setting
+         *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
+         *     `import_running` or `server_imports_busy`; the upload stays open, to be named again.
          */
         post: operations["importArchive"];
         delete?: never;
@@ -1218,8 +1265,8 @@ export interface paths {
         };
         /**
          * The users of a team
-         * @description Up to ten users: with `search` those whose name has that text in it, whatever the
-         *     case of the letters, without it the ten oldest accounts. Oldest account first.
+         * @description Up to ten users: with `search` those whose login name or display name has that text
+         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest account first.
          */
         get: operations["getTeamUsers"];
         put?: never;
@@ -1351,7 +1398,17 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change the user's account
+         * @description Changes what the body names of the user of the session: `displayName`, the name to
+         *     be shown by. White space around it is dropped, and empty or `null` is none. At most
+         *     64 UTF-16 code units, without control characters and without characters that show
+         *     nothing, break a line or turn the text around (U+00AD, U+200B–U+200F,
+         *     U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is
+         *     no such thing, or a name that breaks these rules, is refused (400 naming it) and
+         *     changes nothing. Answers the user as `getMe` does.
+         */
+        patch: operations["patchMe"];
         trace?: never;
     };
     "/api/v1/users/me/client-state": {
@@ -1415,7 +1472,7 @@ export interface paths {
          *     The user's other sessions end, and this one goes on under a new cookie.
          *
          *     A wrong old password is 400 (not 401: the session is good) with the reason
-         *     `invalid_credentials` and the field `oldPassword`. Wrong ones are counted with the
+         *     `invalid_credentials`, and `errors` names `oldPassword`. Wrong ones are counted with the
          *     failed logins to the account by its name, and too many are 429, also for a login.
          *     The new password must have at least 8 characters and at most 1024 bytes. A password
          *     that was changed by somebody else while this request was under way is 409.
@@ -1499,6 +1556,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description What a user changes of their account. A member that is left out stays as it is. */
+        AccountChange: {
+            /**
+             * @description The name to be shown by: at most 64 UTF-16 code units without control
+             *     characters. Empty or `null` for none, and the login name is shown.
+             */
+            displayName?: string | null;
+        };
         /** @description Whether a user is to be an administrator of the instance. */
         AdminChange: {
             /** @description `true` makes the user an administrator, `false` ends that. */
@@ -1521,6 +1586,14 @@ export interface components {
              * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
              */
             deleteAt: number;
+            /**
+             * Format: int64
+             * @description For a comment whose body was changed: when that last happened, in milliseconds
+             *     since the Unix epoch. Absent for a comment never changed and for every other
+             *     block. The server sets it, and ignores a client's. What the body said before is
+             *     `getCommentVersions`'.
+             */
+            editedAt?: number;
             /**
              * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
              *     comment or an attachment and 800,000 for a view or a block of another type. The
@@ -1902,6 +1975,29 @@ export interface components {
             /** @description How other users' names are displayed. */
             teammateNameDisplay: string;
         };
+        /**
+         * @description A text a comment had before its body was changed: the body then, who wrote it and
+         *     when. The first is the comment as it was posted.
+         */
+        CommentVersion: {
+            body: components["schemas"]["Body"] | null;
+            /**
+             * Format: int64
+             * @description The place of the version among the comment's, counted from 1 for the text it was
+             *     posted with. Versions the server no longer keeps leave gaps.
+             */
+            version: number;
+            /**
+             * Format: int64
+             * @description When this version was written, in milliseconds since the Unix epoch.
+             */
+            writtenAt: number;
+            /**
+             * @description Who wrote this version: the author of the comment for the first one, and for
+             *     each later one who changed the body to it.
+             */
+            writtenBy: string;
+        };
         /** @description The identifiers of boards and blocks to delete together. */
         DeleteBoardsAndBlocks: {
             /** @description The identifiers of the blocks. */
@@ -1914,44 +2010,6 @@ export interface components {
          * @enum {string}
          */
         Density: "auto" | "compact" | "comfortable";
-        /**
-         * @description The JSON body the server sends with every error status of the API.
-         *
-         *     A client decides by `error` and, where there is one, `reason`; both are stable.
-         *     `message` is English text for logs and developers and may change.
-         */
-        ErrorBody: {
-            /**
-             * @description The kind of error, one per status code: `bad_request`, `unauthorized`,
-             *     `forbidden`, `not_found`, `method_not_allowed`, `conflict`, `payload_too_large`,
-             *     `rate_limited`, `internal`.
-             */
-            error: string;
-            /** @description The member of the request that was refused. */
-            field?: string | null;
-            /**
-             * Format: int64
-             * @description The limit that was exceeded.
-             */
-            limit?: number | null;
-            /** @description What went wrong, in English. Not for showing to users, and without internals. */
-            message: string;
-            /**
-             * @description Why, where a client must tell causes of the same kind apart, such as
-             *     `invalid_credentials` or `last_admin`.
-             */
-            reason?: string | null;
-            /**
-             * @description The identifier of the request, the same as in the `x-request-id` response header
-             *     and in the server's request log.
-             */
-            request_id?: string | null;
-            /**
-             * Format: int64
-             * @description How many seconds to wait before trying again, as in the `Retry-After` header.
-             */
-            retry_after?: number | null;
-        };
         /** @description A form with one file. */
         FileForm: {
             /**
@@ -1992,6 +2050,29 @@ export interface components {
              *     import, whether the import succeeds or not.
              */
             uploadId: string;
+        };
+        /**
+         * @description One thing of a request that was refused, and where in the request it is: exactly
+         *     one of `pointer`, `parameter` and `header` says.
+         */
+        InvalidInput: {
+            /** @description What is wrong with it, in English. Not for showing to users. */
+            detail: string;
+            /** @description The name of the request header. */
+            header?: string | null;
+            /** @description The name of the parameter of the query or of the path. */
+            parameter?: string | null;
+            /**
+             * @description A JSON Pointer (RFC 6901) to the member of the request body: `/username`,
+             *     `/updatedFields/theme`. The empty pointer is the body as a whole.
+             */
+            pointer?: string | null;
+            /**
+             * @description Why it was refused, stable: the `reason` of the problem where it has one, a
+             *     cause of its own such as `required` or `too_short` where a check tells them
+             *     apart, else `invalid`.
+             */
+            reason: string;
         };
         /** @description A login request. */
         LoginRequest: {
@@ -2231,6 +2312,62 @@ export interface components {
             /** @description The board patches, one per board identifier. */
             boardPatches: components["schemas"]["BoardPatch"][];
         };
+        /**
+         * @description The JSON body the server sends with every error status of the API, as
+         *     `application/problem+json` (RFC 9457).
+         *
+         *     A client decides by `status` and, where there is one, `reason`; both are stable,
+         *     and so is `type`. `title` and `detail` are English text for logs and developers.
+         */
+        Problem: {
+            /**
+             * @description What went wrong this time, in English. Not for showing to users, and without
+             *     internals.
+             */
+            detail: string;
+            /**
+             * @description What of the request was refused, one entry for each: every member that a check
+             *     of the request's own shape refuses, or the one that a later check does.
+             */
+            errors?: components["schemas"]["InvalidInput"][];
+            /** @description The request this answer is to: `urn:uuid:` and the `request_id`. */
+            instance?: string | null;
+            /**
+             * Format: int64
+             * @description The limit that was exceeded.
+             */
+            limit?: number | null;
+            /**
+             * @description Why, where a client must tell causes of the same status apart, such as
+             *     `invalid_credentials` or `last_admin`.
+             */
+            reason?: string | null;
+            /**
+             * @description The identifier of the request, the same as in the `x-request-id` response header
+             *     and in the server's request log.
+             */
+            request_id?: string | null;
+            /**
+             * Format: int64
+             * @description How many seconds to wait before trying again, as in the `Retry-After` header.
+             */
+            retry_after?: number | null;
+            /**
+             * Format: int32
+             * @description The HTTP status of the answer.
+             */
+            status: number;
+            /** @description The name of the `type`, in English; the same for every problem of the type. */
+            title: string;
+            /**
+             * @description What kind of problem this is: `/problems/<name>`, a reference relative to the
+             *     server, where the server describes the kind. The same kind of problem has the
+             *     same `type` every time. The name is that of the `reason` where there is one,
+             *     else that of the status, written with hyphens: `/problems/last-admin`,
+             *     `/problems/not-found`.
+             */
+            type: string;
+        };
         /** @description A part that was received. */
         ReceivedPart: {
             /**
@@ -2246,6 +2383,11 @@ export interface components {
         };
         /** @description A request to register a new user. */
         RegisterRequest: {
+            /**
+             * @description The name to be shown by; may be left out, `null` or empty for none. Read as
+             *     `patchMe` reads it.
+             */
+            displayName?: string;
             /** @description The email address. */
             email: string;
             /** @description The password. */
@@ -2476,6 +2618,11 @@ export interface components {
              * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
              */
             deleteAt: number;
+            /**
+             * @description The name the user chose to be shown by; empty for none, and then the login name
+             *     is shown. At most 64 UTF-16 code units, not unique.
+             */
+            displayName: string;
             /** @description The user's identifier. */
             id: string;
             /**
@@ -2559,13 +2706,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2592,13 +2739,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardsAndBlocks"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2623,13 +2770,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2656,13 +2803,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardsAndBlocks"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2688,13 +2835,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2723,13 +2870,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2753,13 +2900,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2789,13 +2936,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2825,13 +2972,13 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2868,13 +3015,13 @@ export interface operations {
                     "application/json": components["schemas"]["Block"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2909,13 +3056,13 @@ export interface operations {
                     "application/json": components["schemas"]["Block"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2946,13 +3093,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -2981,13 +3128,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3020,13 +3167,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3057,13 +3204,13 @@ export interface operations {
                     "application/json": components["schemas"]["Block"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3091,13 +3238,47 @@ export interface operations {
                     "application/json": components["schemas"]["Block"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCommentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The earlier versions, the first one first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3128,13 +3309,13 @@ export interface operations {
                     "application/json": components["schemas"]["Card"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3167,13 +3348,13 @@ export interface operations {
                     "application/json": components["schemas"]["Card"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3204,13 +3385,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardsAndBlocks"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3240,13 +3421,13 @@ export interface operations {
                     "application/json": components["schemas"]["UploadedFile"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3293,29 +3474,31 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request has an `If-Unmodified-Since` before the time of the answer. No body. */
+            /** @description The request has an `If-Unmodified-Since` before the time of the answer. */
             412: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
-            /** @description The range is not in the file, or is no range. */
+            /** @description The range is not in the file, or is no range. A range that is not in the file is answered with a `Content-Range` that tells the file's length. */
             416: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/plain": string;
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3346,13 +3529,13 @@ export interface operations {
                     "application/json": components["schemas"]["FileInfo"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3378,13 +3561,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardMember"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3408,13 +3591,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3440,13 +3623,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardMember"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3476,13 +3659,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardMember"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3514,13 +3697,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardMember"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3546,13 +3729,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3578,13 +3761,13 @@ export interface operations {
                     "application/json": components["schemas"]["Sharing"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3614,13 +3797,13 @@ export interface operations {
                     "application/json": components["schemas"]["Sharing"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3646,13 +3829,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3682,13 +3865,13 @@ export interface operations {
                     "application/json": components["schemas"]["UploadOpened"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3714,13 +3897,13 @@ export interface operations {
                     "application/json": components["schemas"]["Card"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3753,13 +3936,13 @@ export interface operations {
                     "application/json": components["schemas"]["Card"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3782,13 +3965,13 @@ export interface operations {
                     "application/json": components["schemas"]["ClientConfig"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3811,13 +3994,13 @@ export interface operations {
                     "text/plain": string;
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3852,16 +4035,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3884,13 +4067,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3913,13 +4096,13 @@ export interface operations {
                     "application/json": components["schemas"]["ServerMetadata"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3954,16 +4137,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3990,13 +4173,13 @@ export interface operations {
                     "application/json": components["schemas"]["Subscription"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4022,13 +4205,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4054,13 +4237,13 @@ export interface operations {
                     "application/json": components["schemas"]["Subscription"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4083,13 +4266,13 @@ export interface operations {
                     "application/json": components["schemas"]["Team"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4115,13 +4298,13 @@ export interface operations {
                     "application/json": components["schemas"]["Team"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4151,13 +4334,13 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4185,13 +4368,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4221,13 +4404,13 @@ export interface operations {
                     "application/json": components["schemas"]["UploadOpened"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4253,13 +4436,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4290,13 +4473,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4322,13 +4505,13 @@ export interface operations {
                     "application/json": components["schemas"]["CategoryBoards"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4358,13 +4541,13 @@ export interface operations {
                     "application/json": components["schemas"]["Category"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4396,13 +4579,13 @@ export interface operations {
                     "application/json": components["schemas"]["Category"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4428,13 +4611,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4466,13 +4649,13 @@ export interface operations {
                     "application/json": string[];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4500,13 +4683,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4534,13 +4717,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4568,13 +4751,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4604,13 +4787,13 @@ export interface operations {
                     "application/json": string[];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4636,13 +4819,13 @@ export interface operations {
                     "application/json": components["schemas"]["OnboardingStart"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4668,13 +4851,13 @@ export interface operations {
                     "application/json": components["schemas"]["Team"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4700,13 +4883,13 @@ export interface operations {
                     "application/json": components["schemas"]["Board"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4735,13 +4918,13 @@ export interface operations {
                     "application/json": components["schemas"]["User"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4771,13 +4954,13 @@ export interface operations {
                     "application/json": components["schemas"]["User"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4803,13 +4986,13 @@ export interface operations {
                     "application/json": components["schemas"]["UploadState"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4833,13 +5016,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4865,13 +5048,13 @@ export interface operations {
                     "application/json": components["schemas"]["UploadedFile"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4904,13 +5087,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4937,13 +5120,13 @@ export interface operations {
                     "application/json": components["schemas"]["User"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4966,13 +5149,46 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountChange"];
+            };
+        };
+        responses: {
+            /** @description The user as they are now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -4997,13 +5213,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -5032,13 +5248,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -5061,13 +5277,13 @@ export interface operations {
                     "application/json": components["schemas"]["BoardMember"][];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -5102,16 +5318,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -5134,13 +5350,13 @@ export interface operations {
                     "application/json": components["schemas"]["UserSettings"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -5167,13 +5383,13 @@ export interface operations {
                     "application/json": components["schemas"]["UserSettings"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -5199,13 +5415,13 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -5235,13 +5451,13 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
             default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

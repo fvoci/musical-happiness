@@ -30,8 +30,8 @@ fn document() -> Value {
 fn check_refused_member(response: &ApiResponse, field: &str) {
     response.check_status(StatusCode::BAD_REQUEST);
     assert_eq!(
-        response.value()["field"],
-        json!(field),
+        response.refused_at(),
+        format!("/{field}"),
         "{}",
         response.text()
     );
@@ -166,7 +166,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
         )
         .await;
     stale.check_status(StatusCode::CONFLICT);
-    assert_eq!(stale.error_code(), "conflict");
+    assert_eq!(stale.problem_type(), "/problems/conflict");
     assert_eq!(
         card(&th.client, &created.id).await,
         patched,

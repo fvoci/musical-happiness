@@ -83,7 +83,10 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
     data: { readAt: now.updateAt, body },
   });
   expect(back.status()).toBe(400);
-  expect(((await back.json()) as { field?: string }).field).toBe('body');
+  expect(back.headers()['content-type']).toBe('application/problem+json');
+  const problem = (await back.json()) as Schemas['Problem'];
+  expect(problem.type).toBe('/problems/bad-request');
+  expect(problem.errors?.map((entry) => entry.pointer)).toEqual(['/body']);
 
   // The owner's own card screen names the owner, and the one it does not know "Unknown user".
   const errors = watchErrors(page);

@@ -121,45 +121,57 @@
     "name": "renew the token: not an administrator",
     "request": "POST /api/v1/teams/<id:3>/signup-token as admins-alice",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "only an administrator of the instance may do this",
+      "detail": "only an administrator of the instance may do this",
+      "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Administrator required",
+      "type": "/problems/admin-required"
     }
   },
   {
     "name": "renew the token: no session",
     "request": "POST /api/v1/teams/<id:3>/signup-token as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "renew the token: unknown team",
     "request": "POST /api/v1/teams/<id:5>/signup-token as root",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "team not found",
-      "request_id": "<request-id>"
+      "detail": "team not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "old path: renew the token",
     "request": "POST /api/v1/teams/<id:3>/regenerate_signup_token as root",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -180,118 +192,166 @@
     "name": "register with the old token",
     "request": "POST /api/v1/register as anonymous",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "field": "token",
-      "message": "the signup token is not valid",
+      "detail": "the signup token is not valid",
+      "errors": [
+        {
+          "detail": "the signup token is not valid",
+          "pointer": "/token",
+          "reason": "signup_token_invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
       "reason": "signup_token_invalid",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Signup token not valid",
+      "type": "/problems/signup-token-invalid"
     }
   },
   {
     "name": "register without a token",
     "request": "POST /api/v1/register as anonymous",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "field": "token",
-      "message": "registration needs the signup token",
+      "detail": "registration needs the signup token",
+      "errors": [
+        {
+          "detail": "registration needs the signup token",
+          "pointer": "/token",
+          "reason": "signup_token_required"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
       "reason": "signup_token_required",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Signup token required",
+      "type": "/problems/signup-token-required"
     }
   },
   {
     "name": "make: not an administrator",
     "request": "PUT /api/v1/users/<id:6>/admin as admins-alice",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "only an administrator of the instance may do this",
+      "detail": "only an administrator of the instance may do this",
+      "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Administrator required",
+      "type": "/problems/admin-required"
     }
   },
   {
     "name": "make: oneself, not an administrator",
     "request": "PUT /api/v1/users/<id:2>/admin as admins-alice",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "only an administrator of the instance may do this",
+      "detail": "only an administrator of the instance may do this",
+      "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Administrator required",
+      "type": "/problems/admin-required"
     }
   },
   {
     "name": "make: no session",
     "request": "PUT /api/v1/users/<id:6>/admin as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "make: no body member",
     "request": "PUT /api/v1/users/<id:6>/admin as root",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "isAdmin",
-      "message": "isAdmin must be true or false",
-      "request_id": "<request-id>"
+      "detail": "isAdmin must be true or false",
+      "errors": [
+        {
+          "detail": "isAdmin must be true or false",
+          "pointer": "/isAdmin",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "make: not a boolean",
     "request": "PUT /api/v1/users/<id:6>/admin as root",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "invalid type: string \"yes\", expected a boolean",
-      "request_id": "<request-id>"
+      "detail": "invalid type: string \"yes\", expected a boolean",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "make: unknown user",
     "request": "PUT /api/v1/users/<id:5>/admin as root",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "user not found",
-      "request_id": "<request-id>"
+      "detail": "user not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "make: no identifier",
     "request": "PUT /api/v1/users/nobody/admin as root",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "user not found",
-      "request_id": "<request-id>"
+      "detail": "user not found",
+      "instance": "urn:uuid:<request-id>",
+      "request_id": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "step down: the only administrator",
     "request": "PUT /api/v1/users/<id:1>/admin as root",
     "status": 409,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "conflict",
-      "message": "the instance must keep an administrator",
+      "detail": "the instance must keep an administrator",
+      "instance": "urn:uuid:<request-id>",
       "reason": "last_admin",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 409,
+      "title": "Last administrator",
+      "type": "/problems/last-admin"
     }
   },
   {
@@ -357,12 +417,15 @@
     "name": "make: after stepping down",
     "request": "PUT /api/v1/users/<id:1>/admin as root",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "only an administrator of the instance may do this",
+      "detail": "only an administrator of the instance may do this",
+      "instance": "urn:uuid:<request-id>",
       "reason": "admin_required",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 403,
+      "title": "Administrator required",
+      "type": "/problems/admin-required"
     }
   },
   {
@@ -382,12 +445,15 @@
     "name": "unmake: the new only administrator",
     "request": "PUT /api/v1/users/<id:6>/admin as admins-bob",
     "status": 409,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "conflict",
-      "message": "the instance must keep an administrator",
+      "detail": "the instance must keep an administrator",
+      "instance": "urn:uuid:<request-id>",
       "reason": "last_admin",
-      "request_id": "<request-id>"
+      "request_id": "<request-id>",
+      "status": 409,
+      "title": "Last administrator",
+      "type": "/problems/last-admin"
     }
   },
   {

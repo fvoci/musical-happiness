@@ -196,7 +196,12 @@ async fn login_cases() {
         )
         .await;
     response.check_bad_request();
-    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
+    assert_eq!(
+        response.problem_type(),
+        "/problems/bad-request",
+        "{}",
+        response.text()
+    );
 
     // A body that is not JSON is the sender's mistake.
     let response = th
@@ -204,7 +209,12 @@ async fn login_cases() {
         .send_raw_body(reqwest::Method::POST, "/login", "{not json")
         .await;
     response.check_bad_request();
-    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
+    assert_eq!(
+        response.problem_type(),
+        "/problems/bad-request",
+        "{}",
+        response.text()
+    );
 
     th.teardown().await;
 }
@@ -870,7 +880,7 @@ async fn settings_refuse_what_is_no_setting_or_no_value_of_one() {
     for (body, field) in &refused {
         let response = th.client.patch(SETTINGS, body).await;
         response.check_bad_request();
-        assert_eq!(response.value()["field"], json!(field), "{body}");
+        assert_eq!(response.refused_at(), format!("/{field}"), "{body}");
     }
     let response = th
         .client
@@ -939,11 +949,7 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
     for name in ["", "with space", "키", "a/b", &"n".repeat(65)] {
         let response = set(json!({name: "v"})).await;
         response.check_bad_request();
-        assert_eq!(
-            response.value()["field"],
-            json!("updatedFields"),
-            "{name:?}"
-        );
+        assert_eq!(response.refused_at(), "/updatedFields", "{name:?}");
     }
     set(json!({"n".repeat(64): "v".repeat(4096)}))
         .await
@@ -1512,8 +1518,8 @@ async fn a_user_has_a_display_name_of_their_choosing() {
         let response = th.client.patch("/users/me", &body).await;
         response.check_bad_request();
         assert_eq!(
-            response.value()["field"],
-            json!(field),
+            response.refused_at(),
+            format!("/{field}"),
             "{body}: {}",
             response.text()
         );
@@ -1532,7 +1538,7 @@ async fn a_user_has_a_display_name_of_their_choosing() {
         )
         .await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], json!("displayName"));
+    assert_eq!(response.refused_at(), "/displayName");
     // Left out or null at registration: none.
     for (username, extra) in [("dwight", None), ("angela", Some(Value::Null))] {
         let mut body = json!({"username": username, "email": format!("{username}@sample.com"),

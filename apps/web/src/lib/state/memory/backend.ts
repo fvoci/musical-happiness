@@ -41,6 +41,7 @@ import {
 } from '../../logic/wire.ts';
 import {
   BackendError,
+  refusedMember,
   type AccountSettings,
   type AccountSettingsPatch,
   type Attachment,
@@ -81,8 +82,22 @@ const SCREEN_STATE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 
 const copy = <T>(value: T): T => structuredClone(value);
 
-function fail(status: ErrorStatus, message: string, extra: object = {}): never {
-  throw new BackendError(status, { message, ...extra });
+/**
+ * Rejects as the server does: with the status and the detail, and, where the
+ * refusal is about a member of the request, that member in `errors`.
+ */
+function fail(
+  status: ErrorStatus,
+  detail: string,
+  extra: { field?: string; reason?: string; limit?: number } = {},
+): never {
+  const { field, reason, limit } = extra;
+  throw new BackendError(status, {
+    detail,
+    ...(reason === undefined ? {} : { reason }),
+    ...(limit === undefined ? {} : { limit }),
+    ...(field === undefined ? {} : { errors: [refusedMember(field, detail, reason)] }),
+  });
 }
 
 function summaryOf(card: StoredCard): CardSummary {
@@ -186,7 +201,7 @@ export class MemoryBackend implements Backend {
     } else {
       await Promise.resolve();
     }
-    if (signal?.aborted) throw new BackendError(0, { message: 'the call was given up' });
+    if (signal?.aborted) throw new BackendError(0, { detail: 'the call was given up' });
     const failure = this.#failures.get(method);
     if (failure) {
       this.#failures.delete(method);

@@ -85,7 +85,7 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 |---|---|---|
 | 응답의 고정 | 회귀 스냅샷(시나리오와 권한 표)이 응답을 고정한다. 응답을 바꾸는 커밋은 스냅샷을 함께 바꾼다 | A |
 | 설계 | `docs/s6-design.md`의 1–5절이 모두 결정됐다 | B, E |
-| 오류 응답 | 본문은 `{"error": 코드, "message", …}`다. 상태 코드는 한 표를 따른다. 볼 수 없는 것은 404, 볼 수는 있는데 못 하는 것은 403이다 | D |
+| 오류 응답 | 본문은 RFC 9457의 `application/problem+json`이다(`type`, `title`, `status`, `detail`, …). 상태 코드는 한 표를 따른다. 볼 수 없는 것은 404, 볼 수는 있는데 못 하는 것은 403이다 | D |
 | 경로 | 모든 API가 `/api/v1` 아래에 있다. 모르는 API 경로는 JSON 404, 틀린 메서드는 405다. 그 밖의 `GET`은 웹앱의 화면이다 | D, K, Q |
 | 요청 크기 | JSON 4 MiB, 세션 없는 요청 64 KiB, WebSocket 메시지 64 KiB. 파일의 한도는 아직 없다 | D |
 | 스키마 | sqlx의 migrator가 적용하는 새 기준 하나다. 식별자는 UUIDv7이고 외래 키를 강제한다 | G |
@@ -188,7 +188,7 @@ D절과 G절부터는 설계 문서(`docs/s6-design.md`)의 "구현 순서"를 �
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| 오류 본문은 `{"error": 코드, "message", "reason"?, "field"?, "limit"?, "request_id"}`다 | 화면이 문구가 아니라 코드로 분기하게 하고, 사용자가 본 오류를 로그의 한 줄과 잇는다(설계 1.2). 응답 헤더 `x-request-id`가 같은 값을 싣고 요청 로그에도 남는다 | `fvoci_model::ErrorBody`, `server::error`, `request_log` |
+| 오류 본문은 RFC 9457의 `Problem`이다: `type`(`/problems/<이름>`), `title`, `status`, `detail`, `instance`, 그리고 `reason`?, `errors`?, `limit`?, `retry_after`?, `request_id` | 화면이 문구가 아니라 `status`와 `reason`으로 분기하게 하고, 사용자가 본 오류를 로그의 한 줄과 잇는다(설계 1.2). 응답 헤더 `x-request-id`가 같은 값을 싣고 요청 로그에도 남는다 | `fvoci_model::Problem`, `server::error`, `request_log` |
 | 상태 코드가 한 표를 따른다: 400·401·403·404·405·409·413·429·500. 501과 "분류되지 않아 500"은 없다 | 같은 종류의 잘못이 라우트마다 다른 코드를 받고 있었다(설계 1.3). 429는 로그인 제한이 더했다(I절) | `ErrorKind`, 핸들러 전반 |
 | 볼 수 없는 것은 없는 것과 같은 404, 볼 수는 있는데 못 하는 것은 403이다 | 403과 404의 차이로 남의 보드·블록·카테고리·구독·파일의 존재를 알 수 있었다(결정 대기 S6·S9·S11, 설계 1.4의 규칙 B) | `api::access`, `App::user_category`, 테스트 `visibility.rs` |
 | 검사 순서는 세션(401) → 볼 수 있나(404) → 권한(403) → 본문(400) → 충돌(409)이다 | 권한 없는 사용자가 본문을 바꿔 가며 검증 문구를 읽을 수 없게 한다. 예외는 표 아래 (1) | 핸들러 전반 |
@@ -486,7 +486,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | **없는 계정도 같다.** 같은 기록, 같은 응답(401 `invalid_credentials`), 같은 양의 일(아무도 모르는 값의 해시에 대해 한 번 검증)이다. 기록의 키는 계정을 찾기 전에, 요청이 적은 이름(사용자 이름과 이메일 각각)에서 만든다. 그래서 한 계정을 이름으로도 이메일로도 시도하면 실패 한도가 따로 센다 | 설계 5.2의 2번. 응답 시간이 계정의 존재를 드러냈다(J절의 리뷰 S6). 키를 사용자 ID로 두면 누가 기다리는지가 계정의 존재를 드러낸다(P절) | `app/auth.rs`의 `login`, `auth::password::verify_against_no_account` |
 | **주소의 제한.** 주소당 로그인·가입 시도 분당 20회(`login_address_attempts_per_minute`, 성공 포함), 한 번에 하나. IPv6는 /64로 묶는다. 0이면 주소별 제한을 끈다(모든 사용자가 한 주소에서 오고 그것을 풀어 줄 프록시가 없는 배치). 토큰이 없거나 틀려서 해시 전에 거절되는 가입은 시도로 세지 않는다 | 설계 5.2의 3번 | `LoginLimiter::{admit_login, admit_registration}` |
 | **해시 대기열.** 동시 4(`password_hash_concurrency`), 대기 16칸(`password_hash_queue`), 대기 5초(`password_hash_queue_seconds`). 자리가 없거나 차례가 제때 오지 않으면 해시하지 않고 429다. 로그인, 가입, 비밀번호 변경, 관리자 소켓의 재설정이 모두 이 대기열을 쓴다. 프로세스 전체의 정적 세마포어를 앱마다의 대기열로 바꿨다. 차례는 일이 끝날 때까지 잡고 있다(요청이 끊겨도) | 설계 5.2의 4번. J절의 리뷰 S13 | `auth::hash_queue::HashQueue` |
-| **거절은 429 `rate_limited`**, `Retry-After` 헤더와 본문의 `retry_after`(초, 올림, 1 이상) | 설계 5.2의 5번 | `AppError::rate_limited`, `fvoci_model::ErrorBody::retry_after` |
+| **거절은 429(`/problems/rate-limited`)**, `Retry-After` 헤더와 본문의 `retry_after`(초, 올림, 1 이상) | 설계 5.2의 5번 | `AppError::rate_limited`, `fvoci_model::Problem::retry_after` |
 | **`trusted_proxies`.** 믿는 프록시의 주소·범위 목록. 연결의 상대가 목록에 있을 때만 `X-Forwarded-For`를 오른쪽부터 읽어 목록에 없는 첫 주소를 클라이언트로 본다. 비어 있으면 연결의 상대가 클라이언트다. 요청 로그와 로그인 제한이 같은 주소를 쓴다. `trust_forwarded_for`는 설정이 아니다(값이 있으면 시작 오류). 전에는 켜면 가장 왼쪽(클라이언트가 지어낼 수 있는 쪽)을 읽었다 | 설계 5.2의 6번 | `client_address::{TrustedProxies, ClientAddress}`, `request_log.rs` |
 | 기록은 메모리에 둔다. 종류마다 10만 개까지이고, 넘치면 더 말할 것이 없는 기록(대기가 끝나고 오래된 것)부터, 그래도 넘치면 가장 오래 건드리지 않은 10분의 1을 버린다(P절). 계정 이름은 SHA-256으로 줄여 둔다 | 설계 5.2의 7번 | `auth::limiter` |
 | **비밀번호 바꾸기도 같은 기록을 쓴다.** `changePassword`의 틀린 옛 비밀번호는 그 계정 이름의 로그인 실패로 센다. 넘으면 429와 `Retry-After`다 | 세션을 가진 쪽이 옛 비밀번호를 한도 없이 찍을 수 있었다(P절) | `App::change_password` |
@@ -776,7 +776,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 - 만들기와 고치기의 요청은 답과 모양이 달라 문서 전용 타입으로 따로 적었다(`api/contract/bodies.rs`의 `NewBoard`, `NewBlock`, `NewBoardsAndBlocks`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`, `FileForm`). 서버는 이 타입으로 해석하지 않는다. **손으로 쓴 것이라 해석하는 쪽과 어긋날 수 있다**(남은 문제).
 - 멤버를 정하지 않은 객체(`fields`, `properties`, `cardProperties`의 항목, 팀의 `settings`)는 `additionalProperties: true`로 적는다. 아무 말도 없으면 타입 생성기가 "늘 빈 객체"로 읽는다.
 - 인증은 문서 전체의 기본이 `sessionCookie` 또는 `bearerToken`이다. 세션이 필요 없는 다섯(`login`, `register`, `getClientConfig`, `hello`, `ping`)은 `security: [{}]`, 읽기 토큰으로도 되는 넷(`getBoard`, `getBlocks`, `getFile`, `getFileInfo`)은 셋 가운데 하나다. CSRF 헤더와 `Origin` 규칙은 머리말에 글로 적었다.
-- 오류는 조작마다 4xx를 늘어놓지 않고 모든 조작의 `default`가 `ErrorBody`다. 429와 `Retry-After`만 `login`, `register`, `changePassword`에 따로 적었다.
+- 오류는 조작마다 4xx를 늘어놓지 않고 모든 조작의 `default`가 `Problem`이다. 429와 `Retry-After`만 `login`, `register`, `changePassword`에 따로 적었다.
 - 출력은 멤버 이름순, 두 칸 들여쓰기, 끝에 줄바꿈이다. 같은 서버는 늘 같은 바이트를 낸다.
 
 **수치.** 경로 56개, 조작 73개, 스키마 51개다. 경로는 모두 `/api/v1` 아래다(Q절). 메서드별로 GET 27, POST 26, PATCH 7, PUT 7, DELETE 6. 파일은 5,500줄 남짓이다.
@@ -785,7 +785,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 
 **목록의 순서.** M절의 표가 조작의 설명(또는 답의 설명)에 그대로 있다. 계약 모듈의 테스트 `every_list_says_its_order`가 목록을 답하는 조작 21개마다 순서를 말하는 문구가 있는지와, 목록을 답하는 조작이 표에 빠짐없이 있는지를 본다. 순서 자체는 M절의 스토어 테스트와 회귀 스냅샷이 고정한다.
 
-**테스트.** 계약 모듈 11개(문서가 만들어진다, 모든 조작의 `default`가 `ErrorBody`, 세션 없는 조작의 표기, 답은 모든 멤버·패치는 없음, 구독 경로의 이름, 목록의 순서, 기본값 제거, 열린 객체, 없는 멤버를 필수로 둘 수 없음, 멤버 이름순), xtask 4개(첫 번째로 다른 줄).
+**테스트.** 계약 모듈 11개(문서가 만들어진다, 모든 조작의 `default`가 `Problem`, 세션 없는 조작의 표기, 답은 모든 멤버·패치는 없음, 구독 경로의 이름, 목록의 순서, 기본값 제거, 열린 객체, 없는 멤버를 필수로 둘 수 없음, 멤버 이름순), xtask 4개(첫 번째로 다른 줄).
 
 **바깥 도구로 본 것.** `openapi-typescript` 7.13.0이 이 파일에서 타입 4,654줄을 냈다(확인용으로 `target/` 아래에만 썼다. 타입 생성은 웹 트랙의 일이다). `@redocly/cli` 1의 `lint`는 "valid"이고 경고 70건이 남는다. 모두 `operation-4xx-response`(조작에 4xx 응답이 없다)이고 `default`로 적기로 한 결과다.
 
