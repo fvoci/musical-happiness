@@ -4,8 +4,8 @@
  * The numbers are the constants below. What is over them today is listed in
  * `tools/lint/length-exceptions.txt` with its length as a ceiling: it may not
  * grow, and when it shrinks the check fails until the ceiling is lowered, or
- * the line removed once the length is within the limit. `check-lengths.ts
- * --measure` writes the list anew from the code as it is, and is the one way
+ * the line removed once the length is within the limit. `measure-lengths.ts`
+ * writes the list anew from the code as it is, and is the one way
  * a ceiling is to go up.
  *
  * The check holds the code to the list; it cannot tell a number that was
@@ -16,10 +16,17 @@
  * A function is measured by ESLint's parsers, from its first line to its
  * last, comments and empty lines included: declarations, function
  * expressions and arrow functions, in `.ts` files and in the script and the
- * markup of `.svelte` files. A function inside another is measured on its
- * own as well.
+ * markup of `.svelte` files, and with them the snippets of a component and
+ * the static blocks of a class. A function inside another is measured on
+ * its own as well. The script of a component outside any function is
+ * bounded by the limit of the file alone.
+ *
+ * Lengths are counted in lines, and the lines are Prettier's (`check` runs
+ * it before this). Where Prettier is told to keep its hands off
+ * (`prettier-ignore`, the paths of `.prettierignore`) a line can hold more
+ * than the count says; that is not checked here.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { ESLint, type Linter, type Rule } from 'eslint';
@@ -40,6 +47,8 @@ export const MEASURED = 'src';
  * in `src` today; it is measured so that a file does not escape by its name.
  */
 const EXTENSIONS = ['.ts', '.svelte', '.js'];
+/** Code in a form that is not measured, and so not allowed under `src`. */
+const UNMEASURED = ['.mts', '.cts', '.mjs', '.cjs', '.tsx', '.jsx'];
 /**
  * What a tool writes and nobody edits: the messages compiled by paraglide
  * and the types made from the server's contract. Not measured.
@@ -123,22 +132,22 @@ export function parseExceptions(text: string): { over: Over; subjects: Map<strin
 const EXCEPTIONS_HEAD = `# Files and functions of src that are over the limit of their length
 # (tools/lint/lengths.ts), each with the number of lines it has: its ceiling.
 #
-# Written by \`node tools/lint/check-lengths.ts --measure\`. \`check\` fails when the code
-# is longer than its ceiling, when something not listed is over the limit, and when the
-# code got shorter, until the number here is lowered (or the line removed, once the
-# code is within the limit).
+# Written by \`pnpm run lengths:measure\` (tools/lint/measure-lengths.ts). \`check\` fails
+# when the code is longer than its ceiling, when something not listed is over the
+# limit, and when the code got shorter, until the number here is lowered (or the line
+# removed, once the code is within the limit).
 #
 # By hand a line is lowered, removed, or renamed with its code; never raised or added.
 # The check cannot tell a raised number from a measured one: the diff of this file
-# shows it. \`--measure\` is run once after work that was measured apart is merged, not
-# to make a check pass.
+# shows it. \`lengths:measure\` is run once after work that was measured apart is
+# merged, not to make a check pass.
 #
 # file <lines> <path>
 # function <lines> <path> <name>
 `;
 
 /**
- * The list as `--measure` writes it: what of `measured` is over its limit.
+ * The list as `rewrite` writes it: what of `measured` is over its limit.
  * A path with a space in it is an error: the list could not be read back.
  */
 export function renderExceptions(measured: readonly Length[]): string {
@@ -192,7 +201,8 @@ export function judge(measured: readonly Length[], listedText: string): string[]
           lines > limit
             ? `lower its ceiling of ${ceiling}`
             : `within the limit of ${limit}: remove its line (${ceiling})`;
-        problems.push(`${EXCEPTIONS}: ${shown(length)} has ${lines} lines now: ${fix}`);
+        const where = length.kind === 'file' ? '' : ` (line ${length.at})`;
+        problems.push(`${EXCEPTIONS}: ${shown(length)}${where} has ${lines} lines now: ${fix}`);
       }
     }
   }
@@ -208,15 +218,20 @@ export function judge(measured: readonly Length[], listedText: string): string[]
   return problems;
 }
 
-/** The number of lines of a text, as `wc -l` counts a file that ends with a line break. */
+/**
+ * The number of lines of a text, as `wc -l` counts a file that ends with a
+ * line break. A carriage return alone ends a line too.
+ */
 export function countLines(text: string): number {
   if (text === '') return 0;
-  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+  const lines = text.split(/\r\n|\r|\n/);
+  return lines.length - (lines.at(-1) === '' ? 1 : 0);
 }
 
 /**
  * The measured files under `root`: paths from `root`, with `/`, sorted. A
- * symbolic link among them is an error.
+ * symbolic link among them is an error, and so is a source in a form that
+ * is not measured.
  */
 export function measuredFiles(root: string): string[] {
   const files: string[] = [];
@@ -230,6 +245,11 @@ export function measuredFiles(root: string): string[] {
       if (entry.isSymbolicLink()) throw new Error(`${child} is a symbolic link`);
       if (entry.isDirectory()) walk(child);
       else if (EXTENSIONS.some((extension) => entry.name.endsWith(extension))) files.push(child);
+      else if (UNMEASURED.some((extension) => entry.name.endsWith(extension))) {
+        throw new Error(
+          `${child} is code in a form that is not measured: write it as .ts, .svelte or .js`,
+        );
+      }
     }
   };
   walk(MEASURED);
@@ -240,27 +260,75 @@ export function measuredFiles(root: string): string[] {
 interface Named {
   type: string;
   id?: { type: string; name?: string } | null;
-  key?: { type: string; name?: string };
-  parent?: Named;
+  key?: { type: string; name?: unknown };
+  callee?: Named;
+  property?: { type: string; name?: string };
+  name?: unknown;
+  parent?: Named | null;
 }
 
-/** The name a function goes by. */
-function nameOf(node: Rule.Node): string {
-  const { id, parent } = node as Named;
+const FUNCTIONS = ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'];
+/** What is measured like a function: a snippet of a component, a static block of a class. */
+const BLOCKS = ['SvelteSnippetBlock', 'StaticBlock'];
+const MEMBERS = ['Property', 'MethodDefinition', 'PropertyDefinition'];
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** The name a function has by itself, or from where it is the value. */
+function ownName(node: Named): string {
+  const { id, parent } = node;
+  if (node.type === 'StaticBlock') return 'static{}';
   if (id?.name !== undefined && node.type !== 'ArrowFunctionExpression') return id.name;
-  if (parent?.type === 'VariableDeclarator' && parent.id?.type === 'Identifier') {
+  if (parent === undefined || parent === null) return '<anonymous>';
+  if (parent.type === 'VariableDeclarator' && parent.id?.type === 'Identifier') {
     return parent.id.name ?? '<anonymous>';
   }
-  const member = ['Property', 'MethodDefinition', 'PropertyDefinition'];
-  if (parent !== undefined && member.includes(parent.type) && parent.key?.type === 'Identifier') {
-    return parent.key.name ?? '<anonymous>';
+  if (MEMBERS.includes(parent.type) && parent.key !== undefined) {
+    const name = text(parent.key.name);
+    if (parent.key.type === 'Identifier' && name !== undefined) return name;
+    if (parent.key.type === 'PrivateIdentifier' && name !== undefined) return `#${name}`;
+  }
+  // A callback goes by what it is handed to: `forEach()`, `$effect()`.
+  if (
+    (parent.type === 'CallExpression' || parent.type === 'NewExpression') &&
+    parent.callee !== node
+  ) {
+    const callee = parent.callee;
+    const called = callee?.type === 'MemberExpression' ? callee.property?.name : text(callee?.name);
+    if (called !== undefined) return `${called}()`;
+  }
+  // A handler in the markup of a component goes by its attribute: `onclick`.
+  if (parent.type === 'SvelteMustacheTag' && parent.parent?.key !== undefined) {
+    const attribute = text(parent.parent.key.name);
+    if (attribute !== undefined) return attribute;
   }
   return '<anonymous>';
 }
 
 /**
+ * The name a function goes by in the list: its own, after the names of the
+ * functions and the classes it is written in (`seedWorld/forEach()`,
+ * `Box/method`). Functions that still share a name are told apart by their
+ * lengths alone.
+ */
+function nameOf(node: Rule.Node): string {
+  const self: Named = node;
+  const names = [ownName(self)];
+  for (let outer = self.parent; outer; outer = outer.parent) {
+    if (FUNCTIONS.includes(outer.type) || BLOCKS.includes(outer.type))
+      names.unshift(ownName(outer));
+    else if (outer.type === 'ClassDeclaration' || outer.type === 'ClassExpression') {
+      names.unshift(outer.id?.name ?? ownName(outer));
+    }
+  }
+  return names.join('/');
+}
+
+/**
  * Reports every function with its length, as `lines name`: the measuring
- * instrument, not a rule to turn on. `measureFunctions` reads its reports.
+ * instrument, not a rule to turn on. `functionsOf` reads its reports.
  */
 const everyFunction: Rule.RuleModule = {
   meta: {
@@ -279,11 +347,7 @@ const everyFunction: Rule.RuleModule = {
         data: { lines: String(lines), name: nameOf(node) },
       });
     };
-    return {
-      FunctionDeclaration: report,
-      FunctionExpression: report,
-      ArrowFunctionExpression: report,
-    };
+    return Object.fromEntries([...FUNCTIONS, ...BLOCKS].map((type) => [type, report]));
   },
 };
 
@@ -291,12 +355,15 @@ const RULE = 'fvoci-lengths/every-function';
 
 /**
  * The ESLint configuration that measures and does nothing else: the parsers
- * of the project's own configuration, and the one rule above. No comment in
- * a source turns it off.
+ * for TypeScript and for Svelte, and the one rule above. No comment in a
+ * source turns the rule off: not `eslint-disable` in a script
+ * (`noInlineConfig`), and not `<!-- eslint-disable -->` in the markup of a
+ * component, which is the work of a rule of the Svelte plugin that is off
+ * here.
  */
 export const measuringConfig: Linter.Config[] = [
   ...svelte.configs.base,
-  { files: ['**/*.ts'], languageOptions: { parser: ts.parser } },
+  { files: ['**/*.ts'], ignores: ['**/*.svelte.ts'], languageOptions: { parser: ts.parser } },
   {
     files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
     languageOptions: { parserOptions: { parser: ts.parser, svelteConfig } },
@@ -304,22 +371,28 @@ export const measuringConfig: Linter.Config[] = [
   {
     linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'off' },
     plugins: { 'fvoci-lengths': { rules: { 'every-function': everyFunction } } },
-    rules: { [RULE]: 'error' },
+    rules: { [RULE]: 'error', 'svelte/comment-directive': 'off' },
   },
 ];
 
+/** What ESLint says of a comment that tried to turn a rule off and was not obeyed. */
+const NOT_OBEYED = "has no effect because you have 'noInlineConfig'";
+
 /**
- * The functions among the messages of one file. A file that does not parse
- * is an error. What else ESLint says is passed over: that a comment in the
- * source tried to turn a rule off and was not obeyed.
+ * The functions among the messages of one file. Anything else ESLint says
+ * is an error: a file that does not parse, or one it did not read at all (a
+ * file under `node_modules`, a form it has no parser for). The one thing
+ * passed over is the notice that a comment was not obeyed.
  */
 export function functionsOf(file: string, messages: readonly Linter.LintMessage[]): Length[] {
   const functions: Length[] = [];
   for (const message of messages) {
-    if (message.fatal === true) throw new Error(`${file}:${message.line}: ${message.message}`);
-    if (message.ruleId !== RULE) continue;
-    const [lines, name = ''] = message.message.split(' ');
-    functions.push({ kind: 'function', file, name, lines: Number(lines), at: message.line });
+    if (message.ruleId === RULE) {
+      const [lines, name = ''] = message.message.split(' ');
+      functions.push({ kind: 'function', file, name, lines: Number(lines), at: message.line });
+    } else if (!message.message.includes(NOT_OBEYED)) {
+      throw new Error(`${file}:${message.line}: not measured: ${message.message}`);
+    }
   }
   return functions;
 }
@@ -337,7 +410,8 @@ export async function measure(root: string): Promise<Length[]> {
     cwd: root,
     overrideConfigFile: true,
     overrideConfig: measuringConfig,
-    // The files are named one by one: nothing ESLint would leave out is left out.
+    // The files are named one by one. What ESLint leaves out all the same
+    // comes back as a message, which `functionsOf` refuses.
     ignore: false,
   });
   const results = await eslint.lintFiles(files);
@@ -346,4 +420,17 @@ export async function measure(root: string): Promise<Length[]> {
     measured.push(...functionsOf(file, result.messages));
   }
   return measured;
+}
+
+/** The differences between the code under `root` and the list there, as `judge` gives them. */
+export async function check(root: string): Promise<{ measured: Length[]; problems: string[] }> {
+  const measured = await measure(root);
+  return { measured, problems: judge(measured, readFileSync(path.join(root, EXCEPTIONS), 'utf8')) };
+}
+
+/** Writes the list under `root` anew from the code there; answers what it wrote. */
+export async function rewrite(root: string): Promise<string> {
+  const list = renderExceptions(await measure(root));
+  writeFileSync(path.join(root, EXCEPTIONS), list);
+  return list;
 }

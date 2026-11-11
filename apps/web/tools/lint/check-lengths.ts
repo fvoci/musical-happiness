@@ -2,45 +2,24 @@
  * Fails when a file or a function of `src` is longer than its limit, or
  * than the ceiling the list of exceptions gives it. See `lengths.ts`.
  *
- *   node tools/lint/check-lengths.ts            the check, part of `pnpm run check`
- *   node tools/lint/check-lengths.ts --measure  writes the list anew from the code
+ *   node tools/lint/check-lengths.ts
  *
- * `--measure` is the one way a ceiling is to go up. It is for the moment
- * after work that was measured apart is merged; no check calls it.
+ * Part of `pnpm run check`. It takes no argument and writes nothing: the
+ * list is rewritten by `measure-lengths.ts`, which no check calls.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import {
-  EXCEPTIONS,
-  MAX_FILE_LINES,
-  MAX_FUNCTION_LINES,
-  judge,
-  measure,
-  renderExceptions,
-} from './lengths.ts';
+import { EXCEPTIONS, MAX_FILE_LINES, MAX_FUNCTION_LINES, check } from './lengths.ts';
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
-const list = path.join(WEB_ROOT, EXCEPTIONS);
 
-const [mode, ...rest] = process.argv.slice(2);
-if (rest.length > 0 || (mode !== undefined && mode !== '--measure')) {
-  console.error('usage: node tools/lint/check-lengths.ts [--measure]');
+if (process.argv.length > 2) {
+  console.error('usage: node tools/lint/check-lengths.ts (no arguments)');
   process.exit(2);
 }
 
-const measured = await measure(WEB_ROOT);
-
-if (mode === '--measure') {
-  const text = renderExceptions(measured);
-  writeFileSync(list, text);
-  const lines = text.split('\n');
-  const count = (kind: string): number => lines.filter((line) => line.startsWith(kind)).length;
-  console.log(
-    `wrote ${EXCEPTIONS}: ${count('file ')} files and ${count('function ')} functions over their limit`,
-  );
-} else {
-  const problems = judge(measured, readFileSync(list, 'utf8'));
+try {
+  const { measured, problems } = await check(WEB_ROOT);
   if (problems.length > 0) {
     for (const problem of problems) console.error(problem);
     console.error(
@@ -54,4 +33,7 @@ if (mode === '--measure') {
     `lengths: ${files} files within ${MAX_FILE_LINES} lines and ${measured.length - files} functions ` +
       `within ${MAX_FUNCTION_LINES}, or at their listed ceiling`,
   );
+} catch (error) {
+  console.error(`lengths: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
 }
