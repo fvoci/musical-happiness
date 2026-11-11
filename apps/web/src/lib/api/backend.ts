@@ -18,6 +18,7 @@ import {
   type Attachment,
   type Backend,
   type BoardDraft,
+  type BoardRole,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
@@ -29,6 +30,8 @@ import {
   type ChangeListener,
   type Comment,
   type Registration,
+  type Sharing,
+  type SharingChange,
   type Team,
   type UploadedFile,
   type UploadOptions,
@@ -46,7 +49,9 @@ import {
   memberOf,
   newCardOf,
   settingsChangeOf,
+  rolesOf,
   settingsOf,
+  sharingOf,
   teamOf,
   userOf,
   viewOf,
@@ -301,6 +306,68 @@ export class ServerBackend implements Backend, Account {
       { boardId },
     );
     return members.map(memberOf);
+  }
+
+  /** `addMember` with exactly the one role, as the server gives roles. */
+  async addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    const request: Schemas['NewMember'] = { userId, ...rolesOf(role) };
+    return memberOf(
+      await this.#http.request<Schemas['BoardMember']>(
+        '/api/v1/boards/{boardId}/members',
+        { boardId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  async setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    return memberOf(
+      await this.#http.request<Schemas['BoardMember']>(
+        '/api/v1/boards/{boardId}/members/{userId}',
+        { boardId, userId },
+        { method: 'PUT', json: rolesOf(role) },
+      ),
+    );
+  }
+
+  async removeMember(boardId: string, userId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/boards/{boardId}/members/{userId}',
+      { boardId, userId },
+      { method: 'DELETE' },
+    );
+  }
+
+  async sharing(boardId: string): Promise<Sharing> {
+    return sharingOf(
+      await this.#http.request<Schemas['Sharing']>('/api/v1/boards/{boardId}/sharing', {
+        boardId,
+      }),
+    );
+  }
+
+  async setSharing(boardId: string, change: SharingChange): Promise<Sharing> {
+    const request: Schemas['SharingRequest'] = {
+      enabled: change.enabled,
+      ...(change.regenerate ? { regenerate: true } : {}),
+    };
+    return sharingOf(
+      await this.#http.request<Schemas['Sharing']>(
+        '/api/v1/boards/{boardId}/sharing',
+        { boardId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  /** `getTeamUsers` with a search: ten at most, whatever the case (D2). */
+  async searchUsers(teamId: string, query: string): Promise<User[]> {
+    const users = await this.#http.request<Schemas['User'][]>(
+      '/api/v1/teams/{teamId}/users',
+      { teamId },
+      { query: { search: query } },
+    );
+    return users.map(userOf);
   }
 
   /** Joins an open board (`joinBoard`), with its minimum role. */

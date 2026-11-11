@@ -142,6 +142,24 @@ export interface Category {
   updateAt: number;
 }
 
+/** A role on a board: one of them, the highest a member has. */
+export type BoardRole = 'admin' | 'editor' | 'commenter' | 'viewer';
+
+/**
+ * A board's public link: whether it is on, and the token a reader without
+ * an account reads the board with (empty while it is off and was never on).
+ */
+export interface Sharing {
+  enabled: boolean;
+  token: string;
+}
+
+export interface SharingChange {
+  enabled: boolean;
+  /** Makes a new token: the old link stops working. */
+  regenerate?: boolean;
+}
+
 export interface CategoryDraft {
   name: string;
 }
@@ -341,6 +359,21 @@ export interface Backend {
   /** Takes the board, its blocks and its members back out of the trash. */
   restoreBoard(boardId: string): Promise<Board>;
   members(boardId: string): Promise<BoardMember[]>;
+  /**
+   * Makes a person of the team a member of the board, with the role. For the
+   * board's admins. Someone who is a member already keeps their role.
+   */
+  addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  /** Gives a member another role. The board's last admin stays one (409, `last_admin`). */
+  setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  /** Takes a member off the board. Not its last admin (409, `last_admin`). */
+  removeMember(boardId: string, userId: string): Promise<void>;
+  /** The board's public link. For the board's admins. */
+  sharing(boardId: string): Promise<Sharing>;
+  /** Turns the public link on or off, or makes it anew. */
+  setSharing(boardId: string, change: SharingChange): Promise<Sharing>;
+  /** People of the team whose name has `query` in it, whatever the case; ten at most. */
+  searchUsers(teamId: string, query: string): Promise<User[]>;
   /**
    * Makes the reader a member of an open board of their team, with the
    * board's minimum role. Until then such a board is readable but its views,

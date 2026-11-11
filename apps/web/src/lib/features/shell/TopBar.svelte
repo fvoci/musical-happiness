@@ -1,6 +1,6 @@
 <!--
-  The top row of the pane: which board this is, who is on it, and undo and
-  redo.
+  The top row of the pane: which board this is, who is on it, sharing it
+  (for its admins), and undo and redo.
 
   What it shows follows the width of the pane it is in, not of the window:
   the faces of the members from where two kanban columns fit, the
@@ -15,6 +15,7 @@
 <script lang="ts">
   import MenuIcon from '@lucide/svelte/icons/menu';
   import Redo2Icon from '@lucide/svelte/icons/redo-2';
+  import Share2Icon from '@lucide/svelte/icons/share-2';
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
@@ -22,19 +23,26 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Workspace } from '$lib/state/index.ts';
 
+  import { Button } from '$lib/ui/button/index.js';
+
   import BoardIcon from './BoardIcon.svelte';
   import BoardTitle from './BoardTitle.svelte';
+  import ShareDialog from './ShareDialog.svelte';
 
   interface Props {
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
     /** Show the button that opens the drawer. */
+    /** The address of a board's page. */
+    boardHref: (boardId: string) => string;
     menuButton: boolean;
     onOpenSidebar: () => void;
   }
 
-  let { workspace, boardId, menuButton, onOpenSidebar }: Props = $props();
+  let { workspace, boardId, boardHref, menuButton, onOpenSidebar }: Props = $props();
+
+  let sharing = $state(false);
 
   /** How many faces are shown before the rest become a number. */
   const FACES = 4;
@@ -123,6 +131,22 @@
     </ul>
   {/if}
 
+  {#if store?.canShare}
+    <Button
+      variant="outline"
+      size="sm"
+      data-testid="share-board"
+      aria-haspopup="dialog"
+      class="shrink-0 roomy:min-h-touch"
+      onclick={() => {
+        sharing = true;
+      }}
+    >
+      <Share2Icon aria-hidden="true" />
+      {m.shell_share()}
+    </Button>
+  {/if}
+
   <IconButton
     label={m['UndoRedoHotKeys.canUndo']()}
     data-testid="undo"
@@ -140,3 +164,12 @@
     <Redo2Icon />
   </IconButton>
 </header>
+
+{#if store?.canShare}
+  <ShareDialog
+    bind:open={sharing}
+    {workspace}
+    board={store}
+    boardAddress={new URL(boardHref(store.boardId), location.href).href}
+  />
+{/if}

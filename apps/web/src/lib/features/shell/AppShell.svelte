@@ -291,7 +291,13 @@
     inert={drawerOut}
     {@attach pane.attach}
   >
-    <TopBar {workspace} {boardId} menuButton={layout.menuButton} onOpenSidebar={openDrawer} />
+    <TopBar
+      {workspace}
+      {boardId}
+      {boardHref}
+      menuButton={layout.menuButton}
+      onOpenSidebar={openDrawer}
+    />
     <div class="relative min-h-0 flex-1">
       {@render children()}
     </div>

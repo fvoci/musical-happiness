@@ -46,6 +46,7 @@ import {
   type Attachment,
   type Backend,
   type BoardDraft,
+  type BoardRole,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
@@ -57,6 +58,8 @@ import {
   type ChangeListener,
   type Comment,
   type ErrorStatus,
+  type Sharing,
+  type SharingChange,
   type Team,
   type UploadedFile,
   type UploadOptions,
@@ -470,6 +473,79 @@ export class MemoryBackend implements Backend {
     await this.#enter('members');
     this.#board(boardId);
     return scramble(this.world.members.get(boardId) ?? []).map(copy);
+  }
+
+  async addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    await this.#enter('addMember');
+    this.#board(boardId);
+    if (!this.world.users.has(userId)) fail(400, 'no such user', { field: 'userId' });
+    const members = this.world.members.get(boardId) ?? [];
+    const existing = members.find((member) => member.userId === userId);
+    // As the server: somebody who is a member already keeps their role.
+    if (existing) return copy(existing);
+    const member = memberOf(boardId, userId, role);
+    this.#setMembers(boardId, [...members, member]);
+    this.world.tellUsers([userId], { kind: 'board', board: copy(this.#board(boardId)) });
+    return copy(member);
+  }
+
+  async setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    await this.#enter('setMemberRole');
+    this.#board(boardId);
+    const members = this.world.members.get(boardId) ?? [];
+    if (!members.some((member) => member.userId === userId)) fail(404, 'no such member');
+    const member = memberOf(boardId, userId, role);
+    const next = members.map((one) => (one.userId === userId ? member : one));
+    this.#keepAnAdmin(next);
+    this.#setMembers(boardId, next);
+    return copy(member);
+  }
+
+  async removeMember(boardId: string, userId: string): Promise<void> {
+    await this.#enter('removeMember');
+    this.#board(boardId);
+    const members = this.world.members.get(boardId) ?? [];
+    const next = members.filter((member) => member.userId !== userId);
+    if (next.length === members.length) return;
+    this.#keepAnAdmin(next);
+    this.#setMembers(boardId, next);
+    this.world.tellUsers([userId], { kind: 'boardDeleted', boardId });
+  }
+
+  /** A board keeps an admin, as on the server (409, `last_admin`). */
+  #keepAnAdmin(members: readonly BoardMember[]): void {
+    if (!members.some((member) => member.schemeAdmin)) {
+      fail(409, 'a board keeps its last admin', { reason: 'last_admin' });
+    }
+  }
+
+  #setMembers(boardId: string, members: BoardMember[]): void {
+    this.world.members.set(boardId, members);
+    this.world.tellBoard(boardId, { kind: 'members', boardId, members: copy(members) });
+  }
+
+  async sharing(boardId: string): Promise<Sharing> {
+    await this.#enter('sharing');
+    this.#board(boardId);
+    return copy(this.world.sharing.get(boardId) ?? { enabled: false, token: '' });
+  }
+
+  async setSharing(boardId: string, change: SharingChange): Promise<Sharing> {
+    await this.#enter('setSharing');
+    this.#board(boardId);
+    const before = this.world.sharing.get(boardId);
+    const token =
+      !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;
+    const sharing = { enabled: change.enabled, token };
+    this.world.sharing.set(boardId, sharing);
+    return copy(sharing);
+  }
+
+  async searchUsers(teamId: string, query: string): Promise<User[]> {
+    const wanted = query.trim().toLowerCase();
+    return (await this.users(teamId))
+      .filter((user) => user.username.toLowerCase().includes(wanted))
+      .slice(0, 10);
   }
 
   // --------------------------------------------------------- categories

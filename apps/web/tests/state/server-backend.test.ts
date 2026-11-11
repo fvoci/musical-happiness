@@ -798,3 +798,71 @@ describe('the password on the server', () => {
     expect(isBackendError(refused) && refused.reason).toBe('invalid_credentials');
   });
 });
+
+describe('sharing a board on the server', () => {
+  const MEMBER = {
+    boardId: 'b1',
+    userId: 'u2',
+    schemeAdmin: false,
+    schemeEditor: false,
+    schemeCommenter: true,
+    schemeViewer: false,
+  };
+
+  it('adds, changes and removes a member with exactly the one role', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/boards/b1/members', MEMBER],
+      [
+        'PUT /api/v1/boards/b1/members/u2',
+        { ...MEMBER, schemeCommenter: false, schemeViewer: true },
+      ],
+      ['DELETE /api/v1/boards/b1/members/u2', undefined, 204],
+    ]);
+    const backend = new ServerBackend('');
+    expect((await backend.addMember('b1', 'u2', 'commenter')).schemeCommenter).toBe(true);
+    expect((await backend.setMemberRole('b1', 'u2', 'viewer')).schemeViewer).toBe(true);
+    await backend.removeMember('b1', 'u2');
+    expect(sentLines(sent)).toEqual([
+      'POST /api/v1/boards/b1/members',
+      'PUT /api/v1/boards/b1/members/u2',
+      'DELETE /api/v1/boards/b1/members/u2',
+    ]);
+    expect(sent[0]?.body).toEqual({
+      userId: 'u2',
+      schemeAdmin: false,
+      schemeEditor: false,
+      schemeCommenter: true,
+      schemeViewer: false,
+    });
+    expect(sent[1]?.body).toEqual({
+      schemeAdmin: false,
+      schemeEditor: false,
+      schemeCommenter: false,
+      schemeViewer: true,
+    });
+  });
+
+  it('reads and sets the public link, asking for a new token only when told', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/boards/b1/sharing', { enabled: false }],
+      ['POST /api/v1/boards/b1/sharing', { enabled: true, token: 'tok', updateAt: 3 }],
+    ]);
+    const backend = new ServerBackend('');
+    expect(await backend.sharing('b1')).toEqual({ enabled: false, token: '' });
+    expect(await backend.setSharing('b1', { enabled: true })).toEqual({
+      enabled: true,
+      token: 'tok',
+    });
+    await backend.setSharing('b1', { enabled: true, regenerate: true });
+    expect(sent.slice(1).map((one) => one.body)).toEqual([
+      { enabled: true },
+      { enabled: true, regenerate: true },
+    ]);
+  });
+
+  it('finds people of the team by the search of their list', async () => {
+    const sent = serveRoutes([['GET /api/v1/teams/t/users', []]]);
+    await new ServerBackend('').searchUsers('t', 'ann lee');
+    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/users?search=ann+lee']);
+  });
+});

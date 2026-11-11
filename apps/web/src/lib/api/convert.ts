@@ -23,11 +23,13 @@ import type {
   AccountSettings,
   AccountSettingsPatch,
   Attachment,
+  BoardRole,
   CardDetail,
   CardDraft,
   Comment,
   CardSummary,
   Category,
+  Sharing,
   Team,
   User,
 } from '../state/backend.ts';
@@ -239,4 +241,19 @@ export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
 
 export function settingsChangeOf(patch: AccountSettingsPatch): Schemas['SettingsChange'] {
   return patch;
+}
+
+/** A role as the server keeps it: exactly one of the four flags. */
+export function rolesOf(role: BoardRole): Schemas['MemberRoles'] {
+  return {
+    schemeAdmin: role === 'admin',
+    schemeEditor: role === 'editor',
+    schemeCommenter: role === 'commenter',
+    schemeViewer: role === 'viewer',
+  };
+}
+
+/** A public link; one that was never on has no token. */
+export function sharingOf(sharing: Schemas['Sharing']): Sharing {
+  return { enabled: sharing.enabled, token: sharing.token ?? '' };
 }

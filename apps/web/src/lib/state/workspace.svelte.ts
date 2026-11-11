@@ -296,6 +296,27 @@ export class Workspace {
     }
   }
 
+  /**
+   * People of the team whose name has `query` in it (ten at most); their
+   * names are learnt. A failure finds nobody; a session that is over signs out.
+   */
+  async searchUsers(query: string): Promise<User[]> {
+    const team = this.team;
+    if (!team) return [];
+    try {
+      const found = await this.backend.searchUsers(team.id, query);
+      this.users = [
+        ...this.users,
+        ...found.filter((user) => this.#usersById[user.id] === undefined),
+      ];
+      return found;
+    } catch (error) {
+      if (isBackendError(error) && error.status === 401) this.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
+      return [];
+    }
+  }
+
   // ----------------------------------------------------------- settings
 
   /** Changes settings. They apply at once and go back if the server refuses them. */

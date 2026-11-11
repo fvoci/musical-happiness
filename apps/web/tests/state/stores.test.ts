@@ -774,3 +774,54 @@ describe('an open board the reader is no member of', () => {
     expect(made.workspace.problems.at(-1)).toMatchObject({ action: 'load' });
   });
 });
+
+describe('sharing a board', () => {
+  it('adds a member, changes their role and takes them off, as the backend keeps it', async () => {
+    const { board, workspace, backend } = await openFirstBoard();
+    const outsider = [...(await backend.users(workspace.team?.id ?? ''))].find(
+      (user) => !board.members.some((member) => member.userId === user.id),
+    );
+    if (!outsider) throw new Error('unexpected seed');
+    expect(board.canShare).toBe(true);
+    await board.addMember(outsider.id, 'commenter');
+    expect(board.members.find((member) => member.userId === outsider.id)?.schemeCommenter).toBe(
+      true,
+    );
+    await board.setMemberRole(outsider.id, 'viewer');
+    const stored = await backend.members(board.boardId);
+    expect(stored.find((member) => member.userId === outsider.id)?.schemeViewer).toBe(true);
+    await board.removeMember(outsider.id);
+    expect((await backend.members(board.boardId)).map((member) => member.userId)).not.toContain(
+      outsider.id,
+    );
+    expect(board.members.map((member) => member.userId)).not.toContain(outsider.id);
+  });
+
+  it('puts the last admin back when the backend refuses to demote them, and reads the members again', async () => {
+    const { board, workspace } = await openFirstBoard();
+    const me = workspace.me?.id ?? '';
+    await board.setMemberRole(me, 'editor');
+    expect(board.role).toBe('admin');
+    expect(workspace.problems).toHaveLength(1);
+    expect(workspace.problems[0]?.error?.reason).toBe('last_admin');
+  });
+
+  it('opens the board to the team with a minimum role', async () => {
+    const { board, backend } = await openFirstBoard();
+    await board.setOpen(true);
+    await board.setMinimumRole('commenter');
+    expect(await backend.board(board.boardId)).toMatchObject({
+      type: 'O',
+      minimumRole: 'commenter',
+    });
+  });
+
+  it('finds people of the team by name and learns them', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const someone = workspace.users.find((user) => user.id !== workspace.me?.id);
+    if (!someone) throw new Error('unexpected seed');
+    const found = await workspace.searchUsers(someone.username.slice(1, 4).toUpperCase());
+    expect(found.map((user) => user.id)).toContain(someone.id);
+  });
+});
