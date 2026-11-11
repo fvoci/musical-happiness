@@ -156,3 +156,99 @@ async fn watch(sending: Weak<Sending>, stall: Duration, breaker: Option<Breaker>
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use futures_util::StreamExt as _;
+
+    use super::*;
+    use crate::app::doomed::Doomed;
+    use crate::app::slots::Slots;
+
+    /// An archive of four pieces in a file of its own; returns it and where it is.
+    async fn archive(name: &str) -> (ExportedArchive, std::path::PathBuf) {
+        let bytes = 4 * PIECE_BYTES;
+        let path = std::env::temp_dir().join(format!("download-{}-{name}", std::process::id()));
+        std::fs::write(&path, vec![7; bytes]).expect("the archive is written");
+        let file = tokio::fs::File::open(&path).await.expect("opened");
+        let size = u64::try_from(bytes).expect("a size");
+        (
+            ExportedArchive::new(file, size, Doomed::file(path.clone())),
+            path,
+        )
+    }
+
+    /// Waits, on the paused clock, until `done`.
+    async fn until(what: &str, mut done: impl FnMut() -> bool) {
+        for _ in 0..1000 {
+            if done() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("{what}");
+    }
+
+    /// A client that takes a piece and then pauses, for less than the stall time each
+    /// time but longer than it in all, gets the whole archive; the place is held until
+    /// the end, then the file goes and the place is given back. On the paused clock, so
+    /// that how busy the machine is does not matter.
+    #[tokio::test(start_paused = true)]
+    async fn a_download_taken_slowly_is_not_given_up() {
+        let slots = Slots::new(1);
+        let (archive, path) = archive("slow").await;
+        let size = archive.size;
+        let slot = slots.take("user").expect("a place");
+        let breaker = Breaker::default();
+        let stall = Duration::from_secs(1);
+        let pieces = download(archive, slot, stall, Some(breaker.clone()));
+        tokio::pin!(pieces);
+
+        let started = Instant::now();
+        let mut received = 0;
+        while let Some(piece) = pieces.next().await {
+            received += piece.expect("not given up").len();
+            assert!(
+                slots.take("other").is_err(),
+                "the place is held while it is sent"
+            );
+            tokio::time::sleep(stall * 6 / 10).await;
+        }
+        assert_eq!(
+            u64::try_from(received).ok(),
+            Some(size),
+            "the whole archive"
+        );
+        assert!(
+            started.elapsed() > stall * 2,
+            "it took longer than the stall time"
+        );
+        assert!(!breaker.is_cut(), "the connection stays");
+        until("the place is given back", || slots.take("user").is_ok()).await;
+        assert!(!path.exists(), "the file went before the place");
+    }
+
+    /// A download that takes nothing for the stall time is given up: the file goes, then
+    /// the place, the connection is cut, and the stream, polled again, ends with an error.
+    #[tokio::test(start_paused = true)]
+    async fn a_download_that_takes_nothing_is_given_up() {
+        let slots = Slots::new(1);
+        let (archive, path) = archive("stalled").await;
+        let slot = slots.take("user").expect("a place");
+        let breaker = Breaker::default();
+        let stall = Duration::from_secs(1);
+        let pieces = download(archive, slot, stall, Some(breaker.clone()));
+        tokio::pin!(pieces);
+        pieces.next().await.expect("a piece").expect("read");
+
+        tokio::time::sleep(stall / 2).await;
+        assert!(slots.take("other").is_err(), "held before the stall time");
+        assert!(!breaker.is_cut());
+        until("the place is given back", || slots.take("user").is_ok()).await;
+        assert!(!path.exists(), "the file went before the place");
+        assert!(breaker.is_cut(), "the connection is cut");
+        let error = pieces.next().await.expect("an end").expect_err("given up");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(pieces.next().await.is_none(), "and nothing after");
+    }
+}

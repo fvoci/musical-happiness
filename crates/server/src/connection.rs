@@ -46,6 +46,11 @@ impl Breaker {
         self.0.waker.wake();
     }
 
+    /// Whether the connection is broken.
+    pub fn is_cut(&self) -> bool {
+        self.0.broken.load(Ordering::Acquire)
+    }
+
     /// Fails if the connection is broken; else remembers the task to wake when it is.
     fn check(&self, cx: &Context<'_>) -> io::Result<()> {
         self.0.waker.register(cx.waker());

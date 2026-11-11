@@ -46,6 +46,15 @@ pub struct ExportedArchive {
 }
 
 impl ExportedArchive {
+    /// An archive in the file at `path`, open from its start, of `size` bytes.
+    pub(crate) fn new(file: fs::File, size: u64, path: Doomed) -> Self {
+        Self {
+            file,
+            size,
+            _path: path,
+        }
+    }
+
     /// Closes the file and removes it, and waits for that.
     pub(crate) async fn remove(self) {
         let Self {
@@ -98,11 +107,7 @@ impl App {
             .await
             .map_err(|error| io_error(&error))?
             .len();
-        Ok(ExportedArchive {
-            file,
-            size,
-            _path: path,
-        })
+        Ok(ExportedArchive::new(file, size, path))
     }
 
     /// Writes the archive of `boards` to a new file at `path`.
