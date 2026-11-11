@@ -222,6 +222,12 @@
   - 429와 `Retry-After`는 `login`, `register`, `changePassword`에 따로 적었다.
   - `getFile`의 412와 416만 `ErrorBody`가 아니다. 412는 본문이 없고 416은 `text/plain`이다.
 - **관리자 소켓의 라우트**(`/api/v1/admin/...`). 로컬 유닉스 소켓에서만 받는다. 계약에 없다.
+- **응답 압축**(tracer-bullet 10, 2026-11-11 11:51 KST). 조작마다 적지 않는다. 모양과 뜻은 바뀌지 않는다.
+  - API의 JSON 응답(`Content-Type: application/json`, 32바이트를 넘는 것)은 요청의 `Accept-Encoding`에 따라 `zstd`, `br`, `gzip`으로 압축한다. 같은 가중치면 zstd, brotli, gzip 순이다. `deflate`만 받는 클라이언트에는 압축하지 않는다. 압축한 응답은 `Content-Encoding`을 달고 `Content-Length`가 없으며 `Vary: Accept-Encoding`이 붙는다. 브라우저는 스스로 푼다.
+  - 내보내는 아카이브와 파일(`getFile`), 그 밖에 JSON이 아닌 응답은 압축하지 않는다(오류 응답은 JSON이라 압축한다). 그래서 내보내기의 `Content-Length`와 `getFile`의 범위 요청은 그대로다.
+  - 설정 `compress_responses`(기본 참)로 끈다. 압축하는 프록시나 CDN 뒤의 배포를 위한 것이다.
+  - WebSocket 메시지는 압축하지 않는다.
+  - 웹앱의 정적 파일은 빌드가 만든 `.zst`, `.br`, `.gz`가 옆에 있으면 `Accept-Encoding`에 따라 그것을 보낸다(전에는 `.br`과 `.gz`만).
 
 ## 7. 그대로 둔 불규칙
 

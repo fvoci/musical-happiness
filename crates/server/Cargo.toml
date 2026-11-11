@@ -45,11 +45,13 @@ uuid.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+brotli.workspace = true
 fvoci-store = { workspace = true, features = ["test-util"] }
 rcgen.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tokio-tungstenite.workspace = true
 zip.workspace = true
+zstd.workspace = true
 
 [lints]
 workspace = true

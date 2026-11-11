@@ -22,6 +22,9 @@ argon2 = "0.6"
 axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
 # The alphabet of the secrets: tokens and stored file names. License: MIT OR Apache-2.0.
 base64 = "0.22"
+# Brotli, to read compressed answers in the tests (the server's compression has it
+# already). License: BSD-3-Clause AND MIT.
+brotli = "9"
 bytes = "1"
 # The pure-Rust DEFLATE backend (miniz_oxide) that `zip` uses. License: MIT OR Apache-2.0.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
@@ -60,7 +63,9 @@ tokio-util = { version = "0.7", features = ["io", "rt"] }
 utoipa = "6"
 utoipa-axum = "0.3"
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.7", features = ["fs"] }
+# The static files and the compression of API answers: gzip, brotli and zstd (the
+# encoders are the C zstd library and the pure-Rust brotli). License: MIT.
+tower-http = { version = "0.7", features = ["fs", "compression-br", "compression-gzip", "compression-zstd"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 unicode-segmentation = "1"
@@ -68,6 +73,9 @@ uuid = { version = "1", features = ["v7"] }
 # Pure-Rust ZIP, DEFLATE via flate2/miniz_oxide only (no AES/bzip2/zstd/lzma), for the
 # board archive format. License: MIT.
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+# Zstandard, to read compressed answers in the tests (the server's compression has it
+# already). License: MIT.
+zstd = "0.14"
 
 # Lints from the BeautifulRust `lints/lints.toml`. Everything is "warn"; CI and the
 # local gate run clippy with `-D warnings`.

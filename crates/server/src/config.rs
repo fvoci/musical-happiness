@@ -172,6 +172,10 @@ pub struct Configuration {
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
+    /// Whether the JSON answers of the API are compressed (gzip, brotli or zstd, as the
+    /// client's `Accept-Encoding` asks). On unless set: a proxy in front that compresses
+    /// itself can have it off.
+    pub compress_responses: bool,
     /// The largest body, in bytes, of a request to an API route that takes JSON. A
     /// larger one is refused with 413. It does not apply to file uploads, which are
     /// limited to one part (`upload_part_bytes`) as they are read, nor to the parts of
@@ -264,6 +268,7 @@ impl Default for Configuration {
             audit_cfg_file: String::new(),
             audit_cfg_json: String::new(),
             websocket_ping_seconds: 30,
+            compress_responses: true,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trash_retention_days: 30,
             upload_part_bytes: DEFAULT_UPLOAD_PART_BYTES,
@@ -318,6 +323,7 @@ impl std::fmt::Debug for Configuration {
             .field("show_full_name", &self.show_full_name)
             .field("auth_mode", &self.auth_mode)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
+            .field("compress_responses", &self.compress_responses)
             .field("max_request_bytes", &self.max_request_bytes)
             .field("trash_retention_days", &self.trash_retention_days)
             .field("upload_part_bytes", &self.upload_part_bytes)
@@ -368,7 +374,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
-const ENV_KEYS: [(&str, EnvKind); 44] = [
+const ENV_KEYS: [(&str, EnvKind); 45] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -397,6 +403,7 @@ const ENV_KEYS: [(&str, EnvKind); 44] = [
     ("audit_cfg_file", EnvKind::Text),
     ("audit_cfg_json", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
+    ("compress_responses", EnvKind::Flag),
     ("max_request_bytes", EnvKind::Number),
     ("trash_retention_days", EnvKind::Number),
     ("upload_part_bytes", EnvKind::Number),
@@ -825,6 +832,10 @@ mod tests {
             "/var/tmp/fvoci_local.socket"
         );
         assert_eq!(config.websocket_ping_seconds, 30);
+        assert!(
+            config.compress_responses,
+            "API answers are compressed by default"
+        );
         let warnings = config.check().expect("the defaults are supported");
         assert_eq!(
             warnings,

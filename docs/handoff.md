@@ -1,6 +1,6 @@
 # 서버 인수인계
 
-고친 때: 2026-11-11 11:19 KST(서버의 다음 묶음이 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+고친 때: 2026-11-11 11:51 KST(서버의 다음 묶음이 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
 
 ## 저장소가 하나로 합쳐졌다
 
@@ -42,8 +42,8 @@
   | 8b | S3 멀티파트: S3 설정에서 부분을 S3에 바로 올리고(`MultipartStore`), 버리거나 끝나면 `abort_multipart`. 운영 문서에 버킷의 `AbortIncompleteMultipartUpload` 규칙(설계 5.6의 7) | 끝 |
   | 9a | 내보내기를 임시 파일에 쓰고 길이와 함께 흘려 보낸다. 시작할 때 남은 것을 지운다 | 끝 |
   | 9b | 가져오기를 올리기 세션(용도 `import`)으로, 아카이브를 디스크에서 읽고 한도(256 MiB, 풀린 합계 1 GiB, 항목 수, `board.jsonl`, 파일 항목) | 끝 |
-  | 10 | 응답 압축(정적 `.zst`, API의 gzip·brotli·zstd) | 다음 |
-  | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | |
+  | 10 | 응답 압축(정적 `.zst`, API의 gzip·brotli·zstd) | 끝 |
+  | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | 다음 |
   | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | |
   | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | |
   | 14 | 빌드 크기(디버그 정보 수준) | |

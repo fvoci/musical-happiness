@@ -25,13 +25,15 @@ use axum::body::Body;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::{OriginalUri, Request, State};
-use axum::http::header::{ALLOW, ORIGIN, REFERRER_POLICY};
-use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
+use axum::http::header::{ALLOW, CONTENT_TYPE, ORIGIN, REFERRER_POLICY};
+use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Version};
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use fvoci_store::{DbType, Store};
 use tokio_util::sync::CancellationToken;
+use tower_http::compression::CompressionLayer;
+use tower_http::compression::predicate::{DefaultPredicate, Predicate};
 
 pub use crate::request_log::Peer;
 pub use crate::tls::TlsFiles;
@@ -152,6 +154,11 @@ impl Server {
             // Under the API prefix nothing is ever answered with the web app's page.
             .fallback(api_not_found)
             .method_not_allowed_fallback(method_not_allowed);
+        let api = if self.app.config().compress_responses {
+            api.layer(compression())
+        } else {
+            api
+        };
         let routes = Router::new()
             .nest(api::PREFIX, api)
             .route("/ws", get(handle_websocket))
@@ -602,6 +609,23 @@ async fn api_not_found() -> AppError {
 /// the `Allow` header with the methods the path does have.
 async fn method_not_allowed() -> AppError {
     AppError::method_not_allowed()
+}
+
+/// Compresses the JSON answers of the API as the client's `Accept-Encoding` asks: zstd,
+/// brotli or gzip, the one it prefers (zstd on a tie), at the codecs' default levels.
+/// Nothing else is compressed: an archive or a file is sent with its length, as it is.
+fn compression() -> CompressionLayer<impl Predicate> {
+    CompressionLayer::new()
+        .no_deflate()
+        .compress_when(DefaultPredicate::new().and(is_json))
+}
+
+/// Whether an answer is JSON, by its `Content-Type`.
+fn is_json(_: StatusCode, _: Version, headers: &HeaderMap, _: &Extensions) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("application/json"))
 }
 
 /// Everything that is neither an API route nor a static file is a route of the web app:
