@@ -30,11 +30,12 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await page.goto('/');
   await signInOnPage(page, owner);
 
-  // "Add board": the board and a kanban grouped by its "Status", made together.
+  // "Add board", an empty one: the board and a kanban grouped by its "Status", made together.
   const made = page.waitForResponse(
     (answer) => answer.url().endsWith('/api/v1/boards-and-blocks') && answer.status() === 201,
   );
   await sidebar(page).getByTestId('add-board').click();
+  await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await made;
   await expect(page).toHaveURL(/\/board\/[0-9a-z-]+\/[0-9a-z-]+$/);
   const [, boardId = '', viewId = ''] = /\/board\/([^/]+)\/([^/]+)$/.exec(page.url()) ?? [];
