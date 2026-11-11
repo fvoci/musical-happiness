@@ -69,6 +69,9 @@ export function notWired(operation: string): never {
   });
 }
 
+/** How many files go up at once; the server allows a reader 8 open uploads. */
+const UPLOADS_AT_ONCE = 3;
+
 export class ServerBackend implements Backend, Account {
   readonly #http: Http;
   /** The last change of each card or view on its way, settled either way (`#inTurn`). */
@@ -502,8 +505,8 @@ export class ServerBackend implements Backend, Account {
   /**
    * Attaches an uploaded file: a block under the card that names the file
    * (`fields.fileId`), with the name as its title. The block also keeps the
-   * size and type, which the server's file record lacks
-   * (`contract-assumptions.md`, B2).
+   * size and type, which the server's file record lacks (`getFileInfo` has
+   * no type).
    */
   async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
     const block: Schemas['NewBlock'] = {
@@ -556,7 +559,26 @@ export class ServerBackend implements Backend, Account {
     if (file.size > limit) {
       throw new BackendError(413, { message: 'the file is too large', limit });
     }
-    return uploadInParts(this.#http, boardId, file, options);
+    // A few at a time: the server keeps only so many open uploads of a reader (429).
+    await this.#uploadTurn(options?.signal);
+    try {
+      return await uploadInParts(this.#http, boardId, file, options);
+    } finally {
+      this.#uploading -= 1;
+      this.#uploadWaiting.shift()?.();
+    }
+  }
+
+  /** Uploads under way, and those waiting for their turn. */
+  #uploading = 0;
+  readonly #uploadWaiting: (() => void)[] = [];
+
+  async #uploadTurn(signal: AbortSignal | undefined): Promise<void> {
+    while (this.#uploading >= UPLOADS_AT_ONCE) {
+      await new Promise<void>((resolve) => this.#uploadWaiting.push(resolve));
+    }
+    signal?.throwIfAborted();
+    this.#uploading += 1;
   }
 
   /** The server's settings for clients, read once. */

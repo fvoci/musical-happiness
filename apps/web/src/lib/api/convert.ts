@@ -193,9 +193,10 @@ export function commentOf(block: Schemas['Block']): Comment {
 
 /**
  * An attachment block. Its file is `fields.fileId` (older blocks name it
- * `attachmentId`, which the server takes too) and its name the title. The
- * block carries no size or type (`contract-assumptions.md`, B2): they are 0
- * and empty, and the screen leaves an unknown size out.
+ * `attachmentId`, which the server takes too) and its name the title. Its
+ * size and type are in its fields when this app made it (`createAttachment`);
+ * a block another client made may have neither: they are 0 and empty, and
+ * the screen leaves an unknown size out.
  */
 export function attachmentOf(block: Schemas['Block']): Attachment {
   const fields = block.fields;

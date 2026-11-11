@@ -14,5 +14,6 @@
   "app_problem_network": "서버가 응답하지 않습니다. 연결을 확인해 주세요.",
   "app_problem_not_wired": "아직 서버에 저장되지 않는 것입니다.",
   "app_problem_forbidden": "이 보드에서 할 수 없는 일입니다.",
-  "app_problem_dismiss": "닫기"
+  "app_problem_dismiss": "닫기",
+  "app_problem_upload_busy": "올리는 파일이 너무 많습니다. 끝난 뒤에 다시 해 보세요."
 }

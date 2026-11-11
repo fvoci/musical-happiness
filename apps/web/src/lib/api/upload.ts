@@ -6,8 +6,14 @@
  * way, small ones in one part; the server says how large a part is.
  *
  * A part that gets no answer, or the server's own failure, is sent again a
- * few times. Giving the upload up (the signal) throws away what the server
- * has of it (`deleteUpload`).
+ * few times after a pause. Giving the upload up (the signal), or a failure,
+ * throws away what the server has of it (`deleteUpload`); an upload whose
+ * completion got no answer is left alone, since the file may have been made
+ * (the server lets an upload end by itself in a day, and a file nothing
+ * names is collected).
+ *
+ * A tab closed in the middle leaves its upload open on the server until it
+ * ends: it counts toward the reader's open uploads until then.
  */
 import { BackendError, type UploadedFile, type UploadOptions } from '../state/backend.ts';
 
@@ -16,6 +22,21 @@ import type { Http } from './http.ts';
 
 /** How many times one part is sent before the upload fails. */
 const PART_TRIES = 3;
+/** The pause before a part is sent again, in milliseconds, times the tries so far. */
+const PART_PAUSE = 500;
+
+const pause = (milliseconds: number, signal: AbortSignal | undefined): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, milliseconds);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason as Error);
+      },
+      { once: true },
+    );
+  });
 
 /** The `Content-Digest` of some bytes: their SHA-256, as RFC 9530 writes it. */
 export async function contentDigest(bytes: Blob): Promise<string> {
@@ -42,12 +63,15 @@ export async function uploadInParts(
     size: file.size,
     ...(file.type ? { contentType: file.type } : {}),
   };
+  // Not given up halfway: once the server has opened it, its identifier is
+  // needed to throw it away.
   const opened = await http.request<Schemas['UploadOpened']>(
     '/api/v1/boards/{boardId}/uploads',
     { boardId },
-    { method: 'POST', json: request, signal },
+    { method: 'POST', json: request },
   );
   const { uploadId, partSize, partCount } = opened;
+  let completing = false;
   try {
     let sent = 0;
     for (let number = 1; number <= partCount; number += 1) {
@@ -64,12 +88,14 @@ export async function uploadInParts(
           break;
         } catch (error) {
           if (tries >= PART_TRIES || !worthAgain(error)) throw error;
+          await pause(PART_PAUSE * tries, signal);
         }
       }
       sent += part.size;
       onProgress?.({ sentBytes: sent, totalBytes: file.size });
     }
     signal?.throwIfAborted();
+    completing = true;
     const done = await http.request<Schemas['UploadedFile']>(
       '/api/v1/uploads/{uploadId}/complete',
       { uploadId },
@@ -83,7 +109,9 @@ export async function uploadInParts(
       contentType: file.type || 'application/octet-stream',
     };
   } catch (error) {
-    // Given up or failed: what the server holds of it is thrown away (it ends by itself in a day otherwise).
+    // No answer to the completion: the file may be made; the upload is left to end.
+    if (completing && error instanceof BackendError && error.status === 0) throw error;
+    // Given up or failed: what the server holds of it is thrown away.
     void http
       .request('/api/v1/uploads/{uploadId}', { uploadId }, { method: 'DELETE' })
       .catch(() => undefined);

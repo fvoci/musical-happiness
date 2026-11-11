@@ -14,5 +14,6 @@
   "app_problem_network": "The server did not answer. Check the connection.",
   "app_problem_not_wired": "This is not saved to the server yet.",
   "app_problem_forbidden": "You are not allowed to do that on this board.",
-  "app_problem_dismiss": "Dismiss"
+  "app_problem_dismiss": "Dismiss",
+  "app_problem_upload_busy": "Too many files are being uploaded. Try again once they are done."
 }

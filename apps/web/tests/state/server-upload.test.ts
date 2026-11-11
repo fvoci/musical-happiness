@@ -220,4 +220,56 @@ describe('uploading a file to the server', () => {
     expect(await bytes.text()).toBe('bytes');
     expect(urls).toEqual(['/base/api/v1/boards/b1/files/f1.txt']);
   });
+
+  it('throws away an upload given up while it was being opened', async () => {
+    const calls = uploadServer({ partSize: 4 });
+    const controller = new AbortController();
+    // The server answers the opening only once the reader has given up.
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      if (init.method === 'POST' && url.endsWith('/uploads')) controller.abort();
+      return answer(url, init);
+    });
+    const uploading = new ServerBackend('').upload('b1', new File(['0123456789'], 'a.txt'), {
+      signal: controller.signal,
+    });
+    await expect(uploading).rejects.toThrow();
+    await vi.waitFor(() => {
+      expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/uploads/up1' });
+    });
+    expect(calls.some((call) => call.method === 'PUT')).toBe(false);
+  });
+
+  it('leaves an upload alone whose completion got no answer: the file may be made', async () => {
+    const calls = uploadServer({ partSize: 4 });
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) =>
+      url.endsWith('/complete') ? Promise.reject(new TypeError('no answer')) : answer(url, init),
+    );
+    const error = await new ServerBackend('')
+      .upload('b1', new File(['0123456789'], 'a.txt'))
+      .catch((caught: unknown) => caught);
+    expect(isBackendError(error) && error.status).toBe(0);
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
+  });
+
+  it('sends three files at once and the rest after, so as not to open more than the server keeps', async () => {
+    let open = 0;
+    let most = 0;
+    uploadServer({ partSize: 4 });
+    const answer = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      if (init.method === 'POST' && url.endsWith('/uploads')) open += 1;
+      most = Math.max(most, open);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      const response = await answer(url, init);
+      if (url.endsWith('/complete')) open -= 1;
+      return response;
+    });
+    const backend = new ServerBackend('');
+    const files = Array.from({ length: 7 }, (_, at) => new File(['0123'], `f${String(at)}.txt`));
+    await Promise.all(files.map((file) => backend.upload('b1', file)));
+    expect(most).toBe(3);
+    expect(open).toBe(0);
+  });
 });

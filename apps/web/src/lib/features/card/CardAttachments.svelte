@@ -80,10 +80,21 @@
       return;
     }
     event.preventDefault();
-    void card.fileBytes(fileId).then((bytes) => {
-      if (bytes) saveBlob(bytes, name);
-    });
+    // A file being read is not read again by another press.
+    if (downloading.includes(fileId)) return;
+    downloading = [...downloading, fileId];
+    void card
+      .fileBytes(fileId)
+      .then((bytes) => {
+        if (bytes) saveBlob(bytes, name);
+      })
+      .finally(() => {
+        downloading = downloading.filter((id) => id !== fileId);
+      });
   }
+
+  /** Files whose bytes are being read, to be saved. */
+  let downloading = $state<string[]>([]);
 
   const percent = (upload: Upload): number =>
     upload.totalBytes > 0
@@ -159,6 +170,7 @@
                     onDownload(event, attachment.fileId, attachment.name);
                   }}
                   title={m.card_attachment_download({ name: attachment.name })}
+                  aria-busy={downloading.includes(attachment.fileId)}
                   class="block truncate underline-offset-2 hover:underline roomy:py-1"
                 >
                   {attachment.name}
@@ -166,7 +178,7 @@
               {:else}
                 <p class="truncate">{attachment.name}</p>
               {/if}
-              <!-- 0: the server's attachment says no size (\`contract-assumptions.md\`, B2). -->
+              <!-- 0: an attachment another client made may say no size. -->
               {#if attachment.size > 0}
                 <p class="text-xs text-muted-foreground">{humanFileSize(attachment.size)}</p>
               {/if}

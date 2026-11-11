@@ -69,7 +69,7 @@ test('a file of two parts is attached on the server and downloads as the same by
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('scan.bin');
   await expect(row).toContainText('6.0 MiB');
-  expect(parts.sort()).toEqual(['1', '2']);
+  expect([...new Set(parts)].sort()).toEqual(['1', '2']);
 
   const [stored] = await attachmentsOnServer();
   expect(stored).toMatchObject({ title: 'scan.bin', fields: { size: bytes.length } });
@@ -85,7 +85,7 @@ test('a file of two parts is attached on the server and downloads as the same by
   expect(download.suggestedFilename()).toBe('scan.bin');
   expect(sha(readFileSync(await download.path()))).toBe(sha(bytes));
 
-  await section.getByRole('button', { name: /^Delete scan\.bin|scan\.bin/ }).click();
+  await section.getByRole('button', { name: 'Delete scan.bin' }).click();
   await expect(row).toHaveCount(0);
   await expect.poll(attachmentsOnServer).toEqual([]);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
@@ -122,7 +122,9 @@ test('a file over the server’s limit is refused before it is sent, and says th
   closeSync(handle);
   await page.getByTestId('attach-input').setInputFiles(video);
   await expect(page.locator('[data-problem]')).toBeVisible();
-  await expect(page.locator('[data-problem]')).toContainText(/100(\.0)? MiB/);
+  await expect(page.locator('[data-problem]')).toContainText(
+    `${(config.maxFileSize / 1024 / 1024).toFixed(1)} MiB`,
+  );
   expect(opened).toBe(0);
   await api.dispose();
   expect(errors).toEqual([]);
