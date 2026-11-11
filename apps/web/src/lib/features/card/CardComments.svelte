@@ -86,6 +86,12 @@
   async function save(): Promise<void> {
     if (!editing || !edited || saving) return;
     const { id, readAt } = editing;
+    // The same text again is no change: sent, it would name the reader as the last to touch it.
+    const stored = commentText(current?.body ?? null);
+    if (stored !== undefined && JSON.stringify(commentDoc(stored)) === JSON.stringify(edited)) {
+      await close(id);
+      return;
+    }
     saving = true;
     try {
       const outcome = await card.editComment(id, edited, readAt);
@@ -165,23 +171,25 @@
               {relativeTime(comment.createAt, workspace.locale, Math.max(now, comment.createAt))}
             </time>
             {#if comment.editedAt}
+              {@const when = relativeTime(
+                comment.editedAt,
+                workspace.locale,
+                Math.max(now, comment.editedAt),
+              )}
               <span
                 class="text-xs text-muted-foreground"
                 title={displayDateTime(comment.editedAt, context)}
                 data-testid="comment-edited"
               >
-                {m.card_comment_edited({
-                  who: resolveUser(comment.modifiedBy),
-                  when: relativeTime(
-                    comment.editedAt,
-                    workspace.locale,
-                    Math.max(now, comment.editedAt),
-                  ),
-                })}
+                <!-- A reader by the board's link is not told who. -->
+                {comment.modifiedBy
+                  ? m.card_comment_edited({ who: resolveUser(comment.modifiedBy), when })
+                  : m.card_comment_edited_unnamed({ when })}
               </span>
             {/if}
           </p>
-          {#if editing?.id === comment.id}
+          {#if editing?.id === comment.id && board.canEditComment(comment.createdBy)}
+            <!-- Kept only while the reader may still change it (a role can be taken away meanwhile). -->
             <form
               class="mt-1 flex flex-col gap-2"
               data-testid="comment-edit"
@@ -227,7 +235,7 @@
               {/snippet}
             </BodyView>
           {/if}
-          {#if historyOf === comment.id && comment.editedAt && board.role !== ''}
+          {#if historyOf === comment.id && comment.editedAt && board.canReadCommentHistory}
             <CommentHistory
               id="{uid}-history-{comment.id}"
               {board}
@@ -238,7 +246,7 @@
             />
           {/if}
         </div>
-        {#if comment.editedAt && board.role !== ''}
+        {#if comment.editedAt && board.canReadCommentHistory}
           <IconButton
             label={m.card_comment_history({ when: displayDateTime(comment.createAt, context) })}
             class={['shrink-0 text-muted-foreground', historyOf === comment.id && 'bg-accent']}
@@ -275,6 +283,7 @@
             onclick={() => {
               // Its field, if open, goes with it (an undo brings the comment back, not the edit).
               if (editing?.id === comment.id) editing = undefined;
+              if (historyOf === comment.id) historyOf = undefined;
               void card.deleteComment(comment.id);
             }}
           >

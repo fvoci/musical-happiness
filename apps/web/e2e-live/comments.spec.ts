@@ -123,13 +123,14 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
   const path = `/board/${board.boardId}/${board.viewId}/${cardId}`;
 
   const pages: Page[] = [];
+  const watched: string[][] = [];
   for (const who of [owner, guest, helper]) {
     const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
     pages.push(page);
+    watched.push(watchErrors(page));
     await openCard(page, path, who);
   }
   const [hostPage, guestPage, helperPage] = pages as [Page, Page, Page];
-  const errors = pages.flatMap((page) => watchErrors(page));
   const editOf = (page: Page) => page.getByRole('button', { name: /^Edit the comment from/ });
   const deleteOf = (page: Page) => page.getByRole('button', { name: /^Delete the comment from/ });
 
@@ -162,6 +163,16 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
   expect((await commentsOn(api, board.boardId, cardId)).map((one) => lines(one.body))).toEqual([
     ['No mushrooms, no olives'],
   ]);
+
+  // Saving the same text again is no change: the admin stays the one who changed it.
+  await expect(guestPage.getByTestId('card-comments').locator('[data-comment]')).toHaveText(
+    /No mushrooms, no olives/,
+  );
+  await editOf(guestPage).click();
+  await guestPage.getByRole('button', { name: 'Save' }).click();
+  await expect(guestPage.getByTestId('comment-edit')).toHaveCount(0);
+  const me = (await (await api.get('/api/v1/users/me')).json()) as Schemas['User'];
+  expect((await commentsOn(api, board.boardId, cardId))[0]?.modifiedBy).toBe(me.id);
 
   // Everybody sees who changed it last, as it happens, and can read what it said before.
   for (const page of pages) {
@@ -200,7 +211,7 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
 
   for (const page of pages) await page.context().close();
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });
 
 test('a comment changed elsewhere while its field is open is not written over unseen', async ({

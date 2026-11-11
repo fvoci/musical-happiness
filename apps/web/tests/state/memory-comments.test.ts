@@ -87,6 +87,27 @@ describe('who changes and deletes a comment', () => {
   });
 });
 
+describe('a comment brought back', () => {
+  it('names whoever brought it back as the last to change it, as the server does', async () => {
+    const { world, backend, other, boardId, cardId } = await onAlpha();
+    const posted = await backend.createComment(boardId, cardId, text('kept'));
+    setRole(world, boardId, other, 'admin');
+    await other.deleteBlock(boardId, posted.id);
+    await other.restoreBlock(boardId, posted.id);
+    const back = (await backend.comments(boardId, cardId)).find((one) => one.id === posted.id);
+    expect(back?.modifiedBy).toBe(other.userId);
+    expect(back?.updateAt).toBeGreaterThan(posted.updateAt);
+    expect(back?.editedAt).toBeUndefined();
+  });
+
+  it('refuses a viewer before it looks for the comment', async () => {
+    const { world, backend, boardId } = await onAlpha();
+    setRole(world, boardId, backend, 'viewer');
+    const write = { body: text('x'), readAt: 1 };
+    expect(await statusOf(backend.patchComment(boardId, 'nothing', write))).toBe(403);
+  });
+});
+
 describe('a changed comment', () => {
   it('says when its text was changed and by whom, and not for a write of the same text', async () => {
     const { world, backend, other, boardId, cardId } = await onAlpha();
@@ -156,6 +177,10 @@ describe('a changed comment', () => {
       boardId,
       (world.members.get(boardId) ?? []).filter((member) => member.userId !== other.userId),
     );
+    // Not there for who is no member; refused on a board open to the team.
+    expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(404);
+    const board = world.boards.get(boardId);
+    if (board) world.boards.set(boardId, { ...board, type: 'O' });
     expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(403);
 
     await backend.deleteBlock(boardId, posted.id);

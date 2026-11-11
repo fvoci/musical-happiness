@@ -423,5 +423,9 @@ describe('who changes a comment', () => {
     expect(as('schemeEditor')).toEqual([true, false]);
     expect(as('schemeCommenter')).toEqual([true, false]);
     expect(as('schemeViewer')).toEqual([false, false]);
+    // Any member reads what comments said before; whoever is none (a reader by the link) does not.
+    expect(board.canReadCommentHistory).toBe(true);
+    board.members = board.members.filter((member) => member.userId !== me);
+    expect(board.canReadCommentHistory).toBe(false);
   });
 });

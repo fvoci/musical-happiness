@@ -80,6 +80,7 @@ import {
   mayDeleteComment,
   recordChange,
   roleOn,
+  type Role,
 } from './comments.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
@@ -243,6 +244,19 @@ export class MemoryBackend implements Backend {
       fail(404, `no such ${type ?? 'block'}`);
     }
     return block;
+  }
+
+  #roleOn(boardId: string): Role {
+    return roleOn(this.world.members.get(boardId) ?? [], this.userId);
+  }
+
+  /** The reader's role on the board; one they are no member of is not there for them, unless open (403). */
+  #memberRole(boardId: string): Exclude<Role, ''> {
+    const board = this.#board(boardId);
+    const role = this.#roleOn(boardId);
+    if (role !== '') return role;
+    if (board.type === 'O') fail(403, 'access denied to board');
+    fail(404, 'no such board');
   }
 
   #memberIds(boardId: string): string[] {
@@ -1049,8 +1063,10 @@ export class MemoryBackend implements Backend {
 
   async patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
     await this.#enter('patchComment');
+    // The role first, as on the server: who cannot comment learns nothing of the block.
+    const role = this.#memberRole(boardId);
+    if (role === 'viewer') fail(403, 'access denied to make board changes');
     const block = this.#block(boardId, commentId, 'comment');
-    const role = roleOn(this.world.members.get(boardId) ?? [], this.userId);
     if (!mayChangeComment(role, block.createdBy === this.userId)) {
       fail(403, "access denied to change other users' comments");
     }
@@ -1079,10 +1095,7 @@ export class MemoryBackend implements Backend {
 
   async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
     await this.#enter('commentVersions');
-    this.#board(boardId);
-    if (roleOn(this.world.members.get(boardId) ?? [], this.userId) === '') {
-      fail(403, 'access denied to board');
-    }
+    this.#memberRole(boardId);
     // Also of a comment in the trash, as on the server.
     const trashed = [...this.world.deletedBlocks.values()]
       .filter((deleted) => deleted.boardId === boardId)
@@ -1123,7 +1136,7 @@ export class MemoryBackend implements Backend {
   async deleteBlock(boardId: string, blockId: string): Promise<void> {
     await this.#enter('deleteBlock');
     const block = this.#block(boardId, blockId);
-    const role = roleOn(this.world.members.get(boardId) ?? [], this.userId);
+    const role = this.#roleOn(boardId);
     if (block.type === 'comment' && !mayDeleteComment(role, block.createdBy === this.userId)) {
       fail(403, "access denied to delete other users' comments");
     }
@@ -1154,7 +1167,11 @@ export class MemoryBackend implements Backend {
     }
     this.#board(boardId);
     this.world.deletedBlocks.delete(blockId);
-    for (const block of deleted.blocks) this.world.blocks.set(block.id, block);
+    for (const block of deleted.blocks) {
+      // As the server: whoever restores is the last to change each block, now.
+      this.#touch(block);
+      this.world.blocks.set(block.id, block);
+    }
     this.#tellBlocks(boardId, deleted.blocks);
   }
 

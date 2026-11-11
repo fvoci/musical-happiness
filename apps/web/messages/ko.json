@@ -141,6 +141,7 @@
   "card_comment_save": "저장",
   "card_comment_conflict": "다른 사람이 이 댓글을 바꿨습니다. 저장하면 이 글을 바꿉니다:",
   "card_comment_edited": "{who} 고침 · {when}",
+  "card_comment_edited_unnamed": "고침 · {when}",
   "card_comment_history": "{when}에 쓴 댓글의 고치기 전 글",
   "card_comment_version_posted": "처음 쓴 글: {who}, {when}",
   "card_comment_version_changed": "고친 글: {who}, {when}",

@@ -172,6 +172,13 @@ export class BoardStore {
     return this.canComment && createdBy === this.workspace.me?.id;
   }
 
+  /**
+   * Whether the reader may read what comments said before they were changed:
+   * a member, whatever the role (`getCommentVersions`); not a reader by the
+   * board's link.
+   */
+  readonly canReadCommentHistory = $derived(this.role !== '');
+
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */

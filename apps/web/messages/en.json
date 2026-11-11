@@ -141,6 +141,7 @@
   "card_comment_save": "Save",
   "card_comment_conflict": "Someone else changed this comment. Saving replaces their text:",
   "card_comment_edited": "edited by {who} {when}",
+  "card_comment_edited_unnamed": "edited {when}",
   "card_comment_history": "What the comment from {when} said before",
   "card_comment_version_posted": "Posted by {who}, {when}",
   "card_comment_version_changed": "Changed by {who}, {when}",

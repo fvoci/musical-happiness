@@ -7,7 +7,7 @@ import type { DocNode } from '../../editor/schema.ts';
 import type { BoardMember } from '../../logic/wire.ts';
 import type { CommentVersion } from '../backend.ts';
 
-type Role = 'admin' | 'editor' | 'commenter' | 'viewer' | '';
+export type Role = 'admin' | 'editor' | 'commenter' | 'viewer' | '';
 
 /** The highest role of a user on a board; none for who is no member. */
 export function roleOn(members: readonly BoardMember[], userId: string): Role {
