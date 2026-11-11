@@ -106,7 +106,7 @@
 | 412, 416 | `precondition-failed`, `range-not-satisfiable` | 파일 내려받기(`getFile`)의 조건과 범위가 맞지 않음 | 본문이 없거나 `text/plain`이던 것 |
 | 413 | `payload-too-large` | 본문이 한도를 넘음. `limit` 포함 | 4절 |
 | 429 | `rate-limited` | 로그인·가입 시도가 제한에 걸림. `Retry-After` 머리글과 본문의 `retryAfter`(초). 한꺼번에 지닐 수 있는 양(열린 업로드, 내보내기·가져오기)을 넘은 것도 429이고 `reason`이 따로 있으며 기다릴 시간은 없다 | 5.2에서 더했다 |
-| 500 | `internal` | 서버의 잘못뿐. `detail`은 고정 문구, 원인은 로그에만 | 위로 옮겨 간 것들이 빠진다 |
+| 500, 503 | `internal`, `service-unavailable` | 서버의 잘못뿐. `detail`은 고정 문구, 원인은 로그에만. 503은 준비 상태(`GET /api/v1/ready`)가 아닐 때 | 위로 옮겨 간 것들이 빠진다 |
 
 쓰지 않는 코드: 422는 쓰지 않는다(검증 실패도 400이다. GroundZero와 같다). 501은 1.6에 따라 없어졌다.
 

@@ -764,3 +764,52 @@ async fn clean_up_returns_the_identifiers_of_the_sessions_it_deleted() {
 
     test.teardown().await;
 }
+
+/// The sessions counted live are those `get_session` would find: not ended by disuse or
+/// at their end time, and of a user who is not deactivated.
+#[tokio::test]
+async fn the_live_sessions_are_those_that_would_be_found() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "counted").await;
+    let leaving_id = common::user(&test, "leaving").await;
+    assert_eq!(
+        test.count_live_sessions(T0 + 1, T0 - 1)
+            .await
+            .expect("counted"),
+        0
+    );
+    let used_later = session_of(&user_id);
+    open(&test, &session_of(&user_id), "digest-1").await;
+    open(&test, &used_later, "digest-2").await;
+    open(&test, &session_of(&leaving_id), "digest-3").await;
+    test.touch_session(&used_later.id, T0 + 100)
+        .await
+        .expect("the use is recorded");
+    let live = async |now: i64, idle_since: i64| {
+        test.count_live_sessions(now, idle_since)
+            .await
+            .expect("counted")
+    };
+    assert_eq!(live(T0 + 1, T0 - 1).await, 3, "all in use");
+    assert_eq!(live(T0 + 101, T0 + 50).await, 1, "one used after the limit");
+    assert_eq!(live(T0 + 1000, T0 - 1).await, 0, "all at their end time");
+    assert_eq!(live(T0 + 999, T0 - 1).await, 3, "the moment before");
+    assert_eq!(
+        live(T0 + 1, T0).await,
+        1,
+        "used at the limit is idle, as get_session has it"
+    );
+    assert!(!is_valid(&test, "digest-1", T0 + 1, T0).await);
+    assert!(is_valid(&test, "digest-2", T0 + 1, T0).await);
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE users SET delete_at = {T0} WHERE id = '{leaving_id}'"),
+    )
+    .await;
+    assert_eq!(
+        live(T0 + 1, T0 - 1).await,
+        2,
+        "a deactivated user's session is not live"
+    );
+    test.teardown().await;
+}

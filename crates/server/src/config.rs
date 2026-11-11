@@ -20,39 +20,9 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 /// so every single valid block fits. Requests of the web app measured below 1 kB.
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
-/// Where the metrics listener listens: `prometheusaddress` read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetricsAddress {
-    /// The host name or address; `None` for every interface.
-    pub host: Option<String>,
-    /// The port; zero for any free one.
-    pub port: u16,
-}
+mod scrapes;
 
-impl MetricsAddress {
-    /// Reads `host:port`, `[ipv6]:port` or `:port`; `None` if the text is none of them.
-    fn parse(text: &str) -> Option<Self> {
-        let (host, port) = text.rsplit_once(':')?;
-        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
-            return None;
-        }
-        let port: u16 = port.parse().ok()?;
-        let host = if host.is_empty() {
-            None
-        } else if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
-            inner.parse::<std::net::Ipv6Addr>().ok()?;
-            Some(inner.to_owned())
-        } else if host
-            .chars()
-            .any(|c| matches!(c, ':' | '[' | ']' | '/' | '@') || c.is_whitespace())
-        {
-            return None;
-        } else {
-            Some(host.to_owned())
-        };
-        Some(Self { host, port })
-    }
-}
+pub use scrapes::{MetricsAddress, MetricsToken};
 
 /// The settings of the S3 file backend, the `filess3config` object.
 #[derive(Clone, Default, Deserialize)]
@@ -152,6 +122,10 @@ pub struct Configuration {
     /// listener of their own, apart from the API's ([`Configuration::metrics_address`]).
     #[serde(rename = "prometheusaddress")]
     pub prometheus_address: String,
+    /// The bearer token a scrape of the metrics must send; empty for none. Never
+    /// written by `Debug` ([`Configuration::metrics_token`]).
+    #[serde(rename = "prometheustoken")]
+    pub prometheus_token: String,
     /// URLs that receive a POST with every changed block.
     pub webhook_update: Vec<String>,
     /// Further origins whose pages may send requests that change something and open
@@ -288,6 +262,7 @@ impl Default for Configuration {
             files_path: "./files".to_owned(),
             max_file_size: DEFAULT_MAX_FILE_SIZE,
             prometheus_address: String::new(),
+            prometheus_token: String::new(),
             webhook_update: Vec::new(),
             allowed_origins: Vec::new(),
             session_idle_days: 14,
@@ -421,7 +396,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 54] = [
+const ENV_KEYS: [(&str, EnvKind); 55] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -441,6 +416,7 @@ const ENV_KEYS: [(&str, EnvKind); 54] = [
     ("filess3config.timeout", EnvKind::Number),
     ("maxfilesize", EnvKind::Number),
     ("prometheusaddress", EnvKind::Text),
+    ("prometheustoken", EnvKind::Text),
     ("webhook_update", EnvKind::List),
     ("allowed_origins", EnvKind::List),
     ("session_idle_days", EnvKind::Number),
@@ -646,7 +622,9 @@ impl Configuration {
 
         for (key, kind) in ENV_KEYS {
             let name = env_name(key);
-            if let Some(text) = env(&name) {
+            if let Some(text) = env(&name)
+                && !scrapes::is_unset_token(key, &text)
+            {
                 set_value(&mut keys, key, env_value(&name, &text, kind)?);
             }
         }
@@ -669,6 +647,7 @@ impl Configuration {
             }
         }
 
+        scrapes::check_token_is_text(&keys)?;
         serde_json::from_value(Value::Object(keys)).context("a key has a value of the wrong type")
     }
 
@@ -826,6 +805,7 @@ impl Configuration {
         }
         self.check_upload_limits()?;
         self.metrics_address()?;
+        self.check_metrics_token()?;
         match self.files_driver.as_str() {
             "local" => {}
             "amazons3" => {
@@ -855,35 +835,13 @@ impl Configuration {
                     .to_owned(),
             );
         }
+        if !self.prometheus_token.is_empty() && self.prometheus_address.is_empty() {
+            warnings.push(
+                "prometheustoken is set but prometheusaddress is empty: no metrics are served"
+                    .to_owned(),
+            );
+        }
         Ok(warnings)
-    }
-
-    /// Where the metrics are served: `prometheusaddress` read as `host:port`, or `None`
-    /// if it is empty and no metrics are kept. Without a host it is every interface, or
-    /// `localhost` if `localOnly` is set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the address is not empty and no `host:port`: the host a name,
-    /// an IPv4 address, an IPv6 address in brackets, or nothing; the port a number up to
-    /// 65535.
-    pub fn metrics_address(&self) -> anyhow::Result<Option<MetricsAddress>> {
-        let text = self.prometheus_address.as_str();
-        if text.is_empty() {
-            return Ok(None);
-        }
-        let mut address = MetricsAddress::parse(text).ok_or_else(|| {
-            anyhow::anyhow!(
-                "prometheusaddress must be empty or host:port, such as 127.0.0.1:9092 or \
-                 :9092 for every interface (the loopback with localOnly), not {text:?}"
-            )
-        })?;
-        // A server that listens on the loopback only does so for its metrics too: the
-        // listener has no authentication.
-        if self.local_only && address.host.is_none() {
-            address.host = Some("localhost".to_owned());
-        }
-        Ok(Some(address))
     }
 
     /// Checks the settings of the login limits and of the queue of password work.

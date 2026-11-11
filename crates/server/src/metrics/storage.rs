@@ -4,14 +4,9 @@
 use std::fmt::Display;
 use std::time::Duration;
 
-use prometheus::{IntCounter, IntGauge, IntGaugeVec, Opts, Registry};
+use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
 
-use super::{Metrics, PREFIX};
-
-/// How long a scrape waits for the database to count the open uploads. Shorter than
-/// Prometheus's own timeout of a scrape (10 s by default), so that a pool that is
-/// exhausted, which the pool's metrics are there to show, does not cost the scrape.
-const UPLOADS_READ_TIMEOUT: Duration = Duration::from_secs(2);
+use super::{Metrics, PREFIX, ScrapeRead};
 
 /// The work on archives that is counted while it holds its place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,10 +57,8 @@ pub(super) struct StorageMetrics {
     pool_max: IntGauge,
     uploads_open: IntGauge,
     uploads_open_bytes: IntGauge,
-    uploads_read_failures: IntCounter,
-    /// Held while a scrape counts the open uploads: one at a time, and a scrape that
-    /// finds it held answers with the values counted before.
-    reading_uploads: tokio::sync::Mutex<()>,
+    /// The scrapes' reads of the open uploads.
+    uploads_read: ScrapeRead,
     archives: IntGaugeVec,
 }
 
@@ -98,15 +91,13 @@ impl StorageMetrics {
             "The sizes of the open uploads together, in bytes: what they hold back of \
              max_pending_upload_bytes.",
         )?;
-        let uploads_read_failures = IntCounter::with_opts(
-            Opts::new(
-                "uploads_read_failures_total",
-                "How many scrapes could not count the open uploads (the database failed \
-                 or took over two seconds) and gave the values counted before.",
-            )
-            .namespace(PREFIX),
+        let uploads_read = ScrapeRead::register(
+            registry,
+            "uploads_read_failures_total",
+            "How many scrapes could not count the open uploads (the database failed or \
+             took over two seconds) and gave the values counted before.",
+            Duration::ZERO,
         )?;
-        registry.register(Box::new(uploads_read_failures.clone()))?;
         let archives = IntGaugeVec::new(
             Opts::new(
                 "archives_in_progress",
@@ -128,8 +119,7 @@ impl StorageMetrics {
             pool_max,
             uploads_open,
             uploads_open_bytes,
-            uploads_read_failures,
-            reading_uploads: tokio::sync::Mutex::new(()),
+            uploads_read,
             archives,
         })
     }
@@ -164,33 +154,25 @@ impl Metrics {
     }
 
     /// Sets the open uploads to what `read` answers, for a scrape. `read` is what asks
-    /// the database; it is not polled if no metrics are kept or another scrape is
-    /// reading. The uploads stay as they were then, and if `read` fails or does not
-    /// answer in time, which is counted.
-    pub(crate) async fn read_open_uploads<E: Display>(
+    /// the database; it is not polled if no metrics are kept or a read is under way.
+    /// The uploads stay as they were then, and if `read` fails or does not answer in
+    /// two seconds, which is counted; a read that answers late is kept then.
+    pub(crate) async fn read_open_uploads<E: Display + Send + 'static>(
         &self,
-        read: impl Future<Output = Result<OpenUploads, E>>,
+        read: impl Future<Output = Result<OpenUploads, E>> + Send + 'static,
     ) {
         let Some(kept) = &self.kept else {
             return;
         };
         let storage = &kept.storage;
-        let Ok(_reading) = storage.reading_uploads.try_lock() else {
-            return;
+        let (sessions, bytes) = (
+            storage.uploads_open.clone(),
+            storage.uploads_open_bytes.clone(),
+        );
+        let keep = move |open: OpenUploads| {
+            sessions.set(open.sessions);
+            bytes.set(open.bytes);
         };
-        match tokio::time::timeout(UPLOADS_READ_TIMEOUT, read).await {
-            Ok(Ok(open)) => {
-                storage.uploads_open.set(open.sessions);
-                storage.uploads_open_bytes.set(open.bytes);
-            }
-            Ok(Err(error)) => {
-                storage.uploads_read_failures.inc();
-                tracing::warn!(%error, "a scrape could not count the open uploads");
-            }
-            Err(_) => {
-                storage.uploads_read_failures.inc();
-                tracing::warn!("a scrape could not count the open uploads in time");
-            }
-        }
+        storage.uploads_read.read("open_uploads", read, keep).await;
     }
 }

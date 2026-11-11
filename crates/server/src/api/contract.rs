@@ -156,7 +156,7 @@ request that is malformed or asks for what cannot be, 401 without a session, 403
 user may not do, 404 for what is not there for them, 405 for a method the path does not have, \
 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a \
 body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for \
-a failure of the server.";
+a failure of the server, 503 for a server that cannot serve for now.";
 
 /// Which members of a schema are always there.
 #[derive(Debug, Clone, Copy)]
@@ -199,6 +199,8 @@ const SCHEMAS: &[(&str, Members)] = &[
         "Problem",
         Members::Only(&["type", "title", "status", "detail"]),
     ),
+    ("Readiness", Members::All),
+    ("ReadinessCheck", Members::AsWritten),
     ("ServerMetadata", Members::AsWritten),
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),

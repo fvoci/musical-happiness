@@ -12,5 +12,6 @@
     "localOnly": false,
     "enableLocalMode": true,
     "localModeSocketLocation": "/var/tmp/fvoci_local.socket",
-    "prometheusaddress": ""
+    "prometheusaddress": "",
+    "prometheustoken": ""
 }

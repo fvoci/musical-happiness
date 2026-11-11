@@ -19,6 +19,7 @@ mod housekeeping;
 mod import;
 mod loose_objects;
 mod onboarding;
+mod readiness;
 mod reconcile;
 mod search;
 mod slots;
@@ -29,6 +30,7 @@ pub use slots::Slot;
 pub(crate) use startup::open_store;
 mod sharing;
 mod startup;
+mod store_metrics;
 mod subscriptions;
 mod teams;
 mod templates;
@@ -45,6 +47,7 @@ pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
+pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
@@ -116,6 +119,8 @@ struct Inner {
     /// The memory the parts of uploads to the object store may take while they are
     /// received, in KiB (`uploads::PARTS_IN_MEMORY`).
     part_memory: Arc<tokio::sync::Semaphore>,
+    /// The last answer of the readiness checks.
+    readiness: readiness::Kept,
     /// The exports that run.
     exports: slots::Slots,
     /// The imports that run.
@@ -161,6 +166,12 @@ impl App {
         } else {
             Metrics::none()
         };
+        if metrics.is_kept() {
+            metrics.db_known(store_metrics::database(store.db_type()));
+            if !store.observe(Box::new(store_metrics::StoreMetrics(metrics.clone()))) {
+                tracing::warn!("the store has an observer already; its calls are not measured");
+            }
+        }
         store.set_comment_versions_kept(config.max_comment_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
@@ -180,6 +191,7 @@ impl App {
             ping_interval,
             metrics.clone(),
         );
+        let files = files.measured(metrics.clone());
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;
@@ -205,6 +217,7 @@ impl App {
                 opening_upload: tokio::sync::Mutex::new(()),
                 upload_turns: uploads::UploadTurns::default(),
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
+                readiness: readiness::Kept::default(),
                 exports,
                 imports,
             }),
@@ -393,9 +406,9 @@ impl App {
     }
 
     /// Reads into the metrics what is measured by asking, for a scrape: the archives
-    /// that hold their place, the connection pool and the open uploads. The uploads
-    /// stay as they were if the database cannot be read in time, which is counted, or
-    /// another scrape is reading them.
+    /// that hold their place, the connection pool, the open uploads and the live
+    /// sessions. The last two stay as they were if the database cannot be read in time,
+    /// which is counted, or another scrape is reading them.
     pub(crate) async fn read_storage_metrics(&self) {
         let metrics = self.metrics();
         if !metrics.is_kept() {
@@ -409,14 +422,22 @@ impl App {
             idle: pool.idle,
             max_connections: pool.max_connections,
         });
-        let open_uploads = async {
-            let open = self.store().open_uploads(crate::auth::now_millis()).await?;
+        let now = crate::auth::now_millis();
+        let store = self.store().clone();
+        let open_uploads = async move {
+            let open = store.open_uploads(now).await?;
             Ok::<_, fvoci_store::StoreError>(OpenUploads {
                 sessions: open.sessions,
                 bytes: open.bytes,
             })
         };
-        metrics.read_open_uploads(open_uploads).await;
+        let idle_since = now.saturating_sub(self.config().session_idle_millis());
+        let store = self.store().clone();
+        let live_sessions = async move { store.count_live_sessions(now, idle_since).await };
+        tokio::join!(
+            metrics.read_open_uploads(open_uploads),
+            metrics.read_live_sessions(live_sessions),
+        );
     }
 
     /// Takes the place of an import of the user's, as [`Self::start_export`] does.

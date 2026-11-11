@@ -12,7 +12,8 @@ use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::password::{Verdict, hash_password, verify_against_no_account, verify_password};
 use crate::auth::secret::{new_secret, token_digest};
-use crate::error::{AppError, Reason};
+use crate::error::{AppError, ErrorKind, Reason};
+use crate::metrics::{LoginOutcome, Metrics};
 
 /// What a registration came with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,26 @@ impl App {
         user_agent: &str,
         address: Option<IpAddr>,
     ) -> Result<String, AppError> {
+        let mut ending = LoginEnding {
+            metrics: self.metrics(),
+            outcome: LoginOutcome::Abandoned,
+        };
+        let result = self
+            .check_login(username, email, password, user_agent, address)
+            .await;
+        ending.outcome = login_outcome(&result);
+        result
+    }
+
+    /// The work of [`App::login`], unmeasured.
+    async fn check_login(
+        &self,
+        username: &str,
+        email: &str,
+        password: &str,
+        user_agent: &str,
+        address: Option<IpAddr>,
+    ) -> Result<String, AppError> {
         // The attempt is counted at the names it gives, and before any of them is
         // looked up: who has to wait must not depend on whether there is an account.
         let mut names: Vec<&str> = [username, email]
@@ -61,16 +82,7 @@ impl App {
             .admit_login(&names, address, Instant::now())
             .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
 
-        // The name the account was found by, for the limiter: the one a success is for.
-        let mut found_by = username;
-        let mut user: Option<User> = None;
-        if !username.is_empty() {
-            user = self.find_user_for_login(Lookup::Username(username)).await?;
-        }
-        if user.is_none() && !email.is_empty() {
-            user = self.find_user_for_login(Lookup::Email(email)).await?;
-            found_by = email;
-        }
+        let (user, found_by) = self.find_account(username, email).await?;
 
         // Nothing this long was ever set as a password; it is not worth a hash.
         if password.len() > MAXIMUM_PASSWORD_BYTES {
@@ -117,7 +129,14 @@ impl App {
                 .store()
                 .get_user_by_id(&user.id)
                 .await
-                .map_err(|error| AppError::from(error).context("reading the user after login"))?;
+                .map_err(|error| {
+                    // Deactivated meanwhile: the login is refused as any other.
+                    if error.is_not_found() {
+                        incorrect_login()
+                    } else {
+                        AppError::from(error).context("reading the user after login")
+                    }
+                })?;
             if self.verify(&current.password_hash, password).await? != Verdict::Mismatch {
                 seen_hash = current.password_hash;
                 stored = self.create_session(&session, &token, &seen_hash).await?;
@@ -146,6 +165,33 @@ impl App {
             .create_session(session, &token_digest(token), seen_hash)
             .await
             .map_err(|error| AppError::from(error).context("unable to create session"))
+    }
+
+    /// The account a login names, by its name or else by its email address, and the
+    /// one of the two it was found by (the name if none): for the limiter, the one a
+    /// success is for.
+    ///
+    /// The email address is looked up whenever it is given, also after the name found
+    /// an account: the work of a login, which the metrics of the database count, must
+    /// not tell whether there is an account of that name.
+    async fn find_account<'n>(
+        &self,
+        username: &'n str,
+        email: &'n str,
+    ) -> Result<(Option<User>, &'n str), AppError> {
+        let by_name = match username {
+            "" => None,
+            name => self.find_user_for_login(Lookup::Username(name)).await?,
+        };
+        let by_email = match email {
+            "" => None,
+            email => self.find_user_for_login(Lookup::Email(email)).await?,
+        };
+        Ok(match (by_name, by_email) {
+            (Some(user), _) => (Some(user), username),
+            (None, Some(user)) => (Some(user), email),
+            (None, None) => (None, username),
+        })
     }
 
     /// Looks a user up for a login; a user who is not there is `None`.
@@ -264,6 +310,7 @@ impl App {
         };
         match stored {
             Ok(()) => {
+                self.metrics().registered();
                 if user.is_admin {
                     tracing::info!(user_id = %user.id, "the first user is the administrator");
                 }
@@ -368,6 +415,32 @@ enum Lookup<'a> {
     Email(&'a str),
 }
 
+/// How a login that answered `result` ended, for the metrics: by the kind of its error,
+/// which is the same for an unknown account and a wrong password.
+fn login_outcome<T>(result: &Result<T, AppError>) -> LoginOutcome {
+    match result {
+        Ok(_) => LoginOutcome::Succeeded,
+        Err(error) => match error.kind() {
+            ErrorKind::Unauthorized => LoginOutcome::InvalidCredentials,
+            ErrorKind::RateLimited => LoginOutcome::Limited,
+            _ => LoginOutcome::Failed,
+        },
+    }
+}
+
+/// Counts a login into the metrics when it is dropped: as it ended, or as given up if
+/// its task was stopped first (the server shut down).
+struct LoginEnding<'m> {
+    metrics: &'m Metrics,
+    outcome: LoginOutcome,
+}
+
+impl Drop for LoginEnding<'_> {
+    fn drop(&mut self) {
+        self.metrics.login_ended(self.outcome);
+    }
+}
+
 /// The refusal of a login, whatever was wrong.
 fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
@@ -410,5 +483,30 @@ impl App {
         let (hash, password) = (hash.to_owned(), password.to_owned());
         self.password_work(move || verify_password(&hash, &password))
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_login_ends_in_one_of_four_outcomes_by_the_kind_of_its_error() {
+        let ended = |result: Result<(), AppError>| login_outcome(&result);
+        assert_eq!(ended(Ok(())), LoginOutcome::Succeeded);
+        assert_eq!(
+            ended(Err(incorrect_login())),
+            LoginOutcome::InvalidCredentials
+        );
+        assert_eq!(
+            ended(Err(AppError::rate_limited(std::time::Duration::from_secs(
+                1
+            )))),
+            LoginOutcome::Limited
+        );
+        assert_eq!(
+            ended(Err(AppError::internal("the database is gone"))),
+            LoginOutcome::Failed
+        );
     }
 }

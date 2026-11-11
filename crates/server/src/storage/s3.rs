@@ -15,8 +15,10 @@ use object_store::{
 };
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
+use super::measure::measured;
 use super::{FileStream, ObjectListing, StorageError, StoredObject};
 use crate::config::AmazonS3Config;
+use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
 /// Files kept in a bucket of an S3-compatible object store, the `filess3config` setting.
 ///
@@ -28,6 +30,8 @@ pub struct S3Files {
     /// The same bucket, for uploads made part by part across requests.
     multipart: Arc<AmazonS3>,
     prefix: String,
+    /// What the operations are measured into ([`super::FileBackend::measured`]).
+    pub(super) metrics: Metrics,
 }
 
 impl S3Files {
@@ -95,7 +99,22 @@ impl S3Files {
             store,
             multipart,
             prefix: config.path_prefix.trim_matches('/').to_owned(),
+            metrics: Metrics::none(),
         })
+    }
+
+    /// The same backend, measuring its operations into `metrics`.
+    pub(super) fn measured(self, metrics: Metrics) -> Self {
+        Self { metrics, ..self }
+    }
+
+    /// Runs `work`, the step `operation` of an upload in parts, measured.
+    async fn measure<T>(
+        &self,
+        operation: FilesOperation,
+        work: impl Future<Output = Result<T, StorageError>>,
+    ) -> Result<T, StorageError> {
+        measured(&self.metrics, FilesBackend::S3, operation, work).await
     }
 
     /// The object key of a stored path: the configured prefix followed by the path.
@@ -133,6 +152,16 @@ impl S3Files {
         };
         writer.shutdown().await?;
         Ok(written)
+    }
+
+    /// Whether the bucket is there and answers with these credentials: a list under
+    /// `path`, which need not be there. A look at a key would not do: the object store
+    /// answers a missing bucket and a missing key alike to it.
+    pub(super) async fn check(&self, path: &str) -> Result<(), StorageError> {
+        match self.store.list(Some(&self.key(path)?)).next().await {
+            None | Some(Ok(_)) => Ok(()),
+            Some(Err(error)) => Err(StorageError::ObjectStore(error)),
+        }
     }
 
     pub(super) async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {
@@ -206,7 +235,8 @@ impl S3Files {
 }
 
 /// Uploads made part by part across requests (`docs/s6-design.md` 5.6, 6). The object
-/// is not there until the upload is completed.
+/// is not there until the upload is completed. Each step is measured here, with
+/// `S3Files::measure`, as the operations of every backend are in `FileBackend`.
 impl S3Files {
     /// Starts an upload of the file at `path`, and returns its identifier.
     ///
@@ -215,10 +245,13 @@ impl S3Files {
     /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
     /// root, or the object store's error.
     pub async fn create_multipart(&self, path: &str) -> Result<String, StorageError> {
-        self.multipart
-            .create_multipart(&self.key(path)?)
-            .await
-            .map_err(StorageError::ObjectStore)
+        self.measure(FilesOperation::MultipartCreate, async {
+            self.multipart
+                .create_multipart(&self.key(path)?)
+                .await
+                .map_err(StorageError::ObjectStore)
+        })
+        .await
     }
 
     /// Sends part `index` (from 0) of the upload, made of `chunks` in order, replacing
@@ -236,17 +269,20 @@ impl S3Files {
         index: usize,
         chunks: Vec<Bytes>,
     ) -> Result<String, StorageError> {
-        let part = self
-            .multipart
-            .put_part(
-                &self.key(path)?,
-                &upload_id.to_owned(),
-                index,
-                chunks.into_iter().collect::<PutPayload>(),
-            )
-            .await
-            .map_err(StorageError::ObjectStore)?;
-        Ok(part.content_id)
+        self.measure(FilesOperation::MultipartPart, async {
+            let part = self
+                .multipart
+                .put_part(
+                    &self.key(path)?,
+                    &upload_id.to_owned(),
+                    index,
+                    chunks.into_iter().collect::<PutPayload>(),
+                )
+                .await
+                .map_err(StorageError::ObjectStore)?;
+            Ok(part.content_id)
+        })
+        .await
     }
 
     /// Completes the upload from its parts, whose identifiers are given in order, and
@@ -266,11 +302,14 @@ impl S3Files {
             .into_iter()
             .map(|content_id| PartId { content_id })
             .collect();
-        self.multipart
-            .complete_multipart(&self.key(path)?, &upload_id.to_owned(), parts)
-            .await
-            .map(|_| ())
-            .map_err(StorageError::ObjectStore)
+        self.measure(FilesOperation::MultipartComplete, async {
+            self.multipart
+                .complete_multipart(&self.key(path)?, &upload_id.to_owned(), parts)
+                .await
+                .map(|_| ())
+                .map_err(StorageError::ObjectStore)
+        })
+        .await
     }
 
     /// Throws the upload away with the parts sent. One that is gone is left gone.
@@ -280,14 +319,17 @@ impl S3Files {
     /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
     /// root, or the object store's error.
     pub async fn abort_multipart(&self, path: &str, upload_id: &str) -> Result<(), StorageError> {
-        match self
-            .multipart
-            .abort_multipart(&self.key(path)?, &upload_id.to_owned())
-            .await
-        {
-            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
-            Err(error) => Err(StorageError::ObjectStore(error)),
-        }
+        self.measure(FilesOperation::MultipartAbort, async {
+            match self
+                .multipart
+                .abort_multipart(&self.key(path)?, &upload_id.to_owned())
+                .await
+            {
+                Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+                Err(error) => Err(StorageError::ObjectStore(error)),
+            }
+        })
+        .await
     }
 }
 

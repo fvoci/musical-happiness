@@ -14,18 +14,28 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
+use scrape_read::ScrapeRead;
 
+mod accounts;
 mod background;
+mod database;
+mod files;
 mod objects;
+mod ready;
 mod requests;
+mod scrape_read;
 mod storage;
 mod websocket;
 
+pub(crate) use accounts::LoginOutcome;
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
+pub(crate) use database::{Database, DbAccess, DbOutcome};
+pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
 pub(crate) use objects::LooseObjects;
 #[cfg(test)]
 pub(crate) use objects::REMOVAL_ERRORS;
-pub(crate) use requests::{ABANDONED, OTHER_METHOD, RequestMetrics, UNMATCHED};
+pub(crate) use ready::ReadyCheck;
+pub(crate) use requests::{ABANDONED, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
 pub(crate) use storage::{OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;
 
@@ -50,7 +60,11 @@ struct Kept {
     requests: RequestMetrics,
     websocket: websocket::WebsocketMetrics,
     storage: storage::StorageMetrics,
+    database: database::DatabaseMetrics,
+    files: files::FilesMetrics,
     background: background::BackgroundMetrics,
+    accounts: accounts::AccountMetrics,
+    ready: ready::ReadyMetrics,
     objects: objects::ObjectMetrics,
 }
 
@@ -88,7 +102,11 @@ impl Metrics {
         let requests = RequestMetrics::register(&registry)?;
         let websocket = websocket::WebsocketMetrics::register(&registry)?;
         let storage = storage::StorageMetrics::register(&registry)?;
+        let database = database::DatabaseMetrics::register(&registry)?;
+        let files = files::FilesMetrics::register(&registry)?;
         let background = background::BackgroundMetrics::register(&registry)?;
+        let accounts = accounts::AccountMetrics::register(&registry)?;
+        let ready = ready::ReadyMetrics::register(&registry)?;
         let objects = objects::ObjectMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
@@ -96,7 +114,11 @@ impl Metrics {
                 requests,
                 websocket,
                 storage,
+                database,
+                files,
                 background,
+                accounts,
+                ready,
                 objects,
             })),
         })
