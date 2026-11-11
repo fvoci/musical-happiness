@@ -16,7 +16,7 @@
 설정은 세 곳에서 온다. 뒤의 것이 앞의 것을 이긴다.
 
 1. **설정 파일.** JSON 객체 하나다. 자리는 명령줄의 `--config`로 주며 기본은 `./config.json`이다.
-   - 키는 대소문자를 가리지 않는다(`serverRoot`와 `serverroot`는 같다). `filess3config` 안의 키도 같다. 같은 키를 두 번 주면(대소문자만 다른 것도, 모르는 키도) 키 이름만 말하는 오류로 시작하지 않는다.
+   - 키는 대소문자를 가리지 않는다(`serverRoot`와 `serverroot`는 같다). `filess3config` 안의 키도 같다. 같은 키를 두 번 주면(대소문자만 다른 것도, 모르는 키도) 서버가 시작하지 않는다. 오류는 키 이름과 그 자리만 말하고 값은 말하지 않는다. `filess3config` 밖의 객체(`featureflags` 등) 안은 보지 않는다.
    - 모르는 키는 말없이 무시한다(원본 서버의 설정 파일을 그대로 쓸 수 있게).
    - 값의 타입이 틀리면 서버가 시작하지 않는다(`filess3config`가 객체도 `null`도 아닌 것도).
 2. **환경 변수.** `FVOCI_`에 키를 대문자로 이은 이름이다(예: `FVOCI_SESSION_IDLE_DAYS`. `filess3config` 안의 키는 점을 `_`로 써서 `FVOCI_FILESS3CONFIG_BUCKET`). 아래 표의 "환경 변수" 칸에 이름이 있는 키만 바꿀 수 있다.

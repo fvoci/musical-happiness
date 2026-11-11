@@ -21,7 +21,7 @@ pub(super) fn check_each_once(text: &str) -> anyhow::Result<()> {
     let mut reader = serde_json::Deserializer::from_str(text);
     Keys { prefix: None }
         .deserialize(&mut reader)
-        .map_err(|error| anyhow::anyhow!("{error}"))
+        .map_err(anyhow::Error::from)
 }
 
 /// The keys of an object, checked; a value that is no object passes as it is.
@@ -141,6 +141,14 @@ mod tests {
             r#"{"filess3config": null, "x": 1.5, "y": -3, "z": "text"}"#,
             r#"{"featureflags": {"Flag": "1", "flag": "2"}}"#,
             r#"{"filess3config": {"bucket": "a", "region": "b"}}"#,
+            // Values of every kind where an object belongs: the error that it is none
+            // is the configuration's, and says no value.
+            r#"{"filess3config": true}"#,
+            r#"{"filess3config": -1}"#,
+            r#"{"filess3config": 1.5}"#,
+            r#"{"filess3config": 18446744073709551616}"#,
+            r#"{"filess3config": "x\nyé"}"#,
+            r#"{"filess3config": [1, {"a": 1, "a": 2}]}"#,
         ] {
             check_each_once(text).expect(text);
         }

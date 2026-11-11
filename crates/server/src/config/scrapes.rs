@@ -302,6 +302,19 @@ mod tests {
             );
             assert!(!error.contains(TOKEN), "{error}");
         }
+        let error = format!(
+            "{:#}",
+            Configuration::parse(
+                r#"{"filesS3Config": {"Bucket": "secret-a", "bucket": "secret-b"}}"#,
+                |_| None
+            )
+            .expect_err("given twice in filess3config")
+        );
+        assert!(
+            error.starts_with("filess3config.bucket is given more than once"),
+            "{error}"
+        );
+        assert!(!error.contains("secret-"), "{error}");
     }
 
     #[test]
