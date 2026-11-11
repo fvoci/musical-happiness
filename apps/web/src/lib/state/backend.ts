@@ -375,6 +375,8 @@ export interface Backend {
    * implementation's business.
    */
   upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
+  /** The bytes of a file. */
+  fileBytes(boardId: string, fileId: string): Promise<Blob>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
   fileUrl(boardId: string, fileId: string): string | undefined;
 

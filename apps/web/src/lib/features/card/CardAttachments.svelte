@@ -21,6 +21,8 @@
   import type { BoardStore, CardStore, Upload } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import { saveBlob } from './download.ts';
+
   interface Props {
     board: BoardStore;
     card: CardStore;
@@ -67,6 +69,20 @@
     inside = 0;
     over = false;
     attach(event.dataTransfer?.files);
+  }
+
+  /**
+   * A plain press on a file's link saves it under its own name (download.ts);
+   * one with a modifier key does what the browser does with a link.
+   */
+  function onDownload(event: MouseEvent, fileId: string, name: string): void {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    void card.fileBytes(fileId).then((bytes) => {
+      if (bytes) saveBlob(bytes, name);
+    });
   }
 
   const percent = (upload: Upload): number =>
@@ -139,6 +155,9 @@
                 <a
                   href={url}
                   download={attachment.name}
+                  onclick={(event) => {
+                    onDownload(event, attachment.fileId, attachment.name);
+                  }}
                   title={m.card_attachment_download({ name: attachment.name })}
                   class="block truncate underline-offset-2 hover:underline roomy:py-1"
                 >

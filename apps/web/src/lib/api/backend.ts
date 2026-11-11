@@ -31,6 +31,7 @@ import {
   type Registration,
   type Team,
   type UploadedFile,
+  type UploadOptions,
   type User,
   type ViewDraft,
 } from '../state/backend.ts';
@@ -54,6 +55,7 @@ import {
 } from './convert.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
+import { uploadInParts } from './upload.ts';
 
 /**
  * Refuses an operation that is not wired to the server yet. 405 is the
@@ -497,8 +499,29 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
-  createAttachment(_boardId: string, _cardId: string, _file: UploadedFile): Promise<Attachment> {
-    return notWired('createAttachment');
+  /**
+   * Attaches an uploaded file: a block under the card that names the file
+   * (`fields.fileId`), with the name as its title. The block also keeps the
+   * size and type, which the server's file record lacks
+   * (`contract-assumptions.md`, B2).
+   */
+  async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
+    const block: Schemas['NewBlock'] = {
+      boardId,
+      parentId: cardId,
+      type: 'attachment',
+      title: file.name,
+      fields: { fileId: file.fileId, size: file.size, contentType: file.contentType },
+      createAt: 1,
+      updateAt: 1,
+    };
+    const [made] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { method: 'POST', json: [block] },
+    );
+    if (!made) throw new BackendError(500, { message: 'the server made no attachment' });
+    return attachmentOf(made);
   }
 
   /** To the server's trash, with what is under it (204). */
@@ -523,12 +546,39 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
-  upload(_boardId: string, _file: File): Promise<UploadedFile> {
-    return notWired('upload');
+  /**
+   * Uploads a file in parts (`upload.ts`). A file over the server's limit
+   * (`getClientConfig`'s `maxFileSize`) is refused before anything is sent,
+   * with the limit, as the server would refuse it (413).
+   */
+  async upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
+    const limit = (await this.#clientConfig()).maxFileSize;
+    if (file.size > limit) {
+      throw new BackendError(413, { message: 'the file is too large', limit });
+    }
+    return uploadInParts(this.#http, boardId, file, options);
   }
 
-  fileUrl(_boardId: string, _fileId: string): string | undefined {
-    return undefined;
+  /** The server's settings for clients, read once. */
+  #config: Promise<Schemas['ClientConfig']> | undefined;
+
+  #clientConfig(): Promise<Schemas['ClientConfig']> {
+    this.#config ??= this.#http.request<Schemas['ClientConfig']>('/api/v1/client-config');
+    // A failed reading is tried again next time.
+    this.#config.catch(() => {
+      this.#config = undefined;
+    });
+    return this.#config;
+  }
+
+  /** The bytes of a file (`getFile`). */
+  fileBytes(boardId: string, fileId: string): Promise<Blob> {
+    return this.#http.bytes('/api/v1/boards/{boardId}/files/{fileId}', { boardId, fileId });
+  }
+
+  /** The file's bytes, from the page's own origin: the session's cookie goes along. */
+  fileUrl(boardId: string, fileId: string): string | undefined {
+    return this.#http.url('/api/v1/boards/{boardId}/files/{fileId}', { boardId, fileId });
   }
 
   // ------------------------------------------------------------ changes

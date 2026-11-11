@@ -760,6 +760,13 @@ export class MemoryBackend implements Backend {
     return answer;
   }
 
+  async fileBytes(boardId: string, fileId: string): Promise<Blob> {
+    await this.#enter('fileBytes');
+    const file = this.world.files.get(fileId);
+    if (file?.boardId !== boardId || !file.blob) fail(404, 'no such file');
+    return file.blob;
+  }
+
   fileUrl(boardId: string, fileId: string): string | undefined {
     const file = this.world.files.get(fileId);
     if (file?.boardId !== boardId || !file.blob) return undefined;

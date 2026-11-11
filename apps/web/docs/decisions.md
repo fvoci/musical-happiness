@@ -1438,6 +1438,8 @@
 
 - **연결 17.** 댓글은 `createBlocks`로(`type: comment`, 카드가 부모, 글이 `body`) 만들고, `patchBlock`의 `body`와 `readAt`으로 고친다(답이 204라 다시 읽는다). 고치기 단추는 보드를 고칠 수 있는 사람의 자기 댓글에만 있고, 글자만 든 문단으로 된 댓글만 고친다(댓글 칸이 그 밖의 것을 담지 못한다). 낡은 판(409)이면 댓글을 다시 읽고 쓴 글은 칸에 남긴다.
 
+- **연결 18.** 파일은 크기에 상관없이 올리기 세션으로 올린다(`api/upload.ts`): `createUpload`, 부분마다 `putUploadPart`(`Content-Digest`의 SHA-256), `completeUpload`. 부분 크기는 서버의 답을 따르고, 답이 없거나 500인 부분은 세 번까지 다시 보낸다. 그만두거나 실패하면 `deleteUpload`. 서버의 한도(`getClientConfig`의 `maxFileSize`)를 넘는 파일은 보내기 전에 413으로 거절한다. 첨부는 `createBlocks`의 `attachment` 블록이고 `fields`에 `fileId`, `size`, `contentType`을 둔다.
+
 ## 검토에서 나온 것과 처리
 
 검토한 때는 2026-11-11 00:50–01:10 KST다.

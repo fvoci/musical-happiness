@@ -449,6 +449,16 @@ export class CardStore {
     return uploaded.fileId;
   }
 
+  /** The bytes of a file of this board; undefined (and told) when they could not be read. */
+  async fileBytes(fileId: string): Promise<Blob | undefined> {
+    try {
+      return await this.#backend.fileBytes(this.#boardId, fileId);
+    } catch (error) {
+      this.board.workspace.report('load', error);
+      return undefined;
+    }
+  }
+
   /** Where the bytes of a file of this board are. */
   fileUrl(fileId: string): string | undefined {
     return this.#backend.fileUrl(this.#boardId, fileId);
