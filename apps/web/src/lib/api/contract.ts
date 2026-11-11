@@ -47,10 +47,11 @@ export interface paths {
         /**
          * Delete boards and blocks together
          * @description Deletes several boards of one team, all or none. The request names at least one
-         *     board, and every block it names must be on one of its boards; the blocks are checked
-         *     and nothing more, since a board takes all of its blocks along. The boards go to the
-         *     trash as `deleteBoard` puts them there, and `undeleteBoard` brings each back with
-         *     its blocks. For the admins of every board named.
+         *     board, and every block it names must be on one of its boards and be the user's to
+         *     delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
+         *     board takes all of its blocks along. The boards go to the trash as `deleteBoard`
+         *     puts them there, and `undeleteBoard` brings each back with its blocks. For the
+         *     admins of every board named.
          */
         delete: operations["deleteBoardsAndBlocks"];
         options?: never;
@@ -217,9 +218,10 @@ export interface paths {
         /**
          * Delete a block
          * @description The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
-         *     back until the trash is emptied of it. For editors, whatever the block is: a
-         *     commenter cannot delete their own comment this way. A comment of somebody else is
-         *     deleted by the board's admins only.
+         *     back until the trash is emptied of it. For editors; a comment is its author's to
+         *     delete from the commenter's role up, and a comment of somebody else the board's
+         *     admins' only (403, `access denied to delete other users' comments`), also as a
+         *     reply below a comment the user deletes.
          */
         delete: operations["deleteBlock"];
         options?: never;
@@ -270,11 +272,13 @@ export interface paths {
          * Bring a deleted block back
          * @description Restores a block of the board from the trash, with the blocks that went there with
          *     it. A block whose parent is gone has nowhere to come back to: 404. For who may
-         *     delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
-         *     else the board's admins only (403, `access denied to undelete other users'
-         *     comments`). What decides is the block that was deleted, which took the others along:
-         *     a block below somebody else's comment is brought back by the admins only, and a
-         *     comment that went with its card by whoever may bring back the card.
+         *     delete what comes back, as `deleteBlock` has it: editors, a comment its author from
+         *     the commenter's role up, and a comment of somebody else the board's admins only
+         *     (403, `access denied to undelete other users' comments`). What decides is what was
+         *     deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
+         *     so a block below somebody else's comment is brought back by the admins only, and a
+         *     card alone, so a comment that went with its card comes back for whoever may bring
+         *     back the card.
          */
         post: operations["undeleteBlock"];
         delete?: never;

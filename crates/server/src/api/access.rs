@@ -63,26 +63,57 @@ pub(crate) async fn board_refusal(
     }
 }
 
-/// The refusal of a change to a comment of somebody else, which only the board's admins
-/// may make.
-const OTHERS_COMMENTS_DENIED: &str = "access denied to change other users' comments";
+/// What a user does to a block, which a comment of somebody else lets only the board's
+/// admins do, each refused in its own words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BlockAction {
+    /// Change it (`patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`).
+    Change,
+    /// Delete it (`deleteBlock`, `deleteBoardsAndBlocks`).
+    Delete,
+    /// Bring it back from the trash (`undeleteBlock`).
+    Undelete,
+}
 
-/// Checks that the user may change the block, of a board the request names: a comment
-/// is its author's to change with the commenter's role, and somebody else's only the
-/// board's admins change (as only they delete it); any other block is the editors'.
-/// A refusal says `denial`, except for the comment of somebody else, whose refusal says
-/// so. [`require_block_patch_permission`] checks the patch itself.
-pub(crate) async fn require_block_change_permission(
+impl BlockAction {
+    /// The refusal of this to a comment of somebody else.
+    fn others_comments_denial(self) -> &'static str {
+        match self {
+            Self::Change => "access denied to change other users' comments",
+            Self::Delete => "access denied to delete other users' comments",
+            Self::Undelete => "access denied to undelete other users' comments",
+        }
+    }
+}
+
+/// Checks that the user may do `action` to the block, of a board the request names: a
+/// comment is its author's from the commenter's role up, and somebody else's the board
+/// admins' only (`ManageOthersComments`); any other block is the editors'. A refusal
+/// says `denial`, except for the comment of somebody else, whose refusal says so.
+/// [`require_block_patch_permission`] checks a patch itself, and
+/// [`require_deletion_permission`] what a deletion takes along.
+pub(crate) async fn require_block_permission(
     app: &App,
     user_id: &str,
     block: &Block,
+    action: BlockAction,
     denial: &str,
 ) -> Result<(), AppError> {
-    let (permission, denial) = match block.block_type {
-        BlockType::Comment => comment_permission(user_id, block, denial),
-        _ => (BoardPermission::ManageBoardCards, denial),
-    };
+    let (permission, denial) = block_permission(user_id, block, action, denial);
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
+}
+
+/// The permission that doing `action` to the block needs, and the refusal without it.
+fn block_permission<'a>(
+    user_id: &str,
+    block: &Block,
+    action: BlockAction,
+    denial: &'a str,
+) -> (BoardPermission, &'a str) {
+    match block.block_type {
+        BlockType::Comment => comment_permission(user_id, block, action, denial),
+        _ => (BoardPermission::ManageBoardCards, denial),
+    }
 }
 
 /// Checks what a patch does beyond changing a block's text. Changing a comment is its
@@ -90,7 +121,7 @@ pub(crate) async fn require_block_change_permission(
 /// (`parentId`) or making it a block of another type is for editors (the commenter's
 /// role makes no card and moves none), and making a block a comment is for who may
 /// change that comment, so that nobody makes a comment that says somebody else wrote
-/// it. A refusal says what [`require_block_change_permission`]'s says.
+/// it. A refusal says what [`require_block_permission`]'s says.
 pub(crate) async fn require_block_patch_permission(
     app: &App,
     user_id: &str,
@@ -120,40 +151,66 @@ pub(crate) async fn require_block_patch_permission(
     let (permission, denial) = match (&block.block_type, new_type) {
         (BlockType::Comment, BlockType::Comment) => return Ok(()),
         (BlockType::Comment, _) => (BoardPermission::ManageBoardCards, denial),
-        (_, BlockType::Comment) => comment_permission(user_id, block, denial),
+        (_, BlockType::Comment) => comment_permission(user_id, block, BlockAction::Change, denial),
         _ => return Ok(()),
     };
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
 }
 
-/// Checks, for deleting a block or bringing it back, that a comment of somebody else is
-/// the board admins' to do (`ManageOthersComments`); refused with `denial`. Any other
-/// block, and the user's own comment, need nothing more than the editor's role the
-/// caller asked for.
-pub(crate) async fn require_comment_owner_or_admin(
+/// Checks that the user may delete the block, of a board the request names, with what
+/// deleting it takes along: [`require_deletion_permission`] with the blocks below it.
+pub(crate) async fn require_delete_permission(
     app: &App,
     user_id: &str,
     block: &Block,
     denial: &str,
 ) -> Result<(), AppError> {
-    if block.block_type != BlockType::Comment || block.created_by == user_id {
-        return Ok(());
-    }
-    require_board_permission(
-        app,
-        user_id,
-        &block.board_id,
-        BoardPermission::ManageOthersComments,
-        denial,
-    )
-    .await
+    // Only a comment's replies have a say: what goes with a card is the card's.
+    let below = if block.block_type == BlockType::Comment {
+        app.blocks_below(&block.id).await?
+    } else {
+        Vec::new()
+    };
+    require_deletion_permission(app, user_id, block, &below, BlockAction::Delete, denial).await
 }
 
-/// The permission that changing a comment, or making the block one, needs, and the
-/// refusal without it.
+/// Checks that the user may delete a block and what goes with it, or bring them back
+/// (`action`): `top` is the block that is deleted, `below` the blocks it takes along.
+/// The top decides for a card, or any block that is no comment: the comments on a card
+/// go with it. A comment takes the replies below it, so who deletes it, or brings it
+/// back, must be allowed that for each of them too: nobody takes away the comment of
+/// somebody else by deleting their own. Each permission is asked once, the top's first.
+pub(crate) async fn require_deletion_permission(
+    app: &App,
+    user_id: &str,
+    top: &Block,
+    below: &[Block],
+    action: BlockAction,
+    denial: &str,
+) -> Result<(), AppError> {
+    let replies = if top.block_type == BlockType::Comment {
+        below
+    } else {
+        &[]
+    };
+    let mut asked = Vec::new();
+    for block in std::iter::once(top).chain(replies) {
+        let (permission, denial) = block_permission(user_id, block, action, denial);
+        if !asked.contains(&permission) {
+            asked.push(permission);
+            require_board_permission(app, user_id, &top.board_id, permission, denial).await?;
+        }
+    }
+    Ok(())
+}
+
+/// The permission that doing `action` to a comment, or making the block one, needs,
+/// and the refusal without it: `denial` for the author, the action's own words for
+/// anybody else.
 fn comment_permission<'a>(
     user_id: &str,
     block: &Block,
+    action: BlockAction,
     denial: &'a str,
 ) -> (BoardPermission, &'a str) {
     if block.created_by == user_id {
@@ -161,7 +218,7 @@ fn comment_permission<'a>(
     } else {
         (
             BoardPermission::ManageOthersComments,
-            OTHERS_COMMENTS_DENIED,
+            action.others_comments_denial(),
         )
     }
 }

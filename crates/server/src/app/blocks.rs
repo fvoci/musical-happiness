@@ -288,19 +288,28 @@ impl App {
         }
     }
 
-    /// Returns the block at the top of the deletion a block of the trash went with (the
-    /// one that was deleted, which restoring the block restores too), or `None` if no
-    /// block of that identifier is there.
+    /// Returns the blocks of the deletion a block of the trash went with, which restoring
+    /// the block restores together: the one that was deleted first, then those it took
+    /// along. Empty if no block of that identifier is there.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the trash cannot be read.
-    pub async fn deletion_top(&self, block_id: &str) -> Result<Option<DeletedBlock>, AppError> {
-        match self.store().get_deletion_top(block_id).await {
-            Ok(deleted) => Ok(Some(deleted)),
-            Err(error) if error.is_not_found() => Ok(None),
+    pub async fn deletion(&self, block_id: &str) -> Result<Vec<Block>, AppError> {
+        match self.store().get_deletion(block_id).await {
+            Ok(blocks) => Ok(blocks),
+            Err(error) if error.is_not_found() => Ok(Vec::new()),
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Returns the blocks below a block, at any depth: what deleting it takes along.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the blocks cannot be read.
+    pub async fn blocks_below(&self, block_id: &str) -> Result<Vec<Block>, AppError> {
+        Ok(self.store().get_blocks_below(block_id).await?)
     }
 
     /// Returns the earlier versions of a comment's body, the first first.
