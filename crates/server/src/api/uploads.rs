@@ -300,9 +300,9 @@ async fn handle_complete_upload(
     .await
     {
         // The user left the board, or it is gone: the upload cannot be completed any
-        // more, and is thrown away (design 5.6, 2). Also if another completion has closed
-        // it and is under way: that one is refused for the same reason, or fails, and
-        // the user may not have the file either way.
+        // more, and is thrown away (design 5.6, 2). A completion that began before, with
+        // the permission, is let finish first: the throwing away waits for the upload's
+        // turn, and finds it gone.
         if refusal.status().is_client_error() {
             app.discard_upload(&upload).await;
         }

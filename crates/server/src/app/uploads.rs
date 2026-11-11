@@ -8,9 +8,10 @@
 //! directory, `uploads/<session>/`, each in a file of its own that the record of the
 //! part names (`<number>.<random>`), until the session is completed or thrown away. With
 //! S3, a session that has bytes to send is a multipart upload of the object store, made
-//! at the file's final place when the session is opened: each part goes to the bucket as
-//! it comes in, held in memory until it is checked, and the record of the part names the
-//! object store's identifier of it (`docs/s6-design.md` 5.6, 6).
+//! at the file's final place when the session is opened: each part is received into a
+//! file of that directory and checked as on the local disk, then sent to the bucket and
+//! the file removed, and the record of the part names the object store's identifier of
+//! it (`docs/s6-design.md` 5.6, 6).
 
 use std::collections::HashMap;
 use std::io;
@@ -49,8 +50,8 @@ pub const CLOSED_UPLOAD_GRACE_MILLIS: i64 = 60 * 60 * 1000;
 pub const MAX_UPLOAD_NAME_CHARS: usize = 255;
 
 /// How many parts of the configured size the uploads to the object store hold in memory
-/// at once, while each is received and checked. A part that would take more waits for
-/// its turn before its body is read.
+/// at once, while each is read from its file and sent to the bucket. A part that would
+/// take more waits on the disk until the memory is there.
 pub const PARTS_IN_MEMORY: u64 = 8;
 
 /// What a refusal says a session is that is not there: none of that identifier, another
@@ -85,27 +86,50 @@ pub(crate) fn part_memory_kib(part_bytes: u64) -> usize {
 /// number is the part recorded under it, and nothing reaches the bucket once the session
 /// is closed. The object store keeps one part to a number, where the local disk keeps a
 /// file to each part that comes in. Kept in the server's memory: one server serves a
-/// database (`docs/configuration.md`).
+/// database (`docs/configuration.md`). A turn is there while someone holds or waits for
+/// it, and no longer.
 #[derive(Debug, Default)]
 pub(crate) struct UploadTurns(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
 
 impl UploadTurns {
     /// Waits for the turn of a session.
-    async fn take(&self, upload_id: &str) -> OwnedMutexGuard<()> {
+    async fn take(&self, upload_id: &str) -> Turn<'_> {
         let turn = {
             let mut turns = self.0.lock().expect("the upload turns are not poisoned");
             Arc::clone(turns.entry(upload_id.to_owned()).or_default())
         };
-        turn.lock_owned().await
+        Turn {
+            turns: self,
+            upload_id: upload_id.to_owned(),
+            guard: Some(turn.lock_owned().await),
+        }
     }
+}
 
-    /// Forgets the turn of a session that is gone. A request that waits for it finds the
-    /// session gone when its turn comes.
-    fn forget(&self, upload_id: &str) {
-        self.0
+/// The turn of a session, which is given up when this is dropped.
+#[derive(Debug)]
+struct Turn<'turns> {
+    turns: &'turns UploadTurns,
+    upload_id: String,
+    guard: Option<OwnedMutexGuard<()>>,
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        let Some(guard) = self.guard.take() else {
+            return;
+        };
+        let mut turns = self
+            .turns
+            .0
             .lock()
-            .expect("the upload turns are not poisoned")
-            .remove(upload_id);
+            .expect("the upload turns are not poisoned");
+        // The map's and this one: nobody else holds or waits for the turn, and nobody
+        // can start to while the map is locked.
+        if Arc::strong_count(OwnedMutexGuard::mutex(&guard)) == 2 {
+            turns.remove(&self.upload_id);
+        }
+        drop(guard);
     }
 }
 
@@ -304,11 +328,6 @@ impl App {
         if upload.closed_at != 0 {
             return Err(closed());
         }
-        if !upload.multipart_id.is_empty() {
-            return self
-                .put_multipart_part(upload, number, size, digest, body)
-                .await;
-        }
 
         let directory = self.upload_dir(&upload.id);
         fs::create_dir_all(&directory)
@@ -321,6 +340,17 @@ impl App {
         if let Err(error) = receive_part(&file, size, digest, body).await {
             remove_quietly(&file).await;
             return Err(error);
+        }
+        if !upload.multipart_id.is_empty() {
+            // The part was received at the client's pace on the disk; the memory and the
+            // turn are held only while it goes to the bucket.
+            let sent = self.send_multipart_part(upload, number, size, &file).await;
+            remove_quietly(&file).await;
+            if let Err(error) = fs::remove_dir(&directory).await {
+                // Not empty: another part is being received.
+                tracing::debug!(%error, "the directory of an upload's parts is left");
+            }
+            return sent;
         }
         let record = self
             .store()
@@ -357,50 +387,46 @@ impl App {
         }
     }
 
-    /// Receives a part of a multipart upload into memory, checks it, and sends it to the
-    /// object store, where it replaces what was sent under its number.
-    async fn put_multipart_part<E>(
+    /// Sends a part of a multipart upload, received and checked in `file`, to the object
+    /// store, where it replaces what was sent under its number, and records it.
+    async fn send_multipart_part(
         &self,
         upload: &Upload,
         number: i64,
         size: u64,
-        digest: &PartDigest,
-        body: impl Stream<Item = Result<Bytes, E>> + Unpin,
-    ) -> Result<(), AppError>
-    where
-        E: std::fmt::Display,
-    {
+        file: &Path,
+    ) -> Result<(), AppError> {
         let Some(files) = self.files().multipart() else {
             return Err(AppError::internal(
                 "the upload is in an object store that is not configured",
             ));
         };
-        // The part is held whole until it is checked; the memory of all such parts is
-        // bounded, and a part waits for its share before its body is read.
-        let kib = u32::try_from(size.div_ceil(1024)).unwrap_or(u32::MAX);
+        let kib = u32::try_from(size.div_ceil(1024))
+            .expect("a part is at most 5 GiB, checked when the server starts");
         let _memory = Arc::clone(self.part_memory())
             .acquire_many_owned(kib)
             .await
             .map_err(|_| AppError::internal("the memory for parts is closed"))?;
-        let mut sink = PartSink::Memory(Vec::new());
-        read_part(&mut sink, size, digest, body).await?;
-        let PartSink::Memory(chunks) = sink else {
-            unreachable!("the sink is the memory it was made as");
-        };
+        let bytes = Bytes::from(fs::read(file).await.map_err(|error| part_error(&error))?);
 
         let _turn = self.upload_turns().take(&upload.id).await;
         // Checked in the turn: a session closed meanwhile takes nothing more.
         self.check_open(upload).await?;
         // Numbers start at 1, the object store's indexes at 0.
         let index = usize::try_from(number.saturating_sub(1)).unwrap_or_default();
-        let part_id = files
-            .put_part(&upload.path, &upload.multipart_id, index, chunks)
+        let part_id = match files
+            .put_part(&upload.path, &upload.multipart_id, index, vec![bytes])
             .await
-            .map_err(|error| {
-                AppError::internal(format_args!(
+        {
+            Ok(part_id) => part_id,
+            Err(error) => {
+                // The bucket may have taken it with its answer lost.
+                self.forget_part(upload, number).await;
+                return Err(AppError::internal(format_args!(
                     "the part could not be stored in the files storage: {error}"
-                ))
-            })?;
+                )));
+            }
+        };
         let part = UploadPart {
             number,
             size: i64::try_from(size).unwrap_or(i64::MAX),
@@ -411,13 +437,17 @@ impl App {
             // Not in the turn, which closes it in its turn; left as an answer all the same.
             Ok(PartRecord::Closed) => Err(closed()),
             Err(error) => {
-                // The bucket holds this part under its number, and the record another
-                // one: the record goes, so that the number is sent again.
-                if let Err(error) = self.store().delete_upload_part(&upload.id, number).await {
-                    tracing::error!(%error, "the record of a part the bucket replaced could not be removed");
-                }
+                self.forget_part(upload, number).await;
                 Err(error.into())
             }
+        }
+    }
+
+    /// Forgets the record of a part when the bucket may hold another part under its
+    /// number, so that the number is sent again.
+    async fn forget_part(&self, upload: &Upload, number: i64) {
+        if let Err(error) = self.store().delete_upload_part(&upload.id, number).await {
+            tracing::error!(%error, "the record of a part the bucket may have replaced could not be removed");
         }
     }
 
@@ -501,16 +531,16 @@ impl App {
             .complete_multipart(&upload.path, &upload.multipart_id, part_ids)
             .await
         {
+            // The completion may have taken effect with its answer lost: the object, which
+            // has no record, goes with the session.
             self.discard_in_turn(upload).await;
-            // The completion may have taken effect with its answer lost. The place is the
-            // session's own, a new secret, so whatever is there goes.
-            self.remove_unrecorded(&upload.path).await;
             return Err(AppError::internal(format_args!(
                 "the file could not be made from its parts: {error}"
             )));
         }
         // Recorded before the session is forgotten: a server that stops in between leaves
-        // a closed session, which the clean-up throws away, and no object without record.
+        // a closed session, which the clean-up throws away with the object if it has no
+        // record.
         let size = u64::try_from(upload.size).unwrap_or_default();
         let place = FilePlace::at(&upload.path, &upload.name);
         let recorded = self.record_file(&upload.board_id, place, size).await;
@@ -628,12 +658,29 @@ impl App {
         {
             tracing::warn!(%error, "the parts of an upload could not be thrown away in the files storage");
         }
+        if !upload.multipart_id.is_empty() {
+            self.remove_if_unrecorded(upload).await;
+        }
         self.forget_upload(upload).await;
     }
 
-    /// Removes the record of a closed session, its directory of parts and its turn.
+    /// Removes the object at the place of a multipart upload unless a file's record names
+    /// it: a completion that took effect without its file being recorded, as when the
+    /// answer was lost or the server stopped in between, leaves an object nothing gives
+    /// out. The place is the session's own, a new secret.
+    async fn remove_if_unrecorded(&self, upload: &Upload) {
+        let stored_name = upload.path.rsplit('/').next().unwrap_or_default();
+        match self.file_info(&upload.board_id, stored_name).await {
+            Ok(None) => self.remove_unrecorded(&upload.path).await,
+            Ok(Some(_)) => {}
+            Err(error) => {
+                tracing::warn!(%error, "whether an uploaded file has a record could not be read");
+            }
+        }
+    }
+
+    /// Removes the record of a closed session and its directory of parts.
     async fn forget_upload(&self, upload: &Upload) {
-        self.upload_turns().forget(&upload.id);
         if let Err(error) = self.store().delete_upload(&upload.id).await {
             tracing::error!(%error, "the record of an upload could not be removed");
         }
@@ -707,12 +754,12 @@ async fn receive_part<E>(
     path: &Path,
     size: u64,
     digest: &PartDigest,
-    body: impl Stream<Item = Result<Bytes, E>> + Unpin,
+    mut body: impl Stream<Item = Result<Bytes, E>> + Unpin,
 ) -> Result<(), AppError>
 where
     E: std::fmt::Display,
 {
-    let file = fs::File::create(path).await.map_err(|error| {
+    let mut file = fs::File::create(path).await.map_err(|error| {
         // The directory went away under the request: the upload was closed meanwhile.
         if error.kind() == io::ErrorKind::NotFound {
             closed()
@@ -720,49 +767,6 @@ where
             part_error(&error)
         }
     })?;
-    let mut sink = PartSink::File(file);
-    read_part(&mut sink, size, digest, body).await?;
-    if let PartSink::File(file) = &mut sink {
-        file.flush().await.map_err(|error| part_error(&error))?;
-        file.sync_all().await.map_err(|error| part_error(&error))?;
-    }
-    Ok(())
-}
-
-/// Where a part is received into.
-enum PartSink {
-    /// A file of the local disk.
-    File(fs::File),
-    /// Memory, for a part that goes to the object store once it is checked: the chunks
-    /// as they came.
-    Memory(Vec<Bytes>),
-}
-
-impl PartSink {
-    async fn write(&mut self, chunk: Bytes) -> Result<(), AppError> {
-        match self {
-            Self::File(file) => file
-                .write_all(&chunk)
-                .await
-                .map_err(|error| part_error(&error)),
-            Self::Memory(chunks) => {
-                chunks.push(chunk);
-                Ok(())
-            }
-        }
-    }
-}
-
-/// Reads the body of a part into `sink`, checking its length and digest as it goes.
-async fn read_part<E>(
-    sink: &mut PartSink,
-    size: u64,
-    digest: &PartDigest,
-    mut body: impl Stream<Item = Result<Bytes, E>> + Unpin,
-) -> Result<(), AppError>
-where
-    E: std::fmt::Display,
-{
     let mut hasher = Sha256::new();
     let mut received: u64 = 0;
     while let Some(chunk) = body.next().await {
@@ -776,7 +780,9 @@ where
             )));
         }
         hasher.update(&chunk);
-        sink.write(chunk).await?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|error| part_error(&error))?;
     }
     if received != size {
         return Err(AppError::bad_request(format_args!(
@@ -789,6 +795,8 @@ where
         )
         .with_field("Content-Digest"));
     }
+    file.flush().await.map_err(|error| part_error(&error))?;
+    file.sync_all().await.map_err(|error| part_error(&error))?;
     Ok(())
 }
 

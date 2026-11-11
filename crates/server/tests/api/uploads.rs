@@ -1104,3 +1104,110 @@ async fn with_s3_what_fails_leaves_nothing() {
         .expect("the uploads are read");
     assert_eq!(sessions.len(), 0, "no session is left");
 }
+
+/// Completes the multipart upload of a session in the bucket behind the server's back,
+/// as a completion that took effect with its answer lost, and returns where the object
+/// is.
+async fn complete_behind_the_back(ts: &TestServer, upload_id: &str) -> String {
+    let upload = ts
+        .app
+        .store()
+        .uploads_to_clean_up(i64::MAX, 0)
+        .await
+        .expect("the uploads are read")
+        .into_iter()
+        .find(|upload| upload.id == upload_id)
+        .expect("the upload is open");
+    let parts = ts
+        .app
+        .store()
+        .get_upload_parts(upload_id)
+        .await
+        .expect("the parts are read");
+    ts.app
+        .files()
+        .multipart()
+        .expect("the files are in S3")
+        .complete_multipart(
+            &upload.path,
+            &upload.multipart_id,
+            parts.into_iter().map(|part| part.part_id).collect(),
+        )
+        .await
+        .expect("the bucket completes the upload");
+    assert_eq!(
+        ts.app
+            .files()
+            .size(&upload.path)
+            .await
+            .expect("the size is read"),
+        Some(3),
+        "the object is there"
+    );
+    upload.path
+}
+
+/// With S3, a completion that took effect in the bucket without the file being recorded
+/// leaves no object without record: not when the answer was lost and the client
+/// completes again, and not when the server stopped before it recorded the file and the
+/// clean-up found the session.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_a_completion_without_record_leaves_no_object() {
+    let ts = s3_server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+
+    let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
+    put_part(&ts.client, &upload_id, 1, b"abc")
+        .await
+        .check_no_content();
+    let path = complete_behind_the_back(&ts, &upload_id).await;
+    // Object stores differ: some complete an upload again, some say it is gone. The
+    // file is either made and recorded, or not left at all.
+    let response = ts
+        .client
+        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .await;
+    if response.status == StatusCode::CREATED {
+        let file_id = response.value()["fileId"]
+            .as_str()
+            .expect("a file identifier")
+            .to_owned();
+        assert!(path.ends_with(&file_id), "the object is the file");
+        let download = ts
+            .client
+            .get(&format!("/boards/{}/files/{file_id}", board.id))
+            .await;
+        download.check_ok();
+        assert!(download.body == b"abc".as_slice(), "the file is recorded");
+    } else {
+        assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            ts.app.files().size(&path).await.expect("the size is read"),
+            None,
+            "the object without record is gone"
+        );
+    }
+
+    let upload_id = opened(&ts.client, &board.id, "b.txt", 3).await;
+    put_part(&ts.client, &upload_id, 1, b"abc")
+        .await
+        .check_no_content();
+    let path = complete_behind_the_back(&ts, &upload_id).await;
+    ts.app
+        .store()
+        .close_upload(&upload_id, now_millis())
+        .await
+        .expect("the upload is closed");
+    let removed = ts
+        .app
+        .clean_up_uploads(now_millis() + CLOSED_UPLOAD_GRACE_MILLIS + 1000)
+        .await
+        .expect("the clean-up runs");
+    assert_eq!(removed, 1);
+    assert_eq!(
+        ts.app.files().size(&path).await.expect("the size is read"),
+        None,
+        "the object without record is gone"
+    );
+}
