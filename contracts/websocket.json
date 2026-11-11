@@ -1,0 +1,117 @@
+{
+  "description": "The messages of the websocket endpoint /ws, as the server reads and sends them; contracts/websocket.md says who sends which and when. A member's value is a JSON type (\"string\", \"boolean\", \"integer\"), the name of a schema of contracts/openapi.json after a \"#\" (\"#Block\"), an object of members for an inline object, or a list of one of these for a JSON list of it. Every member listed is always there, and no other is. A command's \"session\" says whether the connection needs a signed-in session for it; a message's \"sent\": false says the server never sends it today. crates/server/tests/api/websocket.rs compares the messages the server sends with this file; the commands are not checked by a test.",
+  "commands": {
+    "SUBSCRIBE_TEAM": {
+      "session": true,
+      "members": {
+        "action": "string",
+        "teamId": "string"
+      }
+    },
+    "UNSUBSCRIBE_TEAM": {
+      "session": true,
+      "members": {
+        "action": "string",
+        "teamId": "string"
+      }
+    },
+    "SUBSCRIBE_BLOCKS": {
+      "session": false,
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "readToken": "string",
+        "blockIds": [
+          "string"
+        ]
+      }
+    },
+    "UNSUBSCRIBE_BLOCKS": {
+      "session": false,
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "readToken": "string",
+        "blockIds": [
+          "string"
+        ]
+      }
+    }
+  },
+  "messages": {
+    "UPDATE_BOARD": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "board": "#Board"
+      }
+    },
+    "UPDATE_BLOCK": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "block": "#Block"
+      }
+    },
+    "UPDATE_MEMBER": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "member": "#BoardMember"
+      }
+    },
+    "DELETE_MEMBER": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "member": "#BoardMember"
+      }
+    },
+    "UPDATE_CATEGORY": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "category": "#Category"
+      }
+    },
+    "UPDATE_BOARD_CATEGORY": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "boardCategories": [
+          {
+            "boardId": "string",
+            "categoryId": "string",
+            "hidden": "boolean"
+          }
+        ]
+      }
+    },
+    "REORDER_CATEGORIES": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "categoryOrder": [
+          "string"
+        ]
+      }
+    },
+    "REORDER_CATEGORY_BOARDS": {
+      "members": {
+        "action": "string",
+        "teamId": "string",
+        "categoryId": "string",
+        "boardOrder": [
+          "string"
+        ]
+      }
+    },
+    "UPDATE_CLIENT_CONFIG": {
+      "members": {
+        "action": "string",
+        "clientConfig": "#ClientConfig"
+      },
+      "sent": false
+    }
+  }
+}

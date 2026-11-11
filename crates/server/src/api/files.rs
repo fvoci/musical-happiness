@@ -3,19 +3,24 @@
 //! Ports `server/api/files.go`. Downloads reproduce the headers and the range and
 //! conditional handling of Go's `http.ServeContent`.
 
+use axum::body::Body;
+use std::io;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::time::Duration;
 use std::time::SystemTime;
 
-use axum::body::Body;
-use axum::extract::multipart::MultipartRejection;
+use axum::extract::multipart::{Field, MultipartRejection};
 use axum::extract::{Multipart, Path, RawQuery, State};
 use axum::http::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-    IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
+    EXPECT, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use futures_util::StreamExt as _;
 use fvoci_model::FileInfo;
 use serde::Serialize;
+use tokio_util::io::StreamReader;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -30,7 +35,7 @@ use super::{
 };
 use crate::app::App;
 use crate::app::FILE;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 use crate::permissions::BoardPermission;
 
 /// Content types that must not be served as themselves, because a browser would run
@@ -70,10 +75,10 @@ const NO_FILE_PART: &str = "the request has no part named `file` with a file nam
 /// What an upload answers: the name the file is asked for by.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-struct UploadedFile {
+pub(super) struct UploadedFile {
     /// The identifier of the file: what `getFile` and `getFileInfo` take, and what an
-    /// image or attachment block names in its `fileId` field.
-    file_id: String,
+    /// attachment block or an image of a body names in its `fileId`.
+    pub(super) file_id: String,
 }
 
 /// The routes that read files.
@@ -192,9 +197,12 @@ async fn handle_get_file_info(
 /// Upload a file
 ///
 /// Stores a file with the board. The request is a `multipart/form-data` form whose
-/// part `file` carries the file and a file name. The file is limited to the
-/// `maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is
-/// 413. The `fileId` of the answer ends in the extension of the file name, in lower
+/// part `file` carries the file and a file name. The file is limited to one part of an
+/// upload in parts (8 MiB unless the server is configured otherwise), and to the
+/// `maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where
+/// the limit is the part, the refusal has the reason `upload_in_parts`: a file within
+/// `maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is
+/// not kept. The `fileId` of the answer ends in the extension of the file name, in lower
 /// case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
 /// anything but letters and digits in it, is left off. For editors.
 #[utoipa::path(
@@ -210,6 +218,7 @@ async fn handle_upload_file(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     Path(board_id): Path<String>,
+    headers: HeaderMap,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
@@ -221,56 +230,184 @@ async fn handle_upload_file(
         "access denied to make board changes",
     )
     .await?;
-    let max_file_size = app.config().max_file_size;
-
+    let limit = SingleUploadLimit::of(&app);
     let mut multipart = multipart.map_err(|_| AppError::bad_request(NOT_MULTIPART))?;
-    let (filename, bytes) = read_upload(&mut multipart, max_file_size).await?;
-    let file_id = app
-        .save_file(&mut bytes.as_slice(), &board_id, &filename)
-        .await?;
-    // The stored name is what a reader asks for the file by; it stays out of the log.
-    tracing::debug!(filename, "uploadFile");
-    Ok(created(&UploadedFile { file_id }))
-}
+    let declared = headers
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
+    if declared.is_some_and(|length| length > limit.bytes.saturating_add(FORM_ALLOWANCE)) {
+        // A client that waits for `100 Continue` has sent nothing yet, and reading the
+        // form would invite it to. It gets its answer at once.
+        let waits_to_send = headers
+            .get(EXPECT)
+            .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"100-continue"));
+        if !waits_to_send {
+            drain_form(&mut multipart).await;
+        }
+        return Err(limit.refusal());
+    }
 
-/// Reads the uploaded file field, bounding it to `max_file_size` when that is positive.
-///
-/// Returns the client's file name and the bytes.
-async fn read_upload(
-    multipart: &mut Multipart,
-    max_file_size: i64,
-) -> Result<(String, Vec<u8>), AppError> {
-    let limit = usize::try_from(max_file_size).unwrap_or(usize::MAX);
-    loop {
+    let stored = loop {
         let field = multipart
             .next_field()
             .await
             .map_err(|error| AppError::bad_request(error.to_string()))?;
-        let Some(mut field) = field else {
-            return Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
+        let Some(field) = field else {
+            break Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
         };
         if field.name() != Some(UPLOAD_FIELD) {
             continue;
         }
         let Some(filename) = field.file_name().map(str::to_owned) else {
-            return Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
+            break Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
         };
-
-        let mut bytes = Vec::new();
-        while let Some(chunk) = field
-            .chunk()
-            .await
-            .map_err(|error| AppError::bad_request(error.to_string()))?
-        {
-            if max_file_size > 0 && bytes.len() + chunk.len() > limit {
-                return Err(AppError::payload_too_large(
-                    u64::try_from(max_file_size).unwrap_or(u64::MAX),
-                ));
-            }
-            bytes.extend_from_slice(&chunk);
+        // The stored name is what a reader asks for the file by; it stays out of the log.
+        tracing::debug!(filename, "uploadFile");
+        break store_field(&app, &board_id, &filename, field, limit).await;
+    };
+    match stored {
+        Ok(file_id) => Ok(created(&UploadedFile { file_id })),
+        Err(error) => {
+            // The client may still be sending; it reads the refusal once it is done.
+            drain_form(&mut multipart).await;
+            Err(error)
         }
-        return Ok((filename, bytes));
     }
+}
+
+/// What a form may carry besides the file: the boundaries and the part's headers. A
+/// request that declares more than the file's limit and this is refused unread.
+const FORM_ALLOWANCE: u64 = 64 * 1024;
+
+/// How much of a refused form is read and thrown away before the refusal is sent, and
+/// for how long, as [`super::limits`] does with other bodies.
+const FORM_DISCARD_LIMIT: u64 = 8 * 1024 * 1024;
+const FORM_DISCARD_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How the reading of the file went, for telling why storing it failed. Kept in an
+/// [`AtomicU8`]: the reader the storage takes must be `Send`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    /// Nothing went wrong with the reading.
+    Fine,
+    /// The file passed the limit.
+    TooLarge,
+    /// The form could not be read.
+    Unreadable,
+}
+
+impl Reading {
+    fn load(state: &AtomicU8) -> Self {
+        match state.load(Ordering::Relaxed) {
+            1 => Self::TooLarge,
+            2 => Self::Unreadable,
+            _ => Self::Fine,
+        }
+    }
+
+    fn value(self) -> u8 {
+        match self {
+            Self::Fine => 0,
+            Self::TooLarge => 1,
+            Self::Unreadable => 2,
+        }
+    }
+
+    fn store(self, state: &AtomicU8) {
+        state.store(self.value(), Ordering::Relaxed);
+    }
+}
+
+/// The largest file `uploadFile` takes, and how a larger one is refused.
+#[derive(Debug, Clone, Copy)]
+struct SingleUploadLimit {
+    bytes: u64,
+    /// Whether a larger file could be sent in parts.
+    in_parts: bool,
+}
+
+impl SingleUploadLimit {
+    /// One part of an upload in parts (`docs/s6-design.md` 5.6, 10), or the largest file
+    /// where that is less.
+    fn of(app: &App) -> Self {
+        let part = app.config().upload_part_bytes;
+        let largest = u64::try_from(app.largest_upload()).unwrap_or(0);
+        if part < largest {
+            Self {
+                bytes: part,
+                in_parts: true,
+            }
+        } else {
+            Self {
+                bytes: largest,
+                in_parts: false,
+            }
+        }
+    }
+
+    /// The refusal of a larger file: 413, with the reason `upload_in_parts` where the
+    /// file could be sent in parts.
+    fn refusal(self) -> AppError {
+        let refusal = AppError::payload_too_large(self.bytes);
+        if self.in_parts {
+            refusal.with_reason(Reason::UploadInParts)
+        } else {
+            refusal
+        }
+    }
+}
+
+/// Stores the file a form's part carries, as `filename`, if it is within the limit.
+async fn store_field(
+    app: &App,
+    board_id: &str,
+    filename: &str,
+    field: Field<'_>,
+    limit: SingleUploadLimit,
+) -> Result<String, AppError> {
+    let state = AtomicU8::new(Reading::Fine.value());
+    let mut received: u64 = 0;
+    let bytes = field.map(|chunk| {
+        let chunk = chunk.map_err(|error| {
+            Reading::Unreadable.store(&state);
+            io::Error::other(error)
+        })?;
+        received = received.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        if received > limit.bytes {
+            Reading::TooLarge.store(&state);
+            return Err(io::Error::other("the file is larger than the limit"));
+        }
+        Ok(chunk)
+    });
+    let mut reader = StreamReader::new(Box::pin(bytes));
+    // What fails is not kept: the storage writes a file whole or not at all.
+    let saved = app.save_file(&mut reader, board_id, filename).await;
+    match (saved, Reading::load(&state)) {
+        (Ok(file_id), _) => Ok(file_id),
+        (Err(_), Reading::TooLarge) => Err(limit.refusal()),
+        (Err(_), Reading::Unreadable) => Err(AppError::bad_request("the file could not be read")),
+        (Err(error), Reading::Fine) => Err(error),
+    }
+}
+
+/// Reads what is left of a refused form and throws it away, up to
+/// [`FORM_DISCARD_LIMIT`] and for at most [`FORM_DISCARD_TIMEOUT`].
+async fn drain_form(multipart: &mut Multipart) {
+    let draining = async {
+        let mut discarded: u64 = 0;
+        while let Ok(Some(mut field)) = multipart.next_field().await {
+            while let Ok(Some(chunk)) = field.chunk().await {
+                discarded =
+                    discarded.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+                if discarded > FORM_DISCARD_LIMIT {
+                    return;
+                }
+            }
+        }
+    };
+    // Whether the form ended, was too long or too slow makes no difference to the answer.
+    let _ = tokio::time::timeout(FORM_DISCARD_TIMEOUT, draining).await;
 }
 
 /// Serves a file's contents with the download headers and the range and conditional

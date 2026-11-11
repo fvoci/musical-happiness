@@ -1,12 +1,14 @@
-//! Blocks: the basic unit of board content (cards, views, text, images and so on).
+//! Blocks: the basic unit of board content (cards, views, comments and attachments).
 
 use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::body::{Body, BodyChange};
 use crate::card_property::{CardPropertyError, validate_block_properties};
 use crate::serde_util::null_as_default;
 
@@ -16,14 +18,20 @@ use crate::serde_util::null_as_default;
 /// four bytes per character.
 pub const BLOCK_TITLE_MAX_CHARS: usize = 65535 / 4;
 
-/// Maximum number of characters in a block's `fields` once serialized to JSON.
+/// Maximum number of characters in a view's `fields` once serialized to JSON, and in
+/// those of a block of a type that new blocks no longer have.
 pub const BLOCK_FIELDS_MAX_CHARS: usize = 800_000;
+
+/// Maximum number of characters in the `fields` of a card, a comment or an attachment
+/// once serialized to JSON (`docs/s6-design.md` 5.7). A card's content is its body.
+pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The type of a block.
 ///
-/// The server stores and returns any type string a client sends (the web app has types
-/// such as `h1` and `list-item` that the server knows nothing about), so unrecognized
-/// strings are kept verbatim in [`BlockType::Other`].
+/// A new block has one of four types ([`BlockType::is_current`]). Blocks stored before a
+/// card's content became its body have others, among them type strings the server knows
+/// nothing about (the original's web app had `h1` and `list-item`); those are read and
+/// returned verbatim, kept in [`BlockType::Other`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub enum BlockType {
@@ -33,35 +41,54 @@ pub enum BlockType {
     Card,
     /// A board view.
     View,
-    /// A text content block.
-    Text,
-    /// A checkbox content block.
-    Checkbox,
     /// A comment on a card.
     Comment,
-    /// An image content block.
-    Image,
     /// A file attachment on a card.
     Attachment,
-    /// A divider content block.
-    Divider,
-    /// Any other type string, kept as sent. The empty string means "no type".
+    /// Any other type string, kept as sent, such as a content block type of the original
+    /// (`text`, `image`, ...): no block is stored with one. The empty string means "no
+    /// type".
     Other(String),
 }
 
 impl BlockType {
+    /// Returns `true` for the types that may have a body: a card and a comment
+    /// (`docs/s6-design.md` 5.7).
+    #[must_use]
+    pub fn has_body(&self) -> bool {
+        matches!(self, Self::Card | Self::Comment)
+    }
+
+    /// Returns `true` for the types a block may be given: a card, a view, a comment and
+    /// an attachment (`docs/s6-design.md` 5.7). The content blocks that were stored
+    /// before a card's content became its body were deleted by a data step of migration
+    /// 8.
+    #[must_use]
+    pub fn is_current(&self) -> bool {
+        matches!(
+            self,
+            Self::Card | Self::View | Self::Comment | Self::Attachment
+        )
+    }
+
+    /// Returns the maximum number of characters in the serialized `fields` of a block
+    /// of this type.
+    #[must_use]
+    pub fn fields_max_chars(&self) -> usize {
+        match self {
+            Self::Card | Self::Comment | Self::Attachment => CARD_FIELDS_MAX_CHARS,
+            Self::View | Self::Board | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
+        }
+    }
+
     /// Returns the wire string of this type.
     pub fn as_str(&self) -> &str {
         match self {
             Self::Board => "board",
             Self::Card => "card",
             Self::View => "view",
-            Self::Text => "text",
-            Self::Checkbox => "checkbox",
             Self::Comment => "comment",
-            Self::Image => "image",
             Self::Attachment => "attachment",
-            Self::Divider => "divider",
             Self::Other(other) => other,
         }
     }
@@ -77,12 +104,8 @@ impl BlockType {
             "board" => Self::Board,
             "card" => Self::Card,
             "view" => Self::View,
-            "text" => Self::Text,
-            "checkbox" => Self::Checkbox,
             "comment" => Self::Comment,
-            "image" => Self::Image,
             "attachment" => Self::Attachment,
-            "divider" => Self::Divider,
             _ => return None,
         })
     }
@@ -130,7 +153,7 @@ pub struct ParseBlockTypeError(String);
 impl FromStr for BlockType {
     type Err = ParseBlockTypeError;
 
-    /// Parses one of the nine known block types, ignoring ASCII case.
+    /// Parses one of the five known block types, ignoring ASCII case.
     ///
     /// Unlike the `From<&str>` conversion, which keeps unknown strings, this rejects them.
     /// It is the strict form used for the `type` query parameter.
@@ -154,12 +177,71 @@ pub enum BlockError {
     /// The title is longer than [`BLOCK_TITLE_MAX_CHARS`].
     #[error("block title size limit exceeded")]
     TitleSizeLimitExceeded,
-    /// The serialized fields are longer than [`BLOCK_FIELDS_MAX_CHARS`].
+    /// The serialized fields are longer than the limit of the block's type
+    /// ([`BlockType::fields_max_chars`]).
     #[error("block fields size limit exceeded")]
     FieldsSizeLimitExceeded,
+    /// A new block, or a patch, gives a type that no new block has
+    /// ([`BlockType::is_current`]). The type is as the client wrote it, at most
+    /// [`TYPE_SHOWN_CHARS`] characters of it; see [`BlockError::type_not_current`].
+    #[error("a block of the type {0:?} is not made any more: a card's content is its body")]
+    TypeNotCurrent(String),
     /// The `properties` among the fields are not well-formed card property values.
     #[error(transparent)]
     InvalidCardProperties(#[from] CardPropertyError),
+    /// A block that is neither a card nor a comment has a body.
+    #[error("only a card or a comment has a body")]
+    BodyNotAllowed,
+    /// The title holds U+0000, which PostgreSQL cannot store in text.
+    #[error("the title holds the character U+0000")]
+    NulInTitle,
+    /// A field of a card has a value of the wrong kind: `icon` a string, `isTemplate` a
+    /// boolean (or either `null`).
+    #[error("the field {field} of a card must be {expected}")]
+    InvalidCardField {
+        /// The field.
+        field: &'static str,
+        /// What its value must be.
+        expected: &'static str,
+    },
+}
+
+/// One rule of [`CARD_FIELD_KINDS`]: the field, its kind as a message names it, and
+/// whether a value is of that kind.
+type CardFieldKind = (&'static str, &'static str, fn(&Value) -> bool);
+
+/// The fields of a card whose value has one kind. Anything else breaks the reading of
+/// the card ([`crate::Card::from_block`]). `null` is taken as absent and is of every
+/// kind.
+const CARD_FIELD_KINDS: [CardFieldKind; 2] = [
+    ("icon", "a string", Value::is_string),
+    ("isTemplate", "a boolean", Value::is_boolean),
+];
+
+/// Whether `value` may be the value of the card field `field` ([`CARD_FIELD_KINDS`]).
+fn is_card_field_of_its_kind(field: &str, value: &Value) -> bool {
+    value.is_null()
+        || CARD_FIELD_KINDS
+            .iter()
+            .find(|(name, _, _)| *name == field)
+            .is_none_or(|(_, _, is_of_kind)| is_of_kind(value))
+}
+
+/// How much of a type that is refused a [`BlockError::TypeNotCurrent`] shows: the
+/// client's own text, which may be long, is not echoed whole.
+pub const TYPE_SHOWN_CHARS: usize = 64;
+
+impl BlockError {
+    /// The refusal of `block_type` as the type of a new block or of a patch, with at most
+    /// [`TYPE_SHOWN_CHARS`] characters of it.
+    #[must_use]
+    pub fn type_not_current(block_type: &BlockType) -> Self {
+        let name = block_type.as_str();
+        Self::TypeNotCurrent(match name.char_indices().nth(TYPE_SHOWN_CHARS) {
+            Some((end, _)) => format!("{}…", &name[..end]),
+            None => name.to_owned(),
+        })
+    }
 }
 
 /// The basic data unit of a board.
@@ -181,18 +263,28 @@ pub struct Block {
     /// The schema version of the block.
     #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
-    /// The block type.
+    /// The block type: `card`, `view`, `comment` or `attachment`. No request makes a
+    /// block of another type or patches one into it (400 naming `type`).
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
     pub block_type: BlockType,
-    /// The display title.
+    /// The display title. A title with U+0000 is refused (400 naming `title`).
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
-    /// Type-specific data, free-form.
+    /// Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
+    /// comment or an attachment and 800,000 for a view or a block of another type. The
+    /// `icon` of a card is a string and its `isTemplate` a boolean, or either `null`
+    /// (400 naming `fields` otherwise).
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
+    /// The body of a card or a comment; `null` for a block without one. Only those two
+    /// have one: a body on another block is refused (400 naming `body`). Every image of
+    /// it shows a file of the block's board. Whoever reads with a read token alone gets
+    /// every mention with an empty `userId`: a shape that is only sent, which a write
+    /// would have refused.
+    pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
@@ -213,9 +305,11 @@ impl Block {
     /// # Errors
     ///
     /// Returns a [`BlockError`] if the board identifier is empty, the title or the
-    /// serialized fields exceed their size limits, or the fields hold `properties` that
-    /// are not well-formed card property values. The last applies to blocks of every
-    /// type: `properties` among a block's fields always means card property values.
+    /// serialized fields exceed their size limits (the latter by type), the title holds
+    /// U+0000, the fields hold `properties` that are not well-formed card property
+    /// values, or the block is a card whose `icon` or `isTemplate` is of another kind
+    /// (a string and a boolean, or `null`). `properties` among a block's fields always means card
+    /// property values, whatever the block's type.
     pub fn validate(&self) -> Result<(), BlockError> {
         if self.board_id.is_empty() {
             return Err(BlockError::EmptyBoardId);
@@ -223,14 +317,98 @@ impl Block {
         if self.title.chars().count() > BLOCK_TITLE_MAX_CHARS {
             return Err(BlockError::TitleSizeLimitExceeded);
         }
+        if self.title.contains('\0') {
+            return Err(BlockError::NulInTitle);
+        }
+        if self.block_type == BlockType::Card {
+            for (field, expected, is_of_kind) in CARD_FIELD_KINDS {
+                if self
+                    .fields
+                    .get(field)
+                    .is_some_and(|value| !value.is_null() && !is_of_kind(value))
+                {
+                    return Err(BlockError::InvalidCardField { field, expected });
+                }
+            }
+        }
         // Serializing a map with string keys cannot fail; if it ever did, the fields would
         // not be storable either.
         match serde_json::to_string(&self.fields) {
-            Ok(fields_json) if fields_json.chars().count() <= BLOCK_FIELDS_MAX_CHARS => {}
+            Ok(fields_json)
+                if fields_json.chars().count() <= self.block_type.fields_max_chars() => {}
             _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
         validate_block_properties(&self.fields)?;
+        if self.body.is_some() && !self.block_type.has_body() {
+            return Err(BlockError::BodyNotAllowed);
+        }
         Ok(())
+    }
+
+    /// Removes the fields that a block can no longer be stored with but that one stored
+    /// before may hold: `properties` that are no object, and for a card an `icon` or
+    /// `isTemplate` of another kind. Returns their names. A stored block is made so
+    /// before it is read as a card, patched or copied: what is refused is what a
+    /// request writes, not what was there.
+    pub fn drop_malformed_fields(&mut self) -> Vec<String> {
+        let is_card = self.block_type == BlockType::Card;
+        let malformed: Vec<String> = self
+            .fields
+            .iter()
+            .filter(|(field, value)| match field.as_str() {
+                "properties" => !value.is_object(),
+                field => is_card && !is_card_field_of_its_kind(field, value),
+            })
+            .map(|(field, _)| field.clone())
+            .collect();
+        for field in &malformed {
+            self.fields.remove(field);
+        }
+        malformed
+    }
+
+    /// The block as it goes to whoever reads with a read token alone, who is nobody the
+    /// server knows (`docs/s6-design.md`, decision 7): no `createdBy` or `modifiedBy`, and
+    /// no user in the mentions of the body. A user's identifier tells when they signed
+    /// up. The values of person properties in `fields` go as they are.
+    pub fn hide_people(&mut self) {
+        self.created_by.clear();
+        self.modified_by.clear();
+        if let Some(body) = self.body.as_mut() {
+            body.clear_mentions();
+        }
+    }
+
+    /// The stored names of the files the block shows, each once: the file of an
+    /// attachment block (`fileId`, or failing that `attachmentId`), and the images of the
+    /// body. The store's migration of file references (`0003_file_refs.sql`) put down
+    /// the same rule in SQL, with the image blocks of then.
+    #[must_use]
+    pub fn shown_files(&self) -> Vec<String> {
+        if self.block_type == BlockType::Attachment {
+            return self
+                .attachment_file()
+                .map(str::to_owned)
+                .into_iter()
+                .collect();
+        }
+        self.body
+            .as_ref()
+            .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
+
+    /// The stored name of the file of an attachment block: its `fileId`, or failing that
+    /// its `attachmentId`; `None` for an empty name and for a block of another type.
+    #[must_use]
+    pub fn attachment_file(&self) -> Option<&str> {
+        if self.block_type != BlockType::Attachment {
+            return None;
+        }
+        ["fileId", "attachmentId"]
+            .iter()
+            .find_map(|key| self.fields.get(*key).and_then(serde_json::Value::as_str))
+            .filter(|name| !name.is_empty())
     }
 }
 
@@ -244,7 +422,8 @@ pub struct BlockPatch {
     /// The new schema version.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<i64>,
-    /// The new block type.
+    /// The new block type: `card`, `view`, `comment` or `attachment`. Any other is
+    /// refused (400 naming `type`).
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
     pub block_type: Option<BlockType>,
@@ -258,6 +437,58 @@ pub struct BlockPatch {
     /// Keys of fields to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
+    /// The new body of a card or a comment; `null` takes the body away. Sent only with
+    /// `readAt` (400 naming `readAt` without it).
+    #[serde(skip_serializing_if = "BodyChange::is_keep")]
+    #[schema(value_type = Option<Body>)]
+    pub body: BodyChange,
+    /// The `updateAt` of the block as the client read it. If the block has changed
+    /// since, the patch is refused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<i64>,
+    /// Card property values to set and remove, merged into the values the block has
+    /// when it is patched: what `patchCard` sends. Not a member of a block patch's JSON.
+    #[serde(skip)]
+    pub property_changes: PropertyChanges,
+}
+
+/// Changes to the property values of a card, by property identifier: the values to set,
+/// then the ones to remove. The values that are named in neither stay.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PropertyChanges {
+    /// Values to set, each replacing the value of its property.
+    pub updated: JsonMap,
+    /// Properties whose value is removed.
+    pub deleted: Vec<String>,
+}
+
+impl PropertyChanges {
+    /// Sets the updated values in `values`, then removes the deleted ones.
+    pub fn apply_to(&self, values: &mut JsonMap) {
+        for (id, value) in &self.updated {
+            values.insert(id.clone(), value.clone());
+        }
+        for id in &self.deleted {
+            values.remove(id);
+        }
+    }
+
+    /// Applies the changes to the `properties` field of a block's fields, made an empty
+    /// object first if it is absent or no object and there is a value to set.
+    fn apply_to_fields(&self, fields: &mut JsonMap) {
+        if self.updated.is_empty() && !fields.get("properties").is_some_and(Value::is_object) {
+            return;
+        }
+        let properties = fields
+            .entry("properties")
+            .or_insert_with(|| Value::Object(JsonMap::new()));
+        if !properties.is_object() {
+            *properties = Value::Object(JsonMap::new());
+        }
+        if let Value::Object(values) = properties {
+            self.apply_to(values);
+        }
+    }
 }
 
 impl BlockPatch {
@@ -283,6 +514,20 @@ impl BlockPatch {
         }
         for key in &self.deleted_fields {
             block.fields.remove(key);
+        }
+        self.property_changes.apply_to_fields(&mut block.fields);
+        self.body.apply_to(&mut block.body);
+    }
+
+    /// Checks the type the patch gives a block: none, or one a block may be given.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockError::TypeNotCurrent`] for another type.
+    pub fn check_type(&self) -> Result<(), BlockError> {
+        match &self.block_type {
+            Some(new_type) if !new_type.is_current() => Err(BlockError::type_not_current(new_type)),
+            _ => Ok(()),
         }
     }
 }

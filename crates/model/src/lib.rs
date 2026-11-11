@@ -7,16 +7,19 @@
 //! Unix epoch as an argument; the one place that reads a clock is [`new_id`], whose
 //! identifiers begin with the time they were made.
 
+mod allowlist;
 mod archive;
 mod auth;
 mod block;
 mod block_ids;
 mod board;
 mod boards_and_blocks;
+mod body;
 mod card;
 mod card_property;
 mod category;
 mod client_config;
+mod date_value;
 mod error_response;
 mod file_info;
 mod id;
@@ -25,6 +28,7 @@ mod settings;
 mod sharing;
 mod subscription;
 mod team;
+mod upload;
 mod user;
 
 pub use archive::{ArchiveHeader, ArchiveLine};
@@ -34,7 +38,8 @@ pub use auth::{
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, ParseBlockTypeError, stamp_modification_metadata,
+    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges, TYPE_SHOWN_CHARS,
+    stamp_modification_metadata,
 };
 pub use block_ids::generate_block_ids;
 pub use board::{
@@ -45,9 +50,14 @@ pub use boards_and_blocks::{
     BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
 };
+pub use body::{
+    BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
+    BodySummary, TaskCount,
+};
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{
-    CardPropertyError, validate_block_properties, validate_card_property_definitions,
+    CardPropertyError, DATE_PROPERTY_TYPE, clear_values_of_another_kind, validate_block_properties,
+    validate_card_property_definitions, validate_card_property_kinds,
     validate_card_property_values,
 };
 pub use category::{
@@ -55,6 +65,9 @@ pub use category::{
     CategoryBoards, CategoryError, CategoryType,
 };
 pub use client_config::ClientConfig;
+pub use date_value::{
+    DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
+};
 pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
@@ -67,6 +80,7 @@ pub use settings::{
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::Team;
+pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{Session, User, UserPreferencesPatch};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.

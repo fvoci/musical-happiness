@@ -609,12 +609,6 @@
                 "text": "Media"
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "7y5kr8x8ybpnwdykjfuz57rggrh.png"
-            }
           }
         ]
       }
@@ -945,11 +939,5 @@
       }
     }
   ],
-  "files": [
-    {
-      "fileId": "7y5kr8x8ybpnwdykjfuz57rggrh.png",
-      "archiveMember": "brs9cdimfw7fodyi7erqt747rhc/7y5kr8x8ybpnwdykjfuz57rggrh.png",
-      "bytes": 58043
-    }
-  ]
+  "files": []
 }

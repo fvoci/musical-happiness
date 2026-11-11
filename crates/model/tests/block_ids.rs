@@ -254,6 +254,30 @@ fn generate_block_ids_updates_card_order() {
     );
 }
 
+/// Not in the original suite: a card that only a view's `cardOrder` names, as a card
+/// whose content is its body is, keeps its place in the order. The view is on the
+/// board, as views are, so nothing else refers to the card.
+#[test]
+fn generate_block_ids_follows_a_card_only_the_card_order_names() {
+    let (card_id, view_id, board_id) = (id(), id(), id());
+    let mut blocks = vec![
+        block(&card_id, &board_id, &board_id),
+        Block {
+            fields: fields(json!({ "cardOrder": [card_id] })),
+            ..block(&view_id, &board_id, &board_id)
+        },
+    ];
+
+    generate_block_ids(&mut blocks);
+
+    assert_ne!(blocks[0].id, card_id, "the card has a new identifier");
+    assert_eq!(
+        blocks[1].fields["cardOrder"],
+        json!([blocks[0].id]),
+        "and the view's order names it"
+    );
+}
+
 /// Not in the original suite: fields of an unexpected type are left as they are.
 #[test]
 fn generate_block_ids_leaves_fields_of_unexpected_type() {

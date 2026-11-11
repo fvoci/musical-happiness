@@ -40,8 +40,12 @@ parameter!(CategoryId: Path "categoryId", String, True, "The identifier of the c
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
 parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
-parameter!(MoveWhere: Path "where", String, True, "Where the block goes: `before` or `after` the other one.");
-parameter!(DestinationBlockId: Path "dstBlockId", String, True, "The identifier of the block the moved one is put next to.");
+parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
+parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
+
+// -- in the headers --------------------------------------------------------------------
+
+parameter!(ContentDigest: Header "Content-Digest", String, True, "The SHA-256 digest of the part, as RFC 9530 writes it: `sha-256=:<base64 of the 32 bytes>:`. Other algorithms in the header are not looked at.");
 
 // -- in the query ----------------------------------------------------------------------
 

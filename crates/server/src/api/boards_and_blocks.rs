@@ -5,10 +5,9 @@ use std::collections::HashSet;
 use axum::body::Bytes;
 use axum::extract::State;
 use fvoci_model::{
-    Block, BoardsAndBlocks, DeleteBoardsAndBlocks, JsonMap, PatchBoardsAndBlocks,
+    Block, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids,
 };
-use serde_json::Value;
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -20,6 +19,7 @@ use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid
 use super::decode_object_with;
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
+use super::{objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
@@ -30,20 +30,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         handle_patch_boards_and_blocks,
         handle_delete_boards_and_blocks
     ))
-}
-
-/// The JSON objects in the list that is the member `name` of `object`. An element of the
-/// list that is not an object is `None`.
-fn objects_mut<'v>(
-    object: &'v mut JsonMap,
-    name: &str,
-) -> impl Iterator<Item = Option<&'v mut JsonMap>> {
-    object
-        .get_mut(name)
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-        .map(Value::as_object_mut)
 }
 
 /// Make boards with their blocks
@@ -72,17 +58,32 @@ async fn handle_create_boards_and_blocks(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let (request, invalid): (BoardsAndBlocks, Option<InvalidBoardMember>) =
+    let (mut request, (invalid, bodies)): (BoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
-            objects_mut(body, "boards")
+            let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
                 .flatten()
-                .find_map(take_invalid_board_members)
+                .find_map(take_invalid_board_members);
+            (invalid, take_block_bodies(objects_mut(body, "blocks")))
         })?;
     // Not as in the original, which validates neither the type nor the minimum role of
     // these boards and stores whatever it is given. The model has no way to hold such a
     // board, so it is refused as `POST /boards` refuses it.
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
+    }
+    // The boards are new and have no files, so a body with an image is refused, without
+    // looking up anything the request names.
+    for (block, body) in request.blocks.iter_mut().zip(bodies?) {
+        if body
+            .as_ref()
+            .is_some_and(|body| !body.file_ids().is_empty())
+        {
+            return Err(AppError::bad_request(
+                "an image of the body shows no file of the board: a new board has none",
+            )
+            .with_field("body"));
+        }
+        block.body = body;
     }
 
     if request.boards.is_empty() {
@@ -134,6 +135,11 @@ async fn handle_create_boards_and_blocks(
 fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'static str, String)> {
     if block.block_type.is_empty() {
         Some(("type", format!("missing type for block id {}", block.id)))
+    } else if !block.block_type.is_current() {
+        Some((
+            "type",
+            fvoci_model::BlockError::type_not_current(&block.block_type).to_string(),
+        ))
     } else if block.create_at < 1 {
         Some((
             "createAt",
@@ -183,13 +189,18 @@ async fn handle_patch_boards_and_blocks(
     let user_id = &session.user_id;
     // The patches' types and minimum roles are validated board by board below, as in the
     // original, not while decoding.
-    let (patches, invalid_members): (PatchBoardsAndBlocks, Vec<Option<InvalidBoardMember>>) =
+    let (mut patches, (invalid_members, changes)): (PatchBoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
-            objects_mut(body, "boardPatches")
+            let invalid: Vec<Option<InvalidBoardMember>> = objects_mut(body, "boardPatches")
                 .map(|patch| patch.and_then(take_invalid_patch_members))
-                .collect()
+                .collect();
+            (
+                invalid,
+                take_patch_bodies(objects_mut(body, "blockPatches")),
+            )
         })?;
     patches.validate().map_err(AppError::bad_request)?;
+    put_patch_bodies(&mut patches.block_patches, changes?)?;
 
     let mut team_id = String::new();
     let mut board_ids = HashSet::new();
@@ -233,6 +244,12 @@ async fn handle_patch_boards_and_blocks(
     }
 
     require_blocks_of_boards(&app, user_id, &patches.block_ids, &board_ids).await?;
+    for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
+        if let Some(body) = patch.body.new_body() {
+            let block = app.block(block_id).await?;
+            app.check_body_files(&block.board_id, Some(body)).await?;
+        }
+    }
 
     let result = app.patch_boards_and_blocks(&patches, user_id).await?;
     Ok(json_response(&result))

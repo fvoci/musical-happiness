@@ -81,12 +81,6 @@ pub(crate) fn check_error(response: &ApiResponse, status: StatusCode, message: &
     response.check_error(status, message);
 }
 
-/// Checks that the answer is the server error, which never says what went wrong.
-#[track_caller]
-pub(crate) fn check_internal_error(response: &ApiResponse) {
-    response.check_internal_error();
-}
-
 fn cards_path(board_id: &str) -> String {
     format!("/boards/{board_id}/cards")
 }
@@ -119,10 +113,6 @@ fn make_card_props(count: usize) -> JsonMap {
     (0..count).map(|_| (new_id(), json!(new_id()))).collect()
 }
 
-fn new_block_ids(count: usize) -> Vec<String> {
-    (0..count).map(|_| new_id()).collect()
-}
-
 /// `CreateBoardAndCards`: an open board of the first user with `count` cards.
 async fn create_board_and_cards(th: &TestServer, count: usize) -> (Board, Vec<Card>) {
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
@@ -130,7 +120,6 @@ async fn create_board_and_cards(th: &TestServer, count: usize) -> (Board, Vec<Ca
     for number in 1..=count {
         let card = Card {
             title: format!("test card {number}"),
-            content_order: new_block_ids(3),
             icon: "😱".to_owned(),
             properties: make_card_props(5),
             ..Card::default()
@@ -210,7 +199,7 @@ async fn get_cards_fixture(th: &TestServer) -> Board {
                 modified_by: user_id.clone(),
                 schema: 1,
                 title: format!("text {text} for card {number}"),
-                ..new_block(&board.id, &created.id, BlockType::Text)
+                ..new_block(&board.id, &created.id, BlockType::Attachment)
             })
             .collect();
         th.client
@@ -255,11 +244,9 @@ async fn create_card_a_non_authenticated_user_should_be_rejected() {
 async fn create_card_good() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let content_order = new_block_ids(3);
     let card = Card {
         title: "test card 1".to_owned(),
         icon: "😱".to_owned(),
-        content_order: content_order.clone(),
         ..Card::default()
     };
 
@@ -268,7 +255,6 @@ async fn create_card_good() {
     assert_eq!(card_new.board_id, board.id, "the card is on the board");
     assert_eq!(card_new.title, "test card 1", "the title");
     assert_eq!(card_new.icon, "😱", "the icon");
-    assert_eq!(card_new.content_order, content_order, "the content order");
     th.teardown().await;
 }
 
@@ -370,7 +356,6 @@ async fn patch_card_good() {
     let (board, cards) = create_board_and_cards(&th, 1).await;
     let card = &cards[0];
 
-    let new_content_order: Vec<String> = card.content_order.iter().rev().cloned().collect();
     let updated_props: JsonMap = card
         .properties
         .keys()
@@ -379,8 +364,8 @@ async fn patch_card_good() {
     let patch = CardPatch {
         title: Some("another title".to_owned()),
         icon: Some("🐿".to_owned()),
-        content_order: Some(new_content_order.clone()),
         updated_properties: updated_props.clone(),
+        ..CardPatch::default()
     };
 
     let patched: Card = th
@@ -392,8 +377,6 @@ async fn patch_card_good() {
     assert_eq!(patched.board_id, board.id, "the card stays on its board");
     assert_eq!(patched.title, "another title", "the new title");
     assert_eq!(patched.icon, "🐿", "the new icon");
-    assert_ne!(patched.content_order, card.content_order, "a new order");
-    assert_eq!(patched.content_order, new_content_order, "the order sent");
     assert_eq!(patched.properties, updated_props, "the new properties");
     th.teardown().await;
 }
@@ -447,7 +430,6 @@ async fn get_card_good() {
     assert_eq!(fetched.board_id, board.id, "the card's board");
     assert_eq!(fetched.title, card.title, "the title");
     assert_eq!(fetched.icon, card.icon, "the icon");
-    assert_eq!(fetched.content_order, card.content_order, "the order");
     assert_eq!(fetched.properties, card.properties, "the properties");
     th.teardown().await;
 }
@@ -465,7 +447,6 @@ async fn app_create_card_success_scenario() {
         created_by: user_id.clone(),
         modified_by: user_id.clone(),
         title: "test card".to_owned(),
-        content_order: new_block_ids(2),
         properties: make_card_props(3),
         ..Card::default()
     };
@@ -478,7 +459,6 @@ async fn app_create_card_success_scenario() {
 
     assert_eq!(new_card.board_id, card.board_id, "the board");
     assert_eq!(new_card.title, card.title, "the title");
-    assert_eq!(new_card.content_order, card.content_order, "the order");
     assert_eq!(new_card.properties, card.properties, "the properties");
     th.teardown().await;
 }
@@ -564,26 +544,31 @@ async fn app_get_cards_success_scenario() {
 }
 
 /// `TestGetCards/"error scenario"` (app). The original injects a store failure through
-/// a mock; the failure the real store allows is a card block that cannot be read as a
-/// card.
+/// a mock. The failure the real store allowed, a card block that cannot be read as a
+/// card, is refused when it is written now, and one stored before is read without its
+/// malformed field (see `card_from_stored_block` in `app/cards.rs`): the board's list
+/// of cards has no failure left to show.
 #[tokio::test]
 async fn app_get_cards_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    insert_card_block(&th.client, &board.id, json!({"icon": 5})).await;
+    let block = Block {
+        fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
+        ..new_block(&board.id, "", BlockType::Card)
+    };
+    let response = th
+        .client
+        .insert_blocks(&board.id, std::slice::from_ref(&block))
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("fields"));
 
-    let error = th
+    let cards = th
         .app
         .cards_for_board(&board.id, 0, 0)
         .await
-        .expect_err("one of the cards is malformed");
-
-    assert_eq!(error.kind(), ErrorKind::Internal, "{error:?}");
-    assert_eq!(
-        error.to_string(),
-        "Block2Card fail: invalid type for field 'icon'",
-        "what the log says"
-    );
+        .expect("the cards are read");
+    assert!(cards.is_empty(), "nothing was stored: {cards:?}");
     th.teardown().await;
 }
 
@@ -596,7 +581,6 @@ async fn app_patch_card_success_scenario() {
     let props = make_card_props(3);
     let card = Card {
         title: "test card for patch".to_owned(),
-        content_order: new_block_ids(2),
         properties: props.clone(),
         ..Card::default()
     };
@@ -606,15 +590,14 @@ async fn app_patch_card_success_scenario() {
         .await
         .expect("the card is created");
 
-    let new_content_order: Vec<String> = card.content_order.iter().rev().cloned().collect();
     let card_patch = CardPatch {
         title: Some("patched".to_owned()),
-        content_order: Some(new_content_order.clone()),
         icon: Some("😀".to_owned()),
         updated_properties: props
             .keys()
             .map(|id| (id.clone(), json!(new_id())))
             .collect(),
+        ..CardPatch::default()
     };
     let mut expected = card.clone();
     card_patch.apply(&mut expected);
@@ -628,7 +611,6 @@ async fn app_patch_card_success_scenario() {
     assert_eq!(patched.board_id, board.id, "the board");
     assert_eq!(patched.title, "patched", "the title");
     assert_eq!(patched.icon, "😀", "the icon");
-    assert_eq!(patched.content_order, new_content_order, "the order");
     assert_eq!(patched.properties, expected.properties, "the properties");
     th.teardown().await;
 }
@@ -705,7 +687,6 @@ async fn app_get_card_success_scenario() {
     assert_eq!(card.title, block.title, "the title");
     assert_eq!(card.icon, "😀", "the icon");
     assert!(card.is_template, "a template");
-    assert_eq!(card.content_order, content_order, "the order");
     assert_eq!(card.properties, props, "the properties");
     th.teardown().await;
 }
@@ -733,7 +714,7 @@ async fn app_get_card_not_found() {
 async fn app_get_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let text = insert_block(&th.client, &new_block(&board.id, "", BlockType::Text)).await;
+    let text = insert_block(&th.client, &new_block(&board.id, "", BlockType::Attachment)).await;
 
     let error = th.app.card(&text.id).await.expect_err("a text is no card");
 
@@ -799,10 +780,13 @@ async fn create_card_answer_and_stored_block() {
             "createdBy": me.id,
             "modifiedBy": me.id,
             "title": "t",
-            "contentOrder": ["a", "b"],
             "icon": "👨‍👩‍👧",
             "isTemplate": true,
             "properties": {"p": "v", "q": ["1", "2"]},
+            "body": null,
+            "hasBody": false,
+            "tasksTotal": 0,
+            "tasksDone": 0,
             "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
@@ -821,12 +805,14 @@ async fn create_card_answer_and_stored_block() {
             "schema": 1,
             "type": "card",
             "title": "t",
+            // A content order is no member of a card: what the request had is not
+            // stored.
             "fields": {
-                "contentOrder": ["a", "b"],
                 "icon": "👨‍👩‍👧",
                 "isTemplate": true,
                 "properties": {"p": "v", "q": ["1", "2"]},
             },
+            "body": null,
             "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
@@ -859,10 +845,13 @@ async fn create_card_without_members() {
                 "createdBy": me.id,
                 "modifiedBy": me.id,
                 "title": "",
-                "contentOrder": [],
                 "icon": "",
                 "isTemplate": false,
                 "properties": {},
+                "body": null,
+                "hasBody": false,
+                "tasksTotal": 0,
+                "tasksDone": 0,
                 "createAt": card.create_at,
                 "updateAt": card.update_at,
                 "deleteAt": 0,
@@ -911,7 +900,7 @@ async fn create_card_refusals() {
         "null",
         "{\"title\":5}",
         "\"card\"",
-        "{\"contentOrder\":[[\"a\"]]}",
+        "{\"icon\":5}",
     ] {
         let response = th.client.send_raw_body(Method::POST, &path, body).await;
         response.check_bad_request();
@@ -1077,51 +1066,186 @@ async fn get_cards_paging() {
     th.teardown().await;
 }
 
-/// Preserved quirk: one card block that cannot be read as a card fails the board's
-/// whole list of cards (server/app/cards.go:54-60), and reading it alone is a bad
-/// request that says why. Properties that are no object are the exception, see
-/// `cards_whose_properties_are_no_object_are_read_without_properties`.
+/// A card block whose `icon` is no string or whose `isTemplate` is no boolean is
+/// refused (400 naming `fields`), through the blocks routes too: the original stores
+/// it, and then fails the board's whole list of cards (server/app/cards.go:54-60).
+/// `null` stands for an absent field. A stored `contentOrder` is not read, whatever
+/// its shape.
 #[tokio::test]
-async fn get_cards_fails_on_a_malformed_card() {
+async fn a_malformed_card_block_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let path = cards_path(&board.id);
     create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
+    // Side-by-side content, as the original's web app stores it, has nested lists.
+    insert_card_block(
+        &th.client,
+        &board.id,
+        json!({"contentOrder": ["a", ["b", "c"]]}),
+    )
+    .await;
+    insert_card_block(&th.client, &board.id, json!({"contentOrder": "a"})).await;
+    let nulls = insert_card_block(
+        &th.client,
+        &board.id,
+        json!({"icon": null, "isTemplate": null}),
+    )
+    .await;
+    let cards = cards_of(&th.client, &board.id, "").await;
+    assert_eq!(cards.len(), 4, "four cards");
+    let read: Card = th.client.get(&card_path(&nulls.id)).await.ok_json();
+    assert_eq!(read.icon, "", "null is no icon");
+    assert!(!read.is_template, "null is not a template");
+
+    for fields in [
+        json!({"icon": 5}),
+        json!({"icon": ["x"]}),
+        json!({"isTemplate": "yes"}),
+        json!({"isTemplate": 1}),
+    ] {
+        let block = Block {
+            fields: serde_json::from_value(fields.clone()).expect("an object"),
+            ..new_block(&board.id, "", BlockType::Card)
+        };
+        let response = th
+            .client
+            .insert_blocks(&board.id, std::slice::from_ref(&block))
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], json!("fields"), "{fields}");
+
+        // Nor can a card get it by a patch.
+        let response = th
+            .client
+            .patch(
+                &format!("/boards/{}/blocks/{}", board.id, nulls.id),
+                &json!({"updatedFields": fields}),
+            )
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], json!("fields"), "{fields}");
+    }
+    // Another block may hold such fields: only a card is read as one.
+    let view = Block {
+        fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
+        ..new_block(&board.id, "", BlockType::View)
+    };
+    insert_block(&th.client, &view).await;
     assert_eq!(
         cards_of(&th.client, &board.id, "").await.len(),
-        1,
-        "one card"
+        4,
+        "the list works"
     );
 
-    // Side-by-side content, as the original's web app stores it.
-    let nested = json!({"contentOrder": ["a", ["b", "c"]]});
-    let cases = [
-        nested,
-        json!({"contentOrder": "a"}),
-        json!({"icon": 5}),
-        json!({"isTemplate": "yes"}),
-    ];
-    for fields in cases {
-        let block = insert_card_block(&th.client, &board.id, fields).await;
+    th.teardown().await;
+}
 
-        let response = th.client.get(&path).await;
-        check_internal_error(&response);
-        // What is stored is no card: that is the server's state, not the request's
-        // mistake. (The original answers 400 for the card alone.)
-        let response = th.client.get(&card_path(&block.id)).await;
-        check_internal_error(&response);
+/// A card an older server stored with a malformed field is read without it, and is
+/// written and copied without it: a request is refused for what it writes, not for
+/// what was there.
+#[tokio::test]
+async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let card = create_card(&th.client, &board.id, &json!({"title": "old"})).await;
+    let stored = serde_json::from_value(json!({"icon": 5, "isTemplate": "yes", "properties": []}))
+        .expect("an object");
+    th.app
+        .store()
+        .set_block_fields_unchecked(&card.id, &stored)
+        .await
+        .expect("written as an older server would have");
 
-        th.client
-            .delete(&format!("/boards/{}/blocks/{}", board.id, block.id))
-            .await
-            .check_no_content();
-        assert_eq!(
-            cards_of(&th.client, &board.id, "").await.len(),
-            1,
-            "the list works again without the malformed card"
-        );
+    let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
+    assert_eq!(read.icon, "", "read without it");
+    let patched: Card = th
+        .client
+        .patch(&card_path(&card.id), &title_patch("new"))
+        .await
+        .ok_json();
+    assert_eq!(patched.title, "new", "the patch writes the title");
+    let response = th
+        .client
+        .patch(
+            &format!("/boards/{}/blocks/{}", board.id, card.id),
+            &json!({"title": "newer"}),
+        )
+        .await;
+    response.check_no_content();
+
+    th.app
+        .store()
+        .set_block_fields_unchecked(&card.id, &stored)
+        .await
+        .expect("written again");
+    th.client
+        .post_empty(&format!("/boards/{}/duplicate", board.id))
+        .await
+        .check_created();
+    th.client
+        .post_empty(&format!(
+            "/boards/{}/blocks/{}/duplicate",
+            board.id, card.id
+        ))
+        .await
+        .check_created();
+    th.teardown().await;
+}
+
+/// A title with U+0000 is refused (400 naming `title`) on both databases: PostgreSQL
+/// cannot store it in text, which was a 500 there.
+#[tokio::test]
+async fn a_title_with_u0000_is_refused() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let block = Block {
+        title: "a\u{0}b".to_owned(),
+        ..new_block(&board.id, "", BlockType::Card)
+    };
+    let response = th
+        .client
+        .insert_blocks(&board.id, std::slice::from_ref(&block))
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("title"));
+
+    let card = create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
+    let response = th
+        .client
+        .patch(
+            &format!("/boards/{}/blocks/{}", board.id, card.id),
+            &json!({"title": "a\u{0}b"}),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("title"));
+
+    for (patch, member) in [
+        (json!({"title": "a\u{0}"}), "title"),
+        (json!({"description": "\u{0}"}), "description"),
+        (json!({"icon": "\u{0}"}), "icon"),
+        (json!({"updatedProperties": {"k": "a\u{0}"}}), "properties"),
+        (json!({"updatedProperties": {"a\u{0}": "v"}}), "properties"),
+        (
+            json!({"updatedCardProperties": [{"id": "p", "name": "a\u{0}", "type": "text"}]}),
+            "cardProperties",
+        ),
+    ] {
+        let response = th
+            .client
+            .patch(&format!("/boards/{}", board.id), &patch)
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], json!(member), "{patch}");
     }
-
+    let response = th
+        .client
+        .post(
+            "/boards",
+            &json!({"teamId": TEST_TEAM_ID, "type": "O", "title": "x\u{0}"}),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("title"));
     th.teardown().await;
 }
 
@@ -1156,7 +1280,11 @@ async fn get_card_permissions_and_refusals() {
     }
 
     // No card: an identifier nobody has, a block that is no card, a board.
-    let text = insert_block(&th.client, &new_block(board_id, &card.id, BlockType::Text)).await;
+    let text = insert_block(
+        &th.client,
+        &new_block(board_id, &card.id, BlockType::Attachment),
+    )
+    .await;
     for card_id in [UNKNOWN_ID, "nope", text.id.as_str(), board_id] {
         for client in [&th.client, outsider] {
             let response = client.get(&card_path(card_id)).await;
@@ -1176,10 +1304,13 @@ async fn get_card_permissions_and_refusals() {
             "createdBy": bare.created_by,
             "modifiedBy": bare.modified_by,
             "title": "",
-            "contentOrder": [],
             "icon": "",
             "isTemplate": false,
             "properties": {},
+            "body": null,
+            "hasBody": false,
+            "tasksTotal": 0,
+            "tasksDone": 0,
             "createAt": response.value()["createAt"],
             "updateAt": response.value()["updateAt"],
             "deleteAt": 0,
@@ -1202,7 +1333,11 @@ async fn patch_card_refusals() {
     let outsider = &th.client2;
     let card = create_card(&th.client, board_id, &json!({"title": "card"})).await;
     let path = card_path(&card.id);
-    let text = insert_block(&th.client, &new_block(board_id, &card.id, BlockType::Text)).await;
+    let text = insert_block(
+        &th.client,
+        &new_block(board_id, &card.id, BlockType::Attachment),
+    )
+    .await;
     let malformed = "{\"title\":";
 
     // No card: not found for everyone, whatever the body. A card on a board the user
@@ -1240,7 +1375,7 @@ async fn patch_card_refusals() {
         "[]",
         "null",
         "{\"title\":5}",
-        "{\"contentOrder\":\"a\"}",
+        "{\"icon\":5}",
         "{\"icon\":\"🐿🐿🐿\"}",
     ] {
         let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
@@ -1261,6 +1396,78 @@ async fn patch_card_refusals() {
 
     let unchanged: Card = th.client.get(&path).await.ok_json();
     assert_eq!(unchanged, card, "no patch was applied");
+    th.teardown().await;
+}
+
+/// Two patches that set different properties of a card at about the same time both keep
+/// their value; of two that set the same property, the later one wins.
+#[tokio::test]
+async fn patches_of_different_properties_at_the_same_time_both_stay() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let card = create_card(&th.client, &board.id, &json!({"title": "t"})).await;
+    let path = card_path(&card.id);
+    for round in 0..10 {
+        let first = json!({"updatedProperties": {"a": format!("a{round}")}});
+        let second = json!({"updatedProperties": {"b": format!("b{round}")}});
+        let (one, two) = tokio::join!(
+            th.client.patch(&path, &first),
+            th.client.patch(&path, &second),
+        );
+        one.check_ok();
+        two.check_ok();
+        let read: Card = th.client.get(&path).await.ok_json();
+        assert_eq!(
+            serde_json::to_value(&read.properties).expect("properties are JSON"),
+            json!({"a": format!("a{round}"), "b": format!("b{round}")}),
+            "both values of round {round}"
+        );
+    }
+
+    for value in ["first", "later"] {
+        th.client
+            .patch(&path, &json!({"updatedProperties": {"a": value}}))
+            .await
+            .check_ok();
+    }
+    let read: Card = th.client.get(&path).await.ok_json();
+    assert_eq!(read.properties["a"], json!("later"), "the later one wins");
+    th.teardown().await;
+}
+
+/// `updatedProperties` is merged into the values a card has; `deletedProperties` takes
+/// values away, also the last one, and wins over `updatedProperties`.
+#[tokio::test]
+async fn patch_card_merges_and_deletes_values() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let card = create_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "t", "properties": {"p": "v", "q": ["1", "2"]}}),
+    )
+    .await;
+    let path = card_path(&card.id);
+    let send = async |body: Value| -> Value {
+        let card: Card = th.client.patch(&path, &body).await.ok_json();
+        serde_json::to_value(&card.properties).expect("properties are JSON")
+    };
+
+    let values = send(json!({"updatedProperties": {"z": "only", "p": "w"}})).await;
+    assert_eq!(
+        values,
+        json!({"p": "w", "q": ["1", "2"], "z": "only"}),
+        "the others stay"
+    );
+    let values = send(json!({"deletedProperties": ["p", "q"]})).await;
+    assert_eq!(values, json!({"z": "only"}), "deleted");
+    let values =
+        send(json!({"updatedProperties": {"z": "again"}, "deletedProperties": ["z"]})).await;
+    assert_eq!(
+        values,
+        json!({}),
+        "set and deleted: deleted, the last value too"
+    );
     th.teardown().await;
 }
 
@@ -1305,7 +1512,9 @@ async fn patch_card_changes() {
         json!({"updatedProperties": {}}),
         json!({"updatedProperties": null}),
         json!({"title": null, "contentOrder": null, "icon": null}),
-        json!({"isTemplate": false, "deleteAt": 5, "boardId": "x", "deletedProperties": ["p"]}),
+        json!({"isTemplate": false, "deleteAt": 5, "boardId": "x"}),
+        json!({"deletedProperties": ["none"]}),
+        json!({"deletedProperties": null}),
     ] {
         let patched = send(&th.client, &path, body.clone()).await;
         let expected = Card {
@@ -1315,34 +1524,38 @@ async fn patch_card_changes() {
         assert_eq!(patched, expected, "nothing changed by {body}");
     }
 
-    // Preserved quirk: updated properties replace all properties.
+    // The values that are not named stay; the deleted ones go (merging is tested on its
+    // own below).
     let patched = send(
         &th.client,
         &path,
-        json!({"updatedProperties": {"z": "only"}}),
+        json!({"updatedProperties": {"z": "only"}, "deletedProperties": ["p", "q"]}),
     )
     .await;
     assert_eq!(
         serde_json::to_value(&patched.properties).expect("properties are JSON"),
         json!({"z": "only"}),
-        "the other properties are gone"
+        "the values"
     );
 
-    // The order and the icon, by an editor, without notification.
+    // The icon, by an editor, without notification. A content order is not a member
+    // of a card any more and changes nothing.
     let patched = send(
         &roles.editor,
         &format!("{path}?disableNotify=true"),
         json!({"contentOrder": ["x", "y", "z"], "icon": "🐿"}),
     )
     .await;
-    assert_eq!(patched.content_order, ["x", "y", "z"], "the new order");
+    assert!(
+        serde_json::to_value(&patched).expect("a card is JSON")["contentOrder"].is_null(),
+        "no order"
+    );
     assert_eq!(patched.icon, "🐿", "the new icon");
     assert_eq!(patched.modified_by, editor.id, "modified by the editor");
     assert_eq!(patched.created_by, me.id, "still created by its creator");
 
-    // Both can be emptied.
-    let patched = send(&th.client, &path, json!({"contentOrder": [], "icon": ""})).await;
-    assert_eq!(patched.content_order, [""; 0], "no content");
+    // The icon can be emptied.
+    let patched = send(&th.client, &path, json!({"icon": ""})).await;
     assert_eq!(patched.icon, "", "no icon");
     assert_eq!(patched.modified_by, me.id, "modified by the admin again");
 
@@ -1351,7 +1564,6 @@ async fn patch_card_changes() {
     assert_eq!(
         serde_json::to_value(&block.fields).expect("fields are JSON"),
         json!({
-            "contentOrder": [],
             "icon": "",
             "isTemplate": true,
             "properties": {"z": "only"},
@@ -1514,29 +1726,6 @@ async fn card_changes_call_the_webhook() {
         take_posted().await,
         [card_triple(&card, "patched")],
         "a patched card"
-    );
-
-    let text1 = insert_block(&th.client, &new_block(&board.id, &card.id, BlockType::Text)).await;
-    let text2 = insert_block(&th.client, &new_block(&board.id, &card.id, BlockType::Text)).await;
-    th.client
-        .patch(
-            &card_path(&card.id),
-            &json!({"contentOrder": [text1.id, text2.id]}),
-        )
-        .await
-        .check_ok();
-    take_posted().await;
-    th.client
-        .post_empty(&format!(
-            "/content-blocks/{}/moveto/after/{}",
-            text1.id, text2.id
-        ))
-        .await
-        .check_no_content();
-    assert_eq!(
-        take_posted().await,
-        [card_triple(&card, "patched")],
-        "the card whose content was reordered"
     );
 
     th.client

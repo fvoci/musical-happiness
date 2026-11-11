@@ -5,11 +5,11 @@
  * It is wired one feature at a time. What is not wired yet refuses with a
  * `BackendError` of the reason `not_wired` (see `notWired`), so that a
  * screen that reaches it says that the change was not saved instead of
- * failing quietly. Which operations are wired is in `docs/handoff.md`.
+ * failing quietly. What is not wired is what calls `notWired` below.
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
-import { applyCardPatch, applyViewPatch } from '../state/patches.ts';
+import { applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
   type Account,
@@ -31,6 +31,7 @@ import {
   type Registration,
   type Team,
   type UploadedFile,
+  type UploadOptions,
   type User,
   type ViewDraft,
 } from '../state/backend.ts';
@@ -49,10 +50,12 @@ import {
   teamOf,
   userOf,
   viewOf,
+  wireBody,
   type Schemas,
 } from './convert.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
+import { uploadInParts } from './upload.ts';
 
 /**
  * Refuses an operation that is not wired to the server yet. 405 is the
@@ -65,6 +68,9 @@ export function notWired(operation: string): never {
     reason: 'not_wired',
   });
 }
+
+/** How many files go up at once; the server allows a reader 8 open uploads. */
+const UPLOADS_AT_ONCE = 3;
 
 export class ServerBackend implements Backend, Account {
   readonly #http: Http;
@@ -214,6 +220,17 @@ export class ServerBackend implements Backend, Account {
     return members.map(memberOf);
   }
 
+  /** Joins an open board (`joinBoard`), with its minimum role. */
+  async joinBoard(boardId: string): Promise<BoardMember> {
+    return memberOf(
+      await this.#http.request<Schemas['BoardMember']>(
+        '/api/v1/boards/{boardId}/join',
+        { boardId },
+        { method: 'POST' },
+      ),
+    );
+  }
+
   // ------------------------------------------------------------ sidebar
 
   async categories(teamId: string): Promise<Category[]> {
@@ -309,7 +326,7 @@ export class ServerBackend implements Backend, Account {
     return cards.map(cardOf);
   }
 
-  /** A card without its body: the server keeps none yet (`docs/contract-pending.md`, 1). */
+  /** A card with its body. */
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     return cardDetailOf(await this.#card(boardId, cardId));
   }
@@ -328,7 +345,6 @@ export class ServerBackend implements Backend, Account {
   }
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
-    if (draft.body) notWired('writeCardBody');
     const card = await this.#http.request<Schemas['Card']>(
       '/api/v1/boards/{boardId}/cards',
       { boardId },
@@ -338,16 +354,15 @@ export class ServerBackend implements Backend, Account {
   }
 
   /**
-   * Changes a card. The screens' patch names the values to set and to
-   * clear; the server's `updatedProperties` replaces every value of the card
-   * and cannot take away the last one (`contract-assumptions.md`, H6). So a
-   * patch that touches values reads the card, works out all its values, and
-   * sends them all; with none left it clears them through the card's block.
-   * The changes of one card go one after another, so that two quick ones do
-   * not both start from the same reading.
+   * Changes a card: the title, the icon, and the values the patch names,
+   * set or cleared. The server merges them into what it keeps
+   * (`updatedProperties`, `deletedProperties`), so somebody else's change
+   * of another value at about the same time stays. The changes of one card
+   * still go one after another, so that two quick ones of the same value
+   * arrive in the order they were made.
    */
-  patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    return this.#inTurn(cardId, () => this.#patchCard(boardId, cardId, patch));
+  patchCard(_boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+    return this.#inTurn(cardId, () => this.#patchCard(cardId, patch));
   }
 
   /**
@@ -369,43 +384,14 @@ export class ServerBackend implements Backend, Account {
     return running;
   }
 
-  async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+  async #patchCard(cardId: string, patch: CardPatch): Promise<CardSummary> {
     const request: Schemas['CardPatch'] = {};
     if (patch.title !== undefined) request.title = patch.title;
     if (patch.icon !== undefined) request.icon = patch.icon;
-    const touchesValues =
-      Object.keys(patch.updatedProperties ?? {}).length > 0 ||
-      (patch.deletedProperties ?? []).length > 0;
-    if (!touchesValues) return this.#sendCardPatch(cardId, request);
-
-    const current = cardOf(await this.#card(boardId, cardId));
-    const changed = applyCardPatch(current, patch);
-    const properties = changed.fields.properties;
-    const same = JSON.stringify(properties) === JSON.stringify(current.fields.properties);
-    if (Object.keys(properties).length > 0 || same) {
-      // Values that stay as they are need not be sent (an empty list would not clear them anyway).
-      if (!same) request.updatedProperties = properties;
-      return Object.keys(request).length === 0 ? current : this.#sendCardPatch(cardId, request);
-    }
-
-    // No value left: the card patch cannot clear the last one (H6), the
-    // card's block can. Title and icon still go by the card patch, which
-    // checks them.
-    if (Object.keys(request).length > 0) await this.#sendCardPatch(cardId, request);
-    await this.#http.request(
-      '/api/v1/boards/{boardId}/blocks/{blockId}',
-      { boardId, blockId: cardId },
-      { method: 'PATCH', json: { updatedFields: { properties: {} } } },
-    );
-    try {
-      return cardOf(await this.#card(boardId, cardId));
-    } catch {
-      // Saved; only reading it back failed. What was sent is what it is.
-      return changed;
-    }
-  }
-
-  async #sendCardPatch(cardId: string, request: Schemas['CardPatch']): Promise<CardSummary> {
+    const updated = patch.updatedProperties ?? {};
+    if (Object.keys(updated).length > 0) request.updatedProperties = updated;
+    const deleted = patch.deletedProperties ?? [];
+    if (deleted.length > 0) request.deletedProperties = deleted;
     const card = await this.#http.request<Schemas['Card']>(
       '/api/v1/cards/{cardId}',
       { cardId },
@@ -414,21 +400,106 @@ export class ServerBackend implements Backend, Account {
     return cardOf(card);
   }
 
-  /** Bodies are not wired: the server is changing how it stores them (`docs/contract-pending.md`, 1). */
-  writeCardBody(_boardId: string, _cardId: string, _write: BodyWrite): Promise<CardDetail> {
-    return notWired('writeCardBody');
+  /**
+   * Replaces the body by the card patch, with the version it was read at:
+   * the server refuses with 409 when the card changed since, and changes
+   * nothing. An empty document is sent as it is; the server stores it as no
+   * body. The body goes in the same turn as the card's other changes.
+   */
+  writeCardBody(_boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
+    return this.#inTurn(cardId, async () => {
+      const request: Schemas['CardPatch'] = {
+        body: write.body ? wireBody(write.body) : null,
+        readAt: write.readAt,
+      };
+      const card = await this.#http.request<Schemas['Card']>(
+        '/api/v1/cards/{cardId}',
+        { cardId },
+        { method: 'PATCH', json: request },
+      );
+      return cardDetailOf(card);
+    });
   }
 
-  /** The comments of a card, read only for now (`commentOf`). */
+  /** The comments of a card: blocks of the type `comment` under it. */
   async comments(boardId: string, cardId: string): Promise<Comment[]> {
     return (await this.#children(boardId, cardId, 'comment')).map(commentOf);
   }
 
-  createComment(_boardId: string, _cardId: string, _body: DocNode): Promise<Comment> {
-    return notWired('createComment');
+  /**
+   * A comment is a block under the card with the text as its body
+   * (`docs/contract-pending.md`, 1). The contract's `NewBlock` does not list
+   * `body`, but the server takes it there (`docs/contract-assumptions.md`, H8).
+   */
+  async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
+    const block = {
+      boardId,
+      parentId: cardId,
+      type: 'comment',
+      title: '',
+      fields: {},
+      createAt: 1,
+      updateAt: 1,
+      body: wireBody(body),
+    } satisfies Schemas['NewBlock'] & { body: Schemas['Body'] };
+    const [made] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { method: 'POST', json: [block] },
+    );
+    if (!made) throw new BackendError(500, { message: 'the server made no comment' });
+    return commentOf(made);
   }
 
-  /** The attachments of a card, read only for now (`attachmentOf`). */
+  /**
+   * Replaces a comment's body through its block, with the version it was
+   * read at (409 when it changed since). The server answers 204 alone, so
+   * the comment is read again; if only that fails, what was sent is what it
+   * is. The changes of one comment go in turn.
+   */
+  patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
+    if (!write.body) {
+      // The server would take it and leave a comment with no text.
+      return Promise.reject(
+        new BackendError(400, { message: 'a comment needs a text', field: 'body' }),
+      );
+    }
+    return this.#inTurn(commentId, async () => {
+      const before = await this.#comment(boardId, commentId);
+      const patch: Schemas['BlockPatch'] = {
+        body: write.body ? wireBody(write.body) : null,
+        readAt: write.readAt,
+      };
+      await this.#http.request(
+        '/api/v1/boards/{boardId}/blocks/{blockId}',
+        { boardId, blockId: commentId },
+        { method: 'PATCH', json: patch },
+      );
+      try {
+        return await this.#comment(boardId, commentId);
+      } catch {
+        return { ...before, body: write.body };
+      }
+    });
+  }
+
+  /** A comment of this board, by its block: 404 for another block or none. */
+  async #comment(boardId: string, commentId: string): Promise<Comment> {
+    const [block] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { query: { blockId: commentId } },
+    );
+    if (block?.type !== 'comment') {
+      throw new BackendError(404, {
+        message: 'no such comment on this board',
+        reason: 'not_found',
+      });
+    }
+    return commentOf(block);
+  }
+
+  /** The attachments of a card (`attachmentOf`). */
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     return (await this.#children(boardId, cardId, 'attachment')).map(attachmentOf);
   }
@@ -442,8 +513,29 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
-  createAttachment(_boardId: string, _cardId: string, _file: UploadedFile): Promise<Attachment> {
-    return notWired('createAttachment');
+  /**
+   * Attaches an uploaded file: a block under the card that names the file
+   * (`fields.fileId`), with the name as its title. The block also keeps the
+   * size and type, which the server's file record lacks (`getFileInfo` has
+   * no type).
+   */
+  async createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment> {
+    const block: Schemas['NewBlock'] = {
+      boardId,
+      parentId: cardId,
+      type: 'attachment',
+      title: file.name,
+      fields: { fileId: file.fileId, size: file.size, contentType: file.contentType },
+      createAt: 1,
+      updateAt: 1,
+    };
+    const [made] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { method: 'POST', json: [block] },
+    );
+    if (!made) throw new BackendError(500, { message: 'the server made no attachment' });
+    return attachmentOf(made);
   }
 
   /** To the server's trash, with what is under it (204). */
@@ -468,12 +560,75 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
-  upload(_boardId: string, _file: File): Promise<UploadedFile> {
-    return notWired('upload');
+  /**
+   * Uploads a file in parts (`upload.ts`). A file over the server's limit
+   * (`getClientConfig`'s `maxFileSize`) is refused before anything is sent,
+   * with the limit, as the server would refuse it (413).
+   */
+  async upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
+    const limit = (await this.#clientConfig()).maxFileSize;
+    if (file.size > limit) {
+      throw new BackendError(413, { message: 'the file is too large', limit });
+    }
+    // A few at a time: the server keeps only so many open uploads of a reader (429).
+    await this.#uploadTurn(options?.signal);
+    try {
+      return await uploadInParts(this.#http, boardId, file, options);
+    } finally {
+      this.#uploading -= 1;
+      this.#uploadWaiting.shift()?.();
+    }
   }
 
-  fileUrl(_boardId: string, _fileId: string): string | undefined {
-    return undefined;
+  /** Uploads under way, and those waiting for their turn. */
+  #uploading = 0;
+  readonly #uploadWaiting: (() => void)[] = [];
+
+  /**
+   * Waits for a free place. One given up while waiting leaves the queue at
+   * once, so that an upload ending wakes one that still wants its turn.
+   */
+  async #uploadTurn(signal: AbortSignal | undefined): Promise<void> {
+    while (this.#uploading >= UPLOADS_AT_ONCE) {
+      signal?.throwIfAborted();
+      await new Promise<void>((resolve, reject) => {
+        const giveUp = (): void => {
+          const at = this.#uploadWaiting.indexOf(wake);
+          if (at >= 0) this.#uploadWaiting.splice(at, 1);
+          reject(signal?.reason as Error);
+        };
+        const wake = (): void => {
+          signal?.removeEventListener('abort', giveUp);
+          resolve();
+        };
+        this.#uploadWaiting.push(wake);
+        signal?.addEventListener('abort', giveUp, { once: true });
+      });
+    }
+    signal?.throwIfAborted();
+    this.#uploading += 1;
+  }
+
+  /** The server's settings for clients, read once. */
+  #config: Promise<Schemas['ClientConfig']> | undefined;
+
+  #clientConfig(): Promise<Schemas['ClientConfig']> {
+    this.#config ??= this.#http.request<Schemas['ClientConfig']>('/api/v1/client-config');
+    // A failed reading is tried again next time.
+    this.#config.catch(() => {
+      this.#config = undefined;
+    });
+    return this.#config;
+  }
+
+  /** The bytes of a file (`getFile`). */
+  fileBytes(boardId: string, fileId: string): Promise<Blob> {
+    return this.#http.bytes('/api/v1/boards/{boardId}/files/{fileId}', { boardId, fileId });
+  }
+
+  /** The file's bytes, from the page's own origin: the session's cookie goes along. */
+  fileUrl(boardId: string, fileId: string): string | undefined {
+    return this.#http.url('/api/v1/boards/{boardId}/files/{fileId}', { boardId, fileId });
   }
 
   // ------------------------------------------------------------ changes

@@ -4,19 +4,19 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      "Meeting Agenda ",
+      "Meeting Agenda",
       "Sales Pipeline CRM",
-      "Personal Tasks ",
-      "Project Tasks ",
+      "Personal Tasks",
+      "Project Tasks",
       "Company Goals & OKRs",
-      "Personal Goals ",
-      "Sprint Planner ",
+      "Personal Goals",
+      "Sprint Planner",
       "User Research Sessions",
       "Competitive Analysis",
-      "Content Calendar ",
+      "Content Calendar",
       "Team Retrospective",
-      "Roadmap ",
-      "Welcome to Boards!"
+      "Roadmap",
+      "Welcome to fvoci!"
     ]
   },
   {
@@ -24,7 +24,7 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      6
+      7
     ]
   },
   {
@@ -58,9 +58,6 @@
     "status": 0,
     "body": {
       "card": 10,
-      "checkbox": 8,
-      "image": 8,
-      "text": 16,
       "view": 4
     }
   },
@@ -233,7 +230,7 @@
       "createAt": "<ts>",
       "createdBy": "<id:2>",
       "deleteAt": 0,
-      "description": "Mattermost Boards is an open source project management tool that helps you organize, track, and manage work across teams. Select a card to learn more.",
+      "description": "fvoci is an open source project management tool that helps you organize, track, and manage work across teams. Select a card to learn more.",
       "icon": "👋",
       "id": "<id:4>",
       "isBuiltin": false,
@@ -241,12 +238,13 @@
       "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
-        "trackingTemplateId": "65aba997282f3ac457cd66736fb86915"
+        "templateKey": "welcome",
+        "trackingTemplateId": "7bb8ddeb84b405c68a100dc7ee36a1a8"
       },
       "showDescription": true,
       "teamId": "<id:1>",
-      "templateVersion": 6,
-      "title": "Welcome to Boards!",
+      "templateVersion": 7,
+      "title": "Welcome to fvoci!",
       "type": "P",
       "updateAt": "<ts>"
     }
@@ -255,7 +253,7 @@
     "name": "onboarding board block count",
     "request": "(observation)",
     "status": 0,
-    "body": 46
+    "body": 14
   },
   {
     "name": "categories after onboarding",

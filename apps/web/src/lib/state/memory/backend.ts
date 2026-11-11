@@ -12,7 +12,13 @@
  * development page: `as` (the same world seen by another user), `failNext`
  * and `latency`.
  */
-import { countTasks, storedSize, validateDoc, type DocNode } from '../../editor/schema.ts';
+import {
+  countTasks,
+  MAX_BODY_BYTES,
+  storedSize,
+  validateDoc,
+  type DocNode,
+} from '../../editor/schema.ts';
 import {
   DEFAULT_DISPLAY_SETTINGS,
   readDisplaySettings,
@@ -64,7 +70,7 @@ import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
 /** The limits of the server design: section 5.7 (bodies) and 4.2, 5.6 (files). */
 export const LIMITS = {
-  bodyBytes: 1024 * 1024,
+  bodyBytes: MAX_BODY_BYTES,
   fileBytes: 100 * 1024 * 1024,
   uploadPartBytes: 8 * 1024 * 1024,
   screenStateKeys: 100,
@@ -209,7 +215,7 @@ export class MemoryBackend implements Backend {
     const problems = validateDoc(body);
     if (problems.length > 0) fail(400, problems[0] ?? 'invalid body', { field: 'body' });
     if (storedSize(body) > LIMITS.bodyBytes) {
-      fail(413, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
+      fail(400, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
     }
     for (const fileId of imageFileIds(body)) {
       if (this.world.files.get(fileId)?.boardId !== boardId) {
@@ -432,6 +438,25 @@ export class MemoryBackend implements Backend {
     return copy(deleted.board);
   }
 
+  async joinBoard(boardId: string): Promise<BoardMember> {
+    await this.#enter('joinBoard');
+    const board = this.#board(boardId);
+    if (board.isTemplate) fail(403, 'a template cannot be joined');
+    if (board.type !== 'O') fail(404, 'no such open board');
+    const members = this.world.members.get(boardId) ?? [];
+    const existing = members.find((member) => member.userId === this.userId);
+    if (existing) return copy(existing);
+    const role = board.minimumRole === 'admin' ? 'editor' : board.minimumRole || 'editor';
+    const member = memberOf(boardId, this.userId, role);
+    this.world.members.set(boardId, [...members, member]);
+    this.world.tellBoard(boardId, {
+      kind: 'members',
+      boardId,
+      members: copy([...members, member]),
+    });
+    return copy(member);
+  }
+
   async members(boardId: string): Promise<BoardMember[]> {
     await this.#enter('members');
     this.#board(boardId);
@@ -648,6 +673,20 @@ export class MemoryBackend implements Backend {
     return commentOf(block);
   }
 
+  async patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
+    await this.#enter('patchComment');
+    const block = this.#block(boardId, commentId, 'comment');
+    const checked = this.#checkBody(boardId, write.body);
+    if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
+    if (block.updateAt !== write.readAt) {
+      fail(409, 'the comment changed since it was read', { reason: 'stale' });
+    }
+    block.body = checked;
+    this.#touch(block);
+    this.#tellBlocks(boardId, [block]);
+    return commentOf(block);
+  }
+
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     await this.#enter('attachments');
     this.#block(boardId, cardId, 'card');
@@ -738,6 +777,13 @@ export class MemoryBackend implements Backend {
     this.world.files.set(stored.fileId, stored);
     const { blob: _blob, boardId: _boardId, ...answer } = stored;
     return answer;
+  }
+
+  async fileBytes(boardId: string, fileId: string): Promise<Blob> {
+    await this.#enter('fileBytes');
+    const file = this.world.files.get(fileId);
+    if (file?.boardId !== boardId || !file.blob) fail(404, 'no such file');
+    return file.blob;
   }
 
   fileUrl(boardId: string, fileId: string): string | undefined {

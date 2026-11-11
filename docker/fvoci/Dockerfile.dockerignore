@@ -6,5 +6,4 @@
 !clippy.toml
 !crates/
 !xtask/
-!server/assets/
 !docker/fvoci/

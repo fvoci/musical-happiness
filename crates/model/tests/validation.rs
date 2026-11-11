@@ -3,8 +3,9 @@
 //! and `server/services/auth/email.go`.
 
 use fvoci_model::{
-    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, Board, BoardError,
-    BoardSearchField, ChangePasswordRequest, RegisterRequest, is_email_valid,
+    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockType, Board,
+    BoardError, BoardSearchField, CARD_FIELDS_MAX_CHARS, ChangePasswordRequest, RegisterRequest,
+    is_email_valid,
 };
 use serde_json::json;
 
@@ -43,20 +44,92 @@ fn block_validate_limits_the_title_in_characters() {
 }
 
 #[test]
-fn block_validate_limits_the_serialized_fields() {
+fn block_validate_limits_the_serialized_fields_by_type() {
     // {"k":"<value>"} is the value plus eight characters of JSON syntax.
-    let with_value_len = |len: usize| -> Block {
+    let with_value_len = |block_type: &BlockType, len: usize| -> Block {
         let mut fields = fvoci_model::JsonMap::new();
         fields.insert("k".to_owned(), json!("a".repeat(len)));
-        Block { fields, ..block() }
+        Block {
+            block_type: block_type.clone(),
+            fields,
+            ..block()
+        }
     };
+    assert_eq!(CARD_FIELDS_MAX_CHARS, 64_000);
+    assert_eq!(BLOCK_FIELDS_MAX_CHARS, 800_000);
+    let cases = [
+        (BlockType::Card, CARD_FIELDS_MAX_CHARS),
+        (BlockType::Comment, CARD_FIELDS_MAX_CHARS),
+        (BlockType::Attachment, CARD_FIELDS_MAX_CHARS),
+        (BlockType::View, BLOCK_FIELDS_MAX_CHARS),
+    ];
+    for (block_type, limit) in cases {
+        assert_eq!(block_type.fields_max_chars(), limit, "{block_type}");
+        assert_eq!(
+            with_value_len(&block_type, limit - 8).validate(),
+            Ok(()),
+            "{block_type} at the limit"
+        );
+        assert_eq!(
+            with_value_len(&block_type, limit - 7).validate(),
+            Err(BlockError::FieldsSizeLimitExceeded),
+            "{block_type} over the limit"
+        );
+    }
+}
+
+/// A new block is a card, a view, a comment or an attachment (`docs/s6-design.md` 5.7).
+#[test]
+fn only_four_types_are_current() {
+    for name in ["card", "view", "comment", "attachment"] {
+        assert!(BlockType::from(name).is_current(), "{name}");
+    }
+    for name in [
+        "board", "text", "image", "checkbox", "divider", "h1", "", "Card",
+    ] {
+        assert!(!BlockType::from(name).is_current(), "{name:?}");
+    }
+}
+
+/// The refusal shows at most 64 characters of the type a client wrote.
+#[test]
+fn a_refused_type_is_shown_shortened() {
+    assert_eq!(fvoci_model::TYPE_SHOWN_CHARS, 64);
+    let long = "é".repeat(100);
+    let BlockError::TypeNotCurrent(shown) = BlockError::type_not_current(&BlockType::from(long))
+    else {
+        panic!("a refusal of the type");
+    };
+    assert_eq!(shown, format!("{}…", "é".repeat(64)));
+    for (length, shown) in [(64, "a".repeat(64)), (65, format!("{}…", "a".repeat(64)))] {
+        assert_eq!(
+            BlockError::type_not_current(&BlockType::from("a".repeat(length))),
+            BlockError::TypeNotCurrent(shown),
+            "{length} characters"
+        );
+    }
     assert_eq!(
-        with_value_len(BLOCK_FIELDS_MAX_CHARS - 8).validate(),
-        Ok(())
+        BlockError::type_not_current(&BlockType::from("text")),
+        BlockError::TypeNotCurrent("text".to_owned())
+    );
+}
+
+/// A patch may give a block a type that a new block may have, and no other.
+#[test]
+fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
+    let to = |name: &str| BlockPatch {
+        block_type: Some(BlockType::from(name)),
+        ..BlockPatch::default()
+    };
+    assert_eq!(BlockPatch::default().check_type(), Ok(()), "no type");
+    assert_eq!(to("card").check_type(), Ok(()), "to a card");
+    assert_eq!(
+        to("text").check_type(),
+        Err(BlockError::TypeNotCurrent("text".to_owned()))
     );
     assert_eq!(
-        with_value_len(BLOCK_FIELDS_MAX_CHARS - 7).validate(),
-        Err(BlockError::FieldsSizeLimitExceeded)
+        to("h1").check_type(),
+        Err(BlockError::TypeNotCurrent("h1".to_owned()))
     );
 }
 

@@ -55,7 +55,8 @@
     "body": {
       "enablePublicSharedBoards": true,
       "featureFlags": {},
-      "maxFileSize": 0,
+      "maxFileSize": 104857600,
+      "maxImportSize": 268435456,
       "teammateNameDisplay": "username"
     }
   },
@@ -67,7 +68,8 @@
     "body": {
       "enablePublicSharedBoards": true,
       "featureFlags": {},
-      "maxFileSize": 0,
+      "maxFileSize": 104857600,
+      "maxImportSize": 268435456,
       "teammateNameDisplay": "username"
     }
   },

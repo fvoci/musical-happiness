@@ -44,8 +44,9 @@ impl WebRoot {
     ///
     /// `path` is the request path after `/static/`. Responses carry `Cache-Control`:
     /// a file whose name contains a content hash may be cached forever, any other file
-    /// must be revalidated. A `.br` or `.gz` file next to the requested one is served
-    /// instead when the client accepts that encoding.
+    /// must be revalidated. A `.zst`, `.br` or `.gz` file next to the requested one is
+    /// served instead when the client accepts that encoding (the one it prefers; zstd,
+    /// then brotli, then gzip on a tie).
     pub async fn serve_static(&self, path: &str, request: Request<Body>) -> Response {
         let Ok(uri) = format!("/{path}").parse::<Uri>() else {
             return not_found();
@@ -55,6 +56,7 @@ impl WebRoot {
 
         let files = ServeDir::new(self.root.join("static"))
             .append_index_html_on_directories(false)
+            .precompressed_zstd()
             .precompressed_br()
             .precompressed_gzip();
         let mut response = match files.oneshot(Request::from_parts(parts, body)).await {

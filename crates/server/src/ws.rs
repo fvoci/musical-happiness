@@ -33,6 +33,10 @@ const OUTBOX_CAPACITY: usize = 512;
 /// way and the closing frame. A peer that has stopped reading gets neither.
 const WRITER_GRACE: Duration = Duration::from_secs(5);
 
+/// How often a connection's session is looked up again when the connections are not
+/// pinged; when they are, it is looked up at every ping.
+const SESSION_CHECK_WITHOUT_PING: Duration = Duration::from_mins(1);
+
 /// Whose connection a websocket is: the session its handshake came with, and the token
 /// that session was found under.
 #[derive(Clone)]
@@ -156,13 +160,21 @@ struct Listeners {
 }
 
 impl Listeners {
-    /// The first of a user's listeners that is subscribed to the team.
-    fn first_for_user(&self, team_id: &str, user_id: &str) -> Option<ListenerId> {
-        self.by_team.get(team_id)?.iter().copied().find(|id| {
-            self.by_id
-                .get(id)
-                .is_some_and(|listener| listener.user_id == user_id)
-        })
+    /// The listeners of a user that are subscribed to the team: every tab of the user.
+    fn of_user(&self, team_id: &str, user_id: &str) -> Vec<ListenerId> {
+        self.by_team
+            .get(team_id)
+            .map(|ids| {
+                ids.iter()
+                    .copied()
+                    .filter(|id| {
+                        self.by_id
+                            .get(id)
+                            .is_some_and(|listener| listener.user_id == user_id)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn remove(&mut self, id: ListenerId) {
@@ -260,8 +272,8 @@ impl Hub {
         // that made this a connection of that user; the closing of the user's
         // connections would then have passed this one by. Looked up once more, now that
         // it is closable, the session is either still there or the connection ends.
-        if let Some(token) = token
-            && let Err(error) = self.inner.auth.find_session(&token).await
+        if let Some(token) = &token
+            && let Err(error) = self.inner.auth.find_session(token).await
         {
             if error.kind() != ErrorKind::Unauthorized {
                 tracing::warn!(%error, "a websocket connection ends: its session could not be read");
@@ -271,6 +283,7 @@ impl Hub {
         }
 
         let ping_interval = self.inner.ping_interval;
+        let session_check = ping_interval.unwrap_or(SESSION_CHECK_WITHOUT_PING);
         let mut writer = tokio::spawn(async move {
             let mut ping = ping_interval.map(|period| {
                 let mut interval = tokio::time::interval(period);
@@ -314,6 +327,9 @@ impl Hub {
             // The hub gave the connection up: it does not keep up, or its session or its
             // read token ended.
             () = closed.cancelled() => {}
+            // The session ended by its idle or absolute limit, which nobody announces:
+            // the sessions that ended so are deleted only by the hourly clean-up.
+            () = self.session_ends(token.as_deref(), session_check) => {}
         }
 
         // Removing the listener drops its outbox, which ends the writer once it has sent
@@ -324,6 +340,28 @@ impl Hub {
             .is_err()
         {
             writer.abort();
+        }
+    }
+
+    /// Returns once the session of `token` has ended, looked up every `period`; never
+    /// for a connection without a session. A store that cannot be read ends nothing.
+    async fn session_ends(&self, token: Option<&str>, period: Duration) {
+        let Some(token) = token else {
+            return std::future::pending().await;
+        };
+        let mut checks = tokio::time::interval(period);
+        checks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // The first tick is at once; the session was looked up just before.
+        checks.tick().await;
+        loop {
+            checks.tick().await;
+            match self.inner.auth.find_session(token).await {
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::Unauthorized => return,
+                Err(error) => {
+                    tracing::warn!(%error, "a websocket connection's session could not be read");
+                }
+            }
         }
     }
 
@@ -498,13 +536,9 @@ impl Hub {
         }
         self.send(&recipients, &message);
         if !anonymous.is_empty() {
-            // Whoever reads with a read token alone is not told who made or changed a
-            // block, here as over HTTP: an identifier says when its user registered.
-            let without_authors = Block {
-                created_by: String::new(),
-                modified_by: String::new(),
-                ..block.clone()
-            };
+            // As over HTTP (`getBlocks`).
+            let mut without_authors = block.clone();
+            without_authors.hide_people();
             let message = UpdateBlockMessage {
                 action: "UPDATE_BLOCK",
                 team_id,
@@ -748,13 +782,11 @@ impl Hub {
             .collect()
     }
 
-    /// Sends a message to the first of the user's connections that is subscribed to the
-    /// team.
-    ///
-    /// Preserved quirk: a user's other connections (other browser tabs) are not told.
+    /// Sends a message to every connection of the user that is subscribed to the team:
+    /// every tab of the user is told. (The original tells the first one only.)
     fn send_to_user(&self, team_id: &str, user_id: &str, message: &impl Serialize) {
-        let recipient = self.listeners().first_for_user(team_id, user_id);
-        self.send(recipient.as_slice(), message);
+        let recipients = self.listeners().of_user(team_id, user_id);
+        self.send(&recipients, message);
     }
 
     /// Queues a message for the given listeners. A listener whose queue is full is
@@ -957,8 +989,9 @@ mod tests {
         );
     }
 
-    /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the first of a
-    /// user's listeners in the team is the one that is told about their categories.
+    /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
+    /// a user in the team are the ones that are told about their categories, every tab of
+    /// the user and no other user's.
     #[test]
     fn team_subscription_subscribe_users_to_team_retrieve_by_user() {
         let mut listeners = Listeners::default();
@@ -976,8 +1009,17 @@ mod tests {
             "all in the team"
         );
 
-        let found = listeners.first_for_user(team_id, "fake-user-id");
-        assert_eq!(found, Some(user1), "the user's listener is found");
+        let found = listeners.of_user(team_id, "fake-user-id");
+        assert_eq!(found, [user1], "the user's listener is found");
+
+        let other_tab = add_listener(&mut listeners, "fake-user-id");
+        subscribe_to_team(&mut listeners, other_tab, team_id);
+        let mut found = listeners.of_user(team_id, "fake-user-id");
+        found.sort_unstable();
+        let mut both = vec![user1, other_tab];
+        both.sort_unstable();
+        assert_eq!(found, both, "both tabs of the user, not the other user's");
+        listeners.remove(other_tab);
 
         for id in [anonymous, user1, user2] {
             listeners.remove(id);
@@ -988,8 +1030,8 @@ mod tests {
             "nor in the team"
         );
         assert_eq!(
-            listeners.first_for_user(team_id, "fake-user-id"),
-            None,
+            listeners.of_user(team_id, "fake-user-id"),
+            Vec::<ListenerId>::new(),
             "nobody to find"
         );
     }

@@ -53,6 +53,7 @@ fn sample_block() -> Block {
         block_type: BlockType::Card,
         title: "My card title".to_owned(),
         fields: sample_fields(),
+        body: None,
         create_at: NOW,
         update_at: NOW,
         delete_at: 0,
@@ -68,13 +69,9 @@ fn card_from_block_good_block() {
     let card = Card::from_block(&block, NOW).expect("the block is a well-formed card");
 
     assert_eq!(card.id, block.id);
-    assert_eq!(
-        card.content_order,
-        [
-            "acdxa8r8aht85pyoeuj1ed7tu8w",
-            "73urm1huoupd4idzkdq5yaeuyay",
-            "ay6sogs9owtd9xbyn49qt3395ko"
-        ]
+    assert!(
+        serde_json::to_value(&card).expect("a card serializes")["contentOrder"].is_null(),
+        "a card's content is its body: the stored contentOrder is not read"
     );
     assert_eq!(json!(card.icon), block.fields["icon"]);
     assert_eq!(json!(card.is_template), block.fields["isTemplate"]);
@@ -101,21 +98,31 @@ fn card_from_block_fills_missing_fields_and_times() {
 
     let card = Card::from_block(&block, NOW).expect("a card block with no fields is valid");
 
-    assert_eq!(card.content_order, Vec::<String>::new());
     assert_eq!(card.icon, "");
     assert!(!card.is_template, "isTemplate defaults to false");
     assert!(card.properties.is_empty(), "properties default to empty");
     assert_eq!((card.create_at, card.update_at), (NOW, NOW));
 }
 
+/// A `contentOrder` that a card stored before has, of any shape, is not read: a card's
+/// content is its body (`docs/s6-design.md` 5.7).
+#[test]
+fn card_from_block_does_not_read_a_stored_content_order() {
+    for content_order in [json!("abc"), json!(["a", ["b", "c"]]), json!(["a"])] {
+        let mut fields = fvoci_model::JsonMap::new();
+        fields.insert("contentOrder".to_owned(), content_order);
+        let block = Block {
+            block_type: BlockType::Card,
+            fields,
+            ..Block::default()
+        };
+        assert!(Card::from_block(&block, NOW).is_ok(), "{:?}", block.fields);
+    }
+}
+
 #[test]
 fn card_from_block_rejects_fields_of_the_wrong_type() {
     let cases = [
-        (json!({ "contentOrder": "abc" }), "contentOrder"),
-        (
-            json!({ "contentOrder": ["a", ["b", "c"]] }),
-            "contentOrder item",
-        ),
         (json!({ "icon": 1 }), "icon"),
         (json!({ "isTemplate": "yes" }), "isTemplate"),
         (json!({ "properties": [] }), "properties"),
@@ -139,9 +146,11 @@ fn card_from_block_rejects_fields_of_the_wrong_type() {
 
 #[test]
 fn card_into_block_round_trips() {
-    let block = sample_block();
+    let mut block = sample_block();
     let card = Card::from_block(&block, NOW).expect("the block is a well-formed card");
 
+    // What is not a member of a card does not come back: a stored `contentOrder`.
+    block.fields.remove("contentOrder");
     assert_eq!(Block::from(card), block);
 }
 
@@ -240,7 +249,6 @@ fn card_patch_apply_merges_properties() {
     let mut card = Card {
         title: "old".to_owned(),
         icon: "a".to_owned(),
-        content_order: vec!["x".to_owned()],
         ..Card::default()
     };
     card.properties.insert("kept".to_owned(), json!("1"));
@@ -248,7 +256,6 @@ fn card_patch_apply_merges_properties() {
 
     let mut patch = CardPatch {
         title: Some("new".to_owned()),
-        content_order: Some(vec!["y".to_owned(), "z".to_owned()]),
         icon: None,
         ..CardPatch::default()
     };
@@ -258,14 +265,16 @@ fn card_patch_apply_merges_properties() {
     patch
         .updated_properties
         .insert("added".to_owned(), json!(["4"]));
+    patch.deleted_properties = vec!["gone".to_owned(), "added".to_owned()];
+    card.properties.insert("gone".to_owned(), json!("5"));
     patch.apply(&mut card);
 
     assert_eq!(card.title, "new");
     assert_eq!(card.icon, "a");
-    assert_eq!(card.content_order, ["y", "z"]);
     assert_eq!(
         Value::Object(card.properties),
-        json!({ "kept": "1", "replaced": "3", "added": ["4"] })
+        json!({ "kept": "1", "replaced": "3" }),
+        "a property both set and deleted loses its value"
     );
 }
 
@@ -273,7 +282,6 @@ fn card_patch_apply_merges_properties() {
 fn card_patch_to_block_patch() {
     let mut patch = CardPatch {
         title: Some("new".to_owned()),
-        content_order: Some(vec!["y".to_owned()]),
         icon: Some("🎨".to_owned()),
         ..CardPatch::default()
     };
@@ -285,7 +293,13 @@ fn card_patch_to_block_patch() {
     assert_eq!(block_patch.parent_id, None);
     assert_eq!(
         Value::Object(block_patch.updated_fields),
-        json!({ "contentOrder": ["y"], "icon": "🎨", "properties": { "p": "v" } })
+        json!({ "icon": "🎨" }),
+        "the values are not set as a whole field"
+    );
+    assert_eq!(
+        Value::Object(block_patch.property_changes.updated.clone()),
+        json!({ "p": "v" }),
+        "they are merged"
     );
     assert!(block_patch.deleted_fields.is_empty(), "nothing is deleted");
 
@@ -296,6 +310,21 @@ fn card_patch_to_block_patch() {
         empty.updated_fields.is_empty(),
         "an empty patch updates no field"
     );
+}
+
+/// Deleting a value of a block without values leaves it without them, not with an
+/// empty object.
+#[test]
+fn deleting_from_no_values_adds_none() {
+    let mut block = fvoci_model::Block::default();
+    let patch = CardPatch {
+        deleted_properties: vec!["x".to_owned()],
+        ..CardPatch::default()
+    }
+    .to_block_patch()
+    .expect("the patch is valid");
+    patch.apply(&mut block);
+    assert!(block.fields.is_empty(), "{:?}", block.fields);
 }
 
 #[test]

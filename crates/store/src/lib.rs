@@ -13,9 +13,11 @@ mod boards_and_blocks;
 mod categories;
 mod category_boards;
 mod connect;
+mod data_steps;
 mod db;
 mod error;
 mod file_info;
+mod file_refs;
 mod schema;
 mod sessions;
 mod sharing;
@@ -24,6 +26,7 @@ mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod trash;
+mod uploads;
 mod users;
 
 use std::sync::Arc;
@@ -40,6 +43,7 @@ pub use db::Dialect;
 pub use error::{StoreError, Taken};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
+pub use uploads::{PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};
@@ -117,6 +121,7 @@ impl Store {
             }),
         };
         schema::migrate(&store).await?;
+        data_steps::run(&store).await?;
         Ok(store)
     }
 

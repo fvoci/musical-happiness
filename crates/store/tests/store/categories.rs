@@ -586,10 +586,10 @@ async fn sort_orders_of_created_and_reordered_categories() {
         .await
         .expect("the categories are reordered");
     assert_eq!(echoed, order, "the order comes back as it was given");
-    assert_eq!(sort_order(&b).await, 0, "b is first");
+    assert_eq!(sort_order(&b).await, 10, "b is first, from the first gap");
     assert_eq!(
         sort_order(&c).await,
-        20,
+        30,
         "c is third: the deleted category is named second"
     );
     let error = store
@@ -609,7 +609,7 @@ async fn sort_orders_of_created_and_reordered_categories() {
         .await
         .expect("an empty order is accepted");
     assert!(echoed.is_empty(), "got {echoed:?}");
-    assert_eq!(sort_order(&c).await, 20, "c stays third");
+    assert_eq!(sort_order(&c).await, 30, "c stays third");
 
     test.teardown().await;
 }
@@ -678,7 +678,7 @@ async fn reorder_categories_treats_identifiers_as_data() {
     );
     assert_eq!(
         sort_orders(&categories),
-        [10, 20],
+        [20, 30],
         "the unknown identifier takes the first place with it"
     );
 

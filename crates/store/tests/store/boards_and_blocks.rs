@@ -747,7 +747,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
             },
             Block {
                 parent_id: card_id.clone(),
-                block_type: BlockType::Text,
+                block_type: BlockType::Attachment,
                 title: "Text".to_owned(),
                 ..new_card(&text_id, &source_id)
             },
@@ -804,7 +804,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
     let paragraph = copy
         .blocks
         .iter()
-        .find(|block| block.block_type == BlockType::Text)
+        .find(|block| block.block_type == BlockType::Attachment)
         .expect("the text is copied");
     assert_ne!(card.id, card_id, "the card has an identifier of its own");
     assert!(is_id(&card.id), "got {}", card.id);
@@ -1133,12 +1133,12 @@ async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
         blocks: vec![
             Block {
                 parent_id: text_id.clone(),
-                block_type: BlockType::Checkbox,
+                block_type: BlockType::Attachment,
                 ..new_card(&checkbox_id, &board_id)
             },
             Block {
                 parent_id: card_id.clone(),
-                block_type: BlockType::Text,
+                block_type: BlockType::Attachment,
                 ..new_card(&text_id, &board_id)
             },
             new_card(&card_id, &board_id),

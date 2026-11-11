@@ -9,6 +9,7 @@
 
 use std::path::PathBuf;
 
+use bytes::Bytes;
 use futures_util::TryStreamExt as _;
 use fvoci_model::new_id;
 use fvoci_server::config::AmazonS3Config;
@@ -245,6 +246,83 @@ async fn s3_backend() {
 
     // Objects of earlier runs stay in the bucket; a fresh prefix keeps runs apart.
     exercise(&backend, &new_id()).await;
+}
+
+/// An upload made part by part across requests: parts sent in any order, and again,
+/// make the object in the order of their indexes; an aborted one makes nothing and
+/// takes no more parts.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see the module documentation"]
+async fn s3_multipart_upload() {
+    let config = s3_config();
+    assert!(
+        !config.endpoint.is_empty() && !config.bucket.is_empty(),
+        "set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET to run this test"
+    );
+    let files = S3Files::new(&config).expect("the S3 settings are usable");
+    let backend = FileBackend::S3(files.clone());
+    let dir = new_id();
+    // Every part but the last has at least 5 MiB.
+    let first: Vec<u8> = (0..5 * 1024 * 1024)
+        .map(|index| u8::try_from(index % 251).expect("below 251"))
+        .collect();
+    let last = b"the end".to_vec();
+
+    let path = format!("{dir}/whole.bin");
+    let upload_id = files
+        .create_multipart(&path)
+        .await
+        .expect("the upload starts");
+    let last_id = files
+        .put_part(&path, &upload_id, 1, vec![Bytes::from(last.clone())])
+        .await
+        .expect("the last part is taken");
+    files
+        .put_part(&path, &upload_id, 0, vec![Bytes::from_static(b"replaced")])
+        .await
+        .expect("a part is taken");
+    let first_id = files
+        .put_part(&path, &upload_id, 0, vec![Bytes::from(first.clone())])
+        .await
+        .expect("a part is taken again");
+    assert_eq!(
+        backend.size(&path).await.expect("the size is read"),
+        None,
+        "nothing is there before the upload is completed"
+    );
+    files
+        .complete_multipart(&path, &upload_id, vec![first_id, last_id])
+        .await
+        .expect("the upload completes");
+    let mut whole = first;
+    whole.extend_from_slice(&last);
+    assert_content(&backend, &path, None, &whole).await;
+
+    let path = format!("{dir}/aborted.bin");
+    let upload_id = files
+        .create_multipart(&path)
+        .await
+        .expect("the upload starts");
+    files
+        .put_part(&path, &upload_id, 0, vec![Bytes::from_static(b"abc")])
+        .await
+        .expect("a part is taken");
+    files
+        .abort_multipart(&path, &upload_id)
+        .await
+        .expect("the upload is aborted");
+    files
+        .abort_multipart(&path, &upload_id)
+        .await
+        .expect("an upload aborted already is left aborted");
+    assert!(
+        files
+            .put_part(&path, &upload_id, 0, vec![Bytes::from_static(b"abc")])
+            .await
+            .is_err(),
+        "an aborted upload takes no more parts"
+    );
+    assert_eq!(backend.size(&path).await.expect("the size is read"), None);
 }
 
 #[test]

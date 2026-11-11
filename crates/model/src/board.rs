@@ -8,6 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::allowlist::holds_nul;
 use crate::card_property::{CardPropertyError, validate_card_property_definitions};
 use crate::serde_util::null_as_default;
 
@@ -118,6 +119,13 @@ pub enum BoardError {
     /// A card property definition of the board is malformed.
     #[error(transparent)]
     InvalidCardProperty(#[from] CardPropertyError),
+    /// A member of the board holds U+0000, which PostgreSQL cannot store in text or
+    /// `jsonb`.
+    #[error("the {member} of the board holds the character U+0000")]
+    NulCharacter {
+        /// The member, as the API names it.
+        member: &'static str,
+    },
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
@@ -151,7 +159,9 @@ pub struct Board {
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
     pub minimum_role: MinimumRole,
-    /// The board's title.
+    /// The board's title. No text of a board (this, `description`, `icon`, and the
+    /// strings and member names of `properties` and `cardProperties`) holds U+0000:
+    /// 400 naming the member.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
@@ -216,6 +226,41 @@ impl Board {
         }
         self.validate_card_properties()?;
         Ok(())
+    }
+
+    /// Checks what every board that is stored must be, wherever it came from: its card
+    /// property definitions are well-formed, and none of its texts (`title`,
+    /// `description`, `icon`, and the strings and member names of `properties` and
+    /// `cardProperties`) holds U+0000.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BoardError::InvalidCardProperty`] or [`BoardError::NulCharacter`].
+    pub fn check_storable(&self) -> Result<(), BoardError> {
+        self.validate_card_properties()?;
+        let texts = [
+            ("title", self.title.contains('\0')),
+            ("description", self.description.contains('\0')),
+            ("icon", self.icon.contains('\0')),
+            (
+                "properties",
+                self.properties
+                    .iter()
+                    .any(|(name, value)| name.contains('\0') || holds_nul(value)),
+            ),
+            (
+                "cardProperties",
+                self.card_properties.iter().any(|definition| {
+                    definition
+                        .iter()
+                        .any(|(name, value)| name.contains('\0') || holds_nul(value))
+                }),
+            ),
+        ];
+        match texts.into_iter().find(|(_, holds)| *holds) {
+            Some((member, _)) => Err(BoardError::NulCharacter { member }),
+            None => Ok(()),
+        }
     }
 
     /// Checks the card property definitions of the board alone, for where a board is

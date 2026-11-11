@@ -21,6 +21,17 @@
             "description": "The identifier of the board the block belongs to.",
             "type": "string"
           },
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The body of a card or a comment; `null` for a block without one. Only those two\nhave one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads with a read token alone gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "createAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
             "format": "int64",
@@ -37,7 +48,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment or an attachment and 800,000 for a view or a block of another type. The\n`icon` of a card is a string and its `isTemplate` a boolean, or either `null`\n(400 naming `fields` otherwise).",
             "type": "object"
           },
           "id": {
@@ -58,11 +69,11 @@
             "type": "integer"
           },
           "title": {
-            "description": "The display title.",
+            "description": "The display title. A title with U+0000 is refused (400 naming `title`).",
             "type": "string"
           },
           "type": {
-            "description": "The block type.",
+            "description": "The block type: `card`, `view`, `comment` or `attachment`. No request makes a\nblock of another type or patches one into it (400 naming `type`).",
             "type": "string"
           },
           "updateAt": {
@@ -73,6 +84,7 @@
         },
         "required": [
           "boardId",
+          "body",
           "createAt",
           "createdBy",
           "deleteAt",
@@ -90,6 +102,17 @@
       "BlockPatch": {
         "description": "A partial update of a `Block`. Absent members leave the block unchanged.",
         "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The new body of a card or a comment; `null` takes the body away. Sent only with\n`readAt` (400 naming `readAt` without it)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deletedFields": {
             "description": "Keys of fields to remove.",
             "items": {
@@ -101,6 +124,14 @@
             "description": "The new parent identifier.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "readAt": {
+            "description": "The `updateAt` of the block as the client read it. If the block has changed\nsince, the patch is refused.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -120,7 +151,7 @@
             ]
           },
           "type": {
-            "description": "The new block type.",
+            "description": "The new block type: `card`, `view`, `comment` or `attachment`. Any other is\nrefused (400 naming `type`).",
             "type": [
               "string",
               "null"
@@ -230,7 +261,7 @@
             "type": "integer"
           },
           "title": {
-            "description": "The board's title.",
+            "description": "The board's title. No text of a board (this, `description`, `icon`, and the\nstrings and member names of `properties` and `cardProperties`) holds U+0000:\n400 naming the member.",
             "type": "string"
           },
           "type": {
@@ -418,19 +449,28 @@
         ],
         "type": "object"
       },
+      "Body": {
+        "additionalProperties": true,
+        "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 1 MiB as JSON, 32 levels deep and 20,000 nodes.",
+        "type": "object"
+      },
       "Card": {
-        "description": "A card: a titled group of properties and content blocks on a board.",
+        "description": "A card: a titled group of properties with a body on a board.",
         "properties": {
           "boardId": {
             "description": "The identifier of the board the card belongs to.",
             "type": "string"
           },
-          "contentOrder": {
-            "description": "The identifiers of the card's content blocks, in display order.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The card's body. `null` for a card without one, and in a list of cards, which\nsays only whether there is one (`hasBody`): a card is read alone for its body."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "createAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
@@ -445,6 +485,10 @@
             "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
             "format": "int64",
             "type": "integer"
+          },
+          "hasBody": {
+            "description": "Whether the card has a body.",
+            "type": "boolean"
           },
           "icon": {
             "description": "The card's icon; at most one grapheme.",
@@ -464,8 +508,20 @@
           },
           "properties": {
             "additionalProperties": true,
-            "description": "Property values keyed by property identifier.",
+            "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`, and for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`.",
             "type": "object"
+          },
+          "tasksDone": {
+            "description": "How many task items of the body are checked.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tasksTotal": {
+            "description": "How many task items the body has.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
           },
           "title": {
             "description": "The display title.",
@@ -479,15 +535,18 @@
         },
         "required": [
           "boardId",
-          "contentOrder",
+          "body",
           "createAt",
           "createdBy",
           "deleteAt",
+          "hasBody",
           "icon",
           "id",
           "isTemplate",
           "modifiedBy",
           "properties",
+          "tasksDone",
+          "tasksTotal",
           "title",
           "updateAt"
         ],
@@ -505,20 +564,36 @@
       "CardPatch": {
         "description": "What a card is changed to. A member that is left out stays as it is.",
         "properties": {
-          "contentOrder": {
-            "description": "The new content order.",
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The new body; `null` takes the body away. Sent only with `readAt`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deletedProperties": {
+            "description": "Identifiers of properties whose value the card is to lose. A property named here\nand in `updatedProperties` loses its value.",
             "items": {
               "type": "string"
             },
-            "type": [
-              "array",
-              "null"
-            ]
+            "type": "array"
           },
           "icon": {
             "description": "The new icon; at most one grapheme.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "readAt": {
+            "description": "The `updateAt` of the card as the client read it: if the card has changed since,\nthe patch is refused with 409 and changes nothing. Needed with `body`, and\nchecked whenever it is sent.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -531,7 +606,7 @@
           },
           "updatedProperties": {
             "additionalProperties": true,
-            "description": "The property values the card is to have, by property identifier. With any\nmember, this replaces every value of the card: a property that is not named\nloses its value. Left out or empty, the values stay, so the last value of a card\ncannot be taken away this way.",
+            "description": "Property values to set, by property identifier, each replacing the card's value\nfor that property. The card's other values stay as they are: two patches that\nset different properties of a card at about the same time both keep theirs, and\nof two that set the same property the later one wins.",
             "type": "object"
           }
         },
@@ -720,7 +795,12 @@
             "type": "object"
           },
           "maxFileSize": {
-            "description": "The largest upload the server accepts, in bytes. Zero, the default, is no limit.",
+            "description": "The largest upload the server accepts, in bytes; always more than zero (100 MiB\nunless the server is configured otherwise).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "maxImportSize": {
+            "description": "The largest archive an import takes, in bytes; always more than zero (256 MiB\nunless the server is configured otherwise).",
             "format": "int64",
             "type": "integer"
           },
@@ -733,6 +813,7 @@
           "enablePublicSharedBoards",
           "featureFlags",
           "maxFileSize",
+          "maxImportSize",
           "teammateNameDisplay"
         ],
         "type": "object"
@@ -884,6 +965,20 @@
         ],
         "type": "string"
       },
+      "ImportRequest": {
+        "additionalProperties": false,
+        "description": "An archive to import: one sent in parts with `createImportUpload`.",
+        "properties": {
+          "uploadId": {
+            "description": "The upload of the archive, every part of it received. It is thrown away by the\nimport, whether the import succeeds or not.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uploadId"
+        ],
+        "type": "object"
+      },
       "LoginRequest": {
         "description": "A login request.",
         "properties": {
@@ -962,7 +1057,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form. The `properties` of a card among them are values\nby property identifier: a string, a list of strings, or `null`.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, or\n`null`.",
             "type": [
               "object",
               "null"
@@ -998,7 +1093,7 @@
             ]
           },
           "type": {
-            "description": "The block type, such as `card`, `view`, `comment` or `text`.",
+            "description": "The block type: `card`, `view`, `comment` or `attachment`. Any other type is\nrefused (400 naming `type`): a card's content is its body.",
             "type": "string"
           },
           "updateAt": {
@@ -1147,14 +1242,15 @@
               "null"
             ]
           },
-          "contentOrder": {
-            "description": "The identifiers of the card's content blocks, in display order.",
-            "items": {
-              "type": "string"
-            },
-            "type": [
-              "array",
-              "null"
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The card's body; left out or `null` for none."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "icon": {
@@ -1307,6 +1403,30 @@
         ],
         "type": "object"
       },
+      "NewUpload": {
+        "additionalProperties": false,
+        "description": "A file to send in parts.",
+        "properties": {
+          "contentType": {
+            "description": "The content type of the file, at most 255 characters. The server does not go by\nit: what a file is served as follows from its name.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the file, 1 to 255 characters. The stored file keeps its extension,\nas `uploadFile` keeps it.",
+            "type": "string"
+          },
+          "size": {
+            "description": "The size of the file in bytes. More than `maxFileSize` of `getClientConfig` is\n413.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size"
+        ],
+        "type": "object"
+      },
       "OnboardingStart": {
         "description": "What starting the tour answers: where the tour's board is.",
         "properties": {
@@ -1360,6 +1480,26 @@
         "required": [
           "boardIds",
           "boardPatches"
+        ],
+        "type": "object"
+      },
+      "ReceivedPart": {
+        "description": "A part that was received.",
+        "properties": {
+          "number": {
+            "description": "The number of the part, from 1.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "size": {
+            "description": "Its size in bytes.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number",
+          "size"
         ],
         "type": "object"
       },
@@ -1667,11 +1807,120 @@
         ],
         "type": "string"
       },
+      "UploadOpened": {
+        "description": "An upload that is open.",
+        "properties": {
+          "expiresAt": {
+            "description": "When the upload ends, in milliseconds since the Unix epoch: 24 hours after it was\nopened. An upload that has ended is 404, and is thrown away with its parts.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "partCount": {
+            "description": "How many parts the file comes in, numbered from 1: none for an empty file.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "partSize": {
+            "description": "The size of every part but the last, which has the rest.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "uploadId": {
+            "description": "What the other operations of the upload take. Only the user who opened it may\nuse it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expiresAt",
+          "partCount",
+          "partSize",
+          "uploadId"
+        ],
+        "type": "object"
+      },
+      "UploadState": {
+        "description": "An upload that is open, with what it has received.",
+        "properties": {
+          "boardId": {
+            "description": "The board the file is for; empty for an archive.",
+            "type": "string"
+          },
+          "expiresAt": {
+            "description": "When the upload ends, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The name of the file.",
+            "type": "string"
+          },
+          "partCount": {
+            "description": "How many parts the file comes in.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "partSize": {
+            "description": "The size of every part but the last.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "parts": {
+            "description": "The parts received, by number. A part sent again replaces the one received.",
+            "items": {
+              "$ref": "#/components/schemas/ReceivedPart"
+            },
+            "type": "array"
+          },
+          "purpose": {
+            "allOf": [
+              {
+                "description": "What an upload is for.",
+                "enum": [
+                  "file",
+                  "import"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "description": "What the upload is for: `file`, a file of a board (`completeUpload`), or\n`import`, an archive to import into a team (`importArchive`).",
+                "type": "object"
+              }
+            ]
+          },
+          "size": {
+            "description": "The size of the file in bytes.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "teamId": {
+            "description": "The team the archive is for; empty for a file.",
+            "type": "string"
+          },
+          "uploadId": {
+            "description": "The identifier of the upload.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "expiresAt",
+          "name",
+          "partCount",
+          "partSize",
+          "parts",
+          "purpose",
+          "size",
+          "teamId",
+          "uploadId"
+        ],
+        "type": "object"
+      },
       "UploadedFile": {
         "description": "What an upload answers: the name the file is asked for by.",
         "properties": {
           "fileId": {
-            "description": "The identifier of the file: what `getFile` and `getFileInfo` take, and what an\nimage or attachment block names in its `fileId` field.",
+            "description": "The identifier of the file: what `getFile` and `getFileInfo` take, and what an\nattachment block or an image of a body names in its `fileId`.",
             "type": "string"
           }
         },
@@ -1982,7 +2231,7 @@
     },
     "/api/v1/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters. Templates are never found. In a word `%`\nstands for any text and `_` for any one character. Oldest first.",
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
         "operationId": "searchBoards",
         "parameters": [
           {
@@ -2174,7 +2423,7 @@
     },
     "/api/v1/boards/{boardId}/archive/export": {
       "get": {
-        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload. For the board's members.",
+        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload with its length. For the board's members. The archive is a ZIP of version\n3: `version.json`, and per board a directory with `board.jsonl` (one `board`,\n`block` or `boardMember` per line, in the shapes of this contract, bodies included)\nand the files the blocks show, the images of bodies among them.",
         "operationId": "exportBoardArchive",
         "parameters": [
           {
@@ -2198,7 +2447,23 @@
                 }
               }
             },
-            "description": "The archive."
+            "description": "The archive.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The size of the archive in bytes.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -2219,7 +2484,7 @@
     },
     "/api/v1/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed; who reads that way is not told who made a\nblock or changed it last (`createdBy` and `modifiedBy` are empty).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed; who reads that way is not told who made a\nblock or changed it last (`createdBy` and `modifiedBy` are empty), nor who is\nmentioned in a body (the `userId` of every mention is empty).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {
@@ -2866,7 +3131,7 @@
     },
     "/api/v1/boards/{boardId}/files": {
       "post": {
-        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name. The file is limited to the\n`maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is\n413. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.",
+        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name. The file is limited to one part of an\nupload in parts (8 MiB unless the server is configured otherwise), and to the\n`maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where\nthe limit is the part, the refusal has the reason `upload_in_parts`: a file within\n`maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is\nnot kept. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.",
         "operationId": "uploadFile",
         "parameters": [
           {
@@ -3505,6 +3770,59 @@
         ]
       }
     },
+    "/api/v1/boards/{boardId}/uploads": {
+      "post": {
+        "description": "Opens an upload of a file to the board in parts. The answer says how large the\nparts are and how many; send each with `putUploadPart`, in any order and again\nafter a failure, then `completeUpload`. A file larger than `maxFileSize` of\n`getClientConfig` is 413. A user has at most 8\nuploads open, holding back at most twice `maxFileSize` together, and the server's\nopen uploads hold back at most what it is configured for: an upload over one of\nthese is 429, with the reason `too_many_uploads`, `uploads_pending` or\n`server_uploads_pending`. An upload is open until it is completed, abandoned or\nends; one that ends is thrown away with its parts within the hour. For editors, as\n`uploadFile`.",
+        "operationId": "createUpload",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOpened"
+                }
+              }
+            },
+            "description": "The upload is open."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Open an upload",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/v1/cards/{cardId}": {
       "get": {
         "description": "For the members of the card's board. To a user who is no member of it there is no\nsuch card.",
@@ -3640,60 +3958,6 @@
         "summary": "What a client must know about the server",
         "tags": [
           "system"
-        ]
-      }
-    },
-    "/api/v1/content-blocks/{blockId}/moveto/{where}/{dstBlockId}": {
-      "post": {
-        "description": "Moves a content block right before or after another one in the content order of\ntheir card. For editors of the board. A block on a board the user may not see is\nnot there, whichever of the two it is.",
-        "operationId": "moveContentBlock",
-        "parameters": [
-          {
-            "description": "The identifier of the block.",
-            "in": "path",
-            "name": "blockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Where the block goes: `before` or `after` the other one.",
-            "in": "path",
-            "name": "where",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the block the moved one is put next to.",
-            "in": "path",
-            "name": "dstBlockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The block is moved."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
-          }
-        },
-        "summary": "Move a content block within its card",
-        "tags": [
-          "blocks"
         ]
       }
     },
@@ -4144,7 +4408,7 @@
     },
     "/api/v1/teams/{teamId}/archive/export": {
       "get": {
-        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download. A team that is not there is not refused: its archive has no boards.",
+        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download with its length, in the format of `exportBoardArchive`. A team that\nis not there is not refused: its archive has no boards.",
         "operationId": "exportTeamArchive",
         "parameters": [
           {
@@ -4168,7 +4432,23 @@
                 }
               }
             },
-            "description": "The archive."
+            "description": "The archive.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The size of the archive in bytes.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -4189,7 +4469,7 @@
     },
     "/api/v1/teams/{teamId}/archive/import": {
       "post": {
-        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are users of this server. The request is a `multipart/form-data` form\nwhose part `file` carries the archive; the part needs no file name. A request\nwithout that part, or with what is no archive, is 400.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.",
+        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are users of this server. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another team, is 400. For users of the team who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -4204,9 +4484,9 @@
         ],
         "requestBody": {
           "content": {
-            "multipart/form-data": {
+            "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FileForm"
+                "$ref": "#/components/schemas/ImportRequest"
               }
             }
           },
@@ -4228,6 +4508,59 @@
           }
         },
         "summary": "Import an archive",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/archive/uploads": {
+      "post": {
+        "description": "Opens an upload of an archive to import into the team, sent in parts as a file is\nwith `createUpload`, and imported with `importArchive` once every part is received.\nAn archive larger than `maxImportSize` of `getClientConfig` is 413. It counts\ntoward the same limits as the uploads of files, which hold back at most twice the\nlarger of `maxFileSize` and `maxImportSize` for a user. For users of the team who\nare not guests, as `importArchive`.",
+        "operationId": "createImportUpload",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOpened"
+                }
+              }
+            },
+            "description": "The upload is open."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Open an upload of an archive",
         "tags": [
           "archives"
         ]
@@ -4281,7 +4614,7 @@
     },
     "/api/v1/teams/{teamId}/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name. The team of the path is not part of\nthe search: the boards of every team are searched. A `field` that is neither is 400.\nOldest first.",
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The team of the path is not part of\nthe search: the boards of every team are searched. A `field` that is neither is 400.\nOldest first.",
         "operationId": "searchTeamBoards",
         "parameters": [
           {
@@ -4968,7 +5301,7 @@
     },
     "/api/v1/teams/{teamId}/users": {
       "get": {
-        "description": "Up to ten users: with `search` those whose name has that text in it, without it\nthe ten oldest accounts. Oldest account first.",
+        "description": "Up to ten users: with `search` those whose name has that text in it, whatever the\ncase of the letters, without it the ten oldest accounts. Oldest account first.",
         "operationId": "getTeamUsers",
         "parameters": [
           {
@@ -5075,6 +5408,193 @@
         "summary": "Users of a team by their identifiers",
         "tags": [
           "teams"
+        ]
+      }
+    },
+    "/api/v1/uploads/{uploadId}": {
+      "delete": {
+        "description": "Ends the upload and throws its parts away. An upload that is being completed is\n409.",
+        "operationId": "deleteUpload",
+        "parameters": [
+          {
+            "description": "The identifier of the upload, as opening it answered. Only the user who opened it may use it.",
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The upload is gone."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Abandon an upload",
+        "tags": [
+          "files"
+        ]
+      },
+      "get": {
+        "description": "The upload and the parts it has received: what a client that lost its place sends\nnext. Another user's upload, and one that has ended, is 404.",
+        "operationId": "getUpload",
+        "parameters": [
+          {
+            "description": "The identifier of the upload, as opening it answered. Only the user who opened it may use it.",
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadState"
+                }
+              }
+            },
+            "description": "The upload."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Get an upload",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/uploads/{uploadId}/complete": {
+      "post": {
+        "description": "Makes the file of the upload from its parts and ends the upload. Every part must\nhave been received; a part missing is 400, and the upload stays open for it. The\nanswer is the one of `uploadFile`. For editors of the board, at completion as when\nthe upload was opened: a user who may not upload to the board any more is refused,\nand the upload is thrown away. An upload that is being completed is 409; an upload\nof an archive is 400, and is imported with `importArchive`.",
+        "operationId": "completeUpload",
+        "parameters": [
+          {
+            "description": "The identifier of the upload, as opening it answered. Only the user who opened it may use it.",
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadedFile"
+                }
+              }
+            },
+            "description": "The file is stored."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Complete an upload",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/uploads/{uploadId}/parts/{partNumber}": {
+      "put": {
+        "description": "Sends part `partNumber` of the upload as the body, `application/octet-stream`.\n`Content-Length` is required and must be the part's size: `partSize`, or the rest\nfor the last part; another length is refused with 400 before the body is looked at.\nWhat is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5\nseconds, so that the client reads the answer; a larger or slower body is cut off.\n(A browser sets `Content-Length` itself.)\n`Content-Digest` carries the part's SHA-256. A part whose length or digest differs\nis 400 and is not kept; a part sent again replaces the one received. An upload that\nis being completed or abandoned is 409.",
+        "operationId": "putUploadPart",
+        "parameters": [
+          {
+            "description": "The identifier of the upload, as opening it answered. Only the user who opened it may use it.",
+            "in": "path",
+            "name": "uploadId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The number of the part, from 1 to the `partCount` of the upload.",
+            "in": "path",
+            "name": "partNumber",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The SHA-256 digest of the part, as RFC 9530 writes it: `sha-256=:<base64 of the 32 bytes>:`. Other algorithms in the header are not looked at.",
+            "in": "header",
+            "name": "Content-Digest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "description": "The bytes of a file, as the body of an answer.",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The part is received."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Send a part",
+        "tags": [
+          "files"
         ]
       }
     },

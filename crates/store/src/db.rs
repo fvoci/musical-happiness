@@ -46,6 +46,13 @@ pub(crate) enum Param {
     Jsonb(String),
     /// An identifier, bound to a `uuid` column (`TEXT` on SQLite). `None` binds `NULL`.
     Id(Option<Uuid>),
+    /// JSON text for a `jsonb` column (`TEXT` on SQLite) that may be `NULL`. `None`
+    /// binds `NULL`.
+    OptJsonb(Option<String>),
+    /// An integer that may be `NULL`.
+    OptInt(Option<i64>),
+    /// Text that may be `NULL`.
+    OptText(Option<String>),
 }
 
 /// An identifier as a query parameter.
@@ -152,6 +159,11 @@ impl Param {
         Ok(Self::Json(to_json_text(value)?))
     }
 
+    /// A JSON value for a `jsonb` column that may be `NULL`: `None` binds `NULL`.
+    pub(crate) fn opt_jsonb<T: serde::Serialize>(value: Option<&T>) -> Result<Self, StoreError> {
+        Ok(Self::OptJsonb(value.map(to_json_text).transpose()?))
+    }
+
     /// A JSON value for a `jsonb` column.
     pub(crate) fn jsonb(value: &impl serde::Serialize) -> Result<Self, StoreError> {
         Ok(Self::Jsonb(to_json_text(value)?))
@@ -193,7 +205,7 @@ impl Sql {
         // plain text and would mangle the value if asked to cast it.
         let cast = match (&param, self.dialect) {
             (Param::Json(_), Dialect::Postgres) => "::json",
-            (Param::Jsonb(_), Dialect::Postgres) => "::jsonb",
+            (Param::Jsonb(_) | Param::OptJsonb(_), Dialect::Postgres) => "::jsonb",
             _ => "",
         };
         // Writing to a String cannot fail.
@@ -255,6 +267,9 @@ macro_rules! bind_params {
                 Param::Int(value) => query.bind(value),
                 Param::Bool(value) => query.bind(value),
                 Param::Id(value) => query.bind(value.map($id)),
+                Param::OptJsonb(value) => query.bind(value),
+                Param::OptInt(value) => query.bind(value),
+                Param::OptText(value) => query.bind(value),
             };
         }
         query

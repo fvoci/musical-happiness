@@ -14,7 +14,6 @@ mod body;
 mod cards;
 mod categories;
 mod config;
-mod content_blocks;
 pub mod contract;
 mod files;
 mod limits;
@@ -27,6 +26,7 @@ mod subscriptions;
 mod system;
 mod teams;
 mod templates;
+mod uploads;
 mod users;
 
 use axum::Json;
@@ -44,7 +44,8 @@ pub(crate) use access::{
     require_permission_through, require_team_access, require_team_in_body, user_is_guest,
 };
 pub(crate) use body::{
-    decode_json, decode_object, decode_object_members, decode_object_with, json_object,
+    decode_json, decode_object, decode_object_members, decode_object_with, decode_with_document,
+    json_object, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
 };
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};
@@ -93,7 +94,6 @@ fn routes() -> Routes {
         .merge(cards::routes())
         .merge(categories::routes())
         .merge(config::routes())
-        .merge(content_blocks::routes())
         .merge(files::routes())
         .merge(members::routes())
         .merge(onboarding::routes())
@@ -102,10 +102,11 @@ fn routes() -> Routes {
         .merge(subscriptions::routes())
         .merge(teams::routes())
         .merge(templates::routes())
+        .merge(uploads::routes())
         .merge(users::routes());
     let uploads = OpenApiRouter::new()
         .merge(files::upload_routes())
-        .merge(archive::upload_routes());
+        .merge(uploads::part_routes());
     // What asks whether the server is there needs no session either.
     let unauthenticated = OpenApiRouter::new()
         .merge(auth::unauthenticated_routes())
@@ -137,9 +138,9 @@ pub fn router(app: &App) -> Router<App> {
     let unauthenticated = Router::from(routes.unauthenticated).layer(
         middleware::from_fn_with_state(UNAUTHENTICATED_BODY_LIMIT, limit_request_body),
     );
-    // Not behind the limits above. A file upload is bounded by `maxfilesize` where it
-    // is read, which is "no limit" at its default of 0; an archive import has no limit
-    // on the request yet. Both get limits with the chunked upload (design 5.6).
+    // Not behind the limits above. A file upload is limited to one part
+    // (`upload_part_bytes`) as it is read, and a part of an upload to its size. An
+    // archive comes as an upload in parts; its import is a JSON request.
     let uploads = Router::from(routes.uploads);
 
     Router::new()

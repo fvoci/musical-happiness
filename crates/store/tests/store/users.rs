@@ -719,8 +719,8 @@ async fn user_lookups_ignore_ascii_case() {
     test.teardown().await;
 }
 
-/// The search is a `LIKE` on the user name: a substring match of at most ten users, in
-/// which `%` and `_` are wildcards. SQLite ignores ASCII case, PostgreSQL does not.
+/// The search is a substring match on the user name of at most ten users, ignoring the
+/// case of every letter on both databases, in which `%` and `_` are characters.
 #[tokio::test]
 async fn search_users_by_team_matches_substrings_of_the_user_name() {
     let test = common::setup().await;
@@ -767,17 +767,27 @@ async fn search_users_by_team_matches_substrings_of_the_user_name() {
     assert_eq!(found.len(), 10, "an empty query matches every user");
 
     let found = store.search_users_by_team("y_d").await.unwrap();
-    assert_eq!(found.len(), 1, "an underscore matches any one character");
+    assert!(found.is_empty(), "an underscore is no wildcard: {found:?}");
+    let found = store.search_users_by_team("o%").await.unwrap();
+    assert!(found.is_empty(), "a percent sign is no wildcard: {found:?}");
 
     let found = store.search_users_by_team("example.com").await.unwrap();
     assert!(found.is_empty(), "email addresses are not searched");
 
     let found = store.search_users_by_team("trooper.11").await.unwrap();
-    let expected = match common::db_type() {
-        DbType::Sqlite => 1,
-        DbType::Postgres => 0,
-    };
-    assert_eq!(found.len(), expected, "case sensitivity is the database's");
+    assert_eq!(found.len(), 1, "the case is ignored");
+    create_user(
+        store,
+        User {
+            id: new_id(),
+            username: "Ödön".to_owned(),
+            email: "odon@example.com".to_owned(),
+            ..User::default()
+        },
+    )
+    .await;
+    let found = store.search_users_by_team("öDÖN").await.unwrap();
+    assert_eq!(found.len(), 1, "on every letter, on both databases");
 
     // A query is data, whatever it contains.
     let found = store

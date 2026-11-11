@@ -57,7 +57,7 @@ const CLIENT_CATEGORY: &str = "client";
 const SETTINGS_CATEGORY: &str = "settings";
 
 /// The most users a search returns.
-const SEARCH_LIMIT: i64 = 10;
+const SEARCH_LIMIT: usize = 10;
 
 /// The order of a list of users: by when their accounts were made, and by identifier
 /// where that is the same.
@@ -375,23 +375,45 @@ impl Store {
         .await
     }
 
-    /// Returns the ten oldest users, oldest first, whose name contains `search_query`.
+    /// Returns the ten oldest users, oldest first, whose name contains `search_query`,
+    /// ignoring case.
     ///
-    /// The match is the database's `LIKE`: SQLite ignores the case of ASCII letters and
-    /// PostgreSQL does not, and `%` and `_` in the query are wildcards.
+    /// Compared here rather than in SQL, so that both databases fold every letter the
+    /// same way and `%` and `_` are characters like any other. (The original's `LIKE`
+    /// ignores ASCII case on SQLite only, `server/services/store/sqlstore/user.go:227`.)
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn search_users_by_team(&self, search_query: &str) -> Result<Vec<User>, StoreError> {
         self.with_conn(async |scope| {
-            // Preserved quirk: one `LIKE` for both databases, so the case sensitivity is
-            // whatever the database's is, and the query's own wildcards are not escaped
-            // (`server/services/store/sqlstore/user.go:227`).
+            let limit = i64::try_from(SEARCH_LIMIT).unwrap_or(i64::MAX);
+            if search_query.is_empty() {
+                let mut sql = select_users(scope);
+                sql.push(OLDEST_FIRST).push_bind(" LIMIT ", limit);
+                return fetch_users(scope, sql).await;
+            }
+            // The names only, matched here; then the users that matched, read whole.
+            let wanted = search_query.to_lowercase();
+            let mut sql = scope.sql("SELECT id, username FROM users WHERE delete_at = 0");
+            sql.push(OLDEST_FIRST);
+            let mut matched = Vec::with_capacity(SEARCH_LIMIT);
+            for row in scope.fetch_all(sql).await? {
+                if row.text(1)?.to_lowercase().contains(&wanted) {
+                    matched.push(row.id(0)?);
+                    if matched.len() == SEARCH_LIMIT {
+                        break;
+                    }
+                }
+            }
+            if matched.is_empty() {
+                return Ok(Vec::new());
+            }
             let mut sql = select_users(scope);
-            sql.push_bind(" AND username LIKE ", format!("%{search_query}%"))
-                .push(OLDEST_FIRST)
-                .push_bind(" LIMIT ", SEARCH_LIMIT);
+            sql.push(" AND id IN (")
+                .bind_list(matched.iter().map(|id| Id(id)))
+                .push(")")
+                .push(OLDEST_FIRST);
             fetch_users(scope, sql).await
         })
         .await

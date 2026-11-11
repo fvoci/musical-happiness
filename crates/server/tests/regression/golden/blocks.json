@@ -54,6 +54,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -73,6 +74,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -82,11 +84,12 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Some text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -111,6 +114,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -130,6 +134,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -139,11 +144,12 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Some text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -168,6 +174,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -195,6 +202,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -204,19 +212,20 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Some text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
   },
   {
     "name": "list: by parent and type",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:6>&type=text as blocks-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:6>&type=attachment as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -226,19 +235,20 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Some text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
   },
   {
     "name": "list: the old name of the parameter is no filter",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:6>&type=text as blocks-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:6>&type=attachment as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -248,7 +258,7 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Some text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -268,6 +278,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -287,6 +298,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -296,11 +308,12 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Some text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -325,6 +338,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -363,6 +377,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -382,6 +397,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -391,11 +407,12 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Some text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -552,6 +569,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:4>",
         "deleteAt": 0,
@@ -574,6 +592,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -685,6 +704,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -705,6 +725,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -714,11 +735,12 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Text again",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -735,6 +757,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:4>",
         "deleteAt": 0,
@@ -749,6 +772,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -771,6 +795,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -792,6 +817,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -801,7 +827,7 @@
         "parentId": "<id:11>",
         "schema": 1,
         "title": "Text again",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -814,6 +840,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -835,6 +862,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -844,7 +872,7 @@
         "parentId": "<id:13>",
         "schema": 1,
         "title": "Text again",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -946,6 +974,7 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
+      "body": null,
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -991,6 +1020,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1054,6 +1084,7 @@
     "body": [
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1068,6 +1099,7 @@
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1090,6 +1122,7 @@
     "body": [
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1099,11 +1132,12 @@
         "parentId": "<id:19>",
         "schema": 1,
         "title": "Text of A",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1122,6 +1156,7 @@
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1131,11 +1166,12 @@
         "parentId": "<id:21>",
         "schema": 1,
         "title": "Text of B",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1162,6 +1198,7 @@
     "body": [
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1176,6 +1213,7 @@
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1190,6 +1228,7 @@
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1199,11 +1238,12 @@
         "parentId": "<id:19>",
         "schema": 1,
         "title": "Text of A",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1222,6 +1262,7 @@
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -1231,11 +1272,12 @@
         "parentId": "<id:21>",
         "schema": 1,
         "title": "Text of B",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
         "boardId": "<id:15>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,

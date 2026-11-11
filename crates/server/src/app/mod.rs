@@ -10,7 +10,6 @@ mod boards_and_blocks;
 mod cards;
 mod category;
 mod category_boards;
-mod content_blocks;
 mod export;
 mod files;
 mod import;
@@ -20,13 +19,18 @@ mod sharing;
 mod subscriptions;
 mod teams;
 mod templates;
+mod uploads;
 mod users;
 
 pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
-pub use content_blocks::MovePosition;
+pub use export::ExportedArchive;
 pub(crate) use files::FILE;
+pub use uploads::{
+    CLOSED_UPLOAD_GRACE_MILLIS, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
+    PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,
+};
 pub use users::sanitize;
 
 use std::sync::Arc;
@@ -76,6 +80,14 @@ struct Inner {
     /// Held while a user's default category is looked for and created, so that two
     /// requests of a new user do not each create one.
     default_category: tokio::sync::Mutex<()>,
+    /// Held while the limits on open uploads are checked and a session is stored, so
+    /// that sessions opened at the same moment do not pass the limits together.
+    opening_upload: tokio::sync::Mutex<()>,
+    /// The uploads' turns (`uploads::UploadTurns`).
+    upload_turns: uploads::UploadTurns,
+    /// The memory the parts of uploads to the object store may take while they are
+    /// received, in KiB (`uploads::PARTS_IN_MEMORY`).
+    part_memory: Arc<tokio::sync::Semaphore>,
 }
 
 /// What `ping` reports about the server.
@@ -124,6 +136,7 @@ impl App {
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;
+        let part_memory = uploads::part_memory_kib(config.upload_part_bytes);
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
@@ -137,6 +150,9 @@ impl App {
                 webhook,
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
+                opening_upload: tokio::sync::Mutex::new(()),
+                upload_turns: uploads::UploadTurns::default(),
+                part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
             }),
         })
     }
@@ -189,6 +205,21 @@ impl App {
     /// Waits for the turn to create a user's default category.
     pub(crate) async fn default_category_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.inner.default_category.lock().await
+    }
+
+    /// Waits for the turn to check the limits on open uploads and store a session.
+    pub(crate) async fn opening_upload_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.inner.opening_upload.lock().await
+    }
+
+    /// The turns of the uploads.
+    pub(crate) fn upload_turns(&self) -> &uploads::UploadTurns {
+        &self.inner.upload_turns
+    }
+
+    /// The memory parts of uploads to the object store may take, in KiB.
+    pub(crate) fn part_memory(&self) -> &Arc<tokio::sync::Semaphore> {
+        &self.inner.part_memory
     }
 
     /// Runs `work` in the background, after the caller has returned. Used for
@@ -279,6 +310,7 @@ impl App {
             teammate_name_display: config.teammate_name_display.clone(),
             feature_flags: config.feature_flags.clone(),
             max_file_size: config.max_file_size,
+            max_import_size: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
         }
     }
 

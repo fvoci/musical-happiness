@@ -4,48 +4,89 @@
 //! original (the standalone server answers it); the import field is `file`.
 
 use axum::body::{Body, Bytes};
-use axum::extract::multipart::MultipartRejection;
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
+use fvoci_model::UploadPurpose;
 use fvoci_store::PublicBoards;
+use serde::Deserialize;
+use tokio_util::io::ReaderStream;
+use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::bodies::{Binary, FileForm};
+use super::body::decode_object;
+use super::contract::bodies::Binary;
 use super::contract::params::{BoardId, TeamId};
 use super::contract::tag;
-
-use super::files::NOT_MULTIPART;
 use super::{ApiResult, RequiredSession, no_content};
 use super::{require_board_permission, require_team_access, user_is_guest};
-use crate::app::App;
+use crate::app::{App, ExportedArchive};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
-/// The multipart form field an imported archive is sent in.
-const UPLOAD_FIELD: &str = "file";
+/// How much of an archive is read from its file at a time to be sent.
+const SEND_CHUNK_BYTES: usize = 256 * 1024;
+
+/// What is refused to a user who may not import into the team.
+const IMPORT_DENIAL: &str = "access denied to create board";
+
+/// An archive to import: one sent in parts with `createImportUpload`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ImportRequest {
+    /// The upload of the archive, every part of it received. It is thrown away by the
+    /// import, whether the import succeeds or not.
+    upload_id: String,
+}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_export_board))
         .routes(routes!(handle_export_team))
+        .routes(routes!(handle_import))
 }
 
-pub(super) fn upload_routes() -> OpenApiRouter<App> {
-    OpenApiRouter::new().routes(routes!(handle_import))
+/// Checks that the user may import into the team: any signed-in user of the team who is
+/// not a guest.
+///
+/// # Errors
+///
+/// Returns the refusal, 403 for a guest or a user outside the team.
+pub(super) async fn require_import_access(
+    app: &App,
+    user_id: &str,
+    team_id: &str,
+) -> Result<(), AppError> {
+    require_team_access(app, user_id, team_id, IMPORT_DENIAL).await?;
+    if user_is_guest(app, user_id).await? {
+        return Err(AppError::forbidden(IMPORT_DENIAL));
+    }
+    Ok(())
 }
 
 /// Export a board
 ///
 /// An archive of the board with its blocks, its files and its members, offered as a
-/// download. For the board's members.
+/// download with its length. For the board's members. The archive is a ZIP of version
+/// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
+/// `block` or `boardMember` per line, in the shapes of this contract, bodies included)
+/// and the files the blocks show, the images of bodies among them.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/archive/export",
     operation_id = "exportBoardArchive",
     tag = tag::ARCHIVES,
     params(BoardId),
-    responses((status = 200, description = "The archive.", body = inline(Binary), content_type = "application/octet-stream")),
+    responses((
+        status = 200,
+        description = "The archive.",
+        body = inline(Binary),
+        content_type = "application/octet-stream",
+        headers(
+            ("Content-Length" = u64, description = "The size of the archive in bytes."),
+            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC)."),
+        ),
+    )),
 )]
 async fn handle_export_board(
     State(app): State<App>,
@@ -64,23 +105,33 @@ async fn handle_export_board(
     )
     .await?;
     let board = app.board(&board_id).await?;
-    let bytes = app
+    let archive = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
         .await?;
-    Ok(archive_response(bytes))
+    Ok(archive_response(archive))
 }
 
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download. A team that is not there is not refused: its archive has no boards.
+/// as a download with its length, in the format of `exportBoardArchive`. A team that
+/// is not there is not refused: its archive has no boards.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/archive/export",
     operation_id = "exportTeamArchive",
     tag = tag::ARCHIVES,
     params(TeamId),
-    responses((status = 200, description = "The archive.", body = inline(Binary), content_type = "application/octet-stream")),
+    responses((
+        status = 200,
+        description = "The archive.",
+        body = inline(Binary),
+        content_type = "application/octet-stream",
+        headers(
+            ("Content-Length" = u64, description = "The size of the archive in bytes."),
+            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC)."),
+        ),
+    )),
 )]
 async fn handle_export_team(
     State(app): State<App>,
@@ -97,17 +148,31 @@ async fn handle_export_team(
         .boards_for_user_and_team(user_id, &team_id, public)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
-    let bytes = app.export_archive(&team_id, &ids).await?;
-    Ok(archive_response(bytes))
+    let archive = app.export_archive(&team_id, &ids).await?;
+    Ok(archive_response(archive))
 }
 
 /// Import an archive
 ///
 /// Makes the boards of an archive in the team, with the user as their admin. The
 /// members the archive names for a board become members of it with the roles they had,
-/// where they are users of this server. The request is a `multipart/form-data` form
-/// whose part `file` carries the archive; the part needs no file name. A request
-/// without that part, or with what is no archive, is 400.
+/// where they are users of this server. The archive is sent before in parts: open an
+/// upload with `createImportUpload`, send its parts with `putUploadPart`, then name
+/// the upload here, in place of `completeUpload`. A part missing is 400 and the upload
+/// stays open for it; otherwise the upload ends with the import, whether it succeeds or
+/// not. Another user's upload, or one that has ended, is 404; an upload of a file, or
+/// one for another team, is 400. For users of the team who are not guests, at the
+/// import as when the upload was opened: a user who may not import any more is
+/// refused, and the upload is thrown away.
+///
+/// The archive is of version 3, as the export routes write it. The formats of the
+/// original (the line-based version 1 and the ZIP of version 2) and a ZIP without
+/// `version.json` are 400, and nothing of them is stored. An archive of more than
+/// 10,000 entries, whose entries unpack to more than 1 GiB together, or with a
+/// `board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with
+/// the `limit` passed, and nothing of it is stored. The blocks that show files are
+/// pointed at the board's new copies of them, the images of bodies included; a card
+/// value that does not fit its property's kind is cleared, as a copy does.
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
 /// those before it stay.
@@ -117,50 +182,44 @@ async fn handle_export_team(
     operation_id = "importArchive",
     tag = tag::ARCHIVES,
     params(TeamId),
-    request_body(content = FileForm, content_type = "multipart/form-data"),
+    request_body = ImportRequest,
     responses((status = 204, description = "The boards of the archive are made.")),
 )]
 async fn handle_import(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
-    multipart: Result<Multipart, MultipartRejection>,
+    body: Bytes,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    // Any signed-in, non-guest user of the team may import.
-    require_team_access(&app, user_id, &team_id, "access denied to create board").await?;
-    if user_is_guest(&app, user_id).await? {
-        return Err(AppError::forbidden("access denied to create board"));
+    let ImportRequest { upload_id } = decode_object(&body)?;
+    let (upload, _) = app.upload(&upload_id, user_id).await?;
+    if upload.purpose != UploadPurpose::Import {
+        return Err(AppError::bad_request(
+            "the upload is of a file; complete it with completeUpload",
+        )
+        .with_field("uploadId"));
     }
-
-    let mut multipart = multipart.map_err(|_| AppError::bad_request(NOT_MULTIPART))?;
-    let bytes = read_field(&mut multipart)
-        .await
-        .map_err(|message| AppError::bad_request(message).with_field(UPLOAD_FIELD))?;
-
-    app.import_team_archive(bytes, &team_id, user_id).await?;
+    if upload.team_id != team_id {
+        return Err(
+            AppError::bad_request("the upload is of an archive for another team")
+                .with_field("uploadId"),
+        );
+    }
+    if let Err(refusal) = require_import_access(&app, user_id, &team_id).await {
+        // As for a completion (design 5.6, 2): the upload cannot be imported any more.
+        if refusal.status().is_client_error() {
+            app.discard_upload(&upload).await;
+        }
+        return Err(refusal);
+    }
+    app.import_upload(&upload).await?;
     Ok(no_content())
 }
 
-/// Reads the uploaded `file` field, or returns the message the original would write.
-async fn read_field(multipart: &mut Multipart) -> Result<Bytes, String> {
-    loop {
-        let field = multipart
-            .next_field()
-            .await
-            .map_err(|error| error.to_string())?;
-        let Some(field) = field else {
-            return Err("the request has no part named `file`".to_owned());
-        };
-        if field.name() != Some(UPLOAD_FIELD) {
-            continue;
-        }
-        return field.bytes().await.map_err(|error| error.to_string());
-    }
-}
-
-/// Wraps archive bytes in the download response the original sends.
-fn archive_response(bytes: Vec<u8>) -> Response {
+/// Sends an archive, written whole before, as the download the original sends, with its
+/// length.
+fn archive_response(archive: ExportedArchive) -> Response {
     let filename = export_filename(crate::auth::now_millis());
     (
         [
@@ -170,8 +229,10 @@ fn archive_response(bytes: Vec<u8>) -> Response {
                 format!("attachment; filename={filename}"),
             ),
             ("content-transfer-encoding", "binary".to_owned()),
+            ("content-length", archive.size.to_string()),
         ],
-        Body::from(bytes),
+        // Read in large pieces: each read of the file is a task of its own.
+        Body::from_stream(ReaderStream::with_capacity(archive.file, SEND_CHUNK_BYTES)),
     )
         .into_response()
 }

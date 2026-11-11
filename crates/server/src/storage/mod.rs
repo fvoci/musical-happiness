@@ -14,7 +14,7 @@ use futures_util::stream::BoxStream;
 use thiserror::Error;
 use tokio::io::AsyncRead;
 
-pub use local::LocalFiles;
+pub use local::{LocalFiles, WRITING_DIR};
 pub use s3::S3Files;
 
 use crate::config::Configuration;
@@ -164,6 +164,15 @@ impl FileBackend {
         match self {
             Self::Local(files) => files.rename(from, to).await,
             Self::S3(files) => files.rename(from, to).await,
+        }
+    }
+
+    /// The object store that takes uploads part by part across requests, if the backend
+    /// is one: the local disk is not (`docs/s6-design.md` 5.6, 6).
+    pub fn multipart(&self) -> Option<&S3Files> {
+        match self {
+            Self::Local(_) => None,
+            Self::S3(files) => Some(files),
         }
     }
 }

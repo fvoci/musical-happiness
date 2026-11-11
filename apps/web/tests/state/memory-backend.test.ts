@@ -114,7 +114,7 @@ describe('writing a body', () => {
     expect(error.status).toBe(400);
   });
 
-  it('refuses a body over the limit with 413 and the limit', async () => {
+  it('refuses a body over the limit with 400 naming the body, as the server does', async () => {
     const { backend, boardId, byTitle } = await firstBoard();
     const card = await backend.card(boardId, byTitle('Alpha').id);
     const error = await rejection(
@@ -123,7 +123,7 @@ describe('writing a body', () => {
         readAt: card.updateAt,
       }),
     );
-    expect(error.status).toBe(413);
+    expect(error).toMatchObject({ status: 400, field: 'body' });
     expect(error.limit).toBe(LIMITS.bodyBytes);
   });
 

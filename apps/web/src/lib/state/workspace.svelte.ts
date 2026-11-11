@@ -152,12 +152,22 @@ export class Workspace {
       this.status = 'ready';
     } catch (error) {
       if (isBackendError(error) && error.status === 401) {
-        this.status = 'signedOut';
+        this.#signedOut();
         return;
       }
       this.status = 'failed';
       this.report('load', error);
     }
+  }
+
+  /**
+   * The session is over. Nothing listens any more (a connection without a
+   * session hears nothing, and would only be opened again and again):
+   * signing in reads afresh, or starts the page again.
+   */
+  #signedOut(): void {
+    this.status = 'signedOut';
+    this.close();
   }
 
   /** Stops listening. For a test, or when the reader signs out. */
@@ -234,7 +244,7 @@ export class Workspace {
   report(action: ProblemAction, error: unknown): void {
     // The session is over (it went idle, or past its end): sign in again.
     if (isBackendError(error) && error.status === 401) {
-      this.status = 'signedOut';
+      this.#signedOut();
       return;
     }
     this.#problemCount += 1;

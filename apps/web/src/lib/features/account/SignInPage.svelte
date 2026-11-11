@@ -7,7 +7,7 @@
   with what was typed; if that fails, the page is the sign-in form. The
   length of a password is the server's to check (it counts characters, a
   browser's `minlength` counts UTF-16 units). A refusal is told by its kind and reason, never by
-  the server's own words (`docs/contract-assumptions.md`, 1).
+  the server's own words (`ErrorBody` in `lib/state/backend.ts`).
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';

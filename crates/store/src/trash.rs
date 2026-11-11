@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{Block, Board, BoardMember, FileInfo, new_id};
+use fvoci_model::{Block, Board, BoardMember, Body, FileInfo, new_id};
 use serde::de::DeserializeOwned;
 
 use crate::Store;
@@ -24,6 +24,7 @@ use crate::boards;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
+use crate::file_refs;
 use crate::users;
 
 /// A block in the trash.
@@ -73,7 +74,7 @@ impl Store {
                 .await?
                 .ok_or_else(block_not_in_trash)?;
             Ok(DeletedBlock {
-                block: from_json(&row, 0, "block")?,
+                block: block_from_json(&row, 0)?,
                 deleted_by: row.id(1)?,
             })
         })
@@ -174,6 +175,9 @@ impl Store {
                  AND board_id NOT IN (SELECT id FROM deleted_boards)",
             );
             records += scope.execute(sql).await?;
+            // What the blocks gone for good showed is shown no more.
+            file_refs::forget_gone_blocks(scope).await?;
+            file_refs::mark(scope, None).await?;
             Ok(Purged { records, files })
         })
         .await
@@ -196,6 +200,24 @@ fn block_not_in_trash() -> StoreError {
 
 fn board_not_in_trash() -> StoreError {
     StoreError::not_found("deleted board")
+}
+
+/// Reads a block of the trash. Its body is taken as it was stored: it was checked when
+/// it was written, against the allowlist of that time, which a later one may not
+/// accept.
+fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
+    let corrupt = |error: serde_json::Error| StoreError::Corrupt {
+        column: "block",
+        reason: error.to_string(),
+    };
+    let mut value = row.json(index, "block")?;
+    let body = value
+        .as_object_mut()
+        .and_then(|members| members.remove("body"))
+        .filter(|body| !body.is_null());
+    let mut block: Block = serde_json::from_value(value).map_err(corrupt)?;
+    block.body = body.map(Body::from_stored);
+    Ok(block)
 }
 
 /// Reads a JSON column of the trash into the type it was written from.
@@ -299,7 +321,7 @@ async fn take_blocks_out_of_trash(
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| from_json(row, 0, "block"))
+        .map(|row| block_from_json(row, 0))
         .collect::<Result<_, _>>()?;
     let mut known_users = KnownUsers::default();
     for block in &mut restored {
@@ -459,6 +481,16 @@ pub(crate) async fn undelete_board(
         file_info::save_file_info(scope, &file).await?;
     }
     take_blocks_out_of_trash(scope, &deletion_id, user_id, now).await?;
+    // The trash kept no marks: a file that no block of the board shows is counted from
+    // now, as at a file's upload, and one that a block shows has none.
+    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE board_id = ");
+    sql.bind(Id(board_id));
+    scope.execute(sql).await?;
+    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = ");
+    sql.bind(now)
+        .push(" WHERE NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id AND r.name = file_info.name) AND board_id = ")
+        .bind(Id(board_id));
+    scope.execute(sql).await?;
 
     let mut sql = scope.sql("DELETE FROM deleted_boards WHERE id = ");
     sql.bind(Id(board_id));

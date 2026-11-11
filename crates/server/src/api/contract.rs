@@ -165,6 +165,7 @@ enum Members {
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
     ("Block", Members::All),
+    ("Body", Members::AsWritten),
     ("Board", Members::All),
     ("BoardMember", Members::All),
     ("BoardsAndBlocks", Members::All),
@@ -180,6 +181,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
     ("Team", Members::AllBut(&["signupToken"])),
+    ("UploadOpened", Members::All),
+    ("UploadState", Members::All),
+    ("ReceivedPart", Members::All),
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
     ("UserSettings", Members::AsWritten),
@@ -199,6 +203,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     ("DeleteBoardsAndBlocks", Members::Only(&["boards"])),
     ("FileForm", Members::AsWritten),
+    ("ImportRequest", Members::AsWritten),
     ("LoginRequest", Members::Only(&["password"])),
     ("MemberRoles", Members::AsWritten),
     ("NewBlock", Members::AsWritten),
@@ -208,6 +213,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewCategory", Members::AsWritten),
     ("NewMember", Members::AsWritten),
     ("NewSubscription", Members::AsWritten),
+    ("NewUpload", Members::Only(&["name", "size"])),
     (
         "PatchBoardsAndBlocks",
         Members::Only(&["boardIds", "boardPatches"]),

@@ -22,6 +22,11 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
     for block in blocks.iter() {
         referenced.insert(&block.board_id);
         referenced.insert(&block.parent_id);
+        // A view's card order names cards that nothing else may refer to: a card whose
+        // content is its body has no blocks below it.
+        if let Some(Value::Array(items)) = block.fields.get("cardOrder") {
+            referenced.extend(order_ids(items));
+        }
 
         if let Some(content_order) = block.fields.get("contentOrder") {
             let Some(items) = content_order.as_array() else {

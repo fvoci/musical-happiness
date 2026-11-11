@@ -20,6 +20,25 @@ pub struct LocalFiles {
     root: PathBuf,
 }
 
+/// The directory under the root, in which files are written before they are renamed
+/// into their place. No stored path begins with a dot.
+pub const WRITING_DIR: &str = ".tmp/writing";
+
+/// Writes everything `reader` yields to a new file at `path`, and returns the number of
+/// bytes written.
+async fn write_file(
+    path: &Path,
+    reader: &mut (dyn AsyncRead + Send + Unpin),
+) -> std::io::Result<u64> {
+    let mut file = fs::File::create(path).await?;
+    let written = tokio::io::copy(reader, &mut file).await?;
+    file.flush().await?;
+    // On the disk before the rename makes it the file: after a power loss the name does
+    // not point at nothing.
+    file.sync_all().await?;
+    Ok(written)
+}
+
 impl LocalFiles {
     /// Creates a backend rooted at `directory`. The directory is created on first write.
     pub fn new(directory: impl AsRef<Path>) -> Self {
@@ -55,10 +74,25 @@ impl LocalFiles {
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).await?;
         }
-        let mut file = fs::File::create(&target).await?;
-        let written = tokio::io::copy(reader, &mut file).await?;
-        file.flush().await?;
-        Ok(written)
+        // The file is written under the root and renamed into its place, which on one
+        // file system is atomic: a reader never finds half a file, and a write that fails
+        // leaves nothing at the path. What a crash leaves is in WRITING_DIR, which the
+        // server empties when it starts.
+        let writing = self.root.join(WRITING_DIR);
+        fs::create_dir_all(&writing).await?;
+        let partial = writing.join(crate::auth::secret::new_secret());
+        let written = match write_file(&partial, reader).await {
+            Ok(written) => fs::rename(&partial, &target).await.map(|()| written),
+            Err(error) => Err(error),
+        };
+        if written.is_err() {
+            match fs::remove_file(&partial).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => tracing::warn!(%error, "a partial file could not be removed"),
+            }
+        }
+        Ok(written?)
     }
 
     pub(super) async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {

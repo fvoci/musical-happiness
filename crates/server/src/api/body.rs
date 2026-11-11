@@ -3,7 +3,7 @@
 //! A body that is not the JSON a route expects is a bad request (400), whatever is wrong
 //! with it: not JSON at all, the wrong type, `null`, a member of the wrong type.
 
-use fvoci_model::JsonMap;
+use fvoci_model::{BlockPatch, Body, BodyChange, BodyError, JsonMap};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
@@ -59,6 +59,113 @@ pub(crate) fn decode_object_with<T: DeserializeOwned, R>(
     let prepared = prepare(&mut object);
     let decoded = serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
     Ok((decoded, prepared))
+}
+
+/// The JSON objects in the list that is the member `name` of `object`. An element of the
+/// list that is not an object is `None`.
+pub(crate) fn objects_mut<'v>(
+    object: &'v mut JsonMap,
+    name: &str,
+) -> impl Iterator<Item = Option<&'v mut JsonMap>> {
+    object
+        .get_mut(name)
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .map(Value::as_object_mut)
+}
+
+/// The refusal of a body that may not be stored, naming `body`.
+fn body_refused(error: BodyError) -> AppError {
+    AppError::bad_request(error).with_field("body")
+}
+
+/// Takes the member `body` out of each block of a request before the blocks are decoded
+/// and reads it, so that a body that may not be stored is refused as one (`field:
+/// body`). Returns the bodies in the order of the blocks; an element that is no object
+/// has none.
+///
+/// # Errors
+///
+/// Returns a bad request that names `body` for the first body that may not be stored.
+pub(crate) fn take_block_bodies<'a>(
+    blocks: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+) -> Result<Vec<Option<Body>>, AppError> {
+    blocks
+        .into_iter()
+        .map(|block| match block.and_then(|block| block.remove("body")) {
+            None => Ok(None),
+            Some(value) => Body::parse(value).map_err(body_refused),
+        })
+        .collect()
+}
+
+/// Takes the member `body` out of each block patch of a request before the patches are
+/// decoded and reads what it asks for, in the order of the patches.
+///
+/// # Errors
+///
+/// Returns a bad request that names `body` for the first body that may not be stored.
+pub(crate) fn take_patch_bodies<'a>(
+    patches: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+) -> Result<Vec<BodyChange>, AppError> {
+    patches
+        .into_iter()
+        .map(|patch| match patch.and_then(|patch| patch.remove("body")) {
+            None => Ok(BodyChange::Keep),
+            Some(value) => BodyChange::parse(value).map_err(body_refused),
+        })
+        .collect()
+}
+
+/// Gives each patch the change of body that was taken out of it, and checks that a
+/// patch that changes the body says when its block was read.
+///
+/// # Errors
+///
+/// Returns a bad request that names `readAt` for a change of body without it.
+pub(crate) fn put_patch_bodies<'a>(
+    patches: impl IntoIterator<Item = &'a mut BlockPatch>,
+    changes: Vec<BodyChange>,
+) -> Result<(), AppError> {
+    let mut changes = changes.into_iter();
+    for patch in patches {
+        // One change was taken out of each patch.
+        let Some(change) = changes.next() else {
+            return Err(AppError::from(anyhow::anyhow!(
+                "fewer changes of body than block patches"
+            )));
+        };
+        if !change.is_keep() && patch.read_at.is_none() {
+            return Err(AppError::bad_request(
+                "a change of the body needs readAt, the updateAt of the block as it was read",
+            )
+            .with_field("readAt"));
+        }
+        patch.body = change;
+    }
+    Ok(())
+}
+
+/// Decodes a request body that must be a JSON object and may carry a document under
+/// `body`. The document is checked apart from the rest, so that its refusal names it
+/// (`field: body`). Returns what the member asks for: [`BodyChange::Keep`] if it was
+/// left out.
+///
+/// # Errors
+///
+/// Returns a bad request if the body is not a JSON object with the expected members, or
+/// its document may not be stored.
+pub(crate) fn decode_with_document<T: DeserializeOwned>(
+    body: &[u8],
+) -> Result<(T, BodyChange), AppError> {
+    let (decoded, document) = decode_object_with(body, |members| members.remove("body"))?;
+    let change = match document {
+        None => BodyChange::Keep,
+        Some(value) => BodyChange::parse(value)
+            .map_err(|error| AppError::bad_request(error).with_field("body"))?,
+    };
+    Ok((decoded, change))
 }
 
 /// Reads the members of a request body that must be a JSON object, leaving out those

@@ -22,11 +22,8 @@ pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The settings of the S3 file backend, the `filess3config` object.
 #[derive(Clone, Default, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each flag is a separate key of the configuration file"
-)]
 pub struct AmazonS3Config {
     /// The access key; empty to use the environment's credentials.
     #[serde(rename = "accesskeyid")]
@@ -50,8 +47,6 @@ pub struct AmazonS3Config {
     pub sign_v2: bool,
     /// Whether to ask for server-side encryption of stored objects.
     pub sse: bool,
-    /// Whether to log every request to the object store.
-    pub trace: bool,
     /// The request timeout in milliseconds; zero for the default.
     pub timeout: i64,
 }
@@ -68,7 +63,6 @@ impl std::fmt::Debug for AmazonS3Config {
             .field("ssl", &self.ssl)
             .field("sign_v2", &self.sign_v2)
             .field("sse", &self.sse)
-            .field("trace", &self.trace)
             .field("timeout", &self.timeout)
             .finish_non_exhaustive()
     }
@@ -77,8 +71,10 @@ impl std::fmt::Debug for AmazonS3Config {
 /// The server configuration.
 ///
 /// The serde names are the keys of the configuration file in lower case; [`Configuration::read`]
-/// lower-cases the file's keys before decoding.
+/// lower-cases the file's keys before decoding. `docs/configuration.md` documents every
+/// key, and a test holds the two together.
 #[derive(Clone, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -114,7 +110,8 @@ pub struct Configuration {
     /// The directory of the `local` file backend.
     #[serde(rename = "filespath")]
     pub files_path: String,
-    /// The largest accepted upload in bytes; zero for no limit.
+    /// The largest accepted upload in bytes: 100 MiB unless set. At least 1, and at most
+    /// what an upload in parts carries (`upload_part_bytes` × 10,000).
     #[serde(rename = "maxfilesize")]
     pub max_file_size: i64,
     /// The address of the metrics endpoint. Not supported; must be empty.
@@ -157,25 +154,36 @@ pub struct Configuration {
     /// The authentication mode. Only `native` is supported.
     #[serde(rename = "authmode")]
     pub auth_mode: String,
-    /// A logging configuration file of the original server. Not supported.
-    pub logging_cfg_file: String,
-    /// A logging configuration of the original server. Not supported.
-    pub logging_cfg_json: String,
-    /// An audit configuration file of the original server. Not supported.
-    pub audit_cfg_file: String,
-    /// An audit configuration of the original server. Not supported.
-    pub audit_cfg_json: String,
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
+    /// Whether the JSON answers of the API are compressed (gzip, brotli or zstd, as the
+    /// client's `Accept-Encoding` asks). On unless set: a proxy in front that compresses
+    /// itself can have it off.
+    pub compress_responses: bool,
     /// The largest body, in bytes, of a request to an API route that takes JSON. A
     /// larger one is refused with 413. It does not apply to file uploads, which are
-    /// bounded by `maxfilesize` (and not at all at its default of 0), nor to archive
-    /// imports, which have no limit on the request yet.
+    /// limited to one part (`upload_part_bytes`) as they are read, nor to the parts of
+    /// uploads, limited to their size, nor to archive imports, which have no limit on
+    /// the request yet.
     pub max_request_bytes: u64,
     /// How many days a deleted board or block stays in the trash, where it can be
     /// restored from, before it is removed for good.
     pub trash_retention_days: u32,
+    /// The size in bytes of every part of an upload in parts but the last
+    /// (`docs/s6-design.md` 5.6). At least 5 MiB, the smallest part an S3 multipart
+    /// upload takes.
+    pub upload_part_bytes: u64,
+    /// The directory of the server's temporary files: the parts of uploads that are not
+    /// complete yet. Empty for `.tmp` under `filespath`. Not the system's temporary
+    /// directory, which may be held in memory.
+    pub tmp_path: String,
+    /// The most bytes all open uploads in parts of the server may hold back at once:
+    /// the sum of their declared sizes (`docs/s6-design.md` 5.6, 8).
+    pub max_pending_upload_bytes: u64,
+    /// The largest archive an import takes, in bytes: 256 MiB unless set. At least 1,
+    /// and at most what an upload in parts carries (`upload_part_bytes` × 10,000).
+    pub max_import_bytes: u64,
     /// The addresses, and address ranges such as `10.0.0.0/8`, of the reverse proxies
     /// in front of the server. A request from one of them is taken to come from the
     /// address the proxy names in `X-Forwarded-For`; that header is believed from
@@ -225,7 +233,7 @@ impl Default for Configuration {
             files_driver: "local".to_owned(),
             files_s3_config: AmazonS3Config::default(),
             files_path: "./files".to_owned(),
-            max_file_size: 0,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
             prometheus_address: String::new(),
             webhook_update: Vec::new(),
             allowed_origins: Vec::new(),
@@ -240,13 +248,14 @@ impl Default for Configuration {
             show_email_address: false,
             show_full_name: false,
             auth_mode: "native".to_owned(),
-            logging_cfg_file: String::new(),
-            logging_cfg_json: String::new(),
-            audit_cfg_file: String::new(),
-            audit_cfg_json: String::new(),
             websocket_ping_seconds: 30,
+            compress_responses: true,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trash_retention_days: 30,
+            upload_part_bytes: DEFAULT_UPLOAD_PART_BYTES,
+            tmp_path: String::new(),
+            max_pending_upload_bytes: DEFAULT_MAX_PENDING_UPLOAD_BYTES,
+            max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
             trusted_proxies: Vec::new(),
             login_pair_free_failures: 5,
             login_pair_base_delay_seconds: 30,
@@ -295,8 +304,13 @@ impl std::fmt::Debug for Configuration {
             .field("show_full_name", &self.show_full_name)
             .field("auth_mode", &self.auth_mode)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
+            .field("compress_responses", &self.compress_responses)
             .field("max_request_bytes", &self.max_request_bytes)
             .field("trash_retention_days", &self.trash_retention_days)
+            .field("upload_part_bytes", &self.upload_part_bytes)
+            .field("tmp_path", &self.tmp_path)
+            .field("max_pending_upload_bytes", &self.max_pending_upload_bytes)
+            .field("max_import_bytes", &self.max_import_bytes)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("login_pair_free_failures", &self.login_pair_free_failures)
             .field(
@@ -339,9 +353,12 @@ enum EnvKind {
     List,
 }
 
-/// The configuration keys that an environment variable can override. The variable is the
-/// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
-const ENV_KEYS: [(&str, EnvKind); 40] = [
+/// The configuration keys that an environment variable can override, a key of
+/// `filess3config` as `filess3config.<key>`. The variable is [`env_name`] of the key, for
+/// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
+/// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
+/// empty.
+const ENV_KEYS: [(&str, EnvKind); 49] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -351,6 +368,14 @@ const ENV_KEYS: [(&str, EnvKind); 40] = [
     ("webpath", EnvKind::Text),
     ("filesdriver", EnvKind::Text),
     ("filespath", EnvKind::Text),
+    ("filess3config.bucket", EnvKind::Text),
+    ("filess3config.pathprefix", EnvKind::Text),
+    ("filess3config.region", EnvKind::Text),
+    ("filess3config.endpoint", EnvKind::Text),
+    ("filess3config.ssl", EnvKind::Flag),
+    ("filess3config.signv2", EnvKind::Flag),
+    ("filess3config.sse", EnvKind::Flag),
+    ("filess3config.timeout", EnvKind::Number),
     ("maxfilesize", EnvKind::Number),
     ("prometheusaddress", EnvKind::Text),
     ("webhook_update", EnvKind::List),
@@ -365,13 +390,14 @@ const ENV_KEYS: [(&str, EnvKind); 40] = [
     ("showemailaddress", EnvKind::Flag),
     ("showfullname", EnvKind::Flag),
     ("authmode", EnvKind::Text),
-    ("logging_cfg_file", EnvKind::Text),
-    ("logging_cfg_json", EnvKind::Text),
-    ("audit_cfg_file", EnvKind::Text),
-    ("audit_cfg_json", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
+    ("compress_responses", EnvKind::Flag),
     ("max_request_bytes", EnvKind::Number),
     ("trash_retention_days", EnvKind::Number),
+    ("upload_part_bytes", EnvKind::Number),
+    ("tmp_path", EnvKind::Text),
+    ("max_pending_upload_bytes", EnvKind::Number),
+    ("max_import_bytes", EnvKind::Number),
     ("trusted_proxies", EnvKind::List),
     ("login_pair_free_failures", EnvKind::Number),
     ("login_pair_base_delay_seconds", EnvKind::Number),
@@ -386,10 +412,32 @@ const ENV_KEYS: [(&str, EnvKind); 40] = [
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 
+/// The largest file, unless the configuration says otherwise: 100 MiB (decision 16 of
+/// `docs/s6-design.md`).
+const DEFAULT_MAX_FILE_SIZE: i64 = 100 * 1024 * 1024;
+
+/// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB
+/// (`docs/s6-design.md` 5.6, 8).
+const DEFAULT_MAX_PENDING_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// The largest archive an import takes unless configured (`docs/s6-design.md` 4.2).
+const DEFAULT_MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
+/// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
+const DEFAULT_UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
+
+/// The smallest part an S3 multipart upload takes, and so the smallest part size.
+pub const MIN_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024;
+
+/// The largest part an S3 multipart upload takes, and so the largest part size.
+pub const MAX_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+
 /// Keys of the original server's configuration that this server no longer has, each with
-/// what to do instead. A file or an environment that sets one to something is refused:
-/// a server that silently ignored it would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 5] = [
+/// what to do instead; a key of `filess3config` as `filess3config.<key>`. A file or an
+/// environment that sets one to something is refused: a server that silently ignored it
+/// would run differently from what its operator wrote.
+const REMOVED_KEYS: [(&str, &str); 10] = [
     (
         "dbtableprefix",
         "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
@@ -414,7 +462,51 @@ const REMOVED_KEYS: [(&str, &str); 5] = [
         "when a session was last used is recorded at most every ten minutes; there is \
          nothing to set",
     ),
+    (
+        "logging_cfg_file",
+        "the log is set with FVOCI_LOG_LEVEL and FVOCI_LOG_FORMAT",
+    ),
+    (
+        "logging_cfg_json",
+        "the log is set with FVOCI_LOG_LEVEL and FVOCI_LOG_FORMAT",
+    ),
+    ("audit_cfg_file", "there is no audit log"),
+    ("audit_cfg_json", "there is no audit log"),
+    (
+        "filess3config.trace",
+        "requests to the object store are not logged one by one",
+    ),
 ];
+
+/// The environment variable of a key: [`ENV_PREFIX`] and the key in capitals, a dot as
+/// `_`.
+fn env_name(key: &str) -> String {
+    format!("{ENV_PREFIX}{}", key.to_uppercase().replace('.', "_"))
+}
+
+/// The value of a key in the file's keys, a key of `filess3config` named
+/// `filess3config.<key>`.
+fn value_of<'a>(keys: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
+    match key.split_once('.') {
+        Some((outer, inner)) => keys.get(outer).and_then(|outer| outer.get(inner)),
+        None => keys.get(key),
+    }
+}
+
+/// Sets a key in the file's keys, a key of `filess3config` named `filess3config.<key>`
+/// (which [`Configuration::parse`] has made an object).
+fn set_value(keys: &mut Map<String, Value>, key: &str, value: Value) {
+    match key.split_once('.') {
+        Some((outer, inner)) => {
+            if let Some(Value::Object(outer)) = keys.get_mut(outer) {
+                outer.insert(inner.to_owned(), value);
+            }
+        }
+        None => {
+            keys.insert(key.to_owned(), value);
+        }
+    }
+}
 
 /// Whether a configuration value says nothing: what a removed key may still hold.
 fn is_unset(value: &Value) -> bool {
@@ -455,25 +547,41 @@ impl Configuration {
             bail!("the configuration must be a JSON object");
         };
         let mut keys = lower_case_keys(file);
-        if let Some(Value::Object(s3)) = keys.remove("filess3config") {
-            keys.insert(
-                "filess3config".to_owned(),
-                Value::Object(lower_case_keys(s3)),
-            );
+        match keys.remove("filess3config") {
+            Some(Value::Object(s3)) => {
+                keys.insert(
+                    "filess3config".to_owned(),
+                    Value::Object(lower_case_keys(s3)),
+                );
+            }
+            None | Some(Value::Null) => {
+                keys.insert("filess3config".to_owned(), Value::Object(Map::new()));
+            }
+            Some(_) => bail!("filess3config must be a JSON object"),
         }
 
         for (key, kind) in ENV_KEYS {
-            let name = format!("{ENV_PREFIX}{}", key.to_uppercase());
+            let name = env_name(key);
             if let Some(text) = env(&name) {
-                keys.insert(key.to_owned(), env_value(&name, &text, kind)?);
+                set_value(&mut keys, key, env_value(&name, &text, kind)?);
             }
         }
 
         for (key, instead) in REMOVED_KEYS {
-            let name = format!("{ENV_PREFIX}{}", key.to_uppercase());
-            let from_env = env(&name).is_some_and(|text| !text.trim().is_empty());
-            if from_env || keys.get(key).is_some_and(|value| !is_unset(value)) {
+            let from_env = env(&env_name(key)).is_some_and(|text| !text.trim().is_empty());
+            if from_env || value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
                 bail!("{key} is no longer a setting: {instead}");
+            }
+        }
+        // The S3 credentials come from the AWS_* variables only; a variable named like
+        // the other S3 settings would otherwise be passed over without a word.
+        for key in ["filess3config.accesskeyid", "filess3config.secretaccesskey"] {
+            let name = env_name(key);
+            if env(&name).is_some_and(|text| !text.trim().is_empty()) {
+                bail!(
+                    "{name} is not read: leave filess3config.accesskeyid empty and give the \
+                     credentials as AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+                );
             }
         }
 
@@ -495,6 +603,65 @@ impl Configuration {
         i64::from(self.trash_retention_days).saturating_mul(MILLIS_PER_DAY)
     }
 
+    /// The directory of the server's temporary files: `tmp_path`, or `.tmp` under
+    /// `filespath`.
+    pub fn tmp_dir(&self) -> std::path::PathBuf {
+        if self.tmp_path.is_empty() {
+            std::path::Path::new(&self.files_path).join(".tmp")
+        } else {
+            std::path::PathBuf::from(&self.tmp_path)
+        }
+    }
+
+    /// Checks the limits on uploads: none turns a limit off, and they fit together.
+    fn check_upload_limits(&self) -> anyhow::Result<()> {
+        // An S3 multipart upload takes no smaller part but the last, and none larger.
+        if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
+            bail!(
+                "upload_part_bytes must be {MIN_UPLOAD_PART_BYTES} (5 MiB) to \
+                 {MAX_UPLOAD_PART_BYTES} (5 GiB)"
+            );
+        }
+        // Zero once meant "no limit"; a server without one is not something to end up
+        // with by leaving a number at what it was (`docs/s6-design.md` 4.2).
+        let largest = self
+            .upload_part_bytes
+            .saturating_mul(u64::try_from(fvoci_model::MAX_UPLOAD_PARTS).unwrap_or(0));
+        if u64::try_from(self.max_file_size).map_or(true, |size| size == 0 || size > largest) {
+            bail!(
+                "maxfilesize must be 1 to {largest} bytes (upload_part_bytes times 10,000 \
+                 parts), not {}",
+                self.max_file_size
+            );
+        }
+        // Less would refuse the largest file with 429 every time, as if it might fit later.
+        // Positive, as checked above.
+        let max_file_size = u64::try_from(self.max_file_size).unwrap_or(0);
+        if self.max_pending_upload_bytes < max_file_size {
+            bail!(
+                "max_pending_upload_bytes must be at least maxfilesize ({max_file_size}), \
+                 not {}",
+                self.max_pending_upload_bytes
+            );
+        }
+        // An archive comes as an upload in parts too.
+        if self.max_import_bytes == 0 || self.max_import_bytes > largest {
+            bail!(
+                "max_import_bytes must be 1 to {largest} bytes (upload_part_bytes times \
+                 10,000 parts), not {}",
+                self.max_import_bytes
+            );
+        }
+        if self.max_pending_upload_bytes < self.max_import_bytes {
+            bail!(
+                "max_pending_upload_bytes must be at least max_import_bytes ({}), not {}",
+                self.max_import_bytes,
+                self.max_pending_upload_bytes
+            );
+        }
+        Ok(())
+    }
+
     /// Checks that the configuration only asks for what this server supports.
     ///
     /// Returns the warnings for settings that are accepted but have no effect.
@@ -502,14 +669,18 @@ impl Configuration {
     /// # Errors
     ///
     /// Returns an error naming the first setting this server cannot honor: an
-    /// authentication mode other than `native`, a metrics address, an unknown file
-    /// backend, or version 2 request signing for S3.
+    /// authentication mode other than `native`, a metrics address, port 0, a limit of
+    /// zero, an unknown file backend, or version 2 request signing for S3.
     pub fn check(&self) -> anyhow::Result<Vec<String>> {
         if self.auth_mode != "native" {
             bail!(
                 "authMode {:?} is not supported; this server only has native authentication",
                 self.auth_mode
             );
+        }
+        // Zero would listen on any free port, not on one the operator can name.
+        if self.port == 0 {
+            bail!("port must be 1 to 65535, not 0");
         }
         // Zero does not mean "no limit": a server that takes bodies of any size is not
         // something to end up with by leaving a number out.
@@ -531,6 +702,7 @@ impl Configuration {
         if self.trash_retention_days == 0 {
             bail!("trash_retention_days must be at least 1");
         }
+        self.check_upload_limits()?;
         if !self.prometheus_address.is_empty() {
             bail!("prometheusaddress is set, but this server has no metrics endpoint");
         }
@@ -546,17 +718,7 @@ impl Configuration {
             other => bail!("filesdriver {other:?} is not supported; use \"local\" or \"amazons3\""),
         }
 
-        let ignored = [
-            ("logging_cfg_file", &self.logging_cfg_file),
-            ("logging_cfg_json", &self.logging_cfg_json),
-            ("audit_cfg_file", &self.audit_cfg_file),
-            ("audit_cfg_json", &self.audit_cfg_json),
-        ];
-        let mut warnings: Vec<String> = ignored
-            .into_iter()
-            .filter(|(_, value)| !value.is_empty())
-            .map(|(key, _)| format!("{key} is set but not supported and has no effect"))
-            .collect();
+        let mut warnings = Vec::new();
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
         // which address that is, all clients are one client to the login limits: one
@@ -693,6 +855,11 @@ mod tests {
         assert_eq!(config.session_idle_millis(), 14 * 24 * 60 * 60 * 1000);
         assert_eq!(config.session_max_millis(), 90 * 24 * 60 * 60 * 1000);
         assert_eq!(config.trash_retention_days, 30);
+        assert_eq!(config.upload_part_bytes, 8 * 1024 * 1024);
+        assert_eq!(config.max_file_size, 100 * 1024 * 1024);
+        assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(config.max_import_bytes, 256 * 1024 * 1024);
+        assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");
         assert_eq!(config.teammate_name_display, "username");
         assert_eq!(
@@ -700,12 +867,28 @@ mod tests {
             "/var/tmp/fvoci_local.socket"
         );
         assert_eq!(config.websocket_ping_seconds, 30);
+        assert!(
+            config.compress_responses,
+            "API answers are compressed by default"
+        );
         let warnings = config.check().expect("the defaults are supported");
         assert_eq!(
             warnings,
             Vec::<String>::new(),
             "the defaults cause no warning"
         );
+    }
+
+    #[test]
+    fn a_port_of_zero_and_s3_settings_that_are_no_object_are_refused() {
+        let config = Configuration::parse(r#"{"port": 0}"#, no_env).expect("read");
+        let error = config.check().expect_err("port 0 is refused");
+        assert!(error.to_string().contains("port"), "{error}");
+        let Err(error) = Configuration::parse(r#"{"filesS3Config": "x"}"#, no_env) else {
+            panic!("a string is no S3 settings");
+        };
+        assert!(error.to_string().contains("filess3config"), "{error}");
+        Configuration::parse(r#"{"filesS3Config": null}"#, no_env).expect("null is no settings");
     }
 
     /// A file written for the original server, with its unknown keys, but for the
@@ -775,6 +958,56 @@ mod tests {
         assert_eq!(config.session_idle_days, 3);
     }
 
+    /// The settings of S3 that differ between deployments come from the environment too
+    /// (user decision 2026-11-11 11:05 KST); the credentials do not.
+    #[test]
+    fn the_environment_overrides_the_s3_settings_but_not_the_credentials() {
+        let env = |name: &str| match name {
+            "FVOCI_FILESS3CONFIG_BUCKET" => Some("from-env".to_owned()),
+            "FVOCI_FILESS3CONFIG_SSL" => Some("on".to_owned()),
+            "FVOCI_FILESS3CONFIG_TIMEOUT" => Some("5000".to_owned()),
+            "FVOCI_FILESS3CONFIG_SIGNV2" => Some("true".to_owned()),
+            _ => None,
+        };
+        let file = r#"{"FilesS3Config": {"Bucket": "from-file", "Region": "eu-west-1"}}"#;
+        for text in [file, "{}", r#"{"filess3config": null}"#] {
+            let s3 = Configuration::parse(text, env)
+                .expect("valid")
+                .files_s3_config;
+            assert_eq!(s3.bucket, "from-env", "{text}");
+            assert!(s3.ssl, "{text}");
+            assert_eq!(s3.timeout, 5000, "{text}");
+        }
+        let s3 = Configuration::parse(file, env)
+            .expect("valid")
+            .files_s3_config;
+        assert_eq!(
+            s3.region, "eu-west-1",
+            "the keys the environment leaves stay"
+        );
+        let bad = |name: &str| (name == "FVOCI_FILESS3CONFIG_SSE").then(|| "maybe".to_owned());
+        assert!(
+            Configuration::parse("{}", bad).is_err(),
+            "an unreadable flag"
+        );
+        let amazon = Configuration::parse(r#"{"filesdriver": "amazons3"}"#, env).expect("valid");
+        assert!(
+            amazon.check().is_err(),
+            "the signing scheme from the environment is checked"
+        );
+        for name in [
+            "FVOCI_FILESS3CONFIG_ACCESSKEYID",
+            "FVOCI_FILESS3CONFIG_SECRETACCESSKEY",
+        ] {
+            let credentials = |asked: &str| (asked == name).then(|| "key".to_owned());
+            let error = Configuration::parse("{}", credentials).expect_err("not read, refused");
+            assert!(error.to_string().contains("AWS_ACCESS_KEY_ID"), "{name}");
+        }
+        let blank =
+            |asked: &str| (asked == "FVOCI_FILESS3CONFIG_SECRETACCESSKEY").then(String::new);
+        Configuration::parse("{}", blank).expect("a blank credential variable is not in the way");
+    }
+
     #[test]
     fn bad_input_is_an_error() {
         assert!(Configuration::parse("[]", no_env).is_err(), "not an object");
@@ -808,9 +1041,20 @@ mod tests {
         // that sets them is told what there is instead.
         assert!(error(r#"{"session_expire_time": 2592000}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_refresh_time": 18000}"#).contains("ten minutes"));
+        // The settings that did nothing (user decision 2026-11-11 11:05 KST).
+        assert!(error(r#"{"logging_cfg_json": "{}"}"#).contains("FVOCI_LOG_LEVEL"));
+        assert!(error(r#"{"audit_cfg_file": "a.json"}"#).contains("audit"));
+        assert!(error(r#"{"FilesS3Config": {"Trace": true}}"#).contains("filess3config.trace"));
+        let env = |name: &str| (name == "FVOCI_FILESS3CONFIG_TRACE").then(|| "false".to_owned());
+        let error = Configuration::parse("{}", env).expect_err("its variable, even false");
+        assert!(error.to_string().contains("filess3config.trace"));
         // A file written for the original server usually carries the key, empty.
-        Configuration::parse(r#"{"dbtableprefix": ""}"#, no_env)
-            .expect("a removed key that says nothing is not in the way");
+        Configuration::parse(
+            r#"{"dbtableprefix": "", "logging_cfg_file": "", "audit_cfg_json": "",
+                "filess3config": {"Trace": false}}"#,
+            no_env,
+        )
+        .expect("a removed key that says nothing is not in the way");
     }
 
     #[test]
@@ -828,17 +1072,35 @@ mod tests {
         // Zero would not mean "no limit" to anyone who reads it as "nothing".
         assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
         assert!(error(r#"{"trash_retention_days": 0}"#).contains("trash_retention_days"));
+        assert!(error(r#"{"upload_part_bytes": 5242879}"#).contains("upload_part_bytes"));
+        assert!(error(r#"{"upload_part_bytes": 5368709121}"#).contains("upload_part_bytes"));
+        assert!(error(r#"{"max_pending_upload_bytes": 0}"#).contains("max_pending_upload_bytes"));
+        for size in ["0", "-1", "83886080001"] {
+            assert!(
+                error(&format!(r#"{{"maxfilesize": {size}}}"#)).contains("maxfilesize"),
+                "{size}"
+            );
+        }
+        assert!(
+            error(r#"{"maxfilesize": 2000, "max_pending_upload_bytes": 1999}"#)
+                .contains("max_pending_upload_bytes")
+        );
+        for size in ["0", "83886080001"] {
+            assert!(
+                error(&format!(r#"{{"max_import_bytes": {size}}}"#)).contains("max_import_bytes"),
+                "{size}"
+            );
+        }
+        assert!(
+            error(r#"{"maxfilesize": 2000, "max_import_bytes": 3000, "max_pending_upload_bytes": 2500}"#)
+                .contains("max_import_bytes")
+        );
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(
             error(r#"{"filesdriver": "amazons3", "filess3config": {"SignV2": true}}"#)
                 .contains("SignV2")
         );
-
-        let warnings = parse(r#"{"logging_cfg_json": "{}", "audit_cfg_file": "a.json"}"#)
-            .check()
-            .expect("unsupported logging settings only warn");
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
     }
 
     #[test]
@@ -917,5 +1179,138 @@ mod tests {
             !debug.contains("hunter2") && !debug.contains("s3cr3t"),
             "{debug}"
         );
+    }
+
+    /// A file of the repository, read whole.
+    fn repository_file(path: &str) -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(path);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()))
+    }
+
+    /// What `docs/configuration.md` says about the keys.
+    #[derive(Debug, Default)]
+    struct Documented {
+        /// The default of each key, lower-cased, as JSON.
+        defaults: BTreeMap<String, Value>,
+        /// The environment variable of each key that has one.
+        env: BTreeMap<String, String>,
+        /// The removed keys.
+        removed: Vec<String>,
+    }
+
+    /// The text of a table cell between backticks, if it is all in backticks.
+    fn code(cell: &str) -> Option<&str> {
+        cell.trim().strip_prefix('`')?.strip_suffix('`')
+    }
+
+    /// Reads the tables of the document: the rows of the sections "키: …" are keys, and
+    /// those of "없앤 키" are removed keys.
+    fn documented(text: &str) -> Documented {
+        let mut documented = Documented::default();
+        let mut section = "";
+        for line in text.lines() {
+            if let Some(heading) = line.strip_prefix("## ") {
+                section = heading;
+                continue;
+            }
+            let Some(row) = line.strip_prefix('|') else {
+                continue;
+            };
+            let cells: Vec<&str> = row.split('|').collect();
+            let Some(key) = cells.first().and_then(|cell| code(cell)) else {
+                continue;
+            };
+            let key = key.to_lowercase();
+            if section.starts_with("키:") {
+                assert!(cells.len() >= 5, "a row of five cells: {line}");
+                let default = code(cells[3]).unwrap_or_else(|| panic!("a default: {line}"));
+                let default: Value = serde_json::from_str(default)
+                    .unwrap_or_else(|error| panic!("the default of {key} is JSON ({error})"));
+                if let Some(env) = code(cells[1]) {
+                    documented.env.insert(key.clone(), env.to_owned());
+                }
+                assert!(
+                    documented.defaults.insert(key.clone(), default).is_none(),
+                    "{key} is documented once"
+                );
+            } else if section == "없앤 키" {
+                documented.removed.push(key);
+            }
+        }
+        documented
+    }
+
+    /// The keys of the configuration and their defaults, the keys of `filess3config`
+    /// as `filess3config.<key>`.
+    fn code_defaults() -> BTreeMap<String, Value> {
+        let Value::Object(keys) =
+            serde_json::to_value(Configuration::default()).expect("the defaults serialize")
+        else {
+            panic!("the configuration is an object");
+        };
+        let mut defaults = BTreeMap::new();
+        for (key, value) in keys {
+            match value {
+                Value::Object(inner) if key == "filess3config" => {
+                    for (inner_key, inner_value) in inner {
+                        defaults.insert(format!("{key}.{inner_key}"), inner_value);
+                    }
+                }
+                other => {
+                    defaults.insert(key, other);
+                }
+            }
+        }
+        defaults
+    }
+
+    #[test]
+    fn the_configuration_document_lists_every_key() {
+        let documented = documented(&repository_file("docs/configuration.md"));
+        let defaults = code_defaults();
+        assert_eq!(
+            documented.defaults.keys().collect::<Vec<_>>(),
+            defaults.keys().collect::<Vec<_>>(),
+            "docs/configuration.md lists the keys the server reads"
+        );
+        for (key, default) in &defaults {
+            assert_eq!(
+                &documented.defaults[key], default,
+                "the default of {key} in docs/configuration.md"
+            );
+        }
+        let env: BTreeMap<String, String> = ENV_KEYS
+            .iter()
+            .map(|(key, _)| ((*key).to_owned(), env_name(key)))
+            .collect();
+        assert_eq!(
+            documented.env, env,
+            "docs/configuration.md names the environment variables the server reads"
+        );
+        let removed: Vec<String> = REMOVED_KEYS
+            .iter()
+            .map(|(key, _)| (*key).to_owned())
+            .collect();
+        assert_eq!(
+            documented.removed, removed,
+            "docs/configuration.md lists the removed keys"
+        );
+    }
+
+    #[test]
+    fn the_example_configuration_files_are_read() {
+        // The configuration files of the repository: what is copied into the image.
+        let examples = ["docker/fvoci/config.json"];
+        for path in examples {
+            let config = Configuration::parse(&repository_file(path), no_env)
+                .unwrap_or_else(|error| panic!("{path} is read: {error:#}"));
+            let warnings = config
+                .check()
+                .unwrap_or_else(|error| panic!("{path} is accepted: {error:#}"));
+            assert!(warnings.is_empty(), "{path} gives no warning: {warnings:?}");
+        }
     }
 }

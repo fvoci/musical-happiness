@@ -456,30 +456,6 @@
       "text": "shelby.olson@email.com"
     },
     {
-      "template": "personal-tasks",
-      "kind": "image",
-      "where": "Go for a walk / body",
-      "text": "76fwrj36hptg6dywka4k5mt3sph.png"
-    },
-    {
-      "template": "sprint-planner",
-      "kind": "image",
-      "where": "Horizontal scroll issue / body",
-      "text": "7tmfu5iqju3n1mdfwi5gru89qmw.png"
-    },
-    {
-      "template": "sprint-planner",
-      "kind": "image",
-      "where": "Login screen not loading / body",
-      "text": "7b9xk9boj3fbqfm3umeaaizp8qr.png"
-    },
-    {
-      "template": "sprint-planner",
-      "kind": "image",
-      "where": "Bug / body",
-      "text": "7tmfu5iqju3n1mdfwi5gru89qmw.png"
-    },
-    {
       "template": "user-research-sessions",
       "kind": "example-email",
       "where": "Frank Nash / value of \"Email\"",
@@ -510,42 +486,6 @@
       "text": "bernadette.powell@email.com"
     },
     {
-      "template": "content-calendar",
-      "kind": "image",
-      "where": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci / body",
-      "text": "7y5kr8x8ybpnwdykjfuz57rggrh.png"
-    },
-    {
-      "template": "roadmap",
-      "kind": "image",
-      "where": "App crashing / body",
-      "text": "77pe9r4ckbin438ph3f18bpatua.png"
-    },
-    {
-      "template": "roadmap",
-      "kind": "image",
-      "where": "Icons don't display / body",
-      "text": "7pbp4qg415pbstc6enzeicnu3qh.png"
-    },
-    {
-      "template": "welcome",
-      "kind": "image",
-      "where": "Create your own board / body",
-      "text": "74uia99m9btr8peydw7oexn37tw.gif"
-    },
-    {
-      "template": "welcome",
-      "kind": "image",
-      "where": "Share a board / body",
-      "text": "7knxbyuiedtdafcgmropgkrtybr.gif"
-    },
-    {
-      "template": "welcome",
-      "kind": "image",
-      "where": "Create a new card / body",
-      "text": "7iw4rxx7jj7bypmdotd9z469cyh.png"
-    },
-    {
       "template": "welcome",
       "kind": "other-product",
       "where": "Share cards on Channels / body",
@@ -559,39 +499,9 @@
     },
     {
       "template": "welcome",
-      "kind": "image",
-      "where": "Share cards on Channels / body",
-      "text": "7ek6wbpp19jfoujs1goh6kttbby.gif"
-    },
-    {
-      "template": "welcome",
-      "kind": "image",
-      "where": "Filter and sort cards / body",
-      "text": "7dybb6t8fj3nrdft7nerhuf784y.png"
-    },
-    {
-      "template": "welcome",
-      "kind": "image",
-      "where": "Create a new view / body",
-      "text": "78jws5m1myf8pufewzkaa6i11sc.gif"
-    },
-    {
-      "template": "welcome",
-      "kind": "image",
-      "where": "Add new properties / body",
-      "text": "7d6hrtig3zt8f9cnbo1um5oxx3y.gif"
-    },
-    {
-      "template": "welcome",
       "kind": "other-product",
       "where": "@mention teammates / body",
       "text": "Whenever any changes are made to the card, they'll automatically get notified on Channels."
-    },
-    {
-      "template": "welcome",
-      "kind": "image",
-      "where": "@mention teammates / body",
-      "text": "74nt9eqzea3ydjjpgjtsxcjgrxc.gif"
     }
   ]
 }

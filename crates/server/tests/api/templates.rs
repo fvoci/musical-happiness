@@ -43,13 +43,13 @@ async fn get_templates_returns_the_built_in_templates() {
         "all are open"
     );
     assert!(
-        boards.iter().all(|board| board.template_version >= 6),
+        boards.iter().all(|board| board.template_version >= 7),
         "all are at least the current version"
     );
     assert!(
         boards
             .iter()
-            .any(|board| board.title == "Welcome to Boards!"),
+            .any(|board| board.title == "Welcome to fvoci!"),
         "the welcome board is present"
     );
 
@@ -321,5 +321,218 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .post_empty(&format!("/boards/{}/duplicate", welcome.id))
         .await
         .check_created();
+    ts.teardown().await;
+}
+
+/// The converter's index of the templates (`apps/web/tools/templates/output/README.md`).
+fn converter_index() -> Value {
+    serde_json::from_str(include_str!(
+        "../../../../apps/web/tools/templates/output/index.json"
+    ))
+    .expect("the index is JSON")
+}
+
+/// The built-in templates are the converter's output (`docs/s6-design.md` 3.10): the
+/// thirteen of its index, one marked for the onboarding tour, each with its key, the
+/// cards' bodies as documents, no pictures, dates in the shape of 5.7, and views whose
+/// card order names cards of their board.
+#[tokio::test]
+async fn the_built_in_templates_are_the_converted_ones() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let boards = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .await
+        .ok_json::<Vec<Board>>();
+    let index = converter_index();
+    let listed = index["templates"].as_array().expect("a list");
+    let mut keys: Vec<&str> = boards
+        .iter()
+        .filter_map(|board| board.properties.get("templateKey").and_then(Value::as_str))
+        .collect();
+    keys.sort_unstable();
+    let mut expected: Vec<&str> = listed
+        .iter()
+        .filter_map(|template| template["key"].as_str())
+        .collect();
+    expected.sort_unstable();
+    assert_eq!(keys.len(), 13, "{keys:?}");
+    assert_eq!(keys, expected, "the templates of the index, each once");
+    assert_eq!(
+        boards
+            .iter()
+            .filter(|board| board.properties.get("onboarding") == Some(&json!(true)))
+            .count(),
+        1,
+        "one is marked for the tour"
+    );
+
+    let (mut bodies, mut dates, mut ordered) = (0, 0, 0);
+    for board in &boards {
+        let blocks = ts
+            .client
+            .get(&format!("/boards/{}/blocks", board.id))
+            .await
+            .ok_json::<Vec<Value>>();
+        let cards: Vec<&Value> = blocks
+            .iter()
+            .filter(|block| block["type"] == json!("card"))
+            .map(|block| &block["id"])
+            .collect();
+        for block in &blocks {
+            if block["body"].is_object() {
+                bodies += 1;
+                assert!(
+                    !block["body"].to_string().contains(r#""type":"image""#),
+                    "no picture: {}",
+                    block["title"]
+                );
+            }
+            for value in block["fields"]["properties"]
+                .as_object()
+                .into_iter()
+                .flat_map(serde_json::Map::values)
+            {
+                if value.is_object() {
+                    dates += 1;
+                }
+            }
+            for card in block["fields"]["cardOrder"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    cards.contains(&card),
+                    "{card} in the order of {}",
+                    block["title"]
+                );
+                ordered += 1;
+            }
+        }
+    }
+    let sum = |member: &str| -> u64 {
+        listed
+            .iter()
+            .filter_map(|template| template[member].as_u64())
+            .sum()
+    };
+    assert_eq!(bodies, sum("bodies"), "the cards have their bodies");
+    assert_eq!(
+        dates,
+        index["conversions"]["dateValues"]
+            .as_u64()
+            .expect("a count"),
+        "the dates of the templates, in the new shape"
+    );
+    assert!(ordered > 0, "the views have card orders");
+    ts.teardown().await;
+}
+
+/// The server's copy of the templates is the converter's output as it is in the
+/// repository: a change there is taken over by copying the files again.
+#[test]
+fn the_server_copy_of_the_templates_is_the_converter_output() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = root.join("../../apps/web/tools/templates/output");
+    let copy = root.join("assets/templates");
+    let mut names: Vec<String> = std::fs::read_dir(&copy)
+        .expect("the server's copy")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    let mut expected: Vec<String> = converter_index()["templates"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter_map(|template| template["file"].as_str().map(str::to_owned))
+        .collect();
+    expected.sort();
+    assert_eq!(names, expected, "the files of the index");
+    for name in &names {
+        assert_eq!(
+            std::fs::read(copy.join(name)).expect("the copy"),
+            std::fs::read(output.join(name)).expect("the output"),
+            "{name} is copied as it is: copy the template files that apps/web/tools/templates/output/index.json lists into this crate's assets/templates/"
+        );
+    }
+}
+
+/// Templates that are stored again take the files of the old ones with them, from the
+/// storage too: the records go with the boards, and nothing would name the files after.
+#[tokio::test]
+async fn templates_stored_again_remove_the_old_files() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let old = ts
+        .app
+        .store()
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates")
+        .into_iter()
+        .find(|board| board.properties.get("onboarding") == Some(&json!(true)))
+        .expect("the marked one");
+    let file = fvoci_model::FileInfo {
+        id: fvoci_model::new_id(),
+        board_id: old.id.clone(),
+        stored_name: "picture.png".to_owned(),
+        name: "picture.png".to_owned(),
+        size: 3,
+        path: format!("{}/picture.png", old.id),
+        create_at: 1,
+        ..fvoci_model::FileInfo::default()
+    };
+    ts.app
+        .files()
+        .write(&file.path, &mut &b"png"[..])
+        .await
+        .expect("the file is stored");
+    ts.app
+        .store()
+        .save_file_info(&file)
+        .await
+        .expect("the file is recorded");
+    // As a database looks whose templates are of an older version.
+    let unmark = fvoci_model::BoardPatch {
+        deleted_properties: vec!["onboarding".to_owned()],
+        ..fvoci_model::BoardPatch::default()
+    };
+    ts.app
+        .store()
+        .patch_board(&old.id, &unmark, "")
+        .await
+        .expect("the mark is removed");
+
+    assert!(
+        ts.app
+            .init_templates()
+            .await
+            .expect("the templates are stored"),
+        "they are stored again"
+    );
+    assert!(
+        !ts.app
+            .files()
+            .exists(&file.path)
+            .await
+            .expect("the storage answers"),
+        "the old template's file is gone"
+    );
     ts.teardown().await;
 }

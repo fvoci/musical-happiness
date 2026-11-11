@@ -4,8 +4,10 @@
 
 use std::path::Path;
 
-use fvoci_model::{Block, BoardType, Category, CategoryType, FileInfo, new_id};
-use fvoci_store::{DbType, Store, StoreError};
+use fvoci_model::{
+    Block, BlockType, BoardType, BodySummary, Category, CategoryType, FileInfo, new_id,
+};
+use fvoci_store::{BlockFilter, DbType, Store, StoreError};
 use tokio::task::JoinSet;
 
 use crate::common;
@@ -467,10 +469,15 @@ const POSTGRES_ONLY_TYPES: [&str; 3] = ["UUID", "JSONB", "JSON"];
 
 /// Reads the baseline schema of a database kind.
 fn baseline_schema(directory: &str) -> String {
+    schema_file(directory, "0001_baseline.sql")
+}
+
+/// Reads a migration of a database kind.
+fn schema_file(directory: &str, name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("schema")
         .join(directory)
-        .join("0001_baseline.sql");
+        .join(name);
     std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()))
 }
@@ -540,6 +547,448 @@ fn schema_difference(postgres: &str, sqlite: &str) -> Option<String> {
         .map(|(number, line)| {
             format!("SQLite line {number} `{line}` is past the end of the PostgreSQL baseline")
         })
+}
+
+/// The two migrations that add the body describe one change, as the baselines do.
+#[test]
+fn the_two_body_migrations_differ_in_the_column_types_only() {
+    let postgres = schema_file("postgres", "0002_body.sql");
+    let sqlite = schema_file("sqlite", "0002_body.sql");
+    assert_eq!(
+        statement_lines(&postgres).len(),
+        5,
+        "five columns: {postgres}"
+    );
+    assert_eq!(
+        schema_difference(&postgres, &sqlite),
+        None,
+        "the body migrations of the two databases add different columns"
+    );
+}
+
+/// A database of the baseline alone, with blocks in it, takes the body migration: the
+/// blocks have no body and nothing to count.
+#[tokio::test]
+async fn blocks_stored_before_the_body_migration_have_no_body() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let mut card = Block {
+        id: new_id(),
+        board_id: boards[0].id.clone(),
+        block_type: BlockType::Card,
+        title: "from before".to_owned(),
+        ..Block::default()
+    };
+    test.insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is stored");
+    test.store.close().await;
+    // Back to the baseline, as a database the previous server left behind.
+    for statement in [
+        "ALTER TABLE blocks DROP COLUMN body",
+        "ALTER TABLE blocks DROP COLUMN body_version",
+        "ALTER TABLE blocks DROP COLUMN body_text",
+        "ALTER TABLE blocks DROP COLUMN body_tasks_total",
+        "ALTER TABLE blocks DROP COLUMN body_tasks_done",
+        "DELETE FROM _sqlx_migrations WHERE version = 2",
+    ] {
+        common::execute_raw(&test.dbconfig(), statement).await;
+    }
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store migrates the database");
+    let read = store.get_block(&card.id).await.expect("the card is read");
+    assert_eq!(read.body, None, "{read:?}");
+    assert_eq!(read.title, "from before");
+    let listed = store
+        .get_listed_blocks(&BlockFilter::board(&boards[0].id))
+        .await
+        .expect("the cards are listed");
+    assert_eq!(
+        listed,
+        [(read, BodySummary::default())],
+        "no body and no tasks"
+    );
+    store.close().await;
+
+    test.teardown().await;
+}
+
+/// Two attachment blocks that name their file by `fileId`, one by `attachmentId`, and
+/// two cards whose bodies show an image deep in the document; the second and the fourth
+/// go to the trash.
+fn blocks_showing(board_id: &str) -> [Block; 5] {
+    let image = |name: &str| Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Attachment,
+        fields: serde_json::from_value(serde_json::json!({ "fileId": name }))
+            .expect("the fields are a JSON object"),
+        ..Block::default()
+    };
+    let card = |name: &str| Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        body: fvoci_model::Body::parse(serde_json::json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "x"}]},
+            // Deep in the document, as the back-fill must find it.
+            {"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "y"}]},
+                {"type": "blockquote", "content": [
+                    {"type": "image", "attrs": {"fileId": name}},
+                ]},
+            ]}]},
+        ]}))
+        .expect("the body may be stored"),
+        ..Block::default()
+    };
+    [
+        image("7image.png"),
+        image("7trash.png"),
+        card("7body.png"),
+        card("7trashbody.png"),
+        Block {
+            id: new_id(),
+            board_id: board_id.to_owned(),
+            block_type: BlockType::Attachment,
+            fields: serde_json::from_value(
+                serde_json::json!({ "attachmentId": "7attachment.png" }),
+            )
+            .expect("the fields are a JSON object"),
+            ..Block::default()
+        },
+    ]
+}
+
+/// Writes, as the server before migration 4 stored them, date properties on every
+/// board, and the values of cards and the filters of views among the blocks: a date in
+/// the previous shape, one that cannot be read, and their look-alikes in a text
+/// property.
+async fn store_previous_shapes(dbconfig: &str, blocks: &[Block]) {
+    let definitions = r#"[{"id": "due", "type": "date"}, {"id": "bad", "type": "date"}, {"id": "note", "type": "text"}]"#;
+    let card_fields = r#"{"properties": {"due": "{\"from\":1772679600000}", "note": "{\"from\":1}", "bad": "x"}}"#;
+    let view_fields = r#"{"filter": {"operation": "and", "filters": [{"propertyId": "due", "condition": "is", "values": ["1772679600000"]}, {"operation": "or", "filters": [{"propertyId": "note", "condition": "is", "values": ["1"]}]}]}}"#;
+    let mut statements = vec![format!(
+        "UPDATE boards SET card_properties = '{definitions}'"
+    )];
+    for (block, fields) in blocks.iter().zip([
+        card_fields,
+        view_fields,
+        card_fields,
+        view_fields,
+        card_fields,
+    ]) {
+        statements.push(format!(
+            "UPDATE blocks SET fields = '{fields}' WHERE id = '{}'",
+            block.id
+        ));
+    }
+    for statement in &statements {
+        common::execute_raw(dbconfig, statement).await;
+    }
+}
+
+/// The data step of migration 4 turns stored date values of the previous shape into
+/// those of `docs/s6-design.md` 5.7: a card's value of a date property and a view's
+/// date filter, live, in the trash, and on a board in the trash. Other properties and
+/// filters stay as they were.
+#[tokio::test]
+async fn the_date_value_step_rewrites_what_was_stored_before() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 2).await;
+    let (board_id, trashed_board) = (&boards[0].id, &boards[1].id);
+    let block = |board_id: &str, block_type| Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type,
+        ..Block::default()
+    };
+    // A card and a view that stay, a card and a view that go to the trash, and a card
+    // of the board that goes to the trash.
+    let mut blocks = [
+        block(board_id, BlockType::Card),
+        block(board_id, BlockType::View),
+        block(board_id, BlockType::Card),
+        block(board_id, BlockType::View),
+        block(trashed_board, BlockType::Card),
+    ];
+    common::insert_blocks(&test, &mut blocks, &user_id).await;
+    test.store.close().await;
+    store_previous_shapes(&test.dbconfig(), &blocks).await;
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store starts");
+    for in_trash in [&blocks[2], &blocks[3]] {
+        store
+            .delete_block(&in_trash.id, &user_id)
+            .await
+            .expect("a block goes to the trash");
+    }
+    store
+        .delete_board(trashed_board, &user_id)
+        .await
+        .expect("a board goes to the trash");
+    store.close().await;
+    common::execute_raw(
+        &test.dbconfig(),
+        "INSERT INTO data_steps (name) VALUES ('date_values')",
+    )
+    .await;
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store does the step");
+    store
+        .undelete_board(trashed_board, &user_id)
+        .await
+        .expect("the board comes back");
+    for in_trash in [&blocks[2], &blocks[3]] {
+        store
+            .undelete_block(&in_trash.id, &user_id)
+            .await
+            .expect("a block comes back");
+    }
+    let expected = serde_json::json!({
+        "due": {"from": "2026-03-05"}, "note": "{\"from\":1}", "bad": null,
+    });
+    for card in [&blocks[0], &blocks[2], &blocks[4]] {
+        let card = store.get_block(&card.id).await.expect("the card");
+        assert_eq!(card.fields["properties"], expected, "{card:?}");
+    }
+    for view in [&blocks[1], &blocks[3]] {
+        let view = store.get_block(&view.id).await.expect("the view");
+        let filters = &view.fields["filter"]["filters"];
+        assert_eq!(
+            filters[0]["values"],
+            serde_json::json!(["2026-03-05"]),
+            "{view:?}"
+        );
+        assert_eq!(
+            filters[1]["filters"][0]["values"],
+            serde_json::json!(["1"]),
+            "a filter of another property"
+        );
+    }
+    store.close().await;
+
+    // Done once: the step's row is gone, and the server starts without it.
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store starts again");
+    store.close().await;
+    let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM data_steps")
+        .await
+        .expect("the table is there");
+    assert_eq!(left, 0, "no step is left");
+
+    test.teardown().await;
+}
+
+/// The migration of file references puts down what the blocks show, live and in the
+/// trash, and counts a file that none shows from the migration: it is collected only
+/// once the grace period has passed from then.
+#[tokio::test]
+async fn the_file_reference_migration_finds_what_the_blocks_show() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    for name in [
+        "7image.png",
+        "7body.png",
+        "7trash.png",
+        "7trashbody.png",
+        "7attachment.png",
+        "7none.png",
+    ] {
+        let file = fvoci_model::FileInfo {
+            id: new_id(),
+            board_id: board_id.clone(),
+            stored_name: name.to_owned(),
+            create_at: 1,
+            path: format!("{board_id}/{name}"),
+            ..fvoci_model::FileInfo::default()
+        };
+        test.save_file_info(&file).await.expect("a file is stored");
+    }
+    let mut blocks = blocks_showing(board_id);
+    common::insert_blocks(&test, &mut blocks, &user_id).await;
+    for in_trash in [&blocks[1], &blocks[3]] {
+        test.delete_block(&in_trash.id, &user_id)
+            .await
+            .expect("an image and a card go to the trash");
+    }
+    test.store.close().await;
+    // Back to before the migration.
+    for statement in [
+        "DROP TABLE file_refs",
+        "DROP INDEX file_info_unreferenced_at_idx",
+        "ALTER TABLE file_info DROP COLUMN unreferenced_at",
+        "DELETE FROM _sqlx_migrations WHERE version = 3",
+    ] {
+        common::execute_raw(&test.dbconfig(), statement).await;
+    }
+    let migrated_at = crate::blocks::now_millis();
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store migrates the database");
+    let collected = |before: i64| {
+        let store = &store;
+        async move {
+            let mut names: Vec<String> = store
+                .collect_unreferenced_files(before)
+                .await
+                .expect("the files no block shows are collected")
+                .into_iter()
+                .map(|file| file.stored_name)
+                .collect();
+            names.sort();
+            names
+        }
+    };
+    assert_eq!(
+        collected(migrated_at - 1_000).await,
+        Vec::<String>::new(),
+        "counted from the migration, not from the upload"
+    );
+    assert_eq!(
+        collected(crate::blocks::now_millis() + 3_600_000).await,
+        ["7none.png"],
+        "the image, the attachment, the bodies and the trash show theirs"
+    );
+    store.close().await;
+
+    test.teardown().await;
+}
+
+/// Stores a record of a file of the board for each name.
+async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
+    for name in names {
+        let file = fvoci_model::FileInfo {
+            id: new_id(),
+            board_id: board_id.to_owned(),
+            stored_name: (*name).to_owned(),
+            create_at: 1,
+            path: format!("{board_id}/{name}"),
+            ..fvoci_model::FileInfo::default()
+        };
+        store.save_file_info(&file).await.expect("a file is stored");
+    }
+}
+
+/// The step of migration 8 deletes the content blocks an older server stored, with what
+/// is below them, on the board and in the trash, and leaves the files that only they
+/// showed to be collected. The other blocks and their files stay.
+#[tokio::test]
+async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    save_files(&test, board_id, &["7image.png", "7kept.png"]).await;
+    let block = |block_type: &str, fields: serde_json::Value| Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: BlockType::from(block_type),
+        fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
+        ..Block::default()
+    };
+    let none = serde_json::json!({});
+    // A card, an attachment, a view and a legacy board block that stay; an image, a
+    // text, a heading in the trash and a checkbox that go. The image is stored as an
+    // attachment first, which puts down its file, and then made an image as an older
+    // server stored it.
+    let mut blocks = [
+        block("card", none.clone()),
+        block("attachment", serde_json::json!({"fileId": "7kept.png"})),
+        block("view", none.clone()),
+        block("board", none.clone()),
+        block("attachment", serde_json::json!({"fileId": "7image.png"})),
+        block("text", none.clone()),
+        block("h1", none.clone()),
+        block("checkbox", none.clone()),
+    ];
+    common::insert_blocks(&test, &mut blocks, &user_id).await;
+    // A comment below the text and one below the heading, which takes it to the trash:
+    // they go with them.
+    let mut below = [
+        Block {
+            parent_id: blocks[5].id.clone(),
+            ..block("comment", none.clone())
+        },
+        Block {
+            parent_id: blocks[6].id.clone(),
+            ..block("comment", none)
+        },
+    ];
+    common::insert_blocks(&test, &mut below, &user_id).await;
+    test.delete_block(&blocks[6].id, &user_id)
+        .await
+        .expect("the heading goes to the trash");
+    test.store.close().await;
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!(
+            "UPDATE blocks SET type = 'image' WHERE id = '{}'",
+            blocks[4].id
+        ),
+    )
+    .await;
+    common::execute_raw(
+        &test.dbconfig(),
+        "INSERT INTO data_steps (name) VALUES ('content_blocks')",
+    )
+    .await;
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store does the step");
+    for kept in &blocks[..4] {
+        store.get_block(&kept.id).await.expect("the block stays");
+    }
+    for gone in blocks[4..].iter().chain(&below) {
+        let error = store
+            .get_block(&gone.id)
+            .await
+            .expect_err("the content block is gone");
+        assert!(error.is_not_found(), "{error:?}");
+    }
+    let error = store
+        .undelete_block(&blocks[6].id, &user_id)
+        .await
+        .expect_err("nor in the trash");
+    assert!(error.is_not_found(), "{error:?}");
+    let collected: Vec<String> = store
+        .collect_unreferenced_files(crate::blocks::now_millis() + 3_600_000)
+        .await
+        .expect("the files no block shows are collected")
+        .into_iter()
+        .map(|file| file.stored_name)
+        .collect();
+    assert_eq!(
+        collected,
+        ["7image.png"],
+        "the image's file, not the attachment's"
+    );
+    store.close().await;
+    let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM deleted_blocks")
+        .await
+        .expect("the trash is there");
+    assert_eq!(
+        left, 0,
+        "the heading and the comment below it left the trash"
+    );
+
+    test.teardown().await;
 }
 
 /// The two baseline files describe one schema: statement for statement the same, but

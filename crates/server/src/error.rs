@@ -92,6 +92,14 @@ pub enum Reason {
     AdminRequired,
     /// Public sharing is turned off in the server's configuration.
     SharingDisabled,
+    /// The user has as many uploads in parts open as one may.
+    TooManyUploads,
+    /// The user's open uploads in parts hold back as many bytes as one user's may.
+    UploadsPending,
+    /// The open uploads in parts of the whole server hold back as many bytes as they may.
+    ServerUploadsPending,
+    /// The file is larger than one request takes; it is to be sent in parts.
+    UploadInParts,
 }
 
 impl Reason {
@@ -108,6 +116,10 @@ impl Reason {
             Self::LastAdmin => "last_admin",
             Self::AdminRequired => "admin_required",
             Self::SharingDisabled => "sharing_disabled",
+            Self::TooManyUploads => "too_many_uploads",
+            Self::UploadsPending => "uploads_pending",
+            Self::ServerUploadsPending => "server_uploads_pending",
+            Self::UploadInParts => "upload_in_parts",
         }
     }
 }
@@ -172,6 +184,12 @@ impl AppError {
         error
     }
 
+    /// A 429 error for a limit on what is held at once, rather than on attempts: no
+    /// wait is told, since what frees room is the client's own doing or another's.
+    pub fn limited(message: impl std::fmt::Display, reason: Reason) -> Self {
+        Self::new(ErrorKind::RateLimited, message).with_reason(reason)
+    }
+
     /// A 400 error with the given message.
     pub fn bad_request(message: impl std::fmt::Display) -> Self {
         Self::new(ErrorKind::BadRequest, message)
@@ -211,6 +229,14 @@ impl AppError {
             ErrorKind::PayloadTooLarge,
             format_args!("the request body is larger than {limit} bytes"),
         );
+        error.limit = Some(limit);
+        error
+    }
+
+    /// A 413 error for what the request names, not its body, being over `limit`: an
+    /// archive's entries, for one.
+    pub fn too_large(message: impl std::fmt::Display, limit: u64) -> Self {
+        let mut error = Self::new(ErrorKind::PayloadTooLarge, message);
         error.limit = Some(limit);
         error
     }
@@ -328,10 +354,19 @@ impl From<StoreError> for AppError {
             | StoreError::BlockNotInDeletedBoards { .. }
             | StoreError::InvalidCategory(_)
             | StoreError::InvalidSubscription(_) => Self::bad_request(error),
+            StoreError::InvalidBoard(BoardError::NulCharacter { member }) => {
+                Self::bad_request(error).with_field(member)
+            }
             // A parent that is no block of the board, whether it is none at all or
             // another board's: the answer does not tell the two apart.
             StoreError::InvalidBlock {
-                source: source @ (BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock),
+                source:
+                    source @ (BlockError::ParentNotOnBoard
+                    | BlockError::ParentBelowBlock
+                    | BlockError::BodyNotAllowed
+                    | BlockError::NulInTitle
+                    | BlockError::InvalidCardField { .. }
+                    | BlockError::TypeNotCurrent(_)),
                 ..
             } => Self::from(source),
             // What a request names by something that is no identifier does not exist.
@@ -341,6 +376,11 @@ impl From<StoreError> for AppError {
                 Self::bad_request("an identifier in the request is not a valid identifier")
             }
             StoreError::Conflict(_) => Self::conflict(error),
+            // The message names no times: the client has the time it read the block
+            // at, and reads the block again for the one it has now.
+            StoreError::Stale { .. } => {
+                Self::conflict("the block has changed since it was read").context(error)
+            }
             other => Self::from(anyhow::Error::from(other)),
         }
     }
@@ -365,6 +405,10 @@ impl From<BlockError> for AppError {
             BlockError::TitleSizeLimitExceeded
             | BlockError::FieldsSizeLimitExceeded
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
+            BlockError::BodyNotAllowed => Self::bad_request(error).with_field("body"),
+            BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
+            BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
+            BlockError::TypeNotCurrent(_) => Self::bad_request(error).with_field("type"),
             BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock => {
                 Self::bad_request(error).with_field("parentId")
             }
@@ -378,6 +422,7 @@ impl From<CardError> for AppError {
         match error {
             // What a client sent.
             CardError::BoardIdMismatch | CardError::Invalid(_) => Self::bad_request(error),
+            CardError::ReadAtMissing => Self::bad_request(error).with_field("readAt"),
             // What is stored cannot be read as a card.
             CardError::NotCardBlock | CardError::InvalidFieldType { .. } => {
                 Self::from(anyhow::Error::from(error))

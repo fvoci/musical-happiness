@@ -13,7 +13,7 @@ use super::contract::params::BoardId;
 use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response};
-use super::{decode_object_members, require_board_permission};
+use super::{decode_json, json_object, require_board_permission};
 use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::permissions::BoardPermission;
@@ -65,15 +65,17 @@ async fn handle_get_sharing(
 }
 
 /// Reads the body of `POST /boards/{boardId}/sharing`: `enabled`, a boolean, and
-/// optionally `regenerate`, a boolean. A `token` is refused: the server makes it.
+/// optionally `regenerate`, a boolean. A `token` is refused, `null` too: the server
+/// makes it.
 fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
-    let members = decode_object_members(body)?;
+    let mut members = json_object(decode_json(body)?)?;
     if members.contains_key("token") {
         return Err(AppError::bad_request(
             "the server makes the read token; a request cannot set it",
         )
         .with_field("token"));
     }
+    members.retain(|_, member| !member.is_null());
     let flag = |name: &'static str, absent: Option<bool>| match members.get(name) {
         Some(Value::Bool(flag)) => Ok(*flag),
         None | Some(Value::Null) => absent.ok_or_else(|| {

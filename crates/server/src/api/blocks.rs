@@ -3,10 +3,11 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, generate_block_ids,
-    stamp_modification_metadata,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType,
+    generate_block_ids, stamp_modification_metadata,
 };
 
+use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -18,10 +19,13 @@ use super::contract::params::{
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, created, decode_json, decode_object,
-    has_valid_read_token, json_response, no_content, query_param,
+    ApiResult, OptionalSession, RequiredSession, created, decode_json, has_valid_read_token,
+    json_response, no_content, query_param,
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
+use super::{
+    decode_object_with, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
@@ -113,7 +117,8 @@ async fn require_source_board_access(
 ///
 /// For the board's members, and for an open template everyone in its team. With the
 /// board's read token no session is needed; who reads that way is not told who made a
-/// block or changed it last (`createdBy` and `modifiedBy` are empty).
+/// block or changed it last (`createdBy` and `modifiedBy` are empty), nor who is
+/// mentioned in a body (the `userId` of every mention is empty).
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -162,14 +167,62 @@ async fn handle_get_blocks(
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     let mut blocks = blocks;
     if user_id.is_empty() {
-        // Whoever reads through a read token alone is nobody the server knows. An
-        // identifier tells when it was made: a user's would tell when they signed up.
         for block in &mut blocks {
-            block.created_by.clear();
-            block.modified_by.clear();
+            block.hide_people();
         }
     }
     Ok(json_response(&blocks))
+}
+
+/// Checks that the images of the blocks' bodies show files of the board, or of the board
+/// named by `sourceBoardId`, and copies the files the blocks show from that board.
+async fn check_and_copy_body_files(
+    app: &App,
+    user_id: &str,
+    board_id: &str,
+    query: Option<&str>,
+    blocks: &mut [Block],
+) -> Result<(), AppError> {
+    // Set when a template is made from a board or a board from a template: the files
+    // the blocks refer to are then copied over from that board.
+    let source_board_id = query_param(query, "sourceBoardId");
+    // Copying files into the board is an editor's: a commenter, who may post comments
+    // with bodies, may not upload either.
+    // A request with anything but comments needed the editor's permission already.
+    if !source_board_id.is_empty()
+        && blocks
+            .iter()
+            .all(|block| block.block_type == BlockType::Comment)
+        && blocks.iter().any(|block| !block.shown_files().is_empty())
+    {
+        require_board_permission(
+            app,
+            user_id,
+            board_id,
+            BoardPermission::ManageBoardCards,
+            CHANGES_DENIED,
+        )
+        .await?;
+    }
+    // The images of a body show files of the board, or of the board they are copied
+    // from.
+    let files_board_id = if source_board_id.is_empty() {
+        board_id
+    } else {
+        require_source_board_access(app, user_id, &source_board_id).await?;
+        &source_board_id
+    };
+    for block in blocks.iter() {
+        app.check_body_files(files_board_id, block.body.as_ref())
+            .await?;
+    }
+    if !source_board_id.is_empty() {
+        // The blocks are not stored yet: each is pointed at its copy here, and stored
+        // with that below.
+        app.copy_card_files_into(&source_board_id, blocks).await;
+    }
+
+    Ok(())
 }
 
 /// Insert blocks
@@ -211,7 +264,19 @@ async fn handle_post_blocks(
         CHANGES_DENIED,
     )
     .await?;
-    let mut blocks: Vec<Block> = decode_json(&body)?;
+    // A list first, so that a request that is none is refused as before, and the bodies
+    // apart, so that one that may not be stored is refused as a body.
+    let mut blocks: Vec<Value> = decode_json(&body)?;
+    let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut))?;
+    let mut blocks: Vec<Block> =
+        serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
+    for (block, body) in blocks.iter_mut().zip(bodies) {
+        // Refused before anything is copied for it.
+        if body.is_some() && !block.block_type.has_body() {
+            return Err(BlockError::BodyNotAllowed.into());
+        }
+        block.body = body;
+    }
 
     let mut has_comments = false;
     let mut has_contents = false;
@@ -222,6 +287,9 @@ async fn handle_post_blocks(
                 AppError::bad_request(format_args!("missing type for block id {id}"))
                     .with_field("type"),
             );
+        }
+        if !block.block_type.is_current() {
+            return Err(BlockError::type_not_current(&block.block_type).into());
         }
         if block.block_type == BlockType::Comment {
             has_comments = true;
@@ -271,16 +339,7 @@ async fn handle_post_blocks(
     generate_block_ids(&mut blocks);
     stamp_modification_metadata(user_id, &mut blocks, now_millis());
 
-    // Set when a template is made from a board or a board from a template: the files
-    // the blocks refer to are then copied over from that board.
-    let source_board_id = query_param(query, "sourceBoardId");
-    if !source_board_id.is_empty() {
-        require_source_board_access(&app, user_id, &source_board_id).await?;
-        // The blocks are not stored yet: each is pointed at its copy here, and stored
-        // with that below.
-        app.copy_card_files_into(&source_board_id, &mut blocks)
-            .await;
-    }
+    check_and_copy_body_files(&app, user_id, &board_id, query, &mut blocks).await?;
 
     app.insert_blocks(&mut blocks, user_id, notification)
         .await?;
@@ -404,7 +463,11 @@ async fn handle_patch_block(
     )
     .await?;
     block_on_board(&app, &block_id, &board_id).await?;
-    let patch: BlockPatch = decode_object(&body)?;
+    let (mut patch, changes): (BlockPatch, _) =
+        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)]))?;
+    put_patch_bodies([&mut patch], changes?)?;
+    app.check_body_files(&board_id, patch.body.new_body())
+        .await?;
 
     app.patch_block(&block_id, &patch, user_id, notification)
         .await?;
@@ -443,7 +506,14 @@ async fn handle_patch_blocks(
     )
     .await?;
     let board = app.board(&board_id).await?;
-    let batch: BlockPatchBatch = decode_object(&body)?;
+    let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
+        take_patch_bodies(objects_mut(batch, "blockPatches"))
+    })?;
+    put_patch_bodies(&mut batch.block_patches, changes?)?;
+    for patch in &batch.block_patches {
+        app.check_body_files(&board_id, patch.body.new_body())
+            .await?;
+    }
     if batch.block_ids.len() != batch.block_patches.len() {
         return Err(
             AppError::bad_request("blockIds and blockPatches differ in length")

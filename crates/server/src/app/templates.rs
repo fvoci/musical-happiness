@@ -1,25 +1,21 @@
 //! The built-in template boards.
 //!
-//! Ports `server/app/templates.go`. The default templates are imported from an archive
-//! embedded in the binary, once, when a database has none or an older version of them.
+//! Ports `server/app/templates.go`. The templates are the web app's conversion of the
+//! original's (`apps/web/tools/templates/output/`, `docs/s6-design.md` 3.10 and 5.7),
+//! copied into this crate's `assets/templates/` and embedded in the binary. They are
+//! stored once, when a database has none or an older version of them.
 
-use std::collections::HashSet;
-
-use bytes::Bytes;
-use fvoci_model::{Block, Board, BoardType};
+use fvoci_model::{
+    Block, BlockType, Board, BoardType, BoardsAndBlocks, renew_boards_and_blocks_ids,
+};
+use serde::Deserialize;
 use serde_json::Value;
 
 use super::App;
-use super::import::ImportOptions;
 use crate::error::AppError;
 
-/// The current version of the built-in templates. Raising it re-imports them.
-const DEFAULT_TEMPLATE_VERSION: i64 = 6;
-
-/// The title, in the embedded archive, of the board the onboarding tour copies. It is
-/// read once, when the archive is imported, to put [`ONBOARDING_PROPERTY`] on that board;
-/// nothing looks a board up by its title afterwards.
-const ARCHIVE_WELCOME_BOARD_TITLE: &str = "Welcome to Boards!";
+/// The current version of the built-in templates. Raising it stores them again.
+const DEFAULT_TEMPLATE_VERSION: i64 = 7;
 
 /// The board property that marks the built-in template the onboarding tour copies.
 ///
@@ -27,63 +23,213 @@ const ARCHIVE_WELCOME_BOARD_TITLE: &str = "Welcome to Boards!";
 /// boards; see [`is_onboarding_template`].
 pub(crate) const ONBOARDING_PROPERTY: &str = "onboarding";
 
-/// The embedded default-templates archive, read from the original's asset at build time.
-const DEFAULT_TEMPLATES_ARCHIVE: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../server/assets/templates.boardarchive"
-));
+/// The board property that names a built-in template, as the converter does (`key`). It
+/// stays when the title changes; a copy carries it too, so it names a template only
+/// together with `isBuiltin`.
+const TEMPLATE_KEY_PROPERTY: &str = "templateKey";
+
+/// The template files, by name, in the order of the converter's `index.json`.
+const TEMPLATE_FILES: [(&str, &str); 13] = [
+    (
+        "01-meeting-agenda.json",
+        include_str!("../../assets/templates/01-meeting-agenda.json"),
+    ),
+    (
+        "02-sales-pipeline-crm.json",
+        include_str!("../../assets/templates/02-sales-pipeline-crm.json"),
+    ),
+    (
+        "03-personal-tasks.json",
+        include_str!("../../assets/templates/03-personal-tasks.json"),
+    ),
+    (
+        "04-project-tasks.json",
+        include_str!("../../assets/templates/04-project-tasks.json"),
+    ),
+    (
+        "05-company-goals-okrs.json",
+        include_str!("../../assets/templates/05-company-goals-okrs.json"),
+    ),
+    (
+        "06-personal-goals.json",
+        include_str!("../../assets/templates/06-personal-goals.json"),
+    ),
+    (
+        "07-sprint-planner.json",
+        include_str!("../../assets/templates/07-sprint-planner.json"),
+    ),
+    (
+        "08-user-research-sessions.json",
+        include_str!("../../assets/templates/08-user-research-sessions.json"),
+    ),
+    (
+        "09-competitive-analysis.json",
+        include_str!("../../assets/templates/09-competitive-analysis.json"),
+    ),
+    (
+        "10-content-calendar.json",
+        include_str!("../../assets/templates/10-content-calendar.json"),
+    ),
+    (
+        "11-team-retrospective.json",
+        include_str!("../../assets/templates/11-team-retrospective.json"),
+    ),
+    (
+        "12-roadmap.json",
+        include_str!("../../assets/templates/12-roadmap.json"),
+    ),
+    (
+        "13-welcome.json",
+        include_str!("../../assets/templates/13-welcome.json"),
+    ),
+];
+
+/// One template file as the converter writes it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TemplateFile {
+    /// A name that stays when the title changes.
+    key: String,
+    /// Whether this is the board the onboarding tour copies; one template has it.
+    onboarding: bool,
+    board: TemplateBoard,
+    views: Vec<Block>,
+    cards: Vec<Block>,
+    /// The files the bodies show: none, the built-in templates carry no pictures.
+    files: Vec<Value>,
+}
+
+/// The board of a template file: what a template says of its board. The rest is the
+/// server's to set.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TemplateBoard {
+    id: String,
+    title: String,
+    description: String,
+    icon: String,
+    show_description: bool,
+    card_properties: Vec<fvoci_model::JsonMap>,
+}
+
+/// The built-in templates as boards and blocks with new identifiers, ready to be
+/// stored for the system in `team_id`.
+///
+/// # Errors
+///
+/// Returns a server error if a template file is not what the converter writes: a
+/// mistake in the embedded files, which the tests catch.
+fn builtin_templates(team_id: &str) -> Result<BoardsAndBlocks, AppError> {
+    let mut boards_and_blocks = BoardsAndBlocks::default();
+    for (name, text) in TEMPLATE_FILES {
+        let template: TemplateFile = serde_json::from_str(text).map_err(|error| {
+            AppError::from(
+                anyhow::Error::new(error).context(format!("the built-in template {name}")),
+            )
+        })?;
+        if !template.files.is_empty() {
+            return Err(AppError::from(anyhow::anyhow!(
+                "the built-in template {name} shows files; the templates carry none"
+            )));
+        }
+        let TemplateBoard {
+            id,
+            title,
+            description,
+            icon,
+            show_description,
+            card_properties,
+        } = template.board;
+        let mut board = Board {
+            id,
+            team_id: team_id.to_owned(),
+            title,
+            description,
+            icon,
+            show_description,
+            card_properties,
+            is_template: true,
+            template_version: DEFAULT_TEMPLATE_VERSION,
+            board_type: BoardType::Open,
+            ..Board::default()
+        };
+        board.properties.insert(
+            TEMPLATE_KEY_PROPERTY.to_owned(),
+            Value::String(template.key),
+        );
+        if template.onboarding {
+            board
+                .properties
+                .insert(ONBOARDING_PROPERTY.to_owned(), Value::Bool(true));
+        }
+        for (mut block, block_type) in template
+            .views
+            .into_iter()
+            .map(|view| (view, BlockType::View))
+            .chain(
+                template
+                    .cards
+                    .into_iter()
+                    .map(|card| (card, BlockType::Card)),
+            )
+        {
+            if block.block_type != block_type {
+                return Err(AppError::from(anyhow::anyhow!(
+                    "the built-in template {name} has a {} among its {}s",
+                    block.block_type.as_str(),
+                    block_type.as_str()
+                )));
+            }
+            block.board_id.clone_from(&board.id);
+            block.parent_id.clone_from(&board.id);
+            boards_and_blocks.blocks.push(block);
+        }
+        boards_and_blocks.boards.push(board);
+    }
+    Ok(renew_boards_and_blocks_ids(boards_and_blocks))
+}
 
 impl App {
-    /// Imports the default templates if the database has none, an older version, or
-    /// none that is marked for the onboarding tour. Returns whether an import was done.
+    /// Stores the built-in templates if the database has none, an older version, or
+    /// none that is marked for the onboarding tour. Returns whether they were stored.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the templates cannot be read or removed, or an
-    /// import error if the archive cannot be imported.
+    /// Returns the store's error if the templates cannot be read, removed or stored.
     pub async fn init_templates(&self) -> Result<bool, AppError> {
-        let boards = self.store().get_builtin_templates().await?;
-        tracing::debug!(count = boards.len(), "Fetched template boards");
-
-        let Some(reason) = initialization_reason(&boards) else {
+        if initialization_reason(&self.store().get_builtin_templates().await?).is_none() {
             tracing::debug!("Template import not needed, skipping");
             return Ok(false);
-        };
-        tracing::debug!(
-            reason,
-            size = DEFAULT_TEMPLATES_ARCHIVE.len(),
-            "Importing new default templates"
-        );
-
-        self.store().remove_builtin_templates().await?;
-
-        let options = ImportOptions {
-            // A built-in template is offered to every team; it is filed under the root
-            // team because a board has to be some team's.
-            team_id: self.root_team().await?.id,
-            // No user: what is stored on behalf of nobody is the system's own.
-            modified_by: String::new(),
-            board_modifier: Some(Box::new(fix_template_board)),
-            block_modifier: Some(Box::new(fix_template_block)),
-        };
-        let imported = self
-            .import_archive(Bytes::from_static(DEFAULT_TEMPLATES_ARCHIVE), &options)
-            .await;
-        if let Err(error) = imported {
-            // The boards are stored before their files. Boards left behind by a failed
-            // import carry the current version and would pass the check at the next
-            // start, without their files; remove them so that the import is tried again.
-            self.remove_partial_templates().await;
-            return Err(error.context("cannot import the built-in templates"));
         }
+
+        // A built-in template is offered to every team; it is filed under the root
+        // team because a board has to be some team's.
+        let mut templates = builtin_templates(&self.root_team().await?.id)?;
+        // One transaction that decides again: of two servers, or onboarding requests,
+        // that found the templates missing, one stores them. What is stored on behalf of
+        // nobody is the system's own.
+        let replaced = self
+            .store()
+            .replace_builtin_templates(&mut templates, |stored| {
+                initialization_reason(stored)
+                    .inspect(|reason| tracing::debug!(reason, "Storing the built-in templates"))
+                    .is_some()
+            })
+            .await
+            .map_err(|error| {
+                AppError::from(error).context("cannot store the built-in templates")
+            })?;
+        let Some(files) = replaced else {
+            return Ok(false);
+        };
+        // The records of the old templates' files went with them.
+        for file in &files {
+            if let Err(error) = self.files().delete(&file.path).await {
+                tracing::warn!(%error, path = file.path, "a file of a removed built-in template could not be removed");
+            }
+        }
+        self.announce_created(&templates, &[]).await;
         Ok(true)
-    }
-
-    /// Removes the built-in templates that a failed import left behind.
-    async fn remove_partial_templates(&self) {
-        if let Err(error) = self.store().remove_builtin_templates().await {
-            tracing::error!(%error, "cannot remove partially imported templates");
-        }
     }
 
     /// Returns the template boards of a team, for the templates route and onboarding.
@@ -129,35 +275,6 @@ fn initialization_reason(boards: &[Board]) -> Option<&'static str> {
         return Some("no template is marked for the onboarding tour");
     }
     None
-}
-
-/// Turns an archive board into a default template: non-template boards become open
-/// templates of the current version, and already-template boards are dropped (and
-/// recorded so their blocks are dropped too).
-fn fix_template_board(board: &mut Board, skipped: &mut HashSet<String>) -> bool {
-    if board.is_template {
-        skipped.insert(board.id.clone());
-        return false;
-    }
-    board.title = board.title.replace("(NEW)", "");
-    board.is_template = true;
-    board.template_version = DEFAULT_TEMPLATE_VERSION;
-    board.board_type = BoardType::Open;
-    if board.title == ARCHIVE_WELCOME_BOARD_TITLE {
-        board
-            .properties
-            .insert(ONBOARDING_PROPERTY.to_owned(), Value::Bool(true));
-    }
-    true
-}
-
-/// Drops a block whose board or parent was dropped.
-fn fix_template_block(block: &mut Block, skipped: &mut HashSet<String>) -> bool {
-    if skipped.contains(&block.board_id) || skipped.contains(&block.parent_id) {
-        skipped.insert(block.id.clone());
-        return false;
-    }
-    true
 }
 
 #[cfg(test)]
@@ -213,32 +330,6 @@ mod tests {
         assert!(
             !is_onboarding_template(&marked_otherwise),
             "the mark is the boolean true"
-        );
-    }
-
-    #[test]
-    fn the_archive_board_with_the_welcome_title_gets_the_mark() {
-        let mut skipped = HashSet::new();
-        let mut welcome = Board {
-            title: ARCHIVE_WELCOME_BOARD_TITLE.to_owned(),
-            ..Board::default()
-        };
-        assert!(fix_template_board(&mut welcome, &mut skipped), "kept");
-        assert_eq!(
-            welcome.properties.get(ONBOARDING_PROPERTY),
-            Some(&Value::Bool(true)),
-            "the welcome board is marked"
-        );
-
-        let mut other = Board {
-            title: "Roadmap".to_owned(),
-            ..Board::default()
-        };
-        assert!(fix_template_board(&mut other, &mut skipped), "kept");
-        assert_eq!(
-            other.properties.get(ONBOARDING_PROPERTY),
-            None,
-            "another template is not"
         );
     }
 

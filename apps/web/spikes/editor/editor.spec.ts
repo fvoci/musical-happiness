@@ -101,7 +101,7 @@ test('@ offers people and inserts a mention that holds only the user identifier'
   const doc = await stored(page);
   expect(doc.content?.[0]?.content).toEqual([
     { type: 'text', text: '담당 ' },
-    { type: 'mention', attrs: { userId: 'user-kim' } },
+    { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c001' } },
     { type: 'text', text: ' ' },
   ]);
   await expect(editor.locator('[data-mention]')).toHaveText('@김하늘');

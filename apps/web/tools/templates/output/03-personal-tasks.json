@@ -360,12 +360,6 @@
                 "text": "Route"
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "76fwrj36hptg6dywka4k5mt3sph.png"
-            }
           }
         ]
       }
@@ -397,11 +391,5 @@
       "body": null
     }
   ],
-  "files": [
-    {
-      "fileId": "76fwrj36hptg6dywka4k5mt3sph.png",
-      "archiveMember": "bbn1888mprfrm5fjw9f1je9x3xo/76fwrj36hptg6dywka4k5mt3sph.png",
-      "bytes": 513945
-    }
-  ]
+  "files": []
 }

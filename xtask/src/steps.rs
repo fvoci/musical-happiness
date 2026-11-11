@@ -4,6 +4,7 @@ use std::ffi::OsString;
 use std::io::Write as _;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
@@ -62,19 +63,57 @@ pub(crate) fn say(line: &str) {
     let _ = writeln!(std::io::stderr().lock(), "{line}");
 }
 
-/// Runs every step, also after one failed, and prints a summary.
+/// Set once the task is asked to stop (Ctrl-C, or `SIGTERM` or `SIGHUP`).
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+/// Lets the task outlive Ctrl-C long enough to end properly: the step that runs ends
+/// (the commands it started get Ctrl-C from the terminal too), the steps after it are
+/// skipped, and what the task set up is put back, its containers stopped. A second
+/// Ctrl-C changes nothing; a task that must end at once is killed.
+///
+/// # Errors
+///
+/// Fails if the handler cannot be installed.
+pub(crate) fn catch_interrupts() -> Result<()> {
+    ctrlc::set_handler(|| {
+        INTERRUPTED.store(true, Ordering::SeqCst);
+        say("\ninterrupted: the step that runs ends, the rest are skipped");
+    })
+    .context("installing the handler of Ctrl-C")
+}
+
+/// Whether the task was asked to stop.
+pub(crate) fn interrupted() -> bool {
+    INTERRUPTED.load(Ordering::SeqCst)
+}
+
+/// Runs every step, also after one failed, and prints a summary. Once the task is
+/// interrupted the steps not yet started are skipped and the task fails.
 ///
 /// # Errors
 ///
 /// Fails if any step failed; the error names them.
 pub(crate) fn run_all(task: &str, steps: Vec<Step<'_>>) -> Result<()> {
-    run_all_reporting(task, steps, &mut say)
+    run_all_reporting(task, steps, &mut say, &interrupted)
 }
 
 /// [`run_all`] with the progress lines going to `report`.
-fn run_all_reporting(task: &str, steps: Vec<Step<'_>>, report: &mut dyn FnMut(&str)) -> Result<()> {
+fn run_all_reporting(
+    task: &str,
+    steps: Vec<Step<'_>>,
+    report: &mut dyn FnMut(&str),
+    stop: &dyn Fn() -> bool,
+) -> Result<()> {
     let mut results: Vec<(String, Outcome, Duration)> = Vec::with_capacity(steps.len());
     for step in steps {
+        if stop() {
+            results.push((
+                step.name,
+                Outcome::Skipped("interrupted".to_owned()),
+                Duration::ZERO,
+            ));
+            continue;
+        }
         report(&format!("\n==> {}", step.name));
         let started = Instant::now();
         let outcome = match step.work {
@@ -99,7 +138,9 @@ fn run_all_reporting(task: &str, steps: Vec<Step<'_>>, report: &mut dyn FnMut(&s
         .filter(|(_, outcome, _)| matches!(outcome, Outcome::Failed(_)))
         .map(|(name, _, _)| name.as_str())
         .collect();
-    if failed.is_empty() {
+    if stop() {
+        bail!("{task}: interrupted")
+    } else if failed.is_empty() {
         Ok(())
     } else {
         bail!("{task}: {} failed: {}", failed.len(), failed.join(", "))
@@ -137,6 +178,10 @@ pub(crate) fn run(
 ) -> Result<()> {
     let program = program.as_ref();
     let shown = format!("{} {}", program.to_string_lossy(), arguments.join(" "));
+    // A Ctrl-C while the step prepared it reached no command that runs now.
+    if interrupted() {
+        bail!("interrupted before `{shown}`");
+    }
     say(&format!("    $ {shown}"));
     let status = Command::new(program)
         .args(arguments)
@@ -197,8 +242,13 @@ mod tests {
             }),
         ];
         let mut lines = Vec::new();
-        let error = run_all_reporting("task", steps, &mut |line| lines.push(line.to_owned()))
-            .expect_err("a failed step fails the task");
+        let error = run_all_reporting(
+            "task",
+            steps,
+            &mut |line| lines.push(line.to_owned()),
+            &|| false,
+        )
+        .expect_err("a failed step fails the task");
         assert_eq!(ran.get(), 2, "both steps ran");
         assert_eq!(
             error.to_string(),
@@ -279,12 +329,49 @@ mod tests {
             Step::new("ran", || Ok(())),
             Step::skipped("left out", "--skip-it"),
         ];
-        run_all_reporting("task", steps, &mut |line| lines.push(line.to_owned()))
-            .expect("a skipped step fails nothing");
+        run_all_reporting(
+            "task",
+            steps,
+            &mut |line| lines.push(line.to_owned()),
+            &|| false,
+        )
+        .expect("a skipped step fails nothing");
         let summary = lines.last().expect("a summary");
         assert!(
             summary.contains("SKIP  left out  (--skip-it)"),
             "the summary says what did not run: {summary}"
+        );
+    }
+
+    #[test]
+    fn after_an_interruption_the_rest_is_skipped_and_the_task_fails() {
+        let stopped = std::cell::Cell::new(false);
+        let ran = std::cell::Cell::new(0);
+        let steps = vec![
+            Step::new("first", || {
+                ran.set(ran.get() + 1);
+                stopped.set(true);
+                Ok(())
+            }),
+            Step::new("second", || {
+                ran.set(ran.get() + 1);
+                Ok(())
+            }),
+        ];
+        let mut lines = Vec::new();
+        let error = run_all_reporting(
+            "task",
+            steps,
+            &mut |line| lines.push(line.to_owned()),
+            &|| stopped.get(),
+        )
+        .expect_err("an interrupted task fails");
+        assert_eq!(ran.get(), 1, "the second step did not run");
+        assert_eq!(error.to_string(), "task: interrupted");
+        let summary = lines.last().expect("a summary");
+        assert!(
+            summary.contains("SKIP  second  (interrupted)"),
+            "the summary says why: {summary}"
         );
     }
 }

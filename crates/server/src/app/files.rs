@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, FileInfo, JsonMap, new_id,
+    Block, BlockPatch, BlockPatchBatch, Board, Body, BodyChange, FileInfo, JsonMap, new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -26,6 +26,49 @@ pub(crate) const FILE: &str = "file";
 
 /// The directory uploads are stored under.
 const UPLOADS_ROOT: &str = "boards";
+
+/// Where a new file of a board goes in the file storage, and what its record says of
+/// its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FilePlace {
+    /// The place in the file storage.
+    pub(crate) path: String,
+    /// The name blocks refer to the file by: the last part of `path`.
+    stored_name: String,
+    /// The name the client gave, without directories.
+    name: String,
+    /// The extension of the stored name, with its dot, or empty.
+    extension: String,
+}
+
+impl FilePlace {
+    /// A new place for a file of `board_id` that the client calls `filename`: a secret
+    /// with the lower-cased extension of `filename` (`.jpeg` becomes `.jpg`), under the
+    /// day's directory. Nothing of the client's name ends up in the path.
+    pub(crate) fn new(board_id: &str, filename: &str) -> Self {
+        let name = base_name(filename);
+        let extension = stored_extension(name);
+        let stored_name = new_stored_name(&extension);
+        Self {
+            path: destination_path(board_id, &stored_name),
+            stored_name,
+            name: name.to_owned(),
+            extension,
+        }
+    }
+
+    /// The place chosen with [`FilePlace::new`] at `path`, for the file the client calls
+    /// `filename`.
+    pub(crate) fn at(path: &str, filename: &str) -> Self {
+        let name = base_name(filename);
+        Self {
+            path: path.to_owned(),
+            stored_name: path.rsplit('/').next().unwrap_or(path).to_owned(),
+            name: name.to_owned(),
+            extension: stored_extension(name),
+        }
+    }
+}
 
 impl App {
     /// Stores an uploaded file for a board and returns the name it is stored under,
@@ -44,29 +87,43 @@ impl App {
         board_id: &str,
         filename: &str,
     ) -> Result<String, AppError> {
-        let base = base_name(filename);
-        let extension = stored_extension(base);
-        let stored_name = new_stored_name(&extension);
-        let path = destination_path(board_id, &stored_name);
+        let place = FilePlace::new(board_id, filename);
+        let size = self
+            .files()
+            .write(&place.path, reader)
+            .await
+            .map_err(|error| {
+                AppError::internal(format_args!(
+                    "unable to store the file in the files storage: {error}"
+                ))
+            })?;
+        self.record_file(board_id, place, size).await
+    }
 
-        let size = self.files().write(&path, reader).await.map_err(|error| {
-            AppError::internal(format_args!(
-                "unable to store the file in the files storage: {error}"
-            ))
-        })?;
-
+    /// Records the file of `size` bytes stored at `place` as a file of `board_id`, and
+    /// returns its stored name.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the record cannot be written.
+    pub(crate) async fn record_file(
+        &self,
+        board_id: &str,
+        place: FilePlace,
+        size: u64,
+    ) -> Result<String, AppError> {
         let info = FileInfo {
             id: new_id(),
             board_id: board_id.to_owned(),
-            stored_name: stored_name.clone(),
-            path,
+            stored_name: place.stored_name.clone(),
+            path: place.path,
             size: size_to_i64(size),
-            name: base.to_owned(),
-            extension,
+            name: place.name,
+            extension: place.extension,
             create_at: now_millis(),
         };
         self.store().save_file_info(&info).await?;
-        Ok(stored_name)
+        Ok(place.stored_name)
     }
 
     /// Returns the record of the file a board has under a stored name, or `None` if the
@@ -90,6 +147,32 @@ impl App {
         }
     }
 
+    /// Checks that every image of a body shows a file of the board (`docs/s6-design.md`
+    /// 5.7).
+    ///
+    /// # Errors
+    ///
+    /// Returns a bad request that names `body` for an image of a file the board does not
+    /// have, and the store's error if a lookup fails.
+    pub async fn check_body_files(
+        &self,
+        board_id: &str,
+        body: Option<&Body>,
+    ) -> Result<(), AppError> {
+        let Some(body) = body else {
+            return Ok(());
+        };
+        for file_id in body.file_ids() {
+            if self.file_info(board_id, file_id).await?.is_none() {
+                return Err(AppError::bad_request(
+                    "an image of the body shows no file of the board",
+                )
+                .with_field("body"));
+            }
+        }
+        Ok(())
+    }
+
     /// Opens a board's file for reading, or returns `None` if the board has no file of
     /// that stored name or the file is gone from the storage.
     ///
@@ -110,7 +193,7 @@ impl App {
         Ok(Some(self.files().read(&info.path, None).await?))
     }
 
-    /// Copies the files that duplicated image and attachment blocks refer to and points
+    /// Copies the files that duplicated attachment blocks refer to and points
     /// each block at its copy.
     ///
     /// `board_id` is the board the blocks were copied from; `blocks` are the copies, as
@@ -141,10 +224,26 @@ impl App {
         let mut block_ids = Vec::new();
         let mut block_patches = Vec::new();
         for block in blocks.iter_mut() {
-            if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
+            if block
+                .body
+                .as_ref()
+                .is_some_and(|body| !body.file_ids().is_empty())
+            {
+                block.body = block
+                    .body
+                    .take()
+                    .and_then(|body| rename_body_files(body, &new_file_names));
+                block_ids.push(block.id.clone());
+                block_patches.push(BlockPatch {
+                    body: block
+                        .body
+                        .clone()
+                        .map_or(BodyChange::Clear, BodyChange::Set),
+                    ..BlockPatch::default()
+                });
                 continue;
             }
-            let Some(Value::String(file_id)) = block.fields.get("fileId") else {
+            let Some(file_id) = block.attachment_file() else {
                 continue;
             };
             let new_name = new_file_names.get(file_id).cloned().unwrap_or_default();
@@ -177,11 +276,20 @@ impl App {
                         "could not patch file IDs while duplicating board {board_id}"
                     ))
                 })?;
+            // The patch moved `updateAt` on: the caller's copies are what is answered and
+            // announced, and a client edits them with that `updateAt` as `readAt`.
+            let patched: std::collections::HashSet<&str> =
+                batch.block_ids.iter().map(String::as_str).collect();
+            for block in blocks.iter_mut() {
+                if patched.contains(block.id.as_str()) {
+                    *block = self.store().get_block(&block.id).await?;
+                }
+            }
         }
         Ok(())
     }
 
-    /// Copies the files that image and attachment blocks refer to, for blocks that are
+    /// Copies the files that attachment blocks refer to, for blocks that are
     /// about to be stored as copies of blocks of `source_board_id`, and points each block
     /// at its copy. Nothing is written to the blocks' store: the caller stores them.
     ///
@@ -196,10 +304,11 @@ impl App {
             }
         };
         for block in blocks.iter_mut() {
-            if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
-                continue;
-            }
-            let Some(Value::String(file_id)) = block.fields.get("fileId") else {
+            block.body = block
+                .body
+                .take()
+                .and_then(|body| rename_body_files(body, &new_file_names));
+            let Some(file_id) = block.attachment_file() else {
                 continue;
             };
             let new_name = new_file_names.get(file_id).cloned().unwrap_or_default();
@@ -218,7 +327,7 @@ impl App {
         }
     }
 
-    /// Copies each file referred to by an image or attachment block and returns a map
+    /// Copies each file referred to by an attachment block and returns a map
     /// from the original stored names to those of the copies. Only files of the source
     /// board are copied.
     async fn copy_card_files(
@@ -230,13 +339,14 @@ impl App {
 
         let mut new_file_names = HashMap::new();
         let mut destination: Option<Board> = None;
-        for block in blocks {
-            if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
+        for (block, file_id) in blocks
+            .iter()
+            .flat_map(|block| block.shown_files().into_iter().map(move |id| (block, id)))
+        {
+            // A file that two blocks show, or one body twice, is copied once.
+            if new_file_names.contains_key(&file_id) {
                 continue;
             }
-            let Some(file_id) = file_reference(&block.fields) else {
-                continue;
-            };
 
             // Most copies stay on the source board; a destination is looked up once.
             let destination_board = if block.board_id == source_board.id {
@@ -295,14 +405,11 @@ impl App {
     }
 }
 
-/// The file a block points at: its `fileId`, or failing that its `attachmentId`.
-fn file_reference(fields: &JsonMap) -> Option<String> {
-    for key in ["fileId", "attachmentId"] {
-        if let Some(Value::String(value)) = fields.get(key) {
-            return Some(value.clone());
-        }
-    }
-    None
+/// Points the images of a copied body at the copies of their files. An image whose file
+/// was not copied becomes an empty paragraph: it would show a file of another board.
+/// `None` if that leaves no body.
+fn rename_body_files(body: Body, new_file_names: &HashMap<String, String>) -> Option<Body> {
+    body.with_files_renamed(|old| new_file_names.get(old).cloned())
 }
 
 /// The last path segment of a client-supplied name, so that a name with directory parts

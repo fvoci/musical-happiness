@@ -7,11 +7,14 @@
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read as _};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
 use crate::common::ROOT_TEAM_ID;
 use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board};
-use crate::harness::{API, OCTET_STREAM, Session, multipart, string_member};
+use crate::harness::{API, OCTET_STREAM, Payload, Session, multipart, string_member};
 
 pub(crate) async fn templates(s: &mut Session) {
     let [alice] = s.users("tpl", ["alice"]).await;
@@ -45,7 +48,7 @@ pub(crate) async fn templates(s: &mut Session) {
     s.note("template members", &json!(members));
     let welcome = listing
         .iter()
-        .find(|board| board["title"] == "Welcome to Boards!")
+        .find(|board| board["properties"]["onboarding"] == json!(true))
         .map(id_of)
         .expect("the welcome template exists");
     let welcome_blocks = s
@@ -249,7 +252,7 @@ pub(crate) async fn files(s: &mut Session) {
     )
     .await;
 
-    // An image block that points at the file, then deleting it.
+    // An attachment block that points at the file, then deleting it.
     let created = new_blocks(
         s,
         &alice,
@@ -259,22 +262,22 @@ pub(crate) async fn files(s: &mut Session) {
             block(
                 "img1",
                 &board,
-                "image",
+                "attachment",
                 "",
                 "card1",
                 json!({"fileId": file_id})
             ),
         ]),
-        "insert an image block",
+        "insert an attachment block",
     )
     .await;
     let image = created
         .as_array()
         .expect("the created blocks are a list")
         .iter()
-        .find(|block| block["type"] == "image")
+        .find(|block| block["type"] == "attachment")
         .map(id_of)
-        .expect("the image block was created");
+        .expect("the attachment block was created");
     s.delete(
         "delete the image block",
         &format!("{API}/boards/{board}/blocks/{image}"),
@@ -374,11 +377,18 @@ pub(crate) async fn archive(s: &mut Session) {
                 "",
                 json!({"icon": "x"})
             ),
-            block("text1", &board, "text", "Exported text", "card1", json!({})),
+            block(
+                "text1",
+                &board,
+                "comment",
+                "Exported text",
+                "card1",
+                json!({})
+            ),
             block(
                 "img1",
                 &board,
-                "image",
+                "attachment",
                 "",
                 "card1",
                 json!({"fileId": file_id})
@@ -432,39 +442,24 @@ pub(crate) async fn archive(s: &mut Session) {
     }
 
     let import = format!("{API}/teams/{ROOT_TEAM_ID}/archive/import");
+    let upload = upload_archive(s, &bob, &exported).await;
     s.post("import", &import)
-        .payload(multipart(
-            "file",
-            "export.boardarchive",
-            &exported,
-            OCTET_STREAM,
-        ))
+        .json(json!({"uploadId": upload}))
         .user(&bob)
         .await;
-    s.post("import: anonymous", &import)
-        .payload(multipart(
-            "file",
-            "export.boardarchive",
-            &exported,
-            OCTET_STREAM,
-        ))
-        .await;
+    s.post(
+        "import: anonymous",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+    )
+    .json(json!({"name": "export.boardarchive", "size": exported.len()}))
+    .await;
+    let upload = upload_archive(s, &bob, b"this is not an archive").await;
     s.post("import: not an archive", &import)
-        .payload(multipart(
-            "file",
-            "broken.boardarchive",
-            b"this is not an archive",
-            OCTET_STREAM,
-        ))
+        .json(json!({"uploadId": upload}))
         .user(&bob)
         .await;
-    s.post("import: wrong field", &import)
-        .payload(multipart(
-            "other",
-            "export.boardarchive",
-            &exported,
-            OCTET_STREAM,
-        ))
+    s.post("import: no such upload", &import)
+        .json(json!({"uploadId": "no-such-upload"}))
         .user(&bob)
         .await;
     let imported = s
@@ -490,8 +485,8 @@ pub(crate) async fn archive(s: &mut Session) {
         .await;
     let images = s
         .get(
-            "imported image block",
-            &format!("{API}/boards/{copy}/blocks?type=image"),
+            "imported attachment block",
+            &format!("{API}/boards/{copy}/blocks?type=attachment"),
         )
         .user(&bob)
         .unrecorded()
@@ -504,7 +499,7 @@ pub(crate) async fn archive(s: &mut Session) {
     .user(&bob)
     .await;
 
-    // The original's older, line-based archive format.
+    // The original's older, line-based archive format, which is refused: it is no ZIP.
     let legacy_lines = [
         json!({"version": 1, "date": 1}),
         json!({"type": "block", "data": {
@@ -523,13 +518,9 @@ pub(crate) async fn archive(s: &mut Session) {
         .map(Value::to_string)
         .collect::<Vec<_>>()
         .join("\n");
+    let upload = upload_archive(s, &bob, legacy.as_bytes()).await;
     s.post("import: legacy format", &import)
-        .payload(multipart(
-            "file",
-            "legacy.boardarchive",
-            legacy.as_bytes(),
-            OCTET_STREAM,
-        ))
+        .json(json!({"uploadId": upload}))
         .user(&bob)
         .await;
     let boards = s
@@ -548,4 +539,42 @@ pub(crate) async fn archive(s: &mut Session) {
         .filter_map(|board| board["title"].as_str())
         .collect();
     s.note("board titles after legacy import", &json!(titles));
+}
+
+/// Opens an upload of an archive into the root team as `user`, sends its parts, and
+/// returns its identifier. Nothing of it is recorded: the upload's identifier and end
+/// differ from run to run.
+async fn upload_archive(s: &mut Session, user: &str, bytes: &[u8]) -> String {
+    let opened = s
+        .post(
+            "open an upload of an archive",
+            &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+        )
+        .json(json!({"name": "export.boardarchive", "size": bytes.len()}))
+        .user(user)
+        .unrecorded()
+        .await;
+    let upload = string_member(opened.json(), "uploadId");
+    let part_size = opened.json()["partSize"]
+        .as_u64()
+        .and_then(|size| usize::try_from(size).ok())
+        .expect("an upload has a part size");
+    for (index, part) in bytes.chunks(part_size).enumerate() {
+        let digest = format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(part)));
+        let sent = s
+            .put(
+                "send a part of an archive",
+                &format!("{API}/uploads/{upload}/parts/{}", index + 1),
+            )
+            .payload(Payload::Raw {
+                bytes: part.to_vec(),
+                content_type: Some(OCTET_STREAM.to_owned()),
+            })
+            .header("Content-Digest", &digest)
+            .user(user)
+            .unrecorded()
+            .await;
+        assert_eq!(sent.status, 204, "the part is received");
+    }
+    upload
 }

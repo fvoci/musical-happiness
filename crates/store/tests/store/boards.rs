@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardPatch, BoardSearchField, BoardType, Category,
+    Block, BlockType, Board, BoardMember, BoardPatch, BoardSearchField, BoardType, Body, Category,
     FileInfo, JsonMap, MinimumRole, SubscriberType, Subscription, new_id,
 };
 use fvoci_store::{
@@ -2002,8 +2002,8 @@ impl FullBoard {
 
         let view = new_block(&board.id, "", BlockType::View);
         let card = new_block(&board.id, "", BlockType::Card);
-        let text = new_block(&board.id, &card.id, BlockType::Text);
-        let checkbox = new_block(&board.id, &text.id, BlockType::Checkbox);
+        let text = new_block(&board.id, &card.id, BlockType::Attachment);
+        let checkbox = new_block(&board.id, &text.id, BlockType::Attachment);
         let card_id = card.id.clone();
         let mut blocks = vec![view, card, text, checkbox];
         store
@@ -2421,7 +2421,7 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
     test.insert_block(&mut card, &creator_id)
         .await
         .expect("the creator's card is stored");
-    let mut paragraph = new_block(&board.id, &card.id, BlockType::Text);
+    let mut paragraph = new_block(&board.id, &card.id, BlockType::Attachment);
     test.insert_block(&mut paragraph, &editor_id)
         .await
         .expect("the editor's text is stored");
@@ -2495,7 +2495,7 @@ async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody
     test.insert_block(&mut card, &author_id)
         .await
         .expect("the author's card is stored");
-    let mut paragraph = new_block(&board_id, &card.id, BlockType::Text);
+    let mut paragraph = new_block(&board_id, &card.id, BlockType::Attachment);
     test.insert_block(&mut paragraph, &owner_id)
         .await
         .expect("the owner's text is stored");
@@ -2557,8 +2557,8 @@ async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_r
     let board_id = stored_board(&test, &team_id, &user_id).await;
 
     let card = new_block(&board_id, "", BlockType::Card);
-    let paragraph = new_block(&board_id, &card.id, BlockType::Text);
-    let checkbox = new_block(&board_id, &paragraph.id, BlockType::Checkbox);
+    let paragraph = new_block(&board_id, &card.id, BlockType::Attachment);
+    let checkbox = new_block(&board_id, &paragraph.id, BlockType::Attachment);
     let (card_id, text_id, checkbox_id) =
         (card.id.clone(), paragraph.id.clone(), checkbox.id.clone());
     let mut blocks = [card, paragraph, checkbox];
@@ -2685,7 +2685,7 @@ async fn board_with_card_and_text(
 ) -> (String, String, String) {
     let board_id = stored_board(store, team_id, user_id).await;
     let card = new_block(&board_id, "", BlockType::Card);
-    let text = new_block(&board_id, &card.id, BlockType::Text);
+    let text = new_block(&board_id, &card.id, BlockType::Attachment);
     let (card_id, text_id) = (card.id.clone(), text.id.clone());
     store
         .insert_blocks(&mut [card, text], user_id)
@@ -4164,9 +4164,14 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         created_by: String::new(),
         modified_by: String::new(),
         schema: 7,
-        block_type: BlockType::Text,
+        // A card, the one block that has a body, so that every member is set.
+        block_type: BlockType::Card,
         title: "a text".to_owned(),
         fields: object(json!({ "contentOrder": ["a", "b"], "isTemplate": true })),
+        body: Body::parse(json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]},
+        ]}))
+        .expect("a body that may be stored"),
         create_at: 0,
         update_at: 0,
         delete_at: 0,
@@ -4248,5 +4253,113 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         "the blocks as they were"
     );
 
+    test.teardown().await;
+}
+
+/// Replacing the built-in templates is decided, done and handed back in one go: it keeps
+/// the templates when `needed` says so, and otherwise removes them with their file
+/// records, which it returns so that the files can go too, and stores the new ones.
+#[tokio::test]
+async fn replacing_the_built_in_templates_hands_back_the_old_files() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let template = |title: &str| Board {
+        is_template: true,
+        title: title.to_owned(),
+        ..new_board(&new_id(), &team_id, BoardType::Open)
+    };
+    let mut old = template("old");
+    test.insert_board(&mut old, "")
+        .await
+        .expect("the old template is stored");
+    let file = FileInfo {
+        id: new_id(),
+        board_id: old.id.clone(),
+        stored_name: "picture.png".to_owned(),
+        name: "picture.png".to_owned(),
+        size: 1,
+        path: format!("{}/picture.png", old.id),
+        create_at: 1,
+        ..FileInfo::default()
+    };
+    test.save_file_info(&file)
+        .await
+        .expect("the template's file is recorded");
+
+    let mut new = fvoci_model::BoardsAndBlocks {
+        boards: vec![template("new")],
+        blocks: Vec::new(),
+    };
+    let kept = test
+        .replace_builtin_templates(&mut new, <[Board]>::is_empty)
+        .await
+        .expect("the check runs");
+    assert_eq!(kept, None, "the stored templates are kept when not needed");
+
+    let files = test
+        .replace_builtin_templates(&mut new, |stored| {
+            stored.iter().any(|board| board.title == "old")
+        })
+        .await
+        .expect("the templates are replaced")
+        .expect("they were replaced");
+    assert_eq!(
+        files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        [file.path.as_str()],
+        "the old template's file is handed back"
+    );
+    let titles: Vec<String> = test
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates are read")
+        .into_iter()
+        .map(|board| board.title)
+        .collect();
+    assert_eq!(titles, ["new"], "the new templates are stored, built in");
+    let error = test
+        .get_file_info(&old.id, &file.stored_name)
+        .await
+        .expect_err("the record went with its board");
+    assert!(error.is_not_found(), "got {error:?}");
+
+    test.teardown().await;
+}
+
+/// Two replacements of the built-in templates that start at once, each finding none,
+/// store them once between them: the second decides after the first has committed. On
+/// PostgreSQL that is the advisory lock, on SQLite the write transaction.
+#[tokio::test]
+async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let templates = || fvoci_model::BoardsAndBlocks {
+        boards: vec![Board {
+            is_template: true,
+            ..new_board(&new_id(), &team_id, BoardType::Open)
+        }],
+        blocks: Vec::new(),
+    };
+    let (mut first, mut second) = (templates(), templates());
+    let (first, second) = tokio::join!(
+        test.replace_builtin_templates(&mut first, <[Board]>::is_empty),
+        test.replace_builtin_templates(&mut second, <[Board]>::is_empty),
+    );
+    let replaced = [first, second]
+        .into_iter()
+        .map(|result| result.expect("a replacement runs").is_some())
+        .filter(|&replaced| replaced)
+        .count();
+    assert_eq!(replaced, 1, "one of them stores the templates");
+    assert_eq!(
+        test.get_builtin_templates()
+            .await
+            .expect("the built-in templates are read")
+            .len(),
+        1,
+        "and they are there once"
+    );
     test.teardown().await;
 }

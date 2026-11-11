@@ -15,9 +15,7 @@ use serde_json::{Value, json};
 use crate::common::ROOT_TEAM_ID;
 use crate::fixtures::{PNG, block, id_of, merged, role_flags};
 use crate::golden;
-use crate::harness::{
-    API, Caller, Http, OCTET_STREAM, Payload, id_by_title, multipart, start_server,
-};
+use crate::harness::{API, Caller, Http, Payload, id_by_title, multipart, start_server};
 
 /// The kinds of caller, in the order of the table's columns.
 const ROLES: [&str; 6] = [
@@ -71,7 +69,6 @@ const ROUTES: [&str; 53] = [
     "cards: list",
     "cards: get",
     "cards: patch",
-    "content: move",
     "sharing: get",
     "sharing: post",
     "subscriptions: create",
@@ -79,8 +76,9 @@ const ROUTES: [&str; 53] = [
     "files: upload",
     "files: download",
     "files: info",
+    "uploads: open",
     "archive: export board",
-    "archive: import",
+    "archive: open an upload",
     "archive: export team",
     "categories: list",
     "team: boards",
@@ -133,8 +131,6 @@ struct Fixture<'a> {
     users: &'a Users,
     board: String,
     card: String,
-    text: String,
-    text2: String,
     view: String,
     comment: String,
 }
@@ -176,8 +172,6 @@ impl<'a> Fixture<'a> {
                 &blocks,
                 Payload::Json(json!([
                     block("card", &board, "card", "card", "", json!({})),
-                    block("text", &board, "text", "text", "card", json!({})),
-                    block("text2", &board, "text", "text2", "card", json!({})),
                     block(
                         "view",
                         &board,
@@ -210,8 +204,6 @@ impl<'a> Fixture<'a> {
         Self {
             http,
             users,
-            text: id_by_title(created, "text"),
-            text2: id_by_title(created, "text2"),
             view: id_by_title(created, "view"),
             comment: id_of(&comment.json()[0]),
             card,
@@ -404,18 +396,6 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             format!("{API}/cards/{}", fx.card),
             json!({"title": "patched"}),
         ),
-        "content: move" => {
-            fx.owner(
-                Method::PATCH,
-                &format!("{API}/cards/{}", fx.card),
-                Payload::Json(json!({"contentOrder": [fx.text, fx.text2]})),
-            )
-            .await;
-            Request::new(
-                Method::POST,
-                format!("{API}/content-blocks/{}/moveto/after/{}", fx.text, fx.text2),
-            )
-        }
         "sharing: get" => {
             fx.owner(
                 Method::POST,
@@ -488,23 +468,19 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
                 format!("{API}/boards/{board}/files/{file}/info"),
             )
         }
+        "uploads: open" => Request::json(
+            Method::POST,
+            format!("{API}/boards/{board}/uploads"),
+            json!({"name": "pixel.png", "size": PNG.len()}),
+        ),
         "archive: export board" => {
             Request::new(Method::GET, format!("{board_path}/archive/export"))
         }
-        "archive: import" => {
-            let exported = fx
-                .owner(
-                    Method::GET,
-                    &format!("{board_path}/archive/export"),
-                    Payload::None,
-                )
-                .await;
-            Request {
-                method: Method::POST,
-                path: format!("{API}/teams/{ROOT_TEAM_ID}/archive/import"),
-                payload: multipart("file", "a.boardarchive", exported.bytes(), OCTET_STREAM),
-            }
-        }
+        "archive: open an upload" => Request::json(
+            Method::POST,
+            format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+            json!({"name": "a.boardarchive", "size": 100}),
+        ),
         "archive: export team" => Request::new(
             Method::GET,
             format!("{API}/teams/{ROOT_TEAM_ID}/archive/export"),

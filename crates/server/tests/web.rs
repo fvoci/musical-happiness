@@ -35,6 +35,7 @@ impl Fixture {
         write("static/app-0123456789abcdef.js", "console.log('hashed')");
         write("static/app-0123456789abcdef.js.br", "BROTLI-BYTES");
         write("static/app-0123456789abcdef.js.gz", "GZIP-BYTES");
+        write("static/app-0123456789abcdef.js.zst", "ZSTD-BYTES");
         write("static/sub/nested.css", "body{}");
         write("secret.txt", "outside static");
         let web = WebRoot::new(&dir, server_root);
@@ -115,6 +116,26 @@ async fn static_file_with_a_content_hash_is_immutable() {
 #[tokio::test]
 async fn precompressed_variants_follow_accept_encoding() {
     let fixture = Fixture::new("http://localhost:8000");
+
+    let zstd = fixture
+        .get(
+            "app-0123456789abcdef.js",
+            &[(ACCEPT_ENCODING, "gzip, deflate, br, zstd")],
+        )
+        .await;
+    assert_eq!(header(&zstd, &CONTENT_ENCODING), "zstd", "zstd on a tie");
+    assert_eq!(body_text(zstd).await, "ZSTD-BYTES");
+    let preferred = fixture
+        .get(
+            "app-0123456789abcdef.js",
+            &[(ACCEPT_ENCODING, "zstd;q=0.5, br")],
+        )
+        .await;
+    assert_eq!(
+        header(&preferred, &CONTENT_ENCODING),
+        "br",
+        "the client's preference"
+    );
 
     let brotli = fixture
         .get("app-0123456789abcdef.js", &[(ACCEPT_ENCODING, "gzip, br")])

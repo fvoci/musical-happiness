@@ -7,17 +7,38 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use fvoci_model::{Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, generate_block_ids};
+use fvoci_model::{
+    BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
+    TaskCount, generate_block_ids, validate_card_property_kinds,
+};
 use serde_json::Value;
 
 use crate::Store;
 use crate::boards;
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
+use crate::file_refs;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, board_id";
+                             fields, create_at, update_at, board_id, body";
+
+/// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
+/// when it is stored.
+const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, body_tasks_done";
+
+/// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
+/// about the body in its place.
+const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
+                             fields, create_at, update_at, board_id, NULL, \
+                             body IS NOT NULL, body_tasks_total, body_tasks_done";
+
+/// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
+const LISTED_HAS_BODY: usize = 12;
+/// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.
+const LISTED_TASKS_TOTAL: usize = 13;
+/// The column of [`LISTED_BLOCK_COLUMNS`] with the body's checked task items.
+const LISTED_TASKS_DONE: usize = 14;
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -83,6 +104,28 @@ pub enum DuplicateAs {
 }
 
 impl Store {
+    /// Writes the fields of a block as they are, without any check: for tests that need
+    /// a block as an older server stored it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    #[cfg(feature = "test-util")]
+    pub async fn set_block_fields_unchecked(
+        &self,
+        block_id: &str,
+        fields: &fvoci_model::JsonMap,
+    ) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE blocks SET fields = ");
+            sql.bind(Param::json(fields)?)
+                .push_bind(" WHERE id = ", Id(block_id));
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Returns the blocks matching `filter`, oldest first.
     ///
     /// # Errors
@@ -91,6 +134,40 @@ impl Store {
     pub async fn get_blocks(&self, filter: &BlockFilter) -> Result<Vec<Block>, StoreError> {
         self.with_conn(async |scope| get_blocks(scope, filter).await)
             .await
+    }
+
+    /// Returns the blocks that match `filter` as [`Store::get_blocks`] does, but without
+    /// their bodies: each comes with what a list says about its body instead, read from
+    /// what was worked out when the body was stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database's error, or [`StoreError::Corrupt`] for a row that cannot be
+    /// read.
+    pub async fn get_listed_blocks(
+        &self,
+        filter: &BlockFilter,
+    ) -> Result<Vec<(Block, BodySummary)>, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = filtered_blocks(scope, filter, LISTED_BLOCK_COLUMNS);
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| {
+                    let tasks = TaskCount {
+                        total: count_column(row, LISTED_TASKS_TOTAL, "body_tasks_total")?,
+                        done: count_column(row, LISTED_TASKS_DONE, "body_tasks_done")?,
+                    };
+                    let summary = BodySummary {
+                        has_body: row.bool(LISTED_HAS_BODY)?,
+                        tasks,
+                    };
+                    Ok((block_from_row(row)?, summary))
+                })
+                .collect()
+        })
+        .await
     }
 
     /// Returns the blocks with the given identifiers, oldest first.
@@ -278,6 +355,9 @@ impl Store {
             copies.push(root);
             copies.extend(children);
             generate_block_ids(&mut copies);
+            if let Some(board) = boards::find_board(scope, board_id).await? {
+                clear_copied_values(&mut copies, &board.card_properties);
+            }
             insert_blocks(scope, &mut copies, user_id).await?;
             Ok(copies)
         })
@@ -317,6 +397,10 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         // A block that exists is not deleted.
         delete_at: 0,
         board_id: row.id(10)?,
+        body: match row.json(11, "body")? {
+            Value::Null => None,
+            document => Some(Body::from_stored(document)),
+        },
     })
 }
 
@@ -324,7 +408,21 @@ pub(crate) async fn get_blocks(
     scope: &mut Scope<'_>,
     filter: &BlockFilter,
 ) -> Result<Vec<Block>, StoreError> {
-    let mut sql = select_blocks(scope);
+    let sql = filtered_blocks(scope, filter, BLOCK_COLUMNS);
+    fetch_blocks(scope, sql).await
+}
+
+/// A count the store wrote, read back.
+fn count_column(row: &Row, index: usize, column: &'static str) -> Result<u32, StoreError> {
+    u32::try_from(row.int(index)?).map_err(|error| StoreError::Corrupt {
+        column,
+        reason: error.to_string(),
+    })
+}
+
+/// The query for the blocks that match `filter`, reading `columns`.
+fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sql {
+    let mut sql = scope.sql(&format!("SELECT {columns} FROM blocks"));
     sql.push(" WHERE 1 = 1");
     if let Some(board_id) = &filter.board_id {
         sql.push_bind(" AND board_id = ", Id(board_id));
@@ -355,7 +453,7 @@ pub(crate) async fn get_blocks(
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
             .push_bind(" OFFSET ", offset);
     }
-    fetch_blocks(scope, sql).await
+    sql
 }
 
 pub(crate) async fn find_block(
@@ -445,13 +543,18 @@ async fn insert_block_at(
     {
         return Err(invalid(block, BlockError::ParentNotOnBoard));
     }
-
     let now = at.unwrap_or_else(now_millis);
     block.update_at = now;
     block.delete_at = 0;
     user_id.clone_into(&mut block.modified_by);
 
-    if let Some(existing) = find_block(scope, &block.id).await? {
+    let existing = find_block(scope, &block.id).await?;
+    check_written_kinds(scope, block, existing.as_ref()).await?;
+    if let Some(existing) = existing {
+        // Every change of a block moves its `updateAt` on, also within one millisecond
+        // and when the clock steps back: a writer that read the block before this
+        // change is told so (`readAt`).
+        block.update_at = now.max(existing.update_at.saturating_add(1));
         // A block that moves must not end up below itself: nothing would lead to it
         // from its board any more.
         if !block.parent_id.is_empty()
@@ -469,8 +572,9 @@ async fn insert_block_at(
             .push_bind(", type = ", block.block_type.as_str())
             .push_bind(", title = ", &block.title)
             .push_bind(", fields = ", Param::json(&block.fields)?)
-            .push_bind(", update_at = ", block.update_at)
-            .push_bind(" WHERE id = ", Id(&block.id))
+            .push_bind(", update_at = ", block.update_at);
+        push_body(&mut sql, block.body.as_ref(), BodyColumns::Assign)?;
+        sql.push_bind(" WHERE id = ", Id(&block.id))
             .push_bind(" AND board_id = ", Id(&block.board_id));
         if scope.execute(sql).await? == 0 {
             return Err(StoreError::not_found(format_args!(
@@ -478,11 +582,57 @@ async fn insert_block_at(
                 block.id, block.board_id
             )));
         }
-        Ok(())
+        file_refs::refresh(scope, block).await
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         insert_block_row(scope, block).await
+    }
+}
+
+/// Checks that the values a write gives a card fit the kinds of the board's properties
+/// (`docs/s6-design.md` 5.7): a date value for a date property, and none for another.
+/// Only the values the write changes are checked; one that a change of the definitions
+/// left behind stays until it is written.
+async fn check_written_kinds(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    existing: Option<&Block>,
+) -> Result<(), StoreError> {
+    let Some(Value::Object(values)) = block.fields.get("properties") else {
+        return Ok(());
+    };
+    let before = existing
+        .and_then(|existing| existing.fields.get("properties"))
+        .and_then(Value::as_object);
+    let written: fvoci_model::JsonMap = values
+        .iter()
+        .filter(|(id, value)| before.and_then(|before| before.get(*id)) != Some(*value))
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    if written.is_empty() {
+        return Ok(());
+    }
+    let Some(board) = boards::find_board(scope, &block.board_id).await? else {
+        return Ok(());
+    };
+    validate_card_property_kinds(&written, &board.card_properties).map_err(|error| {
+        StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source: BlockError::from(error),
+        }
+    })
+}
+
+/// Clears what copied blocks can no longer be stored with: malformed fields
+/// ([`Block::drop_malformed_fields`]), and the values of cards that no longer fit their
+/// board's definitions, as [`fvoci_model::clear_values_of_another_kind`] does.
+pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[fvoci_model::JsonMap]) {
+    for block in blocks {
+        block.drop_malformed_fields();
+        if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
+            fvoci_model::clear_values_of_another_kind(values, definitions);
+        }
     }
 }
 
@@ -492,7 +642,9 @@ pub(crate) async fn insert_block_row(
     scope: &mut Scope<'_>,
     block: &Block,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!("INSERT INTO blocks ({BLOCK_COLUMNS}) VALUES ("));
+    let mut sql = scope.sql(&format!(
+        "INSERT INTO blocks ({BLOCK_COLUMNS}, {BODY_SUMMARY_COLUMNS}) VALUES ("
+    ));
     sql.bind(Id(&block.id))
         .push_bind(", ", OptId(&block.parent_id))
         .push_bind(", ", OptId(&block.created_by))
@@ -503,9 +655,39 @@ pub(crate) async fn insert_block_row(
         .push_bind(", ", Param::json(&block.fields)?)
         .push_bind(", ", block.create_at)
         .push_bind(", ", block.update_at)
-        .push_bind(", ", Id(&block.board_id))
-        .push(")");
+        .push_bind(", ", Id(&block.board_id));
+    push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
+    sql.push(")");
     scope.execute(sql).await?;
+    file_refs::refresh(scope, block).await
+}
+
+/// How [`push_body`] writes the body's columns.
+#[derive(Debug, Clone, Copy)]
+enum BodyColumns {
+    /// As `, column = value` for an `UPDATE`.
+    Assign,
+    /// As `, value` in the order of [`BLOCK_COLUMNS`]' `body` and then
+    /// [`BODY_SUMMARY_COLUMNS`], for an `INSERT`.
+    List,
+}
+
+/// Appends the body and what is worked out from it.
+fn push_body(sql: &mut Sql, body: Option<&Body>, how: BodyColumns) -> Result<(), StoreError> {
+    let tasks = body.map(Body::tasks).unwrap_or_default();
+    let values = [
+        ("body", Param::opt_jsonb(body.map(Body::document))?),
+        ("body_version", Param::OptInt(body.map(|_| BODY_VERSION))),
+        ("body_text", Param::OptText(body.map(Body::text))),
+        ("body_tasks_total", Param::Int(i64::from(tasks.total))),
+        ("body_tasks_done", Param::Int(i64::from(tasks.done))),
+    ];
+    for (column, value) in values {
+        match how {
+            BodyColumns::Assign => sql.push_bind(&format!(", {column} = "), value),
+            BodyColumns::List => sql.push_bind(", ", value),
+        };
+    }
     Ok(())
 }
 
@@ -581,7 +763,34 @@ pub(crate) async fn patch_block(
     let board_id = get_block(scope, block_id).await?.board_id;
     boards::lock_board(scope, &board_id).await?;
     let mut block = get_block(scope, block_id).await?;
+    let stored_update_at = block.update_at;
+    // What the block was stored with before it was refused is not the patch's fault.
+    block.drop_malformed_fields();
+    patch
+        .check_type()
+        .map_err(|source| StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source,
+        })?;
     patch.apply(&mut block);
+    // A patch whose block breaks the limits of a block (title, fields) is refused as
+    // such (400) before it is refused for being made against an older block (409). The
+    // checks of the parent still come after, in `insert_block_at`.
+    block
+        .validate()
+        .map_err(|source| StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source,
+        })?;
+    if let Some(read_at) = patch.read_at
+        && read_at != stored_update_at
+    {
+        return Err(StoreError::Stale {
+            id: block.id,
+            read_at,
+            update_at: stored_update_at,
+        });
+    }
     insert_block(scope, &mut block, user_id).await
 }
 
@@ -602,6 +811,17 @@ mod tests {
             .into_iter()
             .map(|index| blocks[index].id.as_str())
             .collect()
+    }
+
+    #[test]
+    fn the_listed_columns_are_where_the_list_reads_them() {
+        let columns: Vec<&str> = LISTED_BLOCK_COLUMNS.split(", ").map(str::trim).collect();
+        let block_columns = BLOCK_COLUMNS.split(", ").count();
+        assert_eq!(columns[block_columns - 1], "NULL", "the body is not read");
+        assert_eq!(columns[LISTED_HAS_BODY], "body IS NOT NULL");
+        assert_eq!(columns[LISTED_TASKS_TOTAL], "body_tasks_total");
+        assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
+        assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
     }
 
     #[test]

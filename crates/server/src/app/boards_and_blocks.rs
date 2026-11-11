@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks};
+use fvoci_model::{BoardMember, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks};
 
 use super::App;
 use super::boards::CreatorMembership;
@@ -62,27 +62,7 @@ impl App {
             }
         };
 
-        // All new boards belong to one team. The original crashes here without boards;
-        // then there is nobody to tell.
-        let team_id = created
-            .boards
-            .first()
-            .map_or("", |board| board.team_id.as_str());
-
-        // Not in the background: the original does this before it answers, because the
-        // operation is rare.
-        for board in &created.boards {
-            self.ws().broadcast_board_change(team_id, board).await;
-        }
-        for block in &created.blocks {
-            self.ws().broadcast_block_change(team_id, block).await;
-            self.webhook().notify_update(block).await;
-        }
-        for member in &members {
-            self.ws()
-                .broadcast_member_change(team_id, &member.board_id, member)
-                .await;
-        }
+        self.announce_created(&created, &members).await;
 
         for board in &created.boards {
             if !board.is_template {
@@ -95,6 +75,35 @@ impl App {
             }
         }
         Ok(created)
+    }
+
+    /// Tells the boards' members and the webhooks about boards and blocks that were
+    /// stored together, and about the memberships made with them. Not in the
+    /// background: the original does this before it answers, because the operation is
+    /// rare.
+    pub(crate) async fn announce_created(
+        &self,
+        created: &BoardsAndBlocks,
+        members: &[BoardMember],
+    ) {
+        // All new boards belong to one team. The original crashes here without boards;
+        // then there is nobody to tell.
+        let team_id = created
+            .boards
+            .first()
+            .map_or("", |board| board.team_id.as_str());
+        for board in &created.boards {
+            self.ws().broadcast_board_change(team_id, board).await;
+        }
+        for block in &created.blocks {
+            self.ws().broadcast_block_change(team_id, block).await;
+            self.webhook().notify_update(block).await;
+        }
+        for member in members {
+            self.ws()
+                .broadcast_member_change(team_id, &member.board_id, member)
+                .await;
+        }
     }
 
     /// Applies board and block patches, all or none, and tells the boards' members and
@@ -190,6 +199,9 @@ impl App {
                 .map_or(&[][..], Vec::as_slice);
             self.ws()
                 .broadcast_board_delete(&team_id, board_id, members);
+            // The board's sharing went with it; so does whoever followed it by its link,
+            // as with `deleteBoard`.
+            self.ws().close_readers_of_board(board_id);
         }
         Ok(())
     }

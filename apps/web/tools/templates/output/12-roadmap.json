@@ -574,12 +574,6 @@
                 ]
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "77pe9r4ckbin438ph3f18bpatua.png"
-            }
           }
         ]
       }
@@ -1445,27 +1439,10 @@
                 ]
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "7pbp4qg415pbstc6enzeicnu3qh.png"
-            }
           }
         ]
       }
     }
   ],
-  "files": [
-    {
-      "fileId": "77pe9r4ckbin438ph3f18bpatua.png",
-      "archiveMember": "bui5izho7dtn77xg3thkiqprc9r/77pe9r4ckbin438ph3f18bpatua.png",
-      "bytes": 2484
-    },
-    {
-      "fileId": "7pbp4qg415pbstc6enzeicnu3qh.png",
-      "archiveMember": "bui5izho7dtn77xg3thkiqprc9r/7pbp4qg415pbstc6enzeicnu3qh.png",
-      "bytes": 112926
-    }
-  ]
+  "files": []
 }

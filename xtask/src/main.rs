@@ -74,6 +74,10 @@ fn workspace_root() -> PathBuf {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let root = workspace_root();
+    if let Err(error) = steps::catch_interrupts() {
+        steps::say(&format!("error: {error:#}"));
+        return ExitCode::FAILURE;
+    }
     let result = match cli.command {
         Command::Check { skip_licenses } => {
             let licenses = if skip_licenses {

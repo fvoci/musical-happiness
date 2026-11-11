@@ -595,7 +595,11 @@ async fn subscription_by_every_member_of_the_board_still_works() {
         viewer,
     } = board_with_roles(&th).await;
     let card = insert_card(&th.client, &board.id).await;
-    let text = insert_block(&th.client, &new_block(&board.id, &card.id, BlockType::Text)).await;
+    let text = insert_block(
+        &th.client,
+        &new_block(&board.id, &card.id, BlockType::Attachment),
+    )
+    .await;
 
     for client in [&th.client, &editor, &commenter, &viewer] {
         let user_id = client.me().await.id;

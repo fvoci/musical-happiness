@@ -2,6 +2,8 @@
 //! told about which change, and pings. The original has no tests at this level; its unit
 //! tests of the listener table (`server/ws/server_test.go`) are ported next to the hub.
 
+use std::collections::BTreeSet;
+use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -105,6 +107,37 @@ async fn subscribe_to_team(th: &TestServer, socket: &mut Socket, team_id: &str, 
         }
     }
     panic!("the socket was never subscribed to team {team_id}");
+}
+
+/// The category messages go to every connection of the user that follows the team:
+/// another tab of the user hears them too, another user does not.
+#[tokio::test]
+async fn category_messages_reach_every_tab_of_the_user() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let mut first = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut first, ROOT_TEAM_ID, &user1.id).await;
+    let mut second = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut second, ROOT_TEAM_ID, &user1.id).await;
+    while first.next_json(Duration::from_millis(150)).await.is_some() {}
+    let user2 = th.client2.me().await;
+    let mut other = Socket::connect_as(&th.client2).await;
+    subscribe_to_team(&th, &mut other, ROOT_TEAM_ID, &user2.id).await;
+
+    th.client
+        .post(
+            &format!("/teams/{ROOT_TEAM_ID}/categories"),
+            &json!({"name": "both tabs", "userId": user1.id, "teamId": ROOT_TEAM_ID}),
+        )
+        .await
+        .check_created();
+    for socket in [&mut first, &mut second] {
+        let message = socket.next_json(PATIENCE).await.expect("told");
+        assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
+        assert_eq!(message["category"]["name"], json!("both tabs"));
+    }
+    assert_eq!(other.next(QUIET).await, Event::Nothing, "another user");
+    th.teardown().await;
 }
 
 /// A connection of a session subscribes to a team and is told about the user's category
@@ -548,13 +581,23 @@ async fn follow_block(th: &TestServer, block: &Block, read_token: &str) -> (Sock
 async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let (_board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (_board, mut block, token) = shared_board_with_a_card(&th, &user1.id).await;
     assert_eq!(block.created_by, user1.id, "the block has an author");
+    block.body = fvoci_model::Body::parse(json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": user1.id}}]},
+    ]}))
+    .expect("a body");
+    let mention = "/block/body/content/0/content/0/attrs/userId";
 
-    let (_reader, message) = follow_block(&th, &block, &token).await;
+    let (mut reader, message) = follow_block(&th, &block, &token).await;
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
     assert_eq!(message["block"]["modifiedBy"], json!(""), "{message}");
+    assert_eq!(
+        message.pointer(mention),
+        Some(&json!("")),
+        "nor who is mentioned"
+    );
 
     let mut member = Socket::connect_as(&th.client).await;
     subscribe_to_team(&th, &mut member, ROOT_TEAM_ID, &user1.id).await;
@@ -567,6 +610,19 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         .await
         .expect("the member is told");
     assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
+    assert_eq!(
+        message.pointer(mention),
+        Some(&json!(user1.id)),
+        "{message}"
+    );
+    // The same broadcast, as the reader has it: what the member is told does not reach
+    // the reader, nor the reverse.
+    let message = reader
+        .next_json(PATIENCE)
+        .await
+        .expect("the reader is told too");
+    assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
+    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
 
     th.teardown().await;
 }
@@ -623,6 +679,83 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         "the board is gone"
     );
 
+    // The board deleted with others at once, as `deleteBoardsAndBlocks` does.
+    let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (mut reader, _) = follow_block(&th, &block, &token).await;
+    th.client
+        .delete_json(
+            "/boards-and-blocks",
+            &json!({"boards": [board.id], "blocks": [block.id]}),
+        )
+        .await
+        .check_no_content();
+    assert_eq!(
+        reader.next(PATIENCE).await,
+        Event::Closed,
+        "the board is gone with others"
+    );
+
+    th.teardown().await;
+}
+
+/// A session that ends by its idle limit, which nobody announces, takes its websocket
+/// connection with it at the next ping (the hourly clean-up of ended sessions is not
+/// waited for); a session in use keeps its connection.
+#[tokio::test]
+async fn a_session_that_runs_out_closes_its_websocket_connection() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.websocket_ping_seconds = 1;
+            config.session_idle_days = 3;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user1 = th.client.me().await;
+    let elsewhere = th
+        .login(crate::common::USER1_USERNAME, crate::common::PASSWORD)
+        .await;
+    let mut here = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut here, ROOT_TEAM_ID, &user1.id).await;
+    let mut there = Socket::connect_as(&elsewhere).await;
+    let session = th
+        .app
+        .store()
+        .get_session(
+            &fvoci_server::auth::secret::token_digest(&th.client.token),
+            0,
+            i64::MIN,
+        )
+        .await
+        .expect("the session is stored");
+    let three_days = 3 * 24 * 60 * 60 * 1000;
+    th.app
+        .store()
+        .set_session_last_used(
+            &session.id,
+            fvoci_server::auth::now_millis() - three_days - 60_000,
+        )
+        .await
+        .expect("the last use is moved back");
+
+    let until = std::time::Instant::now() + PATIENCE;
+    let mut ended = Event::Nothing;
+    while std::time::Instant::now() < until {
+        ended = here.next(PATIENCE).await;
+        if ended != Event::Ping {
+            break;
+        }
+    }
+    assert_eq!(ended, Event::Closed, "the session ran out");
+    let until = std::time::Instant::now() + Duration::from_millis(2500);
+    while std::time::Instant::now() < until {
+        assert_eq!(
+            there.next(PATIENCE).await,
+            Event::Ping,
+            "the user's other session stays connected"
+        );
+    }
     th.teardown().await;
 }
 
@@ -651,5 +784,227 @@ async fn logging_out_closes_the_websocket_connections_of_that_session() {
         Event::Nothing,
         "the user's other session stays connected"
     );
+    th.teardown().await;
+}
+
+/// Checks a value against a member's description in `contracts/websocket.json`: a JSON
+/// type, a schema of `contracts/openapi.json` by name, an inline object, or a list.
+fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
+    match what {
+        Value::String(reference) if let Some(name) = reference.strip_prefix('#') => {
+            let schema = &openapi["components"]["schemas"][name];
+            let properties = schema["properties"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{at}: openapi.json has the schema {name}"));
+            let object = value
+                .as_object()
+                .unwrap_or_else(|| panic!("{at}: an object, not {value}"));
+            for key in object.keys() {
+                assert!(
+                    properties.contains_key(key),
+                    "{at}: `{key}` is no member of {name} in openapi.json: {value}"
+                );
+            }
+            for key in schema["required"].as_array().into_iter().flatten() {
+                let key = key.as_str().expect("required names are strings");
+                assert!(
+                    object.contains_key(key),
+                    "{at}: {name} has `{key}`: {value}"
+                );
+            }
+        }
+        Value::String(kind) => {
+            let matches = match kind.as_str() {
+                "string" => value.is_string(),
+                "boolean" => value.is_boolean(),
+                "integer" => value.is_i64() || value.is_u64(),
+                other => panic!("{at}: unknown type {other} in websocket.json"),
+            };
+            assert!(matches, "{at}: a {kind}, not {value}");
+        }
+        Value::Array(items) => {
+            let [item] = items.as_slice() else {
+                panic!("{at}: a list is described by one item");
+            };
+            let list = value
+                .as_array()
+                .unwrap_or_else(|| panic!("{at}: a list, not {value}"));
+            for (index, element) in list.iter().enumerate() {
+                check_against(openapi, item, element, &format!("{at}[{index}]"));
+            }
+        }
+        Value::Object(members) => {
+            let object = value
+                .as_object()
+                .unwrap_or_else(|| panic!("{at}: an object, not {value}"));
+            let expected: BTreeSet<&String> = members.keys().collect();
+            let actual: BTreeSet<&String> = object.keys().collect();
+            assert_eq!(actual, expected, "{at}: the members of {value}");
+            for (key, member) in members {
+                check_against(openapi, member, &object[key], &format!("{at}.{key}"));
+            }
+        }
+        other => panic!("{at}: cannot read {other} in websocket.json"),
+    }
+}
+
+/// Checks one message the server sent against `contracts/websocket.json`.
+fn check_message(contract: &Value, openapi: &Value, message: &Value) {
+    let action = message["action"].as_str().expect("a message has an action");
+    let members = &contract["messages"][action]["members"];
+    assert!(
+        members.is_object(),
+        "contracts/websocket.json lists {action}"
+    );
+    check_against(openapi, members, message, action);
+}
+
+fn read_contract(name: &str) -> Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contracts")
+        .join(name);
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// Checks the messages a socket hears against the websocket contract, and remembers
+/// which kinds it heard.
+struct ContractCheck<'contract> {
+    contract: &'contract Value,
+    openapi: &'contract Value,
+    heard: BTreeSet<String>,
+}
+
+impl ContractCheck<'_> {
+    /// Waits for the next message, which must be an `action`, and checks it.
+    async fn hear(&mut self, socket: &mut Socket, action: &str) {
+        let message = socket.next_json(PATIENCE).await.expect("the message comes");
+        assert_eq!(message["action"], json!(action), "{message}");
+        check_message(self.contract, self.openapi, &message);
+        self.heard.insert(action.to_owned());
+    }
+}
+
+/// A private board of the user's with one card, stored.
+async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block) {
+    let mut board = Board {
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        title: "Roadmap".to_owned(),
+        ..Board::default()
+    };
+    th.app
+        .store()
+        .insert_board_with_admin(&mut board, user_id)
+        .await
+        .expect("the board is stored");
+    let mut block = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        title: "A card".to_owned(),
+        ..Block::default()
+    };
+    th.app
+        .store()
+        .insert_block(&mut block, user_id)
+        .await
+        .expect("the block is stored");
+    (board, block)
+}
+
+/// Every message the server sends has exactly the members `contracts/websocket.json`
+/// lists for it, and what it carries has the members of its schema in
+/// `contracts/openapi.json`. The messages come from the hub's broadcasts over a real
+/// connection, with stored boards, blocks and categories.
+#[tokio::test]
+async fn messages_match_the_websocket_contract() {
+    let contract = read_contract("websocket.json");
+    let openapi = read_contract("openapi.json");
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+
+    let (board, block) = board_with_a_card(&th, &user1.id).await;
+    let members = th
+        .app
+        .store()
+        .get_members_for_board(&board.id)
+        .await
+        .expect("the members are read");
+
+    let mut socket = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+
+    let ws = th.app.ws();
+    let category = category(ROOT_TEAM_ID, &user1.id, "Work");
+    let mut contract_check = ContractCheck {
+        contract: &contract,
+        openapi: &openapi,
+        heard: BTreeSet::new(),
+    };
+
+    ws.broadcast_board_change(ROOT_TEAM_ID, &board).await;
+    contract_check.hear(&mut socket, "UPDATE_BOARD").await;
+    ws.broadcast_block_change(ROOT_TEAM_ID, &block).await;
+    contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
+    ws.broadcast_block_delete(ROOT_TEAM_ID, &block.id, &board.id)
+        .await;
+    contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
+    let admin = members
+        .first()
+        .expect("the board has its admin as a member");
+    ws.broadcast_member_change(ROOT_TEAM_ID, &board.id, admin)
+        .await;
+    contract_check.hear(&mut socket, "UPDATE_MEMBER").await;
+    ws.broadcast_member_delete(ROOT_TEAM_ID, &board.id, &user1.id)
+        .await;
+    contract_check.hear(&mut socket, "DELETE_MEMBER").await;
+    ws.broadcast_category_change(&category);
+    contract_check.hear(&mut socket, "UPDATE_CATEGORY").await;
+    ws.broadcast_category_board_change(
+        ROOT_TEAM_ID,
+        &user1.id,
+        &[fvoci_model::BoardCategoryWebsocketData {
+            board_id: board.id.clone(),
+            category_id: category.id.clone(),
+            hidden: false,
+        }],
+    );
+    contract_check
+        .hear(&mut socket, "UPDATE_BOARD_CATEGORY")
+        .await;
+    ws.broadcast_category_reorder(ROOT_TEAM_ID, &user1.id, std::slice::from_ref(&category.id));
+    contract_check.hear(&mut socket, "REORDER_CATEGORIES").await;
+    ws.broadcast_category_boards_reorder(
+        ROOT_TEAM_ID,
+        &user1.id,
+        &category.id,
+        std::slice::from_ref(&board.id),
+    );
+    contract_check
+        .hear(&mut socket, "REORDER_CATEGORY_BOARDS")
+        .await;
+    ws.broadcast_config_change(&th.app.client_config());
+    contract_check
+        .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
+        .await;
+    // The board deletion goes to the former members, with the board's identifiers only.
+    ws.broadcast_board_delete(ROOT_TEAM_ID, &board.id, &members);
+    contract_check.hear(&mut socket, "UPDATE_BOARD").await;
+
+    // Every message of the contract was heard.
+    let listed: BTreeSet<&String> = contract["messages"]
+        .as_object()
+        .expect("the messages are an object")
+        .keys()
+        .collect();
+    let heard: BTreeSet<&String> = contract_check.heard.iter().collect();
+    assert_eq!(
+        heard, listed,
+        "the test hears every message the contract lists"
+    );
+
     th.teardown().await;
 }

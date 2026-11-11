@@ -608,6 +608,39 @@ async fn update_category_trying_to_update_some_other_teams_category() {
     th.teardown().await;
 }
 
+/// The answer that creates the default category of a user who has other categories is
+/// the same as the next one: the categories in their order, with their `sortOrder` as
+/// stored. (It was off once: the new category last, the others not yet moved.)
+#[tokio::test]
+async fn the_answer_that_creates_the_default_category_is_the_next_one() {
+    let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
+    for name in ["first", "second"] {
+        th.app
+            .create_category(Category {
+                name: name.to_owned(),
+                user_id: user_id.clone(),
+                team_id: TEST_TEAM_ID.to_owned(),
+                ..Category::default()
+            })
+            .await
+            .expect("a category is made");
+    }
+    let creating = th
+        .app
+        .user_category_boards(&user_id, TEST_TEAM_ID)
+        .await
+        .expect("listed");
+    let next = th
+        .app
+        .user_category_boards(&user_id, TEST_TEAM_ID)
+        .await
+        .expect("listed");
+    assert_eq!(creating, next);
+    assert_eq!(creating.len(), 3, "{creating:?}");
+    th.teardown().await;
+}
+
 /// The default category of a user, created by listing the user's categories.
 async fn default_category(th: &TestServer, user_id: &str, team_id: &str) -> Category {
     let listed = th
@@ -1953,8 +1986,8 @@ async fn reorder_categories_over_the_api() {
         .collect();
     assert_eq!(
         places,
-        [0, 10, 20],
-        "the listing tells each category's place"
+        [10, 20, 30],
+        "the listing tells each category's place, from the first gap"
     );
 
     // Preserved quirk: only the count and the membership are checked, so naming one
@@ -1968,6 +2001,11 @@ async fn reorder_categories_over_the_api() {
         sorted(new_order.to_vec()),
         "every category is still listed"
     );
+
+    // A new category comes first, also after a reorder.
+    let new = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "New")).await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
+    assert_eq!(ids(&listed)[0], new.id, "the new category is first");
 
     th.teardown().await;
 }

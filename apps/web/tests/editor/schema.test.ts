@@ -59,7 +59,7 @@ describe('validating a document', () => {
         text('code', { type: 'code' }),
         text('link', { type: 'link', attrs: { href: 'https://example.com/a?b=1' } }),
         { type: 'hardBreak' },
-        { type: 'mention', attrs: { userId: 'u1' } },
+        { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c001' } },
       ),
       { type: 'bulletList', content: [{ type: 'listItem', content: [paragraph(text('a'))] }] },
       {
@@ -256,7 +256,7 @@ describe('reading a document without an editor', () => {
     { type: 'heading', attrs: { level: 1 }, content: [text('Plan')] },
     paragraph(
       text('ask '),
-      { type: 'mention', attrs: { userId: 'u1' } },
+      { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c001' } },
       { type: 'hardBreak' },
       text('today'),
     ),
@@ -292,9 +292,9 @@ describe('reading a document without an editor', () => {
   });
 
   it('gives the words, one line per paragraph, with mentions by name', () => {
-    expect(plainText(sample, (id) => (id === 'u1' ? 'Ada' : id))).toBe(
-      'Plan\nask @Ada\ntoday\none\ninner',
-    );
+    expect(
+      plainText(sample, (id) => (id === '01930000-0000-7000-8000-00000000c001' ? 'Ada' : id)),
+    ).toBe('Plan\nask @Ada\ntoday\none\ninner');
     expect(plainText(emptyDoc())).toBe('');
   });
 });

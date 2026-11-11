@@ -312,13 +312,14 @@
     }
   },
   {
-    "name": "insert an image block",
+    "name": "insert an attachment block",
     "request": "POST /api/v1/boards/<id:2>/blocks as files-alice",
     "status": 201,
     "content_type": "application/json",
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -333,6 +334,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -344,7 +346,7 @@
         "parentId": "<id:5>",
         "schema": 1,
         "title": "",
-        "type": "image",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -363,6 +365,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,

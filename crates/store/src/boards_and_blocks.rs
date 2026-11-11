@@ -3,18 +3,66 @@
 use std::collections::HashSet;
 
 use fvoci_model::{
-    BlockType, BoardMember, BoardType, BoardsAndBlocks, BoardsAndBlocksError,
-    DeleteBoardsAndBlocks, PatchBoardsAndBlocks, renew_boards_and_blocks_ids,
+    BlockType, Board, BoardMember, BoardType, BoardsAndBlocks, BoardsAndBlocksError,
+    DeleteBoardsAndBlocks, FileInfo, PatchBoardsAndBlocks, renew_boards_and_blocks_ids,
 };
 
 use crate::Store;
 use crate::blocks::{self, BlockFilter, DuplicateAs};
 use crate::boards;
-use crate::db::Scope;
+use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
+use crate::file_info;
 use crate::trash;
 
+/// The key of the PostgreSQL advisory lock that the replacement of the built-in
+/// templates holds. Any number that the migrator's lock does not use.
+const BUILTIN_TEMPLATES_LOCK: i64 = 0x6676_6f63_6974_706c;
+
 impl Store {
+    /// Replaces the built-in templates with `templates`, stored on behalf of nobody, if
+    /// `needed` says the stored ones must go. One transaction that holds the others off
+    /// while it reads, decides, removes and stores: of two servers or requests that find
+    /// the templates missing at once, the second finds them stored and keeps them.
+    ///
+    /// Returns `None` if the templates were kept, or the records of the files the
+    /// removed templates had, whose records went with them: the caller removes them from
+    /// the storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error, or [`StoreError::InvalidBlock`] for a block that fails
+    /// validation; nothing is removed or stored then.
+    pub async fn replace_builtin_templates(
+        &self,
+        templates: &mut BoardsAndBlocks,
+        needed: impl FnOnce(&[Board]) -> bool + Send,
+    ) -> Result<Option<Vec<FileInfo>>, StoreError> {
+        self.transaction(async |scope| {
+            // On SQLite the transaction holds the database from its start.
+            if scope.dialect() == Dialect::Postgres {
+                let mut sql = scope.sql("SELECT pg_advisory_xact_lock(");
+                sql.bind(BUILTIN_TEMPLATES_LOCK).push(")");
+                scope.execute(sql).await?;
+            }
+            // Under READ COMMITTED, the default, the read below sees what the transaction
+            // that held the lock before committed. A stricter isolation level would take
+            // its snapshot before the lock is granted, and miss that.
+            let stored = boards::get_builtin_templates(scope).await?;
+            if !needed(&stored) {
+                return Ok(None);
+            }
+            let mut files = Vec::new();
+            for board in &stored {
+                files.extend(file_info::file_infos_of_board(scope, &board.id).await?);
+            }
+            boards::remove_builtin_templates(scope).await?;
+            create_boards_and_blocks(scope, templates, "").await?;
+            Ok(Some(files))
+        })
+        .await
+    }
+
     /// Inserts or updates every board and then every block, as [`Store::insert_board`]
     /// and [`Store::insert_block`] do. `boards_and_blocks` is updated to what was stored.
     ///
@@ -243,11 +291,12 @@ pub(crate) async fn duplicate_board(
         team_id.clone_into(&mut board.team_id);
     }
 
-    let blocks: Vec<_> = blocks::get_blocks(scope, &BlockFilter::board(board_id))
+    let mut blocks: Vec<_> = blocks::get_blocks(scope, &BlockFilter::board(board_id))
         .await?
         .into_iter()
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
+    blocks::clear_copied_values(&mut blocks, &board.card_properties);
 
     // A board without blocks, or with comments only, is copied as a board without
     // blocks. The original refuses it, because it regenerates the identifiers with the

@@ -24,8 +24,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
-    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, BoardsAndBlocksError, FileInfo, JsonMap, SubscriberType, Subscription, new_id,
+    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, BODY_VERSION, Block, BlockError, BlockPatch,
+    BlockPatchBatch, BlockType, BoardsAndBlocksError, Body, BodyChange, FileInfo, JsonMap,
+    SubscriberType, Subscription, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, DeletedBlock, DuplicateAs, Paging, Store, StoreError};
 use serde_json::{Value, json};
@@ -39,7 +40,7 @@ use crate::common;
 /// `subtreeSampleBlocks` (`server/services/store/storetests/blocks.go:529`): the name of
 /// each block, the name of its parent and its type.
 const SUBTREE_SAMPLE: [(&str, &str, &str); 6] = [
-    ("parent", "", ""),
+    ("parent", "", "card"),
     ("child1", "parent", ""),
     ("child2", "parent", ""),
     ("grandchild1", "child1", ""),
@@ -202,7 +203,7 @@ fn strings<const N: usize>(strings: [&str; N]) -> Vec<String> {
     strings.into_iter().map(str::to_owned).collect()
 }
 
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     let since_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("the clock is past 1970");
@@ -308,7 +309,7 @@ async fn create_test_blocks_for_card(store: &Store, card_id: &str, count: usize)
     for index in 0..count {
         let mut text = Block {
             parent_id: card.id.clone(),
-            block_type: BlockType::Text,
+            block_type: BlockType::Attachment,
             created_by: card.created_by.clone(),
             title: format!("text {index}"),
             ..block(&new_id(), &card.board_id)
@@ -777,6 +778,102 @@ async fn patch_block() {
         None,
         "a deleted field is gone"
     );
+
+    test.teardown().await;
+}
+
+/// A block's `update_at` moves on with every change, even when the clock has not: a
+/// patch made against the time a block was read at must see every change after it.
+#[tokio::test]
+async fn update_at_moves_on_with_every_change() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let [user_id] = users(store).await;
+    let block_id = new_id();
+    let mut block = block(&block_id, &board_id);
+    store
+        .insert_block(&mut block, &user_id)
+        .await
+        .expect("the block is inserted");
+
+    // A time an hour ahead of the clock, as a block written by a clock that ran fast.
+    let ahead = existing_block(store, &block_id).await.update_at + 3_600_000;
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE blocks SET update_at = {ahead} WHERE id = '{block_id}'"),
+    )
+    .await;
+    store
+        .patch_block(&block_id, &title_patch("once"), &user_id)
+        .await
+        .expect("the block is patched");
+    let once = existing_block(store, &block_id).await.update_at;
+    assert_eq!(
+        once,
+        ahead + 1,
+        "the patch moved update_at past the stored one"
+    );
+
+    store
+        .patch_block(&block_id, &title_patch("twice"), &user_id)
+        .await
+        .expect("the block is patched again");
+    let twice = existing_block(store, &block_id).await.update_at;
+    assert_eq!(twice, once + 1, "a second patch moved it on again");
+
+    test.teardown().await;
+}
+
+/// The store keeps beside a body the version of the allowlist it was checked against
+/// and its words for searching, and clears both with the body.
+#[tokio::test]
+async fn a_body_is_stored_with_its_version_and_text() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let [user_id] = users(store).await;
+    let document = json!({"type": "doc", "content": [
+        {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Plan"}]},
+        {"type": "paragraph", "content": [
+            {"type": "text", "text": "x is "}, {"type": "inlineMath", "attrs": {"latex": "a^2"}},
+        ]},
+        {"type": "blockMath", "attrs": {"latex": "b"}},
+    ]});
+    let block_id = new_id();
+    let mut card = Block {
+        block_type: BlockType::Card,
+        body: Body::parse(document).expect("the body is allowed"),
+        ..block(&block_id, &board_id)
+    };
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is inserted");
+
+    // What the store has no reading for, read through the title.
+    let derived = async || {
+        common::execute_raw(
+            &test.dbconfig(),
+            &format!(
+                "UPDATE blocks SET title = COALESCE(CAST(body_version AS TEXT), '-') || '|' || \
+                 COALESCE(body_text, '-') WHERE id = '{block_id}'"
+            ),
+        )
+        .await;
+        existing_block(store, &block_id).await.title
+    };
+    assert_eq!(derived().await, format!("{BODY_VERSION}|Plan\nx is a^2\nb"));
+
+    let clear = BlockPatch {
+        body: BodyChange::Clear,
+        ..BlockPatch::default()
+    };
+    store
+        .patch_block(&block_id, &clear, &user_id)
+        .await
+        .expect("the body is cleared");
+    assert_eq!(derived().await, "-|-");
 
     test.teardown().await;
 }
@@ -1283,7 +1380,7 @@ async fn undelete_block_children() {
     let text_children = |card: &Block| {
         BlockFilter::board(&card.board_id)
             .with_parent(&card.id)
-            .with_type(BlockType::Text)
+            .with_type(BlockType::Attachment)
     };
 
     store
@@ -1431,7 +1528,7 @@ impl Writer {
         for (round, own_id) in own_ids.iter().enumerate() {
             let mut own = Block {
                 parent_id: shared_id.clone(),
-                block_type: BlockType::Text,
+                block_type: BlockType::Attachment,
                 ..block(own_id, &board_id)
             };
             store
@@ -1896,7 +1993,7 @@ async fn undelete_block_of_a_block_that_is_not_deleted_writes_nothing() {
     // A deleted child, which undeleting the parent would restore if it did anything.
     let mut sample = named_blocks(
         &board_id,
-        &[("parent", "", ""), ("child", "parent", "text")],
+        &[("parent", "", "card"), ("child", "parent", "attachment")],
     );
     common::insert_blocks(store, &mut sample, &creator_id).await;
     let parent_id = id_of(&sample, "parent");
@@ -2013,10 +2110,10 @@ async fn deleting_blocks_that_hold_files_leaves_the_file_records() {
 
     let cards = create_test_cards(store, user_id, board_id, 2).await;
     let mut blocks: Vec<Block> = [
-        (0, "image", "fileId", "direct.png"),
-        (1, "image", "fileId", "image.png"),
+        (0, "attachment", "fileId", "direct.png"),
+        (1, "attachment", "fileId", "image.png"),
         (1, "attachment", "attachmentId", "attachment.pdf"),
-        (0, "image", "fileId", "untouched.png"),
+        (0, "attachment", "fileId", "untouched.png"),
     ]
     .into_iter()
     .map(|(card, block_type, field, stored_name)| Block {
@@ -2274,12 +2371,12 @@ async fn blocks_with_malformed_properties_are_not_stored() {
 /// block, the name of its parent and its type.
 const CARD_TREE: [(&str, &str, &str); 7] = [
     ("card", "", "card"),
-    ("text", "card", "text"),
+    ("text", "card", "attachment"),
     ("comment", "card", "comment"),
-    ("below", "text", "text"),
-    ("deepest", "below", "text"),
+    ("below", "text", "attachment"),
+    ("deepest", "below", "attachment"),
     ("other card", "", "card"),
-    ("other text", "other card", "text"),
+    ("other text", "other card", "attachment"),
 ];
 
 /// The blocks of [`CARD_TREE`] that are the first card and everything below it.
@@ -2826,7 +2923,7 @@ async fn insert_block_refuses_a_parent_that_is_not_a_block_of_the_board() {
     ] {
         let mut child = Block {
             parent_id: parent_id.to_owned(),
-            block_type: BlockType::Text,
+            block_type: BlockType::Attachment,
             title: "refused".to_owned(),
             ..block(&child_id, &board_id)
         };
@@ -2904,7 +3001,7 @@ async fn a_block_that_names_its_board_as_parent_is_stored_without_a_parent() {
         },
         Block {
             parent_id: card_id.clone(),
-            block_type: BlockType::Text,
+            block_type: BlockType::Attachment,
             ..block(&new_id(), &board_id)
         },
     ];
@@ -2988,7 +3085,7 @@ async fn insert_blocks_stores_children_given_before_their_parents() {
         &board_id,
         &[
             ("late card", "", "card"),
-            ("late text", "late card", "text"),
+            ("late text", "late card", "attachment"),
         ],
     )
     .into_iter()
@@ -2996,7 +3093,7 @@ async fn insert_blocks_stores_children_given_before_their_parents() {
     .collect();
     late.push(Block {
         parent_id: new_id(),
-        block_type: BlockType::Text,
+        block_type: BlockType::Attachment,
         title: "orphan".to_owned(),
         ..block(&new_id(), &board_id)
     });
@@ -3023,10 +3120,10 @@ async fn lists_of_blocks_are_ordered_by_creation_time_then_identifier() {
     /// neither that of the identifiers nor that of the creation times.
     const CHILDREN: [(usize, i64, &str); 6] = [
         (2, 4000, "comment"),
-        (4, 3000, "text"),
-        (1, 5000, "text"),
-        (5, 2000, "text"),
-        (0, 4000, "text"),
+        (4, 3000, "attachment"),
+        (1, 5000, "attachment"),
+        (5, 2000, "attachment"),
+        (0, 4000, "attachment"),
         (3, 3000, "comment"),
     ];
     /// The children by the number of their identifier, oldest first; of two that are
@@ -3091,7 +3188,7 @@ async fn lists_of_blocks_are_ordered_by_creation_time_then_identifier() {
         "the blocks on a card"
     );
     assert_eq!(
-        listed(board().with_type(BlockType::Text)).await,
+        listed(board().with_type(BlockType::Attachment)).await,
         ["5", "4", "0", "1"],
         "the blocks of a type"
     );
@@ -3381,8 +3478,8 @@ async fn one_batch_writing_a_block_many_times_keeps_the_last_write() {
 /// name of its parent and its type.
 const SMALL_TREE: [(&str, &str, &str); 3] = [
     ("card", "", "card"),
-    ("text", "card", "text"),
-    ("below", "text", "text"),
+    ("text", "card", "attachment"),
+    ("below", "text", "attachment"),
 ];
 
 /// How many times each race below is run.
@@ -3530,7 +3627,7 @@ async fn a_block_inserted_while_its_card_is_deleted_goes_with_the_card_or_is_ref
         let card_id = id_of(&tree, "card");
         let mut late = Block {
             parent_id: id_of(&tree, "below").to_owned(),
-            block_type: BlockType::Text,
+            block_type: BlockType::Attachment,
             title: "late".to_owned(),
             ..block(&new_id(), &board_id)
         };
@@ -3941,7 +4038,7 @@ async fn a_block_inserted_while_its_board_is_deleted_goes_with_the_board_or_is_n
             } else {
                 String::new()
             },
-            block_type: BlockType::Text,
+            block_type: BlockType::Attachment,
             title: "late".to_owned(),
             ..block(&late_id, &raced_board_id)
         };
@@ -4101,8 +4198,8 @@ async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_
         &[
             ("card", "", "card"),
             ("view", "", "view"),
-            ("text", "card", "text"),
-            ("checkbox", "text", "checkbox"),
+            ("text", "card", "attachment"),
+            ("checkbox", "text", "attachment"),
         ],
     );
     common::insert_blocks(store, &mut tree, &user_id).await;

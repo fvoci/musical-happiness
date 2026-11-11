@@ -54,10 +54,14 @@ impl App {
             .get_user_category_boards(user_id, team_id)
             .await?;
         if !has_default_category(&category_boards) {
-            let created = self
-                .create_boards_category(user_id, team_id, &category_boards)
+            self.create_boards_category(user_id, team_id, &category_boards)
                 .await?;
-            category_boards.push(created);
+            // Read again: making the category moved the others, and the list is in the
+            // order of the categories as they are now.
+            category_boards = self
+                .store()
+                .get_user_category_boards(user_id, team_id)
+                .await?;
         }
         Ok(category_boards)
     }

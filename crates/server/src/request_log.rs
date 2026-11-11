@@ -8,7 +8,7 @@ use std::time::Instant;
 use axum::body::Body;
 use axum::extract::connect_info::Connected;
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::header::CONTENT_LENGTH;
+use axum::http::header::{CONTENT_ENCODING, CONTENT_LENGTH};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -114,6 +114,8 @@ fn identify(mut response: Response, request_id: &str) -> Response {
         if let Ok(bytes) = serde_json::to_vec(&body) {
             let (mut parts, _) = response.into_parts();
             parts.headers.remove(CONTENT_LENGTH);
+            // The body is written anew, as it is: an encoding of the one before is gone.
+            parts.headers.remove(CONTENT_ENCODING);
             response = Response::from_parts(parts, Body::from(bytes));
         }
     }

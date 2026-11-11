@@ -129,7 +129,7 @@
 | 종류 | 건수 |
 | --- | --- |
 | 예시 이메일 주소(실제로 있는 도메인) | 10 |
-| 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | 15 |
+| 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | 0 |
 | 원본 회사의 다른 제품(채널, 다이렉트 메시지)을 말하는 글 | 3 |
 
 | 템플릿 | 종류 | 어디 | 글 |
@@ -139,26 +139,11 @@
 | sales-pipeline-crm | 예시 이메일 주소(실제로 있는 도메인) | Byron Cole / value of "Email" | byron.cole@email.com |
 | sales-pipeline-crm | 예시 이메일 주소(실제로 있는 도메인) | Caitlyn Russel / value of "Email" | caitlyn.russel@email.com |
 | sales-pipeline-crm | 예시 이메일 주소(실제로 있는 도메인) | Shelby Olson / value of "Email" | shelby.olson@email.com |
-| personal-tasks | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Go for a walk / body | 76fwrj36hptg6dywka4k5mt3sph.png |
-| sprint-planner | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Horizontal scroll issue / body | 7tmfu5iqju3n1mdfwi5gru89qmw.png |
-| sprint-planner | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Login screen not loading / body | 7b9xk9boj3fbqfm3umeaaizp8qr.png |
-| sprint-planner | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Bug / body | 7tmfu5iqju3n1mdfwi5gru89qmw.png |
 | user-research-sessions | 예시 이메일 주소(실제로 있는 도메인) | Frank Nash / value of "Email" | frank.nash@email.com |
 | user-research-sessions | 예시 이메일 주소(실제로 있는 도메인) | Richard Parsons / value of "Email" | richard.parsons@email.com |
 | user-research-sessions | 예시 이메일 주소(실제로 있는 도메인) | Claire Hart / value of "Email" | claire.hart@email.com |
 | user-research-sessions | 예시 이메일 주소(실제로 있는 도메인) | Olivia Alsop / value of "Email" | olivia.alsop@email.com |
 | user-research-sessions | 예시 이메일 주소(실제로 있는 도메인) | Bernadette Powell / value of "Email" | bernadette.powell@email.com |
-| content-calendar | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | [Tweet] fvoci v6.1 includes card @-mention notifications in fvoci / body | 7y5kr8x8ybpnwdykjfuz57rggrh.png |
-| roadmap | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | App crashing / body | 77pe9r4ckbin438ph3f18bpatua.png |
-| roadmap | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Icons don't display / body | 7pbp4qg415pbstc6enzeicnu3qh.png |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Create your own board / body | 74uia99m9btr8peydw7oexn37tw.gif |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Share a board / body | 7knxbyuiedtdafcgmropgkrtybr.gif |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Create a new card / body | 7iw4rxx7jj7bypmdotd9z469cyh.png |
 | welcome | 원본 회사의 다른 제품(채널, 다이렉트 메시지)을 말하는 글 | Share cards on Channels / body | Cards can be linked and shared with teammates directly on Channels. Card previews are displayed when shared on Channels, so your team can discuss work items and get the relevant context without having to switch over to fvoci. |
 | welcome | 원본 회사의 다른 제품(채널, 다이렉트 메시지)을 말하는 글 | Share cards on Channels / body | After you've copied the link, paste it into any channel or Direct Message to share the card. A preview of the card will display within the channel with a link back to the card on fvoci. |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Share cards on Channels / body | 7ek6wbpp19jfoujs1goh6kttbby.gif |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Filter and sort cards / body | 7dybb6t8fj3nrdft7nerhuf784y.png |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Create a new view / body | 78jws5m1myf8pufewzkaa6i11sc.gif |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | Add new properties / body | 7d6hrtig3zt8f9cnbo1um5oxx3y.gif |
 | welcome | 원본 회사의 다른 제품(채널, 다이렉트 메시지)을 말하는 글 | @mention teammates / body | Whenever any changes are made to the card, they'll automatically get notified on Channels. |
-| welcome | 그림 파일(원본 아카이브의 것. 원본 화면을 찍은 것이 섞여 있다) | @mention teammates / body | 74nt9eqzea3ydjjpgjtsxcjgrxc.gif |

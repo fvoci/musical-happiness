@@ -24,17 +24,15 @@ struct Hidden {
     /// text that is no identifier.
     board: [String; 3],
     card: [String; 3],
-    text: [String; 3],
     file: [String; 3],
     category: [String; 3],
     owner: [String; 3],
     /// The second user, who sees none of it.
     outsider: String,
-    /// What the second user has of their own: a private board with a card and a text
-    /// in it, and a category.
+    /// What the second user has of their own: a private board with a card and a block
+    /// below it, and a category.
     own_board: String,
     own_card: String,
-    own_text: String,
     own_category: String,
 }
 
@@ -65,10 +63,10 @@ impl Hidden {
         let card = created.pop().expect("the card is created");
         let mut created: Vec<Block> = th
             .client
-            .insert_blocks(&board.id, &[block(BlockType::Text, &card.id)])
+            .insert_blocks(&board.id, &[block(BlockType::Attachment, &card.id)])
             .await
             .created_json();
-        let text = created.pop().expect("the text is created");
+        created.pop().expect("the text is created");
 
         let part = Part::bytes(b"hidden".to_vec()).file_name("hidden.txt");
         let request = th
@@ -142,10 +140,13 @@ impl Hidden {
         let own_card = created.pop().expect("the card is created");
         let mut created: Vec<Block> = th
             .client2
-            .insert_blocks(&own_board.id, &[own_block(BlockType::Text, &own_card.id)])
+            .insert_blocks(
+                &own_board.id,
+                &[own_block(BlockType::Attachment, &own_card.id)],
+            )
             .await
             .created_json();
-        let own_text = created.pop().expect("the text is created");
+        created.pop().expect("the text is created");
         th.client2
             .get(&format!("/teams/{TEST_TEAM_ID}/categories"))
             .await
@@ -162,11 +163,9 @@ impl Hidden {
         Self {
             own_board: own_board.id,
             own_card: own_card.id,
-            own_text: own_text.id,
             own_category: own_category.id,
             board: [board.id, new_id(), "no-board".to_owned()],
             card: [card.id, new_id(), "no-card".to_owned()],
-            text: [text.id, new_id(), "no-text".to_owned()],
             file: [
                 file,
                 format!("{}.txt", fvoci_server::auth::secret::new_secret()),
@@ -342,12 +341,6 @@ fn cases() -> Vec<Case> {
         ),
         case(Method::GET, |h, i| format!("/cards/{}", h.card[i]), no_body),
         case(Method::PATCH, |h, i| format!("/cards/{}", h.card[i]), title),
-        // Content: the block to move, and the block to move next to.
-        case(
-            Method::POST,
-            |h, i| format!("/content-blocks/{}/moveto/after/{}", h.text[i], h.text[i]),
-            no_body,
-        ),
         // Its files.
         case(
             Method::GET,
@@ -520,17 +513,6 @@ fn mixed_cases() -> Vec<Case> {
             |_, _| "/boards-and-blocks".to_owned(),
             |h, i| json!({"boards": [h.own_board], "blocks": [h.card[i]]}),
         ),
-        // The asker's own content block next to a hidden one, both ways round.
-        case(
-            Method::POST,
-            |h, i| format!("/content-blocks/{}/moveto/after/{}", h.own_text, h.text[i]),
-            no_body,
-        ),
-        case(
-            Method::POST,
-            |h, i| format!("/content-blocks/{}/moveto/after/{}", h.text[i], h.own_text),
-            no_body,
-        ),
         // Blocks for the asker's own board, with files to copy from a hidden board.
         case(
             Method::POST,
@@ -542,7 +524,7 @@ fn mixed_cases() -> Vec<Case> {
             },
             |h, i| {
                 json!([{
-                    "boardId": h.own_board, "type": "image", "createAt": 1, "updateAt": 1,
+                    "boardId": h.own_board, "type": "attachment", "createAt": 1, "updateAt": 1,
                     "fields": {"fileId": h.file[i]},
                 }])
             },

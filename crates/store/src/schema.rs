@@ -23,12 +23,56 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 1] = [Step {
-    version: 1,
-    description: "baseline",
-    sqlite: include_str!("../schema/sqlite/0001_baseline.sql"),
-    postgres: include_str!("../schema/postgres/0001_baseline.sql"),
-}];
+const STEPS: [Step; 8] = [
+    Step {
+        version: 1,
+        description: "baseline",
+        sqlite: include_str!("../schema/sqlite/0001_baseline.sql"),
+        postgres: include_str!("../schema/postgres/0001_baseline.sql"),
+    },
+    Step {
+        version: 2,
+        description: "body",
+        sqlite: include_str!("../schema/sqlite/0002_body.sql"),
+        postgres: include_str!("../schema/postgres/0002_body.sql"),
+    },
+    Step {
+        version: 3,
+        description: "file refs",
+        sqlite: include_str!("../schema/sqlite/0003_file_refs.sql"),
+        postgres: include_str!("../schema/postgres/0003_file_refs.sql"),
+    },
+    Step {
+        version: 4,
+        description: "date values",
+        sqlite: include_str!("../schema/sqlite/0004_date_values.sql"),
+        postgres: include_str!("../schema/postgres/0004_date_values.sql"),
+    },
+    Step {
+        version: 5,
+        description: "uploads",
+        sqlite: include_str!("../schema/sqlite/0005_uploads.sql"),
+        postgres: include_str!("../schema/postgres/0005_uploads.sql"),
+    },
+    Step {
+        version: 6,
+        description: "upload path",
+        sqlite: include_str!("../schema/sqlite/0006_upload_path.sql"),
+        postgres: include_str!("../schema/postgres/0006_upload_path.sql"),
+    },
+    Step {
+        version: 7,
+        description: "upload purpose",
+        sqlite: include_str!("../schema/sqlite/0007_upload_purpose.sql"),
+        postgres: include_str!("../schema/postgres/0007_upload_purpose.sql"),
+    },
+    Step {
+        version: 8,
+        description: "content blocks",
+        sqlite: include_str!("../schema/sqlite/0008_content_blocks.sql"),
+        postgres: include_str!("../schema/postgres/0008_content_blocks.sql"),
+    },
+];
 
 /// Tables that only a database of the original server has: the bookkeeping of its
 /// migration engine. On PostgreSQL the name follows that server's table prefix, so
