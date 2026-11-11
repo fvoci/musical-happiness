@@ -77,6 +77,15 @@
   let undatedOpen = $derived<boolean>(sheet && false);
   /** A card chosen in the popover of a day, opened once the popover has closed. Not reactive. */
   let chosenCard: string | undefined;
+  let dayPopover = $state<HTMLElement | null>(null);
+
+  /** The focus went somewhere else while the popover closed: a field, "No date". */
+  function focusElsewhere(): boolean {
+    const active = document.activeElement;
+    return (
+      active instanceof HTMLElement && active !== document.body && !dayPopover?.contains(active)
+    );
+  }
 
   const weeks = $derived(weeksOfMonth(month, regional.weekStart));
   const placed = $derived(new Placed(cards, template, regional, locale, weeks.flat()));
@@ -101,10 +110,8 @@
       if (!sheet) undatedOpen = false;
     };
     element.addEventListener('focusin', left);
-    const stop = box.attach(element);
     return () => {
       element.removeEventListener('focusin', left);
-      stop();
     };
   }
 
@@ -237,7 +244,8 @@
     onundated={() => void toggleUndated()}
   />
 
-  <div class="relative flex min-h-0 flex-1 flex-col">
+  <!-- Measured here, outside the scrollbar a low window gives the box: the width does not depend on it. -->
+  <div class="relative flex min-h-0 flex-1 flex-col" {@attach box.attach}>
     <!-- A low window scrolls the small grid and its list together; the list keeps room for two cards. -->
     <div
       class={['relative flex min-h-0 flex-1 flex-col', !bars && 'overflow-y-auto']}
@@ -310,6 +318,7 @@
 {:else if bars}
   <Popover.Root bind:open={dayOpen}>
     <Popover.Content
+      bind:ref={dayPopover}
       customAnchor={`[data-testid="month-grid"] [data-day="${selected}"]`}
       side="right"
       align="start"
@@ -323,9 +332,9 @@
       }}
       onCloseAutoFocus={(event: Event) => {
         // No trigger to go back to: the focus goes to the day the list was of,
-        // unless it closed for the column of cards without a date, which has it.
+        // unless the reader has put it somewhere else (a field, "No date").
         event.preventDefault();
-        if (!undatedOpen) focusDay();
+        if (!undatedOpen && !focusElsewhere()) focusDay();
         // A card chosen in the list opens now, with the focus on its day: that
         // is where the card gives it back when it closes, unless the card has
         // a bar to go back to (card/CardDialog.svelte, `data-card`).

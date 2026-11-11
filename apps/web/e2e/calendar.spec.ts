@@ -3,7 +3,8 @@
  * days and bars across several, the small grid of a narrow box, the cards of
  * a day, moving through the months, and the date the view is placed by.
  *
- * The clock of the page is fixed at 2026-11-10 09:00 in Seoul, and so is its
+ * The clock of the page is fixed at 2026-11-10 01:00 in Seoul (still the
+ * 9th in UTC, so that a day taken from UTC would show), and so is its
  * time zone; the language is English, whose weeks start on Sunday. November
  * 2026 then has five weeks, from 1 November to 5 December.
  *
@@ -17,7 +18,7 @@ import { boardPage, dialog, fitPane, openView, touch } from './kanban.support.ts
 import { screensDir } from './screens.ts';
 
 const WELCOME = ['Welcome to fvoci!', 'Preview: Calendar View'] as const;
-const NOW = new Date('2026-11-10T00:00:00Z'); // 09:00 in Seoul
+const NOW = new Date('2026-11-09T16:00:00Z'); // 01:00 on the 10th in Seoul
 
 test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
 
@@ -146,7 +147,7 @@ test('a dated card is on its day, a range is a bar in each week it crosses', asy
   await startsOn(moment, '2026-11-10');
   // A bar says its day and time for a screen reader.
   if (!touch(info))
-    await expect(moment).toHaveAccessibleName('Create a new card, November 10, 8:00 AM');
+    await expect(moment).toHaveAccessibleName('8:00 AM Create a new card, November 10');
   // A day says how many cards it has.
   await expect(
     calendar(page).getByRole('button', { name: 'Thursday, November 12, 2 cards' }),
@@ -265,7 +266,8 @@ test('the days are one stop of Tab, and the arrows walk them into the next month
 }, info) => {
   await openCalendar(page, info);
   await expect(calendar(page).locator('[data-day-button][tabindex="0"]')).toHaveCount(1);
-  // From the last button of the row above, one Tab is on the picked day, past the other days.
+  // From the last button of the row above, one Tab is on the picked day: the other days
+  // are not stops (bars are stops of their own; the first week has none here).
   await page.getByTestId('calendar-undated').focus();
   await page.keyboard.press('Tab');
   await expect(page.locator(':focus')).toHaveAccessibleName(/Tuesday, November 10/);
@@ -305,8 +307,12 @@ test('a card opened from the cards of a day gives the focus back when it closes'
   await expect(dialog(page)).toContainText('Drag cards');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toBeHidden();
-  // Back on the card's bar, or on the day where the card was listed.
-  await expect(page.locator(':focus')).toHaveAccessibleName(/^Drag cards|November 12/);
+  // Back on the card's bar where a mouse has bars to press; on the day whose popover listed
+  // it under a finger; on the line itself in the list under the small grid, which stays.
+  const focused = page.locator(':focus');
+  if (!wide(info)) await expect(focused).toHaveAccessibleName('Drag cards');
+  else if (touch(info)) await expect(focused).toHaveAccessibleName(/^Thursday, November 12/);
+  else await expect(focused).toHaveAccessibleName('Drag cards, November 12');
 });
 
 test('the cards without a date are counted in the row and listed on asking (C16)', async ({

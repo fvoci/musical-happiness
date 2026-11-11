@@ -6,7 +6,7 @@
  * day), so that none of them goes through all the cards for each day.
  */
 import { m } from '$lib/i18n/paraglide/messages.js';
-import { cardsByDay, spansOf, type Span } from '$lib/logic/calendar.ts';
+import { cardsByDay, compareSpans, spansOf, type Span } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
 import { displayDay, displayDayRange, displayTime } from '$lib/logic/format.ts';
 import type { Regional } from '$lib/logic/regional.ts';
@@ -52,10 +52,11 @@ export class Placed {
     return this.#spanOf.get(id);
   }
 
-  /** The cards on a day, in the order of the view. */
+  /** The cards on a day, in the order of their bars (`compareSpans`, then the view's). */
   on(date: CalendarDate): Card[] {
     const ids = this.#byDay.get(date) ?? cardsByDay(this.spans, [date]).get(date) ?? [];
-    return ids.flatMap((id) => this.#byId.get(id) ?? []);
+    const spans = ids.flatMap((id) => this.#spanOf.get(id) ?? []).sort(compareSpans);
+    return spans.flatMap((span) => this.#byId.get(span.id) ?? []);
   }
 
   count(date: CalendarDate): number {
@@ -88,17 +89,21 @@ export class Placed {
   }
 
   /**
-   * What a screen reader hears for a bar: the title, the day or the days,
-   * and the time where the value has one. A bar stands apart from the cells
-   * of its days, so it says them itself.
+   * What a screen reader hears for a bar: what the bar shows (the time, where
+   * the value has one, and the title), then its day or days. A bar stands
+   * apart from the cells of its days, so it says them itself.
    */
   name(card: Card): string {
     const span = this.#spanOf.get(card.id);
-    const title = this.title(card);
-    if (!span) return title;
-    const day = this.range(card) ?? displayDay(span.first, this.locale);
     const time = this.time(card);
-    return m.calendar_card_days({ title, days: time ? m.calendar_day_time({ day, time }) : day });
+    const title = time
+      ? m.calendar_time_title({ time, title: this.title(card) })
+      : this.title(card);
+    if (!span) return title;
+    return m.calendar_card_days({
+      title,
+      days: this.range(card) ?? displayDay(span.first, this.locale),
+    });
   }
 
   /** What a screen reader hears for a day: its name and how many cards are on it. */

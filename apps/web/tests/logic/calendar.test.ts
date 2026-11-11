@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cardDays,
   cardsByDay,
+  compareSpans,
   displayableProperties,
   displayProperty,
   firstOf,
@@ -208,7 +209,7 @@ describe('bars in a week', () => {
     expect([...byDay.values()].flat()).toHaveLength(3);
   });
 
-  it('lays out hundreds of cards in a month without trouble', () => {
+  it('with six hundred cards, every card of every day is either a bar or counted in "+N"', () => {
     const many = Array.from({ length: 600 }, (_, index) =>
       span(
         `c${String(index)}`,
@@ -217,12 +218,33 @@ describe('bars in a week', () => {
       ),
     );
     const weeks = weeksOfMonth(NOVEMBER_2026, SUNDAY);
-    const folded = weeks.map((days) => foldWeek(layWeek(days, many), 4));
-    const shown = folded.reduce((sum, week) => sum + week.shown.length, 0);
-    expect(shown).toBeGreaterThan(0);
-    expect(shown).toBeLessThan(5 * 7 * 4);
     const byDay = cardsByDay(many, weeks.flat());
-    expect(byDay.get(day('2026-11-12'))?.length).toBeGreaterThan(20);
+    for (const week of weeks) {
+      const { shown, more } = foldWeek(layWeek(week, many), 4);
+      // Four rows: three bars at most and "+N" in the last.
+      expect(Math.max(...shown.map((segment) => segment.lane))).toBeLessThan(4);
+      week.forEach((date, column) => {
+        const bars = shown.filter(
+          (segment) => column >= segment.column && column < segment.column + segment.length,
+        ).length;
+        expect(bars + (more[column] ?? 0)).toBe(byDay.get(date)?.length);
+      });
+    }
+  });
+
+  it('puts a card without a time first on a day, then the earlier time, then the order given', () => {
+    const at8 = { ...span('at8', '2026-11-12'), time: at('Asia/Seoul', 2026, 11, 12, 8) };
+    const at15 = { ...span('at15', '2026-11-12'), time: at('Asia/Seoul', 2026, 11, 12, 15) };
+    const allDay = span('allDay', '2026-11-12');
+    const other = span('other', '2026-11-12');
+    const bars = layWeek(week, [at15, allDay, at8, other]);
+    expect(bars.map((bar) => bar.id)).toEqual(['allDay', 'other', 'at8', 'at15']);
+    expect([at15, other, at8, allDay].sort(compareSpans).map((each) => each.id)).toEqual([
+      'other',
+      'allDay',
+      'at8',
+      'at15',
+    ]);
   });
 });
 
@@ -294,6 +316,10 @@ describe('which property places the cards, and where a card goes', () => {
       spans: [span('a', '2026-11-02'), span('c', '2026-11-01', '2026-11-03')],
       undated: ['b', 'd'],
     });
+    // A value with a time carries the moment it starts; a time of creation does not.
+    const timed = { ...cardWith({ from: at('UTC', 2026, 11, 2, 9) }), id: 't' };
+    expect(spansOf([timed], due, 'UTC').spans[0]?.time).toBe(at('UTC', 2026, 11, 2, 9));
+    expect(spansOf([timed], made, 'UTC').spans[0]?.time).toBeUndefined();
   });
 });
 
@@ -321,7 +347,9 @@ describe('the names a calendar writes', () => {
     expect(displayDayRange(day('2026-11-08'), day('2026-11-14'), 'en')).toMatch(
       /^November 8\s*–\s*14$/,
     );
-    expect(displayDayRange(day('2026-11-30'), day('2026-12-04'), 'ko')).toMatch(/11월 30일/);
+    expect(displayDayRange(day('2026-11-30'), day('2026-12-04'), 'ko')).toMatch(
+      /^11월 30일\s*~\s*12월 4일$/,
+    );
   });
 
   it("writes a time on the reader's clock", () => {

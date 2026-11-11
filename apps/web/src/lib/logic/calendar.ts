@@ -10,7 +10,7 @@
 import { addDays, calendarDate, dateOfInstant, daysBetween, type CalendarDate } from './dates.ts';
 import { propertyBehavior } from './properties.ts';
 import type { Weekday } from './regional.ts';
-import { cardProperty, type Card, type PropertyTemplate } from './wire.ts';
+import { cardProperty, parseDateValue, type Card, type PropertyTemplate } from './wire.ts';
 
 // ------------------------------------------------------------- months
 
@@ -97,6 +97,8 @@ export interface Span {
   id: string;
   first: CalendarDate;
   last: CalendarDate;
+  /** The moment it starts, where its value carries a time of day. */
+  time?: number;
 }
 
 /** The first and last day of a card for a reader in `timeZone`; undefined when it has no date. */
@@ -113,6 +115,11 @@ export function cardDays(
   return days?.(cardProperty(card, template.id), card, timeZone);
 }
 
+/** The moment a stored date value starts at, where it carries a time of day. */
+function startOf(stored: unknown): number | undefined {
+  return parseDateValue(stored).from?.instant;
+}
+
 /** The cards that have days, as spans in the order given, and those that have none. */
 export function spansOf(
   cards: readonly Card[],
@@ -123,8 +130,12 @@ export function spansOf(
   const undated: string[] = [];
   for (const card of cards) {
     const days = cardDays(card, template, timeZone);
-    if (days) spans.push({ id: card.id, ...days });
-    else undated.push(card.id);
+    if (!days) {
+      undated.push(card.id);
+      continue;
+    }
+    const time = template?.type === 'date' ? startOf(cardProperty(card, template.id)) : undefined;
+    spans.push(time === undefined ? { id: card.id, ...days } : { id: card.id, ...days, time });
   }
   return { spans, undated };
 }
@@ -166,14 +177,24 @@ export interface Segment {
   toAfter: boolean;
 }
 
-function compareSpans(a: Span, b: Span): number {
+/**
+ * The order of cards in a week and in the list of a day: the one that began
+ * earlier, then the longer one, then one without a time before one with a
+ * time, and the earlier time first. Cards still equal keep the order given
+ * (the view's order of cards); sorts that use this are stable.
+ */
+export function compareSpans(a: Span, b: Span): number {
   if (a.first !== b.first) return a.first < b.first ? -1 : 1;
-  return daysBetween(b.first, b.last) - daysBetween(a.first, a.last);
+  const longer = daysBetween(b.first, b.last) - daysBetween(a.first, a.last);
+  if (longer !== 0) return longer;
+  if (a.time === undefined || b.time === undefined) {
+    return Number(a.time !== undefined) - Number(b.time !== undefined);
+  }
+  return Math.sign(a.time - b.time);
 }
 
 /**
- * The bars of one week. A card that began earlier comes first, then the
- * longer one, then the order given; each takes the highest row that is free
+ * The bars of one week, in the order of `compareSpans`; each takes the highest row that is free
  * on all its days. Rows are worked out a week at a time: a card that spans
  * two weeks may sit in different rows of the two.
  */

@@ -30,6 +30,8 @@
     displayWeekday,
   } from '$lib/logic/format.ts';
 
+  import { Room } from '$lib/layout/room.svelte.ts';
+
   import Bar from './Bar.svelte';
   import { dayKeys } from './keys.ts';
   import type { Placed } from './placed.ts';
@@ -65,8 +67,9 @@
 
   const locale = $derived(placed.locale);
 
-  /** The height of the rows together, in pixels. */
-  let height = $state(0);
+  /** The rows together: their height inside the room kept for the home indicator. */
+  const rowsBox = new Room();
+  const height = $derived(rowsBox.height);
 
   /** The size of 1rem in pixels, at the reader's text size. */
   function rem(count: number): number {
@@ -93,7 +96,7 @@
   </div>
 
   <div
-    bind:clientHeight={height}
+    {@attach rowsBox.attach}
     class="grid min-h-0 flex-1 overflow-y-auto pb-(--safe-bottom)"
     style:grid-template-rows="repeat({weeks.length}, minmax(5.5rem, 1fr))"
   >
