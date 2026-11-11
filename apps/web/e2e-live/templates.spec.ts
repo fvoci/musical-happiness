@@ -56,13 +56,17 @@ test('a board is made from a template, and a template from a board is changed on
   const projectTasks = picker.locator('[data-template="Project Tasks"]');
   // A built-in template is nobody's to change.
   await expect(projectTasks.getByRole('button', { name: /^Change the template/ })).toHaveCount(0);
-  await projectTasks
-    .getByRole('button', { name: 'Make a board from the template Project Tasks' })
-    .click();
+  await projectTasks.getByRole('button', { name: 'Use this template: Project Tasks' }).click();
   await expect(boardLink(page, 'Project Tasks')).toHaveAttribute('aria-current', 'page');
   const [, made = ''] = /\/board\/([^/]+)/.exec(page.url()) ?? [];
   const copy = (await (await api.get(`/api/v1/boards/${made}`)).json()) as Schemas['Board'];
-  expect(copy).toMatchObject({ title: 'Project Tasks', isTemplate: false, type: 'P' });
+  // In the reader's team (sent as `toTeam`: a built-in template is kept apart from every team).
+  expect(copy).toMatchObject({
+    title: 'Project Tasks',
+    isTemplate: false,
+    type: 'P',
+    teamId: mine.teamId,
+  });
   expect((await views(api, made)).length).toBe((await views(api, builtIn?.id ?? '')).length);
 
   // A template from a board: it opens on its page, and is changed there.
@@ -89,9 +93,7 @@ test('a board is made from a template, and a template from a board is changed on
   await expect(page.getByTestId('template-note')).toBeVisible();
 
   await sidebar(page).getByTestId('add-board').click();
-  await picker
-    .getByRole('button', { name: 'Make a board from the template Our weekly plan' })
-    .click();
+  await picker.getByRole('button', { name: 'Use this template: Our weekly plan' }).click();
   await expect(boardLink(page, 'Our weekly plan')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByText('Water')).toBeVisible();
   await expect(page.locator('[data-problem]')).toHaveCount(0);

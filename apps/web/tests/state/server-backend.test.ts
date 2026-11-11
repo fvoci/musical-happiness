@@ -901,13 +901,13 @@ describe('templates on the server', () => {
     const backend = new ServerBackend('');
     const [template] = await backend.templates('t');
     expect(template).toMatchObject({ id: 'tp', isTemplate: true, isBuiltin: true });
-    expect((await backend.duplicateBoard('tp', false)).id).toBe('b2');
-    await backend.duplicateBoard('b2', true);
+    expect((await backend.duplicateBoard('tp', false, 't')).id).toBe('b2');
+    await backend.duplicateBoard('b2', true, 't');
     expect(await backend.onboard('t')).toBe('w1');
     expect(sentLines(sent)).toEqual([
       'GET /api/v1/teams/t/templates',
-      'POST /api/v1/boards/tp/duplicate?asTemplate=false',
-      'POST /api/v1/boards/b2/duplicate?asTemplate=true',
+      'POST /api/v1/boards/tp/duplicate?asTemplate=false&toTeam=t',
+      'POST /api/v1/boards/b2/duplicate?asTemplate=true&toTeam=t',
       'POST /api/v1/teams/t/onboard',
     ]);
   });

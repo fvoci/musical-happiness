@@ -210,7 +210,7 @@
   "shell_hidden_boards": "Hidden boards ({count})",
   "shell_board_unhide": "Show {name} in the sidebar",
   "shell_share": "Share",
-  "shell_template_use": "Make a board from the template {name}",
+  "shell_template_use": "Use this template: {name}",
   "shell_template_edit": "Change the template {name}",
   "shell_template_note": "Template",
   "share_team_title": "The team",

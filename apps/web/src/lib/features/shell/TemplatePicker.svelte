@@ -41,6 +41,8 @@
 
   const compact = $derived(page.stage === 'compact');
   let templates = $state.raw<Board[] | undefined>(undefined);
+  /** Readings of the templates begun: only the latest is shown. */
+  let readings = 0;
 
   closeOnBack(
     () => open,
@@ -53,8 +55,10 @@
   function opened(): void {
     untrack(() => {
       templates = undefined;
+      readings += 1;
+      const reading = readings;
       void workspace.templates().then((read) => {
-        templates = read;
+        if (reading === readings) templates = read;
       });
     });
   }

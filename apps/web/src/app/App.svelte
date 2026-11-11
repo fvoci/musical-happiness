@@ -29,8 +29,11 @@
 
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let account = $state.raw<Account | undefined>(undefined);
-  /** An account was just made on this page: its first sign-in copies the welcome board. */
-  let registered = false;
+  /**
+   * The names of the account just made on this page: its first sign-in
+   * copies the welcome board. Another account signed in here gets none.
+   */
+  let registered: { username: string; email: string } | undefined;
 
   onMount(() => {
     void startBackend().then(async (started) => {
@@ -108,15 +111,19 @@
         });
       }
       // A new account starts on its own copy of the welcome board, made once.
-      if (registered && workspace?.status === 'ready') {
-        registered = false;
-        const welcome = await workspace.onboard();
-        if (welcome) router.openBoard(welcome);
+      const made = registered;
+      if (made && workspace?.status === 'ready') {
+        registered = undefined;
+        if (login === made.username || login === made.email) {
+          const welcome = await workspace.onboard();
+          // The page may be on it already (the first board is shown by itself).
+          if (welcome && router.route.boardId !== welcome) router.openBoard(welcome);
+        }
       }
     }}
     onRegister={async (registration: Registration) => {
       await account?.register(registration);
-      registered = true;
+      registered = { username: registration.username, email: registration.email };
     }}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}

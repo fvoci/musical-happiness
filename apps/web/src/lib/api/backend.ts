@@ -288,12 +288,12 @@ export class ServerBackend implements Backend, Account {
     return boards.map(boardOf);
   }
 
-  /** `duplicateBoard`, into the board's own team. The copy is the first board of the answer. */
-  async duplicateBoard(boardId: string, asTemplate: boolean): Promise<Board> {
+  /** `duplicateBoard` into the team (`toTeam`). The copy is the first board of the answer. */
+  async duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board> {
     const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
       '/api/v1/boards/{boardId}/duplicate',
       { boardId },
-      { method: 'POST', query: { asTemplate: String(asTemplate) } },
+      { method: 'POST', query: { asTemplate: String(asTemplate), toTeam: teamId } },
     );
     const [board] = made.boards;
     if (!board) throw new BackendError(500, { message: 'the server made no copy' });

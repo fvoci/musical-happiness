@@ -360,11 +360,12 @@ export interface Backend {
    */
   templates(teamId: string): Promise<Board[]>;
   /**
-   * Copies a board with its views and cards (not its comments): a board from
-   * a template, or a template from a board. The reader is the copy's admin,
-   * and it is private.
+   * Copies a board with its views and cards (not its comments) into the
+   * team: a board from a template, or a template from a board. The reader is
+   * the copy's admin, and it is private. The team is said because a built-in
+   * template belongs to none of the reader's.
    */
-  duplicateBoard(boardId: string, asTemplate: boolean): Promise<Board>;
+  duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board>;
   /** Copies the welcome board for the reader; answers its identifier. Each call makes another copy. */
   onboard(teamId: string): Promise<string>;
   /** Moves the board to the trash. */

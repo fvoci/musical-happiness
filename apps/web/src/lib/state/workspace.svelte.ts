@@ -194,6 +194,9 @@ export class Workspace {
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board': {
+        // Two tellings of one board may arrive out of order: the older one is let go.
+        const known = this.boards.find((board) => board.id === change.board.id);
+        if (known && known.updateAt > change.board.updateAt) break;
         // A template is no board of the sidebar, as the server's list of boards says.
         const others = this.boards.filter((board) => board.id !== change.board.id);
         this.boards = change.board.isTemplate ? others : [...others, change.board];
@@ -400,8 +403,9 @@ export class Workspace {
 
   /** Makes a board from a template; it keeps the template's title, views and cards. */
   async createBoardFromTemplate(templateId: string): Promise<Board | undefined> {
+    if (!this.team) return undefined;
     try {
-      const board = await this.backend.duplicateBoard(templateId, false);
+      const board = await this.backend.duplicateBoard(templateId, false, this.team.id);
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
@@ -412,8 +416,9 @@ export class Workspace {
 
   /** Makes a template of the team from a board. A template is no board of the sidebar. */
   async createTemplateFromBoard(boardId: string): Promise<Board | undefined> {
+    if (!this.team) return undefined;
     try {
-      return await this.backend.duplicateBoard(boardId, true);
+      return await this.backend.duplicateBoard(boardId, true, this.team.id);
     } catch (error) {
       this.report('save', error);
       return undefined;
@@ -427,17 +432,19 @@ export class Workspace {
    */
   async onboard(): Promise<string | undefined> {
     if (!this.team) return undefined;
+    let boardId: string;
     try {
-      const boardId = await this.backend.onboard(this.team.id);
-      this.boards = [
-        ...this.boards.filter((board) => board.id !== boardId),
-        await this.backend.board(boardId),
-      ];
-      return boardId;
+      boardId = await this.backend.onboard(this.team.id);
     } catch (error) {
       this.report('load', error);
       return undefined;
     }
+    try {
+      this.#apply({ kind: 'board', board: await this.backend.board(boardId) });
+    } catch {
+      // It is made; the server's message, or the next reading, shows it.
+    }
+    return boardId;
   }
 
   /** Deletes a board. It can be brought back with undo. */

@@ -851,8 +851,13 @@ describe('templates', () => {
       sourceCards.map((card) => card.title).sort(),
     );
     expect(madeCards.some((card) => sourceCards.some((other) => other.id === card.id))).toBe(false);
-    expect((await backend.views(made?.id ?? '')).length).toBe(
-      (await backend.views(source.id)).length,
-    );
+    const [sourceViews, madeViews] = await Promise.all([
+      backend.views(source.id),
+      backend.views(made?.id ?? ''),
+    ]);
+    expect(madeViews.length).toBe(sourceViews.length);
+    // A view's order of cards names the copies, as the server renames it.
+    const ordered = madeViews.flatMap((view) => view.fields.cardOrder);
+    expect(ordered.every((id) => madeCards.some((card) => card.id === id))).toBe(true);
   });
 });
