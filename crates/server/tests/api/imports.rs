@@ -418,3 +418,39 @@ async fn a_large_version_json_is_no_archive() {
         .check_no_content();
     ts.teardown().await;
 }
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one import at a
+/// time and the server `max_concurrent_imports` (2): over either, the import is 429 with
+/// a reason, and the upload stays to be imported again.
+#[tokio::test]
+async fn imports_run_one_per_user_and_two_on_the_server() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let archive = ts
+        .client
+        .get(&format!("/boards/{}/archive/export", board.id))
+        .await;
+    archive.check_ok();
+    let me = ts.client.me().await;
+    let opened = upload_id(&open_import(&ts.client, ROOT_TEAM_ID, archive.body.len()).await);
+    put_part(&ts.client, &opened, 1, &archive.body)
+        .await
+        .check_no_content();
+
+    let mine = ts.app.start_import(&me.id).expect("a place for user1");
+    let response = import_upload(&ts.client, ROOT_TEAM_ID, &opened).await;
+    response.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.error_reason(), "import_running");
+    drop(mine);
+    let first = ts.app.start_import(&new_id()).expect("a place");
+    let second = ts.app.start_import(&new_id()).expect("another place");
+    let response = import_upload(&ts.client, ROOT_TEAM_ID, &opened).await;
+    response.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.error_reason(), "server_imports_busy");
+
+    drop(first);
+    drop(second);
+    import_upload(&ts.client, ROOT_TEAM_ID, &opened)
+        .await
+        .check_no_content();
+}

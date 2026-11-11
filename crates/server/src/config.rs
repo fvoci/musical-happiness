@@ -187,6 +187,12 @@ pub struct Configuration {
     /// How many earlier versions of a comment's body the server keeps: the first one,
     /// with which the comment was posted, and the newest. At least 1.
     pub max_comment_versions: u32,
+    /// How many exports (`exportBoardArchive`, `exportTeamArchive`) the server runs at
+    /// once; a user runs one at a time. At least 1.
+    pub max_concurrent_exports: u32,
+    /// How many imports (`importArchive`) the server runs at once; a user runs one at a
+    /// time. At least 1.
+    pub max_concurrent_imports: u32,
     /// The addresses, and address ranges such as `10.0.0.0/8`, of the reverse proxies
     /// in front of the server. A request from one of them is taken to come from the
     /// address the proxy names in `X-Forwarded-For`; that header is believed from
@@ -260,6 +266,8 @@ impl Default for Configuration {
             max_pending_upload_bytes: DEFAULT_MAX_PENDING_UPLOAD_BYTES,
             max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
             max_comment_versions: DEFAULT_MAX_COMMENT_VERSIONS,
+            max_concurrent_exports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
+            max_concurrent_imports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
             trusted_proxies: Vec::new(),
             login_pair_free_failures: 5,
             login_pair_base_delay_seconds: 30,
@@ -316,6 +324,8 @@ impl std::fmt::Debug for Configuration {
             .field("max_pending_upload_bytes", &self.max_pending_upload_bytes)
             .field("max_import_bytes", &self.max_import_bytes)
             .field("max_comment_versions", &self.max_comment_versions)
+            .field("max_concurrent_exports", &self.max_concurrent_exports)
+            .field("max_concurrent_imports", &self.max_concurrent_imports)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("login_pair_free_failures", &self.login_pair_free_failures)
             .field(
@@ -363,7 +373,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 50] = [
+const ENV_KEYS: [(&str, EnvKind); 52] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -404,6 +414,8 @@ const ENV_KEYS: [(&str, EnvKind); 50] = [
     ("max_pending_upload_bytes", EnvKind::Number),
     ("max_import_bytes", EnvKind::Number),
     ("max_comment_versions", EnvKind::Number),
+    ("max_concurrent_exports", EnvKind::Number),
+    ("max_concurrent_imports", EnvKind::Number),
     ("trusted_proxies", EnvKind::List),
     ("login_pair_free_failures", EnvKind::Number),
     ("login_pair_base_delay_seconds", EnvKind::Number),
@@ -431,6 +443,9 @@ const DEFAULT_MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
 
 /// How many earlier versions of a comment the server keeps unless configured.
 const DEFAULT_MAX_COMMENT_VERSIONS: u32 = 50;
+
+/// How many exports, and how many imports, the server runs at once unless configured.
+const DEFAULT_MAX_CONCURRENT_ARCHIVES: u32 = 2;
 
 /// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
 /// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
@@ -672,6 +687,13 @@ impl Configuration {
         if self.max_comment_versions == 0 {
             bail!("max_comment_versions must be at least 1");
         }
+        // Zero would refuse every export or import.
+        if self.max_concurrent_exports == 0 {
+            bail!("max_concurrent_exports must be at least 1");
+        }
+        if self.max_concurrent_imports == 0 {
+            bail!("max_concurrent_imports must be at least 1");
+        }
         Ok(())
     }
 
@@ -873,6 +895,8 @@ mod tests {
         assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(config.max_import_bytes, 256 * 1024 * 1024);
         assert_eq!(config.max_comment_versions, 50);
+        assert_eq!(config.max_concurrent_exports, 2);
+        assert_eq!(config.max_concurrent_imports, 2);
         assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");
         assert_eq!(config.teammate_name_display, "username");
@@ -1113,6 +1137,12 @@ mod tests {
             error(r#"{"max_comment_versions": 0}"#).contains("max_comment_versions"),
             "a comment keeps at least the text it was posted with"
         );
+        for key in ["max_concurrent_exports", "max_concurrent_imports"] {
+            assert!(
+                error(&format!(r#"{{"{key}": 0}}"#)).contains(key),
+                "{key}: none at all would refuse every one"
+            );
+        }
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(

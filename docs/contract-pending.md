@@ -209,8 +209,8 @@
 - `getClientConfig`에 `maxImportSize`(설정 `max_import_bytes`, 기본 256 MiB)가 생겼다. 사용자 한 명의 열린 업로드가 걸어 두는 크기의 한도는 `maxFileSize`와 `maxImportSize` 가운데 큰 것의 두 배가 됐다(기본 512 MiB).
 - 아카이브의 한도(설계 4.2): 항목 10,000개, 풀린 합계 1 GiB, `board.jsonl` 64 MiB(전에는 70 MiB이고 400), 파일 항목 하나는 `maxFileSize`(전에는 항목마다 256 MiB이고 400). 넘으면 413이고 `limit`이 그 한도다(항목 수는 개수, 나머지는 바이트). 무엇을 만들기 전에 모든 항목을 한 번 읽어 보므로 한도를 넘는 아카이브는 아무것도 만들지 않는다.
 - 맨 위의 `version.json`이 64 KiB를 넘으면 이 서버의 아카이브가 아니라서 400이다(다른 판의 것과 같다). 보드 디렉터리 안의 같은 이름은 파일 항목의 한도(`maxFileSize`)를 받고, 가져오지는 않는다.
-- 항목 수는 ZIP의 디렉터리를 읽기 전에 파일 전체에서 중앙 헤더의 서명을 세어 본다. 끝 레코드가 적은 수를 말해도 헤더가 10,000개를 넘으면 413이다. 이것은 읽어 들이는 항목의 수를 묶을 뿐, ZIP 크레이트가 디렉터리를 읽기 전에 끝 레코드가 말하는 수만큼 잡아 두는 자리(가상 메모리. 꾸미면 아카이브 크기의 약 3배)는 묶지 못한다. 보통의 메모리 과할당 설정에서는 쓰이지 않고 400으로 끝나지만, 과할당을 막은 기기에서는 프로세스가 멈출 수 있다(사용자 결정 필요, 보고에). 압축하지 않고 저장한 ZIP(첨부한 `.zip`, `.xlsx` 등)을 담은 아카이브는 그 안의 헤더도 세어진다. 이 서버가 내보낸 아카이브는 항목을 모두 압축하므로 해당하지 않는다.
-- 서버는 아카이브를 메모리에 올리지 않는다. 부분을 임시 자리에서 차례로 한 파일에 이어 붙이며(붙인 부분은 지운다) 그 파일에서 항목을 하나씩 읽고, 파일 항목은 임시 파일로 풀어 저장소에 흘려 쓴다. 가져오는 동안 임시 자리는 아카이브 하나와 부분 하나, 파일 항목 하나만큼 쓴다. 가져오는 중인 아카이브는 열린 업로드의 한도에 들지 않는다.
+- 항목 수는 ZIP의 디렉터리를 읽기 전에 파일 전체에서 중앙 헤더의 서명을 세어 본다. 끝 레코드가 적은 수를 말해도 헤더가 10,000개를 넘으면 413이다. 이것은 읽어 들이는 항목의 수를 묶을 뿐, ZIP 크레이트가 디렉터리를 읽기 전에 끝 레코드가 말하는 수만큼 잡아 두는 자리(가상 메모리. 꾸미면 아카이브 크기의 약 3배)는 묶지 못한다. 보통의 메모리 과할당 설정에서는 쓰이지 않고 400으로 끝나지만, 과할당을 막은 기기에서는 프로세스가 멈출 수 있다(사용자에게 알렸고 코드는 그대로 둔다. `docs/configuration.md`의 `max_import_bytes`). 압축하지 않고 저장한 ZIP(첨부한 `.zip`, `.xlsx` 등)을 담은 아카이브는 그 안의 헤더도 세어진다. 이 서버가 내보낸 아카이브는 항목을 모두 압축하므로 해당하지 않는다.
+- 서버는 아카이브를 메모리에 올리지 않는다. 부분을 임시 자리에서 차례로 한 파일에 이어 붙이며(붙인 부분은 지운다) 그 파일에서 항목을 하나씩 읽고, 파일 항목은 임시 파일로 풀어 저장소에 흘려 쓴다. 가져오는 동안 임시 자리는 아카이브 하나와 부분 하나, 파일 항목 하나만큼 쓴다. 가져오는 중인 아카이브는 열린 업로드의 한도에 들지 않는다. 동시에 하는 가져오기와 내보내기는 한 사람에 하나, 서버 전체에 설정값(기본 2)까지이고 넘으면 429다(사용자 결정 2026-11-11 14:25 KST).
 
 ## 6. 계약 밖에 있는 것
 
@@ -220,7 +220,7 @@
   - `UPDATE_BLOCK`이 싣는 블록은 1절의 본문(`body`)을 함께 싣는다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.
   - 모든 조작의 `default` 응답이 `ErrorBody`다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다.
-  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`.
+  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`, `export_running`, `server_exports_busy`, `import_running`, `server_imports_busy`.
   - 429와 `Retry-After`는 `login`, `register`, `changePassword`에 따로 적었다.
   - `getFile`의 412와 416만 `ErrorBody`가 아니다. 412는 본문이 없고 416은 `text/plain`이다.
 - **관리자 소켓의 라우트**(`/api/v1/admin/...`). 로컬 유닉스 소켓에서만 받는다. 계약에 없다.

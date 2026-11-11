@@ -6,6 +6,7 @@
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
+use futures_util::StreamExt as _;
 use fvoci_model::UploadPurpose;
 use fvoci_store::PublicBoards;
 use serde::Deserialize;
@@ -20,7 +21,7 @@ use super::contract::params::{BoardId, TeamId};
 use super::contract::tag;
 use super::{ApiResult, RequiredSession, no_content};
 use super::{require_board_permission, require_team_access, user_is_guest};
-use crate::app::{App, ExportedArchive};
+use crate::app::{App, ExportedArchive, Slot};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
@@ -71,6 +72,11 @@ pub(super) async fn require_import_access(
 /// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
 /// `block` or `boardMember` per line, in the shapes of this contract, bodies included)
 /// and the files the blocks show, the images of bodies among them.
+///
+/// A user runs one export at a time, and the server as many as its setting
+/// `max_concurrent_exports` (2 unless set); an export runs until its archive is sent.
+/// Over either it is 429 with the reason `export_running` or `server_exports_busy`, and
+/// is to be asked for again later.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/archive/export",
@@ -105,17 +111,18 @@ async fn handle_export_board(
     )
     .await?;
     let board = app.board(&board_id).await?;
+    let slot = app.start_export(user_id)?;
     let archive = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
         .await?;
-    Ok(archive_response(archive))
+    Ok(archive_response(archive, slot))
 }
 
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download with its length, in the format of `exportBoardArchive`. A team that
-/// is not there is not refused: its archive has no boards.
+/// as a download with its length, in the format of `exportBoardArchive`, and under its
+/// limits. A team that is not there is not refused: its archive has no boards.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/archive/export",
@@ -148,8 +155,9 @@ async fn handle_export_team(
         .boards_for_user_and_team(user_id, &team_id, public)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
+    let slot = app.start_export(user_id)?;
     let archive = app.export_archive(&team_id, &ids).await?;
-    Ok(archive_response(archive))
+    Ok(archive_response(archive, slot))
 }
 
 /// Import an archive
@@ -176,6 +184,10 @@ async fn handle_export_team(
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
 /// those before it stay.
+///
+/// A user runs one import at a time, and the server as many as its setting
+/// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
+/// `import_running` or `server_imports_busy`; the upload stays open, to be named again.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/archive/import",
@@ -213,13 +225,15 @@ async fn handle_import(
         }
         return Err(refusal);
     }
+    // Refused, the upload stays: the import can be asked for again.
+    let _slot = app.start_import(user_id)?;
     app.import_upload(&upload).await?;
     Ok(no_content())
 }
 
 /// Sends an archive, written whole before, as the download the original sends, with its
-/// length.
-fn archive_response(archive: ExportedArchive) -> Response {
+/// length. The export's `slot` is held until the archive is sent, or the client is gone.
+fn archive_response(archive: ExportedArchive, slot: Slot) -> Response {
     let filename = export_filename(crate::auth::now_millis());
     (
         [
@@ -232,7 +246,12 @@ fn archive_response(archive: ExportedArchive) -> Response {
             ("content-length", archive.size.to_string()),
         ],
         // Read in large pieces: each read of the file is a task of its own.
-        Body::from_stream(ReaderStream::with_capacity(archive.file, SEND_CHUNK_BYTES)),
+        Body::from_stream(
+            ReaderStream::with_capacity(archive.file, SEND_CHUNK_BYTES).map(move |piece| {
+                let _held = &slot;
+                piece
+            }),
+        ),
     )
         .into_response()
 }

@@ -100,6 +100,14 @@ pub enum Reason {
     ServerUploadsPending,
     /// The file is larger than one request takes; it is to be sent in parts.
     UploadInParts,
+    /// The user has an export running.
+    ExportRunning,
+    /// The server runs as many exports as it may.
+    ServerExportsBusy,
+    /// The user has an import running.
+    ImportRunning,
+    /// The server runs as many imports as it may.
+    ServerImportsBusy,
 }
 
 impl Reason {
@@ -120,6 +128,10 @@ impl Reason {
             Self::UploadsPending => "uploads_pending",
             Self::ServerUploadsPending => "server_uploads_pending",
             Self::UploadInParts => "upload_in_parts",
+            Self::ExportRunning => "export_running",
+            Self::ServerExportsBusy => "server_exports_busy",
+            Self::ImportRunning => "import_running",
+            Self::ServerImportsBusy => "server_imports_busy",
         }
     }
 }

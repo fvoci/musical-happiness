@@ -754,3 +754,31 @@ async fn a_large_file_is_whole_in_the_archive() {
     entry.read_to_end(&mut content).expect("the entry is read");
     assert!(content == data, "the file is whole in the archive");
 }
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one export at a
+/// time and the server `max_concurrent_exports` (2): over either, an export of a board or
+/// of a team is 429 with a reason. An export holds its place until it is sent.
+#[tokio::test]
+async fn exports_run_one_per_user_and_two_on_the_server() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = board_with_card(&ts, TEST_TEAM_ID).await;
+    let me = ts.client.me().await;
+    let team_export = format!("/teams/{TEST_TEAM_ID}/archive/export");
+    let refused = |response: &ApiResponse, reason: &str| {
+        response.check_status(StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.error_reason(), reason, "{}", response.text());
+    };
+
+    let mine = ts.app.start_export(&me.id).expect("a place for user1");
+    refused(&export_board(&ts.client, &board.id).await, "export_running");
+    refused(&ts.client.get(&team_export).await, "export_running");
+    let other = ts.app.start_export(&new_id()).expect("a place for another");
+    refused(&ts.client2.get(&team_export).await, "server_exports_busy");
+
+    drop(mine);
+    drop(other);
+    export_board(&ts.client, &board.id).await.check_ok();
+    // The place of a sent export is given back.
+    export_board(&ts.client, &board.id).await.check_ok();
+    ts.client2.get(&team_export).await.check_ok();
+}
