@@ -39,7 +39,7 @@
   | 11 | 보드의 속성 순서를 바꾸는 요청 | 끝 |
   | 끝 | `docs/contract-pending.md` 9절, 웹앱의 만든 타입(`contract.ts`), 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | 끝 |
 
-- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
+- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`는 예약된 키다(사용자 결정, 05:04 KST). `prometheusaddress`는 지표를 따로 연 리스너에서 낸다(`fvoci/metrics`). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
@@ -66,7 +66,8 @@
 ## 1. 검증
 
 ```bash
-cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 계약, 라이선스·권고. 외부 서비스 없음
+cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 길이, 계약, 라이선스·권고. 외부 서비스 없음
+cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 천장을 올리는 유일한 길이고, 따로 잰 묶음들을 합친 뒤 한 번만 돌린다. 웹앱의 것은 pnpm --filter web run lengths:measure
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
 cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
@@ -75,8 +76,8 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 일곱 단계 PASS |
-| `cargo xtask test` | SQLite 1,129건, PostgreSQL 984건, S3 7건, 실패 0(2026-11-11, `fvoci/server-decide`) |
+| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮기기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이다. 손으로 더한 줄이나 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
+| `cargo xtask test` | SQLite 1,220건, PostgreSQL 1,021건, S3 7건, 실패 0(2026-11-11 20:50 KST, `fvoci/checks`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
 
@@ -84,7 +85,6 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
-- `cargo xtask test`는 스스로 띄운 컨테이너를, 마지막으로 쓴 실행이 끝날 때 멈춘다(tracer-bullet 11).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다.
 
 **걸리는 시간.** 이 기기에서 빌드 캐시가 있을 때, 2026-11-11 02–03시 KST에 잰 값이다.
@@ -92,12 +92,12 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 무엇 | 시간 |
 |---|---|
 | `cargo xtask check`, 소스를 고친 뒤 | 30–40초 |
-| `cargo xtask check`, 고친 것이 없을 때 | 5초 |
+| `cargo xtask check`, 고친 것이 없을 때 | 10초(2026-11-11 17시 KST, 층과 길이 단계가 든 뒤) |
 | `cargo xtask test` | 2분 40초–4분 10초 |
 | 회귀 테스트만(`cargo test -p fvoci-server --test regression`) | SQLite 29–30초 |
 | API 테스트만(`--test api`, 487건) | SQLite 15초, PostgreSQL 37초 |
 
-- `check`의 단계별 시간은 clippy 10초, 단위 테스트 3–13초, 문서 4초, 계약 3초, cargo-deny 1–2초다.
+- `check`의 단계별 시간은 clippy 10초, 단위 테스트 3–13초, 문서 4초, 층 2초, 길이 3초, 계약 3초, cargo-deny 1–2초다.
 - `test`의 단계별 시간은 SQLite 65초, PostgreSQL 96–186초, S3 1초 미만이다. PostgreSQL은 기기가 바쁘면 길어진다. 186초였던 실행의 원인은 따로 보지 않았다.
 
 **커밋마다 clippy를 통과시킨다.** 워크스페이스 린트가 엄격해서(`too_many_lines`, `as_conversions`, `print_stderr`, `similar_names` 등) 테스트 코드에서 자주 걸린다. `cargo doc`도 경고가 오류다. 없는 항목을 가리키는 문서 링크 하나로 check가 실패한다.
@@ -250,10 +250,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
 5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
 
-**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 둘이다(`docs/configuration.md`의 "예약된 키").
-
-- `prometheusaddress`: Prometheus 지표를 내는 주소.
-- `authmode`: OIDC 로그인. 지금은 `native`만 받는다.
+**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 `authmode`다(`docs/configuration.md`의 "예약된 키"). OIDC 로그인의 자리이고 지금은 `native`만 받는다.
 
 **웹앱 쪽에 전할 것.**
 

@@ -2,8 +2,9 @@
 //! client keeps with the account.
 //!
 //! The settings are a closed set: the server knows every one, its values and its
-//! default, and refuses anything else; of a language it knows only the shape of a tag. They belong to the account and not to a device,
-//! so that the same person sees the same times on every device.
+//! default, and refuses anything else; of a language it knows only the shape of a tag.
+//! They belong to the account and not to a device, so that the same person sees the same
+//! times on every device.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

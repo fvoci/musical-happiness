@@ -289,3 +289,14 @@ describe('a view without a property', () => {
     expect('groupById' in fields).toBe(false);
   });
 });
+
+describe('a view, when a property becomes a card relation', () => {
+  it('takes a view off grouping and calculating by it', () => {
+    const view = createBoardView();
+    view.fields.groupById = 'after';
+    view.fields.columnCalculations = { after: 'count' };
+    const next = viewWithoutProperty(view, 'after', 'relation');
+    expect(next.fields.groupById).toBeUndefined();
+    expect(next.fields.columnCalculations).toEqual({});
+  });
+});

@@ -7,6 +7,7 @@
  * change of grouping resets) are in one place and are tested without a
  * screen.
  */
+import { displayableProperties, displayProperty } from '$lib/logic/calendar.ts';
 import { propertyBehavior } from '$lib/logic/properties.ts';
 import {
   createBoardView,
@@ -18,8 +19,8 @@ import {
 
 type ViewFields = BoardView['fields'];
 
-/** The kinds of view that can be added. A calendar cannot, until there is a calendar view. */
-export const ADDABLE_VIEW_TYPES = ['board', 'table', 'gallery'] as const;
+/** The kinds of view that can be added. */
+export const ADDABLE_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar'] as const;
 export type AddableViewType = (typeof ADDABLE_VIEW_TYPES)[number];
 
 /** Whether a view of this kind has a grouping, and whether "no grouping" is a choice. */
@@ -70,7 +71,9 @@ export function groupingFields(
 
 /**
  * The fields a new view starts with: a board grouped by the first select
- * property, a table that shows every property, a gallery that shows titles.
+ * property, a table that shows every property, a gallery that shows titles,
+ * a calendar placed by the first date property (or the first kind of date;
+ * by when cards were made where the board has none, and then it names none).
  * A table stores no width for its title column: until the reader sets one
  * the table gives the column what the room it has allows (table/columns.ts).
  */
@@ -90,7 +93,59 @@ export function newViewFields(
       visiblePropertyIds: templates.map((template) => template.id),
     };
   }
+  if (viewType === 'calendar') {
+    return {
+      ...fields,
+      visiblePropertyIds: [TITLE_COLUMN_ID],
+      dateDisplayPropertyId: displayProperty(undefined, templates)?.id,
+    };
+  }
   return { ...fields, visiblePropertyIds: [TITLE_COLUMN_ID] };
+}
+
+/** A calendar is placed by a date: it has "display by" in place of a grouping. */
+export function displayByOffered(viewType: ViewType): boolean {
+  return viewType === 'calendar';
+}
+
+/** What "display by" names: the kind of date in use, or `madeName` where the board has none. */
+export function displayByName(
+  view: BoardView,
+  templates: readonly PropertyTemplate[],
+  madeName: string,
+): string {
+  return displayProperty(view.fields.dateDisplayPropertyId, templates)?.name ?? madeName;
+}
+
+/** One line of the list a calendar's "display by" offers. `write`: choosing it changes the view. */
+export interface DisplayByChoice {
+  id: string;
+  label: string;
+  checked: boolean;
+  write: boolean;
+}
+
+/**
+ * The lines of "display by": every kind of date the board has, the one in
+ * use checked. Choosing the one in use again writes nothing, unless the view
+ * named none and was placed by the first one (then it names it from now on).
+ * A board without any kind of date has one line, checked and inert: the
+ * cards are placed by when they were made, and `madeName` says so.
+ */
+export function displayByChoices(
+  view: BoardView,
+  templates: readonly PropertyTemplate[],
+  madeName: string,
+): DisplayByChoice[] {
+  const named = view.fields.dateDisplayPropertyId;
+  const used = displayProperty(named, templates);
+  const choices = displayableProperties(templates).map((template) => ({
+    id: template.id,
+    label: template.name,
+    checked: template.id === used?.id,
+    write: template.id !== named,
+  }));
+  return choices.length > 0 ? choices : [{ id: '', label: madeName, checked: true, write: false }];
 }
 
 /** One line of the list of what a view shows on its cards: a property of the board. */
@@ -104,9 +159,16 @@ export interface PropertyToggle {
  * properties of the board. The title is always shown, and so are the marks
  * of a description and of a checklist on a card (card-face/CardFace.svelte),
  * so neither has a switch; a switch nothing reads would only look like one.
+ * For the same reason a card relation has a switch in a table only: the face
+ * of a card does not show it.
  */
-export function propertyToggles(templates: readonly PropertyTemplate[]): PropertyToggle[] {
-  return templates.map((template) => ({ id: template.id, template }));
+export function propertyToggles(
+  templates: readonly PropertyTemplate[],
+  viewType: ViewType,
+): PropertyToggle[] {
+  return templates
+    .filter((template) => viewType === 'table' || template.type !== 'relation')
+    .map((template) => ({ id: template.id, template }));
 }
 
 /** The visible properties with `propertyId` shown or hidden. A newly shown one goes last. */

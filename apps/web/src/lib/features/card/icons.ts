@@ -21,6 +21,7 @@ import TypeIcon from '@lucide/svelte/icons/type';
 import UserIcon from '@lucide/svelte/icons/user';
 import UserPenIcon from '@lucide/svelte/icons/user-pen';
 import UsersIcon from '@lucide/svelte/icons/users';
+import WorkflowIcon from '@lucide/svelte/icons/workflow';
 import type { Component } from 'svelte';
 
 import type { PropertyType } from '$lib/logic/wire.ts';
@@ -66,6 +67,7 @@ const TYPE_ICONS: Partial<Record<PropertyType, Icon>> = {
   updatedTime: ClockIcon,
   createdBy: UserPenIcon,
   updatedBy: UserPenIcon,
+  relation: WorkflowIcon,
 };
 
 /** The picture for a kind of property; a kind this app does not know gets the one of a text. */

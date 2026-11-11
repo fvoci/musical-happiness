@@ -1,7 +1,9 @@
 //! Development tasks of the fvoci workspace, run as `cargo xtask <command>`.
 //!
-//! * `cargo xtask check` — formatting, lints, unit tests, documentation, names and
-//!   licenses. Starts no external service.
+//! * `cargo xtask check` — formatting, lints, unit tests, documentation, names, layers,
+//!   lengths, the contract and licenses. Starts no external service.
+//! * `cargo xtask measure` — rewrites the list of what is over the limits of length
+//!   from the code as it is. For the one who merges; no check calls it.
 //! * `cargo xtask test` — every test on SQLite and on PostgreSQL, and the S3 storage
 //!   test. Prepares the containers the tests need.
 //! * `cargo xtask openapi` — fails if `contracts/openapi.json` is not the document the
@@ -9,6 +11,9 @@
 
 mod check;
 mod containers;
+mod files;
+mod layers;
+mod lengths;
 mod openapi;
 mod steps;
 mod test;
@@ -28,8 +33,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Formatting, lints, unit tests, documentation, names and licenses. Starts no
-    /// external service.
+    /// Formatting, lints, unit tests, documentation, names, layers, lengths, the
+    /// contract and licenses. Starts no external service.
     Check {
         /// Leaves out the dependency check (`cargo deny`), which reads the advisory
         /// database from the network.
@@ -43,6 +48,10 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Databases::All)]
         database: Databases,
     },
+    /// Rewrites `xtask/exceptions/lengths.txt` from the code as it is: the one way the
+    /// ceiling of a long file or function goes up. Run it once after work that was
+    /// measured apart is merged, never to make `check` pass.
+    Measure,
     /// Fails if `contracts/openapi.json` is not the OpenAPI document the server prints
     /// from its route definitions.
     Openapi {
@@ -88,6 +97,7 @@ fn main() -> ExitCode {
             check::run(&root, licenses)
         }
         Command::Test { database } => test::run(&root, database),
+        Command::Measure => lengths::rewrite(&root),
         Command::Openapi { write } => {
             let mode = if write {
                 openapi::Mode::Write

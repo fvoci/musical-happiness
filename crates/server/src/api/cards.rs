@@ -19,11 +19,10 @@ use super::{
     json_response, query_param,
 };
 use super::{decode_with_document, require_board_permission, require_permission_through};
-use crate::app::App;
+use crate::app::{App, CardPreviews};
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
-use fvoci_store::Previews;
 
 /// The page of cards a request without `page` gets.
 pub(super) const DEFAULT_PAGE: i64 = 0;
@@ -201,9 +200,9 @@ async fn handle_get_cards(
 
     let (page, per_page) = page_params(query)?;
     let previews = if query_param(query, "preview") == TRUE {
-        Previews::With
+        CardPreviews::With
     } else {
-        Previews::Without
+        CardPreviews::Without
     };
 
     let mut cards = app

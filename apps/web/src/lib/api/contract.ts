@@ -228,8 +228,9 @@ export interface paths {
          * Change a block
          * @description For editors. A comment is changed by its author with the commenter's role, and the
          *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-         *     editor may not change it. Making a comment a block of another type is for editors,
-         *     and making a block of somebody else a comment for the board's admins.
+         *     editor may not change it. The commenter's role changes a comment's text (its body);
+         *     moving a comment to another card (`parentId`) or making it a block of another type
+         *     is for editors, and making a block of somebody else a comment for the board's admins.
          *     The block's `modifiedBy` and `updateAt` say who changed it and when.
          */
         patch: operations["patchBlock"];
@@ -268,7 +269,12 @@ export interface paths {
         /**
          * Bring a deleted block back
          * @description Restores a block of the board from the trash, with the blocks that went there with
-         *     it. A block whose parent is gone has nowhere to come back to: 404. For editors.
+         *     it. A block whose parent is gone has nowhere to come back to: 404. For who may
+         *     delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
+         *     else the board's admins only (403, `access denied to undelete other users'
+         *     comments`). What decides is the block that was deleted, which took the others along:
+         *     a block below somebody else's comment is brought back by the admins only, and a
+         *     comment that went with its card by whoever may bring back the card.
          */
         post: operations["undeleteBlock"];
         delete?: never;
@@ -608,8 +614,9 @@ export interface paths {
          * @description One page of the board's cards that are in the trash, each with its identifier, its
          *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
          *     trash is emptied of it. A card that went with the block it was on (another card, a
-         *     view) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages
-         *     cut that order. A `page` or `perPage` that is no whole number is 400.
+         *     view) comes back with that block, and is not listed. For the board's editors. The
+         *     last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
+         *     number is 400.
          */
         get: operations["getDeletedCards"];
         put?: never;
@@ -636,8 +643,8 @@ export interface paths {
          *     category and place, hidden or not) or in the default category if that one was
          *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
          *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-         *     the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody
-         *     who was no member there is no such board.
+         *     the deletion and stay ended. For who was an admin of the board when it was deleted;
+         *     to anybody who was no member there is no such board.
          */
         post: operations["undeleteBoard"];
         delete?: never;
@@ -1354,7 +1361,8 @@ export interface paths {
         /**
          * The users of a team
          * @description Up to ten users: with `search` those whose login name or display name has that text
-         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest account first.
+         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
+         *     account first.
          */
         get: operations["getTeamUsers"];
         put?: never;

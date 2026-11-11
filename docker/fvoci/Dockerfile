@@ -2,7 +2,8 @@
 #
 # The fvoci board server.
 #
-#   docker build -f docker/fvoci/Dockerfile -t fvoci-server .
+#   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
+#       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) .
 #   docker run -p 8000:8000 -v fvoci-data:/data fvoci-server
 #
 # The build context is the repository root. TLS support is rustls throughout, so the
@@ -11,6 +12,9 @@
 # The web app is not built here yet. Put a built bundle (index.html and static/) into the
 # directory named by WEB_BUNDLE, relative to the context, or mount one at /opt/fvoci/web;
 # without one the server answers every non-API path with a placeholder page.
+#
+# Metrics are off. To serve them, set FVOCI_PROMETHEUSADDRESS=:9092 and publish that
+# port to the monitoring network only: the metrics listener has no authentication.
 
 ARG RUST_VERSION=1
 ARG WEB_BUNDLE=docker/fvoci/web
@@ -18,6 +22,10 @@ ARG WEB_BUNDLE=docker/fvoci/web
 # Debian 13 for both stages: a prebuilt part of the TLS library needs its C library
 # (glibc 2.38 or newer); with Debian 12 the link step fails.
 FROM rust:${RUST_VERSION}-trixie AS build
+# The commit the server is built from, for ping and the metrics' fvoci_build_info:
+#   --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD)
+ARG FVOCI_BUILD_HASH=
+ENV FVOCI_BUILD_HASH=${FVOCI_BUILD_HASH}
 WORKDIR /src
 COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY crates ./crates

@@ -235,7 +235,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 
 1. **설정 기본값을 실제로 적용한다.** 원본은 기본값의 키 이름이 설정 키와 달라 `session_expire_time`, `session_refresh_time`, `dbconfig`, `webhook_update` 등에 기본값이 적용되지 않는다(`server/services/config/config.go:75-110`). 포트는 문서화된 기본값(30일, 5시간, `./fvoci.db`)을 쓴다.
 2. **환경 변수는 `FVOCI_<키 대문자>`이고 설정 파일에 키가 없어도 적용된다.** 원본은 파일이나 기본값에 있는 키만 환경 변수로 덮을 수 있다. `featureFlags`는 환경 변수로 줄 수 없다. `filess3config`의 자격이 아닌 키는 `FVOCI_FILESS3CONFIG_<키>`다(사용자 결정 2026-11-11 11:05 KST).
-3. **지원하지 않는 설정은 시작 오류다:** `authMode`가 `native`가 아님, `prometheusaddress`, `filesdriver`가 `local`/`amazons3`가 아님, `filess3config.SignV2`, `dbtype: mysql`. `logging_cfg_*`, `audit_cfg_*`는 경고만 낸다. → **정리됨(2026-11-11 13:35 KST):** 이 둘과 `filess3config.trace`는 없앤 키다. 값이 있으면 시작하지 않는다(사용자 결정 11:05 KST).
+3. **지원하지 않는 설정은 시작 오류다:** `authMode`가 `native`가 아님, `prometheusaddress`(→ 2026-11-11부터 지표의 주소), `filesdriver`가 `local`/`amazons3`가 아님, `filess3config.SignV2`, `dbtype: mysql`. `logging_cfg_*`, `audit_cfg_*`는 경고만 낸다. → **정리됨(2026-11-11 13:35 KST):** 이 둘과 `filess3config.trace`는 없앤 키다. 값이 있으면 시작하지 않는다(사용자 결정 11:05 KST).
 4. **`/static/` 아래 디렉터리 목록을 보여 주지 않는다.** 원본은 파일 서버가 목록 HTML을 만든다. 포트는 404다.
 5. **캐시 헤더와 사전 압축 파일**: 정적 파일은 이름에 내용 해시가 있으면 `public, max-age=31536000, immutable`, 없으면 `no-cache`(ETag 재검증). `index.html`은 `no-cache`. 요청한 파일 옆에 `.br`/`.gz`가 있고 클라이언트가 받으면 그것을 보낸다. 원본에는 없는 동작이다.
 6. **파일 저장 경로 검사**: 절대 경로나 `..`이 든 저장 경로는 거절한다. 원본은 호스트 애플리케이션의 파일 저장소에 그대로 넘긴다.
@@ -256,7 +256,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 21. **TLS 세부.** TLS 1.2/1.3, HTTP/1.1만 지원한다(원본은 HTTP/2도 협상). TLS 포트로 온 평문 요청은 응답 없이 닫는다(원본은 400 안내문).
 22. **패닉 처리 범위.** 원본은 `/api/v2`만, 포트는 관리자 소켓을 포함한 모든 라우트에서 표준 500 본문으로 바꾼다.
 23. **요청 로그.** 요청마다 메서드, 쿼리 없는 경로, 상태, 소요 시간, 클라이언트 주소를 INFO로 남긴다. `trust_forwarded_for`가 켜져 있고 `X-Forwarded-For`의 첫 항목이 IP 주소로 읽힐 때만 그 값을 클라이언트 주소로 쓴다.
-24. **옮기지 않은 시작 작업:** 메트릭 갱신 작업, 텔레메트리 작업과 `system_settings`의 `TelemetryID` 행, Prometheus 서버, `--monitorpid`, 시작 시 버전·설정 전체 로그(원본은 DB 접속 문자열까지 찍는다).
+24. **옮기지 않은 시작 작업:** 메트릭 갱신 작업, 텔레메트리 작업과 `system_settings`의 `TelemetryID` 행, `--monitorpid`, 시작 시 버전·설정 전체 로그(원본은 DB 접속 문자열까지 찍는다).
 25. **없는 블록의 undelete는 404.** 원본은 nil 역참조로 500(오라클 확인, `server/api/blocks.go:452-458`).
 26. **댓글 블록 복제는 404.** 원본은 충돌로 500(오라클 확인, `sqlstore/blocks.go:883-901`).
 27. **묶음 패치가 중간에 실패하면 아무것도 적용되지 않는다.** 원본 SQLite는 앞선 패치가 이미 적용된 채 500/400을 준다(스토어의 트랜잭션 차이).
@@ -381,9 +381,9 @@ S6의 1단계(오류 응답과 경로 규칙)에서 이 규칙에 걸린 항목�
 - **블록 삽입은 전부 아니면 전무가 아니다**(`server/app/blocks.go:182-191`). 두 번째 블록에서 400이 나도 첫 블록은 저장되어 있다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 한 요청의 블록은 한 트랜잭션으로 들어간다. 하나가 거절되면 아무것도 저장되지 않는다(`blocks::post_blocks_size_limits`). 여러 보드의 블록이 섞인 요청은 400이다.
 - **빈 목록 삽입(`[]`, `null`)은 보드가 있든 없든, 권한 검사 없이 200 `[]`이다**(`server/api/blocks.go:237-283`). → **S6에서 정리됨(2026-11-10 18:37 KST):** 보드를 볼 수 있어야 한다(볼 수 없으면 404). `[]`는 200 `[]`, `null`은 400이다.
 - **삽입은 권한보다 블록 검증을 먼저 한다.** 비멤버도 400(`missing type…` 등)을 본다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 보드를 볼 수 없는 사용자는 본문과 무관하게 404를 받는다. 볼 수 있는 사용자는 본문 검증(400) 뒤에 내용에 따른 권한(403)을 받는다. 어떤 권한이 필요한지가 본문(댓글인지 아닌지)에 달려 있어 이 순서만은 설계 1.4의 "권한 → 본문"과 반대다.
-- **블록 삭제는 블록 종류와 무관하게 카드 관리 권한을 요구한다**(`:372`). commenter는 자기 댓글을 지울 수 없다. 패치는 사용자 결정(2026-11-11 14:25 KST)으로 바뀌었다: 자기 댓글은 댓글 권한으로, 남의 댓글은 관리자만(`ManageOthersComments`) 고치고, 댓글을 다른 종류로 바꾸는 것은 편집자부터다(`api::access::require_block_change_permission`).
+- **블록 삭제는 블록 종류와 무관하게 카드 관리 권한을 요구한다**(`:372`). commenter는 자기 댓글을 지울 수 없다. 패치는 사용자 결정(2026-11-11 14:25 KST)으로 바뀌었다: 자기 댓글은 댓글 권한으로, 남의 댓글은 관리자만(`ManageOthersComments`) 고치고, 댓글을 다른 종류로 바꾸거나 다른 카드로 옮기는 것은 편집자부터다(`api::access::require_block_patch_permission`). 지운 댓글의 되살리기도 지우기와 같다(사용자 결정 2026-11-11 21:00 KST).
 - **묶음 패치**(`:626-663`): 경로의 보드를 무시한다. 없는 블록 ID는 404가 아니라 403, 권한 없는 블록은 403 `access denied to make board changesa`(끝의 `a` 포함), 같은 ID 두 번은 404. 팀 ID를 경로에서 읽는데 경로에 팀이 없어 브로드캐스트가 팀 `""`로 나가고, 그래서 팀 구독자는 묶음 패치를 받지 못한다. → **S6에서 정리됨(2026-11-10 18:37 KST):** 경로의 보드에서 카드 관리 권한을 먼저 확인한다(볼 수 없으면 404, 권한이 없으면 403 `access denied to make board changes`). 블록은 모두 그 보드의 것이어야 하고 아니면(없는 블록 포함) 404 `block not found`다. 같은 ID 두 번과 개수가 안 맞는 요청은 400이다(전에는 패치가 모자라면 500, 남으면 무시). 브로드캐스트는 보드의 팀으로 나가 팀 구독자가 받는다(`blocks::block_changes_are_broadcast`).
-- **undelete의 거절 문구는 `access denied to modify board members`다**(`:465`). 삭제되지 않은 블록의 undelete는 200과 그 블록. → **S6에서 정리됨(2026-11-10 18:37 KST):** 문구는 `access denied to make board changes`다. 볼 수 없는 보드는 404. 삭제되지 않은 블록의 undelete가 200인 것은 그대로다.
+- **undelete의 거절 문구는 `access denied to modify board members`다**(`:465`). 삭제되지 않은 블록의 undelete는 200과 그 블록. → **S6에서 정리됨(2026-11-10 18:37 KST):** 문구는 `access denied to make board changes`다. 볼 수 없는 보드는 404. 휴지통에 없는 블록(삭제되지 않은 블록도)의 undelete도 404다.
 - **블록 목록의 `type`은 적힌 그대로 비교한다**(`Card`는 아무것도 못 찾는다). `type=unknown`은 필터가 아니고, `all`과 `block_id`가 다른 필터보다 우선한다. `page`/`per_page`는 무시된다.
 - **`disable_notify`는 standalone에서 로그 한 줄만 막는다.** 브로드캐스트와 웹훅은 그대로 나간다.
 - **웹훅은 삽입·패치·묶음 패치·undelete에서 호출되고 삭제·복제에서는 호출되지 않는다**(코드로 확인, 오라클 미확인).

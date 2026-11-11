@@ -11,6 +11,7 @@ const CONDITIONS: Record<
   boolean: ['isSet', 'isNotSet'],
   text: ['is', 'contains', 'notContains', 'startsWith', 'notStartsWith', 'endsWith', 'notEndsWith'],
   date: ['is', 'isBefore', 'isAfter', 'isSet', 'isNotSet'],
+  presence: ['isNotEmpty', 'isEmpty'],
 };
 
 function conditionsOf(valueType: FilterValueType): readonly FilterCondition[] | undefined {

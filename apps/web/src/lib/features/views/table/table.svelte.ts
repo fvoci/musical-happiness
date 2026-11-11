@@ -456,6 +456,9 @@ export class TableController {
     get canEdit() {
       return table.canEdit;
     },
+    get cards() {
+      return table.#board.cardsById;
+    },
     cardHref: (cardId) => table.#source.cardHref(cardId),
     open: (cardId) => {
       table.#source.openCard(cardId);

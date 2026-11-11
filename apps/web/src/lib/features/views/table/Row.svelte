@@ -257,6 +257,8 @@
           regional={reader.regional}
           users={reader.people}
           presentation={reader.presentation}
+          cards={host.cards}
+          onOpenCard={host.open}
           onChange={(value: StoredValue | undefined) => {
             host.setValue(card.id, column.id, value);
           }}
@@ -272,6 +274,8 @@
             locale={reader.locale}
             regional={reader.regional}
             users={reader.users}
+            cards={host.cards}
+            onOpenCard={host.open}
             innerTabindex={-1}
           />
         </div>

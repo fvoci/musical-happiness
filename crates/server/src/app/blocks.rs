@@ -288,6 +288,21 @@ impl App {
         }
     }
 
+    /// Returns the block at the top of the deletion a block of the trash went with (the
+    /// one that was deleted, which restoring the block restores too), or `None` if no
+    /// block of that identifier is there.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the trash cannot be read.
+    pub async fn deletion_top(&self, block_id: &str) -> Result<Option<DeletedBlock>, AppError> {
+        match self.store().get_deletion_top(block_id).await {
+            Ok(deleted) => Ok(Some(deleted)),
+            Err(error) if error.is_not_found() => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Returns the earlier versions of a comment's body, the first first.
     ///
     /// # Errors

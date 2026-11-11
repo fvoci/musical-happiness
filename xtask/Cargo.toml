@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Development tasks of the fvoci workspace: cargo xtask check, test, openapi"
+description = "Development tasks of the fvoci workspace: cargo xtask check, test, openapi, measure"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,12 @@ publish.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
+# Reading the sources for the checks of layers and lengths. Lines come from the spans,
+# which `span-locations` keeps outside a procedural macro. License: MIT OR Apache-2.0.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+# Writing a parsed trait back as text, for the name of a function of a trait's `impl`.
+quote = { version = "1", default-features = false }
+syn = { version = "2", default-features = false, features = ["full", "parsing", "printing", "visit"] }
 
 [lints]
 workspace = true
