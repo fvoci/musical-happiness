@@ -7,6 +7,7 @@
  * screen that reaches it says that the change was not saved instead of
  * failing quietly. What is not wired is what calls `notWired` below.
  */
+import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
 import { applyViewPatch } from '../state/patches.ts';
@@ -30,6 +31,7 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type CommentVersion,
   type DownloadedFile,
   type DownloadOptions,
   type Sharing,
@@ -48,8 +50,12 @@ import {
   cardOf,
   categoryOf,
   commentOf,
+  commentVersionOf,
   memberOf,
+  newBoardAndViewOf,
   newCardOf,
+  boardPatchOf,
+  previewsOf,
   settingsChangeOf,
   rolesOf,
   settingsOf,
@@ -213,31 +219,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     draft: BoardDraft,
     firstView: ViewDraft,
   ): Promise<{ board: Board; view: BoardView }> {
-    const boardRef = 'new-board';
-    const request: Schemas['NewBoardsAndBlocks'] = {
-      boards: [
-        {
-          id: boardRef,
-          teamId,
-          type: draft.type ?? 'P',
-          title: draft.title,
-          description: draft.description ?? '',
-          icon: draft.icon ?? '',
-          cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
-        },
-      ],
-      blocks: [
-        {
-          id: 'new-view',
-          boardId: boardRef,
-          type: 'view',
-          title: firstView.title,
-          fields: firstView.fields,
-          createAt: 1,
-          updateAt: 1,
-        },
-      ],
-    };
+    const request = newBoardAndViewOf(teamId, draft, firstView);
     const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
       '/api/v1/boards-and-blocks',
       {},
@@ -249,27 +231,21 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return { board: boardOf(board), view: viewOf(view) };
   }
 
+  /** Puts the card properties in an order (`reorderCardProperties`); the answer is the order. */
+  async reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]> {
+    return this.#http.request<string[]>(
+      '/api/v1/boards/{boardId}/property-order',
+      { boardId },
+      { method: 'PUT', json: propertyIds },
+    );
+  }
+
   /**
    * Changes the board itself. A minimum role the contract does not have
    * (none, or admin) is refused here as the server would refuse it.
    */
   async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
-    const { minimumRole, updatedCardProperties, ...rest } = patch;
-    if (minimumRole === '' || minimumRole === 'admin') {
-      throw new BackendError(400, {
-        detail: 'no such minimum role',
-        errors: [refusedMember('minimumRole', 'no such minimum role')],
-      });
-    }
-    const request: Schemas['BoardPatch'] = {
-      ...rest,
-      ...(minimumRole === undefined ? {} : { minimumRole }),
-      ...(updatedCardProperties === undefined
-        ? {}
-        : {
-            updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[],
-          }),
-    };
+    const request = boardPatchOf(patch);
     return boardOf(
       await this.#http.request<Schemas['Board']>(
         '/api/v1/boards/{boardId}',
@@ -652,6 +628,16 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return cards.map(cardOf);
   }
 
+  /** The previews of the cards (`getCards` with `preview=true`); a card without one has none. */
+  async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
+    const cards = await this.#http.request<Schemas['Card'][]>(
+      '/api/v1/boards/{boardId}/cards',
+      { boardId },
+      { query: { perPage: 0, preview: 'true' } },
+    );
+    return previewsOf(cards);
+  }
+
   /** A card with its body. */
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     return cardDetailOf(await this.#card(boardId, cardId));
@@ -810,6 +796,15 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
         return { ...before, body: write.body };
       }
     });
+  }
+
+  /** A comment's earlier texts (`getCommentVersions`), the first first. */
+  async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
+    const versions = await this.#http.request<Schemas['CommentVersion'][]>(
+      '/api/v1/boards/{boardId}/blocks/{blockId}/versions',
+      { boardId, blockId: commentId },
+    );
+    return versions.map(commentVersionOf);
   }
 
   /** A comment of this board, by its block: 404 for another block or none. */

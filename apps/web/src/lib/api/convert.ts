@@ -6,6 +6,7 @@
  * Where the two differ the screens' shape stays and the difference is
  * settled here; what is still open is listed in `docs/contract-assumptions.md`.
  */
+import { cardPreviewOf, type CardPreview } from '../editor/card-preview.ts';
 import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
 import { readLanguageSettings } from '../logic/language.ts';
@@ -17,22 +18,28 @@ import {
   type BlockType,
   type Board,
   type BoardMember,
+  type BoardPatch,
   type BoardView,
   type PropertyTemplate,
 } from '../logic/wire.ts';
-import type {
-  AccountSettings,
-  AccountSettingsPatch,
-  Attachment,
-  BoardRole,
-  CardDetail,
-  CardDraft,
-  Comment,
-  CardSummary,
-  Category,
-  Sharing,
-  Team,
-  User,
+import {
+  BackendError,
+  refusedMember,
+  type AccountSettings,
+  type BoardDraft,
+  type AccountSettingsPatch,
+  type Attachment,
+  type BoardRole,
+  type CardDetail,
+  type CardDraft,
+  type Comment,
+  type CommentVersion,
+  type CardSummary,
+  type Category,
+  type Sharing,
+  type Team,
+  type User,
+  type ViewDraft,
 } from '../state/backend.ts';
 
 import type { components } from './contract.ts';
@@ -110,6 +117,7 @@ export function viewOf(block: Schemas['Block']): BoardView {
  * The card summary of a card block, as a change message brings it. The
  * block carries the whole body and no counts (`contracts/websocket.md`, G5):
  * whether there is a body and how its tasks stand are worked out from it.
+ * It has no `lastCommentAt`: the board keeps the one it had.
  */
 export function cardOfBlock(block: Schemas['Block']): CardSummary {
   const body = bodyOf(block.body);
@@ -119,6 +127,7 @@ export function cardOfBlock(block: Schemas['Block']): CardSummary {
     hasBody: body !== null,
     tasksTotal: tasks.total,
     tasksDone: tasks.checked,
+    preview: cardPreviewOf(body),
   };
 }
 
@@ -142,7 +151,19 @@ export function cardOf(card: Schemas['Card']): CardSummary {
     hasBody: card.hasBody,
     tasksTotal: card.tasksTotal,
     tasksDone: card.tasksDone,
+    lastCommentAt: card.lastCommentAt,
   };
+}
+
+/** The previews of a card list asked for them, by card. */
+export function previewsOf(cards: readonly Schemas['Card'][]): Map<string, CardPreview> {
+  return new Map(
+    cards.flatMap((card) =>
+      card.preview
+        ? [[card.id, { imageFileId: card.preview.imageFileId, text: card.preview.text }]]
+        : [],
+    ),
+  );
 }
 
 /** A card read alone, with its body (a list of cards carries none). */
@@ -190,6 +211,11 @@ export function commentOf(block: Schemas['Block']): Comment {
             ),
           }),
   };
+}
+
+/** An earlier text of a comment. */
+export function commentVersionOf(version: Schemas['CommentVersion']): CommentVersion {
+  return { ...version, body: bodyOf(version.body) };
 }
 
 /**
@@ -259,4 +285,59 @@ export function rolesOf(role: BoardRole): Schemas['MemberRoles'] {
 /** A public link; one that was never on has no token. */
 export function sharingOf(sharing: Schemas['Sharing']): Sharing {
   return { enabled: sharing.enabled, token: sharing.token ?? '' };
+}
+
+/** A board and its first view, to be made in one request (`createBoardsAndBlocks`). */
+export function newBoardAndViewOf(
+  teamId: string,
+  draft: BoardDraft,
+  firstView: ViewDraft,
+): Schemas['NewBoardsAndBlocks'] {
+  const boardRef = 'new-board';
+  return {
+    boards: [
+      {
+        id: boardRef,
+        teamId,
+        type: draft.type ?? 'P',
+        title: draft.title,
+        description: draft.description ?? '',
+        icon: draft.icon ?? '',
+        cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
+      },
+    ],
+    blocks: [
+      {
+        id: 'new-view',
+        boardId: boardRef,
+        type: 'view',
+        title: firstView.title,
+        fields: firstView.fields,
+        createAt: 1,
+        updateAt: 1,
+      },
+    ],
+  };
+}
+
+/**
+ * A change of a board, as `patchBoard` takes it. A minimum role the
+ * contract does not have (none, or admin) is refused here as the server
+ * would refuse it.
+ */
+export function boardPatchOf(patch: BoardPatch): Schemas['BoardPatch'] {
+  const { minimumRole, updatedCardProperties, ...rest } = patch;
+  if (minimumRole === '' || minimumRole === 'admin') {
+    throw new BackendError(400, {
+      detail: 'no such minimum role',
+      errors: [refusedMember('minimumRole', 'no such minimum role')],
+    });
+  }
+  return {
+    ...rest,
+    ...(minimumRole === undefined ? {} : { minimumRole }),
+    ...(updatedCardProperties === undefined
+      ? {}
+      : { updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[] }),
+  };
 }

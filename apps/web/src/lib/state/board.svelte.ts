@@ -40,6 +40,9 @@ import {
 } from './backend.ts';
 import { droppedCardOrder, placeAmongAll } from './card-order.ts';
 import { CardStore } from './card.svelte.ts';
+import { lastCommentsOf } from './last-comments.ts';
+import { propertyMovesOf } from './property-moves.ts';
+import { newUndoGroup, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -55,56 +58,7 @@ import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { restoreCard } from './trash.svelte.ts';
 import { PendingWrites, put, reread, take } from './write.ts';
 
-function roleOf(member: BoardMember | undefined): MemberRole {
-  if (!member) return '';
-  if (member.schemeAdmin) return 'admin';
-  if (member.schemeEditor) return 'editor';
-  if (member.schemeCommenter) return 'commenter';
-  return member.schemeViewer ? 'viewer' : '';
-}
-
-/** The flags of a membership with exactly the one role. */
-function roleFlags(
-  role: BoardRole,
-): Pick<BoardMember, 'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer'> {
-  return {
-    schemeAdmin: role === 'admin',
-    schemeEditor: role === 'editor',
-    schemeCommenter: role === 'commenter',
-    schemeViewer: role === 'viewer',
-  };
-}
-
-let groupCounter = 0;
-/** A name for the changes of one gesture, so that undo takes them back together. */
-export function newUndoGroup(): string {
-  groupCounter += 1;
-  return `group-${groupCounter}`;
-}
-
-/** Where dropped cards go: a column (by the value of the grouping property) and a place in it. */
-export interface CardDrop {
-  viewId: string;
-  cardIds: readonly string[];
-  /**
-   * The option of the column they were dropped in; `''` is the column of
-   * cards without a value. Undefined: the view is not grouped, or the column
-   * is not to change.
-   */
-  optionId?: string;
-  /**
-   * The place among the cards of that column, counted without the dropped
-   * ones. Undefined: the view is sorted and places itself.
-   */
-  index?: number;
-  /**
-   * The cards of that column the page shows, in shown order, when a filter,
-   * a search or a folded group may hide some of them: `index` is then a
-   * place among these, and the store finds the place among all of the
-   * column (`placeAmongAll`). Left out: `index` counts every card.
-   */
-  shown?: readonly string[];
-}
+export { newUndoGroup, type CardDrop } from './board-parts.ts';
 
 export class BoardStore {
   readonly workspace: Workspace;
@@ -159,26 +113,34 @@ export class BoardStore {
   readonly canComment = $derived(this.canEdit || this.role === 'commenter');
 
   /**
-   * Whether the reader may delete a comment written by `createdBy`: an
-   * editor their own, an admin anyone's. A commenter cannot delete even
-   * their own (`deleteBlock` in `contracts/openapi.json`).
+   * Whether the reader may delete a comment written by `createdBy`, and
+   * bring it back: their own when they may comment, anyone's when they are
+   * an admin (the user's decision of 2026-11-11 22:13 KST).
    */
   canDeleteComment(createdBy: string): boolean {
     if (this.role === 'admin') return true;
-    return this.canEdit && createdBy === this.workspace.me?.id;
+    return this.canComment && createdBy === this.workspace.me?.id;
   }
 
   /**
    * Whether the reader may change the text of a comment written by
-   * `createdBy`: their own, when they may edit the board. The server lets an
-   * editor change anyone's comment and a commenter none (`patchBlock`); the
-   * screen offers only one's own until the user's decision (B1 in
-   * `docs/contract-assumptions.md`) is in the server.
+   * `createdBy`: their own when they may comment, anyone's when they are an
+   * admin (`patchBlock` in `contracts/openapi.json`).
    */
   canEditComment(createdBy: string): boolean {
-    return this.canEdit && createdBy === this.workspace.me?.id;
+    if (this.role === 'admin') return true;
+    return this.canComment && createdBy === this.workspace.me?.id;
   }
 
+  /**
+   * Whether the reader may read what comments said before they were changed:
+   * a member, whatever the role (`getCommentVersions`); not a reader by the
+   * board's link.
+   */
+  readonly canReadCommentHistory = $derived(this.role !== '');
+
+  /** Keeps the cards' `lastCommentAt` current between readings. */
+  readonly #lastComments = lastCommentsOf(this);
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
@@ -360,10 +322,14 @@ export class BoardStore {
         for (const block of change.blocks) {
           if (isCardBlock(block)) this.#receiveCard(block);
           else if (isViewBlock(block)) this.#receiveView(block);
-          else this.openCard?.receive(block);
+          else {
+            if (block.type === 'comment' && block.deleteAt === 0) this.#lastComments.heard(block);
+            this.openCard?.receive(block);
+          }
         }
         break;
       case 'blocksDeleted':
+        this.#lastComments.deleted(change.blockIds);
         this.cards = this.cards.filter((card) => !change.blockIds.includes(card.id));
         this.views = this.views.filter((view) => !change.blockIds.includes(view.id));
         this.openCard?.forget(change.blockIds);
@@ -386,6 +352,7 @@ export class BoardStore {
   async #refresh(): Promise<void> {
     if (this.status !== 'ready') return;
     this.#refreshing += 1;
+    const heard = this.#lastComments.begin();
     const reading = this.#refreshing;
     const cardsBefore = this.cards.map((card) => card.id);
     const viewsBefore = this.views.map((view) => view.id);
@@ -402,7 +369,8 @@ export class BoardStore {
       if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
       this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
       const shown = this.cards;
-      this.cards = reread(shown, cards, cardsBefore, (card) => this.#cardWrites.receive(card));
+      const read = cards.map((card) => this.#lastComments.settle(card, heard));
+      this.cards = reread(shown, read, cardsBefore, (card) => this.#cardWrites.receive(card));
       if (membersTold === this.#membersTold) {
         this.members = members;
         void this.workspace.learnUsers(members.map((member) => member.userId));
@@ -425,7 +393,13 @@ export class BoardStore {
     }
   }
 
-  #receiveCard(card: CardSummary): void {
+  /** The reader is deleting a block of the board; a comment's card is `cardId`. */
+  deleting(blockId: string, cardId?: string): void {
+    this.#lastComments.deleting(blockId, cardId);
+  }
+
+  #receiveCard(incoming: CardSummary): void {
+    const card = this.#lastComments.merge(incoming, this.card(incoming.id));
     if (!this.#cardWrites.receive(card)) return;
     this.cards = take(this.cards, card);
     this.openCard?.cardChanged(card);
@@ -575,6 +549,7 @@ export class BoardStore {
    * deleted meanwhile (404) is as good as deleted, so the undo goes on.
    */
   async #deleteForUndo(blockId: string): Promise<void> {
+    this.deleting(blockId);
     try {
       await this.#backend.deleteBlock(this.boardId, blockId);
     } catch (error) {
@@ -588,6 +563,7 @@ export class BoardStore {
     for (const cardId of cardIds) {
       await this.#perform(
         async () => {
+          this.deleting(cardId);
           await this.#backend.deleteBlock(this.boardId, cardId);
           this.cards = this.cards.filter((card) => card.id !== cardId);
           if (this.openCard?.cardId === cardId) this.closeCard();
@@ -738,6 +714,7 @@ export class BoardStore {
     if (!gone) return;
     await this.#perform(
       async () => {
+        this.deleting(viewId);
         await this.#backend.deleteBlock(this.boardId, viewId);
         this.views = this.views.filter((view) => view.id !== viewId);
       },
@@ -789,6 +766,25 @@ export class BoardStore {
     );
   }
 
+  /**
+   * Moves a card property a place up (`-1`) or down (`1`) among `among` (by default all): its
+   * own request (`reorderCardProperties`), shown at once; undo moves it back.
+   */
+  async moveProperty(propertyId: string, step: -1 | 1, among?: readonly string[]): Promise<void> {
+    // A move that found the property at an end moved nothing: its undo moves nothing back.
+    let moved = false;
+    await this.#perform(
+      async () => {
+        moved = await this.#propertyMoves.move(propertyId, step, among);
+      },
+      async () => {
+        if (moved) await this.#propertyMoves.move(propertyId, step === 1 ? -1 : 1, among);
+      },
+      'moveProperty',
+    );
+  }
+
+  readonly #propertyMoves = propertyMovesOf(this);
   // ------------------------------------------------------------ sharing
 
   /** Whether anybody of the team may find and join the board. */

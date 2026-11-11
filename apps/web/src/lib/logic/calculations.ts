@@ -1,4 +1,5 @@
 /** The summary row of a table and the summary of a board column. */
+import { cardUpdatedAt } from './card-time.ts';
 import { addDays, daysBetween, daysOf, type CalendarDate } from './dates.ts';
 import {
   displayCalendarDate,
@@ -62,7 +63,7 @@ function valueOf(card: Card, property: PropertyTemplate): string | string[] | nu
     case 'updatedBy':
       return card.modifiedBy;
     case 'updatedTime':
-      return toTheMinute(card.updateAt);
+      return toTheMinute(cardUpdatedAt(card));
     default:
       return plainPropertyValue(cardProperty(card, property.id));
   }

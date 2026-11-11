@@ -1,9 +1,10 @@
 /**
  * Comments on the real server: written, changed and deleted from the card,
- * their text a body document; seen by another person as they happen; and a
- * change begun before somebody else's not stored over it unseen.
+ * their text a body document, by whom the server lets; seen by another
+ * person as they happen, with who changed them and what they said before;
+ * and a change begun before somebody else's not stored over it unseen.
  */
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import {
   makeBoard,
@@ -100,47 +101,117 @@ test('a comment is written, changed and deleted on the server, its text a docume
   expect(errors).toEqual([]);
 });
 
-test('a commenter’s comment shows on the owner’s open card, and only its writer may change it', async ({
+test('a commenter changes their own comment, an admin anybody’s, an editor nobody else’s; what it said before is kept', async ({
   browser,
   baseURL,
 }) => {
   const base = baseURL ?? '';
   const owner = person('host');
   const guest = person('guest');
-  await register(base, owner);
-  await register(base, guest);
+  const helper = person('helper');
+  for (const who of [owner, guest, helper]) await register(base, who);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
     title: 'Guests',
     cards: [{ title: 'Menu', status: 'To do' }],
-    members: [{ who: guest, role: 'commenter' }],
+    members: [
+      { who: guest, role: 'commenter' },
+      { who: helper, role: 'editor' },
+    ],
   });
   const cardId = board.cards.Menu ?? '';
   const path = `/board/${board.boardId}/${board.viewId}/${cardId}`;
 
-  const hostPage = await (await browser.newContext({ locale: 'en-US' })).newPage();
-  const guestPage = await (await browser.newContext({ locale: 'en-US' })).newPage();
-  const errors = [...watchErrors(hostPage), ...watchErrors(guestPage)];
-  await openCard(hostPage, path, owner);
-  await openCard(guestPage, path, guest);
+  const pages: Page[] = [];
+  const watched: string[][] = [];
+  for (const who of [owner, guest, helper]) {
+    const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+    pages.push(page);
+    watched.push(watchErrors(page));
+    await openCard(page, path, who);
+  }
+  const [hostPage, guestPage, helperPage] = pages as [Page, Page, Page];
+  const editOf = (page: Page) => page.getByRole('button', { name: /^Edit the comment from/ });
+  const deleteOf = (page: Page) => page.getByRole('button', { name: /^Delete the comment from/ });
 
   await send(guestPage, 'No mushrooms, please');
-  const onHost = hostPage.getByTestId('card-comments').locator('[data-comment]');
-  await expect(onHost).toHaveText(/No mushrooms, please/);
-  await expect(guestPage.getByTestId('card-comments').locator('[data-comment]')).toHaveText(
-    /No mushrooms, please/,
+  for (const page of pages) {
+    await expect(page.getByTestId('card-comments').locator('[data-comment]')).toHaveText(
+      /No mushrooms, please/,
+    );
+  }
+  // The commenter changes and deletes their own; the editor neither on somebody
+  // else's; the admin both.
+  await expect(editOf(guestPage)).toHaveCount(1);
+  await expect(deleteOf(guestPage)).toHaveCount(1);
+  await expect(editOf(helperPage)).toHaveCount(0);
+  await expect(deleteOf(helperPage)).toHaveCount(0);
+  await expect(editOf(hostPage)).toHaveCount(1);
+  await expect(deleteOf(hostPage)).toHaveCount(1);
+
+  // The commenter changes theirs, then the admin changes it again.
+  await editOf(guestPage).click();
+  await guestPage.getByTestId('comment-edit').locator('textarea').fill('No mushrooms or olives');
+  await guestPage.getByRole('button', { name: 'Save' }).click();
+  await expect(hostPage.getByTestId('card-comments').locator('[data-comment]')).toHaveText(
+    /No mushrooms or olives/,
   );
-  // The owner does not change somebody else's words; the commenter cannot change any.
-  await expect(hostPage.getByRole('button', { name: /^Edit the comment from/ })).toHaveCount(0);
-  await expect(guestPage.getByRole('button', { name: /^Edit the comment from/ })).toHaveCount(0);
+  await editOf(hostPage).click();
+  await hostPage.getByTestId('comment-edit').locator('textarea').fill('No mushrooms, no olives');
+  await hostPage.getByRole('button', { name: 'Save' }).click();
+  await expect(hostPage.getByTestId('comment-edit')).toHaveCount(0);
   expect((await commentsOn(api, board.boardId, cardId)).map((one) => lines(one.body))).toEqual([
-    ['No mushrooms, please'],
+    ['No mushrooms, no olives'],
   ]);
 
-  await hostPage.context().close();
-  await guestPage.context().close();
+  // Saving the same text again is no change: the admin stays the one who changed it.
+  await expect(guestPage.getByTestId('card-comments').locator('[data-comment]')).toHaveText(
+    /No mushrooms, no olives/,
+  );
+  await editOf(guestPage).click();
+  await guestPage.getByRole('button', { name: 'Save' }).click();
+  await expect(guestPage.getByTestId('comment-edit')).toHaveCount(0);
+  const me = (await (await api.get('/api/v1/users/me')).json()) as Schemas['User'];
+  expect((await commentsOn(api, board.boardId, cardId))[0]?.modifiedBy).toBe(me.id);
+
+  // Everybody sees who changed it last, as it happens, and can read what it said before.
+  for (const page of pages) {
+    const comment = page.getByTestId('card-comments').locator('[data-comment]');
+    await expect(comment).toHaveText(/No mushrooms, no olives/);
+    await expect(comment.getByTestId('comment-edited')).toHaveText(
+      new RegExp(`^edited by ${owner.username} `),
+    );
+  }
+  const history = helperPage.getByRole('button', {
+    name: /^What the comment from .* said before$/,
+  });
+  await history.click();
+  await expect(history).toHaveAttribute('aria-expanded', 'true');
+  const versions = helperPage.getByTestId('comment-history').locator('[data-version]');
+  await expect(versions).toHaveCount(2);
+  await expect(versions.nth(0)).toContainText(`Posted by ${guest.username}`);
+  await expect(versions.nth(0)).toContainText('No mushrooms, please');
+  await expect(versions.nth(1)).toContainText(`Changed by ${guest.username}`);
+  await expect(versions.nth(1)).toContainText('No mushrooms or olives');
+  // Only to read: nothing in it puts a text back.
+  await expect(helperPage.getByTestId('comment-history').getByRole('button')).toHaveCount(0);
+
+  // A reader by the public link gets the comment, but not what it said before.
+  const shared = (await (
+    await api.post(`/api/v1/boards/${board.boardId}/sharing`, { data: { enabled: true } })
+  ).json()) as Schemas['Sharing'];
+  const anonymous = await request.newContext({ baseURL: base });
+  const [comment] = await commentsOn(api, board.boardId, cardId);
+  const asReader = await anonymous.get(
+    `/api/v1/boards/${board.boardId}/blocks/${comment?.id ?? ''}/versions`,
+    { params: { readToken: shared.token ?? '' } },
+  );
+  expect(asReader.status()).toBe(401);
+  await anonymous.dispose();
+
+  for (const page of pages) await page.context().close();
   await api.dispose();
-  expect(errors).toEqual([]);
+  expect(watched.flat()).toEqual([]);
 });
 
 test('a comment changed elsewhere while its field is open is not written over unseen', async ({
@@ -194,6 +265,73 @@ test('a comment changed elsewhere while its field is open is not written over un
   // The focus is back on the comment's edit button.
   await expect(comments.getByRole('button', { name: /^Edit the comment from/ })).toBeFocused();
   await expect(page.locator('[data-problem]')).toHaveCount(0);
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
+
+test('a commenter deletes their own comment and brings it back with undo; somebody else’s has no delete button', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('keeper');
+  const guest = person('remover');
+  await register(base, owner);
+  await register(base, guest);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Second thoughts',
+    cards: [{ title: 'Plan', status: 'To do' }],
+    members: [{ who: guest, role: 'commenter' }],
+  });
+  const cardId = board.cards.Plan ?? '';
+  const path = `/board/${board.boardId}/${board.viewId}/${cardId}`;
+  const stored = async () =>
+    (await commentsOn(api, board.boardId, cardId)).map((one) => lines(one.body)).sort();
+
+  const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+  const errors = watchErrors(page);
+  await openCard(page, path, guest);
+  // The owner's comment first, then the guest's own.
+  await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
+    data: [
+      {
+        boardId: board.boardId,
+        parentId: cardId,
+        type: 'comment',
+        title: '',
+        fields: {},
+        createAt: 1,
+        updateAt: 1,
+        body: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The owner says' }] }],
+        },
+      },
+    ],
+  });
+  const comments = page.getByTestId('card-comments').locator('[data-comment]');
+  await expect(comments).toHaveCount(1);
+  await send(page, 'I take it back');
+  await expect(comments).toHaveCount(2);
+
+  const theirs = comments.filter({ hasText: 'The owner says' });
+  const mine = comments.filter({ hasText: 'I take it back' });
+  const deleteMine = mine.getByRole('button', { name: /^Delete the comment from/ });
+  await expect(deleteMine).toBeVisible();
+  await expect(theirs.getByRole('button', { name: /^Delete the comment from/ })).toHaveCount(0);
+  await deleteMine.click();
+  await expect(comments).toHaveCount(1);
+  await expect.poll(stored).toEqual([['The owner says']]);
+
+  // Undo, from the card's menu, brings it back on the server.
+  await page.getByTestId('card-menu').click();
+  await page.locator('[data-action="undo"]').click();
+  await expect(comments).toHaveCount(2);
+  await expect.poll(stored).toEqual([['I take it back'], ['The owner says']]);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+
+  await page.context().close();
   await api.dispose();
   expect(errors).toEqual([]);
 });

@@ -7,6 +7,7 @@
  * up here instead of switching on the name.
  */
 import type { CalculationId } from './calculations.ts';
+import { cardUpdatedAt } from './card-time.ts';
 import { dateOfInstant, daysOf, type CalendarDate, type DatePoint } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 import { displayCalendarDate, displayDateTime, type DisplayContext } from './format.ts';
@@ -225,8 +226,9 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     filterValueType: 'date',
     isReadOnly: true,
     calculationOptions: TIME_CALCULATIONS,
-    displayValue: (_value, card, _template, context) => displayDateTime(card.updateAt, context),
-    days: (_value, card, timeZone) => dayOfMoment(card.updateAt, timeZone),
+    displayValue: (_value, card, _template, context) =>
+      displayDateTime(cardUpdatedAt(card), context),
+    days: (_value, card, timeZone) => dayOfMoment(cardUpdatedAt(card), timeZone),
   }),
   createdBy: behavior({
     canGroup: true,

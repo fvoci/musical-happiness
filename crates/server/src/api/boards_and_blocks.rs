@@ -25,7 +25,8 @@ use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, t
 /// `PatchBoardsAndBlocks`.
 const BLOCKS: &str = "/blocks";
 const PATCHES: &str = "/blockPatches";
-use super::{require_block_change_permission, require_block_patch_permission};
+use super::require_delete_permission;
+use super::{BlockAction, require_block_patch_permission, require_block_permission};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
@@ -296,10 +297,11 @@ fn not_a_block_of_the_boards() -> AppError {
     AppError::bad_request("the request names a block that is not on its boards")
 }
 
-/// Checks that every block is on one of the boards, and that the user may change cards
-/// there. The same answer for a block that does not exist and for one on a board the
-/// request does not list, so that nothing is said about blocks of other boards.
-async fn require_blocks_of_boards(
+/// Checks that every block is on one of the boards, and that the user may delete it as
+/// `deleteBlock` would. The same answer for a block that does not exist and for one on
+/// a board the request does not list, so that nothing is said about blocks of other
+/// boards.
+async fn require_blocks_to_delete(
     app: &App,
     user_id: &str,
     block_ids: &[String],
@@ -307,14 +309,7 @@ async fn require_blocks_of_boards(
 ) -> Result<(), AppError> {
     for block_id in block_ids {
         let block = block_of_boards(app, block_id, board_ids).await?;
-        require_board_permission(
-            app,
-            user_id,
-            &block.board_id,
-            BoardPermission::ManageBoardCards,
-            MODIFYING_CARDS_DENIED,
-        )
-        .await?;
+        require_delete_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
     }
     Ok(())
 }
@@ -329,7 +324,14 @@ async fn require_block_patches(
 ) -> Result<(), AppError> {
     for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
         let block = block_of_boards(app, block_id, board_ids).await?;
-        require_block_change_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
+        require_block_permission(
+            app,
+            user_id,
+            &block,
+            BlockAction::Change,
+            MODIFYING_CARDS_DENIED,
+        )
+        .await?;
         require_block_patch_permission(app, user_id, &block, patch, MODIFYING_CARDS_DENIED).await?;
     }
     Ok(())
@@ -353,10 +355,11 @@ async fn block_of_boards(
 /// Delete boards and blocks together
 ///
 /// Deletes several boards of one team, all or none. The request names at least one
-/// board, and every block it names must be on one of its boards; the blocks are checked
-/// and nothing more, since a board takes all of its blocks along. The boards go to the
-/// trash as `deleteBoard` puts them there, and `undeleteBoard` brings each back with
-/// its blocks. For the admins of every board named.
+/// board, and every block it names must be on one of its boards and be the user's to
+/// delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
+/// board takes all of its blocks along. The boards go to the trash as `deleteBoard`
+/// puts them there, and `undeleteBoard` brings each back with its blocks. For the
+/// admins of every board named.
 #[utoipa::path(
     delete,
     path = "/boards-and-blocks",
@@ -397,7 +400,7 @@ async fn handle_delete_boards_and_blocks(
         }
     }
 
-    require_blocks_of_boards(&app, user_id, &request.blocks, &board_ids).await?;
+    require_blocks_to_delete(&app, user_id, &request.blocks, &board_ids).await?;
 
     app.delete_boards_and_blocks(&request, user_id).await?;
     Ok(no_content())

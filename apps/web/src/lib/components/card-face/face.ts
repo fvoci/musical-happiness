@@ -22,17 +22,16 @@ export function hasFaceValue(card: Card, template: PropertyTemplate): boolean {
 
 /**
  * The properties a card shows on its face: those the view turned on, in the
- * order the view lists them, less those the card has no value for. An
- * identifier that is no property of the board (a deleted one, the title) is
- * skipped.
+ * board's order of its properties (which the reader can change), less those
+ * the card has no value for. An identifier that is no property of the board
+ * (a deleted one, the title) is nothing to show.
  */
 export function faceProperties(
   card: Card,
   templates: readonly PropertyTemplate[],
   visiblePropertyIds: readonly string[],
 ): PropertyTemplate[] {
-  return visiblePropertyIds.flatMap((id) => {
-    const template = templates.find((candidate) => candidate.id === id);
-    return template && hasFaceValue(card, template) ? [template] : [];
-  });
+  return templates.filter(
+    (template) => visiblePropertyIds.includes(template.id) && hasFaceValue(card, template),
+  );
 }

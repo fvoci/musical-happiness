@@ -16,6 +16,7 @@
  * No method promises an order. Whatever is shown in an order is sorted by
  * the client (`order.ts`).
  */
+import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
 import type { DisplaySettings } from '../logic/display.ts';
 import type { LanguageSettings } from '../logic/language.ts';
@@ -38,113 +39,17 @@ export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 
 // ----------------------------------------------------------------- errors
 
-/** The statuses the server answers an error with (server design 1.3). */
-export const ERROR_STATUSES = [400, 401, 403, 404, 405, 409, 412, 413, 416, 429, 500] as const;
-
-export type ErrorStatus = (typeof ERROR_STATUSES)[number];
-
-/**
- * One thing of a request that was refused, and where it is: exactly one of
- * `pointer` (a JSON Pointer into the body, `/username`), `parameter` (of the
- * query or the path) and `header` says.
- */
-export interface InvalidInput {
-  pointer?: string;
-  parameter?: string;
-  header?: string;
-  /** English, for logs and developers. Never shown as it is. */
-  detail: string;
-  /** Why, stable: `required`, `too_short`, …, or `invalid` when no finer cause is told. */
-  reason: string;
-}
-
-/** The body of an error answer: the problem details of RFC 9457, as the contract has them (`Problem`). */
-export interface Problem {
-  /** The kind of problem, `/problems/<name>`: the same for every problem of the kind. */
-  type: string;
-  /** The name of the type, in English. */
-  title: string;
-  status: number;
-  /** English, for logs and developers. Never shown as it is. */
-  detail: string;
-  /** The request, as a URN of its identifier. */
-  instance?: string;
-  /** A stable reason within the status, for choosing the text to show. */
-  reason?: string;
-  /** What of the request was refused, one entry for each. */
-  errors?: InvalidInput[];
-  limit?: number;
-  requestId?: string;
-  /** Seconds, with 429. */
-  retryAfter?: number;
-}
-
-/** The problems of the statuses as the server names them: the last part of `type`, and the title. */
-const STATUS_PROBLEMS: Record<ErrorStatus, readonly [name: string, title: string]> = {
-  400: ['bad-request', 'Bad request'],
-  401: ['unauthorized', 'No valid session'],
-  403: ['forbidden', 'Forbidden'],
-  404: ['not-found', 'Not found'],
-  405: ['method-not-allowed', 'Method not allowed'],
-  409: ['conflict', 'Conflict'],
-  412: ['precondition-failed', 'Precondition failed'],
-  413: ['payload-too-large', 'Payload too large'],
-  416: ['range-not-satisfiable', 'Range not satisfiable'],
-  429: ['rate-limited', 'Too many requests'],
-  500: ['internal', 'Internal server error'],
-};
-
-/** The problem the server answers with for a status that has no `reason`. */
-export function problemOf(status: ErrorStatus, detail: string): Problem {
-  const [name, title] = STATUS_PROBLEMS[status];
-  return { type: `/problems/${name}`, title, status, detail };
-}
-
-/** The entry of `errors` for a member of the request body, by its name. */
-export function refusedMember(member: string, detail: string, reason = 'invalid'): InvalidInput {
-  return { pointer: `/${member.replaceAll('~', '~0').replaceAll('/', '~1')}`, detail, reason };
-}
-
-/** What every method of the backend rejects with. */
-export class BackendError extends Error {
-  /** 0 when no answer arrived at all. */
-  readonly status: ErrorStatus | 0;
-  /** The kind of problem; `about:blank` when the answer named none (RFC 9457, 4.2). */
-  readonly type: string;
-  readonly reason: string | undefined;
-  /** What of the request was refused; empty when the error is about nothing of it. */
-  readonly errors: readonly InvalidInput[];
-  readonly limit: number | undefined;
-  readonly retryAfter: number | undefined;
-  /** The server's name for the request, to report a failure by. */
-  readonly requestId: string | undefined;
-
-  constructor(status: ErrorStatus | 0, problem?: Partial<Problem>) {
-    super(problem?.detail ?? problem?.title ?? (status === 0 ? 'no answer' : `status ${status}`));
-    this.name = 'BackendError';
-    this.status = status;
-    this.type = problem?.type ?? 'about:blank';
-    this.reason = problem?.reason;
-    this.errors = problem?.errors ?? [];
-    this.limit = problem?.limit;
-    this.retryAfter = problem?.retryAfter;
-    this.requestId = problem?.requestId;
-  }
-
-  /** The entry of `errors` about the member of the request body at this JSON Pointer, if there is one. */
-  refusalAt(pointer: string): InvalidInput | undefined {
-    return this.errors.find((entry) => entry.pointer === pointer);
-  }
-}
-
-export function isBackendError(error: unknown): error is BackendError {
-  return error instanceof BackendError;
-}
-
-/** The stored version differs from the one the write was based on. */
-export function isConflict(error: unknown): error is BackendError {
-  return isBackendError(error) && error.status === 409;
-}
+export {
+  BackendError,
+  ERROR_STATUSES,
+  isBackendError,
+  isConflict,
+  problemOf,
+  refusedMember,
+  type ErrorStatus,
+  type InvalidInput,
+  type Problem,
+} from './problems.ts';
 
 // ------------------------------------------------------------------ model
 
@@ -225,6 +130,12 @@ export interface CardSummary extends Card {
   hasBody: boolean;
   tasksTotal: number;
   tasksDone: number;
+  /**
+   * What a gallery shows of the body: only on a card that came in a change
+   * message, which carries the body it is made from (`cardPreviews` reads it
+   * for a list).
+   */
+  preview?: CardPreview;
 }
 
 /** A card read on its own: with its body. */
@@ -235,6 +146,20 @@ export interface CardDetail extends CardSummary {
 export interface Comment extends Block {
   type: 'comment';
   body: DocNode | null;
+  /**
+   * When its text was last changed; absent while it never was. Who changed
+   * it is `modifiedBy`.
+   */
+  editedAt?: number;
+}
+
+/** A text a comment had before it was changed: the first is the one it was posted with. */
+export interface CommentVersion {
+  /** Counted from 1 for the first text; versions no longer kept leave gaps. */
+  version: number;
+  body: DocNode | null;
+  writtenBy: string;
+  writtenAt: number;
 }
 
 /** A file attached to a card. It is a child block of the card; `fileId` names the bytes. */
@@ -389,6 +314,12 @@ export interface Backend extends TrashReads {
   ): Promise<{ board: Board; view: BoardView }>;
   patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
   /**
+   * Puts the board's card properties in an order: every property once, or
+   * 400 and nothing changes. Who may change the properties may (editors).
+   * The board's listeners are told the board.
+   */
+  reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]>;
+  /**
    * The templates the reader may make a board from: the team's they may
    * see, then the built-in ones every team is offered.
    */
@@ -469,6 +400,12 @@ export interface Backend extends TrashReads {
 
   // Cards.
   cards(boardId: string): Promise<CardSummary[]>;
+  /**
+   * What a gallery shows of each card's body, by card: the first image and
+   * the beginning of the text (`getCards` with `preview`). Asked only for a
+   * gallery that is shown.
+   */
+  cardPreviews(boardId: string): Promise<Map<string, CardPreview>>;
   card(boardId: string, cardId: string): Promise<CardDetail>;
   createCard(boardId: string, draft: CardDraft): Promise<CardSummary>;
   patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary>;
@@ -483,6 +420,11 @@ export interface Backend extends TrashReads {
    * since `readAt`, and with 400 when the body is empty: a comment has a text.
    */
   patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment>;
+  /**
+   * What a comment said before each change, the first text first; empty for
+   * one never changed. For the board's members (a reader by its link has none).
+   */
+  commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]>;
   attachments(boardId: string, cardId: string): Promise<Attachment[]>;
   createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment>;
 

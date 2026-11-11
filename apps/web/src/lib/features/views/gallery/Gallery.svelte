@@ -7,10 +7,10 @@
   the width.
 
   A card shows the same face as on a board, larger: icon and title, the
-  properties the view turned on, how its tasks stand. It does not show a
-  preview of the body or a picture from it: a card list comes without
-  bodies, and the gallery does not read every card on its own
-  (docs/contract-assumptions.md, 칸반 1: waiting for the user's decision).
+  first picture of its body and the beginning of its text, the properties
+  the view turned on, how its tasks stand. The previews are read only while
+  a gallery is shown (`CardPreviews`), and a picture is fetched once its
+  card comes near the screen.
 
   The order is the view's. Cards are not dragged here: the grid runs along
   two axes and lib/drag sorts along one. A sort of the view orders them.
@@ -23,11 +23,18 @@
   import { badgesOf, faceContextOf } from '../kanban/board-data.ts';
   import CardMenu from '../kanban/CardMenu.svelte';
   import type { ViewProps } from '../props.ts';
+  import { CardPreviews } from '$lib/state/index.ts';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 
   const uid = $props.id();
   const face = $derived(faceContextOf(board, view));
+  const previews = $derived(new CardPreviews(board.workspace.backend, board.boardId));
+
+  /** The address of a picture of the board; none where the backend has no bytes for it. */
+  function imageOf(fileId: string | undefined): string | undefined {
+    return fileId ? board.workspace.backend.fileUrl(board.boardId, fileId) : undefined;
+  }
 
   /** A new card that the view will show: it gets the values the view's filter asks for. */
   async function addCard(): Promise<void> {
@@ -48,7 +55,8 @@
   }
 </script>
 
-<div class="h-full overflow-y-auto" data-testid="gallery">
+<!-- The previews are read and followed while the gallery is on screen. -->
+<div class="h-full overflow-y-auto" data-testid="gallery" {@attach () => previews.start()}>
   <!-- MIN_CARD is the 14rem below: a card is never narrower, unless the box itself is. -->
   <ul
     aria-label={m.gallery_cards()}
@@ -57,6 +65,7 @@
   >
     {#each cards as card (card.id)}
       {@const badges = badgesOf(card)}
+      {@const preview = previews.of(card.id)}
       <li class="group/card relative min-w-0">
         <div
           role="link"
@@ -81,6 +90,8 @@
             tasksTotal={badges.tasksTotal}
             tasksDone={badges.tasksDone}
             size="large"
+            previewImage={imageOf(preview?.imageFileId)}
+            previewText={preview?.text}
             titleId="{uid}-{card.id}"
             locale={face.locale}
             regional={face.regional}

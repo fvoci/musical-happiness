@@ -11,10 +11,15 @@
     closes. An empty name is not a name: the stored one comes back.
   - Changing the kind asks first when cards have a value: it says how many
     values stay and how many are removed (property-change.ts has the rules).
+  - Moving it up or down changes the order of the board's properties, which
+    every card and the view's panel show (`BoardStore.moveProperty`). At an
+    end the button that cannot move it gives the focus to the other one.
   - Deleting always asks.
 -->
 <script lang="ts">
+  import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import CheckIcon from '@lucide/svelte/icons/check';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -60,6 +65,30 @@
   let typeQuestion = $state('');
 
   const Icon = $derived(propertyTypeIcon(template.type));
+  const order = $derived(board.board?.cardProperties.map((each) => each.id) ?? []);
+  const place = $derived(order.indexOf(template.id));
+
+  let moveUp = $state<HTMLButtonElement>();
+  let moveDown = $state<HTMLButtonElement>();
+
+  /** A move not shown yet, whose button may then be off: not state, read once. */
+  let pending: { step: -1 | 1; from: number } | undefined;
+
+  function move(step: -1 | 1): void {
+    pending = { step, from: place };
+    void board.moveProperty(template.id, step);
+  }
+
+  // Once the move shows at an end, the button pressed is off and would lose the focus: the other one takes it.
+  $effect(() => {
+    // Read whether or not a move waits, so that the effect runs again when the place changes.
+    const now = place;
+    if (!pending || now === pending.from) return;
+    const { step } = pending;
+    pending = undefined;
+    if (step === -1 && place <= 0) moveDown?.focus();
+    else if (step === 1 && place >= order.length - 1) moveUp?.focus();
+  });
 
   // A name that changes elsewhere replaces the text, unless the menu is open on it.
   $effect(() => {
@@ -202,6 +231,32 @@
         <span class="min-w-0 flex-1 truncate">{m['PropertyMenu.typeTitle']()}</span>
         <span class="shrink-0 text-muted-foreground">{propertyTypeName(template.type)}</span>
         <ChevronRightIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        data-action="move-up"
+        bind:this={moveUp}
+        class={[ROW, 'disabled:opacity-50']}
+        disabled={place <= 0}
+        onclick={() => {
+          move(-1);
+        }}
+      >
+        <ArrowUpIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span class="min-w-0 flex-1 truncate">{m.card_property_move_up()}</span>
+      </button>
+      <button
+        type="button"
+        data-action="move-down"
+        bind:this={moveDown}
+        class={[ROW, 'disabled:opacity-50']}
+        disabled={place < 0 || place >= order.length - 1}
+        onclick={() => {
+          move(1);
+        }}
+      >
+        <ArrowDownIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span class="min-w-0 flex-1 truncate">{m.card_property_move_down()}</span>
       </button>
       <button
         type="button"

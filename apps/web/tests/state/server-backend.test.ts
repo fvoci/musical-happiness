@@ -164,6 +164,28 @@ describe('the server backend', () => {
     expect(other.map((one) => one.method)).toEqual(['GET']);
   });
 
+  it('reads the earlier texts of a comment, and says when and by whom it was changed', async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] }],
+    };
+    const sent = serve([
+      { version: 1, body, writtenBy: 'u1', writtenAt: 5 },
+      { version: 3, body: null, writtenBy: 'u2', writtenAt: 8 },
+    ]);
+    expect(await new ServerBackend('').commentVersions('b', 'm')).toEqual([
+      { version: 1, body, writtenBy: 'u1', writtenAt: 5 },
+      { version: 3, body: null, writtenBy: 'u2', writtenAt: 8 },
+    ]);
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'GET /api/v1/boards/b/blocks/m/versions',
+    ]);
+
+    serve([{ ...BLOCK, id: 'n', type: 'comment', title: '', body, editedAt: 9, modifiedBy: 'u2' }]);
+    const [comment] = await new ServerBackend('').comments('b', 'c');
+    expect(comment).toMatchObject({ editedAt: 9, modifiedBy: 'u2' });
+  });
+
   it("reads a card's comments and attachments as blocks under it", async () => {
     const body = {
       type: 'doc',
@@ -305,9 +327,16 @@ describe('changing a card on the server', () => {
   });
 
   it('reads the badges of a card from the server, and works them out from a block’s body', async () => {
-    serve({ ...CARD, properties: {}, hasBody: true, tasksTotal: 3, tasksDone: 1 });
+    serve({
+      ...CARD,
+      properties: {},
+      hasBody: true,
+      tasksTotal: 3,
+      tasksDone: 1,
+      lastCommentAt: 44,
+    });
     const answer = await new ServerBackend('').patchCard('b', 'c1', { title: 'x' });
-    expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1 });
+    expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1, lastCommentAt: 44 });
     expect(answer).not.toHaveProperty('body');
     const block = cardOfBlock({
       ...BLOCK,
@@ -330,6 +359,8 @@ describe('changing a card on the server', () => {
     });
     expect(block).toMatchObject({ hasBody: true, tasksTotal: 2, tasksDone: 1 });
     expect(block).not.toHaveProperty('body');
+    // A change message does not say when the last comment was posted.
+    expect(block.lastCommentAt).toBeUndefined();
   });
 });
 

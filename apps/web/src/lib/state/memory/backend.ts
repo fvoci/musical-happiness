@@ -12,21 +12,14 @@
  * development page: `as` (the same world seen by another user), `failNext`
  * and `latency`.
  */
-import {
-  countTasks,
-  MAX_BODY_BYTES,
-  storedSize,
-  validateDoc,
-  type DocNode,
-} from '../../editor/schema.ts';
+import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
+import { storedSize, validateDoc, type DocNode } from '../../editor/schema.ts';
 import { readDisplaySettings, type DisplaySettings } from '../../logic/display.ts';
 import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
 import { readLanguageSettings } from '../../logic/language.ts';
 import {
   createBoard,
-  createBoardView,
-  createCard,
   type BlockPatch,
   type Board,
   type BoardMember,
@@ -51,6 +44,7 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type CommentVersion,
   type DeletedItem,
   type DownloadedFile,
   type DownloadOptions,
@@ -66,6 +60,15 @@ import {
 
 import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
+import {
+  noteChange,
+  versionsOf,
+  lastCommentAt,
+  mayChangeComment,
+  mayRemoveComments,
+  roleOn,
+  type Role,
+} from './comments.ts';
 import { changeDisplayName } from './account.ts';
 import { fail } from './refuse.ts';
 import {
@@ -78,84 +81,24 @@ import {
 } from './trash.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
-/** The limits of the server design: section 5.7 (bodies) and 4.2, 5.6 (files). */
-export const LIMITS = {
-  bodyBytes: MAX_BODY_BYTES,
-  fileBytes: 100 * 1024 * 1024,
-  uploadPartBytes: 8 * 1024 * 1024,
-  screenStateKeys: 100,
-  screenStateValueBytes: 4 * 1024,
-} as const;
+import {
+  attachmentOf,
+  commentOf,
+  copy,
+  detailOf,
+  imageFileIds,
+  inPropertyOrder,
+  LIMITS,
+  MEMORY_ARCHIVE,
+  memberOf,
+  scramble,
+  SCREEN_STATE_KEY,
+  summaryOf,
+  viewOf,
+  wireOf,
+} from './shapes.ts';
 
-const SCREEN_STATE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
-
-const copy = <T>(value: T): T => structuredClone(value);
-
-/** The first line of an archive of the memory backend. */
-const MEMORY_ARCHIVE = 'fvoci-memory-1';
-
-function summaryOf(card: StoredCard): CardSummary {
-  const { body, file: _file, ...block } = card;
-  const tasks = body ? countTasks(body) : { total: 0, checked: 0 };
-  return copy({
-    ...createCard(block),
-    hasBody: body !== null && body !== undefined,
-    tasksTotal: tasks.total,
-    tasksDone: tasks.checked,
-  });
-}
-
-function detailOf(card: StoredCard): CardDetail {
-  return { ...summaryOf(card), body: copy(card.body ?? null) };
-}
-
-function viewOf(view: StoredBlock): BoardView {
-  const { body: _body, file: _file, ...block } = view;
-  return copy(createBoardView(block));
-}
-
-function commentOf(block: StoredBlock): Comment {
-  const { body, file: _file, ...rest } = block;
-  return copy({ ...rest, type: 'comment', body: body ?? null });
-}
-
-function attachmentOf(block: StoredBlock): Attachment {
-  const { body: _body, file, ...rest } = block;
-  if (!file) throw new Error(`attachment ${block.id} has no file`);
-  return copy({ ...rest, type: 'attachment', ...file });
-}
-
-function wireOf(block: StoredBlock): BoardView | CardSummary | Comment | Attachment {
-  switch (block.type) {
-    case 'view':
-      return viewOf(block);
-    case 'card':
-      return summaryOf(block as StoredCard);
-    case 'comment':
-      return commentOf(block);
-    default:
-      return attachmentOf(block);
-  }
-}
-
-/** A list in an order nobody should rely on: by a hash of the identifiers. */
-function scramble<T extends { id: string } | { userId: string }>(items: readonly T[]): T[] {
-  const key = (item: T): number => {
-    const text = 'id' in item ? item.id : item.userId;
-    let hash = 0;
-    for (let at = 0; at < text.length; at += 1) hash = (hash * 31 + text.charCodeAt(at)) % 9973;
-    return hash;
-  };
-  return [...items].sort((first, second) => key(first) - key(second));
-}
-
-/** The files a body shows. */
-function imageFileIds(node: DocNode, found: string[] = []): string[] {
-  if (node.type === 'image' && typeof node.attrs?.fileId === 'string')
-    found.push(node.attrs.fileId);
-  for (const child of node.content ?? []) imageFileIds(child, found);
-  return found;
-}
+export { LIMITS, memberOf };
 
 type MethodName = keyof Backend;
 
@@ -213,6 +156,27 @@ export class MemoryBackend implements Backend {
       fail(404, `no such ${type ?? 'block'}`);
     }
     return block;
+  }
+
+  #roleOn(boardId: string): Role {
+    return roleOn(this.world.members.get(boardId) ?? [], this.userId);
+  }
+
+  /** The reader's role on the board; one they are no member of is not there for them, unless open (403). */
+  #memberRole(boardId: string): Exclude<Role, ''> {
+    const board = this.#board(boardId);
+    const role = this.#roleOn(boardId);
+    if (role !== '') return role;
+    if (board.type === 'O') fail(403, 'access denied to board');
+    fail(404, 'no such board');
+  }
+
+  /**
+   * A card as the card routes answer it: with when its last comment was
+   * posted. A change message has no such time (`wireOf`), as on the server.
+   */
+  #commented<T extends CardSummary>(card: T): T {
+    return { ...card, lastCommentAt: lastCommentAt(this.world.childrenOf(card.id)) };
   }
 
   #memberIds(boardId: string): string[] {
@@ -436,6 +400,20 @@ export class MemoryBackend implements Backend {
     board.modifiedBy = this.userId;
     this.#tellBoard(board);
     return copy(board);
+  }
+
+  async reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]> {
+    await this.#enter('reorderCardProperties');
+    const role = this.#memberRole(boardId);
+    if (role !== 'admin' && role !== 'editor') {
+      fail(403, 'access denied to modifying board properties');
+    }
+    const board = inPropertyOrder(this.#board(boardId), propertyIds);
+    board.updateAt = this.world.now();
+    board.modifiedBy = this.userId;
+    this.world.boards.set(boardId, board);
+    this.#tellBoard(board);
+    return [...propertyIds];
   }
 
   async deleteBoard(boardId: string): Promise<void> {
@@ -955,12 +933,19 @@ export class MemoryBackend implements Backend {
     await this.#enter('cards');
     this.#board(boardId);
     const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
-    return scramble(cards).map((card) => summaryOf(card as StoredCard));
+    return scramble(cards).map((card) => this.#commented(summaryOf(card as StoredCard)));
+  }
+
+  async cardPreviews(boardId: string): Promise<Map<string, CardPreview>> {
+    await this.#enter('cardPreviews');
+    this.#board(boardId);
+    const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
+    return new Map(cards.map((card) => [card.id, cardPreviewOf(card.body)]));
   }
 
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     await this.#enter('card');
-    return detailOf(this.#block(boardId, cardId, 'card') as StoredCard);
+    return this.#commented(detailOf(this.#block(boardId, cardId, 'card') as StoredCard));
   }
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
@@ -976,7 +961,7 @@ export class MemoryBackend implements Backend {
     block.body = this.#checkBody(boardId, draft.body ?? null);
     this.world.blocks.set(block.id, block);
     this.#tellBlocks(boardId, [block]);
-    return summaryOf(block as StoredCard);
+    return this.#commented(summaryOf(block as StoredCard));
   }
 
   async patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
@@ -985,7 +970,7 @@ export class MemoryBackend implements Backend {
     this.world.blocks.set(cardId, card);
     this.#touch(card);
     this.#tellBlocks(boardId, [card]);
-    return summaryOf(card);
+    return this.#commented(summaryOf(card));
   }
 
   async writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
@@ -998,7 +983,7 @@ export class MemoryBackend implements Backend {
     card.body = body;
     this.#touch(card);
     this.#tellBlocks(boardId, [card]);
-    return detailOf(card);
+    return this.#commented(detailOf(card));
   }
 
   // ------------------------------------------- comments and attachments
@@ -1025,16 +1010,30 @@ export class MemoryBackend implements Backend {
 
   async patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
     await this.#enter('patchComment');
+    // The role first, as on the server: who cannot comment learns nothing of the block.
+    const role = this.#memberRole(boardId);
+    if (role === 'viewer') fail(403, 'access denied to make board changes');
     const block = this.#block(boardId, commentId, 'comment');
+    if (!mayChangeComment(role, block.createdBy === this.userId)) {
+      fail(403, "access denied to change other users' comments");
+    }
     const checked = this.#checkBody(boardId, write.body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     if (block.updateAt !== write.readAt) {
       fail(409, 'the comment changed since it was read');
     }
+    const before = block.body ?? null;
     block.body = checked;
     this.#touch(block);
+    noteChange(this.world, block, before, this.userId);
     this.#tellBlocks(boardId, [block]);
     return commentOf(block);
+  }
+
+  async commentVersions(boardId: string, commentId: string): Promise<CommentVersion[]> {
+    await this.#enter('commentVersions');
+    this.#memberRole(boardId);
+    return versionsOf(this.world, boardId, commentId);
   }
 
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
@@ -1075,6 +1074,9 @@ export class MemoryBackend implements Backend {
       for (const child of this.world.childrenOf(parent.id)) collect(child);
     };
     collect(block);
+    if (block.type === 'comment' && !mayRemoveComments(this.#roleOn(boardId), this.userId, gone)) {
+      fail(403, "access denied to delete other users' comments");
+    }
     for (const each of gone) this.world.blocks.delete(each.id);
     this.world.deletedBlocks.set(blockId, { boardId, blocks: gone, ...deletion(this) });
     this.world.tellBoard(boardId, {
@@ -1088,15 +1090,25 @@ export class MemoryBackend implements Backend {
     await this.#enter('restoreBlock');
     const deleted = this.world.deletedBlocks.get(blockId);
     if (deleted?.boardId !== boardId) fail(404, 'no such block in the trash');
-    mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');
-    const parent = deleted.blocks[0]?.parentId;
+    // A comment at the top of the deletion comes back by the comment's rule, anything else by an editor's.
+    const top = deleted.blocks[0];
+    if (top?.type === 'comment') {
+      if (!mayRemoveComments(this.#memberRole(boardId), this.userId, deleted.blocks)) {
+        fail(403, "access denied to undelete other users' comments");
+      }
+    } else mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');
+    const parent = top?.parentId;
     // A block comes back only under a living parent (or the board itself).
     if (parent !== boardId && parent !== undefined && !this.world.blocks.has(parent)) {
       fail(404, 'the parent of the block is gone');
     }
     this.#board(boardId);
     this.world.deletedBlocks.delete(blockId);
-    for (const block of deleted.blocks) this.world.blocks.set(block.id, block);
+    for (const block of deleted.blocks) {
+      // As the server: whoever restores is the last to change each block, now.
+      this.#touch(block);
+      this.world.blocks.set(block.id, block);
+    }
     this.#tellBlocks(boardId, deleted.blocks);
   }
 
@@ -1159,21 +1171,4 @@ export class MemoryBackend implements Backend {
   watchSelf(listener: ChangeListener): () => void {
     return this.world.watch({ boardId: undefined, userId: this.userId, listener });
   }
-}
-
-export function memberOf(
-  boardId: string,
-  userId: string,
-  role: 'admin' | 'editor' | 'commenter' | 'viewer',
-): BoardMember {
-  return {
-    boardId,
-    userId,
-    minimumRole: 'editor',
-    schemeAdmin: role === 'admin',
-    schemeEditor: role === 'editor',
-    schemeCommenter: role === 'commenter',
-    schemeViewer: role === 'viewer',
-    synthetic: false,
-  };
 }

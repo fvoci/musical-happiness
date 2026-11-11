@@ -173,7 +173,7 @@ export type CardFields = {
   contentOrder: ContentOrder;
 };
 
-export type Card = Block & { fields: CardFields };
+export type Card = Block & { fields: CardFields; lastCommentAt?: number };
 
 function readContentOrder(value: unknown): ContentOrder {
   if (!Array.isArray(value)) return [];

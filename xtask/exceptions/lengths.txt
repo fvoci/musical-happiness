@@ -18,7 +18,7 @@ file 1008 crates/server/src/app/import.rs
 file 1114 crates/server/src/app/uploads.rs
 file 1510 crates/server/src/config.rs
 file 1231 crates/server/src/ws.rs
-file 3568 crates/server/tests/api/blocks.rs
+file 3043 crates/server/tests/api/blocks.rs
 file 3963 crates/server/tests/api/boards.rs
 file 2063 crates/server/tests/api/cards.rs
 file 3134 crates/server/tests/api/sidebar.rs

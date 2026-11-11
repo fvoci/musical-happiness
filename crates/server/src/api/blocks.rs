@@ -22,13 +22,14 @@ use super::{
     ApiResult, OptionalSession, RequiredSession, created, decode_json, has_valid_read_token,
     json_response, no_content, query_param,
 };
+use super::{
+    BlockAction, require_block_patch_permission, require_block_permission,
+    require_delete_permission, require_deletion_permission,
+};
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use super::{
     decode_object_with, element_pointer, objects_mut, put_patch_bodies, take_block_bodies,
     take_patch_bodies,
-};
-use super::{
-    require_block_change_permission, require_block_patch_permission, require_comment_owner_or_admin,
 };
 use crate::app::App;
 use crate::auth::now_millis;
@@ -388,9 +389,10 @@ async fn handle_post_blocks(
 /// Delete a block
 ///
 /// The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
-/// back until the trash is emptied of it. For editors, whatever the block is: a
-/// commenter cannot delete their own comment this way. A comment of somebody else is
-/// deleted by the board's admins only.
+/// back until the trash is emptied of it. For editors; a comment is its author's to
+/// delete from the commenter's role up, and a comment of somebody else the board's
+/// admins' only (403, `access denied to delete other users' comments`), also as a
+/// reply below a comment the user deletes.
 #[utoipa::path(
     delete,
     path = "/boards/{boardId}/blocks/{blockId}",
@@ -407,22 +409,17 @@ async fn handle_delete_block(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
+    // Nobody below the commenter's role deletes anything, whatever the block is.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
     let block = block_on_board(&app, &block_id, &board_id).await?;
-    require_comment_owner_or_admin(
-        &app,
-        user_id,
-        &block,
-        "access denied to delete other users' comments",
-    )
-    .await?;
+    require_delete_permission(&app, user_id, &block, CHANGES_DENIED).await?;
     app.delete_block(&block_id, user_id, notification).await?;
     tracing::debug!(board_id, block_id, "DELETE Block");
     Ok(no_content())
@@ -432,11 +429,13 @@ async fn handle_delete_block(
 ///
 /// Restores a block of the board from the trash, with the blocks that went there with
 /// it. A block whose parent is gone has nowhere to come back to: 404. For who may
-/// delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
-/// else the board's admins only (403, `access denied to undelete other users'
-/// comments`). What decides is the block that was deleted, which took the others along:
-/// a block below somebody else's comment is brought back by the admins only, and a
-/// comment that went with its card by whoever may bring back the card.
+/// delete what comes back, as `deleteBlock` has it: editors, a comment its author from
+/// the commenter's role up, and a comment of somebody else the board's admins only
+/// (403, `access denied to undelete other users' comments`). What decides is what was
+/// deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
+/// so a block below somebody else's comment is brought back by the admins only, and a
+/// card alone, so a comment that went with its card comes back for whoever may bring
+/// back the card.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks/{blockId}/undelete",
@@ -451,33 +450,37 @@ async fn handle_undelete_block(
     Path((board_id, block_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
+    // Nobody below the commenter's role brings anything back, whatever the block is.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
     let board = app.board(&board_id).await?;
-    // What is restored is what the trash has of this board. A block that exists, one
-    // that never did and one of another board are all not there to restore.
-    app.deleted_block(&block_id)
-        .await?
-        .filter(|deleted| deleted.block.board_id == board.id)
-        .ok_or_else(|| AppError::not_found("block"))?;
-    // Only who may delete it brings it back: what comes back is the whole deletion, so
-    // the block that was deleted, at its top, is what decides (a block below somebody
-    // else's comment brings that comment back).
-    if let Some(top) = app.deletion_top(&block_id).await? {
-        require_comment_owner_or_admin(
-            &app,
-            user_id,
-            &top.block,
-            "access denied to undelete other users' comments",
-        )
-        .await?;
-    }
+    // What is restored is what the trash has of this board: the whole deletion the
+    // block went with, all of one board. A block that exists, one that never did and
+    // one of another board are all not there to restore.
+    let deletion = app.deletion(&block_id).await?;
+    let Some((top, below)) = deletion
+        .split_first()
+        .filter(|(top, _)| top.board_id == board.id)
+    else {
+        return Err(AppError::not_found("block"));
+    };
+    // Only who may delete it brings it back, as it was deleted: from the block at the
+    // top (a block below somebody else's comment brings that comment back).
+    require_deletion_permission(
+        &app,
+        user_id,
+        top,
+        below,
+        BlockAction::Undelete,
+        CHANGES_DENIED,
+    )
+    .await?;
 
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
@@ -569,7 +572,7 @@ async fn handle_patch_block(
     )
     .await?;
     let block = block_on_board(&app, &block_id, &board_id).await?;
-    require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
+    require_block_permission(&app, user_id, &block, BlockAction::Change, CHANGES_DENIED).await?;
     let (mut patch, changes): (BlockPatch, _) =
         decode_object_with(&body, |patch| take_patch_bodies([Some(patch)], None))?;
     put_patch_bodies([&mut patch], changes?, None)?;
@@ -641,7 +644,8 @@ async fn handle_patch_blocks(
     }
     for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
         let block = block_on_board(&app, block_id, &board_id).await?;
-        require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
+        require_block_permission(&app, user_id, &block, BlockAction::Change, CHANGES_DENIED)
+            .await?;
         require_block_patch_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
     }
     for (index, patch) in batch.block_patches.iter().enumerate() {

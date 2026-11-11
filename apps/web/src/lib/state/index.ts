@@ -23,6 +23,7 @@ export {
   type Category,
   type Change,
   type Comment,
+  type CommentVersion,
   type DeletedItem,
   type InvalidInput,
   type Registration,
@@ -33,6 +34,7 @@ export {
   type ViewDraft,
 } from './backend.ts';
 export { BoardStore, newUndoGroup, type CardDrop } from './board.svelte.ts';
+export { CardPreviews } from './card-previews.svelte.ts';
 export { CardStore, type BodyConflict, type CommentEdit, type Upload } from './card.svelte.ts';
 export { changeDisplayName } from './account.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';

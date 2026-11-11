@@ -42,6 +42,7 @@ function met(
     due?: PropertyValue;
     createAt?: number;
     updateAt?: number;
+    lastCommentAt?: number;
   },
   context: FilterContext = utc,
 ): boolean {
@@ -51,6 +52,7 @@ function met(
   if (card.due !== undefined) setCardProperty(created, 'due', card.due);
   if (card.createAt !== undefined) created.createAt = card.createAt;
   if (card.updateAt !== undefined) created.updateAt = card.updateAt;
+  if (card.lastCommentAt !== undefined) created.lastCommentAt = card.lastCommentAt;
   const clause = createFilterClause({ propertyId, condition, values: [filterValue] });
   return isClauseMet(clause, templates, created, context);
 }
@@ -223,6 +225,9 @@ describe("the day a card was created is the day on the reader's calendar", () =>
     expect(met('created', 'is', seventh, { createAt: lateInSeoul }, seoul)).toBe(true);
     expect(met('created', 'is', seventh, { createAt: earlyInSeoul }, seoul)).toBe(true);
     expect(met('updated', 'is', seventh, { updateAt: earlyInSeoul }, seoul)).toBe(true);
+    // A comment posted later is the card's last change.
+    const later = { updateAt: earlyInSeoul, lastCommentAt: lateInSeoul + 1000 };
+    expect(met('updated', 'is', seventh, later, seoul)).toBe(false);
     // For a reader in UTC the second of those is still the 6th.
     expect(met('created', 'is', seventh, { createAt: earlyInSeoul }, utc)).toBe(false);
   });

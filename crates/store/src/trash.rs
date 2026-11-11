@@ -83,34 +83,50 @@ impl Store {
         .await
     }
 
-    /// Returns the block at the top of the deletion that a block of the trash went with:
-    /// the one that was deleted, and took the others along. Restoring any of them
-    /// restores it ([`Store::undelete_block`]). The block itself, if it was the one
-    /// deleted.
+    /// Returns the blocks of the deletion that a block of the trash went with: the one
+    /// that was deleted, and took the others along, first, then the others by
+    /// identifier. Restoring any of them restores them all ([`Store::undelete_block`]).
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if no block of that identifier is in the trash.
-    pub async fn get_deletion_top(&self, block_id: &str) -> Result<DeletedBlock, StoreError> {
+    pub async fn get_deletion(&self, block_id: &str) -> Result<Vec<Block>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT head.block, head.deleted_by FROM deleted_blocks named \
-                 JOIN deleted_blocks head ON head.deletion_id = named.deletion_id \
+                "SELECT went.block FROM deleted_blocks named \
+                 JOIN deleted_blocks went ON went.deletion_id = named.deletion_id \
                  WHERE named.id = ",
             );
             sql.bind(Id(block_id)).push(
-                " AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
-                 WHERE above.deletion_id = head.deletion_id AND above.id = head.parent_id) \
-                 ORDER BY head.id LIMIT 1",
+                " ORDER BY CASE WHEN EXISTS (SELECT 1 FROM deleted_blocks above \
+                 WHERE above.deletion_id = went.deletion_id AND above.id = went.parent_id) \
+                 THEN 1 ELSE 0 END, went.id",
             );
-            let row = scope
-                .fetch_optional(sql)
-                .await?
-                .ok_or_else(block_not_in_trash)?;
-            Ok(DeletedBlock {
-                block: block_from_json(&row, 0)?,
-                deleted_by: row.id(1)?,
-            })
+            let rows = scope.fetch_all(sql).await?;
+            if rows.is_empty() {
+                return Err(block_not_in_trash());
+            }
+            rows.iter().map(|row| block_from_json(row, 0)).collect()
+        })
+        .await
+    }
+
+    /// Returns the blocks below a block, at any depth, by identifier: what deleting it
+    /// takes along ([`Store::delete_block`]). Empty for a block that has nothing below it
+    /// or does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_blocks_below(&self, block_id: &str) -> Result<Vec<Block>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = with_tree_of(scope, block_id);
+            sql.push(&format!(
+                "SELECT {} FROM blocks WHERE id IN (SELECT id FROM tree) AND id <> ",
+                blocks::block_read_columns()
+            ));
+            sql.bind(Id(block_id)).push(" ORDER BY id");
+            blocks::fetch_blocks(scope, sql).await
         })
         .await
     }
