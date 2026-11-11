@@ -4,7 +4,8 @@
 
 mod support;
 
-use fvoci_collab::{from_body, from_body_by, repair, state_of, to_body};
+use fvoci_collab::testing::{repair, to_body};
+use fvoci_collab::{from_body, from_body_by, state_of};
 use serde_json::{Value, json};
 use support::{body_of, body_vectors, doc_of, json_of, to_base64, vectors};
 
@@ -22,7 +23,8 @@ fn a_document_of_the_binding_projects_to_what_an_editor_reads() {
 }
 
 /// The Y document made of a body projects to the JSON an editor reads from the
-/// binding's document of that body, also after it has travelled as an update.
+/// binding's document of that body, also after it has travelled as an update, and is
+/// no larger than the body.
 #[test]
 fn a_document_made_here_projects_to_what_an_editor_reads() {
     let all = body_vectors();
@@ -32,6 +34,11 @@ fn a_document_made_here_projects_to_what_an_editor_reads() {
         let made = from_body(&body_of(&one.body));
         let direct = to_body(&made).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(json_of(direct.as_ref()), one.vector.json, "{name}");
+        let size = |json: &Value| serde_json::to_vec(json).expect("JSON").len();
+        assert!(
+            size(&one.vector.json) <= size(&one.body),
+            "{name}: no larger than the body it was made of"
+        );
         let travelled =
             to_body(&doc_of(&state_of(&made))).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(
@@ -148,7 +155,7 @@ fn a_repair_leaves_what_an_editor_leaves() {
         // Another holder of the same document, handed the deletions alone.
         let other = doc_of(&vector.update);
         let deletions = repaired.update.expect("the deletions as an update");
-        let other = fvoci_collab::with_update(&other, &deletions, &support::ROOMY)
+        let other = fvoci_collab::testing::with_update(&other, &deletions, &support::ROOMY)
             .unwrap_or_else(|error| panic!("{name}: {error}"));
         let theirs = to_body(&other).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(
@@ -230,20 +237,20 @@ fn the_updates_of_an_editing_session_are_taken_in_order() {
 
     let ahead = updates.last().expect("a last update");
     assert_eq!(
-        fvoci_collab::with_update(&opened, ahead, &support::ROOMY).map(|_| ()),
+        fvoci_collab::testing::with_update(&opened, ahead, &support::ROOMY).map(|_| ()),
         Err(fvoci_collab::UpdateError::MissingChanges),
         "the last update first"
     );
 
     let mut doc = opened;
     for (index, update) in updates.iter().enumerate() {
-        doc = fvoci_collab::with_update(&doc, update, &support::ROOMY)
+        doc = fvoci_collab::testing::with_update(&doc, update, &support::ROOMY)
             .unwrap_or_else(|error| panic!("update {index}: {error}"));
         assert!(
             to_body(&doc).is_ok(),
             "update {index}: a body after every edit"
         );
-        let again = fvoci_collab::with_update(&doc, update, &support::ROOMY)
+        let again = fvoci_collab::testing::with_update(&doc, update, &support::ROOMY)
             .unwrap_or_else(|error| panic!("update {index}, again: {error}"));
         assert_eq!(
             state_of(&again),

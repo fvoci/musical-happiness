@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    BoardCategoryWebsocketData, CATEGORY_BOARDS_SORT_ORDER_GAP, Category, CategoryBoardMetadata,
-    CategoryBoards, CategoryType,
+    Board, BoardCategoryWebsocketData, CATEGORY_BOARDS_SORT_ORDER_GAP, Category,
+    CategoryBoardMetadata, CategoryBoards, CategoryType,
 };
 use fvoci_store::{BoardVisibility, PublicBoards};
 
@@ -166,13 +166,13 @@ impl App {
     /// Files boards under one of a user's categories, moving them out of any other, and
     /// tells the user's connection the category's new content.
     ///
-    /// The boards are not looked at: any identifier can be filed, whether or not it is
-    /// a board the user can see.
+    /// Each board must be one of the team or a built-in template; whether the user may
+    /// see it is the caller's to check.
     ///
     /// # Errors
     ///
-    /// Returns a permission error if the category belongs to another user, an internal
-    /// error if it is not one of the user's categories in the team, or the store's error
+    /// Returns a not-found error if the category is not one of the user's categories in
+    /// the team, or a board is not there or is one of another team; or the store's error
     /// if the boards cannot be filed. Nothing is written in any of these cases.
     pub async fn add_update_user_category_board(
         &self,
@@ -188,6 +188,9 @@ impl App {
         // category, which lets a user file boards into another user's category
         // (server/app/category_boards.go:150-170). The check comes first here.
         self.user_category(team_id, user_id, category_id).await?;
+        for board_id in board_ids {
+            self.require_board_of_team(team_id, board_id).await?;
+        }
         self.store()
             .add_update_category_board(user_id, category_id, board_ids)
             .await?;
@@ -286,14 +289,17 @@ impl App {
     /// Hides a board in one of a user's categories, or shows it again, and tells the
     /// user's connection about it.
     ///
-    /// The category must be the user's (checked here), and the route has checked that
-    /// the user sees the board. Preserved quirk: if the user does not have the board in the category,
+    /// The category must be the user's and the board one of its team or a built-in
+    /// template (both checked here), and the route has checked that the user sees the
+    /// board. Preserved quirk: if the user does not have the board in the category,
     /// nothing changes, and the user's connection is told of the change all the same
     /// (server/app/category_boards.go:265-279).
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the write fails.
+    /// Returns a not-found error if the category is not one of the user's categories in
+    /// the team, or the board is not there or is one of another team; and the store's
+    /// error if the write fails.
     pub async fn set_board_visibility(
         &self,
         team_id: &str,
@@ -303,6 +309,7 @@ impl App {
         visibility: BoardVisibility,
     ) -> Result<(), AppError> {
         self.user_category(team_id, user_id, category_id).await?;
+        self.require_board_of_team(team_id, board_id).await?;
         self.store()
             .set_board_visibility(user_id, category_id, board_id, visibility)
             .await
@@ -319,4 +326,32 @@ impl App {
             .broadcast_category_board_change(team_id, user_id, &[change]);
         Ok(())
     }
+
+    /// Fails with the not-found error of a board that is not there unless the board is
+    /// one a category of the team takes: one of the team, or a built-in template, which
+    /// every team's categories take. A user who works in two teams of an organization
+    /// sees the boards of both; a category holds those of its own.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error for a board that is not there or is another team's, and
+    /// the store's error if the board cannot be read.
+    pub(crate) async fn require_board_of_team(
+        &self,
+        team_id: &str,
+        board_id: &str,
+    ) -> Result<(), AppError> {
+        let board = self.board(board_id).await?;
+        if category_of_team_takes(&board, team_id) {
+            Ok(())
+        } else {
+            Err(AppError::not_found("board"))
+        }
+    }
+}
+
+/// Whether a category of the team takes the board: one of the team, or a built-in
+/// template.
+pub(super) fn category_of_team_takes(board: &Board, team_id: &str) -> bool {
+    board.team_id == team_id || board.is_builtin
 }

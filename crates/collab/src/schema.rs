@@ -1,6 +1,7 @@
 //! What the editor's schema says that the shared content alone does not: the attributes
 //! each kind of node and mark has, the value an editor gives one that is left out, and
-//! the order in which it stores marks.
+//! the order in which it stores marks; and which of those values the stored form
+//! leaves out.
 //!
 //! The web app writes its own schema into `contracts/ydoc-vectors.json`; a test holds
 //! these tables to it.
@@ -16,6 +17,16 @@ pub(crate) enum Fallback {
     Boolean(bool),
 }
 
+/// Whether the stored form writes an attribute whose value is its [`Fallback`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AtFallback {
+    /// Written: a body has to have the attribute.
+    Written,
+    /// Left out, as a body may leave it: what is stored is then no larger than the body
+    /// the document was made of, which may have left it out at the limit of size.
+    LeftOut,
+}
+
 /// An attribute a kind of node has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Attribute {
@@ -23,12 +34,15 @@ pub(crate) struct Attribute {
     pub(crate) name: &'static str,
     /// What an editor reads when the shared content does not have it.
     pub(crate) fallback: Fallback,
+    /// Whether the stored form writes it when its value is the fallback.
+    pub(crate) at_fallback: AtFallback,
 }
 
 const fn plain(name: &'static str) -> Attribute {
     Attribute {
         name,
         fallback: Fallback::None,
+        at_fallback: AtFallback::Written,
     }
 }
 
@@ -45,6 +59,7 @@ pub(crate) const NODES: [(&str, &[Attribute]); 17] = [
         &[Attribute {
             name: "level",
             fallback: Fallback::Integer(1),
+            at_fallback: AtFallback::Written,
         }],
     ),
     ("horizontalRule", &[]),
@@ -57,6 +72,7 @@ pub(crate) const NODES: [(&str, &[Attribute]); 17] = [
         &[Attribute {
             name: "start",
             fallback: Fallback::Integer(1),
+            at_fallback: AtFallback::LeftOut,
         }],
     ),
     ("paragraph", &[]),
@@ -65,6 +81,7 @@ pub(crate) const NODES: [(&str, &[Attribute]); 17] = [
         &[Attribute {
             name: "checked",
             fallback: Fallback::Boolean(false),
+            at_fallback: AtFallback::Written,
         }],
     ),
     ("taskList", &[]),

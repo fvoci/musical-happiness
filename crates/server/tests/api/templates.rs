@@ -465,7 +465,8 @@ async fn the_built_in_templates_are_the_template_files() {
 }
 
 /// Templates that are stored again take the files of the old ones with them, from the
-/// storage too: the records go with the boards, and nothing would name the files after.
+/// storage too: the records go with the boards and their objects are doomed, which the
+/// housekeeping removes.
 #[tokio::test]
 async fn templates_stored_again_remove_the_old_files() {
     let ts = Setup::native()
@@ -519,6 +520,12 @@ async fn templates_stored_again_remove_the_old_files() {
             .expect("the templates are stored"),
         "they are stored again"
     );
+    // The old file is doomed with its record, and the housekeeping removes it.
+    ts.app
+        .housekeeping()
+        .remove_doomed_objects(fvoci_server::auth::now_millis())
+        .await
+        .expect("the doomed objects are removed");
     assert!(
         !ts.app
             .files()

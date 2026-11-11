@@ -287,7 +287,7 @@ pub const GLOBAL_TABLES: [&str; 6] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 18] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 19] = crate::schema::ORG_TABLES;
 
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data
@@ -301,6 +301,23 @@ pub async fn migrate_to_before_organizations(database: &TestDatabase) {
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION - 1))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
+/// Brings a test database to the schema as the server of the organizations left it,
+/// before the keys that name the organization (migration 15): every migration up to
+/// the organizations', and none of the changes of the data that follow the migrations.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_the_organizations(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION))
         .await
         .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
     store.close().await;

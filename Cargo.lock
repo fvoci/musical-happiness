@@ -1029,6 +1029,7 @@ name = "fvoci-collab"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "fvoci-collab",
  "fvoci-model",
  "serde_json",
  "thiserror",
@@ -1062,6 +1063,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "fvoci-model",
+ "fvoci-server",
  "fvoci-store",
  "getrandom 0.4.3",
  "httpdate",

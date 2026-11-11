@@ -16,7 +16,7 @@ use object_store::{
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
 use super::measure::measured;
-use super::{FileStream, StorageError};
+use super::{FileStream, ObjectListing, StorageError, StoredObject};
 use crate::config::AmazonS3Config;
 use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
@@ -205,6 +205,25 @@ impl S3Files {
             Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
             Err(error) => Err(StorageError::ObjectStore(error)),
         }
+    }
+
+    pub(super) fn list(&self) -> ObjectListing {
+        let prefix = (!self.prefix.is_empty()).then(|| Path::from(self.prefix.as_str()));
+        // The listing names keys as the object store encodes them: the prefix too.
+        let strip = prefix
+            .as_ref()
+            .map_or_else(String::new, |prefix| format!("{}/", prefix.as_ref()));
+        self.store
+            .list(prefix.as_ref())
+            .map(move |meta| {
+                let meta = meta.map_err(StorageError::ObjectStore)?;
+                let key = meta.location.as_ref();
+                Ok(StoredObject {
+                    path: key.strip_prefix(&strip).unwrap_or(key).to_owned(),
+                    modified_at: meta.last_modified.timestamp_millis(),
+                })
+            })
+            .boxed()
     }
 
     pub(super) async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {

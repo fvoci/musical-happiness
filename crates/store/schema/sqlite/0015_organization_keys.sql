@@ -1,0 +1,5 @@
+-- The keys of the rows that name another row without a foreign key to it, held to the
+-- organization (schema/postgres/0015_organization_keys.sql). An SQLite database holds
+-- one organization besides the system's, which works in none of its workspaces: no
+-- row is stored by a second organization under the identifiers of the first, and
+-- nothing here changes.

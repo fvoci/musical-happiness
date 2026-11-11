@@ -13,6 +13,7 @@ use crate::boards;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 use crate::file_info;
+use crate::loose_objects;
 use crate::trash;
 
 /// The key of the PostgreSQL advisory lock that the replacement of the built-in
@@ -26,8 +27,8 @@ impl Store {
     /// the templates missing at once, the second finds them stored and keeps them.
     ///
     /// Returns `None` if the templates were kept, or the records of the files the
-    /// removed templates had, whose records went with them: the caller removes them from
-    /// the storage.
+    /// removed templates had, whose records went with them and whose objects are doomed
+    /// in the same transaction.
     ///
     /// # Errors
     ///
@@ -56,6 +57,9 @@ impl Store {
             for board in &stored {
                 files.extend(file_info::file_infos_of_board(scope, &board.id).await?);
             }
+            // The records go with the templates; their objects are doomed now.
+            let doomed: Vec<_> = files.iter().map(|file| (file.path.clone(), None)).collect();
+            loose_objects::doom(scope, &doomed).await?;
             boards::remove_builtin_templates(scope).await?;
             create_boards_and_blocks(scope, templates, "").await?;
             Ok(Some(files))

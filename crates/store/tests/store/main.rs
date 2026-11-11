@@ -14,6 +14,7 @@ mod categories;
 mod category_boards;
 mod common;
 mod file_info;
+mod loose_objects;
 mod observe;
 mod order;
 mod sessions;

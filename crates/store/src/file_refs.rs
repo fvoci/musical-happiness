@@ -4,7 +4,8 @@
 //! Every write of a block puts down the files it shows. A block in the trash keeps them:
 //! undoing and restoring stay safe for the grace period. A file that no block shows,
 //! live or in the trash, is marked with the time it became so, and a file marked longer
-//! ago than the grace period is removed by [`Store::collect_unreferenced_files`].
+//! ago than the grace period is removed by [`Store::collect_unreferenced_files`], and
+//! its object doomed.
 
 use std::collections::BTreeSet;
 
@@ -14,12 +15,13 @@ use crate::Store;
 use crate::comment_versions;
 use crate::db::{Id, Scope, now_millis};
 use crate::error::StoreError;
-use crate::file_info::{FILE_INFO_COLUMNS, file_info_from_row};
+use crate::file_info::{FILE_INFO_COLUMN_COUNT, FILE_INFO_COLUMNS, file_info_from_row};
+use crate::loose_objects;
 
 impl Store {
     /// Removes the records of the files that no block has shown since before `before`
-    /// (milliseconds), and returns them: their files are to be removed from the file
-    /// storage.
+    /// (milliseconds), dooms their objects in the same transaction
+    /// ([`Store::due_doomed_objects`]), and returns the records.
     ///
     /// # Errors
     ///
@@ -28,21 +30,29 @@ impl Store {
         &self,
         before: i64,
     ) -> Result<Vec<FileInfo>, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
             // One statement decides and deletes: a file that a block shows again by the
             // time its row is deleted keeps its row (PostgreSQL checks the condition
             // again against the row as committed).
+            let org = loose_objects::org_column(scope);
             let mut sql = scope.sql(
                 "DELETE FROM file_info WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
             );
-            sql.bind(before)
-                .push(&format!(" RETURNING {FILE_INFO_COLUMNS}"));
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(file_info_from_row)
-                .collect()
+            sql.bind(before).push(&format!(
+                " RETURNING {FILE_INFO_COLUMNS}{}",
+                org.map_or(String::new(), |column| format!(", {column}"))
+            ));
+            let rows = scope.fetch_all(sql).await?;
+            let mut files = Vec::with_capacity(rows.len());
+            let mut doomed = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let file = file_info_from_row(row)?;
+                let org_id = org.map(|_| row.id(FILE_INFO_COLUMN_COUNT)).transpose()?;
+                doomed.push((file.path.clone(), org_id));
+                files.push(file);
+            }
+            loose_objects::doom(scope, &doomed).await?;
+            Ok(files)
         })
         .await
     }
@@ -82,30 +92,40 @@ pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), 
 }
 
 /// Forgets what the blocks that are gone for good showed: neither on a board nor in the
-/// trash.
+/// trash of the organization of the row.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let sql = scope.sql(
-        "DELETE FROM file_refs WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = file_refs.block_id) \
-         AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id)",
-    );
+    let statement = [
+        "DELETE FROM file_refs WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = file_refs.block_id",
+        &scope.same_organization(&[("b", "file_refs")]),
+        ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id",
+        &scope.same_organization(&[("d", "file_refs")]),
+        ")",
+    ]
+    .concat();
+    let sql = scope.sql(&statement);
     scope.execute(sql).await?;
     Ok(())
 }
 
-/// Marks file records: one that a block shows has no mark, and one that no block shows
-/// gets the time of now if it had none. Only the records whose state flips are written.
-/// `only` narrows it to some stored names of one board; `None` looks at every record.
+/// Marks file records: one that a block of its organization shows has no mark, and one
+/// that no such block shows gets the time of now if it had none. Only the records whose
+/// state flips are written. `only` narrows it to some stored names of one board; `None`
+/// looks at every record.
 pub(crate) async fn mark(
     scope: &mut Scope<'_>,
     only: Option<(&str, &[String])>,
 ) -> Result<(), StoreError> {
-    let mut sql =
-        scope.sql("UPDATE file_info SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
-    sql.bind(now_millis()).push(
+    let shown = [
         " ELSE NULL END WHERE (unreferenced_at IS NULL) = (NOT EXISTS (\
          SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
-         AND r.name = file_info.name))",
-    );
+         AND r.name = file_info.name",
+        &scope.same_organization(&[("r", "file_info")]),
+        "))",
+    ]
+    .concat();
+    let mut sql =
+        scope.sql("UPDATE file_info SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
+    sql.bind(now_millis()).push(&shown);
     if let Some((board_id, names)) = only {
         sql.push_bind(" AND board_id = ", Id(board_id));
         for (index, name) in names.iter().enumerate() {

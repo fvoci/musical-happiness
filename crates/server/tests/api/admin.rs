@@ -387,6 +387,64 @@ mod socket {
         th.teardown().await;
     }
 
+    /// The comparison of the file storage with the records, through the socket: without
+    /// a body it reports and changes nothing; asked to remove what nothing names, it
+    /// leaves an object written just now; a body it does not know is refused.
+    #[tokio::test]
+    async fn the_socket_compares_the_files_with_the_records() {
+        const ROUTE: &str = "/api/v1/admin/files/reconcile";
+        let (th, socket) = start_with_admin_socket().await;
+        let stray = format!("boards/20261112/{}/stray.txt", new_id());
+        th.app
+            .files()
+            .write(&stray, &mut &b"nothing names it"[..])
+            .await
+            .expect("written");
+
+        for body in [
+            "",
+            r#"{"removeUnrecorded": false}"#,
+            r#"{"removeUnrecorded": true}"#,
+        ] {
+            let response = socket_request(&socket, "POST", ROUTE, body).await;
+            assert_eq!(response.status, 200, "{body}: {}", response.body);
+            let report: serde_json::Value =
+                serde_json::from_str(&response.body).expect("a JSON report");
+            assert_eq!(
+                report,
+                json!({
+                    "objects": 1,
+                    "unrecorded": {"count": 1, "paths": [stray]},
+                    "foreign": {"count": 0, "paths": []},
+                    "doomed": 0,
+                    "records": 0,
+                    "missing": {"count": 0, "paths": []},
+                }),
+                "{body}"
+            );
+        }
+        let listed = th
+            .app
+            .housekeeping()
+            .store()
+            .loose_objects()
+            .await
+            .expect("listed");
+        assert_eq!(listed, [], "nothing is doomed");
+        assert!(
+            th.app.files().exists(&stray).await.expect("read"),
+            "the object is there"
+        );
+        socket_request(&socket, "POST", ROUTE, r#"{"remove": true}"#)
+            .await
+            .check_error(
+                400,
+                "bad-request",
+                "unknown field `remove`, expected `removeUnrecorded` at line 1 column 9",
+            );
+        th.teardown().await;
+    }
+
     /// The socket serves the one administration route and nothing else: not the API, not
     /// `hello`, not the web app.
     #[tokio::test]

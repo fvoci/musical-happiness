@@ -21,10 +21,19 @@ pub fn new_doc() -> Doc {
     doc_of_client(None)
 }
 
-/// A Y document that counts the places in a text as the editors do, in UTF-16 code units.
+/// A Y document that counts the places in a text as the editors do, in UTF-16 code units,
+/// and keeps what was deleted instead of collecting it.
+///
+/// The library's garbage collection, given changes that no editor makes (one whose
+/// origins lie in a parent's map), left a change pointing at memory it had freed, and
+/// the next encoding of the document read it: the state came out different each time,
+/// or the process ended. Without it, what was deleted stays in the document as it was
+/// written; [`crate::UpdateLimits::state_bytes`] bounds it, and a document made again
+/// from its body ([`from_body`]) starts without it.
 pub(crate) fn doc_of_client(client: Option<u64>) -> Doc {
     let options = Options {
         offset_kind: OffsetKind::Utf16,
+        skip_gc: true,
         ..client.map_or_else(Options::default, |id| {
             Options::with_client_id(ClientID::new(id))
         })
@@ -53,9 +62,12 @@ pub fn from_body(body: &Body) -> Doc {
 /// [`from_body`] with the identifier of the writing client given. The same body and
 /// writer give the same document, byte for byte; two documents by the same writer take
 /// each other's updates as their own, which is why [`from_body`] gives each its own.
+/// A writer is a whole number JavaScript keeps, of 53 bits: the bits above are left
+/// out, as a document by a larger one could not be read again.
 #[must_use]
 pub fn from_body_by(body: &Body, writer: u64) -> Doc {
-    let doc = doc_of_client(Some(writer));
+    const MAX_WRITER: u64 = (1 << 53) - 1;
+    let doc = doc_of_client(Some(writer & MAX_WRITER));
     {
         let root = doc.get_or_insert_xml_fragment(FIELD);
         let mut txn = doc.transact_mut();

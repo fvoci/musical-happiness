@@ -6,13 +6,16 @@
     reason = "each test binary uses the part of this module it needs"
 )]
 
+pub(crate) mod explore;
 pub(crate) mod random;
+pub(crate) mod wire;
 
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fvoci_collab::{UpdateLimits, new_doc, with_update};
+use fvoci_collab::testing::with_update;
+use fvoci_collab::{UpdateLimits, new_doc};
 use fvoci_model::Body;
 use serde_json::Value;
 use yrs::Doc;
@@ -21,6 +24,7 @@ use yrs::Doc;
 pub(crate) const ROOMY: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024 * 1024,
     state_bytes: 64 * 1024 * 1024,
+    body_bytes: 64 * 1024 * 1024,
 };
 
 /// A file of the contracts both sides read.
@@ -42,8 +46,35 @@ pub(crate) struct Vector {
     pub(crate) name: String,
     /// The Y document, as a version 1 update.
     pub(crate) update: Vec<u8>,
-    /// What an editor reads from it, in the stored form; `Null` for no body.
+    /// What an editor reads from it, in the stored form ([`stored_form`]); `Null` for
+    /// no body.
     pub(crate) json: Value,
+}
+
+/// The JSON an editor reads, as the server stores it: the same, but that the start of
+/// an ordered list at 1, which an editor fills in, is left out, as a body may leave it.
+pub(crate) fn stored_form(json: &Value) -> Value {
+    match json {
+        Value::Array(items) => Value::Array(items.iter().map(stored_form).collect()),
+        Value::Object(members) => {
+            let mut stored: serde_json::Map<String, Value> = members
+                .iter()
+                .map(|(name, member)| (name.clone(), stored_form(member)))
+                .collect();
+            if stored.get("type").and_then(Value::as_str) == Some("orderedList")
+                && let Some(Value::Object(attrs)) = stored.get_mut("attrs")
+            {
+                if attrs.get("start").and_then(Value::as_i64) == Some(1) {
+                    attrs.remove("start");
+                }
+                if attrs.is_empty() {
+                    stored.remove("attrs");
+                }
+            }
+            Value::Object(stored)
+        }
+        other => other.clone(),
+    }
 }
 
 /// The cases of one section of `contracts/ydoc-vectors.json`.
@@ -61,7 +92,7 @@ pub(crate) fn vectors(section: &str) -> Vec<Vector> {
             Vector {
                 name,
                 update,
-                json: case["json"].clone(),
+                json: stored_form(&case["json"]),
             }
         })
         .collect()

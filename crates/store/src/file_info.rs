@@ -7,11 +7,14 @@
 use fvoci_model::FileInfo;
 
 use crate::Store;
-use crate::db::{Id, Row, Scope};
+use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
 
 pub(crate) const FILE_INFO_COLUMNS: &str =
     "id, board_id, name, original_name, extension, size, path, create_at";
+
+/// How many columns [`FILE_INFO_COLUMNS`] names: the index of a column read after them.
+pub(crate) const FILE_INFO_COLUMN_COUNT: usize = 8;
 
 impl Store {
     /// Returns the record of the file a board has under a stored name.
@@ -53,6 +56,51 @@ impl Store {
     }
 }
 
+impl Store {
+    /// Returns up to `limit` places that file records name, live or kept with a board in
+    /// the trash, after `after` in their order: a page of every record the handle
+    /// reaches, for the comparison of the records with the file storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn recorded_paths_after(
+        &self,
+        after: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let (trashed_path, trashed_files) = match scope.dialect() {
+                Dialect::Sqlite => ("json_extract(f.value, '$.path')", "json_each(d.files) AS f"),
+                Dialect::Postgres => (
+                    "f.value ->> 'path'",
+                    "json_array_elements(d.files) AS f(value)",
+                ),
+            };
+            // Each side takes its own page first, so that the live records are read a
+            // page at a time by their index; the trash has none to read by.
+            let mut sql = scope
+                .sql("SELECT path FROM (SELECT * FROM (SELECT path FROM file_info WHERE path > ");
+            sql.bind(after)
+                .push_bind(" ORDER BY path LIMIT ", limit)
+                .push(&format!(
+                    ") AS live UNION SELECT * FROM (SELECT {trashed_path} AS path FROM \
+                     deleted_boards AS d, {trashed_files} WHERE {trashed_path} > "
+                ))
+                .bind(after)
+                .push_bind(" ORDER BY 1 LIMIT ", limit)
+                .push_bind(") AS trashed) AS recorded ORDER BY path LIMIT ", limit);
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect()
+        })
+        .await
+    }
+}
+
 pub(crate) async fn save_file_info(
     scope: &mut Scope<'_>,
     file_info: &FileInfo,
@@ -78,7 +126,10 @@ pub(crate) async fn save_file_info(
     Ok(())
 }
 
-/// The records of every file of a board, oldest first.
+/// The records of every file of a board, oldest first, held on PostgreSQL until the
+/// transaction ends: the board's deletion takes them to the trash, and a collection of
+/// the files no block shows that removes one of them meanwhile waits, then finds it
+/// gone with the board; or it went before, and is not taken to the trash.
 pub(crate) async fn file_infos_of_board(
     scope: &mut Scope<'_>,
     board_id: &str,
@@ -87,6 +138,9 @@ pub(crate) async fn file_infos_of_board(
         "SELECT {FILE_INFO_COLUMNS} FROM file_info WHERE board_id = "
     ));
     sql.bind(Id(board_id)).push(" ORDER BY create_at, id");
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE");
+    }
     scope
         .fetch_all(sql)
         .await?
@@ -106,4 +160,18 @@ pub(crate) fn file_info_from_row(row: &Row) -> Result<FileInfo, StoreError> {
         path: row.text(6)?,
         create_at: row.int(7)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_count_of_the_columns_is_the_columns() {
+        assert_eq!(
+            FILE_INFO_COLUMNS.split(',').count(),
+            FILE_INFO_COLUMN_COUNT,
+            "{FILE_INFO_COLUMNS}"
+        );
+    }
 }

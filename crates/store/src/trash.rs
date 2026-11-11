@@ -28,6 +28,7 @@ use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::file_refs;
+use crate::loose_objects;
 use crate::users;
 
 /// A block in the trash.
@@ -291,35 +292,54 @@ impl Store {
 
     /// Removes for good what was deleted before `deleted_before` (milliseconds since
     /// the Unix epoch), and the deleted blocks of boards that are gone for good. Returns
-    /// how many boards and blocks went, and the file records of the boards that went:
-    /// nothing else says where their files are, so whoever keeps the files removes them
-    /// now or never.
+    /// how many boards and blocks went, and the file records of the boards that went,
+    /// whose objects are doomed in the same transaction ([`Store::due_doomed_objects`]).
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
     pub async fn purge_trash(&self, deleted_before: i64) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
-            let mut sql = scope.sql("SELECT files FROM deleted_boards WHERE deleted_at < ");
-            sql.bind(deleted_before);
+            // One statement decides and deletes: a board restored meanwhile is not
+            // deleted, and so its files are not doomed.
+            let org = loose_objects::org_column(scope);
+            let mut sql = scope.sql("DELETE FROM deleted_boards WHERE deleted_at < ");
+            sql.bind(deleted_before).push(&format!(
+                " RETURNING files{}",
+                org.map_or(String::new(), |column| format!(", {column}"))
+            ));
+            let boards = scope.fetch_all(sql).await?;
+            let mut records = u64::try_from(boards.len()).unwrap_or(u64::MAX);
             let mut files = Vec::new();
-            for row in scope.fetch_all(sql).await? {
-                let of_board: StoredFiles = from_json(&row, 0, "files")?;
-                files.extend(Vec::<FileInfo>::from(of_board));
+            let mut doomed = Vec::new();
+            for row in &boards {
+                let of_board: StoredFiles = from_json(row, 0, "files")?;
+                let org_id = org.map(|_| row.id(1)).transpose()?;
+                for file in Vec::<FileInfo>::from(of_board) {
+                    // Nothing else says where the file is once the board is gone.
+                    doomed.push((file.path.clone(), org_id.clone()));
+                    files.push(file);
+                }
             }
+            loose_objects::doom(scope, &doomed).await?;
 
-            let mut records = 0;
-            for table in ["deleted_boards", "deleted_blocks"] {
-                let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE deleted_at < "));
-                sql.bind(deleted_before);
-                records += scope.execute(sql).await?;
-            }
+            let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deleted_at < ");
+            sql.bind(deleted_before);
+            records += scope.execute(sql).await?;
             // A block that was deleted on its own while its board existed has nothing to
-            // come back to once the board is neither there nor in the trash.
-            let sql = scope.sql(
-                "DELETE FROM deleted_blocks WHERE board_id NOT IN (SELECT id FROM boards) \
-                 AND board_id NOT IN (SELECT id FROM deleted_boards)",
-            );
+            // come back to once the board is neither there nor in the trash of the
+            // block's organization.
+            let orphans = [
+                "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM boards b \
+                 WHERE b.id = deleted_blocks.board_id",
+                &scope.same_organization(&[("b", "deleted_blocks")]),
+                ") AND NOT EXISTS (SELECT 1 FROM deleted_boards d \
+                 WHERE d.id = deleted_blocks.board_id",
+                &scope.same_organization(&[("d", "deleted_blocks")]),
+                ")",
+            ]
+            .concat();
+            let sql = scope.sql(&orphans);
             records += scope.execute(sql).await?;
             // What the blocks gone for good showed is shown no more, and the texts
             // the comments among them had go with them.
@@ -337,8 +357,7 @@ impl Store {
 pub struct Purged {
     /// How many boards and blocks went.
     pub records: u64,
-    /// The file records of the boards that went. Their files belong to nothing any
-    /// more.
+    /// The file records of the boards that went. Their objects are doomed.
     pub files: Vec<FileInfo>,
 }
 

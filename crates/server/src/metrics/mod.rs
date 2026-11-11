@@ -20,6 +20,7 @@ mod accounts;
 mod background;
 mod database;
 mod files;
+mod objects;
 mod ready;
 mod requests;
 mod scrape_read;
@@ -30,6 +31,9 @@ pub(crate) use accounts::LoginOutcome;
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
+pub(crate) use objects::LooseObjects;
+#[cfg(test)]
+pub(crate) use objects::REMOVAL_ERRORS;
 pub(crate) use ready::ReadyCheck;
 pub(crate) use requests::{ABANDONED, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
 pub(crate) use storage::{OpenUploads, Pool};
@@ -61,6 +65,7 @@ struct Kept {
     background: background::BackgroundMetrics,
     accounts: accounts::AccountMetrics,
     ready: ready::ReadyMetrics,
+    objects: objects::ObjectMetrics,
 }
 
 impl Metrics {
@@ -102,6 +107,7 @@ impl Metrics {
         let background = background::BackgroundMetrics::register(&registry)?;
         let accounts = accounts::AccountMetrics::register(&registry)?;
         let ready = ready::ReadyMetrics::register(&registry)?;
+        let objects = objects::ObjectMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
@@ -113,6 +119,7 @@ impl Metrics {
                 background,
                 accounts,
                 ready,
+                objects,
             })),
         })
     }

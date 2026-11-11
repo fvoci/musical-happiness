@@ -470,6 +470,7 @@ pub async fn keep_house(app: &App) {
     // What became of each job is the metrics' to count, where the tasks run them.
     let _ = purge_trash(app).await;
     let _ = collect_unreferenced_files(app).await;
+    let _ = remove_doomed_objects(app).await;
     clean_up_uploads(app).await;
 }
 
@@ -492,64 +493,74 @@ async fn clean_up_sessions(app: &App) {
     }
 }
 
-/// Removes for good what has been in the trash for longer than `trash_retention_days`,
-/// and the files of the boards that go: nothing says where they are afterwards.
+/// Removes for good what has been in the trash for longer than `trash_retention_days`.
+/// The objects of the files of the boards that go are doomed with their records, and
+/// removed by [`remove_doomed_objects`].
 async fn purge_trash(app: &App) -> JobOutcome {
     let app = &app.housekeeping();
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
-    let purged = match app.store().purge_trash(deleted_before).await {
-        Ok(purged) => purged,
+    match app.store().purge_trash(deleted_before).await {
+        Ok(purged) => {
+            if purged.records > 0 || !purged.files.is_empty() {
+                tracing::info!(
+                    records = purged.records,
+                    files = purged.files.len(),
+                    "removed old boards and blocks from the trash"
+                );
+            }
+            JobOutcome::Done
+        }
         Err(error) => {
             tracing::error!(%error, "unable to purge the trash");
-            return JobOutcome::Failed;
-        }
-    };
-    let mut files_left = 0_usize;
-    for file in &purged.files {
-        if let Err(error) = app.files().delete(&file.path).await {
-            files_left += 1;
-            tracing::warn!(%error, path = file.path, "a file of a purged board could not be removed");
+            JobOutcome::Failed
         }
     }
-    if purged.records > 0 || !purged.files.is_empty() {
-        tracing::info!(
-            records = purged.records,
-            files = purged.files.len(),
-            files_left,
-            "removed old boards and blocks from the trash"
-        );
-    }
-    JobOutcome::from_left(files_left)
 }
 
-/// Removes the files that no block, live or in the trash, has shown for as long as the
-/// trash keeps what is deleted (`docs/s6-design.md` 5.7). A file whose record went but
-/// that cannot be removed from the storage is logged: nothing names it any more.
+/// Removes the records of the files that no block, live or in the trash, has shown for
+/// as long as the trash keeps what is deleted (`docs/s6-design.md` 5.7). Their objects
+/// are doomed with them, and removed by [`remove_doomed_objects`].
 async fn collect_unreferenced_files(app: &App) -> JobOutcome {
     let app = &app.housekeeping();
     let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
-    let files = match app.store().collect_unreferenced_files(before).await {
-        Ok(files) => files,
+    match app.store().collect_unreferenced_files(before).await {
+        Ok(files) => {
+            if !files.is_empty() {
+                tracing::info!(
+                    files = files.len(),
+                    "removed the records of the files no block has shown for the grace period"
+                );
+            }
+            JobOutcome::Done
+        }
         Err(error) => {
             tracing::error!(%error, "unable to collect the files no block shows");
-            return JobOutcome::Failed;
-        }
-    };
-    let mut files_left = 0_usize;
-    for file in &files {
-        if let Err(error) = app.files().delete(&file.path).await {
-            files_left += 1;
-            tracing::warn!(%error, path = file.path, "a file no block shows could not be removed");
+            JobOutcome::Failed
         }
     }
-    if !files.is_empty() {
-        tracing::info!(
-            files = files.len(),
-            files_left,
-            "removed the files no block has shown for the grace period"
-        );
+}
+
+/// Removes the objects of the file storage that are doomed, trying again later what
+/// cannot be removed now.
+async fn remove_doomed_objects(app: &App) -> JobOutcome {
+    let app = &app.housekeeping();
+    match app.remove_doomed_objects(auth::now_millis()).await {
+        Ok(done) => {
+            if done.removed > 0 || done.failed > 0 || done.kept > 0 {
+                tracing::info!(
+                    removed = done.removed,
+                    failed = done.failed,
+                    kept = done.kept,
+                    "removed the doomed objects of the file storage"
+                );
+            }
+            JobOutcome::from_left(done.failed + done.kept)
+        }
+        Err(error) => {
+            tracing::error!(%error, "unable to remove the doomed objects");
+            JobOutcome::Failed
+        }
     }
-    JobOutcome::from_left(files_left)
 }
 
 /// Starts the task that deletes the sessions that have ended. It runs once at the
@@ -563,8 +574,8 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
     })
 }
 
-/// Starts the task that purges the trash and then collects the files no block shows,
-/// as [`start_session_clean_up`] does.
+/// Starts the task that purges the trash, collects the files no block shows and removes
+/// the objects that are doomed, as [`start_session_clean_up`] does.
 fn start_trash_purge(app: &App) -> RecurringTask {
     let app = app.clone();
     RecurringTask::spawn_starting_now("purgeTrash", PURGE_TRASH_INTERVAL, move || {
@@ -573,8 +584,10 @@ fn start_trash_purge(app: &App) -> RecurringTask {
             let purged = purge_trash(&app).await;
             // After the purge: what it removed for good shows its files no more.
             let collected = collect_unreferenced_files(&app).await;
+            // After both: what they doomed is removed in the same run.
+            let removed = remove_doomed_objects(&app).await;
             app.metrics()
-                .job_ran(Job::PurgeTrash, purged.and(collected));
+                .job_ran(Job::PurgeTrash, purged.and(collected).and(removed));
         }
     })
 }

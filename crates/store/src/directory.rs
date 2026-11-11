@@ -1,10 +1,15 @@
 //! What is asked before the organization of a request is known, and what makes an
 //! organization: which workspaces a user has, whose a workspace or a shared board is.
+//! And whether an object of the file storage is held, which is asked of every
+//! organization: an object's place is one across them.
 //!
 //! Every function here runs one statement, or one short transaction, that reaches the
 //! rows of every organization ([`Tenant::System`](crate::Tenant::System)) and is
-//! narrowed by what the caller holds: a user's identifier, a read token. Nothing else
-//! of the server asks across organizations on behalf of a request.
+//! narrowed by what the caller holds: a user's identifier, a read token, the places of
+//! objects. Nothing else of the server asks across organizations on behalf of a
+//! request.
+
+use std::collections::BTreeSet;
 
 use fvoci_model::{OrgRole, Team, UserWorkspace, WorkspaceRole, new_id};
 use subtle::ConstantTimeEq as _;
@@ -12,6 +17,7 @@ use subtle::ConstantTimeEq as _;
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
+use crate::loose_objects::LooseState;
 use crate::teams;
 use crate::uploads::{OpenUploads, UploadUsage};
 
@@ -26,21 +32,6 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 /// `o` are in use, and are not the system's, which is nobody's to work in.
 const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
                       AND t.is_system = false";
-
-/// Where rows carry their organization (PostgreSQL), a member's row counts only as the
-/// row of its workspace's organization, and the sharing of a board as the row of the
-/// board's and the board as its team's. The keys of the schema hold the rows to that;
-/// these lookups reach across every organization and do not take it on trust.
-fn same_organization(scope: &Scope<'_>, pairs: &[(&str, &str)]) -> String {
-    if scope.dialect() == Dialect::Sqlite {
-        return String::new();
-    }
-    let mut conditions = String::new();
-    for (row, parent) in pairs {
-        conditions.push_str(&[" AND ", row, ".org_id = ", parent, ".org_id"].concat());
-    }
-    conditions
-}
 
 /// What a user is in a workspace, and whose the workspace is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,7 +135,7 @@ impl Store {
                 sql.bind(Id(user_id))
                     .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
                     .push(IN_USE)
-                    .push(&same_organization(scope, &[("wm", "t")]));
+                    .push(&scope.same_organization(&[("wm", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };
@@ -183,7 +174,7 @@ impl Store {
                 );
                 sql.bind(Id(user_id))
                     .push(IN_USE)
-                    .push(&same_organization(scope, &[("wm", "t")]))
+                    .push(&scope.same_organization(&[("wm", "t")]))
                     .push(" ORDER BY o.create_at, o.id, t.create_at, t.id");
                 scope
                     .fetch_all(sql)
@@ -260,6 +251,61 @@ impl Store {
             .await
     }
 
+    /// The places among `paths` whose object something of any organization holds: a
+    /// file's record, of a board or of a board in the trash, an object being written
+    /// there, or an upload session that makes its file there, but for `except_upload`.
+    /// Whatever a row says of its board or organization, an object it names is not
+    /// removed under it: whether one may go is asked here, of every organization,
+    /// before it is removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a query fails.
+    pub async fn held_objects(
+        &self,
+        paths: &[&str],
+        except_upload: Option<&str>,
+    ) -> Result<BTreeSet<String>, StoreError> {
+        if paths.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        self.system()
+            .with_conn(async |scope| {
+                let (trashed_path, trashed_files) = match scope.dialect() {
+                    Dialect::Sqlite => {
+                        ("json_extract(f.value, '$.path')", "json_each(d.files) AS f")
+                    }
+                    Dialect::Postgres => (
+                        "f.value ->> 'path'",
+                        "json_array_elements(d.files) AS f(value)",
+                    ),
+                };
+                let mut sql = scope.sql("SELECT path FROM file_info WHERE path IN (");
+                sql.bind_list(paths.iter().copied())
+                    .push(&format!(
+                        ") UNION SELECT {trashed_path} FROM deleted_boards AS d, {trashed_files} \
+                         WHERE {trashed_path} IN ("
+                    ))
+                    .bind_list(paths.iter().copied())
+                    .push(") UNION SELECT path FROM loose_objects WHERE path IN (")
+                    .bind_list(paths.iter().copied())
+                    .push_bind(") AND state = ", LooseState::Writing.as_str())
+                    .push(" UNION SELECT path FROM uploads WHERE path IN (")
+                    .bind_list(paths.iter().copied())
+                    .push(")");
+                if let Some(upload_id) = except_upload {
+                    sql.push_bind(" AND id <> ", upload_id);
+                }
+                scope
+                    .fetch_all(sql)
+                    .await?
+                    .iter()
+                    .map(|row| row.text(0))
+                    .collect()
+            })
+            .await
+    }
+
     /// The organization of a board that is shared, for whoever holds its read token;
     /// `None` if the board is not shared, is not there, or the token is not its own.
     /// Nothing of the system organization is shared, and nothing of a workspace or an
@@ -286,7 +332,7 @@ impl Store {
                 sql.bind(Id(board_id))
                     .push_bind(" AND s.enabled = ", true)
                     .push(IN_USE)
-                    .push(&same_organization(scope, &[("s", "b"), ("b", "t")]));
+                    .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };

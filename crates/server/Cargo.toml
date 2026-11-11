@@ -45,8 +45,13 @@ utoipa-axum.workspace = true
 uuid.workspace = true
 zip.workspace = true
 
+[features]
+# Test support for this crate's tests: a file storage that fails when a test asks it to.
+test-util = []
+
 [dev-dependencies]
 brotli.workspace = true
+fvoci-server = { path = ".", features = ["test-util"] }
 fvoci-store = { workspace = true, features = ["test-util"] }
 rcgen.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
