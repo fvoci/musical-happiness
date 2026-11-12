@@ -53,6 +53,9 @@ use worker::{Worker, WorkerCommand, WorkerSettings};
 /// How many updates the log of a document holds before they are folded into its state.
 pub const FOLD_AFTER: i64 = 200;
 
+/// How long a server that stops waits to write the bodies of the open documents.
+const END_WAIT: Duration = Duration::from_secs(5);
+
 /// How long after a document could not be made again from its body it is tried again.
 const REMAKE_RETRY: Duration = Duration::from_mins(1);
 
@@ -351,18 +354,28 @@ impl Collab {
 
     /// Writes the body of every open document and closes them, and ends the workers:
     /// for a server that stops. `app` is any handle of the server: each document is
-    /// written as its card's organization.
+    /// written as its card's organization. What is not done within [`END_WAIT`] (a
+    /// write of a whole body that holds a card, a database that does not answer) is
+    /// left: the log holds it, and the next start writes it.
     pub async fn end(&self, app: &App) {
+        let deadline = tokio::time::Instant::now() + END_WAIT;
         for slot in self.all_slots() {
-            let mut slot = slot.lock_owned().await;
-            let app = app.scoped(slot.tenant);
-            if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
-                if let Err(error) = self.write_now(&app, &card_id, &mut slot).await {
-                    tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
+            let ended = tokio::time::timeout_at(deadline, async {
+                let mut slot = slot.lock_owned().await;
+                let app = app.scoped(slot.tenant);
+                if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
+                    if let Err(error) = self.write_now(&app, &card_id, &mut slot).await {
+                        tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
+                    }
+                    self.forget(&mut slot).await;
                 }
-                self.forget(&mut slot).await;
+                self.retire(&mut slot);
+            })
+            .await;
+            if ended.is_err() {
+                tracing::warn!("the bodies of documents are left for the next start to write");
+                break;
             }
-            self.retire(&mut slot);
         }
         for worker in &self.inner.workers {
             worker.end().await;
