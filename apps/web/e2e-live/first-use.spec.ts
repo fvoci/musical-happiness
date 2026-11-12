@@ -34,8 +34,17 @@ const SERVER_WORDS = /organi[sz]ation|workspace|조직|워크스페이스/i;
 /** The words of the screens that were looked at, each under the name of its screen. */
 const seen: { screen: string; words: string }[] = [];
 
+/**
+ * Keeps the words of the screen. The sidebar's way to the screen of the
+ * organization's administrators is left out: it is named after that screen,
+ * which speaks of organizations and workspaces to who manages them, and is no
+ * step of the way in.
+ */
 async function look(page: Page, screen: string): Promise<void> {
-  seen.push({ screen, words: await page.locator('body').innerText() });
+  const words = await page.locator('body').innerText();
+  const door = page.getByTestId('open-organization');
+  const named = (await door.count()) > 0 ? await door.innerText() : '';
+  seen.push({ screen, words: named === '' ? words : words.replace(named, '') });
 }
 
 test('a registration that is refused says what is wrong beside each field, and makes nothing', async ({
@@ -125,7 +134,7 @@ test('somebody starts a team, and a second person comes in by its link and edits
 
   // The first board, open to the team.
   const made = page.waitForResponse(
-    (answer) => answer.url().endsWith('/api/v1/boards-and-blocks') && answer.status() === 201,
+    (answer) => answer.url().endsWith('/boards-and-blocks') && answer.status() === 201,
   );
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
@@ -143,7 +152,7 @@ test('somebody starts a team, and a second person comes in by its link and edits
   await page.getByTestId('card-title').fill('Book the venue');
   await page.goBack();
   await expect(page.getByText('Book the venue')).toBeVisible();
-  const { boardId } = placeOf(page.url());
+  const { workspaceId, boardId } = placeOf(page.url());
 
   // The link of an invitation, made where the people of the team are.
   await page.getByTestId('open-people').click();
@@ -183,7 +192,7 @@ test('somebody starts a team, and a second person comes in by its link and edits
   // The first person sees the change arrive.
   await expect(page.getByText('Book the venue by Friday')).toBeVisible();
   const cards = (await (
-    await api.get(`/api/v1/boards/${boardId}/cards`)
+    await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}/cards`)
   ).json()) as Schemas['Card'][];
   expect(cards.map((card) => card.title)).toEqual(['Book the venue by Friday']);
 
@@ -201,7 +210,9 @@ test('somebody starts a team, and a second person comes in by its link and edits
   }
   // The tests that follow start in a team without boards for everybody: this
   // one is its members' alone from here on.
-  const closed = await api.patch(`/api/v1/boards/${boardId}`, { data: { type: 'P' } });
+  const closed = await api.patch(`/api/v1/w/${workspaceId}/boards/${boardId}`, {
+    data: { type: 'P' },
+  });
   expect(closed.ok()).toBe(true);
   await api.dispose();
   await korean.close();

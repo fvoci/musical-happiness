@@ -103,7 +103,9 @@ test('a guest comes in by a link from the share dialog, and opens and edits that
   await shot(guestPage, 'guest-in-the-app');
   // And by its address neither: the other board is not there for a guest.
   const guestApi = await signedIn(base, guest);
-  expect((await guestApi.get(`/api/v1/boards/${other.boardId}`)).status()).toBe(404);
+  expect(
+    (await guestApi.get(`/api/v1/w/${other.workspaceId}/boards/${other.boardId}`)).status(),
+  ).toBe(404);
   await guestPage.reload();
   await expect(guestPage.getByTestId('board-page')).toBeVisible();
 
