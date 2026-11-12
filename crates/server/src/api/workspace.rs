@@ -274,9 +274,11 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
 /// Users of a workspace by their identifiers
 ///
 /// The users with the identifiers of the body, which must name at least one: an empty
-/// list is 400. Every identifier must be of a user the user sees in the workspace, as
-/// `getWorkspaceUsers` has it, and none may be there twice; otherwise the request is
-/// 404. Oldest account first, not in the order of the request.
+/// list is 400. Every identifier must be of a user the user sees in the workspace and
+/// none may be there twice; otherwise the request is 404. The user sees whom
+/// `getWorkspaceUsers` finds, and who created or last changed a card, block or comment
+/// of a board of the workspace they read, also after leaving the workspace. Oldest
+/// account first, not in the order of the request.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/users",

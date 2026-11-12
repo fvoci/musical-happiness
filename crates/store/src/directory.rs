@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{BoardType, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id};
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
@@ -192,9 +192,10 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
 }
 
 /// Pushes `OR` the condition that the user `id` created or last changed a block of a
-/// board the seer reads: one they hold a role on, or an open one of a workspace they
-/// work in; of the workspace `within` names, as far as its [`Reach`] goes, or of any
-/// workspace in use the seer is a member of.
+/// board the seer reads, as the server's `permissions::grant` has it: one they hold a
+/// role on, or an open template of a workspace they work in; of the workspace `within`
+/// names, as far as its [`Reach`] goes, or of any workspace in use the seer is a member
+/// of.
 fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(&str, Reach)>) {
     sql.push(
         " OR EXISTS (SELECT 1 FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
@@ -221,7 +222,10 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     .push(&scope.same_organization(&[("mine", "b")]))
     .push(")");
     if open_where_seer_works {
-        sql.push_bind(" OR (b.type = ", "O")
+        // Read without a role: an open template, for who works in its workspace. An
+        // open board that is none is joined to be read.
+        sql.push_bind(" OR (b.type = ", BoardType::Open.as_str())
+            .push_bind(" AND b.is_template = ", true)
             .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
             .push(")");
     }

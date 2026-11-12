@@ -27,3 +27,8 @@ ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_wall ON audit_log USING (
     org_id = (SELECT NULLIF(current_setting('fvoci.org', true), '')::uuid)
     OR (SELECT current_setting('fvoci.system', true)) = 'on');
+
+-- Who wrote a block, asked for when a user who left a workspace is named where they
+-- wrote (crates/store/src/directory.rs).
+CREATE INDEX blocks_created_by_idx ON blocks (created_by);
+CREATE INDEX blocks_modified_by_idx ON blocks (modified_by);

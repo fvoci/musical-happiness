@@ -14,3 +14,8 @@ CREATE TABLE audit_log (
     create_at BIGINT NOT NULL
 );
 CREATE INDEX audit_log_workspace_id_idx ON audit_log (workspace_id, create_at);
+
+-- Who wrote a block, asked for when a user who left a workspace is named where they
+-- wrote (crates/store/src/directory.rs).
+CREATE INDEX blocks_created_by_idx ON blocks (created_by);
+CREATE INDEX blocks_modified_by_idx ON blocks (modified_by);

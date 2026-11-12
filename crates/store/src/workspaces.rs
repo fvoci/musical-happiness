@@ -217,7 +217,7 @@ async fn every_board(
     ));
     sql.bind(kind == Kind::Templates)
         .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-        .push(" ORDER BY b.create_at, b.id");
+        .push(boards::OLDEST_BOARD_FIRST);
     boards::fetch_boards(scope, sql).await
 }
 
@@ -239,7 +239,7 @@ async fn search_boards_for_user_in_workspace(
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push(members::BM_HAS_A_ROLE)
         .push("))");
-    sql.push(" ORDER BY b.create_at, b.id");
+    sql.push(boards::OLDEST_BOARD_FIRST);
     Ok(boards::with_title_words(
         boards::fetch_boards(scope, sql).await?,
         term,

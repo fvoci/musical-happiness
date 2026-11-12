@@ -187,6 +187,12 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         .get(&format!("/boards/{}/members", board.id))
         .await
         .ok_json();
+    let archive = th
+        .client
+        .get(&format!("/boards/{}/archive/export", board.id))
+        .await;
+    archive.check_ok();
+    let archive = archive_text(&archive.body);
     // The leaver sees nobody but themselves.
     let user1 = th.client.me().await.id;
     let seen_by_leaver = th.client2.get(&format!("/users/{user1}")).await;
@@ -199,6 +205,10 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
     assert!(
         members.iter().all(|member| member.user_id != leaver),
         "the board's members leave out who left: {members:?}"
+    );
+    assert!(
+        !archive.contains(&format!("\"userId\":\"{leaver}\"")),
+        "the archive's members leave out who left"
     );
     seen_by_leaver.check_not_found();
     themselves.check_ok();
@@ -299,4 +309,141 @@ async fn a_guest_editing_an_open_board_adds_nobody() {
         answer(&nobody),
         "a guest learns nothing of who is there"
     );
+}
+
+/// The text of every entry of an archive, one after the other.
+fn archive_text(bytes: &[u8]) -> String {
+    use std::io::Read as _;
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("the export is an archive");
+    let mut text = String::new();
+    for index in 0..archive.len() {
+        archive
+            .by_index(index)
+            .expect("an entry")
+            .read_to_string(&mut text)
+            .expect("an entry of text");
+    }
+    text
+}
+
+/// Ends a user's membership of every workspace of the test server.
+async fn leave_every_workspace(th: &TestServer, user_id: &str) {
+    for workspace_id in [ROOT_WORKSPACE_ID, TEST_WORKSPACE_ID] {
+        th.app
+            .store()
+            .execute_unchecked(&format!(
+                "DELETE FROM workspace_members WHERE user_id = '{user_id}' \
+                 AND workspace_id = '{workspace_id}'"
+            ))
+            .await
+            .expect("the user leaves the workspace");
+    }
+}
+
+/// An open board is read by who joins it: who left after writing on one is named to its
+/// members, and to nobody who works in the workspace without having joined it.
+#[tokio::test]
+async fn who_left_is_named_on_an_open_board_to_its_members_only() {
+    let th = Setup::native().start().await.init_basic().await;
+    let leaver = th.client2.me().await.id;
+    let third = th.add_user("third").await;
+    let open: fvoci_model::Board = th
+        .client
+        .create_board(&new_board(ROOT_WORKSPACE_ID, BoardType::Open, "Open"))
+        .await
+        .created_json();
+    th.client2
+        .post_empty(&format!("/boards/{}/join", open.id))
+        .await
+        .check_ok();
+    th.client2
+        .post(
+            &format!("/boards/{}/cards", open.id),
+            &json!({"title": "Mine"}),
+        )
+        .await
+        .check_created();
+    leave_every_workspace(&th, &leaver).await;
+    let by_id = async |client: &crate::common::Client| {
+        client
+            .post(&format!("/w/{ROOT_WORKSPACE_ID}/users"), &[&leaver])
+            .await
+            .status
+    };
+
+    let before = (
+        by_id(&third).await,
+        third.get(&format!("/users/{leaver}")).await.status,
+    );
+    third
+        .post_empty(&format!("/boards/{}/join", open.id))
+        .await
+        .check_ok();
+    let after = (
+        by_id(&third).await,
+        third.get(&format!("/users/{leaver}")).await.status,
+    );
+    th.teardown().await;
+
+    assert_eq!(before, (StatusCode::NOT_FOUND, StatusCode::NOT_FOUND));
+    assert_eq!(after, (StatusCode::OK, StatusCode::OK));
+}
+
+/// A guest names who wrote on its board, also when they share no role there any more,
+/// and finds them nowhere.
+#[tokio::test]
+async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
+    let th = Setup::native().start().await.init_basic().await;
+    let guest = th.client2.me().await.id;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' WHERE user_id = '{guest}'"
+        ))
+        .await
+        .expect("the second user becomes a guest of every workspace");
+    let writer = th.add_user("writer").await;
+    let writer_id = writer.me().await.id;
+    let board: fvoci_model::Board = th
+        .client
+        .create_board(&new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Ours"))
+        .await
+        .created_json();
+    for (user_id, editor) in [(&guest, false), (&writer_id, true)] {
+        th.client
+            .add_member(&BoardMember {
+                scheme_viewer: !editor,
+                scheme_editor: editor,
+                ..member(&board.id, user_id)
+            })
+            .await
+            .check_ok();
+    }
+    writer
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &json!({"title": "Mine"}),
+        )
+        .await
+        .check_created();
+    th.client
+        .delete(&format!("/boards/{}/members/{writer_id}", board.id))
+        .await
+        .check_no_content();
+
+    let named: Vec<User> = th
+        .client2
+        .post(&format!("/w/{ROOT_WORKSPACE_ID}/users"), &[&writer_id])
+        .await
+        .ok_json();
+    let found: Vec<User> = th
+        .client2
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/users?search=writer"))
+        .await
+        .ok_json();
+    th.teardown().await;
+
+    assert_eq!(names(&named), ["writer"]);
+    assert!(found.is_empty(), "{found:?}");
 }

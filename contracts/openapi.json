@@ -5215,7 +5215,7 @@
     },
     "/api/v1/users": {
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees and none may be there\ntwice; otherwise the request is 404. A user sees who shares with them a workspace\nthey work in (are no guest of), who is on a board with them in a workspace they are\nin, and themselves. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees and none may be there\ntwice; otherwise the request is 404. A user sees who shares with them a workspace\nthey work in (are no guest of), who holds a role with them on a board of a workspace\nboth are in, who created or last changed a card, block or comment of a board they\nread (also after leaving its workspace), and themselves. Oldest account first, not in\nthe order of the request.",
         "operationId": "getUsers",
         "requestBody": {
           "content": {
@@ -6781,7 +6781,7 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees in the workspace, as\n`getWorkspaceUsers` has it, and none may be there twice; otherwise the request is\n404. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees in the workspace and\nnone may be there twice; otherwise the request is 404. The user sees whom\n`getWorkspaceUsers` finds, and who created or last changed a card, block or comment\nof a board of the workspace they read, also after leaving the workspace. Oldest\naccount first, not in the order of the request.",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {

@@ -1064,8 +1064,10 @@ export interface paths {
          * @description The users with the identifiers of the body, which must name at least one: an empty
          *     list is 400. Every identifier must be of a user the user sees and none may be there
          *     twice; otherwise the request is 404. A user sees who shares with them a workspace
-         *     they work in (are no guest of), who is on a board with them in a workspace they are
-         *     in, and themselves. Oldest account first, not in the order of the request.
+         *     they work in (are no guest of), who holds a role with them on a board of a workspace
+         *     both are in, who created or last changed a card, block or comment of a board they
+         *     read (also after leaving its workspace), and themselves. Oldest account first, not in
+         *     the order of the request.
          */
         post: operations["getUsers"];
         delete?: never;
@@ -1716,9 +1718,11 @@ export interface paths {
         /**
          * Users of a workspace by their identifiers
          * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be of a user the user sees in the workspace, as
-         *     `getWorkspaceUsers` has it, and none may be there twice; otherwise the request is
-         *     404. Oldest account first, not in the order of the request.
+         *     list is 400. Every identifier must be of a user the user sees in the workspace and
+         *     none may be there twice; otherwise the request is 404. The user sees whom
+         *     `getWorkspaceUsers` finds, and who created or last changed a card, block or comment
+         *     of a board of the workspace they read, also after leaving the workspace. Oldest
+         *     account first, not in the order of the request.
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;

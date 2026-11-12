@@ -21,7 +21,7 @@ use crate::{members, subscriptions};
 
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
-const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
+pub(crate) const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
 
 /// The name of every board column, in the order rows are written.
 const BOARD_COLUMNS: &str = "id, workspace_id, created_by, modified_by, type, minimum_role, title, \
