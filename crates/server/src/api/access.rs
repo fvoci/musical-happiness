@@ -7,7 +7,7 @@ use fvoci_model::{Block, BlockPatch, BlockType, Workspace};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::{BoardPermission, Grant};
+use crate::permissions::{self, BoardPermission, CommentAction, Grant};
 
 /// Checks that the user is an administrator of the instance.
 ///
@@ -73,22 +73,35 @@ pub(crate) fn refusal(grant: Grant, denial: &str) -> AppError {
 /// What a user does to a block, which a comment of somebody else lets only the board's
 /// admins do, each refused in its own words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BlockAction {
+pub(crate) enum BlockAction<'a> {
     /// Change it (`patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`).
     Change,
     /// Delete it (`deleteBlock`, `deleteBoardsAndBlocks`).
     Delete,
-    /// Bring it back from the trash (`undeleteBlock`).
-    Undelete,
+    /// Bring it back from the trash (`undeleteBlock`), where the deletion of
+    /// `deleted_by` put it.
+    Undelete {
+        /// Who deleted it; empty if nobody did.
+        deleted_by: &'a str,
+    },
 }
 
-impl BlockAction {
+impl<'a> BlockAction<'a> {
     /// The refusal of this to a comment of somebody else.
     fn others_comments_denial(self) -> &'static str {
         match self {
             Self::Change => "access denied to change other users' comments",
             Self::Delete => "access denied to delete other users' comments",
-            Self::Undelete => "access denied to undelete other users' comments",
+            Self::Undelete { .. } => "access denied to undelete other users' comments",
+        }
+    }
+
+    /// What it is to a comment.
+    fn on_comment(self) -> CommentAction<'a> {
+        match self {
+            Self::Change => CommentAction::Change,
+            Self::Delete => CommentAction::Delete,
+            Self::Undelete { deleted_by } => CommentAction::Undelete { deleted_by },
         }
     }
 }
@@ -103,7 +116,7 @@ pub(crate) async fn require_block_permission(
     app: &App,
     user_id: &str,
     block: &Block,
-    action: BlockAction,
+    action: BlockAction<'_>,
     denial: &str,
 ) -> Result<(), AppError> {
     let (permission, denial) = block_permission(user_id, block, action, denial);
@@ -115,7 +128,7 @@ pub(crate) async fn require_block_permission(
 fn block_permission<'a>(
     user_id: &str,
     block: &Block,
-    action: BlockAction,
+    action: BlockAction<'_>,
     denial: &'a str,
 ) -> (BoardPermission, &'a str) {
     match block.block_type {
@@ -195,7 +208,7 @@ pub(crate) async fn require_deletion_permission(
     user_id: &str,
     top: &Block,
     below: &[Block],
-    action: BlockAction,
+    action: BlockAction<'_>,
     denial: &str,
 ) -> Result<(), AppError> {
     let replies = if top.block_type == BlockType::Comment {
@@ -211,22 +224,27 @@ pub(crate) async fn require_deletion_permission(
     Ok(())
 }
 
-/// The permission that doing `action` to a comment, or making the block one, needs,
-/// and the refusal without it: `denial` for the author, the action's own words for
-/// anybody else.
+/// The permission that doing `action` to a comment, or making the block one, needs
+/// ([`permissions::comment_permission`]), and the refusal without it: `denial` for the
+/// author, the action's own words for anybody else, and for the author of a comment
+/// somebody else deleted that it is the board's admins' to bring back.
 fn comment_permission<'a>(
     user_id: &str,
     block: &Block,
-    action: BlockAction,
+    action: BlockAction<'_>,
     denial: &'a str,
 ) -> (BoardPermission, &'a str) {
-    if block.created_by == user_id {
-        (BoardPermission::CommentBoardCards, denial)
-    } else {
+    let permission =
+        permissions::comment_permission(user_id, &block.created_by, action.on_comment());
+    if permission == BoardPermission::CommentBoardCards {
+        (permission, denial)
+    } else if block.created_by == user_id {
         (
-            BoardPermission::ManageOthersComments,
-            action.others_comments_denial(),
+            permission,
+            "a comment somebody else deleted is brought back by the board's admins",
         )
+    } else {
+        (permission, action.others_comments_denial())
     }
 }
 

@@ -247,6 +247,43 @@ impl Grant {
     }
 }
 
+/// What a user does to a comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentAction<'a> {
+    /// Change it.
+    Change,
+    /// Delete it.
+    Delete,
+    /// Bring it back from the trash, where it went by the deletion of `deleted_by`
+    /// (empty if nobody's).
+    Undelete {
+        /// Who deleted it.
+        deleted_by: &'a str,
+    },
+}
+
+/// The permission doing `action` to a comment of `author_id` takes of `user_id`: a
+/// comment is its author's to change and delete, and to bring back if they deleted it
+/// themselves ([`BoardPermission::CommentBoardCards`]); a comment of somebody else, and
+/// one of their own that somebody else deleted, is the board's admins'
+/// ([`BoardPermission::ManageOthersComments`]).
+#[must_use]
+pub fn comment_permission(
+    user_id: &str,
+    author_id: &str,
+    action: CommentAction<'_>,
+) -> BoardPermission {
+    let undoes_their_own = match action {
+        CommentAction::Change | CommentAction::Delete => true,
+        CommentAction::Undelete { deleted_by } => deleted_by == user_id,
+    };
+    if author_id == user_id && undoes_their_own {
+        BoardPermission::CommentBoardCards
+    } else {
+        BoardPermission::ManageOthersComments
+    }
+}
+
 /// What a role on a board lets its holder do, each role all that the one below it may.
 const fn role_grant(role: BoardRole) -> Grant {
     use BoardPermission::{

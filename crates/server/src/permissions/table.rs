@@ -572,3 +572,83 @@ fn a_role_is_the_highest_of_its_flags() {
         Some(BoardRole::Admin)
     );
 }
+
+/// A comment is its author's to change, delete, and bring back if they deleted it; one
+/// of somebody else, or one of theirs that somebody else deleted, is the board's
+/// admins'. `(case, user, author, action, permission it takes)`.
+#[test]
+fn a_comment_is_brought_back_by_who_may_undo_its_deletion() {
+    use super::{CommentAction, comment_permission};
+    let rows = [
+        (
+            "the author changes it",
+            "ann",
+            "ann",
+            CommentAction::Change,
+            CommentBoardCards,
+        ),
+        (
+            "the author deletes it",
+            "ann",
+            "ann",
+            CommentAction::Delete,
+            CommentBoardCards,
+        ),
+        (
+            "the author brings back what they deleted",
+            "ann",
+            "ann",
+            CommentAction::Undelete { deleted_by: "ann" },
+            CommentBoardCards,
+        ),
+        (
+            "the author does not bring back what an admin deleted",
+            "ann",
+            "ann",
+            CommentAction::Undelete { deleted_by: "bob" },
+            ManageOthersComments,
+        ),
+        (
+            "nor what nobody deleted",
+            "ann",
+            "ann",
+            CommentAction::Undelete { deleted_by: "" },
+            ManageOthersComments,
+        ),
+        (
+            "somebody else's is changed by an admin",
+            "bob",
+            "ann",
+            CommentAction::Change,
+            ManageOthersComments,
+        ),
+        (
+            "somebody else's is deleted by an admin",
+            "bob",
+            "ann",
+            CommentAction::Delete,
+            ManageOthersComments,
+        ),
+        (
+            "an admin brings back what they deleted",
+            "bob",
+            "ann",
+            CommentAction::Undelete { deleted_by: "bob" },
+            ManageOthersComments,
+        ),
+        (
+            "an admin brings back what its author deleted",
+            "bob",
+            "ann",
+            CommentAction::Undelete { deleted_by: "ann" },
+            ManageOthersComments,
+        ),
+    ];
+    for (case, user, author, action, permission) in rows {
+        assert_eq!(
+            comment_permission(user, author, action),
+            permission,
+            "{case}"
+        );
+    }
+}

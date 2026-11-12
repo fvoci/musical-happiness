@@ -426,8 +426,8 @@ async fn handle_delete_block(
 /// it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
 /// may no longer hold it (a comment off a card, a block below a comment): 409. For who may
 /// delete what comes back, as `deleteBlock` has it: editors, a comment its author from
-/// the commenter's role up, and a comment of somebody else the board's admins only
-/// (403, `access denied to undelete other users' comments`). What decides is what was
+/// the commenter's role up if they deleted it themselves, and a comment of somebody
+/// else, or one somebody else deleted, the board's admins only (403). What decides is what was
 /// deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
 /// so a block below somebody else's comment is brought back by the admins only, and a
 /// card alone, so a comment that went with its card comes back for whoever may bring
@@ -467,13 +467,17 @@ async fn handle_undelete_block(
         return Err(AppError::not_found("block"));
     };
     // Only who may delete it brings it back, as it was deleted: from the block at the
-    // top (a block below somebody else's comment brings that comment back).
+    // top (a block below somebody else's comment brings that comment back). A comment
+    // somebody else deleted is not its author's to bring back, but the board's admins'.
+    let deleted_by = app.deleted_by(&top.id).await?;
     require_deletion_permission(
         &app,
         user_id,
         top,
         below,
-        BlockAction::Undelete,
+        BlockAction::Undelete {
+            deleted_by: &deleted_by,
+        },
         CHANGES_DENIED,
     )
     .await?;

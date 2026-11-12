@@ -277,8 +277,8 @@ export interface paths {
          *     it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
          *     may no longer hold it (a comment off a card, a block below a comment): 409. For who may
          *     delete what comes back, as `deleteBlock` has it: editors, a comment its author from
-         *     the commenter's role up, and a comment of somebody else the board's admins only
-         *     (403, `access denied to undelete other users' comments`). What decides is what was
+         *     the commenter's role up if they deleted it themselves, and a comment of somebody
+         *     else, or one somebody else deleted, the board's admins only (403). What decides is what was
          *     deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
          *     so a block below somebody else's comment is brought back by the admins only, and a
          *     card alone, so a comment that went with its card comes back for whoever may bring
