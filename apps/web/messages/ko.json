@@ -228,7 +228,7 @@
   "editor_math_invalid": "수식을 그릴 수 없습니다.",
   "editor_math_too_long": "수식이 너무 길어 그리지 않았습니다.",
   "editor_math_too_large": "수식이 너무 커서 원문으로 보여 줍니다.",
-  "editor_math_not_drawn": "수식이 많아 다 그리지 않고 원문으로 보여 줍니다.",
+  "editor_math_not_drawn": "수식을 그리는 데 시간이 오래 걸려 그리지 않고 원문으로 보여 줍니다.",
   "editor_diagram_label": "다이어그램",
   "editor_diagram_invalid": "다이어그램을 그릴 수 없습니다.",
   "editor_diagram_too_long": "다이어그램 원문이 너무 길어 그리지 않았습니다.",

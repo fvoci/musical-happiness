@@ -154,7 +154,7 @@ describe('a formula in the view', () => {
       // Its source, and a line that says it was not drawn, read where it stands.
       expect(slot.firstChild?.nodeValue).toBe(sources[index + drawn]);
       expect(slot.querySelector('[role="note"]')?.textContent).toBe(
-        'Not drawn: there are too many formulas here to draw them all.',
+        'Not drawn: drawing the formulas here took too long.',
       );
       expect(slot.querySelector('.katex')).toBeNull();
     }
