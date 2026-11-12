@@ -20,7 +20,7 @@ import { tick } from 'svelte';
 import { newCardProperties } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
 import type { BoardView, PropertyTemplate } from '$lib/logic/wire.ts';
-import type { BoardStore } from '$lib/state/index.ts';
+import { whileHere, type BoardStore } from '$lib/state/index.ts';
 
 interface Context {
   board: BoardStore;
@@ -68,7 +68,7 @@ export class CardMaker {
     try {
       const { board, view, templates, template } = this.#context();
       const properties = newCardProperties(view.fields.filter, templates, template, date);
-      const card = await board.createCard({ properties });
+      const card = await whileHere(board, () => board.createCard({ properties }));
       if (!card) return;
       this.#hooks.select(date);
       await tick();

@@ -23,7 +23,7 @@
   import { badgesOf, faceContextOf } from '../kanban/board-data.ts';
   import CardMenu from '../kanban/CardMenu.svelte';
   import type { ViewProps } from '../props.ts';
-  import { CardPreviews } from '$lib/state/index.ts';
+  import { CardPreviews, whileHere } from '$lib/state/index.ts';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 
@@ -43,7 +43,7 @@
       view.fields.filter,
       board.board.cardProperties,
     );
-    const card = await board.createCard({ properties });
+    const card = await whileHere(board, () => board.createCard({ properties }));
     if (card) onOpenCard(card.id);
   }
 

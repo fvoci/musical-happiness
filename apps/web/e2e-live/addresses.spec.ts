@@ -27,9 +27,14 @@ test.use({ locale: 'en-US' });
 
 const NOT_THERE = '01930000-0000-7000-8000-00000000ffff';
 
+/**
+ * Signs out, and waits for the page to start again at the root: the sign-in
+ * form may show a moment before that, still at the address of the one before.
+ */
 async function signOut(page: Page): Promise<void> {
   await page.getByTestId('open-settings').click();
   await page.getByTestId('settings-dialog').getByRole('button', { name: 'Sign out' }).click();
+  await page.waitForURL((url) => url.pathname === '/');
   await expect(page.getByTestId('sign-in-form')).toBeVisible();
 }
 
@@ -241,4 +246,58 @@ test('the workspace kept on this browser is each person’s own', async ({ page,
   await signInOnPage(page, who);
   await expect(page).toHaveURL(new RegExp(`${boardPath(there, there.viewId)}$`));
   expect(board.workspaceId).not.toBe(second);
+});
+
+test('a board made in a workspace that was left meanwhile does not take the reader back to it', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const who = person('late-board');
+  await register(base, who);
+  const second = addWorkspace(base, who, 'Second');
+  const api = await signedIn(base, who);
+  const home = await makeBoard(api, { title: 'Home board' });
+  const word = `away${Date.now().toString(36)}`;
+  const away = await makeBoard(api, { title: word, workspaceId: second });
+  await api.dispose();
+  await page.goto(boardPath(home, home.viewId));
+  await signInOnPage(page, who);
+  await expect(page.getByTestId('board-page')).toBeVisible();
+
+  // The answer to making a board is held until the reader is in the other workspace.
+  let received = (): void => undefined;
+  const started = new Promise<void>((resolve) => {
+    received = resolve;
+  });
+  let release = (): void => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/v1/boards-and-blocks', async (route) => {
+    received();
+    await held;
+    await route.continue();
+  });
+  try {
+    await sidebar(page).getByTestId('add-board').click();
+    await page.getByTestId('template-picker').getByTestId('empty-board').click();
+    await started;
+
+    await sidebar(page).getByTestId('sidebar-search').fill(word);
+    await boardLink(page, word).click();
+    await expect(page).toHaveURL(new RegExp(`${boardPath(away, away.viewId)}$`));
+    await expect(page.getByTestId('board-page')).toBeVisible();
+
+    const answered = page.waitForResponse((response) =>
+      response.url().endsWith('/api/v1/boards-and-blocks'),
+    );
+    release();
+    expect((await answered).status()).toBe(201);
+    await page.waitForLoadState('networkidle');
+    await expect(page).toHaveURL(new RegExp(`${boardPath(away, away.viewId)}$`));
+    await expect(boardLink(page, 'Home board')).toHaveCount(0);
+  } finally {
+    release();
+  }
 });

@@ -1,5 +1,7 @@
 /** Addresses: a board, a view and a card under the base path the server names. */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import * as back from '$lib/layout/back.svelte.ts';
 
 import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
 import { parseRoute, readBasePath, routePath, Router } from '../../../src/app/router.svelte.ts';
@@ -170,6 +172,20 @@ describe('moving about', () => {
     window.dispatchEvent(new PopStateEvent('popstate'));
     expect(router.route).toMatchObject({ workspaceId: 't2', boardId: 'x' });
     stop();
+  });
+
+  it('loads the page anew at a route, and what is open over it gives no step back', () => {
+    const router = new Router('app');
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign });
+    try {
+      const released = vi.spyOn(back, 'releaseOverlayEntries');
+      router.restart({});
+      expect(released).toHaveBeenCalledOnce();
+      expect(assign).toHaveBeenCalledWith('/app/');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('makes links that keep the base path', () => {
