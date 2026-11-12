@@ -1044,8 +1044,10 @@ export interface paths {
         /**
          * Users by their identifiers
          * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be a user's and none may be there twice;
-         *     otherwise the request is 404. Oldest account first, not in the order of the request.
+         *     list is 400. Every identifier must be of a user the user sees and none may be there
+         *     twice; otherwise the request is 404. A user sees who shares with them a workspace
+         *     they work in (are no guest of), who is on a board with them in a workspace they are
+         *     in, and themselves. Oldest account first, not in the order of the request.
          */
         post: operations["getUsers"];
         delete?: never;
@@ -1212,7 +1214,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A user */
+        /**
+         * A user
+         * @description A user the user sees, as `getUsers` has it; anybody else is 404, as one who does not
+         *     exist.
+         */
         get: operations["getUser"];
         put?: never;
         post?: never;
@@ -1675,17 +1681,20 @@ export interface paths {
         };
         /**
          * The users of a workspace
-         * @description Up to ten users: with `search` those whose login name or display name has that text
-         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
-         *     account first.
+         * @description Up to ten of the users the user sees in the workspace: whoever works there sees its
+         *     members and who is on a board of it with them, a guest only who is on a board of it
+         *     with them; and the user. With `search` those whose login name or display name has
+         *     that text in it, whatever the case of the letters, without it the ten oldest
+         *     accounts. Oldest account first.
          */
         get: operations["getWorkspaceUsers"];
         put?: never;
         /**
          * Users of a workspace by their identifiers
          * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be a user's and none may be there twice;
-         *     otherwise the request is 404. Oldest account first, not in the order of the request.
+         *     list is 400. Every identifier must be of a user the user sees in the workspace, as
+         *     `getWorkspaceUsers` has it, and none may be there twice; otherwise the request is
+         *     404. Oldest account first, not in the order of the request.
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;
@@ -5794,7 +5803,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5826,7 +5835,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;

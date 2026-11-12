@@ -10,6 +10,7 @@
 //! sentence of what the product promises.
 
 use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, WorkspaceRole};
+use fvoci_store::Reach;
 
 #[cfg(test)]
 mod table;
@@ -252,6 +253,17 @@ pub const fn highest_board_role(workspace_role: WorkspaceRole) -> BoardRole {
 #[must_use]
 pub fn may_hold(workspace_role: WorkspaceRole, role: BoardRole) -> bool {
     role <= highest_board_role(workspace_role)
+}
+
+/// Whom a member of a workspace, in `workspace_role`, sees of its people in lists,
+/// searches and profiles: whoever works there sees its members, and a guest who is on
+/// a board with them.
+#[must_use]
+pub const fn people_reach(workspace_role: WorkspaceRole) -> Reach {
+    match workspace_role {
+        WorkspaceRole::Admin | WorkspaceRole::Member => Reach::Workspace,
+        WorkspaceRole::Guest => Reach::SharedBoards,
+    }
 }
 
 /// What the user may do on the board.

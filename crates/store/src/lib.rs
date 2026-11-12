@@ -47,7 +47,7 @@ pub use category_boards::{BoardPlace, BoardVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use db::Dialect;
-pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
+pub use directory::{Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Sight, WorkspaceAccess};
 pub use error::{StoreError, Taken};
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};

@@ -15,7 +15,7 @@ use utoipa_axum::routes;
 use super::contract::params::{MemberWorkspaceId, UserSearch, WorkspaceId};
 use super::contract::tag;
 use super::session::session_of;
-use super::{ApiResult, RequiredSession, decode_json, json_response, query_param, user_is_guest};
+use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -227,37 +227,45 @@ async fn handle_get_workspace(WorksIn(ws): WorksIn) -> ApiResult {
 
 /// The users of a workspace
 ///
-/// Up to ten users: with `search` those whose login name or display name has that text
-/// in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
-/// account first.
+/// Up to ten of the users the user sees in the workspace: whoever works there sees its
+/// members and who is on a board of it with them, a guest only who is on a board of it
+/// with them; and the user. With `search` those whose login name or display name has
+/// that text in it, whatever the case of the letters, without it the ten oldest
+/// accounts. Oldest account first.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsers",
     tag = tag::WORKSPACES,
-    params(WorkspaceId, UserSearch),
+    params(MemberWorkspaceId, UserSearch),
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_workspace_users(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
     let search_query = query_param(query.as_deref(), "search");
-    // There are no guests to treat differently, but the user must exist.
-    user_is_guest(&ws.app, &ws.session.user_id).await?;
     Ok(json_response(
-        &ws.app.search_workspace_users(&search_query).await?,
+        &ws.app
+            .search_users_in_workspace(
+                &ws.session.user_id,
+                &ws.workspace_id,
+                ws.role,
+                &search_query,
+            )
+            .await?,
     ))
 }
 
 /// Users of a workspace by their identifiers
 ///
 /// The users with the identifiers of the body, which must name at least one: an empty
-/// list is 400. Every identifier must be a user's and none may be there twice;
-/// otherwise the request is 404. Oldest account first, not in the order of the request.
+/// list is 400. Every identifier must be of a user the user sees in the workspace, as
+/// `getWorkspaceUsers` has it, and none may be there twice; otherwise the request is
+/// 404. Oldest account first, not in the order of the request.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsersById",
     tag = tag::WORKSPACES,
-    params(WorkspaceId),
+    params(MemberWorkspaceId),
     request_body = Vec<String>,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
@@ -269,11 +277,13 @@ async fn handle_get_workspace_users_by_id(
 ) -> ApiResult {
     // The body is read before the workspace is asked for, as it always was.
     let user_ids: Vec<String> = decode_json(&body)?;
-    let ws = Ws::enter(&app, session, workspace_id)
-        .await?
-        .require_works_there()?;
+    let ws = Ws::enter(&app, session, workspace_id).await?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
     }
-    Ok(json_response(&ws.app.users_list(&user_ids).await?))
+    let users = ws
+        .app
+        .users_in_workspace(&ws.session.user_id, &ws.workspace_id, ws.role, &user_ids)
+        .await?;
+    Ok(json_response(&users))
 }

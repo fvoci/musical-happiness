@@ -5171,7 +5171,7 @@
     },
     "/api/v1/users": {
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees and none may be there\ntwice; otherwise the request is 404. A user sees who shares with them a workspace\nthey work in (are no guest of), who is on a board with them in a workspace they are\nin, and themselves. Oldest account first, not in the order of the request.",
         "operationId": "getUsers",
         "requestBody": {
           "content": {
@@ -5579,6 +5579,7 @@
     },
     "/api/v1/users/{userId}": {
       "get": {
+        "description": "A user the user sees, as `getUsers` has it; anybody else is 404, as one who does not\nexist.",
         "operationId": "getUser",
         "parameters": [
           {
@@ -6676,11 +6677,11 @@
     },
     "/api/v1/w/{workspaceId}/users": {
       "get": {
-        "description": "Up to ten users: with `search` those whose login name or display name has that text\nin it, whatever the case of the letters, without it the ten oldest accounts. Oldest\naccount first.",
+        "description": "Up to ten of the users the user sees in the workspace: whoever works there sees its\nmembers and who is on a board of it with them, a guest only who is on a board of it\nwith them; and the user. With `search` those whose login name or display name has\nthat text in it, whatever the case of the letters, without it the ten oldest\naccounts. Oldest account first.",
         "operationId": "getWorkspaceUsers",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6729,11 +6730,11 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees in the workspace, as\n`getWorkspaceUsers` has it, and none may be there twice; otherwise the request is\n404. Oldest account first, not in the order of the request.",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,

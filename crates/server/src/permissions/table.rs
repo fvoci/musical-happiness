@@ -420,6 +420,17 @@ fn a_guest_is_given_no_more_than_editor() {
 }
 
 #[test]
+fn a_guest_sees_of_the_people_who_is_on_its_boards() {
+    use fvoci_store::Reach;
+    assert_eq!(
+        super::people_reach(WorkspaceRole::Guest),
+        Reach::SharedBoards
+    );
+    assert_eq!(super::people_reach(WorkspaceRole::Member), Reach::Workspace);
+    assert_eq!(super::people_reach(WorkspaceRole::Admin), Reach::Workspace);
+}
+
+#[test]
 fn a_role_is_the_highest_of_its_flags() {
     use fvoci_model::BoardMember;
     let member = |admin, editor, commenter, viewer| BoardMember {

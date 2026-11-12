@@ -33,6 +33,7 @@ mod metrics_outcomes;
 mod onboarding;
 mod organizations;
 mod paths;
+mod people;
 mod properties;
 mod readiness;
 mod reconcile;

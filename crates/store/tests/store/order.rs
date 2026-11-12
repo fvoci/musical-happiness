@@ -13,9 +13,9 @@
 
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardSearchField, BoardType, Category, SubscriberType,
-    Subscription, User, new_id,
+    Subscription, User, WorkspaceRole, new_id,
 };
-use fvoci_store::{Paging, PublicBoards, Store};
+use fvoci_store::{Paging, PublicBoards, Reach, Sight, Store};
 
 use crate::common::{self, TestStore};
 
@@ -277,20 +277,32 @@ async fn users_come_oldest_first() {
         "users by identifier, whatever order they are asked for in"
     );
 
+    // The search is of the users who share a workspace with the one who searches.
+    let workspace_id = common::workspace_of(store, &[&first, &second, &third]).await;
+    let sight = Sight::InWorkspace {
+        seer_id: &first,
+        workspace_id: &workspace_id,
+        reach: Reach::Workspace,
+    };
     let found = store
-        .search_users_by_workspace("order-")
+        .search_users_in_sight(sight, "order-")
         .await
         .expect("the users are searched");
     assert_eq!(user_ids(&found), expected, "a search");
 
     let mut many = Vec::new();
     for index in 0..12 {
-        many.push(common::user(store, &format!("many-{index:02}")).await);
+        let user_id = common::user(store, &format!("many-{index:02}")).await;
+        store
+            .add_workspace_member(&workspace_id, &user_id, WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the workspace");
+        many.push(user_id);
     }
     // The two made last are the oldest.
     set_create_at(&test, "users", &[(&many[11], 10), (&many[10], 20)]).await;
     let found = store
-        .search_users_by_workspace("many-")
+        .search_users_in_sight(sight, "many-")
         .await
         .expect("the users are searched");
     let mut oldest_ten = vec![many[11].as_str(), many[10].as_str()];
