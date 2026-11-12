@@ -8,7 +8,7 @@ use axum::body::Bytes;
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
-use fvoci_model::{Board, Session, User, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{Board, OrgRole, Session, User, UserWorkspace, Workspace, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -18,6 +18,7 @@ use super::session::session_of;
 use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
+use crate::permissions::Actor;
 
 /// The path parameter that names the workspace of a route.
 const WORKSPACE_ID: &str = "workspaceId";
@@ -51,6 +52,8 @@ pub(crate) struct Ws {
     pub(crate) workspace_id: String,
     /// What the user is in the workspace.
     pub(crate) role: WorkspaceRole,
+    /// What the user is in the workspace's organization, if a member of it.
+    org_role: Option<OrgRole>,
     /// Whether the workspace is in the organization the server stands in, the one the
     /// routes that name no workspace work in.
     home: bool,
@@ -111,8 +114,18 @@ impl Ws {
             session,
             workspace_id,
             role: entered.role,
+            org_role: entered.org_role,
             home: entered.home,
         })
+    }
+
+    /// What the user is in the workspace and its organization: the facts of what they
+    /// may do there (`permissions`).
+    pub(crate) fn actor(&self) -> Actor {
+        Actor {
+            org: self.org_role,
+            workspace: Some(self.role),
+        }
     }
 
     /// The workspace for one who works in it: a member who is no guest. A guest of the
@@ -222,7 +235,7 @@ async fn handle_get_workspace_boards(ws: Ws) -> ApiResult {
 
 /// A workspace
 ///
-/// The signup token, which lets in whoever has it, is there for administrators only.
+/// Its name, and whether the admins of its boards may invite guests to them.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}",
@@ -232,12 +245,7 @@ async fn handle_get_workspace_boards(ws: Ws) -> ApiResult {
     responses((status = 200, description = "The workspace.", body = Workspace)),
 )]
 async fn handle_get_workspace(WorksIn(ws): WorksIn) -> ApiResult {
-    let mut workspace = ws.app.workspace(&ws.workspace_id).await?;
-    // The signup token lets anyone in who has it: it is for the administrators, who
-    // hand it on, and is left out for everybody else.
-    if !ws.app.user(&ws.session.user_id).await?.is_admin {
-        workspace.signup_token.clear();
-    }
+    let workspace = ws.app.workspace(&ws.workspace_id).await?;
     Ok(json_response(&workspace))
 }
 

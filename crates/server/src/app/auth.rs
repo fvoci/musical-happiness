@@ -3,8 +3,10 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{MAXIMUM_PASSWORD_BYTES, RegisterRequest, Session, User, new_id};
-use fvoci_store::{StoreError, Taken};
+use fvoci_model::{
+    MAXIMUM_PASSWORD_BYTES, NewAccount, RegisterRequest, Session, User, new_id, team_name,
+};
+use fvoci_store::{Founding, StoreError, Taken};
 
 use super::App;
 use crate::auth::hash_queue::QueueError;
@@ -14,15 +16,6 @@ use crate::auth::password::{Verdict, hash_password, verify_against_no_account, v
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, ErrorKind, Reason};
 use crate::metrics::{LoginOutcome, Metrics};
-
-/// What a registration came with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Admission {
-    /// The workspace's signup token, which the caller has checked.
-    WithToken,
-    /// Nothing: only the first user of the instance gets in so.
-    FirstUserOnly,
-}
 
 impl App {
     /// Checks a user's password and returns the token of a new session. The token is
@@ -256,73 +249,119 @@ impl App {
         Ok(self.store().get_registered_user_count().await?)
     }
 
-    /// Creates a user and returns them. The caller has checked the request and, if the
-    /// registration came with a signup token, the token. The first user of the instance
-    /// becomes its administrator.
+    /// Whether a registration can be taken at all: on a server that takes several
+    /// organizations always, on one that takes one until it has its first user.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the instance cannot be read.
+    pub async fn takes_registrations(&self) -> Result<bool, AppError> {
+        Ok(self.config().takes_several_organizations() || !self.store().is_bootstrapped().await?)
+    }
+
+    /// Makes the account of somebody who signs up with the name of their team, and the
+    /// team, and returns the account: the user administers the organization and its
+    /// first workspace, which both have the team's name. The first user of the instance
+    /// takes the organization the server started with, and administers the instance;
+    /// everybody after starts a new organization, where the server takes several. The
+    /// caller has checked the request.
     ///
     /// # Errors
     ///
     /// Returns a conflict error if the name or the email address is taken, in any letter
-    /// case; a permission error (reason `signup_token_required`) if the registration
-    /// came without a token and is not the first; and the store's error if the user
-    /// cannot be stored.
-    pub async fn register_user(
+    /// case; a permission error (reason `invitation_required`) if the instance has its
+    /// first user and takes one organization; a 429 if there are too many registrations
+    /// from the address; and the store's error if the user cannot be stored.
+    pub async fn sign_up(
         &self,
         request: &RegisterRequest,
-        admission: Admission,
         address: Option<IpAddr>,
     ) -> Result<User, AppError> {
-        let username = request.username.as_str();
-        let email = request.email.as_str();
         // A registration costs a hash like a login, and is counted against where it
         // comes from like one. The turn is held until the user is stored.
-        let _attempt = self
-            .login_limiter()
+        let _attempt = self.admit_registration(address)?;
+        let team = team_name(&request.team_name)?;
+        let mut user = self.new_account(&request.account().tidied()).await?;
+        let mut stored = if self.store().is_bootstrapped().await? {
+            Err(StoreError::NotFirstUser)
+        } else {
+            self.store()
+                .sign_up(&mut user, &team, Founding::First)
+                .await
+        };
+        // Another registration was first after all, or one was long ago: a team of
+        // its own, in an organization of its own, where the server takes several.
+        if matches!(stored, Err(StoreError::NotFirstUser))
+            && self.config().takes_several_organizations()
+        {
+            let founding = Founding::New {
+                workspace_id: &new_id(),
+            };
+            stored = match self.store().for_org(&new_id()) {
+                Ok(store) => store.sign_up(&mut user, &team, founding).await,
+                Err(error) => Err(error),
+            };
+        }
+        match stored {
+            Ok(workspace_id) => {
+                self.metrics().registered();
+                tracing::info!(
+                    user_id = %user.id,
+                    workspace_id,
+                    first = user.is_admin,
+                    "a user signed up and started a team"
+                );
+                Ok(user)
+            }
+            Err(error) => Err(account_error(error)),
+        }
+    }
+
+    /// Asks whether a registration from `address` may go ahead now, and holds its
+    /// turn: of the registrations of an address, with a team or by an invitation, one
+    /// is under way at a time.
+    pub(crate) fn admit_registration(
+        &self,
+        address: Option<IpAddr>,
+    ) -> Result<crate::auth::limiter::Attempt, AppError> {
+        self.login_limiter()
             .admit_registration(address, Instant::now())
-            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))
+    }
+
+    /// The account `account` asks for, not stored yet: under a new identifier, with
+    /// the hash of its password. The caller has checked and tidied the request
+    /// (`NewAccount::validate`, `NewAccount::tidied`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a conflict error if the name or the email address is taken, in any letter
+    /// case, and a 429 if the server has too much password work to do.
+    pub(crate) async fn new_account(&self, account: &NewAccount) -> Result<User, AppError> {
         // Asked first so that a taken name costs no hash. Two registrations at once
         // both pass these, and then the unique indexes decide: the same conflict.
         if self
-            .find_user_for_login(Lookup::Username(username))
+            .find_user_for_login(Lookup::Username(&account.username))
             .await?
             .is_some()
         {
             return Err(username_taken());
         }
         if self
-            .find_user_for_login(Lookup::Email(email))
+            .find_user_for_login(Lookup::Email(&account.email))
             .await?
             .is_some()
         {
             return Err(email_taken());
         }
-
-        let mut user = User {
+        Ok(User {
             id: new_id(),
-            username: username.to_owned(),
-            email: email.to_owned(),
-            display_name: request.display_name.clone(),
-            password_hash: self.hash(&request.password).await?,
+            username: account.username.clone(),
+            email: account.email.clone(),
+            display_name: account.display_name.clone(),
+            password_hash: self.hash(&account.password).await?,
             ..User::default()
-        };
-        let stored = match admission {
-            Admission::WithToken => self.store().create_user(&mut user).await,
-            Admission::FirstUserOnly => self.store().create_first_user(&mut user).await,
-        };
-        match stored {
-            Ok(()) => {
-                self.metrics().registered();
-                if user.is_admin {
-                    tracing::info!(user_id = %user.id, "the first user is the administrator");
-                }
-                Ok(user)
-            }
-            Err(StoreError::Conflict(Taken::Email)) => Err(email_taken()),
-            Err(StoreError::Conflict(Taken::Username)) => Err(username_taken()),
-            // Another registration without a token was first after all.
-            Err(error @ StoreError::NotFirstUser) => Err(error.into()),
-            Err(error) => Err(AppError::from(error).context("Unable to create the new user")),
-        }
+        })
     }
 
     /// Sets the password of the user with the given name, ends that user's sessions and
@@ -445,6 +484,16 @@ impl Drop for LoginEnding<'_> {
 /// The refusal of a login, whatever was wrong.
 fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
+}
+
+/// What the store's refusal of a new account is to the client.
+pub(crate) fn account_error(error: StoreError) -> AppError {
+    match error {
+        StoreError::Conflict(Taken::Email) => email_taken(),
+        StoreError::Conflict(Taken::Username) => username_taken(),
+        error @ StoreError::NotFirstUser => error.into(),
+        error => AppError::from(error).context("unable to store the new account"),
+    }
 }
 
 fn username_taken() -> AppError {

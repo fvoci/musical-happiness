@@ -48,6 +48,31 @@ impl Actor {
     }
 }
 
+/// Something a member of a workspace can be allowed to do in it, beside what is on its
+/// boards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspacePermission {
+    /// Make a link that lets somebody in as a member of the workspace, and see and
+    /// revoke the links others made.
+    InviteMembers,
+}
+
+impl WorkspacePermission {
+    /// Every permission, in the order of the declaration.
+    pub const ALL: [Self; 1] = [Self::InviteMembers];
+}
+
+/// Whether the user may do this in the workspace: its administrators invite its
+/// members. What the user is in the organization adds nothing.
+#[must_use]
+pub const fn allows_in_workspace(actor: Actor, permission: WorkspacePermission) -> bool {
+    match permission {
+        WorkspacePermission::InviteMembers => {
+            matches!(actor.workspace, Some(WorkspaceRole::Admin))
+        }
+    }
+}
+
 /// Who a board is there for, besides its members.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoardScope {
@@ -437,24 +462,11 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
 /// The membership with exactly the flag of `role`, and none for `None`.
 #[must_use]
 pub fn with_role(member: BoardMember, role: Option<BoardRole>) -> BoardMember {
-    BoardMember {
-        scheme_admin: role == Some(BoardRole::Admin),
-        scheme_editor: role == Some(BoardRole::Editor),
-        scheme_commenter: role == Some(BoardRole::Commenter),
-        scheme_viewer: role == Some(BoardRole::Viewer),
-        ..member
-    }
+    member.with_role(role)
 }
 
 /// The role a membership has: the highest of its flags, `None` if it has none.
 #[must_use]
 pub fn role_of(member: &BoardMember) -> Option<BoardRole> {
-    [
-        (member.scheme_admin, BoardRole::Admin),
-        (member.scheme_editor, BoardRole::Editor),
-        (member.scheme_commenter, BoardRole::Commenter),
-        (member.scheme_viewer, BoardRole::Viewer),
-    ]
-    .into_iter()
-    .find_map(|(held, role)| held.then_some(role))
+    member.role()
 }

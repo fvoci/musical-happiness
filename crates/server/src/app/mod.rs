@@ -18,6 +18,7 @@ mod export;
 mod files;
 mod housekeeping;
 mod import;
+mod invitations;
 mod loose_objects;
 mod oidc;
 mod onboarding;
@@ -45,13 +46,13 @@ mod workspaces;
 
 pub use access::{BoardAccess, DeletedBoardAccess, as_managed};
 pub use audience::Audience;
-pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use import::Imported;
+pub use invitations::Accepting;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,

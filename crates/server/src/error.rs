@@ -169,10 +169,10 @@ reasons! {
     ForeignOrigin => "foreign_origin", "Request from another origin";
     /// The user name, email address or password of a login is wrong.
     InvalidCredentials => "invalid_credentials", "Invalid credentials";
-    /// Registration needs the signup token, and the request has none.
-    SignupTokenRequired => "signup_token_required", "Signup token required";
-    /// The signup token of a registration is not the server's.
-    SignupTokenInvalid => "signup_token_invalid", "Signup token not valid";
+    /// The server has its team: who is not its first user gets in by an invitation.
+    InvitationRequired => "invitation_required", "Invitation required";
+    /// The link of an invitation lets nobody in: there is none, or it ended.
+    InvitationUnavailable => "invitation_unavailable", "Invitation not available";
     /// The user name is taken.
     UsernameTaken => "username_taken", "User name taken";
     /// The email address is taken.
@@ -404,6 +404,19 @@ impl AppError {
     /// that does not exist and for one the requester may not know about.
     pub fn not_found(what: impl std::fmt::Display) -> Self {
         Self::new(ErrorKind::NotFound, format_args!("{what} not found"))
+    }
+
+    /// The 403 error of a registration on a server that has its team: who is not its
+    /// first user gets in by an invitation.
+    pub fn invitation_required() -> Self {
+        Self::forbidden("this server has its team; an invitation lets you in")
+            .with_reason(Reason::InvitationRequired)
+    }
+
+    /// The 404 error of a link that lets nobody in, whatever is wrong with it: no such
+    /// link, one that ended, one that was used up, one that was revoked.
+    pub fn invitation_unavailable() -> Self {
+        Self::not_found("invitation").with_reason(Reason::InvitationUnavailable)
     }
 
     /// A 405 error.
@@ -704,10 +717,8 @@ impl From<StoreError> for AppError {
             StoreError::TooManyPreferences { limit } => Self::bad_request(error)
                 .with_field("updatedFields")
                 .with_limit(u64::try_from(limit).unwrap_or(u64::MAX)),
-            // A registration without the signup token that was not the first after all.
-            StoreError::NotFirstUser => Self::forbidden("registration needs the signup token")
-                .with_reason(Reason::SignupTokenRequired)
-                .with_field("token"),
+            // A registration that was not the first after all.
+            StoreError::NotFirstUser => Self::invitation_required(),
             // The one lookup that names its kind: a password is set for a user.
             StoreError::UserNotFound(_) => {
                 tracing::debug!(%error, "not found in the store");

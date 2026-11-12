@@ -183,11 +183,6 @@ impl Authenticator {
     }
 }
 
-/// Compares two secrets without revealing through timing where they differ.
-pub fn tokens_match(expected: &str, given: &str) -> bool {
-    expected.as_bytes().ct_eq(given.as_bytes()).into()
-}
-
 /// Returns the current time in milliseconds since the Unix epoch.
 pub fn now_millis() -> i64 {
     let since_epoch = std::time::SystemTime::now()

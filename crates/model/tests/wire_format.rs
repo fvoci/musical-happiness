@@ -503,16 +503,16 @@ fn workspace_and_sharing_json_members() {
     let workspace = Workspace {
         id: "0".to_owned(),
         title: "t".to_owned(),
-        signup_token: "tok".to_owned(),
         settings: serde_json::from_value(json!({ "a": 1 })).expect("object"),
         modified_by: "u".to_owned(),
         update_at: 3,
+        guest_invitations: false,
     };
     assert_eq!(
         to_json(&workspace),
         json!({
-            "id": "0", "title": "t", "signupToken": "tok", "settings": { "a": 1 },
-            "modifiedBy": "u", "updateAt": 3
+            "id": "0", "title": "t", "settings": { "a": 1 },
+            "modifiedBy": "u", "updateAt": 3, "guestInvitations": false
         })
     );
 

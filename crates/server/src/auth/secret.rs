@@ -1,6 +1,6 @@
 //! Secrets: values that are a credential to whoever holds them.
 //!
-//! Session tokens, signup tokens, the read tokens of shared boards and the names files
+//! Session tokens, the tokens of invitations, the read tokens of shared boards and the names files
 //! are stored under are secrets. They do not come from the identifier generator, whose
 //! values start with the time and continue a counter within a millisecond; they are 256
 //! bits from the operating system's random number generator.

@@ -94,8 +94,8 @@ impl AccountMetrics {
         let registrations = IntCounter::with_opts(
             Opts::new(
                 "registrations_total",
-                "How many users registered: the first user of the instance, and those \
-                 with a signup token.",
+                "How many accounts were made by registering: those that started a team, \
+                 and those an invitation let in.",
             )
             .namespace(PREFIX),
         )?;

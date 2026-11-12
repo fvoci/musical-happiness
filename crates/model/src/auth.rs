@@ -64,6 +64,42 @@ pub fn display_name(raw: &str) -> Result<String, AuthParamError> {
     Ok(name.to_owned())
 }
 
+/// The longest name of a team, in UTF-16 code units as the web app counts text.
+pub const TEAM_NAME_MAX_LENGTH: usize = 64;
+
+/// Reads the name of a team somebody starts by signing up, which names their
+/// organization and its first workspace: without the white space around it, not empty,
+/// and otherwise as [`display_name`] has a name. Returns the name to store.
+///
+/// # Errors
+///
+/// Returns an [`AuthParamError`] for `teamName` if the name is blank, too long or
+/// holds a character it may not.
+pub fn team_name(raw: &str) -> Result<String, AuthParamError> {
+    let name = display_name(raw).map_err(|error| {
+        let message = match error.reason() {
+            RefusalReason::TooLong => {
+                format!("a team name has at most {TEAM_NAME_MAX_LENGTH} characters")
+            }
+            _ => "a team name has no control characters, and none that show nothing or \
+                  turn the text around"
+                .to_owned(),
+        };
+        AuthParamError::new("teamName", error.reason(), message)
+    })?;
+    if name.is_empty() {
+        return Err(AuthParamError::new(
+            "teamName",
+            RefusalReason::Required,
+            "team name is required",
+        ));
+    }
+    Ok(name)
+}
+
+// A team is named as a person is: one rule for both.
+const _: () = assert!(TEAM_NAME_MAX_LENGTH == DISPLAY_NAME_MAX_LENGTH);
+
 /// A request parameter of an authentication request is missing or malformed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{message}")]
@@ -151,13 +187,14 @@ pub struct RegisterRequest {
     /// The password.
     #[serde(deserialize_with = "null_as_default")]
     pub password: String,
-    /// The workspace's signup token; may be empty while no user exists yet.
-    #[serde(deserialize_with = "null_as_default")]
-    pub token: String,
     /// The name to be shown by; may be left out, `null` or empty for none. Read as
     /// `patchMe` reads it.
     #[serde(rename = "displayName", deserialize_with = "null_as_default")]
     pub display_name: String,
+    /// The name of the team the account starts: of its organization and of that
+    /// organization's first workspace. Read as [`team_name`] reads it.
+    #[serde(rename = "teamName", deserialize_with = "null_as_default")]
+    pub team_name: String,
 }
 
 impl RegisterRequest {
@@ -167,10 +204,89 @@ impl RegisterRequest {
     ///
     /// Returns every member that is refused, in the order of the members: the user name
     /// if it is blank, the email address if it is blank or not well formed, the display
+    /// name if it is not one ([`display_name`]), the password if it is empty,
+    /// shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
+    /// [`MAXIMUM_PASSWORD_BYTES`], and the team name if it is not one ([`team_name`]).
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = self.account().refusals();
+        if let Err(error) = team_name(&self.team_name) {
+            refused.push(error.into());
+        }
+        refused.into_result()
+    }
+
+    /// The account the request asks for, without the team it starts.
+    #[must_use]
+    pub fn account(&self) -> NewAccount {
+        NewAccount {
+            username: self.username.clone(),
+            email: self.email.clone(),
+            password: self.password.clone(),
+            display_name: self.display_name.clone(),
+        }
+    }
+}
+
+/// The account somebody asks for: who registers, and who accepts an invitation
+/// without having one.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default)]
+pub struct NewAccount {
+    /// The login name.
+    #[serde(deserialize_with = "null_as_default")]
+    pub username: String,
+    /// The email address.
+    #[serde(deserialize_with = "null_as_default")]
+    pub email: String,
+    /// The password.
+    #[serde(deserialize_with = "null_as_default")]
+    pub password: String,
+    /// The name to be shown by; may be left out, `null` or empty for none. Read as
+    /// `patchMe` reads it.
+    #[serde(rename = "displayName", deserialize_with = "null_as_default")]
+    pub display_name: String,
+}
+
+impl fmt::Debug for NewAccount {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NewAccount")
+            .field("username", &self.username)
+            .field("email", &self.email)
+            .field("display_name", &self.display_name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl NewAccount {
+    /// The account with its name and address without the white space around them, and
+    /// its display name as it is stored if it is one: what is refused stays as it was
+    /// sent, to be refused by [`NewAccount::validate`].
+    #[must_use]
+    pub fn tidied(mut self) -> Self {
+        self.email = self.email.trim().to_owned();
+        self.username = self.username.trim().to_owned();
+        if let Ok(name) = display_name(&self.display_name) {
+            self.display_name = name;
+        }
+        self
+    }
+
+    /// Checks the account's members, all of them.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member that is refused, in the order of the members: the user name
+    /// if it is blank, the email address if it is blank or not well formed, the display
     /// name if it is not one ([`display_name`]), and the password if it is empty,
     /// shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
     /// [`MAXIMUM_PASSWORD_BYTES`].
     pub fn validate(&self) -> Result<(), Refusals> {
+        self.refusals().into_result()
+    }
+
+    /// What of the account is refused.
+    fn refusals(&self) -> Refusals {
         let mut refused = Refusals::new();
         if self.username.trim().is_empty() {
             refused.refuse("username", RefusalReason::Required, "username is required");
@@ -196,17 +312,18 @@ impl RegisterRequest {
         if let Err(error) = check_new_password(&self.password) {
             refused.push(error.into());
         }
-        refused.into_result()
+        refused
     }
 }
 
 impl fmt::Debug for RegisterRequest {
-    /// Leaves out the password and the signup token.
+    /// Leaves out the password.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegisterRequest")
             .field("username", &self.username)
             .field("email", &self.email)
             .field("display_name", &self.display_name)
+            .field("team_name", &self.team_name)
             .finish_non_exhaustive()
     }
 }

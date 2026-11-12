@@ -16,6 +16,7 @@ mod categories;
 mod config;
 pub mod contract;
 mod files;
+mod invitations;
 mod limits;
 mod members;
 mod oidc;
@@ -102,6 +103,7 @@ fn routes() -> Routes {
         .merge(categories::routes())
         .merge(config::routes())
         .merge(files::routes())
+        .merge(invitations::routes())
         .merge(members::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
@@ -118,6 +120,7 @@ fn routes() -> Routes {
     // What asks whether the server is there needs no session either.
     let unauthenticated = OpenApiRouter::new()
         .merge(auth::unauthenticated_routes())
+        .merge(invitations::unauthenticated_routes())
         .merge(oidc::unauthenticated_routes())
         .merge(system::routes());
     Routes {

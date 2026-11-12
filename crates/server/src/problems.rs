@@ -184,13 +184,16 @@ fn describe_reason(reason: Reason) -> &'static str {
              say which. Status 401 from a login. Status 400 from a change of the password, \
              whose session is good: `errors` names `/oldPassword`."
         }
-        Reason::SignupTokenRequired => {
-            "Status 403. Only the first user of a server registers without the signup token, \
-             and this registration has none. `errors` names `/token`."
+        Reason::InvitationRequired => {
+            "Status 403. The server has one team, which its first user started by \
+             registering. Everybody after gets in by the link of an invitation, and this \
+             registration is none."
         }
-        Reason::SignupTokenInvalid => {
-            "Status 403. The signup token of the registration is not the workspace's. `errors` \
-             names `/token`."
+        Reason::InvitationUnavailable => {
+            "Status 404. The link of the invitation lets nobody in. The answer is the same \
+             whether there never was such a link, it ended after its seven days, it was \
+             used as often as it may be, it was revoked, or who made it may no longer \
+             invite. Ask for a new link."
         }
         Reason::UsernameTaken => {
             "Status 409. Another user has the user name. `errors` names `/username`."

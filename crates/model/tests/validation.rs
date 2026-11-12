@@ -165,11 +165,44 @@ fn register(username: &str, email: &str, password: &str) -> Result<(), String> {
         username: username.to_owned(),
         email: email.to_owned(),
         password: password.to_owned(),
-        token: String::new(),
         display_name: String::new(),
+        team_name: "The Team".to_owned(),
     }
     .validate()
     .map_err(|error| error.to_string())
+}
+
+#[test]
+fn a_registration_names_its_team() {
+    let named = |team_name: &str| {
+        RegisterRequest {
+            username: "alice".to_owned(),
+            email: "alice@example.com".to_owned(),
+            password: "12345678".to_owned(),
+            display_name: String::new(),
+            team_name: team_name.to_owned(),
+        }
+        .validate()
+        .map_err(|error| error.to_string())
+    };
+    assert_eq!(named("  우리 팀  "), Ok(()));
+    assert_eq!(fvoci_model::team_name("  우리 팀  "), Ok("우리 팀".to_owned()));
+    assert_eq!(named(""), Err("team name is required".to_owned()));
+    assert_eq!(named("   "), Err("team name is required".to_owned()));
+    assert_eq!(named(&"가".repeat(64)), Ok(()));
+    assert_eq!(
+        named(&"가".repeat(65)),
+        Err("a team name has at most 64 characters".to_owned())
+    );
+    assert!(named("a\u{202E}b").is_err(), "nothing that turns the text around");
+    // Every member that is refused is named, the team after the account.
+    let all = RegisterRequest::default()
+        .validate()
+        .expect_err("nothing is there");
+    assert_eq!(
+        all.to_string(),
+        "username is required; email is required; password is required; team name is required"
+    );
 }
 
 #[test]

@@ -752,6 +752,37 @@ fn who_sees_whom_of_the_people() {
     }
 }
 
+/// What a member of a workspace does in it beside its boards: its administrators invite
+/// its members, and nobody else does. `(case, actor, what they may do)`; a permission a
+/// row does not name is one the user does not have.
+#[test]
+fn the_work_of_a_workspace() {
+    use super::WorkspacePermission::{self, InviteMembers};
+    use super::allows_in_workspace;
+    const ADMINISTERS: &[WorkspacePermission] = &[InviteMembers];
+    let rows: [(&str, Actor, &[WorkspacePermission]); 8] = [
+        ("a workspace admin", WORKSPACE_ADMIN, ADMINISTERS),
+        ("a member", MEMBER, &[]),
+        ("a guest", GUEST, &[]),
+        ("a guest from outside the organization", OUTSIDE_GUEST, &[]),
+        ("an org admin outside the workspace", ORG_ADMIN_ONLY, &[]),
+        (
+            "an org admin who is a member of the workspace",
+            ORG_ADMIN_IN_WORKSPACE,
+            &[],
+        ),
+        ("who was removed", REMOVED, &[]),
+        ("a stranger", STRANGER, &[]),
+    ];
+    for (case, actor, allowed) in rows {
+        let got: Vec<WorkspacePermission> = WorkspacePermission::ALL
+            .into_iter()
+            .filter(|permission| allows_in_workspace(actor, *permission))
+            .collect();
+        assert_eq!(got, allowed, "{case}");
+    }
+}
+
 /// An organization's administrator, and nobody else, takes the routes of the
 /// organization; it gives nothing on a board (the rows above).
 #[test]

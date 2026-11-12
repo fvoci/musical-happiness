@@ -139,100 +139,11 @@ fn roles_of(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
     }
 }
 
-/// Makes a user a member of the organization and of its default workspace, as an
-/// administrator of both if the user is one of the instance: one who registered, or one
-/// a provider of the organization let in (`Store::finish_oidc_sign_in`).
-///
-/// TEMPORARY for registration, with [`Store::only_organization`]: until signing up makes
-/// an organization and an invitation leads into one, whoever registers joins the one
-/// there is. A provider's newcomers join its organization so for good.
-pub(crate) async fn join_organization(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-    instance_role: InstanceRole,
-) -> Result<(), StoreError> {
-    let (org_role, workspace_role) = roles_of(instance_role);
-    add_organization_member(scope, user_id, org_role).await?;
-    let mut sql = scope.sql(
-        "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
-    );
-    sql.bind(Id(user_id))
-        .push_bind(", ", workspace_role.as_str())
-        .push_bind(", ", now_millis())
-        .push_bind(
-            " FROM organizations AS o JOIN workspaces AS t ON t.id = o.default_workspace_id \
-             WHERE o.id = ",
-            scope.org()?,
-        )
-        .push_bind(" AND t.delete_at = ", 0_i64);
-    // An organization has a default workspace in use; one without is broken, and
-    // nobody is to end up in it and in no workspace.
-    if scope.execute(sql).await? == 0 {
-        return Err(StoreError::Corrupt {
-            column: "default_workspace_id",
-            reason: "the organization has no default workspace in use".to_owned(),
-        });
-    }
-    Ok(())
-}
-
-/// Makes a user a member of the organization and of its default workspace, as a member,
-/// unless the user is a member of the organization already; says whether the user
-/// joined. Two at once for the same user both succeed, and one of them joins: the
-/// second insert finds the first's row and does nothing.
-pub(crate) async fn join_organization_unless_member(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-) -> Result<bool, StoreError> {
-    let (org_role, workspace_role) = roles_of(InstanceRole::User);
-    let mut sql =
-        scope.sql("INSERT INTO organization_members (org_id, user_id, role, create_at) VALUES (");
-    sql.bind(scope.org()?)
-        .push_bind(", ", Id(user_id))
-        .push_bind(", ", org_role.as_str())
-        .push_bind(", ", now_millis())
-        .push(") ON CONFLICT DO NOTHING");
-    if scope.execute(sql).await? == 0 {
-        return Ok(false);
-    }
-    let mut sql = scope.sql(
-        "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
-    );
-    sql.bind(Id(user_id))
-        .push_bind(", ", workspace_role.as_str())
-        .push_bind(", ", now_millis())
-        .push_bind(
-            " FROM organizations AS o JOIN workspaces AS t ON t.id = o.default_workspace_id \
-             WHERE o.id = ",
-            scope.org()?,
-        )
-        .push_bind(" AND t.delete_at = ", 0_i64)
-        .push(" ON CONFLICT DO NOTHING");
-    if scope.execute(sql).await? == 0 {
-        // Somebody of the default workspace already, or an organization without one in
-        // use, which is broken: nobody is to end up in it and in no workspace.
-        let mut sql = scope.sql(
-            "SELECT 1 FROM organizations AS o JOIN workspaces AS t \
-             ON t.id = o.default_workspace_id WHERE o.id = ",
-        );
-        sql.bind(scope.org()?)
-            .push_bind(" AND t.delete_at = ", 0_i64);
-        if scope.fetch_optional(sql).await?.is_none() {
-            return Err(StoreError::Corrupt {
-                column: "default_workspace_id",
-                reason: "the organization has no default workspace in use".to_owned(),
-            });
-        }
-    }
-    Ok(true)
-}
-
 /// Gives a member of the organization the role that goes with being, or no longer
 /// being, an administrator of the instance: in the organization, and in its workspaces
 /// where the user is no guest. Somebody who is no member stays none.
 ///
-/// TEMPORARY, as [`join_organization`] is: while the instance's administrators are the
-/// organization's.
+/// TEMPORARY: while the instance's administrators are the organization's.
 pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,

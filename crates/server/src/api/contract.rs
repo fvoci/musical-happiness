@@ -207,7 +207,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ServerMetadata", Members::AsWritten),
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
-    ("Workspace", Members::AllBut(&["signupToken"])),
+    ("Workspace", Members::All),
     ("UploadOpened", Members::All),
     ("UploadState", Members::All),
     ("ReceivedPart", Members::All),
