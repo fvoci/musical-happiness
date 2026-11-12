@@ -7,14 +7,15 @@
  * editor's image node asks here.
  *
  * What the address assumes about the server (`getFile` in the contract;
- * the app sets the resolver, src/app/App.svelte):
+ * the app sets the resolver, src/app/App.svelte and SharedApp.svelte):
  *
  * - The session is a cookie that scripts cannot read. The app never holds a
  *   token, so an address carries none: `<img src>` names the file directly
- *   and the browser sends the cookie. A shared, read-only board would be the
+ *   and the browser sends the cookie. A board read by its public link is the
  *   one case where the address carries something: its read token, in the
- *   query of `getSharedFile` (`/shared/{boardId}/files/{fileId}`); the app has no such view yet. (Saving an attachment under its own
- *   name reads its bytes by script, lib/save.ts: the server
+ *   query of `getSharedFile` (`/shared/{boardId}/files/{fileId}`), which the
+ *   reader's screen sets (src/app/SharedApp.svelte). (Saving an attachment
+ *   under its own name reads its bytes by script, lib/save.ts: the server
  *   names the download after the file's identifier.)
  * - `GET` needs no extra request header, which is what lets a tag fetch a file.
  * - The API lives under `/api/v1`, below the base path the server is given.

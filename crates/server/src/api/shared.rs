@@ -83,9 +83,9 @@ impl FromRequestParts<App> for SharedBoard {
         };
         let token = query_param(parts.uri.query(), READ_TOKEN);
         let Some(app) = app.enter_shared_board(&board_id, &token).await? else {
+            app.shared_reads().failed(address);
             return Err(not_shared());
         };
-        app.shared_reads().opened(address);
         Ok(Self { app, board_id })
     }
 }

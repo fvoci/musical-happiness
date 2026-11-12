@@ -27,6 +27,8 @@
 
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let place = '';
+  /** The screen could not start (its code did not load): nothing is read. */
+  let unstarted = $state(false);
 
   /** The board read, once it is: its title heads the page. */
   const board = $derived(workspace?.board?.board);
@@ -36,17 +38,22 @@
     if (!boardId || !readToken) return;
     let made: Workspace | undefined;
     let left = false;
-    void startShared(boardId, readToken).then(async (started) => {
-      // Gone before the backend came: nothing is read.
-      if (left) return;
-      const { backend } = started;
-      place = started.place;
-      made = new Workspace({ backend, locale: currentLocale });
-      // The bodies of cards name their images by file: the link's board has them.
-      setFileUrlResolver((fileId) => backend.fileUrl(boardId, fileId));
-      workspace = made;
-      await made.load(place);
-    });
+    void startShared(boardId, readToken).then(
+      async (started) => {
+        // Gone before the backend came: nothing is read.
+        if (left) return;
+        const { backend } = started;
+        place = started.place;
+        made = new Workspace({ backend, locale: currentLocale });
+        // The bodies of cards name their images by file: the link's board has them.
+        setFileUrlResolver((fileId) => backend.fileUrl(boardId, fileId));
+        workspace = made;
+        await made.load(place);
+      },
+      () => {
+        if (!left) unstarted = true;
+      },
+    );
     return () => {
       left = true;
       made?.close();
@@ -70,6 +77,10 @@
   <main class="@container/pane flex min-h-0 min-w-0 flex-1 flex-col" {@attach pane.attach}>
     {#if !router.route.boardId}
       <NotFound {router} />
+    {:else if unstarted}
+      <div class="grid h-full place-items-center p-6 text-center">
+        <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+      </div>
     {:else if !workspace || workspace.status === 'idle' || workspace.status === 'loading'}
       <div class="grid h-full place-items-center p-6">
         <p class="text-muted-foreground" role="status">{m.app_loading()}</p>

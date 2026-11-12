@@ -1,14 +1,14 @@
 //! The limit on reading shared boards with tokens that open nothing.
 //!
 //! A read token is unguessable, but a client that asks for many boards with many tokens
-//! still tries. Every read counts against the address of the client (an IPv4 address,
-//! or the /64 of an IPv6 address, as the login limiter counts them) when it comes in,
-//! and is given back when its token opens the board; an address with
-//! [`MAX_SHARED_READ_FAILURES`] reads that opened nothing, or are still being looked at,
-//! within [`SHARED_READ_WINDOW`] is refused (429) until the window that has them is
-//! over. Reads that come at once are counted before any of them is looked at, so they
-//! do not pass the limit together, and a reader with a good link is never held back by
-//! its own reads.
+//! still tries. A read whose token opens nothing counts against the address of the
+//! client (an IPv4 address, or the /64 of an IPv6 address, as the login limiter counts
+//! them); an address with [`MAX_SHARED_READ_FAILURES`] such reads within
+//! [`SHARED_READ_WINDOW`] is refused (429) until the window that has them is over. A
+//! reader with a good link is never held back by its own reads, however many come at
+//! once or are given up on the way. Reads with bad tokens that come at once may pass
+//! the limit together before they are counted: with tokens of 256 random bits, a few
+//! more guesses change nothing.
 //!
 //! The counts are kept in memory and forgotten when the process ends; the oldest go
 //! when there are too many.
@@ -35,7 +35,7 @@ const MAX_ADDRESSES: usize = 100_000;
 struct Count {
     /// When the window began: at the first read after the last window ended.
     since: Instant,
-    /// The reads since then that opened nothing or are still looked at.
+    /// The reads since then that opened nothing.
     failures: u32,
 }
 
@@ -53,10 +53,9 @@ pub struct SharedReads {
 }
 
 impl SharedReads {
-    /// Lets a read in and counts it as one that opens nothing until [`Self::opened`]
-    /// gives it back, or refuses it with 429 if its address has had too many such
-    /// reads within the window. A request without an address (the administration
-    /// socket) is not limited.
+    /// Lets a read in, or refuses it with 429 if its address has had too many reads
+    /// that opened nothing within the window. A request without an address (the
+    /// administration socket) is not limited.
     ///
     /// # Errors
     ///
@@ -74,19 +73,45 @@ impl SharedReads {
             return Ok(());
         };
         let mut counts = self.counts.lock().expect("the counts of shared reads");
+        let Some(count) = counts.by_address.get_mut(&address) else {
+            return Ok(());
+        };
+        let ends = count.since + SHARED_READ_WINDOW;
+        if ends <= now {
+            *count = Count {
+                since: now,
+                failures: 0,
+            };
+        } else if count.failures >= MAX_SHARED_READ_FAILURES {
+            return Err(AppError::rate_limited(ends - now));
+        }
+        Ok(())
+    }
+
+    /// Counts a read whose token opened nothing against its address.
+    ///
+    /// # Panics
+    ///
+    /// If a thread panicked while it held the counts.
+    pub fn failed(&self, address: Option<IpAddr>) {
+        self.failed_at(address, Instant::now());
+    }
+
+    fn failed_at(&self, address: Option<IpAddr>, now: Instant) {
+        let Some(address) = address.map(AddressKey::from) else {
+            return;
+        };
+        let mut counts = self.counts.lock().expect("the counts of shared reads");
         let Counts { by_address, order } = &mut *counts;
         if let Some(count) = by_address.get_mut(&address) {
-            let ends = count.since + SHARED_READ_WINDOW;
-            if ends <= now {
+            if count.since + SHARED_READ_WINDOW <= now {
                 *count = Count {
                     since: now,
                     failures: 0,
                 };
-            } else if count.failures >= MAX_SHARED_READ_FAILURES {
-                return Err(AppError::rate_limited(ends - now));
             }
             count.failures = count.failures.saturating_add(1);
-            return Ok(());
+            return;
         }
         if by_address.len() >= MAX_ADDRESSES
             && let Some(oldest) = order.pop_front()
@@ -101,22 +126,6 @@ impl SharedReads {
             },
         );
         order.push_back(address);
-        Ok(())
-    }
-
-    /// Gives back the read [`Self::admit`] counted: its token opened the board.
-    ///
-    /// # Panics
-    ///
-    /// If a thread panicked while it held the counts.
-    pub fn opened(&self, address: Option<IpAddr>) {
-        let Some(address) = address.map(AddressKey::from) else {
-            return;
-        };
-        let mut counts = self.counts.lock().expect("the counts of shared reads");
-        if let Some(count) = counts.by_address.get_mut(&address) {
-            count.failures = count.failures.saturating_sub(1);
-        }
     }
 }
 
@@ -135,6 +144,7 @@ mod tests {
         let start = Instant::now();
         for _ in 0..MAX_SHARED_READ_FAILURES {
             assert!(limit.admit_at(ADDRESS, start).is_ok(), "within the limit");
+            limit.failed_at(ADDRESS, start);
         }
         let refused = limit
             .admit_at(ADDRESS, start + Duration::from_secs(1))
@@ -148,29 +158,19 @@ mod tests {
         );
     }
 
+    /// Reads that open the board, also many at once or given up on the way (a browser
+    /// that drops the images of a view it leaves), count for nothing.
     #[test]
-    fn reads_that_open_the_board_are_given_back() {
+    fn reads_that_fail_nothing_are_never_held_back() {
         let limit = SharedReads::default();
         let now = Instant::now();
         for _ in 0..MAX_SHARED_READ_FAILURES * 3 {
             limit
                 .admit_at(ADDRESS, now)
                 .expect("a good link is never held back");
-            limit.opened(ADDRESS);
         }
-    }
-
-    #[test]
-    fn reads_that_come_at_once_are_counted_before_they_are_looked_at() {
-        let limit = SharedReads::default();
-        let now = Instant::now();
-        let admitted = (0..MAX_SHARED_READ_FAILURES * 2)
-            .filter(|_| limit.admit_at(ADDRESS, now).is_ok())
-            .count();
-        assert_eq!(
-            admitted,
-            usize::try_from(MAX_SHARED_READ_FAILURES).expect("a small number")
-        );
+        limit.failed_at(ADDRESS, now);
+        assert!(limit.admit_at(ADDRESS, now).is_ok(), "one failure is one");
     }
 
     #[test]
@@ -187,6 +187,7 @@ mod tests {
                 limit.admit_at(in_network(host), now).is_ok(),
                 "within the limit"
             );
+            limit.failed_at(in_network(host), now);
         }
         assert!(
             limit.admit_at(in_network(999), now).is_err(),
@@ -201,14 +202,12 @@ mod tests {
         let limit = SharedReads::default();
         let now = Instant::now();
         for _ in 0..MAX_SHARED_READ_FAILURES {
-            limit.admit_at(ADDRESS, now).expect("within the limit");
+            limit.failed_at(ADDRESS, now);
         }
         assert!(limit.admit_at(ADDRESS, now).is_err(), "limited");
         for n in 0..MAX_ADDRESSES {
             let n = u32::try_from(n).expect("a small number");
-            limit
-                .admit_at(Some(IpAddr::V4(Ipv4Addr::from(n))), now)
-                .expect("a first read");
+            limit.failed_at(Some(IpAddr::V4(Ipv4Addr::from(n))), now);
         }
         assert!(limit.admit_at(ADDRESS, now).is_ok(), "forgotten");
     }

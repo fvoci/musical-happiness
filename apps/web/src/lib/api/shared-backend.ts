@@ -164,7 +164,8 @@ export class SharedBackend implements Backend {
       {},
       { blockId: cardId, type: 'card' },
     );
-    if (!block) throw new BackendError(404, { detail: 'card not found' });
+    // A block of another kind in the place of a card is no card.
+    if (block?.type !== 'card') throw new BackendError(404, { detail: 'card not found' });
     return { ...cardOfBlock(block), body: bodyOf(block.body) };
   }
 

@@ -1182,7 +1182,7 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
 /// both and may do anything with it in its own: every operation that names something in
 /// its path answers about a board, card, file, upload, category and user of the test
 /// workspace under the root one as about nothing, and the asker's subscription to the
-/// card is not among theirs there.
+/// card is not among theirs there; so does a body or a query that names the board.
 #[tokio::test]
 async fn what_is_of_one_workspace_is_not_there_under_another() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -1274,6 +1274,10 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         subscriber: (&me, &me),
     };
     let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
+    // Named in a body or a query (the boards of a combined request, the board files are
+    // copied from), the board is as one that does not exist too.
+    let own = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    compare_query_targets(&ts.client, &own, &board).await;
     ts.teardown().await;
     assert!(
         violations.is_empty(),
