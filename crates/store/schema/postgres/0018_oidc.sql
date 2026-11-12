@@ -7,27 +7,30 @@
 -- that comes back from the provider. A session says which provider it was made through.
 --
 -- The provider and the flows are an organization's rows, behind the wall as the tables
--- of 0014 are. The server writes their organization itself. The line that follows is
--- there because the check of later migrations sees the words of the policies
+-- of 0014 are: a row gets the organization of the transaction that stores it, and a
+-- flow names the provider of its own organization. The line that follows is there
+-- because the check of later migrations sees the words of the policies
 -- (crates/store/src/schema.rs).
 SELECT set_config('fvoci.system', 'on', true);
 
 CREATE TABLE oidc_providers (
     id UUID NOT NULL PRIMARY KEY,
-    org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+    org_id UUID NOT NULL DEFAULT (NULLIF(current_setting('fvoci.org', true), ''))::uuid
+        REFERENCES organizations (id) ON DELETE CASCADE,
     -- The issuer as the provider names itself in its discovery document, exactly.
     issuer TEXT NOT NULL,
     client_id TEXT NOT NULL,
     -- The client secret, sealed with the server's `secret_key` (AES-256-GCM, bound to
-    -- the organization), as text; empty for a client without a secret. Never the
-    -- secret itself.
+    -- the organization, the issuer and the client), as text; empty for a client
+    -- without a secret. Never the secret itself.
     client_secret TEXT NOT NULL,
     -- Whether somebody the provider vouches for who is no member yet becomes one, of
     -- the organization and of its default workspace.
     auto_join BOOLEAN NOT NULL DEFAULT true,
     enabled BOOLEAN NOT NULL DEFAULT true,
     create_at BIGINT NOT NULL,
-    update_at BIGINT NOT NULL
+    update_at BIGINT NOT NULL,
+    UNIQUE (id, org_id)
 );
 CREATE UNIQUE INDEX oidc_providers_org_id_key ON oidc_providers (org_id);
 
@@ -39,10 +42,12 @@ CREATE TABLE oidc_login_flows (
     browser_hash TEXT NOT NULL,
     nonce TEXT NOT NULL,
     pkce_verifier TEXT NOT NULL,
-    org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-    provider_id UUID NOT NULL REFERENCES oidc_providers (id) ON DELETE CASCADE,
+    org_id UUID NOT NULL DEFAULT (NULLIF(current_setting('fvoci.org', true), ''))::uuid
+        REFERENCES organizations (id) ON DELETE CASCADE,
+    provider_id UUID NOT NULL,
     create_at BIGINT NOT NULL,
-    expires_at BIGINT NOT NULL
+    expires_at BIGINT NOT NULL,
+    FOREIGN KEY (provider_id, org_id) REFERENCES oidc_providers (id, org_id) ON DELETE CASCADE
 );
 CREATE INDEX oidc_login_flows_expires_at_idx ON oidc_login_flows (expires_at);
 

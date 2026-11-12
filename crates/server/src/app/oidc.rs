@@ -11,8 +11,8 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use fvoci_model::{
-    LoginOptions, OidcProvider, OidcProviderSettings, Session, User, display_name, is_email_valid,
-    new_id,
+    LoginOptions, OidcProvider, OidcProviderSettings, RefusalReason, Refusals, Session, User,
+    display_name, is_email_valid, new_id,
 };
 use fvoci_store::{Identity, Join, LoginFlow, StoreError, StoredProvider, Taken};
 use subtle::ConstantTimeEq as _;
@@ -102,7 +102,7 @@ impl std::fmt::Debug for Callback {
     }
 }
 
-/// A sign-in that ended in a session: its token, and the organization it was for.
+/// A sign-in that ended in a session: the token of the session.
 #[derive(Clone)]
 pub struct FinishedLogin {
     /// The token of the new session.
@@ -168,11 +168,31 @@ impl App {
         }
         let existing = self.store().oidc_provider().await?;
         let sealed_client_secret = match settings.client_secret.as_deref() {
-            None => existing
-                .map(|existing| existing.sealed_client_secret)
-                .unwrap_or_default(),
+            // The secret stays with the client it was given for: one that went on to
+            // another issuer or client would be sent to it.
+            None => match existing {
+                Some(existing)
+                    if existing.issuer == settings.issuer
+                        && existing.client_id == settings.client_id =>
+                {
+                    existing.sealed_client_secret
+                }
+                Some(existing) if !existing.sealed_client_secret.is_empty() => {
+                    let mut refused = Refusals::new();
+                    refused.refuse(
+                        "clientSecret",
+                        RefusalReason::Required,
+                        "clientSecret is required with another issuer or client",
+                    );
+                    return Err(refused.into());
+                }
+                _ => String::new(),
+            },
             Some("") => String::new(),
-            Some(secret) => key.seal(secret, &secret_context(org_id)),
+            Some(secret) => key.seal(
+                secret,
+                &secret_context(org_id, &settings.issuer, &settings.client_id),
+            ),
         };
         let stored = self
             .store()
@@ -250,11 +270,16 @@ impl App {
         org_id: &str,
         address: Option<IpAddr>,
     ) -> Result<StartedLogin, LoginFailure> {
-        let _attempt = self
-            .login_limiter()
-            .admit_registration(address, Instant::now())
-            .map_err(|RetryAfter(_)| LoginFailure::RateLimited)?;
+        // Counted against the address as a login is, and let go at once: the requests
+        // to the provider below are no password work, and must not keep the address's
+        // other logins waiting.
+        drop(
+            self.login_limiter()
+                .admit_registration(address, Instant::now())
+                .map_err(|RetryAfter(_)| LoginFailure::RateLimited)?,
+        );
         let unavailable = LoginFailure::Reason(Reason::OidcUnavailable);
+        self.organization_in_use(org_id).await?;
         let org = self.enter_org_for_sign_in(org_id).ok_or(unavailable)?;
         let stored = org
             .store()
@@ -309,20 +334,13 @@ impl App {
     /// once, checks that this browser started it, exchanges the code, checks the ID
     /// token, finds or makes the account, and opens a session made through the
     /// provider. Returns the organization of the sign-in with the result: the login
-    /// page of a failure is that organization's.
+    /// page of a failure is that organization's. Not counted against the address: only
+    /// a sign-in that was started comes back, and the start is counted.
     pub async fn finish_oidc_login(
         &self,
         callback: &Callback,
         user_agent: &str,
-        address: Option<IpAddr>,
     ) -> (Option<String>, Result<FinishedLogin, LoginFailure>) {
-        let _attempt = match self
-            .login_limiter()
-            .admit_registration(address, Instant::now())
-        {
-            Ok(attempt) => attempt,
-            Err(RetryAfter(_)) => return (None, Err(LoginFailure::RateLimited)),
-        };
         let flow = match self.take_flow(callback).await {
             Ok(flow) => flow,
             Err(failure) => return (None, Err(failure)),
@@ -374,6 +392,7 @@ impl App {
             return Err(Reason::OidcTokenRefused.into());
         }
         let unavailable = LoginFailure::Reason(Reason::OidcUnavailable);
+        self.organization_in_use(&flow.org_id).await?;
         let org = self
             .enter_org_for_sign_in(&flow.org_id)
             .ok_or(unavailable)?;
@@ -416,6 +435,19 @@ impl App {
         Ok(FinishedLogin { token })
     }
 
+    /// Refuses a sign-in for an organization that is not in use, or is the system's.
+    async fn organization_in_use(&self, org_id: &str) -> Result<(), LoginFailure> {
+        if !fvoci_model::is_id(org_id) {
+            return Err(Reason::OidcUnavailable.into());
+        }
+        self.store()
+            .login_organization(Some(org_id))
+            .await
+            .map_err(|error| logged(&error, "reading the organization"))?
+            .map(|_| ())
+            .ok_or(Reason::OidcUnavailable.into())
+    }
+
     /// The client secret of a provider, opened; `None` for a client without one.
     fn open_client_secret(&self, stored: &StoredProvider) -> Result<Option<String>, LoginFailure> {
         if stored.sealed_client_secret.is_empty() {
@@ -424,7 +456,7 @@ impl App {
         let opened = self.config().secret_key.as_ref().map(|key| {
             key.open(
                 &stored.sealed_client_secret,
-                &secret_context(&stored.org_id),
+                &secret_context(&stored.org_id, &stored.issuer, &stored.client_id),
             )
         });
         if let Some(Ok(secret)) = opened {
@@ -605,9 +637,16 @@ impl App {
     }
 }
 
-/// What a sealed client secret is bound to: the organization whose provider it is for.
-fn secret_context(org_id: &str) -> Vec<u8> {
-    format!("oidc client secret of {org_id}").into_bytes()
+/// What a sealed client secret is bound to: the organization, the issuer and the client
+/// it is for. Moved to another row, or kept for another issuer, it does not open.
+pub fn secret_context(org_id: &str, issuer: &str, client_id: &str) -> Vec<u8> {
+    // Each part is length-prefixed, so no two triples give the same bytes.
+    let mut context = b"oidc client secret".to_vec();
+    for part in [org_id, issuer, client_id] {
+        context.extend_from_slice(&part.len().to_be_bytes());
+        context.extend_from_slice(part.as_bytes());
+    }
+    context
 }
 
 /// The PKCE challenge of a verifier: its SHA-256 in unpadded base64url (S256).

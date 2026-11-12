@@ -121,8 +121,10 @@ impl Store {
     }
 
     /// Stores the provider of the handle's organization, in place of the one it has,
-    /// and returns it as stored. A provider that is replaced keeps its identifier and
-    /// the time it was first set; `provider.id`, `org_id` and the times are the store's.
+    /// and returns it as stored. A provider whose issuer and client stay keeps its
+    /// identifier and the time it was first set; one with another issuer or client is
+    /// another provider, under a new identifier, and the sign-ins under way through the
+    /// one before end with it. `provider.id`, `org_id` and the times are the store's.
     ///
     /// # Errors
     ///
@@ -134,6 +136,12 @@ impl Store {
     ) -> Result<StoredProvider, StoreError> {
         self.transaction(async |scope| {
             let now = now_millis();
+            let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
+            sql.bind(scope.org()?)
+                .push_bind(" AND (issuer <> ", &provider.issuer)
+                .push_bind(" OR client_id <> ", &provider.client_id)
+                .push(")");
+            scope.execute(sql).await?;
             let mut sql = scope.sql(&format!(
                 "INSERT INTO oidc_providers ({PROVIDER_COLUMNS}) VALUES ("
             ));
@@ -147,8 +155,8 @@ impl Store {
                 .push_bind(", ", now)
                 .push_bind(", ", now)
                 .push(
-                    ") ON CONFLICT (org_id) DO UPDATE SET issuer = excluded.issuer, \
-                     client_id = excluded.client_id, client_secret = excluded.client_secret, \
+                    ") ON CONFLICT (org_id) DO UPDATE SET \
+                     client_secret = excluded.client_secret, \
                      auto_join = excluded.auto_join, enabled = excluded.enabled, \
                      update_at = excluded.update_at",
                 )

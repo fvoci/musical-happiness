@@ -2722,7 +2722,7 @@
     },
     "/api/v1/auth/oidc/start": {
       "get": {
-        "description": "For a browser: sends it to the provider of the organization `org` (303), with a\ncookie that ties the sign-in to it, and ten minutes to come back. If the\norganization has no provider that is on, or it cannot be reached, the browser is\nsent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the\nname of its problem (`oidc-unavailable`), or `too-many-requests`.",
+        "description": "For a browser: sends it to the provider of the organization `org` (303), with a\ncookie that ties the sign-in to it, and ten minutes to come back. A browser that\nsays a page of another site sent it here (`Sec-Fetch-Site` other than `same-origin`\nor `none`) is sent to the login page with `oidc_state_invalid`. If the\norganization has no provider that is on, or it cannot be reached, the browser is\nsent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the\nname of its problem (`oidc-unavailable`), or `too-many-requests`.",
         "operationId": "startOidcLogin",
         "parameters": [
           {

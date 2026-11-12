@@ -5,6 +5,7 @@
 
 use base64::Engine as _;
 use fvoci_model::{LoginOptions, OidcProvider, User, UserWorkspace, Workspace, new_id};
+use fvoci_server::app::secret_context;
 use fvoci_server::auth::sealed::SecretKey;
 use fvoci_server::auth::secret::token_digest;
 use fvoci_server::config::Configuration;
@@ -722,7 +723,7 @@ async fn a_provider_is_reached_only_where_it_may_be() {
             client_id: CLIENT_ID.to_owned(),
             sealed_client_secret: secret_key().seal(
                 CLIENT_SECRET,
-                format!("oidc client secret of {org_id}").as_bytes(),
+                &secret_context(&org_id, &fake.issuer, CLIENT_ID),
             ),
             auto_join: true,
             enabled: true,
@@ -847,7 +848,7 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
             client_id: CLIENT_ID.to_owned(),
             sealed_client_secret: secret_key().seal(
                 CLIENT_SECRET,
-                format!("oidc client secret of {theirs}").as_bytes(),
+                &secret_context(&theirs, &fake.issuer, CLIENT_ID),
             ),
             auto_join: true,
             enabled: true,
@@ -889,7 +890,7 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
         .put_oidc_provider(&StoredProvider {
             sealed_client_secret: secret_key().seal(
                 CLIENT_SECRET,
-                format!("oidc client secret of {ours}").as_bytes(),
+                &secret_context(&ours, &fake.issuer, CLIENT_ID),
             ),
             ..their_provider
         })
@@ -900,7 +901,146 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
         Outcome::Refused("oidc-unavailable".to_owned())
     );
     let me: User = client.me().await;
-    assert_eq!(me.email, "theirs@example.com");
+    let stored = ts.app.store().get_user_by_id(&me.id).await.expect("stored");
+    assert_eq!(stored.email, "theirs@example.com");
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A sign-in started by a page of another site is not started: such a page could send
+/// a browser through a provider of its own choosing and back signed in to an account
+/// of its choosing.
+#[tokio::test]
+async fn a_sign_in_is_not_started_from_another_site() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    let start = |site: &'static str| {
+        browser
+            .http
+            .get(format!(
+                "{}/api/v1/auth/oidc/start?org={org_id}",
+                browser.base_url
+            ))
+            .header("Sec-Fetch-Site", site)
+            .send()
+    };
+    for site in ["cross-site", "same-site"] {
+        let refused = start(site).await.expect("an answer");
+        assert_eq!(refused.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            refusal_of(&location_of(&refused)).as_deref(),
+            Some("oidc-state-invalid"),
+            "{site}"
+        );
+        assert!(
+            refused.headers().get(reqwest::header::SET_COOKIE).is_none(),
+            "{site}: no sign-in was started"
+        );
+    }
+    for site in ["same-origin", "none"] {
+        let started = start(site).await.expect("an answer");
+        assert!(
+            location_of(&started).starts_with(&fake.issuer),
+            "{site}: to the provider"
+        );
+    }
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A provider that is given another issuer or client keeps no secret it had: the secret
+/// is asked for again, and the sign-ins started through the one before do not come
+/// back through the new one.
+#[tokio::test]
+async fn a_secret_stays_with_its_issuer_and_client() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    let path = format!("/org/{org_id}/oidc");
+    let first = set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    let started = browser.go_to_provider(&org_id).await.expect("started");
+    let provider_id = |ts: &TestServer| {
+        let store = ts.app.store().for_org(&org_id).expect("an identifier");
+        async move {
+            store
+                .oidc_provider()
+                .await
+                .expect("read")
+                .expect("stored")
+                .id
+        }
+    };
+    let before = provider_id(&ts).await;
+
+    let refused = ts
+        .client
+        .put(
+            &path,
+            &json!({ "issuer": fake.issuer, "clientId": "another-client" }),
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+    assert_eq!(refused.refused_at(), "/clientSecret");
+    // Given anew, it is another provider; the sign-in started before ends with the
+    // one it was started through.
+    let other: OidcProvider = ts
+        .client
+        .put(
+            &path,
+            &json!({ "issuer": fake.issuer, "clientId": "another-client", "clientSecret": "s" }),
+        )
+        .await
+        .ok_json();
+    assert!(other.has_client_secret && other.create_at >= first.create_at);
+    assert_ne!(provider_id(&ts).await, before, "another provider");
+    assert_eq!(
+        browser.come_back(&started).await,
+        Outcome::Refused("oidc-state-invalid".to_owned())
+    );
+    // Back to the first client, with its secret: the same provider then on.
+    set_provider(&ts, &org_id, &fake).await;
+    let again = provider_id(&ts).await;
+    ts.client
+        .put(&path, &settings(&fake, Newcomers::Refused))
+        .await
+        .check_ok();
+    assert_eq!(provider_id(&ts).await, again, "the same issuer and client");
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// An organization that is not in use lets nobody sign in through its provider.
+#[tokio::test]
+async fn an_organization_not_in_use_lets_nobody_in() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    let started = browser.go_to_provider(&org_id).await.expect("started");
+    ts.app
+        .store()
+        .system()
+        .execute_unchecked(&format!(
+            "UPDATE organizations SET delete_at = 1 WHERE id = '{org_id}'"
+        ))
+        .await
+        .expect("the organization is marked deleted");
+    assert_eq!(
+        browser.come_back(&started).await,
+        Outcome::Refused("oidc-unavailable".to_owned()),
+        "a sign-in under way"
+    );
+    assert_eq!(
+        browser.sign_in(&org_id).await,
+        Outcome::Refused("oidc-unavailable".to_owned()),
+        "a new one"
+    );
+    assert_eq!(identities(&ts).await, 0);
     ts.teardown().await;
     fake.stop();
 }

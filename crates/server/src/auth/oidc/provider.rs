@@ -7,7 +7,7 @@
 
 use std::fmt::Write as _;
 
-use jsonwebtoken::jwk::{Jwk, PublicKeyUse};
+use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, PublicKeyUse};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use subtle::ConstantTimeEq as _;
@@ -159,13 +159,11 @@ pub async fn exchange_code(
     let basic = encoded
         .as_ref()
         .map(|(user, password)| (user.as_str(), password.as_str()));
-    match client.secret {
-        Some(_) if basic.is_some() => {}
-        Some(secret) => {
-            form.push(("client_id", client.id));
+    if basic.is_none() {
+        form.push(("client_id", client.id));
+        if let Some(secret) = client.secret {
             form.push(("client_secret", secret));
         }
-        None => form.push(("client_id", client.id)),
     }
     let answer: TokenAnswer = fetcher
         .post_form(&discovery.token_endpoint, &form, basic)
@@ -371,7 +369,7 @@ fn signing_key<'k>(
             .common
             .key_algorithm
             .is_none_or(|key_alg| key_alg.to_string().parse::<Algorithm>().ok() == Some(alg));
-        for_signing && for_alg
+        for_signing && for_alg && is_of_family(&key.algorithm, alg)
     };
     let mut candidates = keys.0.iter().filter(fits).filter(|key| match kid {
         Some(kid) => key.common.key_id.as_deref() == Some(kid),
@@ -384,6 +382,29 @@ fn signing_key<'k>(
         return Err(invalid("no key identifier, and more than one key fits"));
     }
     Ok(key)
+}
+
+/// Whether a key is of the kind an algorithm signs with: RSA for `RS…` and `PS…`, an
+/// elliptic curve for `ES…`, an octet key pair for `EdDSA`.
+fn is_of_family(key: &AlgorithmParameters, alg: Algorithm) -> bool {
+    match key {
+        AlgorithmParameters::RSA(_) => matches!(
+            alg,
+            Algorithm::RS256
+                | Algorithm::RS384
+                | Algorithm::RS512
+                | Algorithm::PS256
+                | Algorithm::PS384
+                | Algorithm::PS512
+        ),
+        AlgorithmParameters::EllipticCurve(_) => {
+            matches!(alg, Algorithm::ES256 | Algorithm::ES384)
+        }
+        AlgorithmParameters::OctetKeyPair(_) => alg == Algorithm::EdDSA,
+        // A symmetric key, and kinds a later version may know: none signs an ID token
+        // this server takes.
+        _ => false,
+    }
 }
 
 /// The reason, for the log, of a refusal of `jsonwebtoken`.
@@ -429,6 +450,36 @@ mod tests {
         ]))));
         assert!(!takes_basic(&with(Some(&["client_secret_post"]))));
         assert!(takes_basic(&with(Some(&["private_key_jwt"]))));
+    }
+
+    #[test]
+    fn without_a_key_identifier_the_one_key_of_the_algorithm_s_kind_signs() {
+        let keys =
+            |json: serde_json::Value| -> Keys { Keys(serde_json::from_value(json).expect("keys")) };
+        let rsa = serde_json::json!({ "kty": "RSA", "n": "sXch", "e": "AQAB" });
+        let ec = serde_json::json!({
+            "kty": "EC", "crv": "P-256",
+            "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+            "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+        });
+        let both = keys(serde_json::json!([rsa, ec]));
+        assert!(matches!(
+            signing_key(&both, Algorithm::RS256, None),
+            Ok(key) if matches!(key.algorithm, AlgorithmParameters::RSA(_))
+        ));
+        assert!(matches!(
+            signing_key(&both, Algorithm::ES256, None),
+            Ok(key) if matches!(key.algorithm, AlgorithmParameters::EllipticCurve(_))
+        ));
+        assert!(
+            signing_key(&both, Algorithm::EdDSA, None).is_err(),
+            "no such key"
+        );
+        let two_rsa = keys(serde_json::json!([rsa, rsa]));
+        assert!(
+            signing_key(&two_rsa, Algorithm::RS256, None).is_err(),
+            "which of two is not guessed"
+        );
     }
 
     #[test]

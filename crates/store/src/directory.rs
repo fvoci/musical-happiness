@@ -419,8 +419,7 @@ impl Store {
                 );
                 sql.bind(Id(user_id))
                     .push_bind(" AND om.org_id = ", Id(org_id))
-                    .push(" AND o.delete_at = 0 AND o.is_system = false")
-                    .push(&scope.same_organization(&[("om", "o")]));
+                    .push(" AND o.delete_at = 0 AND o.is_system = false");
                 match scope.fetch_optional(sql).await? {
                     Some(row) => role(&row, 0).map(Some),
                     None => Ok(None),

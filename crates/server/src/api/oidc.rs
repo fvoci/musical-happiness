@@ -23,6 +23,7 @@ use super::{ApiResult, json_response, query_param};
 use crate::app::{App, Callback, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure};
 use crate::auth::token::{Https, cookie_value, query_value};
 use crate::client_address::ClientAddress;
+use crate::error::Reason;
 
 /// The cookie that ties a sign-in to the browser that started it, where the server is
 /// reached over HTTPS: the `__Host-` prefix keeps other hosts of the domain from
@@ -65,7 +66,9 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 /// Start signing in through a provider
 ///
 /// For a browser: sends it to the provider of the organization `org` (303), with a
-/// cookie that ties the sign-in to it, and ten minutes to come back. If the
+/// cookie that ties the sign-in to it, and ten minutes to come back. A browser that
+/// says a page of another site sent it here (`Sec-Fetch-Site` other than `same-origin`
+/// or `none`) is sent to the login page with `oidc_state_invalid`. If the
 /// organization has no provider that is on, or it cannot be reached, the browser is
 /// sent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the
 /// name of its problem (`oidc-unavailable`), or `too-many-requests`.
@@ -88,9 +91,18 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 async fn handle_start(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
+    headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let org_id = query_param(query.as_deref(), "org");
+    if sent_from_another_site(&headers) {
+        tracing::info!("a sign-in through a provider was started from another site");
+        return Ok(to_login_page(
+            &app,
+            Some(&org_id),
+            LoginFailure::Reason(Reason::OidcStateInvalid),
+        ));
+    }
     match app.start_oidc_login(&org_id, address_of(client)).await {
         Ok(started) => {
             let mut response = see_other(&started.authorization_url);
@@ -140,7 +152,6 @@ async fn handle_start(
 )]
 async fn handle_callback(
     State(app): State<App>,
-    client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -152,7 +163,7 @@ async fn handle_callback(
         browser_secret: cookie_value(&headers, flow_cookie_name(&app)).unwrap_or_default(),
     };
     let (org_id, result) = app
-        .finish_oidc_login(&callback, &user_agent(&headers), address_of(client))
+        .finish_oidc_login(&callback, &user_agent(&headers))
         .await;
     let mut response = match result {
         Ok(finished) => {
@@ -168,6 +179,20 @@ async fn handle_callback(
         .headers_mut()
         .append(SET_COOKIE, flow_cookie(&app, "", 0));
     Ok(response)
+}
+
+/// Whether a browser says it was sent here by a page of another site
+/// (`Sec-Fetch-Site`). A sign-in started so could be another's: a page of theirs would
+/// send the browser through a provider that lets anybody in as the one person they
+/// chose, and the browser would come back signed in to that account. A start comes
+/// from the server's own login page, or from an address the person typed or followed
+/// from outside a page (`none`). A client that sends no such header is no browser that
+/// a page could send.
+fn sent_from_another_site(headers: &HeaderMap) -> bool {
+    headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|site| !matches!(site, "same-origin" | "none"))
 }
 
 /// A redirect to `location`, which the server made: always a valid header value.

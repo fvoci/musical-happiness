@@ -89,8 +89,9 @@ impl App {
             attempt.failed(Instant::now());
             return Err(incorrect_login());
         }
-        // One answer for an unknown user and for a wrong password, after the same work.
-        let Some(user) = user else {
+        // One answer for an unknown user, for a wrong password and for an account that
+        // has no password (one made through a provider), after the same work.
+        let Some(user) = user.filter(|user| !user.password_hash.is_empty()) else {
             let password = password.to_owned();
             self.password_work(move || verify_against_no_account(&password))
                 .await?;

@@ -47,7 +47,9 @@ export interface paths {
         /**
          * Start signing in through a provider
          * @description For a browser: sends it to the provider of the organization `org` (303), with a
-         *     cookie that ties the sign-in to it, and ten minutes to come back. If the
+         *     cookie that ties the sign-in to it, and ten minutes to come back. A browser that
+         *     says a page of another site sent it here (`Sec-Fetch-Site` other than `same-origin`
+         *     or `none`) is sent to the login page with `oidc_state_invalid`. If the
          *     organization has no provider that is on, or it cannot be reached, the browser is
          *     sent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the
          *     name of its problem (`oidc-unavailable`), or `too-many-requests`.
