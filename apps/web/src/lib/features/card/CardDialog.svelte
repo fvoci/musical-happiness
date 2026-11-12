@@ -34,12 +34,14 @@
     view: BoardView | undefined;
     /** The card to show. Undefined: no card is open. */
     cardId: string | undefined;
+    /** The address of a card of the board: its link to copy. */
+    cardHref: (cardId: string) => string;
     onClose: () => void;
     /** Shows another card in place of this one: the copy "Duplicate" made, a card a relation names. */
     onOpenCard?: (cardId: string) => void;
   }
 
-  let { board, view, cardId, onClose, onOpenCard }: Props = $props();
+  let { board, view, cardId, cardHref, onClose, onOpenCard }: Props = $props();
 
   // The store's open card follows the address. A card that is left is told to
   // store its body first: once closed it sends nothing any more.
@@ -163,6 +165,7 @@
           {view}
           {card}
           {frame}
+          {cardHref}
           onClose={() => void close()}
           onOpenCard={(otherId: string) => void openOther(otherId)}
         />

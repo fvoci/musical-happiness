@@ -8,6 +8,7 @@
  * so they do not depend on how the sidebar or the header of a view is drawn.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
 
 interface StoredView {
@@ -68,7 +69,7 @@ async function openView(page: Page, boardTitle: string, viewTitle: string): Prom
   );
   expect(found.boardId, `board "${boardTitle}"`).not.toBe('');
   expect(found.viewId, `view "${viewTitle}"`).not.toBe('');
-  await page.goto(`/board/${found.boardId}/${found.viewId}`);
+  await page.goto(boardPath(found.boardId, found.viewId));
   await expect(page.getByTestId('table')).toBeVisible();
   return found;
 }
@@ -541,7 +542,7 @@ test.describe('rows', () => {
     await menuItem(page, 'copyLink').click();
     await expect(page.getByTestId('table-status')).toHaveText('Copied!');
     const copied = await page.evaluate(() => navigator.clipboard.readText());
-    expect(new URL(copied).pathname).toBe(`/board/${opened.boardId}/${opened.viewId}/${id}`);
+    expect(new URL(copied).pathname).toBe(boardPath(opened.boardId, opened.viewId, id));
   });
 
   test('a row opens its card: by "Open" where the device hovers, and from its menu', async ({
@@ -1520,28 +1521,31 @@ test.describe('five hundred rows', () => {
       for (let at = 0; at < 495; at += 1) {
         await backend.createCard(board.id, { title: `Contact ${String(at + 1).padStart(3, '0')}` });
       }
-      return { path: `/board/${board.id}/${view.id}`, start: `/board/${other.id}/${start.id}` };
+      return { board: board.id, view: view.id, other: other.id, start: start.id };
     });
     const go = (path: string): Promise<void> =>
       page.evaluate((to) => {
         history.pushState(null, '', to);
         window.dispatchEvent(new PopStateEvent('popstate'));
       }, path);
-    await go(target.start);
+    await go(boardPath(target.other, target.start));
     await expect(cardRows(page)).toHaveCount(5);
 
-    const firstDraw = await page.evaluate(async (to) => {
-      const started = performance.now();
-      history.pushState(null, '', to);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-      const rows = (): number =>
-        document.querySelectorAll('[data-testid="table"] [data-kind="title"]').length;
-      while (rows() < 500) await new Promise((resolve) => setTimeout(resolve, 0));
-      const drawn = performance.now();
-      // Two frames: the rows are laid out and painted.
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      return { toRows: drawn - started, toPaint: performance.now() - started };
-    }, target.path);
+    const firstDraw = await page.evaluate(
+      async (to) => {
+        const started = performance.now();
+        history.pushState(null, '', to);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        const rows = (): number =>
+          document.querySelectorAll('[data-testid="table"] [data-kind="title"]').length;
+        while (rows() < 500) await new Promise((resolve) => setTimeout(resolve, 0));
+        const drawn = performance.now();
+        // Two frames: the rows are laid out and painted.
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return { toRows: drawn - started, toPaint: performance.now() - started };
+      },
+      boardPath(target.board, target.view),
+    );
     await expect(cardRows(page)).toHaveCount(500);
 
     const nodes = await table(page).evaluate((element) => element.querySelectorAll('*').length);

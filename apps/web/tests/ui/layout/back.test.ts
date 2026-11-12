@@ -23,7 +23,7 @@ const open = (): Overlay => {
 };
 
 beforeEach(() => {
-  history.replaceState(null, '', '/board/b/v');
+  history.replaceState(null, '', '/w/t/boards/b/v');
 });
 
 afterEach(async () => {
@@ -37,7 +37,7 @@ describe('closing on back', () => {
     const before = history.length;
     const sheet = open();
     expect(history.length).toBe(before + 1);
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
     history.back();
     await settle();
     expect(sheet.open).toBe(false);
@@ -75,18 +75,18 @@ describe('going somewhere else from inside a drawer', () => {
     const router = new Router('');
     const stop = router.listen();
     const drawer = open();
-    router.openBoard('other');
+    router.openBoard({ id: 'other', workspaceId: 't' });
     drawer.open = false;
     flushSync();
     await settle();
-    expect(location.pathname).toBe('/board/other');
+    expect(location.pathname).toBe('/w/t/boards/other');
     expect(drawer.closedByBack).toBe(0);
 
     // One step back is where the reader was before opening the drawer.
 
     history.back();
     await settle();
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
     expect(router.route).toMatchObject({ boardId: 'b', viewId: 'v' });
     stop();
   });
@@ -100,7 +100,7 @@ describe('going somewhere else from inside a drawer', () => {
     await settle();
     expect(sheet.open).toBe(false);
     expect(router.route.cardId).toBe('c');
-    expect(location.pathname).toBe('/board/b/v/c');
+    expect(location.pathname).toBe('/w/t/boards/b/v/c');
     // The next "back" closes the card.
     history.back();
     await settle();
@@ -138,7 +138,7 @@ describe('opening right after closing', () => {
     await settle();
     expect(second.open).toBe(false);
     expect(second.closedByBack).toBe(1);
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
     pushed.mockRestore();
   });
 
@@ -181,12 +181,12 @@ describe('opening right after closing', () => {
     flushSync();
     await settle();
     expect(router.route.cardId).toBe('c');
-    expect(location.pathname).toBe('/board/b/v/c');
+    expect(location.pathname).toBe('/w/t/boards/b/v/c');
 
     history.back();
     await settle();
     expect(router.route.cardId).toBeUndefined();
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
     stop();
   });
 
@@ -203,17 +203,17 @@ describe('opening right after closing', () => {
     // The screen follows at once; the address waits for the step back.
     expect(router.route.viewId).toBe('other');
     expect(pushed).not.toHaveBeenCalled();
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
 
     await settle();
     expect(pushed).toHaveBeenCalledTimes(1);
-    expect(location.pathname).toBe('/board/b/other');
+    expect(location.pathname).toBe('/w/t/boards/b/other');
     expect(router.route.viewId).toBe('other');
 
     // One step back is the view the reader came from.
     history.back();
     await settle();
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
     expect(router.route.viewId).toBe('v');
     pushed.mockRestore();
     stop();
@@ -232,7 +232,7 @@ describe('opening right after closing', () => {
     await settle();
     await settle();
     expect(router.route.cardId).toBeUndefined();
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
     stop();
   });
 });

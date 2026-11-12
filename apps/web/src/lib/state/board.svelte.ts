@@ -41,7 +41,7 @@ import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
-import { roleFlags, roleOf, type CardDrop } from './board-parts.ts';
+import { boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -168,7 +168,7 @@ export class BoardStore {
         this.#apply(change);
       });
       const [board, views, cards, members] = await Promise.all([
-        this.#backend.board(this.boardId),
+        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
         this.#backend.views(this.boardId),
         this.#backend.cards(this.boardId),
         this.#backend.members(this.boardId),
@@ -182,26 +182,26 @@ export class BoardStore {
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;
-      else if (isBackendError(error) && error.status === 403 && (await this.#openToJoin())) {
-        this.joinable = true;
+      else if (isBackendError(error) && error.status === 403 && (await this.#explainRefusal())) {
+        this.joinable = !this.missing;
       } else this.workspace.report('load', error);
     }
   }
 
   /**
-   * Whether the board refused is an open board the reader may join: one of
-   * their workspace that they are no member of reads as itself, while its views,
-   * cards and members are refused. Its title and description are then shown
-   * with a way to join (the user's decision, H5).
+   * Whether a refusal is explained: an open board of the workspace that the reader may join reads
+   * as itself, while the rest is refused (its title and description are shown with a way to join,
+   * the user's decision H5); a board not there, or of another workspace, is `missing`.
    */
-  async #openToJoin(): Promise<boolean> {
+  async #explainRefusal(): Promise<boolean> {
     try {
-      const board = await this.#backend.board(this.boardId);
+      const board = await boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id);
       if (board.type !== 'O' || board.isTemplate) return false;
       this.board = board;
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      this.missing = isBackendError(error) && error.status === 404;
+      return this.missing;
     }
   }
 
@@ -358,7 +358,7 @@ export class BoardStore {
     const membersTold = this.#membersTold;
     try {
       const [board, views, cards, members] = await Promise.all([
-        this.#backend.board(this.boardId),
+        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
         this.#backend.views(this.boardId),
         this.#backend.cards(this.boardId),
         this.#backend.members(this.boardId),

@@ -10,13 +10,14 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { boardLink } from '../e2e/shell.support.ts';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -51,7 +52,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   const ownerPage = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
   const guestPage = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
   const errors = [ownerPage, guestPage].map(watchErrors);
-  await ownerPage.goto(`/board/${board.boardId}/${board.viewId}`);
+  await ownerPage.goto(boardPath(board, board.viewId));
   await signInOnPage(ownerPage, owner);
   await guestPage.goto('/');
   await signInOnPage(guestPage, guest);
@@ -111,7 +112,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   await expect(link).toHaveValue(/readToken=/);
   const first = await sharing(api, board.boardId);
   expect(first.enabled).toBe(true);
-  expect(await link.inputValue()).toContain(`/board/${board.boardId}`);
+  expect(await link.inputValue()).toContain(boardPath(board));
   expect(new URL(await link.inputValue()).searchParams.get('readToken')).toBe(first.token);
   await dialog.getByTestId('share-regenerate').click();
   await ownerPage

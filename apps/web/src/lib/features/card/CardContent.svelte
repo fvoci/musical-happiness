@@ -35,11 +35,13 @@
     view: BoardView | undefined;
     card: CardStore;
     frame: CardFrame;
+    /** The address of a card of the board: its link to copy. */
+    cardHref: (cardId: string) => string;
     onClose: () => void;
     onOpenCard?: (cardId: string) => void;
   }
 
-  let { board, view, card, frame, onClose, onOpenCard }: Props = $props();
+  let { board, view, card, frame, cardHref, onClose, onOpenCard }: Props = $props();
 
   const saver = new BodySaver(untrack(() => card));
   onDestroy(() => {
@@ -103,6 +105,7 @@
   {view}
   {card}
   {frame}
+  {cardHref}
   saveState={saver.state}
   {onClose}
   onDuplicate={() => void duplicate()}

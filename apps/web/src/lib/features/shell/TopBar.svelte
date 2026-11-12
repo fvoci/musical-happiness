@@ -25,6 +25,7 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { BoardPlace } from '$lib/logic/urls.ts';
   import { cardTrash, type Trash, type Workspace } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
@@ -39,7 +40,7 @@
     /** The board on the page. */
     boardId: string | undefined;
     /** The address of a board's page. */
-    boardHref: (boardId: string) => string;
+    boardHref: (board: BoardPlace) => string;
     /** Show the button that opens the drawer. */
     menuButton: boolean;
     onOpenSidebar: () => void;
@@ -222,11 +223,11 @@
   />
 {/if}
 
-{#if store && canShare}
+{#if store?.board && canShare}
   <ShareDialog
     bind:open={sharing}
     {workspace}
     board={store}
-    boardAddress={new URL(boardHref(store.boardId), location.href).href}
+    boardAddress={new URL(boardHref(store.board), location.href).href}
   />
 {/if}

@@ -6,6 +6,8 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { boardPath } from './address.ts';
+
 interface StoredCard {
   id: string;
   title: string;
@@ -50,7 +52,7 @@ async function openTable(page: Page): Promise<Place> {
     };
   });
   expect(place.cards).toHaveLength(3);
-  await page.goto(`/board/${place.boardId}/${place.viewId}`);
+  await page.goto(boardPath(place.boardId, place.viewId));
   await expect(page.getByTestId('table')).toBeVisible();
   return place;
 }
@@ -123,7 +125,7 @@ test('a relation is made, cards are picked and taken out, and it shows in the ca
 }) => {
   const place = await openTable(page);
   const [own, first, second] = place.cards as [StoredCard, StoredCard, StoredCard];
-  await page.goto(`/board/${place.boardId}/${place.viewId}/${own.id}`);
+  await page.goto(boardPath(place.boardId, place.viewId, own.id));
   await expect(dialog(page)).toBeVisible();
   await addRelation(page);
 
@@ -167,7 +169,7 @@ test('a named card that is deleted is not shown, and is shown again when it is b
 }) => {
   const place = await openTable(page);
   const [own, named] = place.cards as [StoredCard, StoredCard];
-  await page.goto(`/board/${place.boardId}/${place.viewId}/${own.id}`);
+  await page.goto(boardPath(place.boardId, place.viewId, own.id));
   await expect(dialog(page)).toBeVisible();
   await addRelation(page);
   await pick(page, named.title);

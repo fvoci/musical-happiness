@@ -14,6 +14,7 @@
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
 
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
@@ -73,7 +74,7 @@ async function openCardWithEmbeds(page: Page, board: string): Promise<Locator> {
     if (!card || !view) throw new Error('the board has no card or no view');
     return { boardId: found.id, viewId: view.id, cardId: card.id };
   }, board);
-  await page.goto(`/board/${place.boardId}/${place.viewId}/${place.cardId}`);
+  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
   const body = page.getByTestId('card-body');
   await expect(body).toBeVisible();
   await expect(page.getByTestId('card-comments')).toBeVisible();

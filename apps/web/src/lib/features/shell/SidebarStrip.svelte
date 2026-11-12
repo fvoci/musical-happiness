@@ -17,6 +17,7 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
   import type { Workspace } from '$lib/state/index.ts';
 
@@ -26,12 +27,12 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    boardHref: (boardId: string) => string;
+    boardHref: (board: BoardPlace) => string;
     /** Out of the layout: the list stands beside the board, or the page is compact. */
     hidden: boolean;
     /** Behind the open drawer: neither pressed nor reached with the keyboard. */
     inert: boolean;
-    onOpenBoard: (boardId: string) => void;
+    onOpenBoard: (board: BoardPlace) => void;
     onExpand: () => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
@@ -55,12 +56,12 @@
     (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
   );
 
-  function open(event: MouseEvent, id: string): void {
+  function open(event: MouseEvent, board: BoardPlace): void {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
     event.preventDefault();
-    onOpenBoard(id);
+    onOpenBoard(board);
   }
 </script>
 
@@ -84,13 +85,13 @@
       {@const title = titleOf(board)}
       <li class="shrink-0">
         <a
-          href={boardHref(board.id)}
+          href={boardHref(board)}
           aria-label={title}
           {title}
           aria-current={board.id === boardId ? 'page' : undefined}
           class="grid size-8 place-items-center rounded-lg hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent aria-[current=page]:ring-1 aria-[current=page]:ring-input-border roomy:size-touch"
           onclick={(event) => {
-            open(event, board.id);
+            open(event, board);
           }}
         >
           <BoardIcon icon={board.icon} {title} locale={workspace.locale} />
