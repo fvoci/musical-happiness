@@ -18,11 +18,11 @@ use super::contract::bodies::Binary;
 use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::workspace::Ws;
-use super::{ApiResult, RequiredSession, json_response};
+use super::{AccountSession, ApiResult, RequiredSession, json_response};
 use super::{require_board_permission, user_is_guest};
 use crate::app::{App, ExportedArchive, Slot, download};
 use crate::connection::{Breaker, Connection};
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 use crate::permissions::BoardPermission;
 
 /// What is refused to a user who may not import into the workspace.
@@ -162,7 +162,7 @@ async fn handle_export_board(
 )]
 async fn handle_export_workspace(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
@@ -222,7 +222,7 @@ async fn handle_export_workspace(
 )]
 async fn handle_import(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     Path(workspace_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
@@ -230,7 +230,12 @@ async fn handle_import(
     // The workspace is entered first, for the organization its upload is read in, and
     // refused where it always was: after the body and the upload are looked at, with
     // the upload thrown away.
-    let entered = require_import_access(&app, session, workspace_id.clone()).await;
+    let entered = match require_import_access(&app, session, workspace_id.clone()).await {
+        // A session that does not open the organization looks at nothing of it, its
+        // uploads included, and throws none away.
+        Err(refusal) if refusal.reason() == Some(Reason::SsoRequired) => return Err(refusal),
+        entered => entered,
+    };
     let reach = entered
         .as_ref()
         .map_or_else(|_| app.clone(), |ws| ws.app.clone());

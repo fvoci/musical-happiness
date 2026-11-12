@@ -15,7 +15,7 @@ use utoipa_axum::routes;
 use super::contract::params::{HomeMemberWorkspaceId, MemberWorkspaceId, UserSearch, WorkspaceId};
 use super::contract::tag;
 use super::session::session_of;
-use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
+use super::{AccountSession, ApiResult, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -37,7 +37,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 ///
 /// Extraction fails with 401 without a session, and with 404 unless the session's user
 /// is a member of the workspace: one that is another's and one that does not exist
-/// answer alike. The application it hands the handler is behind the wall between
+/// answer alike. A member whose session does not open the workspace's organization,
+/// which takes only sessions made through its provider, is told so (401, reason
+/// `sso_required`): that is asked where the workspace is entered
+/// (`App::enter_workspace`), of every request. The application it hands the handler is behind the wall between
 /// organizations, reaching the rows of the workspace's organization and no other. It
 /// is not narrowed to the workspace: the organization's other workspaces are in its
 /// reach, and a handler asks for what is in this one by `workspace_id`.
@@ -103,7 +106,7 @@ impl Ws {
         workspace_id: String,
     ) -> Result<Self, AppError> {
         let entered = app
-            .enter_workspace(&session.user_id, &workspace_id)
+            .enter_workspace(&session, &workspace_id)
             .await?
             .ok_or_else(workspace_not_found)?;
         Ok(Self {
@@ -181,7 +184,10 @@ fn malformed_path() -> AppError {
 ///
 /// The workspaces the user of the session is a member of, in every organization, with
 /// what the user is in each. By organization, the oldest first, and in each the oldest
-/// workspace first.
+/// workspace first. A workspace of an organization that takes only sessions made
+/// through its provider is listed for any session, with `ssoRequired` true for one that
+/// was not made so: what is under it answers 401 with the reason `sso_required` until
+/// the user signs in through the provider of `orgId`.
 #[utoipa::path(
     get,
     path = "/users/me/workspaces",
@@ -191,9 +197,9 @@ fn malformed_path() -> AppError {
 )]
 async fn handle_get_my_workspaces(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
 ) -> ApiResult {
-    let workspaces = app.workspaces_of_user(&session.user_id).await?;
+    let workspaces = app.workspaces_of_user(&session).await?;
     Ok(json_response(&workspaces))
 }
 
@@ -290,7 +296,7 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
 )]
 async fn handle_get_workspace_users_by_id(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     Path(workspace_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {

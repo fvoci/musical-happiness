@@ -54,7 +54,7 @@ pub(crate) use body::{
     take_patch_bodies,
 };
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
-pub(crate) use session::{OptionalSession, RequiredSession};
+pub(crate) use session::{AccountSession, OptionalSession, RequiredSession};
 
 use limits::{
     BodyLimit, SessionBodyLimit, UNAUTHENTICATED_BODY_LIMIT, limit_request_body,
@@ -337,4 +337,32 @@ pub(crate) async fn by_read_token(
 ) -> Result<Option<App>, AppError> {
     app.enter_shared_board(board_id, &query_param(query, "readToken"))
         .await
+}
+
+/// As [`by_read_token`], for a request that may come with a session as well: the
+/// session is given back if it counts on the board, and none if it does not open the
+/// board's organization, which need not be the one the request came in for. The token
+/// then opens the board as it does for anybody, and the reader is told no more.
+///
+/// # Errors
+///
+/// Returns the store's error if the board's sharing or its organization's provider
+/// cannot be read.
+pub(crate) async fn reader_by_read_token(
+    app: &App,
+    session: OptionalSession,
+    query: Option<&str>,
+    board_id: &str,
+) -> Result<(Option<App>, OptionalSession), AppError> {
+    let shared = by_read_token(app, query, board_id).await?;
+    let (Some(of_the_board), Some(held)) = (&shared, &session.0) else {
+        return Ok((shared, session));
+    };
+    match of_the_board.require_session_opens_here(held).await {
+        Ok(()) => Ok((shared, session)),
+        Err(error) if error.reason() == Some(Reason::SsoRequired) => {
+            Ok((shared, OptionalSession(None)))
+        }
+        Err(error) => Err(error),
+    }
 }

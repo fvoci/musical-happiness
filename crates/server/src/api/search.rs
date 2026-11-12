@@ -11,7 +11,7 @@ use super::contract::tag;
 
 use super::user_is_guest;
 use super::workspace::Ws;
-use super::{ApiResult, RequiredSession, json_response, query_param};
+use super::{AccountSession, ApiResult, RequiredSession, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -38,7 +38,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_search_boards(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     Path(workspace_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {

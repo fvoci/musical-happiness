@@ -943,7 +943,19 @@ export interface paths {
          *     stores none. The secret is stored sealed with the server's key and never answered:
          *     without the key the request is 409 with the reason `secret_key_required`. `autoJoin`
          *     and `enabled` left out stay as they are, also for another issuer or client, and are
-         *     on when the organization has no provider. A provider changed by another request
+         *     on when the organization has no provider.
+         *
+         *     `ssoRequired` true makes the organization take no password: from the next request
+         *     on, what is the organization's (the routes under `/w/{workspaceId}` and here, and
+         *     those that name a board, a card or another thing of it) answers 401 with the reason
+         *     `sso_required` to every session that was not made through this provider. The
+         *     sessions stay, and open what is of other organizations. It is switched on by a
+         *     session that was itself made through this provider, switched on, or the request is
+         *     409 with the reason `sso_unproven`: who asks has then shown that it lets them in.
+         *     While it is on, the provider is not switched off (`enabled` false), not set to
+         *     another issuer or client, and not removed: 409 with the reason `sso_enforced`,
+         *     unless the same request switches `ssoRequired` off. Left out it stays as it is,
+         *     and is off when the organization has no provider. A provider changed by another request
          *     since this one read it is 409, to be read and sent again. The answer's `redirectUri`
          *     is the address to register with the provider, exactly: the organization's own,
          *     `…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after
@@ -955,6 +967,8 @@ export interface paths {
          * Remove the provider of an organization
          * @description Removes the organization's provider and the sign-ins under way through it. The
          *     sessions made through it go on. An organization without one answers the same.
+         *     While the organization takes no password (`ssoRequired`) the provider stays: 409
+         *     with the reason `sso_enforced`.
          */
         delete: operations["deleteOidcProvider"];
         options?: never;
@@ -1353,7 +1367,10 @@ export interface paths {
          * The workspaces of the user
          * @description The workspaces the user of the session is a member of, in every organization, with
          *     what the user is in each. By organization, the oldest first, and in each the oldest
-         *     workspace first.
+         *     workspace first. A workspace of an organization that takes only sessions made
+         *     through its provider is listed for any session, with `ssoRequired` true for one that
+         *     was not made so: what is under it answers 401 with the reason `sso_required` until
+         *     the user signs in through the provider of `orgId`.
          */
         get: operations["getMyWorkspaces"];
         put?: never;
@@ -2707,6 +2724,11 @@ export interface components {
              */
             redirectUri: string;
             /**
+             * @description Whether the organization takes no password: what is the organization's opens
+             *     only for a session made through this provider.
+             */
+            ssoRequired: boolean;
+            /**
              * Format: int64
              * @description When the provider was last changed, in milliseconds since the Unix epoch.
              */
@@ -2734,6 +2756,11 @@ export interface components {
             enabled?: boolean | null;
             /** @description The issuer: an `https` address without query or fragment. */
             issuer: string;
+            /**
+             * @description Whether the organization takes no password. Left out, it stays as it is; off
+             *     when the organization has no provider.
+             */
+            ssoRequired?: boolean | null;
         };
         /** @description A sign-in through a provider that was started: where the page sends the browser. */
         OidcStart: {
@@ -2793,6 +2820,11 @@ export interface components {
              * @description The limit that was exceeded.
              */
             limit?: number;
+            /**
+             * @description The organization whose provider the session must be made through, with the
+             *     reason `sso_required`: what the sign-in is started for.
+             */
+            orgId?: string;
             /**
              * @description Why, where a client must tell causes of the same status apart, such as
              *     `invalid_credentials` or `last_admin`.
@@ -3146,6 +3178,13 @@ export interface components {
             orgId: string;
             /** @description What the user is in the workspace. */
             role: components["schemas"]["WorkspaceRole"];
+            /**
+             * @description Whether the workspace is closed to the session that asks: its organization
+             *     takes only sessions made through its provider, and this one was not. What is
+             *     under the workspace then answers 401 with the reason `sso_required`; signing in
+             *     through the provider of `orgId` opens it.
+             */
+            ssoRequired: boolean;
         };
         /**
          * @description The day a week starts on.

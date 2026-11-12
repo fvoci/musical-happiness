@@ -18,8 +18,8 @@ use super::contract::params::UserId;
 use super::contract::tag;
 
 use super::{
-    ApiResult, RequiredSession, decode_json, decode_object, json_object, json_response,
-    require_admin,
+    AccountSession, ApiResult, RequiredSession, decode_json, decode_object, json_object,
+    json_response, require_admin,
 };
 use crate::app::App;
 use crate::error::AppError;
@@ -99,7 +99,7 @@ async fn handle_get_users_list(
 )]
 async fn handle_get_me(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
 ) -> ApiResult {
     let mut user = app.user(&session.user_id).await.map_err(user_not_found)?;
 
@@ -126,7 +126,7 @@ async fn handle_get_me(
 )]
 async fn handle_patch_me(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
@@ -289,7 +289,7 @@ fn client_state(entries: Vec<Preference>) -> BTreeMap<String, String> {
 )]
 async fn handle_patch_client_state(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     body: Bytes,
 ) -> ApiResult {
     let patch: UserPreferencesPatch = decode_object(&body)?;
@@ -311,7 +311,7 @@ async fn handle_patch_client_state(
 )]
 async fn handle_get_user_settings(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
 ) -> ApiResult {
     Ok(json_response(&app.user_settings(&session.user_id).await?))
 }
@@ -331,7 +331,7 @@ async fn handle_get_user_settings(
 )]
 async fn handle_patch_user_settings(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
@@ -357,7 +357,7 @@ async fn handle_patch_user_settings(
 )]
 async fn handle_get_client_state(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
 ) -> ApiResult {
     let entries = app.user_preferences(&session.user_id).await?;
     Ok(json_response(&client_state(entries)))

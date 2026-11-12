@@ -49,6 +49,9 @@ pub struct WorkspaceAccess {
     pub org_role: Option<OrgRole>,
     /// What the user is in the workspace.
     pub workspace_role: WorkspaceRole,
+    /// The provider a session must be made through to open what is the organization's;
+    /// `None` for an organization that takes a password too.
+    pub required_provider: Option<String>,
 }
 
 impl WorkspaceAccess {
@@ -349,14 +352,15 @@ impl Store {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
-                    "SELECT t.org_id, wm.role, om.role FROM workspace_members AS wm \
+                    "SELECT t.org_id, wm.role, om.role, p.id FROM workspace_members AS wm \
                      JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      LEFT JOIN organization_members AS om \
                      ON om.org_id = t.org_id AND om.user_id = wm.user_id \
-                     WHERE wm.user_id = ",
+                     LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
                 );
-                sql.bind(Id(user_id))
+                sql.bind(true)
+                    .push_bind(" WHERE wm.user_id = ", Id(user_id))
                     .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("wm", "t")]));
@@ -372,13 +376,17 @@ impl Store {
                     } else {
                         Some(role(&row, 2)?)
                     },
+                    required_provider: Some(row.id(3)?).filter(|id| !id.is_empty()),
                 }))
             })
             .await
     }
 
     /// The workspaces the user is a member of, in every organization: by organization,
-    /// the oldest first, and in each the oldest workspace first.
+    /// the oldest first, and in each the oldest workspace first. `login_provider` is
+    /// the provider the asking session was made through (`None` for a password): a
+    /// workspace of an organization that takes only sessions made through another
+    /// says so (`sso_required`), and is listed all the same.
     ///
     /// # Errors
     ///
@@ -387,16 +395,18 @@ impl Store {
     pub async fn workspaces_of_user(
         &self,
         user_id: &str,
+        login_provider: Option<&str>,
     ) -> Result<Vec<UserWorkspace>, StoreError> {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql(
-                    "SELECT t.id, t.org_id, t.name, wm.role FROM workspace_members AS wm \
+                    "SELECT t.id, t.org_id, t.name, wm.role, p.id FROM workspace_members AS wm \
                      JOIN workspaces AS t ON t.id = wm.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
-                     WHERE wm.user_id = ",
+                     LEFT JOIN oidc_providers AS p ON p.org_id = t.org_id AND p.sso_required = ",
                 );
-                sql.bind(Id(user_id))
+                sql.bind(true)
+                    .push_bind(" WHERE wm.user_id = ", Id(user_id))
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("wm", "t")]))
                     .push(" ORDER BY o.create_at, o.id, t.create_at, t.id");
@@ -405,14 +415,57 @@ impl Store {
                     .await?
                     .iter()
                     .map(|row| {
+                        let required = row.id(4)?;
                         Ok(UserWorkspace {
                             id: row.id(0)?,
                             org_id: row.id(1)?,
                             name: row.text(2)?,
                             role: role(row, 3)?,
+                            sso_required: !required.is_empty()
+                                && login_provider != Some(required.as_str()),
                         })
                     })
                     .collect()
+            })
+            .await
+    }
+
+    /// The provider a session of the user must be made through to open what is the
+    /// organization's: `Some` if the organization takes no other session and the user
+    /// has a place in it, as a member of it or of one of its workspaces. `None` for an
+    /// organization that takes a password too, and for a user who has no place in it,
+    /// whether it exists or not: who has nothing there to open is told nothing of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn required_provider_for(
+        &self,
+        user_id: &str,
+        org_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT p.id FROM oidc_providers AS p WHERE p.org_id = ");
+                sql.bind(Id(org_id))
+                    .push_bind(" AND p.sso_required = ", true)
+                    .push(
+                        " AND (EXISTS (SELECT 1 FROM organization_members AS om \
+                         WHERE om.org_id = p.org_id AND om.user_id = ",
+                    )
+                    .bind(Id(user_id))
+                    .push(
+                        ") OR EXISTS (SELECT 1 FROM workspace_members AS wm \
+                         JOIN workspaces AS t ON t.id = wm.workspace_id \
+                         WHERE t.org_id = p.org_id AND wm.user_id = ",
+                    )
+                    .bind(Id(user_id))
+                    .push("))");
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
             })
             .await
     }

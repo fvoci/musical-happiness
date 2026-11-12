@@ -15,8 +15,8 @@ use crate::users::{InstanceRole, insert_user_row};
 use crate::{members, sessions};
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
-const PROVIDER_COLUMNS: &str =
-    "id, org_id, issuer, client_id, client_secret, auto_join, enabled, create_at, update_at";
+const PROVIDER_COLUMNS: &str = "id, org_id, issuer, client_id, client_secret, auto_join, enabled, \
+                                create_at, update_at, sso_required";
 
 /// The provider of an organization, as it is stored.
 #[derive(Clone, PartialEq, Eq)]
@@ -40,6 +40,8 @@ pub struct StoredProvider {
     pub create_at: i64,
     /// When it was last changed, in milliseconds since the Unix epoch.
     pub update_at: i64,
+    /// Whether what is the organization's opens only for a session made through it.
+    pub sso_required: bool,
 }
 
 impl std::fmt::Debug for StoredProvider {
@@ -52,6 +54,7 @@ impl std::fmt::Debug for StoredProvider {
             .field("client_id", &self.client_id)
             .field("auto_join", &self.auto_join)
             .field("enabled", &self.enabled)
+            .field("sso_required", &self.sso_required)
             .finish_non_exhaustive()
     }
 }
@@ -206,12 +209,13 @@ impl Store {
                 .push_bind(", ", provider.enabled)
                 .push_bind(", ", now)
                 .push_bind(", ", now)
+                .push_bind(", ", provider.sso_required)
                 .push(
                     ") ON CONFLICT (org_id) DO UPDATE SET \
                      issuer = excluded.issuer, client_id = excluded.client_id, \
                      client_secret = excluded.client_secret, \
                      auto_join = excluded.auto_join, enabled = excluded.enabled, \
-                     update_at = excluded.update_at",
+                     update_at = excluded.update_at, sso_required = excluded.sso_required",
                 )
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
@@ -221,18 +225,60 @@ impl Store {
     }
 
     /// Removes the provider of the handle's organization, and the sign-ins under way
-    /// through it. Says whether there was one.
+    /// through it, unless it is the one the organization takes nothing else than
+    /// (`sso_required`): that one stays, and is released first. Asked and removed in
+    /// one transaction that holds the provider, so that no removal passes an
+    /// enforcement that is switched on beside it.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if a statement fails.
-    pub async fn delete_oidc_provider(&self) -> Result<bool, StoreError> {
+    pub async fn delete_oidc_provider(&self) -> Result<Removal, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
+            let mut sql = scope.sql("SELECT sso_required FROM oidc_providers WHERE org_id = ");
+            sql.bind(scope.org()?);
+            match scope.fetch_optional(sql).await? {
+                None => return Ok(Removal::NoneThere),
+                Some(row) if row.bool(0)? => return Ok(Removal::Enforced),
+                Some(_) => {}
+            }
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
-            Ok(scope.execute(sql).await? > 0)
+            scope.execute(sql).await?;
+            Ok(Removal::Removed)
+        })
+        .await
+    }
+
+    /// Releases the handle's organization from taking only sessions made through its
+    /// provider, whoever asks and whatever the provider is: the way out when nobody
+    /// gets in through it. Returns the provider as it is then if this released it,
+    /// `None` if there was nothing to release.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
+    /// [`StoreError::Database`] if a statement fails.
+    pub async fn release_sso(&self) -> Result<Option<StoredProvider>, StoreError> {
+        self.transaction(async |scope| {
+            hold_provider_of_organization(scope).await?;
+            let mut sql = scope.sql("SELECT update_at FROM oidc_providers WHERE org_id = ");
+            sql.bind(scope.org()?)
+                .push_bind(" AND sso_required = ", true);
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Ok(None);
+            };
+            // Another state of the provider, with a later time, as every change is.
+            let now = now_millis().max(row.int(0)?.saturating_add(1));
+            let mut sql = scope.sql("UPDATE oidc_providers SET sso_required = ");
+            sql.bind(false)
+                .push_bind(", update_at = ", now)
+                .push_bind(" WHERE org_id = ", scope.org()?)
+                .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
+            let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
+            provider_from_row(&row).map(Some)
         })
         .await
     }
@@ -418,6 +464,26 @@ impl Store {
         .await
     }
 
+    /// Ties an identity to an account, as a provider gave it. For tests that need an
+    /// account that signs in through a provider without the sign-in that makes one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Conflict`] if the identity is an account's already, and
+    /// [`StoreError::Database`] if the statement fails.
+    #[cfg(any(test, feature = "test-util"))]
+    pub async fn add_identity(
+        &self,
+        user_id: &str,
+        identity: Identity<'_>,
+        provider_email: &str,
+    ) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            insert_identity(scope, identity, user_id, provider_email, now_millis()).await
+        })
+        .await
+    }
+
     /// Whether the user is a member of the handle's organization.
     ///
     /// # Errors
@@ -442,6 +508,17 @@ async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), Stor
         scope.fetch_optional(sql).await?;
     }
     Ok(())
+}
+
+/// What came of removing the provider of an organization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+    /// It is removed.
+    Removed,
+    /// The organization had none.
+    NoneThere,
+    /// It stays: the organization takes only sessions made through it.
+    Enforced,
 }
 
 /// What a provider that is replaced must still be.
@@ -527,6 +604,7 @@ fn provider_from_row(row: &Row) -> Result<StoredProvider, StoreError> {
         enabled: row.bool(6)?,
         create_at: row.int(7)?,
         update_at: row.int(8)?,
+        sso_required: row.bool(9)?,
     })
 }
 

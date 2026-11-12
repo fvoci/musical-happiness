@@ -235,6 +235,13 @@ reasons! {
     OidcEmailTaken => "oidc_email_taken", "Email address of another account";
     /// The organization does not let in who is no member through its provider.
     OidcJoinClosed => "oidc_join_closed", "Organization closed to newcomers";
+    /// The organization takes only sessions made through its provider, and this one
+    /// was not.
+    SsoRequired => "sso_required", "Sign-in through the provider required";
+    /// Taking no password is switched on from a session made through the provider.
+    SsoUnproven => "sso_unproven", "Provider not signed in through";
+    /// The organization takes no password, and its provider stays as it is meanwhile.
+    SsoEnforced => "sso_enforced", "Provider held while no password is taken";
     /// The value of a card relation is neither `null` nor a list of identifiers.
     RelationNotAList => "relation_not_a_list", "Card relation that is no list";
     /// A card relation names the card it is the value of.
@@ -320,11 +327,21 @@ pub struct AppError {
     /// request with a list of them says with it which one, or that it cannot say
     /// ([`AppError::among_blocks`]). Never sent.
     subject: Option<Subject>,
+    /// What few errors say besides: boxed, so that an error stays small to hand back.
+    more: Option<Box<More>>,
+    /// The cause of a server error, for the log.
+    cause: Option<anyhow::Error>,
+}
+
+/// What few errors say besides their words and their reason.
+#[derive(Debug, Default)]
+struct More {
+    /// The limit that was exceeded.
     limit: Option<u64>,
     /// How many seconds to wait before trying again.
     retry_after: Option<u64>,
-    /// The cause of a server error, for the log.
-    cause: Option<anyhow::Error>,
+    /// The organization to sign in to, where that is what the error asks for.
+    org_id: Option<String>,
 }
 
 impl std::fmt::Display for AppError {
@@ -354,10 +371,14 @@ impl AppError {
             reason: None,
             refused: Vec::new(),
             subject: None,
-            limit: None,
-            retry_after: None,
+            more: None,
             cause: None,
         }
+    }
+
+    /// What few errors say besides, to be set.
+    fn more(&mut self) -> &mut More {
+        self.more.get_or_insert_default()
     }
 
     /// An error of the kind `kind`, for an answer that no code of this server made:
@@ -385,7 +406,7 @@ impl AppError {
     pub fn rate_limited(wait: std::time::Duration) -> Self {
         let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
         let mut error = Self::new(ErrorKind::RateLimited, "too many attempts; try again later");
-        error.retry_after = Some(seconds.max(1));
+        error.more().retry_after = Some(seconds.max(1));
         error
     }
 
@@ -403,6 +424,19 @@ impl AppError {
     /// A 401 error with the given message.
     pub fn unauthorized(message: impl std::fmt::Display) -> Self {
         Self::new(ErrorKind::Unauthorized, message)
+    }
+
+    /// The 401 of a session that is good and does not open what is the organization
+    /// `org_id`'s: that one takes only sessions made through its provider. The answer
+    /// names the organization, which the sign-in that opens it is started for.
+    pub fn sso_required(org_id: &str) -> Self {
+        let mut error = Self::new(
+            ErrorKind::Unauthorized,
+            "sign in through the organization's provider to open this",
+        )
+        .with_reason(Reason::SsoRequired);
+        error.more().org_id = Some(org_id.to_owned());
+        error
     }
 
     /// A 403 error with the given message.
@@ -444,7 +478,7 @@ impl AppError {
             ErrorKind::PayloadTooLarge,
             format_args!("the request body is larger than {limit} bytes"),
         );
-        error.limit = Some(limit);
+        error.more().limit = Some(limit);
         error
     }
 
@@ -452,7 +486,7 @@ impl AppError {
     /// archive's entries, for one.
     pub fn too_large(message: impl std::fmt::Display, limit: u64) -> Self {
         let mut error = Self::new(ErrorKind::PayloadTooLarge, message);
-        error.limit = Some(limit);
+        error.more().limit = Some(limit);
         error
     }
 
@@ -595,7 +629,7 @@ impl AppError {
     /// collection.
     #[must_use]
     pub fn with_limit(mut self, limit: u64) -> Self {
-        self.limit = Some(limit);
+        self.more().limit = Some(limit);
         self
     }
 
@@ -684,6 +718,7 @@ impl AppError {
                 input
             })
             .collect();
+        let more = self.more.as_deref();
         Problem {
             problem_type: type_reference(&name),
             title: title.to_owned(),
@@ -692,9 +727,10 @@ impl AppError {
             instance: None,
             reason: reason.map(str::to_owned),
             errors,
-            limit: self.limit,
-            retry_after: self.retry_after,
+            limit: more.and_then(|more| more.limit),
+            retry_after: more.and_then(|more| more.retry_after),
             request_id: None,
+            org_id: more.and_then(|more| more.org_id.clone()),
         }
     }
 }

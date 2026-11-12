@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use fvoci_collab::BodyDoc;
 use fvoci_collab::testing::Editor;
-use fvoci_model::{BoardType, Body, Card, FileInfo, new_id};
+use fvoci_model::{BoardType, Body, Card, FileInfo, Session, new_id};
 use fvoci_server::app::App;
 use fvoci_server::collab::Collab;
 use fvoci_server::error::{AppError, Reason};
@@ -41,7 +41,13 @@ async fn editing(th: &TestServer, body: Value) -> (App, Card, String, String) {
     let user2 = th.client2.me().await.id;
     let entered = th
         .app
-        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .enter_workspace(
+            &Session {
+                user_id: user1.clone(),
+                ..Session::default()
+            },
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("membership read")
         .expect("member");
@@ -171,7 +177,13 @@ async fn lowering_the_update_limit_does_not_erase_acknowledged_edits() {
         .await;
     let entered = th
         .app
-        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .enter_workspace(
+            &Session {
+                user_id: user1.clone(),
+                ..Session::default()
+            },
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("membership read")
         .expect("member");

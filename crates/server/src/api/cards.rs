@@ -16,8 +16,8 @@ use super::contract::tag;
 use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
 use super::{
-    ApiResult, OptionalSession, RequiredSession, TRUE, by_read_token, created, json_response,
-    query_param,
+    ApiResult, OptionalSession, RequiredSession, TRUE, created, json_response, query_param,
+    reader_by_read_token,
 };
 use super::{decode_with_document, require_board_permission, require_permission_through};
 use crate::app::{App, CardPreviews};
@@ -189,8 +189,8 @@ async fn handle_get_cards(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let query = query.as_deref();
+    let (shared, session) = reader_by_read_token(&app, session, query, &board_id).await?;
     let user_id = session.user_id();
-    let shared = by_read_token(&app, query, &board_id).await?;
     let has_read_token = shared.is_some();
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to fetch cards"));

@@ -54,6 +54,7 @@ mod server_lock;
 mod sharing;
 mod sidebar;
 mod sidebar_messages;
+mod sso;
 mod subscriptions;
 mod system;
 mod templates;

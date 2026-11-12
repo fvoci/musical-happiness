@@ -18,7 +18,7 @@ use crate::common::{Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer};
 
 /// The administration socket. Unix sockets are what it is made of.
 #[cfg(unix)]
-mod socket {
+pub(crate) mod socket {
     use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
     use std::path::{Path, PathBuf};
 
@@ -35,7 +35,7 @@ mod socket {
 
     /// A path for a socket. The build directory is too long for a socket address, so the
     /// sockets of these tests live in the system's directory for temporary files.
-    fn socket_path() -> PathBuf {
+    pub(crate) fn socket_path() -> PathBuf {
         std::env::temp_dir().join(format!("fvoci-{}.socket", new_id()))
     }
 
@@ -53,8 +53,8 @@ mod socket {
 
     /// What the server answered on the socket.
     #[derive(Debug)]
-    struct SocketResponse {
-        status: u16,
+    pub(crate) struct SocketResponse {
+        pub(crate) status: u16,
         /// The status line and the headers, as sent.
         head: String,
         body: String,
@@ -64,7 +64,7 @@ mod socket {
         /// Checks the answer of an operation without a result: status 204, no body, and
         /// no `Content-Type` for the body that is not there.
         #[track_caller]
-        fn check_no_content(&self) {
+        pub(crate) fn check_no_content(&self) {
             assert_eq!(self.status, 204, "the status; body: {}", self.body);
             assert_eq!(self.body, "", "a 204 has no body");
             assert!(
@@ -77,7 +77,7 @@ mod socket {
         /// Checks an error answer: the status, the name of its type, the detail, and
         /// that it is a problem with the identifier of the request.
         #[track_caller]
-        fn check_error(&self, status: u16, name: &str, message: &str) {
+        pub(crate) fn check_error(&self, status: u16, name: &str, message: &str) {
             assert_eq!(self.status, status, "the status; body: {}", self.body);
             assert!(
                 self.head
@@ -107,7 +107,7 @@ mod socket {
 
     /// Sends one HTTP request through the Unix socket. No header but the ones the protocol
     /// needs: the administration API asks for no session and no request-forgery header.
-    async fn socket_request(
+    pub(crate) async fn socket_request(
         socket: &Path,
         method: &str,
         target: &str,

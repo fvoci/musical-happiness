@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{FromRequestParts, Request, State};
+use axum::extract::{FromRequestParts, RawPathParams, Request, State};
 use axum::http::header::SET_COOKIE;
 use axum::http::request::Parts;
 use axum::http::{Extensions, HeaderMap};
@@ -13,16 +13,34 @@ use fvoci_model::Session;
 
 use crate::app::App;
 use crate::auth::token::Credential;
-use crate::error::{AppError, ErrorKind};
+use crate::error::{AppError, ErrorKind, Reason};
 
-/// The session of a request to a route that needs one. Extraction fails with 401 if the
-/// request carries no valid session token.
+/// The session of a request to a route that names no workspace and works in the
+/// organization the server stands in: a board, a card or another thing by its
+/// identifier. Extraction fails with 401 if the request carries no valid session
+/// token, and with 401 and the reason `sso_required` if the session does not open that
+/// organization (`App::require_session_opens_here`).
+///
+/// TEMPORARY, with `only_organization_scope`: a route under `/w/{workspaceId}` is
+/// asked where its workspace is entered (`Ws`), and a route that is the account's own
+/// takes [`AccountSession`].
 #[derive(Debug)]
 pub(crate) struct RequiredSession(pub(crate) Session);
 
+/// The session of a request to a route that is the account's own, of no organization:
+/// who the user is, their settings and password, their workspaces, signing out. Also
+/// for a handler that enters a workspace itself, which asks there. Extraction fails
+/// with 401 if the request carries no valid session token; whether the session opens
+/// an organization is not asked.
+#[derive(Debug)]
+pub(crate) struct AccountSession(pub(crate) Session);
+
 /// The session of a request to a route that also serves anonymous readers of shared
 /// boards. `None` if the request carries no valid session token; the handler then checks
-/// the read token.
+/// the read token. A session that does not open the server's organization
+/// ([`RequiredSession`]) is refused as there, but where the request carries the read
+/// token that opens the board of its path: that request is read as the token's alone,
+/// and who is signed in reads a public link as anybody does.
 #[derive(Debug)]
 pub(crate) struct OptionalSession(pub(crate) Option<Session>);
 
@@ -39,6 +57,16 @@ impl FromRequestParts<App> for RequiredSession {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let session = session_of(app, &parts.headers, &parts.extensions).await?;
+        app.require_session_opens_here(&session).await?;
+        Ok(Self(session))
+    }
+}
+
+impl FromRequestParts<App> for AccountSession {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         session_of(app, &parts.headers, &parts.extensions)
             .await
             .map(Self)
@@ -49,15 +77,50 @@ impl FromRequestParts<App> for OptionalSession {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        match session_of(app, &parts.headers, &parts.extensions).await {
-            Ok(session) => Ok(Self(Some(session))),
+        let session = match session_of(app, &parts.headers, &parts.extensions).await {
+            Ok(session) => session,
             // No session is an answer these routes can work with (a read token may do).
             // A store that failed is not "no session": answered as one, it would make
             // clients throw a valid session away.
-            Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(Self(None)),
+            Err(error) if error.kind() == ErrorKind::Unauthorized => return Ok(Self(None)),
+            Err(error) => return Err(error),
+        };
+        match app.require_session_opens_here(&session).await {
+            Ok(()) => Ok(Self(Some(session))),
+            Err(error) if error.reason() == Some(Reason::SsoRequired) => {
+                if opens_by_read_token(parts, app).await? {
+                    Ok(Self(None))
+                } else {
+                    Err(error)
+                }
+            }
             Err(error) => Err(error),
         }
     }
+}
+
+/// Whether the request names a board in its path and, in its query, the read token
+/// that opens it: the request of a reader of the board's public link.
+async fn opens_by_read_token(parts: &mut Parts, app: &App) -> Result<bool, AppError> {
+    let token = parts
+        .uri
+        .query()
+        .and_then(|query| crate::auth::token::query_value(query, "readToken"))
+        .unwrap_or_default();
+    if token.is_empty() {
+        return Ok(false);
+    }
+    let Ok(params) = RawPathParams::from_request_parts(parts, app).await else {
+        return Ok(false);
+    };
+    let Some(board_id) = params
+        .iter()
+        .find(|(name, _)| *name == "boardId")
+        .map(|(_, value)| value.to_owned())
+    else {
+        return Ok(false);
+    };
+    Ok(app.enter_shared_board(&board_id, &token).await?.is_some())
 }
 
 /// Whether a request says it comes with a session, valid or not.

@@ -19,8 +19,8 @@ use super::contract::params::{
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, by_read_token, created, decode_json,
-    json_response, no_content, query_param,
+    ApiResult, OptionalSession, RequiredSession, created, decode_json, json_response, no_content,
+    query_param, reader_by_read_token,
 };
 use super::{
     BlockAction, require_block_patch_permission, require_block_permission,
@@ -155,9 +155,9 @@ async fn handle_get_blocks(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let query = query.as_deref();
+    let (shared, session) = reader_by_read_token(&app, session, query, &board_id).await?;
     let user_id = session.user_id();
 
-    let shared = by_read_token(&app, query, &board_id).await?;
     let has_read_token = shared.is_some();
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to board"));

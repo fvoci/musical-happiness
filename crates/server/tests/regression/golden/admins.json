@@ -81,13 +81,15 @@
         "id": "<id:3>",
         "name": "",
         "orgId": "<id:4>",
-        "role": "admin"
+        "role": "admin",
+        "ssoRequired": false
       },
       {
         "id": "<id:5>",
         "name": "",
         "orgId": "<id:4>",
-        "role": "member"
+        "role": "member",
+        "ssoRequired": false
       }
     ]
   },
@@ -101,13 +103,15 @@
         "id": "<id:3>",
         "name": "",
         "orgId": "<id:4>",
-        "role": "member"
+        "role": "member",
+        "ssoRequired": false
       },
       {
         "id": "<id:5>",
         "name": "",
         "orgId": "<id:4>",
-        "role": "member"
+        "role": "member",
+        "ssoRequired": false
       }
     ]
   },

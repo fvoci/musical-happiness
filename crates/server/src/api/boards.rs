@@ -13,8 +13,8 @@ use super::contract::params::{AsTemplate, BoardId, ReadToken, ToWorkspace};
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, by_read_token, created, decode_json,
-    json_response, no_content, query_param,
+    ApiResult, OptionalSession, RequiredSession, created, decode_json, json_response, no_content,
+    query_param, reader_by_read_token,
 };
 use super::{
     duplicate_as, json_object, require_board_permission, require_granted, require_workspace_access,
@@ -170,8 +170,9 @@ async fn handle_get_board(
     Path(board_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
+    let (shared, session) =
+        reader_by_read_token(&app, session, query.as_deref(), &board_id).await?;
     let user_id = session.user_id();
-    let shared = by_read_token(&app, query.as_deref(), &board_id).await?;
     let has_valid_read_token = shared.is_some();
     if user_id.is_empty() && !has_valid_read_token {
         return Err(AppError::unauthorized("access denied to board"));

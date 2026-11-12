@@ -18,6 +18,10 @@ pub const OIDC_ISSUER_MAX_BYTES: usize = 2048;
 /// is not in it: only whether there is one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is a separate member of the wire format"
+)]
 pub struct OidcProvider {
     /// The issuer: an `https` address, exactly as the provider names itself.
     pub issuer: String,
@@ -30,6 +34,9 @@ pub struct OidcProvider {
     pub auto_join: bool,
     /// Whether signing in through the provider is on.
     pub enabled: bool,
+    /// Whether the organization takes no password: what is the organization's opens
+    /// only for a session made through this provider.
+    pub sso_required: bool,
     /// The address the provider sends people back to, to be registered with it exactly:
     /// the organization's own, which does not change with the provider.
     pub redirect_uri: String,
@@ -59,6 +66,9 @@ pub struct OidcProviderSettings {
     /// Whether signing in through the provider is on. Left out, it stays as it is; on
     /// when the organization has no provider.
     pub enabled: Option<bool>,
+    /// Whether the organization takes no password. Left out, it stays as it is; off
+    /// when the organization has no provider.
+    pub sso_required: Option<bool>,
 }
 
 impl OidcProviderSettings {

@@ -21,8 +21,8 @@ use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
 use super::{
-    ApiResult, RequiredSession, body::decode_object, created, json_response, no_content,
-    require_board_permission,
+    AccountSession, ApiResult, RequiredSession, body::decode_object, created, json_response,
+    no_content, require_board_permission,
 };
 use crate::app::{App, FileToUpload, PartDigest};
 use crate::error::AppError;
@@ -238,7 +238,7 @@ async fn handle_create_upload(
 )]
 async fn handle_create_import_upload(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    AccountSession(session): AccountSession,
     Path(workspace_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {

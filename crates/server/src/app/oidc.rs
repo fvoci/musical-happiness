@@ -15,10 +15,11 @@ use fvoci_model::{
     display_name, is_email_valid, new_id,
 };
 use fvoci_store::{
-    Identity, LoginFlow, OidcAccount, OidcRefusal, StoreError, StoredProvider, Taken,
+    Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoreError, StoredProvider, Taken,
 };
 
 use super::App;
+use super::sso;
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::oidc::provider::{
@@ -151,10 +152,13 @@ impl App {
     ///
     /// Returns 400 for settings that are refused or an issuer that is not verified,
     /// 409 (`secret_key_required`) if the server has no key to seal the secret with,
-    /// and the store's error.
+    /// 409 (`sso_unproven`, `sso_enforced`) for what the organization's taking no
+    /// password does not let `session` do (`sso::check_change`), and the store's
+    /// error.
     pub async fn put_oidc_provider(
         &self,
         org_id: &str,
+        session: &Session,
         settings: &OidcProviderSettings,
     ) -> Result<OidcProvider, AppError> {
         settings.validate()?;
@@ -203,27 +207,34 @@ impl App {
                 &secret_context(org_id, &settings.issuer, &settings.client_id),
             ),
         };
+        let next = StoredProvider {
+            id: String::new(),
+            org_id: org_id.to_owned(),
+            issuer: settings.issuer.clone(),
+            client_id: settings.client_id.clone(),
+            sealed_client_secret,
+            // Left out, what is stored stays, as the secret does, also for another
+            // client; on when the organization has none.
+            auto_join: settings
+                .auto_join
+                .or(kept.map(|kept| kept.0))
+                .unwrap_or(true),
+            enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
+            create_at: 0,
+            update_at: 0,
+            // Left out, it stays, also for another client, which is then refused: off
+            // when the organization has none.
+            sso_required: settings
+                .sso_required
+                .or(existing.as_ref().map(|existing| existing.sso_required))
+                .unwrap_or(false),
+        };
+        // Decided from the provider as it was read; the store takes the change only if
+        // that is still the provider, so no other change slips between the two.
+        sso::check_change(session, existing.as_ref(), &next)?;
         let stored = self
             .store()
-            .put_oidc_provider_as_read(
-                &StoredProvider {
-                    id: String::new(),
-                    org_id: org_id.to_owned(),
-                    issuer: settings.issuer.clone(),
-                    client_id: settings.client_id.clone(),
-                    sealed_client_secret,
-                    // Left out, what is stored stays, as the secret does, also for another
-                    // client; on when the organization has none.
-                    auto_join: settings
-                        .auto_join
-                        .or(kept.map(|kept| kept.0))
-                        .unwrap_or(true),
-                    enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
-                    create_at: 0,
-                    update_at: 0,
-                },
-                existing.as_ref(),
-            )
+            .put_oidc_provider_as_read(&next, existing.as_ref())
             .await?
             // Changed by another request since it was read here: what was kept from it
             // may be kept no more.
@@ -231,6 +242,7 @@ impl App {
                 AppError::conflict("the provider was changed meanwhile; read it and try again")
             })?;
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
+        sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
         Ok(self.provider_view(&stored))
     }
 
@@ -239,10 +251,13 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error.
+    /// Returns 409 with the reason `sso_enforced` while the organization takes no
+    /// password, and the store's error.
     pub async fn delete_oidc_provider(&self) -> Result<(), AppError> {
-        if self.store().delete_oidc_provider().await? {
-            tracing::info!("the provider of an organization was removed");
+        match self.store().delete_oidc_provider().await? {
+            Removal::Removed => tracing::info!("the provider of an organization was removed"),
+            Removal::NoneThere => {}
+            Removal::Enforced => return Err(sso::enforced()),
         }
         Ok(())
     }
@@ -254,6 +269,7 @@ impl App {
             has_client_secret: !stored.sealed_client_secret.is_empty(),
             auto_join: stored.auto_join,
             enabled: stored.enabled,
+            sso_required: stored.sso_required,
             redirect_uri: self.oidc_redirect_uri(&stored.org_id),
             create_at: stored.create_at,
             update_at: stored.update_at,

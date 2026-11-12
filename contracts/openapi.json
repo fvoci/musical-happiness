@@ -1608,6 +1608,10 @@
             "description": "The address the provider sends people back to, to be registered with it exactly:\nthe organization's own, which does not change with the provider.",
             "type": "string"
           },
+          "ssoRequired": {
+            "description": "Whether the organization takes no password: what is the organization's opens\nonly for a session made through this provider.",
+            "type": "boolean"
+          },
           "updateAt": {
             "description": "When the provider was last changed, in milliseconds since the Unix epoch.",
             "format": "int64",
@@ -1622,6 +1626,7 @@
           "hasClientSecret",
           "issuer",
           "redirectUri",
+          "ssoRequired",
           "updateAt"
         ],
         "type": "object"
@@ -1657,6 +1662,13 @@
           "issuer": {
             "description": "The issuer: an `https` address without query or fragment.",
             "type": "string"
+          },
+          "ssoRequired": {
+            "description": "Whether the organization takes no password. Left out, it stays as it is; off\nwhen the organization has no provider.",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1757,6 +1769,10 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "orgId": {
+            "description": "The organization whose provider the session must be made through, with the\nreason `sso_required`: what the sign-in is started for.",
+            "type": "string"
           },
           "reason": {
             "description": "Why, where a client must tell causes of the same status apart, such as\n`invalid_credentials` or `last_admin`.",
@@ -2034,6 +2050,21 @@
             "reason": "oidc_join_closed",
             "title": "Organization closed to newcomers",
             "type": "/problems/oidc-join-closed"
+          },
+          {
+            "reason": "sso_required",
+            "title": "Sign-in through the provider required",
+            "type": "/problems/sso-required"
+          },
+          {
+            "reason": "sso_unproven",
+            "title": "Provider not signed in through",
+            "type": "/problems/sso-unproven"
+          },
+          {
+            "reason": "sso_enforced",
+            "title": "Provider held while no password is taken",
+            "type": "/problems/sso-enforced"
           },
           {
             "reason": "relation_not_a_list",
@@ -2647,13 +2678,18 @@
           "role": {
             "$ref": "#/components/schemas/WorkspaceRole",
             "description": "What the user is in the workspace."
+          },
+          "ssoRequired": {
+            "description": "Whether the workspace is closed to the session that asks: its organization\ntakes only sessions made through its provider, and this one was not. What is\nunder the workspace then answers 401 with the reason `sso_required`; signing in\nthrough the provider of `orgId` opens it.",
+            "type": "boolean"
           }
         },
         "required": [
           "id",
           "name",
           "orgId",
-          "role"
+          "role",
+          "ssoRequired"
         ],
         "type": "object"
       },
@@ -5209,7 +5245,7 @@
     },
     "/api/v1/org/{orgId}/oidc": {
       "delete": {
-        "description": "Removes the organization's provider and the sign-ins under way through it. The\nsessions made through it go on. An organization without one answers the same.",
+        "description": "Removes the organization's provider and the sign-ins under way through it. The\nsessions made through it go on. An organization without one answers the same.\nWhile the organization takes no password (`ssoRequired`) the provider stays: 409\nwith the reason `sso_enforced`.",
         "operationId": "deleteOidcProvider",
         "parameters": [
           {
@@ -5284,7 +5320,7 @@
         ]
       },
       "put": {
-        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and here, and\nthose that name a board, a card or another thing of it) answers 401 with the reason\n`sso_required` to every session that was not made through this provider. The\nsessions stay, and open what is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, or the request is\n409 with the reason `sso_unproven`: who asks has then shown that it lets them in.\nWhile it is on, the provider is not switched off (`enabled` false), not set to\nanother issuer or client, and not removed: 409 with the reason `sso_enforced`,\nunless the same request switches `ssoRequired` off. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
         "operationId": "putOidcProvider",
         "parameters": [
           {
@@ -6175,7 +6211,7 @@
     },
     "/api/v1/users/me/workspaces": {
       "get": {
-        "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first.",
+        "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first. A workspace of an organization that takes only sessions made\nthrough its provider is listed for any session, with `ssoRequired` true for one that\nwas not made so: what is under it answers 401 with the reason `sso_required` until\nthe user signs in through the provider of `orgId`.",
         "operationId": "getMyWorkspaces",
         "responses": {
           "200": {

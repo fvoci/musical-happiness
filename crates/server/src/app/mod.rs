@@ -34,6 +34,7 @@ use slots::Busy;
 pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
 mod sharing;
+mod sso;
 mod startup;
 mod store_metrics;
 mod subscriptions;

@@ -69,6 +69,7 @@ async fn a_user_lists_the_workspaces_they_are_a_member_of() {
             "orgId": first[0].org_id,
             "name": "",
             "role": "admin",
+            "ssoRequired": false,
         }),
         "the members of a workspace in the list"
     );

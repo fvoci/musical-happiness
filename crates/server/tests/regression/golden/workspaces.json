@@ -9,13 +9,15 @@
         "id": "<id:1>",
         "name": "",
         "orgId": "<id:2>",
-        "role": "member"
+        "role": "member",
+        "ssoRequired": false
       },
       {
         "id": "<id:3>",
         "name": "",
         "orgId": "<id:2>",
-        "role": "member"
+        "role": "member",
+        "ssoRequired": false
       }
     ]
   },

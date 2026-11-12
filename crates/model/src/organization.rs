@@ -93,6 +93,11 @@ pub struct UserWorkspace {
     pub name: String,
     /// What the user is in the workspace.
     pub role: WorkspaceRole,
+    /// Whether the workspace is closed to the session that asks: its organization
+    /// takes only sessions made through its provider, and this one was not. What is
+    /// under the workspace then answers 401 with the reason `sso_required`; signing in
+    /// through the provider of `orgId` opens it.
+    pub sso_required: bool,
 }
 
 #[cfg(test)]

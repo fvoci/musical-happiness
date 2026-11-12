@@ -251,7 +251,10 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcEmailMissing
         | Reason::OidcEmailUnverified
         | Reason::OidcEmailTaken
-        | Reason::OidcJoinClosed => describe_sign_in(reason).unwrap_or_default(),
+        | Reason::OidcJoinClosed
+        | Reason::SsoRequired
+        | Reason::SsoUnproven
+        | Reason::SsoEnforced => describe_sign_in(reason).unwrap_or_default(),
         Reason::RelationNotAList
         | Reason::RelationToItself
         | Reason::RelationRepeated
@@ -398,6 +401,32 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
             "On the login page, after a sign-in through a provider: the person is no member \
              of the organization, and the organization does not let newcomers in through \
              its provider."
+        }
+        Reason::SsoRequired => {
+            "Status 401, with a session that is good: the organization takes no password \
+             (`ssoRequired` of its provider), and the session was not made through its \
+             provider. Everything of the organization answers so (the routes under \
+             `/w/{workspaceId}` and `/org/{orgId}`, and those that name a board, a card or \
+             another thing of it), from the request after it was switched on; the session \
+             stays, and opens what is of other organizations. `orgId` names the \
+             organization: start a sign-in through its provider (`startOidcLogin`) and the \
+             session it ends in opens it. `getMyWorkspaces` says beforehand which \
+             workspaces are closed so. A board's public link is read without a session and \
+             is not closed."
+        }
+        Reason::SsoUnproven => {
+            "Status 409, setting an organization's provider. Taking no password \
+             (`ssoRequired`) is switched on by a session that was made through that very \
+             provider, switched on: who asks has then shown that it lets them in. Sign in \
+             through the provider and send the request again."
+        }
+        Reason::SsoEnforced => {
+            "Status 409, setting or removing an organization's provider. While the \
+             organization takes no password (`ssoRequired`), its provider is not switched \
+             off, removed, or set to another issuer or client: nobody would get in. \
+             Switch `ssoRequired` off first. If nobody gets in through the provider any \
+             more, who runs the server releases the organization on its administration \
+             socket."
         }
         _ => return None,
     })
