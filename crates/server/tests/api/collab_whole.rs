@@ -326,8 +326,8 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     th.teardown().await;
 }
 
-/// A document whose state is past a limit of a state lowered while the server was down
-/// opens with all it took: its body, with the update the card did not hold yet, is
+/// A document whose stored state is past a limit of a state lowered while the server
+/// was down opens with all it took: its body, with the update the card did not hold yet, is
 /// written to the card first, and it is made again from that body, which the room is
 /// told, for the card's organization.
 #[tokio::test]
@@ -336,19 +336,33 @@ async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_agai
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
-    let line = "d".repeat(60 * 1024);
+    let line = "d".repeat(24 * 1024);
     let take = async |update: Vec<u8>| {
         collab
             .take(&e.app, &e.card_id, epoch, &e.user1, &update)
             .await
             .expect("taken")
     };
-    // What is deleted stays in the state: past 2 MiB, under the 6 MiB of a remake.
-    for _ in 0..40 {
+    // What is deleted stays in the state: past 2 MiB, under the 6 MiB of a remake, and
+    // folded into the stored state at the two hundredth update.
+    for _ in 0..100 {
         take(editor.append_paragraph(&line)).await;
         take(editor.delete_last()).await;
     }
     take(editor.append_paragraph("the last word")).await;
+    let stored = e
+        .app
+        .store()
+        .get_body_doc(&e.card_id)
+        .await
+        .expect("read")
+        .expect("a document");
+    assert!(
+        stored.state_seq == 200 && stored.state.len() > 2 * 1024 * 1024,
+        "a stored state past the lower limit: {} bytes through {}",
+        stored.state.len(),
+        stored.state_seq
+    );
     let wanted = editor.body().map(|body| body.document().clone());
     assert_ne!(
         body_of(&card(&th.client, &e.card_id).await),
@@ -389,5 +403,45 @@ async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_agai
     {
         assert_eq!(remade.tenant, e.app.store().tenant());
     }
+    th.teardown().await;
+}
+
+/// A log whose bytes cannot be read (written past the server, here by the store
+/// itself) is dropped, which is logged, and the document is made again from its card:
+/// it opens, instead of being refused for good.
+#[tokio::test]
+async fn an_unreadable_log_gives_way_to_the_card() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    collab.open(&e.app, &e.card_id).await.expect("opened");
+    collab.abandon().await;
+    e.app
+        .store()
+        .append_body_updates(
+            &e.card_id,
+            &[(b"\xff\xff no update", e.user1.as_str())],
+            &[],
+        )
+        .await
+        .expect("logged past the server");
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
+    assert_eq!(
+        again.body().map(|body| body.document().clone()),
+        Some(paragraphs(&["first"])),
+        "the card's body"
+    );
+    let stored = e
+        .app
+        .store()
+        .get_body_doc(&e.card_id)
+        .await
+        .expect("read")
+        .expect("a document");
+    assert_eq!(
+        (stored.updates.len(), stored.projected_seq),
+        (0, stored.log_end),
+        "the log is dropped"
+    );
     th.teardown().await;
 }

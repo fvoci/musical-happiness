@@ -17,6 +17,7 @@ mod card_previews;
 mod cards;
 mod collab;
 mod collab_deaths;
+mod collab_images;
 mod collab_upkeep;
 mod collab_whole;
 mod comments;

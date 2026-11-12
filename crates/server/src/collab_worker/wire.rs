@@ -28,10 +28,13 @@ pub struct Limits {
 
 impl Limits {
     /// The largest frame either side sends or takes with these limits: a state, the
-    /// largest thing a frame carries, and room for the fields around it.
+    /// largest thing a frame carries, and room for the fields around it. A state stored
+    /// under a larger limit of a state than this one is as large as the worker's memory
+    /// for documents may be, so that it is opened all the same.
     #[must_use]
     pub fn frame_bytes(&self) -> u64 {
         self.state_bytes
+            .max(self.held_bytes)
             .max(self.update_bytes)
             .max(self.body_bytes)
             .saturating_add(FRAME_OVERHEAD)

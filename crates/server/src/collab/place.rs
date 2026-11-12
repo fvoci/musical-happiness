@@ -259,6 +259,10 @@ impl Collab {
                     // card, and it is made again from that.
                     // Boxed: the remake asks the open document, through here.
                     Box::pin(self.remake_and_tell(app, card_id, slot)).await;
+                    if slot.open.is_none() {
+                        // The remake failed and closed it: the store holds it.
+                        return Err(refusals::unavailable());
+                    }
                 }
                 return Ok(());
             }

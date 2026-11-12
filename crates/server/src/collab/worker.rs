@@ -354,7 +354,11 @@ impl State {
     /// Starts a worker and gives it its limits, after the wait that the deaths before
     /// it call for.
     async fn start(&mut self) -> Result<Running, CallError> {
-        sleep_until(self.next_start).await;
+        let ended = || CallError::Unavailable("the worker was ended".to_owned());
+        tokio::select! {
+            () = sleep_until(self.next_start) => {}
+            () = self.stopped.cancelled() => return Err(ended()),
+        }
         let started = spawn(&self.settings).map_err(|error| error.to_string());
         let mut running = match started {
             Ok(running) => running,
@@ -366,7 +370,10 @@ impl State {
         };
         let configure = Request::Configure(self.settings.limits).encode();
         let limit = self.settings.limits.frame_bytes();
-        let configured = timeout(self.settings.timeout, running.exchange(&configure, limit)).await;
+        let configured = tokio::select! {
+            configured = timeout(self.settings.timeout, running.exchange(&configure, limit)) => configured,
+            () = self.stopped.cancelled() => Ok(Err("the worker was ended".to_owned())),
+        };
         match configured {
             Ok(Ok(Ok(Answer::Done))) => {
                 tracing::info!(pid = running.child.id(), "started a collab worker");

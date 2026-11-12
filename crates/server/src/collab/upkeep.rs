@@ -71,8 +71,11 @@ impl Collab {
             Ok(seqs) => seqs,
             Err(error) => {
                 // Taken by the worker and not logged: the document is opened again as
-                // it is stored.
+                // it is stored, at once, so that what others typed is still written.
                 self.forget(slot).await;
+                if let Err(reopened) = self.ensure_open(app, card_id, slot).await {
+                    tracing::warn!(%reopened, card_id, "cannot open a document again after an update that was not logged");
+                }
                 return Err(match error {
                     StoreError::InvalidBlock { .. } => AppError::bad_request(
                         "the update shows an image whose file the board does not have",

@@ -14,7 +14,7 @@ use crate::Store;
 use crate::blocks;
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
-use crate::file_refs;
+use crate::file_refs::{self, NewImages};
 
 /// A stored document and the updates it took after its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -276,13 +276,21 @@ impl Store {
         user_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            if let Some(body) = body {
-                let patch = BlockPatch {
-                    body: body.map_or(BodyChange::Clear, BodyChange::Set),
-                    read_at: Some(read_at),
-                    ..BlockPatch::default()
-                };
-                blocks::patch_block(scope, block_id, &patch, user_id).await?;
+            match body {
+                // The block holds the body; what it shows is put down again all the
+                // same, in place of the images the log showed meanwhile.
+                None => {
+                    let block = blocks::get_block(scope, block_id).await?;
+                    file_refs::refresh(scope, &block, NewImages::Unchecked).await?;
+                }
+                Some(body) => {
+                    let patch = BlockPatch {
+                        body: body.map_or(BodyChange::Clear, BodyChange::Set),
+                        read_at: Some(read_at),
+                        ..BlockPatch::default()
+                    };
+                    blocks::patch_block(scope, block_id, &patch, user_id).await?;
+                }
             }
             let mut sql = scope.sql("UPDATE body_docs SET projected_seq = ");
             sql.bind(through_seq)
