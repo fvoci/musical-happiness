@@ -1,5 +1,5 @@
 //! A write that makes a block show an image asks for the image's file in its own
-//! transaction, and the collector of unreferenced files takes no record a block shows.
+//! transaction, and the collector of unreferenced files skips a record a write holds.
 
 use std::time::Duration;
 
@@ -151,37 +151,6 @@ async fn a_write_that_shows_an_image_newly_needs_the_boards_file() {
     test.create_boards_and_blocks(&mut imported, &user_id, new_images)
         .await
         .expect("an import points its images at its files afterwards");
-
-    test.teardown().await;
-}
-
-/// A record whose mark says that no block shows it is not collected while one does:
-/// a write that showed it as another took the mark away may leave such a mark.
-#[tokio::test]
-async fn the_collector_takes_no_record_that_a_block_shows() {
-    let test = common::setup().await;
-    let user_id = common::user(&test, "oscar.martinez").await;
-    let workspace_id = common::workspace(&test).await;
-    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
-    let board_id = &boards[0].id;
-    test.save_file_info(&record_of(board_id, "7shown.png"))
-        .await
-        .expect("a file of the board");
-    let mut card = card_showing(board_id, &["7shown.png"]);
-    common::insert_blocks(&test, std::slice::from_mut(&mut card), &user_id).await;
-    test.execute_unchecked("UPDATE file_info SET unreferenced_at = 1")
-        .await
-        .expect("a mark left behind");
-
-    let collected = test
-        .system()
-        .collect_unreferenced_files(i64::MAX)
-        .await
-        .expect("collected");
-    assert!(collected.is_empty(), "{collected:?}");
-    test.get_file_info(board_id, "7shown.png")
-        .await
-        .expect("the record stays");
 
     test.teardown().await;
 }

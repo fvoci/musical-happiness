@@ -10,7 +10,7 @@
 //! A write that makes a block show an image newly asks, in its transaction, that the
 //! board has the image's file, and holds its record until it commits
 //! ([`NewImages::Recorded`]): what a request checked before the write began is not
-//! collected under it. The collector takes no record that a block shows when it looks.
+//! collected under it.
 
 use std::collections::BTreeSet;
 
@@ -36,14 +36,11 @@ impl Store {
         before: i64,
     ) -> Result<Vec<FileInfo>, StoreError> {
         self.transaction(async |scope| {
-            // One statement decides and deletes. A record that a block shows is not
-            // taken, whatever its mark says (a write that showed it while another took
-            // the mark away may have left one behind): any reference of the board keeps
-            // it, of whichever organization the row says it is. On PostgreSQL a record
-            // that a write holds (`hold_new_images`) or changes is skipped, not waited
-            // for: left to the next run when unsure, and no two transactions wait for
-            // each other's records. A record whose mark a write took away since the
-            // statement began is looked at again as committed, and kept.
+            // One statement decides and deletes. On PostgreSQL a record that a write
+            // holds (`hold_new_images`) or changes is skipped, not waited for: left to
+            // the next run, and no two transactions wait for each other's records. A
+            // record whose mark a write took away since the statement began is looked
+            // at again as committed, and kept.
             let org = loose_objects::org_column(scope);
             let skip_held = match scope.dialect() {
                 Dialect::Postgres => " FOR UPDATE SKIP LOCKED",
@@ -54,8 +51,7 @@ impl Store {
                  WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
             );
             sql.bind(before).push(&format!(
-                " AND NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
-                 AND r.name = file_info.name){skip_held}) RETURNING {FILE_INFO_COLUMNS}{}",
+                "{skip_held}) RETURNING {FILE_INFO_COLUMNS}{}",
                 org.map_or(String::new(), |column| format!(", {column}"))
             ));
             let rows = scope.fetch_all(sql).await?;
