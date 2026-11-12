@@ -38,6 +38,7 @@ mod readiness;
 mod reconcile;
 mod refusals;
 mod search;
+mod server_lock;
 mod sharing;
 mod sidebar;
 mod sidebar_messages;

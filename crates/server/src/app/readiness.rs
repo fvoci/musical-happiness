@@ -35,8 +35,9 @@ pub enum ReadinessCheck {
 /// The checks of the readiness: what the server depends on to serve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Readiness {
-    /// Whether the database reads the table of the sessions: it answers, and has not
-    /// lost a table every signed-in request reads.
+    /// Whether the database reads the table of the sessions (it answers, and has not
+    /// lost a table every signed-in request reads), and this process holds the lock of
+    /// the server of the database in it.
     pub database: ReadinessCheck,
     /// Whether the file storage can be used: a small file is written to it, read back and
     /// removed, on the local disk as on the object store.
@@ -151,7 +152,7 @@ impl App {
     /// check is one call of the store, measured as any other.
     async fn check_readiness(&self) -> Readiness {
         let (database, files) = tokio::join!(
-            checked("database", self.store().check_ready()),
+            checked("database", self.check_ready_as_the_server()),
             self.check_files(),
         );
         let readiness = Readiness { database, files };

@@ -9,19 +9,30 @@ use fvoci_store::{DbType, Store};
 use crate::auth;
 use crate::config::Configuration;
 
-/// Opens the database of the configuration and makes it ready for the server.
-///
-/// The role is looked at before anything is made as it: a start that is refused leaves
-/// the database as it was.
+/// Opens the database of the configuration, and looks at the role the server connects
+/// as before anything is made as it: a start that is refused leaves the database as it
+/// was. Nothing is changed in it until [`prepare_store`].
 ///
 /// # Errors
 ///
-/// Returns an error if the database cannot be reached or is not this server's to open,
-/// and if the role the server connects as is one the wall between organizations does
-/// not hold while the configuration takes in several organizations.
+/// Returns an error if the database cannot be reached, and if the role the server
+/// connects as is one the wall between organizations does not hold while the
+/// configuration takes in several organizations.
 pub(crate) async fn open_store(config: &Configuration) -> anyhow::Result<Store> {
     let store = connect(config).await?;
     check_the_wall_holds(&store, config).await?;
+    Ok(store)
+}
+
+/// Makes the opened database ready for the server, once it holds the lock of the
+/// server: brings the schema up to date, and gives the handle that reaches the rows
+/// of the one organization the routes that name no workspace work in.
+///
+/// # Errors
+///
+/// Returns an error if the database is not this server's to open, or cannot be
+/// brought up to date.
+pub(crate) async fn prepare_store(store: Store) -> anyhow::Result<Store> {
     store
         .migrate()
         .await

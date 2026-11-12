@@ -58,15 +58,17 @@ impl LocalFiles {
 
     /// Resolves a stored path to a path under the root.
     ///
-    /// Only plain relative paths are accepted. The original joins whatever it is given
-    /// onto the root; here an absolute path or a `..` component is refused, so no stored
-    /// path can ever name a file outside the root.
+    /// Only a place spelled the one way is accepted ([`fvoci_model::is_storage_path`]).
+    /// The original joins whatever it is given onto the root; here an absolute path or a
+    /// `..` component is refused, so no stored path can ever name a file outside the
+    /// root, and so is another spelling of a place (`a//b`, `./a`), so that no two
+    /// texts name one file.
     fn resolve(&self, path: &str) -> Result<PathBuf, StorageError> {
         let relative = Path::new(path);
-        let plain = !path.is_empty()
+        let plain = fvoci_model::is_storage_path(path)
             && relative
                 .components()
-                .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
+                .all(|component| matches!(component, Component::Normal(_)));
         if plain {
             Ok(self.root.join(relative))
         } else {

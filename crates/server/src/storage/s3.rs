@@ -122,8 +122,8 @@ impl S3Files {
     /// Characters that are not allowed in a key segment are percent-encoded, so a file
     /// with such a name gets a different key than the original server would give it.
     fn key(&self, path: &str) -> Result<Path, StorageError> {
-        let has_parent_reference = path.split('/').any(|segment| segment == "..");
-        if path.is_empty() || path.starts_with('/') || has_parent_reference {
+        // One spelling of a place: the key of `a//b` would be that of `a/b`.
+        if !fvoci_model::is_storage_path(path) {
             return Err(StorageError::InvalidPath(path.to_owned()));
         }
         Ok(if self.prefix.is_empty() {
@@ -255,8 +255,8 @@ impl S3Files {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
-    /// root, or the object store's error.
+    /// Returns [`StorageError::InvalidPath`] for a path that is no place of the
+    /// storage, or the object store's error.
     pub async fn create_multipart(&self, path: &str) -> Result<String, StorageError> {
         self.measure(FilesOperation::MultipartCreate, async {
             self.multipart
@@ -273,8 +273,8 @@ impl S3Files {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
-    /// root, or the object store's error.
+    /// Returns [`StorageError::InvalidPath`] for a path that is no place of the
+    /// storage, or the object store's error.
     pub async fn put_part(
         &self,
         path: &str,
@@ -303,8 +303,8 @@ impl S3Files {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
-    /// root, or the object store's error.
+    /// Returns [`StorageError::InvalidPath`] for a path that is no place of the
+    /// storage, or the object store's error.
     pub async fn complete_multipart(
         &self,
         path: &str,
@@ -329,8 +329,8 @@ impl S3Files {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
-    /// root, or the object store's error.
+    /// Returns [`StorageError::InvalidPath`] for a path that is no place of the
+    /// storage, or the object store's error.
     pub async fn abort_multipart(&self, path: &str, upload_id: &str) -> Result<(), StorageError> {
         self.measure(FilesOperation::MultipartAbort, async {
             match self
