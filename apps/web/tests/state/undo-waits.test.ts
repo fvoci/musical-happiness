@@ -7,7 +7,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { createBoardView } from '$lib/logic/wire.ts';
 import { BackendError } from '$lib/state/index.ts';
+import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 
 import { openFirstBoard, STATUS } from './support.ts';
 
@@ -155,9 +157,14 @@ describe('a change made while a gesture waits for one of its writes (found by a 
       release();
       await dropping;
       const final = (await backend.card(board.boardId, card.id)).fields.properties[STATUS];
+      const stored = async (): Promise<unknown> =>
+        (await backend.card(board.boardId, card.id)).fields.properties[STATUS];
 
+      // In the order the changes were made: the drop's write of the status came last.
       await workspace.undoLast();
+      expect(await stored()).toBe('doing');
       await workspace.undoLast();
+      expect(await stored()).toBe('todo');
       await workspace.redoLast();
       await workspace.redoLast();
 
@@ -166,6 +173,117 @@ describe('a change made while a gesture waits for one of its writes (found by a 
       expect(board.card(card.id)?.fields.properties[STATUS]).toBe(final);
     } finally {
       release();
+      workspace.close();
+    }
+  });
+});
+
+/** Holds the next write of a card until `release`; `started` settles when it is asked. */
+function holdNextCardWrite(backend: MemoryBackend, refuse = false) {
+  let release = (): void => undefined;
+  let entered = (): void => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const patchCard = backend.patchCard.bind(backend);
+  backend.patchCard = async (...args) => {
+    backend.patchCard = patchCard;
+    entered();
+    await gate;
+    if (refuse) throw new BackendError(503);
+    return patchCard(...args);
+  };
+  return { release, started };
+}
+
+describe('a change made while an undo or redo that fails is written (found by a review of 042ff43)', () => {
+  it.each([
+    { action: 'undo' as const, expected: 'One' },
+    { action: 'redo' as const, expected: 'Alpha' },
+  ])('is undone to the value stored, after a refused $action', async ({ action, expected }) => {
+    const { board, backend, workspace } = await openFirstBoard();
+    const card = board.realCards.find((one) => one.title === 'Alpha');
+    if (!card) throw new Error('missing card');
+    await board.setCardTitle(card.id, 'One');
+    if (action === 'redo') await workspace.undoLast();
+    const held = holdNextCardWrite(backend, true);
+    try {
+      const carrying = action === 'undo' ? workspace.undoLast() : workspace.redoLast();
+      await held.started;
+      const changing = board.setCardTitle(card.id, 'Two');
+      held.release();
+      await Promise.all([carrying, changing]);
+      expect(workspace.problems.map((one) => one.action)).toEqual(['undo']);
+      expect((await backend.card(board.boardId, card.id)).title).toBe('Two');
+
+      await workspace.undoLast();
+
+      expect((await backend.card(board.boardId, card.id)).title).toBe(expected);
+      expect(board.card(card.id)?.title).toBe(expected);
+    } finally {
+      held.release();
+      workspace.close();
+    }
+  });
+});
+
+describe('an undo that waits while the reader moves on (found by a review of 042ff43)', () => {
+  it.each(['card', 'board'])('is carried out after its %s was closed', async (closed) => {
+    const { board, backend, workspace } = await openFirstBoard();
+    const card = board.realCards.find((one) => one.title === 'Alpha');
+    if (!card) throw new Error('missing card');
+    await board.setCardTitle(card.id, 'One');
+    await board.showCard(card.id);
+    const second = await backend.createBoard(
+      workspace.info?.id ?? '',
+      { title: 'Other' },
+      { title: 'View', fields: createBoardView().fields },
+    );
+    const held = holdNextCardWrite(backend);
+    try {
+      const changing = board.setCardTitle(card.id, 'Two');
+      const undoing = workspace.undoLast();
+      await held.started;
+      if (closed === 'card') board.closeCard();
+      else await workspace.openBoard(second.board.id);
+      held.release();
+      await Promise.all([changing, undoing]);
+
+      expect((await backend.card(board.boardId, card.id)).title).toBe('One');
+      expect(workspace.undoBusy).toBe(false);
+      expect(workspace.problems).toEqual([]);
+      if (closed === 'card') expect(board.openCard).toBeUndefined();
+      else expect(workspace.board?.boardId).toBe(second.board.id);
+    } finally {
+      held.release();
+      workspace.close();
+    }
+  });
+
+  it('keeps what another person changed in another property meanwhile', async () => {
+    const { board, backend, other, workspace } = await openFirstBoard();
+    const card = board.realCards.find((one) => one.title === 'Alpha');
+    if (!card) throw new Error('missing card');
+    await board.setCardTitle(card.id, 'One');
+    const held = holdNextCardWrite(backend);
+    try {
+      const changing = board.setCardTitle(card.id, 'Two');
+      const undoing = workspace.undoLast();
+      await held.started;
+      await other.patchCard(board.boardId, card.id, { updatedProperties: { [STATUS]: 'done' } });
+      held.release();
+      await Promise.all([changing, undoing]);
+
+      const saved = await backend.card(board.boardId, card.id);
+      expect(saved.title).toBe('One');
+      expect(saved.fields.properties[STATUS]).toBe('done');
+      expect(board.card(card.id)?.fields.properties[STATUS]).toBe('done');
+      expect(workspace.problems).toEqual([]);
+    } finally {
+      held.release();
       workspace.close();
     }
   });

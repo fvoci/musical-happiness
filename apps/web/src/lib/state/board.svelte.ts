@@ -37,8 +37,10 @@ import {
   type Change,
   type ViewDraft,
 } from './backend.ts';
+import { copyOfCard } from './card-copy.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
+import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
@@ -50,6 +52,7 @@ import {
   boardPatches,
   cardPatches,
   isEmptyBlockPatch,
+  isEmptyBoardPatch,
   isEmptyCardPatch,
   viewPatches,
 } from './patches.ts';
@@ -142,6 +145,10 @@ export class BoardStore {
   readonly #lastComments = lastCommentsOf(this);
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
+  /** What takes changes back, made right when a write under way fails (inverses.ts). */
+  readonly #cardInverses = new Inverses<CardPatch>('updatedProperties', 'deletedProperties');
+  readonly #viewInverses = new Inverses<BlockPatch>('updatedFields', 'deletedFields');
+  readonly #boardInverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
   /** Lists of members told by changes: a reading begun before the latest does not replace it. */
@@ -441,7 +448,9 @@ export class BoardStore {
     this.cards = put(this.cards, applyCardPatch(current, patch));
     this.#cardWrites.begin(cardId);
     try {
-      const answer = await this.#backend.patchCard(this.boardId, cardId, patch);
+      const answer = await this.#cardInverses.write(cardId, patch, reverse, () =>
+        this.#backend.patchCard(this.boardId, cardId, patch),
+      );
       const latest = this.#cardWrites.end(cardId, answer);
       if (latest) {
         this.cards = take(this.cards, latest);
@@ -469,6 +478,7 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = cardPatches(change(current), current);
     if (isEmptyCardPatch(forward)) return;
+    this.#cardInverses.keep(cardId, backward);
     await this.#perform(
       () => this.#sendCardPatch(cardId, forward, backward),
       () => this.#sendCardPatch(cardId, backward, forward),
@@ -530,22 +540,8 @@ export class BoardStore {
   }
 
   /** A copy of a card: title, icon, properties and body. Comments and attachments are not copied. */
-  async duplicateCard(cardId: string, asTemplate?: boolean): Promise<CardSummary | undefined> {
-    const source = this.card(cardId);
-    if (!source) return undefined;
-    try {
-      const detail = await this.#backend.card(this.boardId, cardId);
-      return await this.createCard({
-        title: detail.title,
-        icon: detail.fields.icon,
-        properties: detail.fields.properties,
-        isTemplate: asTemplate ?? detail.fields.isTemplate,
-        body: detail.body,
-      });
-    } catch (error) {
-      this.workspace.report('save', error);
-      return undefined;
-    }
+  duplicateCard(cardId: string, asTemplate?: boolean): Promise<CardSummary | undefined> {
+    return copyOfCard(this, cardId, asTemplate);
   }
 
   /**
@@ -597,7 +593,9 @@ export class BoardStore {
     this.views = put(this.views, applyViewPatch(current, patch));
     this.#viewWrites.begin(viewId);
     try {
-      const answer = await this.#backend.patchView(this.boardId, viewId, patch);
+      const answer = await this.#viewInverses.write(viewId, patch, reverse, () =>
+        this.#backend.patchView(this.boardId, viewId, patch),
+      );
       const latest = this.#viewWrites.end(viewId, answer);
       if (latest) this.views = take(this.views, latest);
     } catch (error) {
@@ -619,6 +617,7 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = viewPatches(change(current), current);
     if (isEmptyBlockPatch(forward)) return;
+    this.#viewInverses.keep(viewId, backward);
     await this.#perform(
       () => this.#sendViewPatch(viewId, forward, backward),
       () => this.#sendViewPatch(viewId, backward, forward),
@@ -687,7 +686,9 @@ export class BoardStore {
     if (!this.board) return;
     this.board = applyBoardPatch(this.board, patch);
     try {
-      const answer = await this.#backend.patchBoard(this.boardId, patch);
+      const answer = await this.#boardInverses.write(this.boardId, patch, reverse, () =>
+        this.#backend.patchBoard(this.boardId, patch),
+      );
       if (answer.updateAt >= this.board.updateAt) this.board = answer;
     } catch (error) {
       this.board = applyBoardPatch(this.board, reverse);
@@ -706,13 +707,8 @@ export class BoardStore {
   ): Promise<void> {
     if (!this.board) return;
     const [forward, backward] = boardPatches(change(this.board), this.board);
-    const empty = Object.keys(forward).every((key) => {
-      const value = (forward as Record<string, unknown>)[key];
-      if (Array.isArray(value)) return value.length === 0;
-      if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0;
-      return value === undefined;
-    });
-    if (empty) return;
+    if (isEmptyBoardPatch(forward)) return;
+    this.#boardInverses.keep(this.boardId, backward);
     await this.#perform(
       () => this.#sendBoardPatch(forward, backward),
       () => this.#sendBoardPatch(backward, forward),

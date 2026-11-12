@@ -247,12 +247,15 @@ export class UndoManager {
 
   /**
    * The step a gesture's next change joins: its own, unless a change of the
-   * person was made after it. That change came between, so the gesture goes
+   * person was made after it and no undo or redo waits. That change came between, so the gesture goes
    * on in a new step after it: undo and redo then go in the order the
    * changes were made.
    */
   #continued(gesture: Gesture): Entry | undefined {
     const { entry } = gesture;
+    // Undos asked for meanwhile were asked of the gesture as one step: it stays one, so
+    // that they take all of it back (a new step would drop them, as a new change does).
+    if (this.#waiting > 0) return entry;
     const at = entry ? this.#entries.indexOf(entry) : -1;
     return at !== -1 && at < this.#entries.length - 1 ? undefined : entry;
   }
@@ -287,7 +290,7 @@ export class UndoManager {
     this.#entries.splice(at, 1);
     // What it cut comes back once nothing made after it stays: the step after it keeps it until then.
     const next = this.#entries[at];
-    if (!next) this.#entries.push(...entry.cut);
+    if (!next) this.#entries.push(...entry.cut.filter((other) => other.steps.length > 0));
     else if (next.cut.length === 0) next.cut = entry.cut;
     if (at <= this.#index) this.#index -= 1;
     if (at <= this.#inForce) this.#inForce -= 1;
@@ -385,7 +388,8 @@ export class UndoManager {
       // A change made while it was undone took its place (perhaps in what it cut in
       // turn): what is still in force goes before the step of the history that holds it.
       if (inForce.steps.length === 0) return;
-      const host = this.#entries.findIndex((other) => replaceCut(other, entry, notInForce));
+      const rest = notInForce.steps.length > 0 ? notInForce : undefined;
+      const host = this.#entries.findIndex((other) => replaceCut(other, entry, rest));
       if (host === -1) return;
       this.#entries.splice(host, 0, inForce);
       if (host <= this.#inForce) this.#inForce += 1;
@@ -424,11 +428,15 @@ function detached(groupId: string | undefined): Entry {
   };
 }
 
-/** Puts `by` in place of `entry` in what `holder` cut, however deep; whether it was there. */
-function replaceCut(holder: Entry, entry: Entry, by: Entry): boolean {
+/**
+ * Puts `by` in place of `entry` in what `holder` cut, however deep (takes it
+ * out without `by`: nothing of it can be redone); whether it was there.
+ */
+function replaceCut(holder: Entry, entry: Entry, by: Entry | undefined): boolean {
   const at = holder.cut.indexOf(entry);
   if (at !== -1) {
-    holder.cut[at] = by;
+    if (by) holder.cut[at] = by;
+    else holder.cut.splice(at, 1);
     return true;
   }
   return holder.cut.some((other) => replaceCut(other, entry, by));

@@ -370,6 +370,27 @@ describe('a gesture of several changes', () => {
     expect(manager.redoDescription).toBe('a');
   });
 
+  it('stays one step when undos were asked for after a change made between its own', async () => {
+    const manager = new UndoManager();
+    const values: string[] = [];
+    const gate = held();
+    await adding(manager, values, 'before');
+    const gesture = manager.group(async (groupId) => {
+      await adding(manager, values, 'a', groupId);
+      await gate.promise;
+      await adding(manager, values, 'b', groupId);
+    });
+    await adding(manager, values, 'between');
+    // Asked for while the gesture is under way: "between", then the whole gesture.
+    const first = manager.undo();
+    const second = manager.undo();
+    gate.answer();
+    await Promise.all([gesture, first, second]);
+    expect(values).toEqual(['before']);
+    expect(manager.undoDescription).toBe('before');
+    expect(manager.redoDescription).toBe('a');
+  });
+
   it('goes on in a step after a change made between its own: undo goes in the order they were made', async () => {
     const manager = new UndoManager();
     const values: string[] = [];
@@ -516,4 +537,39 @@ describe('changes refused one after the other (found by a review of 042ff43)', (
       expect(value).toBe('original');
     },
   );
+
+  it('does not give back an empty step to redo when an undo and the newer change are both refused', async () => {
+    const manager = new UndoManager();
+    const undoWrite = held();
+    const changeWrite = held();
+    let entered = (): void => undefined;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    await manager.perform(
+      async () => undefined,
+      async () => {
+        entered();
+        await undoWrite.promise;
+      },
+      'original',
+    );
+
+    const undoing = manager.undo().catch(() => undefined);
+    await started;
+    const changing = manager
+      .perform(
+        () => changeWrite.promise,
+        async () => undefined,
+        'newer',
+      )
+      .catch(() => undefined);
+    undoWrite.refuse();
+    await undoing;
+    changeWrite.refuse();
+    await changing;
+
+    expect(manager.undoDescription).toBe('original');
+    expect(manager.canRedo).toBe(false);
+  });
 });
