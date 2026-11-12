@@ -557,3 +557,44 @@ async fn the_board_of_a_relation_is_the_board_of_the_card() {
     );
     th.teardown().await;
 }
+
+/// A block that becomes a card has its relation values checked as written: nothing
+/// checked them while it was no card.
+#[tokio::test]
+async fn a_block_that_becomes_a_card_has_its_relations_checked() {
+    let th = Setup::native().start().await.init_basic().await;
+    let client = &th.client;
+    let Related { board, cards } = related_board(client, 1).await;
+    let blocks = format!("/boards/{}/blocks", board.id);
+    for (id, value) in [("odd", json!([new_id()])), ("fine", json!([cards[0].id]))] {
+        client
+            .post(
+                &blocks,
+                &json!([{
+                    "id": id, "boardId": board.id, "parentId": board.id, "type": "view",
+                    "title": id, "schema": 1, "createAt": 1, "updateAt": 1,
+                    "fields": {"viewType": "table", "properties": {RELATION: value}},
+                }]),
+            )
+            .await
+            .check_created();
+    }
+    let created: Vec<Block> = client.get(&blocks).await.ok_json();
+    let id_of = |title: &str| {
+        created
+            .iter()
+            .find(|block| block.title == title)
+            .map(|block| block.id.clone())
+            .expect("the view")
+    };
+    let to_card = json!({"type": "card"});
+    let odd = client
+        .patch(&format!("{blocks}/{}", id_of("odd")), &to_card)
+        .await;
+    check_refused(&odd, REASON, "/updatedFields");
+    client
+        .patch(&format!("{blocks}/{}", id_of("fine")), &to_card)
+        .await
+        .check_no_content();
+    th.teardown().await;
+}

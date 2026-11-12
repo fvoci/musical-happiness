@@ -530,8 +530,7 @@ export class BoardStore {
     const source = this.card(cardId);
     if (!source) return undefined;
     try {
-      const detail = await this.#backend.card(this.boardId, cardId);
-      return await this.createCard(draftOfCopy(detail, this.board, this.cards, asTemplate));
+      return await this.createCard(await draftOfCopy(this.#backend, this, cardId, asTemplate));
     } catch (error) {
       this.workspace.report('save', error);
       return undefined;

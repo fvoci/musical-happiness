@@ -212,6 +212,8 @@
   "property_relation_search": "Search cards",
   "property_relation_open": "Open {title}",
   "property_relation_full": "No more than {count} cards can be picked.",
+  "property_relation_hidden_full": "Deleted cards hold {count} of the places. Take them out to pick more.",
+  "property_relation_drop_hidden": "Take out the deleted cards: {count}",
   "property_relation_more": "More cards: {count}. Type to narrow the list.",
   "property_relation_picked": "Picked cards",
   "property_relation_loop": "Not offered: {count}. Picking them would make a loop.",

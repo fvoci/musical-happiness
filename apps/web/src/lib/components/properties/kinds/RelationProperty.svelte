@@ -10,10 +10,11 @@
   for a card the value named before, whether it is in the trash or gone.)
 
   The card itself cannot be picked, a card is picked once, and no more than
-  RELATION_LIMIT are picked (a value that names more, written some other
-  way, keeps them all until the reader takes some out). The server counts
-  the hidden ones too: what is written keeps of them only as many as leave
-  the picked ones within the limit, the first named first. The list shows the
+  RELATION_LIMIT are named (a value that names more, written some other way,
+  keeps them all until the reader takes some out). The hidden ones count, as
+  the server counts them: when they fill the value, nothing more is offered,
+  and a line says how many deleted cards hold places, with a button that
+  takes them out. Nothing else leaves them out. The list shows the
   picked cards first, then the others by title, at most LIST_LIMIT at a
   time, so that a board of thousands of cards does not draw thousands of
   rows: typing narrows it.
@@ -89,7 +90,9 @@
 
   /** The picked cards that are there, in the order they were picked; never the card itself. */
   const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
-  const full = $derived(shown.length >= RELATION_LIMIT);
+  /** The named cards that are not there (deleted), each once: written back as they are. */
+  const hidden = $derived([...new Set(ids.filter((id) => id !== cardId && !cards.has(id)))]);
+  const full = $derived(shown.length + hidden.length >= RELATION_LIMIT);
 
   /**
    * The cards that can be picked, by title, each with the text it is found
@@ -138,13 +141,15 @@
         (wanted === '' || entry.folded.includes(wanted)),
     ).length;
   });
-  /** What the reader is told about the cards held back: the limit first, then loops. */
+  /** What the reader is told about the cards held back: deleted cards in the way, the limit, then loops. */
   const heldBack = $derived(
-    full
-      ? m.property_relation_full({ count: RELATION_LIMIT })
-      : leftOut > 0
-        ? m.property_relation_loop({ count: leftOut })
-        : '',
+    full && hidden.length > 0
+      ? m.property_relation_hidden_full({ count: hidden.length })
+      : full
+        ? m.property_relation_full({ count: RELATION_LIMIT })
+        : leftOut > 0
+          ? m.property_relation_loop({ count: leftOut })
+          : '',
   );
 
   /**
@@ -166,15 +171,13 @@
   const onLoop = (id: string): boolean => excluded?.has(id) ?? false;
 
   /**
-   * Writes the value: the picked cards that are there and, as far as the
-   * limit leaves room, the hidden ones, in the order they were named, each
+   * Writes the value: the picked cards that are there and the hidden ones
+   * (unless the reader takes those out), in the order they were named, each
    * once, never the card itself.
    */
-  function write(next: readonly string[]): void {
+  function write(next: readonly string[], keepHidden = true): void {
     const picked = new Set(next.filter((id) => id !== cardId && cards.has(id)));
-    const hidden = [...new Set(ids.filter((id) => id !== cardId && !cards.has(id)))];
-    const room = new Set(hidden.slice(0, Math.max(RELATION_LIMIT - picked.size, 0)));
-    const kept = ids.filter((id) => picked.has(id) || room.has(id));
+    const kept = ids.filter((id) => picked.has(id) || (keepHidden && hidden.includes(id)));
     onChange?.([...new Set([...kept, ...picked])]);
   }
 
@@ -323,6 +326,18 @@
         >
           {regionReady ? heldBack : ''}
         </p>
+        {#if full && hidden.length > 0}
+          <Button
+            variant="ghost"
+            class="justify-start group-data-[presentation=sheet]/surface:min-h-touch"
+            data-slot="relation-drop-hidden"
+            onclick={() => {
+              write(shown, false);
+            }}
+          >
+            {m.property_relation_drop_hidden({ count: hidden.length })}
+          </Button>
+        {/if}
         {#if shown.length > 0}
           <Button
             variant="ghost"

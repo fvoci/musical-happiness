@@ -161,17 +161,40 @@ describe('a relation property, opened', () => {
     expect(onChange).toHaveBeenLastCalledWith(['card-gone']);
   });
 
-  it(`keeps the cards that are not there only as far as the ${String(RELATION_LIMIT)} leave room`, async () => {
-    const many = cardsOf(
-      Object.fromEntries(
-        Array.from({ length: RELATION_LIMIT }, (_, at) => [`c${String(at)}`, `Card ${String(at)}`]),
-      ),
-    );
+  it('offers nothing more when deleted cards fill the value, and leaves none out by itself', async () => {
+    const many = cardsOf({ 'new-card': 'Another card' });
     const gone = Array.from({ length: RELATION_LIMIT }, (_, at) => `gone-${String(at)}`);
+    const frames = holdFrames();
     const { onChange } = mount('relation', gone, { cards: many });
     await fireEvent.click(button());
-    await fireEvent.click(within(list()).getByRole('option', { name: 'Card 0' }));
-    expect(onChange).toHaveBeenLastCalledWith([...gone.slice(0, RELATION_LIMIT - 1), 'c0']);
+    expect(rows()).toEqual([]);
+    await press(search(), 'Enter');
+    expect(onChange).not.toHaveBeenCalled();
+    // Said in the live region, with a button that takes them out.
+    await frames();
+    expect(document.querySelector('[data-slot="relation-held-back"]')).toHaveTextContent(
+      `Deleted cards hold ${String(RELATION_LIMIT)} of the places. Take them out to pick more.`,
+    );
+    await fireEvent.click(
+      screen.getByRole('button', {
+        name: `Take out the deleted cards: ${String(RELATION_LIMIT)}`,
+      }),
+    );
+    expect(onChange).toHaveBeenCalledExactlyOnceWith([]);
+  });
+
+  it('takes out only the deleted cards with that button, and keeps the picked ones', async () => {
+    const gone = Array.from({ length: RELATION_LIMIT - 1 }, (_, at) => `gone-${String(at)}`);
+    const { onChange } = mount('relation', ['card-2', ...gone], { cards: CARDS });
+    await fireEvent.click(button());
+    await fireEvent.click(screen.getByRole('button', { name: /^Take out the deleted cards/ }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2']);
+  });
+
+  it('shows no such button while deleted cards leave room', async () => {
+    mount('relation', ['card-gone', 'card-2'], { cards: CARDS });
+    await fireEvent.click(button());
+    expect(screen.queryByRole('button', { name: /^Take out the deleted cards/ })).toBeNull();
   });
 
   it(`picks no more than ${String(RELATION_LIMIT)} cards, and says so`, async () => {

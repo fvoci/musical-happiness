@@ -176,6 +176,37 @@ describe('changing the kind of a property', () => {
     }
   });
 
+  it('keeps a value left over from a kind before when the change is refused, and undoes it', async () => {
+    const { board, backend, workspace, definition } = await open();
+    // Turned into a card relation earlier: the values of the select stay, as the server leaves them.
+    await board.changeBoard((current) => ({
+      ...current,
+      cardProperties: current.cardProperties.map((property) =>
+        property.id === STATUS ? { ...property, type: 'relation', options: [] } : property,
+      ),
+    }));
+    const template = definition(STATUS);
+    const source = board.cards[0];
+    if (!template || !source) throw new Error('a property and a card are needed');
+    const stored = async () =>
+      (await backend.card(board.boardId, source.id)).fields.properties[STATUS];
+    const before = await stored();
+    expect(before).toBeDefined();
+
+    backend.failNext('patchBoard', new BackendError(403));
+    await changePropertyType(board, planTypeChange(template, 'text', board.cards));
+    expect(
+      (await backend.board(board.boardId)).cardProperties.find((p) => p.id === STATUS)?.type,
+    ).toBe('relation');
+    expect(await stored()).toEqual(before);
+
+    await changePropertyType(board, planTypeChange(template, 'text', board.cards));
+    expect(await stored()).toBeUndefined();
+    await workspace.undoLast();
+    expect(definition(STATUS)?.type).toBe('relation');
+    expect(await stored()).toEqual(before);
+  });
+
   it('takes the views off what they wrote for the old kind', async () => {
     const { board, view, definition } = await open();
     expect(view.fields.groupById).toBe(STATUS);

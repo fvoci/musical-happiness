@@ -92,27 +92,42 @@ export async function renameProperty(
 }
 
 /**
- * Changes the kind of a property as planned: the values the new kind cannot
- * read are removed first, then the definition changes, then the views that
- * leaned on the old kind and the values rewritten for the new one. Undo goes
- * back the other way, so each value comes back under the kind it was
- * written for: the server refuses a value of another kind (a text where a
- * card relation is, a date where none is).
+ * Whether the server takes `value` under a property of the kind `type`: a
+ * card relation holds a list of identifiers, a date a date value, any other
+ * kind no date value.
+ */
+function fitsKind(value: PropertyValue | undefined, type: PropertyType | undefined): boolean {
+  if (type === 'relation')
+    return Array.isArray(value) && value.every((id) => typeof id === 'string');
+  const isDate = typeof value === 'object' && !Array.isArray(value);
+  return type === 'date' ? isDate : !isDate;
+}
+
+/**
+ * Changes the kind of a property as planned. Each value that goes is taken
+ * out while the property has the kind the value fits, so that undo, which
+ * goes back the other way, writes it back under a kind the server takes: the
+ * values of the old kind first, then the definition changes, then the views
+ * that leaned on the old kind, the values rewritten for the new one, and the
+ * values left over from a kind before (a text where a card relation is now).
+ * A refused definition changes nothing: what went first comes back.
  */
 export async function changePropertyType(board: BoardStore, plan: TypeChangePlan): Promise<void> {
   const { template, values } = plan;
   const groupId = newUndoGroup();
-  const removed = [...values].filter(([, value]) => value === undefined).map(([cardId]) => cardId);
-  const before = new Map(
-    removed.map((cardId) => [cardId, board.card(cardId)?.fields.properties[template.id]]),
-  );
+  const oldType = templateOf(board, template.id)?.type;
+  const valueOf = (cardId: string) => board.card(cardId)?.fields.properties[template.id];
+  const first = [...values]
+    .filter(([cardId, value]) => value === undefined && fitsKind(valueOf(cardId), oldType))
+    .map(([cardId]) => cardId);
+  const before = new Map(first.map((cardId) => [cardId, valueOf(cardId)]));
   const setAll = (entries: Iterable<[string, PropertyValue | undefined]>) =>
     Promise.all(
       [...entries].map(([cardId, value]) =>
         board.setCardProperty(cardId, template.id, value, groupId),
       ),
     );
-  await setAll(removed.map((cardId) => [cardId, undefined]));
+  await setAll(first.map((cardId) => [cardId, undefined]));
   await board.changeBoard(
     withTemplate(template.id, () => template),
     'changePropertyType',
@@ -132,7 +147,7 @@ export async function changePropertyType(board: BoardStore, plan: TypeChangePlan
         groupId,
       ),
     ),
-    setAll([...values].filter(([, value]) => value !== undefined)),
+    setAll([...values].filter(([cardId]) => !before.has(cardId))),
   ]);
 }
 

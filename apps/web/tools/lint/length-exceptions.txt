@@ -17,7 +17,7 @@
 file 1007 src/lib/api/backend.ts
 file 533 src/lib/features/shell/SidebarList.svelte
 file 903 src/lib/logic/wire.ts
-file 860 src/lib/state/board.svelte.ts
+file 859 src/lib/state/board.svelte.ts
 file 529 src/lib/state/card.svelte.ts
 file 1164 src/lib/state/memory/backend.ts
 file 835 src/lib/state/workspace.svelte.ts

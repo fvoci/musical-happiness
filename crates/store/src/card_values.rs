@@ -39,7 +39,7 @@ pub(crate) struct NamedCards {
 /// another, and as a relation value of a card a list of other cards, each once, at most
 /// [`fvoci_model::RELATION_LIMIT`]. Only the values the write changes are checked; one
 /// that was stored before the rules, or that a change of the definitions left behind,
-/// stays until it is written.
+/// stays until it is written. A block that becomes a card has all its values checked.
 ///
 /// Returns what the relation values name that they did not name before, to be asked for
 /// once the write is stored: an identifier a value had is not asked for again.
@@ -55,7 +55,12 @@ pub(crate) async fn check_written(
     let Some(Value::Object(values)) = block.fields.get("properties") else {
         return Ok(Vec::new());
     };
+    // A block that becomes a card brings values nothing checked as a card's: all of
+    // them are checked as written.
     let before = existing
+        .filter(|existing| {
+            existing.block_type == block.block_type || block.block_type != BlockType::Card
+        })
         .and_then(|existing| existing.fields.get("properties"))
         .and_then(Value::as_object);
     let written: JsonMap = values
