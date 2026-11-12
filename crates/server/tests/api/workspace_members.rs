@@ -450,3 +450,44 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
 
     th.teardown().await;
 }
+
+/// Who stops being an administrator of the instance stays the administrator of a
+/// workspace that has no other: a workspace keeps one, by whatever route.
+#[tokio::test]
+async fn a_workspace_keeps_its_last_administrator_when_the_instance_role_goes() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (first_id, second_id) = (th.client.me().await.id, th.client2.me().await.id);
+    let instance_admin = |user_id: &str, is_admin: bool| {
+        let path = format!("/users/{user_id}/admin");
+        let client = &th.client2;
+        async move { client.put(&path, &json!({"isAdmin": is_admin})).await }
+    };
+    // The second becomes an administrator of the instance, and with it of the
+    // workspace; then a member of the workspace again, by the route of its members.
+    th.client
+        .put(
+            &format!("/users/{second_id}/admin"),
+            &json!({"isAdmin": true}),
+        )
+        .await
+        .check_ok();
+    assert_eq!(role_of(&th.client2).await, Some(WorkspaceRole::Admin));
+    set_role(&th.client, &second_id, "member").await.check_ok();
+
+    // The first, the only administrator of the workspace, stops being one of the
+    // instance: the workspace still has them.
+    instance_admin(&first_id, false).await.check_ok();
+    assert!(
+        !th.client.me().await.is_admin,
+        "no administrator of the instance"
+    );
+    assert_eq!(role_of(&th.client).await, Some(WorkspaceRole::Admin));
+    th.client.get(&members_path()).await.check_ok();
+    // With another administrator in the workspace, the role follows as it did.
+    set_role(&th.client, &second_id, "admin").await.check_ok();
+    instance_admin(&first_id, true).await.check_ok();
+    instance_admin(&first_id, false).await.check_ok();
+    assert_eq!(role_of(&th.client).await, Some(WorkspaceRole::Member));
+
+    th.teardown().await;
+}

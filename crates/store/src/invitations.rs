@@ -17,7 +17,7 @@ use crate::accounts::{self, Which};
 use crate::boards::{find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
-use crate::trash;
+use crate::trash::{self, TrashedRoles};
 use crate::users::InstanceRole;
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
@@ -325,6 +325,11 @@ async fn let_in_as_member(
         WorkspaceRole::Member,
     )
     .await?;
+    if joined {
+        // Who comes into the workspace anew starts anew: a role that was stored for
+        // them on a board of it while they were being taken out is not theirs again.
+        forget_board_roles(scope, workspace_id, user_id).await?;
+    }
     let mut sql = scope.sql("UPDATE workspace_members SET role = ");
     sql.bind(WorkspaceRole::Member.as_str())
         .push_bind(" WHERE workspace_id = ", Id(workspace_id))
@@ -350,16 +355,7 @@ async fn let_in_as_guest(
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
     if scope.fetch_optional(sql).await?.is_none() {
-        let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
-        sql.bind(Id(user_id))
-            .push_bind(
-                " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
-                Id(workspace_id),
-            )
-            .push(")");
-        scope.execute(sql).await?;
-        // Nor by a board of it that comes back from the trash with its members.
-        trash::forget_member_of_deleted_boards(scope, workspace_id, user_id).await?;
+        forget_board_roles(scope, workspace_id, user_id).await?;
     }
     let joined = accounts::join_workspace(
         scope,
@@ -376,6 +372,24 @@ async fn let_in_as_guest(
     }
     save_member(scope, &invited).await?;
     Ok(true)
+}
+
+/// Takes from a user who is no member of the workspace the roles left on its boards,
+/// and those its boards in the trash would come back with.
+async fn forget_board_roles(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
+    sql.bind(Id(user_id))
+        .push_bind(
+            " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
+            Id(workspace_id),
+        )
+        .push(")");
+    scope.execute(sql).await?;
+    trash::change_member_of_deleted_boards(scope, workspace_id, user_id, TrashedRoles::Forget).await
 }
 
 /// Starts the query for the live links of the scope's organization at `now`;

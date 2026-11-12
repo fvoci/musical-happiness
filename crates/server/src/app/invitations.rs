@@ -353,13 +353,24 @@ impl App {
             self.metrics().registered();
         }
         // Who is on the board of a guest's link sees the newcomer among its members.
-        if let (true, Some(board_id)) = (accepted.used, &accepted.board_id)
-            && let Ok(member) = app
+        if let (true, Some(board_id)) = (accepted.used, &accepted.board_id) {
+            match app
                 .store()
                 .get_member_for_board(board_id, &accepted.user_id)
                 .await
-        {
-            app.broadcast_member_change_in_background(accepted.workspace_id.clone(), member);
+            {
+                Ok(member) => {
+                    app.broadcast_member_change_in_background(
+                        accepted.workspace_id.clone(),
+                        member,
+                    );
+                }
+                Err(error) => tracing::warn!(
+                    %error,
+                    board_id,
+                    "a guest who came in was not announced to the board"
+                ),
+            }
         }
         tracing::info!(
             user_id = %accepted.user_id,

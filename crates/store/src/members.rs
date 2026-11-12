@@ -6,7 +6,7 @@
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
 use crate::Store;
-use crate::db::{Id, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
 
@@ -164,6 +164,17 @@ pub(crate) async fn follow_instance_role(
             scope.org()?,
         )
         .push(")");
+    if workspace_role != WorkspaceRole::Admin {
+        // A workspace keeps an administrator: where the user is its only one, they
+        // stay it, whatever they stop being to the instance.
+        sql.push_bind(
+            " AND EXISTS (SELECT 1 FROM workspace_members AS other \
+             WHERE other.workspace_id = workspace_members.workspace_id AND other.user_id <> ",
+            Id(user_id),
+        )
+        .push_bind(" AND other.role = ", WorkspaceRole::Admin.as_str())
+        .push(")");
+    }
     scope.execute(sql).await?;
     Ok(())
 }
@@ -174,17 +185,55 @@ pub(crate) async fn is_only_admin(
     board_id: &str,
     user_id: &str,
 ) -> Result<bool, StoreError> {
-    // Another admin counts who can act as one: a member of the board's workspace who is
-    // no guest. A guest is no more than an editor, and who has left opens nothing.
+    Ok(!has_acting_admin(scope, board_id, Some(user_id)).await?)
+}
+
+/// Whether the board has no administrator who can act as one.
+pub(crate) async fn has_no_admin(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+) -> Result<bool, StoreError> {
+    Ok(!has_acting_admin(scope, board_id, None).await?)
+}
+
+/// Whether the user works in the workspace: a member of it who is no guest.
+pub(crate) async fn works_in(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str());
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Whether a member of the board, other than `except` if one is named, is an admin of
+/// it who can act as one.
+async fn has_acting_admin(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    except: Option<&str>,
+) -> Result<bool, StoreError> {
+    // An admin counts who can act as one: a member of the board's workspace who is no
+    // guest. A guest is no more than an editor, and who has left opens nothing.
     let mut sql = scope.sql(
         "SELECT 1 FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
          JOIN workspace_members AS wm \
          ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.board_id = ",
     );
     sql.bind(Id(board_id))
-        .push_bind(" AND bm.user_id <> ", Id(user_id))
         .push_bind(" AND bm.scheme_admin = ", true)
-        .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
-        .push(" LIMIT 1");
-    Ok(scope.fetch_optional(sql).await?.is_none())
+        .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str());
+    if let Some(user_id) = except {
+        sql.push_bind(" AND bm.user_id <> ", Id(user_id));
+    }
+    sql.push(" LIMIT 1");
+    // An admin who is being taken out of the workspace, or made a guest of it, at this
+    // moment is waited for: counted, they would be gone when this is stored.
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE OF wm");
+    }
+    Ok(scope.fetch_optional(sql).await?.is_some())
 }

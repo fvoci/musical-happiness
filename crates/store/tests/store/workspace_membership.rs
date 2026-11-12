@@ -14,7 +14,12 @@ use crate::common::{self, TestStore};
 async fn administrator(test: &TestStore, username: &str) -> String {
     let user_id = common::user(test, username).await;
     let made = test
-        .change_workspace_role(&test.workspace_id, &user_id, WorkspaceRole::Admin, &user_id)
+        .change_workspace_role(
+            &test.workspace_id,
+            &user_id,
+            (WorkspaceRole::Member, WorkspaceRole::Admin),
+            &user_id,
+        )
         .await
         .expect("the role is changed");
     assert!(matches!(made, MembershipChange::Done { .. }), "{made:?}");
@@ -57,7 +62,12 @@ async fn of_two_administrators_who_take_each_other_away_at_once_one_stays() {
                         .await
                 } else {
                     store
-                        .change_workspace_role(&workspace_id, &target, WorkspaceRole::Member, &by)
+                        .change_workspace_role(
+                            &workspace_id,
+                            &target,
+                            (WorkspaceRole::Admin, WorkspaceRole::Member),
+                            &by,
+                        )
                         .await
                 }
             });
@@ -174,6 +184,126 @@ async fn who_is_taken_out_leaves_their_boards_with_an_admin() {
     );
     // Taken out, they are still an account, and a member of the organization.
     test.get_user_by_id(&leaving).await.expect("the account");
+
+    test.teardown().await;
+}
+
+/// A change of role is made of what the member is when it is stored: asked from
+/// something they are not any more, it changes nothing and says what they are.
+#[tokio::test]
+async fn a_change_of_role_from_what_a_member_is_no_longer_changes_nothing() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let member = common::user(&test, "member").await;
+    let made_a_guest = test
+        .change_workspace_role(
+            &test.workspace_id,
+            &member,
+            (WorkspaceRole::Member, WorkspaceRole::Guest),
+            &admin,
+        )
+        .await
+        .expect("the role is changed");
+    assert!(matches!(made_a_guest, MembershipChange::Done { .. }));
+    // Somebody who read "a member" before that asks to make them an administrator.
+    let stale = test
+        .change_workspace_role(
+            &test.workspace_id,
+            &member,
+            (WorkspaceRole::Member, WorkspaceRole::Admin),
+            &admin,
+        )
+        .await
+        .expect("the store answers");
+    assert_eq!(stale, MembershipChange::RoleIs(WorkspaceRole::Guest));
+    assert_eq!(
+        roles(&test).await,
+        [
+            ("admin".to_owned(), WorkspaceRole::Admin),
+            ("member".to_owned(), WorkspaceRole::Guest),
+        ]
+    );
+
+    test.teardown().await;
+}
+
+/// A board in the trash comes back with an admin who can act as one: who brings it
+/// back, where its own are gone from the workspace or are its guests by then; and a
+/// guest comes back on it as an editor at most.
+#[tokio::test]
+async fn a_board_comes_back_from_the_trash_with_an_admin() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let leaving = common::user(&test, "leaving").await;
+    let lowered = common::user(&test, "lowered").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 3).await;
+    let (of_the_leaver, of_the_guest, of_both_and_the_admin) =
+        (&boards[0].id, &boards[1].id, &boards[2].id);
+    let add = async |board_id: &str, user_id: &str| {
+        let member = BoardMember {
+            board_id: board_id.to_owned(),
+            user_id: user_id.to_owned(),
+            ..BoardMember::default()
+        }
+        .with_role(Some(BoardRole::Admin));
+        test.add_member(&member)
+            .await
+            .expect("an admin of the board");
+    };
+    add(of_the_leaver, &leaving).await;
+    add(of_the_guest, &lowered).await;
+    for user_id in [&leaving, &lowered, &admin] {
+        add(of_both_and_the_admin, user_id).await;
+    }
+    for board_id in [of_the_leaver, of_the_guest, of_both_and_the_admin] {
+        test.delete_board(board_id, &admin)
+            .await
+            .expect("the board goes to the trash");
+    }
+    test.remove_workspace_member(&test.workspace_id, &leaving, &admin)
+        .await
+        .expect("the member is taken out");
+    test.change_workspace_role(
+        &test.workspace_id,
+        &lowered,
+        (WorkspaceRole::Member, WorkspaceRole::Guest),
+        &admin,
+    )
+    .await
+    .expect("the member is made a guest");
+    for board_id in [of_the_leaver, of_the_guest, of_both_and_the_admin] {
+        test.undelete_board(board_id, &admin)
+            .await
+            .expect("the board comes back");
+    }
+
+    let role = async |board_id: &str, user_id: &str| {
+        test.get_member_for_board(board_id, user_id)
+            .await
+            .ok()
+            .and_then(|member| member.role())
+    };
+    assert_eq!(role(of_the_leaver, &leaving).await, None);
+    assert_eq!(
+        role(of_the_leaver, &admin).await,
+        Some(BoardRole::Admin),
+        "its admin left: who brought it back"
+    );
+    assert_eq!(role(of_the_guest, &lowered).await, Some(BoardRole::Editor));
+    assert_eq!(
+        role(of_the_guest, &admin).await,
+        Some(BoardRole::Admin),
+        "its admin is a guest now: who brought it back"
+    );
+    assert_eq!(role(of_both_and_the_admin, &leaving).await, None);
+    assert_eq!(
+        role(of_both_and_the_admin, &lowered).await,
+        Some(BoardRole::Editor)
+    );
+    assert_eq!(
+        role(of_both_and_the_admin, &admin).await,
+        Some(BoardRole::Admin)
+    );
 
     test.teardown().await;
 }

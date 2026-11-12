@@ -11,6 +11,9 @@ use super::App;
 use crate::error::{AppError, Reason};
 use crate::permissions;
 
+/// How often a change of role is tried against a role that others change meanwhile.
+const ATTEMPTS: usize = 3;
+
 /// What a change is refused with that would leave a workspace without an administrator.
 const LAST_ADMIN: &str = "the workspace must keep an administrator";
 
@@ -49,24 +52,33 @@ impl App {
         role: WorkspaceRole,
         by: &str,
     ) -> Result<WorkspaceMember, AppError> {
-        let member = self.workspace_member(workspace_id, user_id).await?;
-        if member.role == role {
-            return Ok(member);
+        let mut member = self.workspace_member(workspace_id, user_id).await?;
+        // What the change makes of the member is decided of what they are when it is
+        // stored: somebody else may have changed it since it was read.
+        for _ in 0..ATTEMPTS {
+            if member.role == role {
+                return Ok(member);
+            }
+            if !permissions::may_become(member.role, role) {
+                let how = match member.role {
+                    WorkspaceRole::Guest => "a guest becomes a member by an invitation for members",
+                    WorkspaceRole::Admin | WorkspaceRole::Member => {
+                        "an administrator is made a member before a guest"
+                    }
+                };
+                return Err(AppError::bad_request(how).with_field("role"));
+            }
+            let change = self
+                .store()
+                .change_workspace_role(workspace_id, user_id, (member.role, role), by)
+                .await?;
+            if let MembershipChange::RoleIs(current) = change {
+                member.role = current;
+                continue;
+            }
+            self.settle(workspace_id, by, change)?;
+            break;
         }
-        if !permissions::may_become(member.role, role) {
-            let how = match member.role {
-                WorkspaceRole::Guest => "a guest becomes a member by an invitation for members",
-                WorkspaceRole::Admin | WorkspaceRole::Member => {
-                    "an administrator is made a member before a guest"
-                }
-            };
-            return Err(AppError::bad_request(how).with_field("role"));
-        }
-        let change = self
-            .store()
-            .change_workspace_role(workspace_id, user_id, role, by)
-            .await?;
-        self.settle(workspace_id, by, change)?;
         tracing::info!(
             workspace_id,
             user_id,
@@ -156,6 +168,9 @@ impl App {
                 Ok(())
             }
             MembershipChange::NotAMember => Err(no_such_member()),
+            MembershipChange::RoleIs(_) => Err(AppError::conflict(
+                "what the member is in the workspace was changed meanwhile",
+            )),
             MembershipChange::LastAdmin => {
                 Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin))
             }
