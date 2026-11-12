@@ -11,6 +11,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// The default of `max_request_bytes`.
@@ -62,11 +63,7 @@ fn check_read_and_refused(response: &ApiResponse) {
 
 /// The boards the first user sees in the test workspace.
 async fn board_count(th: &TestServer) -> usize {
-    let boards: Vec<Value> = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let boards: Vec<Value> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     boards.len()
 }
 
@@ -80,23 +77,29 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
     let at_the_limit = json_of_length(DEFAULT_JSON_LIMIT);
     let response = th
         .client
-        .send_raw_body(Method::POST, "/boards", &at_the_limit)
+        .send_raw_body(Method::POST, &format!("{TEST_WS}/boards"), &at_the_limit)
         .await;
     // It is no board.
     check_read_and_refused(&response);
 
     let over = json_of_length(DEFAULT_JSON_LIMIT + 1);
     let routes = [
-        (Method::POST, "/boards".to_owned()),
-        (Method::PATCH, format!("/boards/{}", board.id)),
-        (Method::POST, format!("/boards/{}/blocks", board.id)),
-        (Method::PATCH, format!("/boards/{}/blocks", board.id)),
-        (Method::POST, "/boards-and-blocks".to_owned()),
-        (Method::POST, format!("/w/{TEST_WORKSPACE_ID}/categories")),
-        (Method::POST, "/subscriptions".to_owned()),
-        (Method::POST, "/users".to_owned()),
+        (Method::POST, format!("{TEST_WS}/boards")),
+        (Method::PATCH, format!("{TEST_WS}/boards/{}", board.id)),
+        (
+            Method::POST,
+            format!("{TEST_WS}/boards/{}/blocks", board.id),
+        ),
+        (
+            Method::PATCH,
+            format!("{TEST_WS}/boards/{}/blocks", board.id),
+        ),
+        (Method::POST, format!("{TEST_WS}/boards-and-blocks")),
+        (Method::POST, format!("{TEST_WS}/categories")),
+        (Method::POST, format!("{TEST_WS}/subscriptions")),
+        (Method::POST, format!("{TEST_WS}/users")),
         // A board nobody has: the body is refused before the board is looked for.
-        (Method::PATCH, "/boards/no-such-board".to_owned()),
+        (Method::PATCH, format!("{TEST_WS}/boards/no-such-board")),
     ];
     for (method, path) in routes {
         let response = th.client.send_raw_body(method.clone(), &path, &over).await;
@@ -125,12 +128,20 @@ async fn the_json_limit_is_the_configured_one() {
 
     let response = th
         .client
-        .send_raw_body(Method::POST, "/boards", &json_of_length(1001))
+        .send_raw_body(
+            Method::POST,
+            &format!("{TEST_WS}/boards"),
+            &json_of_length(1001),
+        )
         .await;
     check_too_large(&response, 1000);
     let response = th
         .client
-        .send_raw_body(Method::POST, "/boards", &json_of_length(1000))
+        .send_raw_body(
+            Method::POST,
+            &format!("{TEST_WS}/boards"),
+            &json_of_length(1000),
+        )
         .await;
     check_read_and_refused(&response);
 
@@ -153,7 +164,11 @@ async fn a_json_body_over_the_limit_is_refused_without_a_session_too() {
 
     let response = th
         .anonymous()
-        .send_raw_body(Method::POST, "/boards", &json_of_length(1001))
+        .send_raw_body(
+            Method::POST,
+            &format!("{TEST_WS}/boards"),
+            &json_of_length(1001),
+        )
         .await;
     check_too_large(&response, 1000);
     th.teardown().await;
@@ -167,9 +182,9 @@ async fn a_request_without_a_session_token_gets_the_small_limit_on_every_route()
     let anonymous = th.anonymous();
 
     for (method, path) in [
-        (Method::POST, "/boards"),
-        (Method::POST, "/boards-and-blocks"),
-        (Method::PATCH, "/boards/no-such-board"),
+        (Method::POST, &format!("{TEST_WS}/boards")),
+        (Method::POST, &format!("{TEST_WS}/boards-and-blocks")),
+        (Method::PATCH, &format!("{TEST_WS}/boards/no-such-board")),
     ] {
         let response = anonymous
             .send_raw_body(
@@ -200,14 +215,16 @@ async fn a_made_up_session_token_does_not_get_the_larger_limit() {
     let largest = json_of_length(DEFAULT_JSON_LIMIT);
 
     for body in [&large, &largest] {
-        let response = stranger.send_raw_body(Method::POST, "/boards", body).await;
+        let response = stranger
+            .send_raw_body(Method::POST, &format!("{TEST_WS}/boards"), body)
+            .await;
         response.check_error(StatusCode::UNAUTHORIZED, "invalid session token");
     }
     // Over the route's limit too: who has no session is told that first.
     let response = stranger
         .send_raw_body(
             Method::POST,
-            "/boards",
+            &format!("{TEST_WS}/boards"),
             &json_of_length(DEFAULT_JSON_LIMIT + 1),
         )
         .await;
@@ -215,14 +232,14 @@ async fn a_made_up_session_token_does_not_get_the_larger_limit() {
 
     // A small body with a made-up token is answered by the route, as ever.
     stranger
-        .send_raw_body(Method::POST, "/boards", "{}")
+        .send_raw_body(Method::POST, &format!("{TEST_WS}/boards"), "{}")
         .await
         .check_unauthorized();
 
     // The session of a user gets the room.
     let response = th
         .client
-        .send_raw_body(Method::POST, "/boards", &largest)
+        .send_raw_body(Method::POST, &format!("{TEST_WS}/boards"), &largest)
         .await;
     check_read_and_refused(&response);
     th.teardown().await;
@@ -257,7 +274,7 @@ async fn the_routes_without_a_session_have_a_smaller_limit() {
         .client
         .send_raw_body(
             Method::POST,
-            "/boards",
+            &format!("{TEST_WS}/boards"),
             &json_of_length(UNAUTHENTICATED_LIMIT + 1),
         )
         .await;
@@ -306,7 +323,10 @@ async fn uploads_are_not_behind_the_json_limit() {
         .expect("a valid mime");
     let request = th
         .client
-        .request(Method::POST, &format!("/boards/{}/files", board.id))
+        .request(
+            Method::POST,
+            &format!("{TEST_WS}/boards/{}/files", board.id),
+        )
         .multipart(Form::new().part("file", part));
     Client::send(request).await.check_created();
     th.teardown().await;

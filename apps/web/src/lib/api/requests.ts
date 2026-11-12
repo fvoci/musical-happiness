@@ -14,14 +14,69 @@ import type {
   User,
 } from '../state/backend.ts';
 
+import { BackendError } from '../state/backend.ts';
+
 import { workspacesOf, userOf, type Schemas } from './convert.ts';
-import type { Http } from './http.ts';
+import type { ApiPath, Http, RequestOptions } from './http.ts';
+
+/** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
+export type WorkspacePath = ApiPath extends infer P
+  ? P extends `/api/v1/w/{workspaceId}${infer Rest}`
+    ? Rest
+    : never
+  : never;
 
 export class ServerRequests implements TrashReads {
   readonly #http: Http;
+  /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
+  #workspaceId: string | undefined;
 
   constructor(http: Http) {
     this.#http = http;
+  }
+
+  /** The requests that name no workspace go to this one from now on. */
+  enter(workspaceId: string): void {
+    this.#workspaceId = workspaceId;
+  }
+
+  /**
+   * The parameters of a path under `/w/{workspaceId}` with the workspace
+   * filled in: the one the reader is in, unless `workspaceId` names another.
+   * Every address under a workspace is made with these.
+   */
+  protected workspaceOf<P extends Record<string, string>>(
+    params: P,
+    workspaceId = this.#workspaceId,
+  ): P & { workspaceId: string } {
+    if (workspaceId === undefined) {
+      throw new BackendError(500, { detail: 'no workspace was entered' });
+    }
+    return { ...params, workspaceId };
+  }
+
+  /** A request to `path` under the workspace (`workspaceOf`). */
+  protected inWorkspace<T>(
+    path: WorkspacePath,
+    params: Record<string, string> = {},
+    options: RequestOptions = {},
+    workspaceId?: string,
+  ): Promise<T> {
+    return this.#http.request<T>(
+      `/api/v1/w/{workspaceId}${path}`,
+      this.workspaceOf(params, workspaceId),
+      options,
+    );
+  }
+
+  /** The bytes at `path` under the workspace (a file). */
+  protected inWorkspaceBytes(path: WorkspacePath, params: Record<string, string>): Promise<Blob> {
+    return this.#http.bytes(`/api/v1/w/{workspaceId}${path}`, this.workspaceOf(params));
+  }
+
+  /** The address of `path` under the workspace. */
+  protected inWorkspaceUrl(path: WorkspacePath, params: Record<string, string>): string {
+    return this.#http.url(`/api/v1/w/{workspaceId}${path}`, this.workspaceOf(params));
   }
 
   async register(registration: Registration): Promise<void> {
@@ -76,8 +131,8 @@ export class ServerRequests implements TrashReads {
   }
 
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
-    return this.#http.request<Schemas['DeletedItem'][]>(
-      '/api/v1/boards/{boardId}/trash/cards',
+    return this.inWorkspace<Schemas['DeletedItem'][]>(
+      '/boards/{boardId}/trash/cards',
       { boardId },
       { query: { ...paging } },
     );

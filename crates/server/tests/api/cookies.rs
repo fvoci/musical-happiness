@@ -7,6 +7,7 @@ use fvoci_model::{Board, BoardType, User};
 use reqwest::{Method, StatusCode};
 use serde_json::json;
 
+use crate::common::ROOT_WS;
 use crate::common::{
     ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, SESSION_COOKIE, Setup, TestServer,
     USER1_USERNAME,
@@ -169,10 +170,10 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
     let th = Setup::native().start().await.init_basic().await;
     let browser = th.client.as_browser();
     let unsafe_requests = [
-        (Method::POST, "/boards".to_owned()),
+        (Method::POST, format!("{ROOT_WS}/boards")),
         (Method::PATCH, "/users/me/client-state".to_owned()),
         (Method::PATCH, "/users/me/settings".to_owned()),
-        (Method::DELETE, "/boards-and-blocks".to_owned()),
+        (Method::DELETE, format!("{ROOT_WS}/boards-and-blocks")),
         (Method::POST, "/logout".to_owned()),
     ];
 
@@ -192,13 +193,16 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
             .check_ok();
     }
     // With the cookie and the header: the server's own pages.
-    let made: Board = browser.post("/boards", &board_body()).await.created_json();
+    let made: Board = browser
+        .post(&format!("{ROOT_WS}/boards"), &board_body())
+        .await
+        .created_json();
     assert_eq!(made.board_type, BoardType::Private, "the board was made");
 
     // With the token in the `Authorization` header: no header of the check needed.
     let request = th
         .client
-        .bare_request(Method::POST, "/boards")
+        .bare_request(Method::POST, &format!("{ROOT_WS}/boards"))
         .json(&board_body());
     Client::send(request).await.check_created();
 
@@ -216,7 +220,7 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
     check_csrf(&Client::send(request).await);
     // A header with another value is not the header.
     let request = browser
-        .bare_request(Method::POST, "/boards")
+        .bare_request(Method::POST, &format!("{ROOT_WS}/boards"))
         .header("X-Requested-With", "fetch")
         .json(&board_body());
     check_csrf(&Client::send(request).await);
@@ -239,7 +243,7 @@ async fn a_change_from_another_origin_is_refused() {
     let post_from = async |client: &Client, origin: &str| {
         Client::send(
             client
-                .request(Method::POST, "/boards")
+                .request(Method::POST, &format!("{ROOT_WS}/boards"))
                 .header("Origin", origin)
                 .json(&board_body()),
         )
@@ -369,7 +373,7 @@ async fn the_cookie_is_renewed_when_the_use_of_the_session_is_recorded() {
     move_last_use_back(11).await;
     let large = browser
         .post(
-            "/boards",
+            &format!("{ROOT_WS}/boards"),
             &json!({
                 "workspaceId": ROOT_WORKSPACE_ID, "type": "P",
                 "description": "d".repeat(70 * 1024),
@@ -437,7 +441,10 @@ async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
     let board = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
     let uploaded = th
         .client
-        .request(Method::POST, &format!("/boards/{}/files", board.id))
+        .request(
+            Method::POST,
+            &format!("{ROOT_WS}/boards/{}/files", board.id),
+        )
         .multipart(
             reqwest::multipart::Form::new().part(
                 "file",
@@ -451,7 +458,7 @@ async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
         .as_str()
         .expect("the upload answers the file's name")
         .to_owned();
-    let path = format!("/boards/{}/files/{file_id}", board.id);
+    let path = format!("{ROOT_WS}/boards/{}/files/{file_id}", board.id);
 
     let response = Client::send(th.client.as_browser().bare_request(Method::GET, &path)).await;
 

@@ -34,7 +34,7 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
   });
   const memberNames = async (): Promise<string[]> => {
     const members = (await (
-      await api.get(`/api/v1/boards/${board.boardId}/members`)
+      await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/members`)
     ).json()) as Schemas['BoardMember'][];
     const users = (await (
       await api.post(`/api/v1/w/${board.workspaceId}/users`, {

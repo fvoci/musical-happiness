@@ -91,10 +91,10 @@ pub(super) async fn require_import_access(
 /// broken before the archive's end.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/archive/export",
+    path = "/w/{workspaceId}/boards/{boardId}/archive/export",
     operation_id = "exportBoardArchive",
     tag = tag::ARCHIVES,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     responses((
         status = 200,
         description = "The archive.",
@@ -107,29 +107,29 @@ pub(super) async fn require_import_access(
     )),
 )]
 async fn handle_export_board(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    ws: Ws,
     connection: Option<Extension<ConnectInfo<Connection>>>,
-    Path(board_id): Path<String>,
+    Path((_, board_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = &session.user_id;
+    let user_id = &ws.session.user_id;
     // The original also lets a system admin with a compliance license through; a
     // standalone server has neither, so a non-member is refused.
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ViewBoard,
         "access denied to board",
     )
     .await?;
-    let board = app.board(&board_id).await?;
-    let slot = app.start_export(user_id)?;
-    let archive = app
+    let board = ws.app.board(&board_id).await?;
+    let slot = ws.app.start_export(user_id)?;
+    let archive = ws
+        .app
         .export_archive(&board.workspace_id, std::slice::from_ref(&board.id))
         .await?;
     Ok(archive_response(
-        &app,
+        &ws.app,
         archive,
         slot,
         breaker_of(connection),

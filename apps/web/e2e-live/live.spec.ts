@@ -94,7 +94,7 @@ test('what one person does shows on the other’s page, and a dropped connection
   await dropped?.server.close();
   await dropped?.page.close();
   const made = (await (
-    await api.post(`/api/v1/boards/${board.boardId}/cards`, {
+    await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
       data: { title: 'Missed while away', properties: { status: board.options.Doing } },
     })
   ).json()) as Schemas['Card'];
@@ -117,7 +117,9 @@ test('what one person does shows on the other’s page, and a dropped connection
   expect(heard.length).toBeGreaterThan(0);
   // And the new connection is a real one: a later change arrives by it.
   expect(open).not.toBe(dropped);
-  await api.patch(`/api/v1/cards/${made.id}`, { data: { title: 'Caught up' } });
+  await api.patch(`/api/v1/w/${board.workspaceId}/cards/${made.id}`, {
+    data: { title: 'Caught up' },
+  });
   await expect(column(second, 'Doing').getByText('Caught up')).toBeVisible();
   await expect(second.locator('[data-problem]')).toHaveCount(0);
 

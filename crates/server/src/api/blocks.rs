@@ -1,7 +1,7 @@
 //! Blocks: reading, inserting, patching, deleting, undeleting and duplicating.
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, RawQuery};
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, CommentVersion,
     RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
@@ -12,15 +12,15 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewBlock;
+use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{
     AllBlocks, AsTemplate, BlockId, BlockTypeFilter, BoardId, DisableNotify, OneBlockId, ParentId,
     SourceBoardId,
 };
 use super::contract::tag;
+use super::workspace::Ws;
 
-use super::{
-    ApiResult, RequiredSession, created, decode_json, json_response, no_content, query_param,
-};
+use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
     BlockAction, require_block_patch_permission, require_block_permission,
     require_delete_permission, require_deletion_permission,
@@ -130,21 +130,20 @@ async fn require_source_board_access(
 /// had them in.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/blocks",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks",
     operation_id = "getBlocks",
     tag = tag::BLOCKS,
-    params(BoardId, AllBlocks, OneBlockId, ParentId, BlockTypeFilter),
+    params(MemberWorkspaceId, BoardId, AllBlocks, OneBlockId, ParentId, BlockTypeFilter),
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
 async fn handle_get_blocks(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let board = app.board(&board_id).await?;
-    require_read_access(&app, &session.user_id, &board).await?;
-    let blocks = asked_blocks(&app, &board_id, query.as_deref()).await?;
+    let board = ws.app.board(&board_id).await?;
+    require_read_access(&ws.app, &ws.session.user_id, &board).await?;
+    let blocks = asked_blocks(&ws.app, &board_id, query.as_deref()).await?;
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     Ok(json_response(&blocks))
 }
@@ -231,10 +230,10 @@ async fn check_and_copy_body_files(
 /// and no block is below a comment (400 at the block's `parentId`).
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/blocks",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks",
     operation_id = "createBlocks",
     tag = tag::BLOCKS,
-    params(BoardId, SourceBoardId, DisableNotify),
+    params(MemberWorkspaceId, BoardId, SourceBoardId, DisableNotify),
     request_body = Vec<NewBlock>,
     responses((
         status = 201,
@@ -243,19 +242,18 @@ async fn check_and_copy_body_files(
     )),
 )]
 async fn handle_post_blocks(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
     let query = query.as_deref();
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query);
     // Which permission is needed depends on the blocks, so the body is read first; but
     // whoever may not even see the board learns nothing from what the body is like.
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ViewBoard,
@@ -324,7 +322,7 @@ async fn handle_post_blocks(
     }
     if has_contents {
         require_board_permission(
-            &app,
+            &ws.app,
             user_id,
             &board_id,
             BoardPermission::ManageBoardCards,
@@ -334,7 +332,7 @@ async fn handle_post_blocks(
     }
     if has_comments {
         require_board_permission(
-            &app,
+            &ws.app,
             user_id,
             &board_id,
             BoardPermission::CommentBoardCards,
@@ -343,14 +341,15 @@ async fn handle_post_blocks(
         .await?;
     }
 
-    renew_request_ids(&app, &board_id, &mut blocks).await?;
+    renew_request_ids(&ws.app, &board_id, &mut blocks).await?;
     stamp_modification_metadata(user_id, &mut blocks, now_millis());
 
-    check_and_copy_body_files(&app, user_id, &board_id, query, &mut blocks).await?;
+    check_and_copy_body_files(&ws.app, user_id, &board_id, query, &mut blocks).await?;
 
     // The store names a block it refuses by its identifier.
     let ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();
-    app.insert_blocks(&mut blocks, user_id, notification)
+    ws.app
+        .insert_blocks(&mut blocks, user_id, notification)
         .await
         .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), ""))?;
     tracing::debug!(block_count = blocks.len(), "POST Blocks");
@@ -386,32 +385,33 @@ async fn renew_request_ids(
 /// reply below a comment the user deletes.
 #[utoipa::path(
     delete,
-    path = "/boards/{boardId}/blocks/{blockId}",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}",
     operation_id = "deleteBlock",
     tag = tag::BLOCKS,
-    params(BoardId, BlockId, DisableNotify),
+    params(MemberWorkspaceId, BoardId, BlockId, DisableNotify),
     responses((status = 204, description = "The block is deleted.")),
 )]
 async fn handle_delete_block(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((board_id, block_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Nobody below the commenter's role deletes anything, whatever the block is.
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
-    let block = block_on_board(&app, &block_id, &board_id).await?;
-    require_delete_permission(&app, user_id, &block, CHANGES_DENIED).await?;
-    app.delete_block(&block_id, user_id, notification).await?;
+    let block = block_on_board(&ws.app, &block_id, &board_id).await?;
+    require_delete_permission(&ws.app, user_id, &block, CHANGES_DENIED).await?;
+    ws.app
+        .delete_block(&block_id, user_id, notification)
+        .await?;
     tracing::debug!(board_id, block_id, "DELETE Block");
     Ok(no_content())
 }
@@ -432,32 +432,31 @@ async fn handle_delete_block(
 /// back the card.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/blocks/{blockId}/undelete",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/undelete",
     operation_id = "undeleteBlock",
     tag = tag::BLOCKS,
-    params(BoardId, BlockId),
+    params(MemberWorkspaceId, BoardId, BlockId),
     responses((status = 200, description = "The block as it is again.", body = Block)),
 )]
 async fn handle_undelete_block(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((board_id, block_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     // Nobody below the commenter's role brings anything back, whatever the block is.
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
-    let board = app.board(&board_id).await?;
+    let board = ws.app.board(&board_id).await?;
     // What is restored is what the trash has of this board: the whole deletion the
     // block went with, all of one board. A block that exists, one that never did and
     // one of another board are all not there to restore.
-    let deletion = app.deletion(&block_id).await?;
+    let deletion = ws.app.deletion(&block_id).await?;
     let Some((top, below)) = deletion
         .split_first()
         .filter(|(top, _)| top.board_id == board.id)
@@ -467,9 +466,9 @@ async fn handle_undelete_block(
     // Only who may delete it brings it back, as it was deleted: from the block at the
     // top (a block below somebody else's comment brings that comment back). A comment
     // somebody else deleted is not its author's to bring back, but the board's admins'.
-    let deleted_by = app.deleted_by(&top.id).await?;
+    let deleted_by = ws.app.deleted_by(&top.id).await?;
     require_deletion_permission(
-        &app,
+        &ws.app,
         user_id,
         top,
         below,
@@ -480,7 +479,7 @@ async fn handle_undelete_block(
     )
     .await?;
 
-    let undeleted = app.undelete_block(&block_id, user_id).await?;
+    let undeleted = ws.app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
     Ok(json_response(&undeleted))
 }
@@ -497,29 +496,29 @@ async fn handle_undelete_block(
 /// block that is no comment is not there (404).
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/blocks/{blockId}/versions",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/versions",
     operation_id = "getCommentVersions",
     tag = tag::BLOCKS,
-    params(BoardId, BlockId),
+    params(MemberWorkspaceId, BoardId, BlockId),
     responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
 )]
 async fn handle_get_comment_versions(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((board_id, block_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ViewBoard,
         "access denied to board",
     )
     .await?;
-    let comment = match block_on_board(&app, &block_id, &board_id).await {
+    let comment = match block_on_board(&ws.app, &block_id, &board_id).await {
         Ok(block) => block,
-        Err(error) if error.is_not_found() => app
+        Err(error) if error.is_not_found() => ws
+            .app
             .deleted_block(&block_id)
             .await?
             .map(|deleted| deleted.block)
@@ -530,7 +529,7 @@ async fn handle_get_comment_versions(
     if comment.block_type != BlockType::Comment {
         return Err(AppError::not_found("comment"));
     }
-    let versions = app.comment_versions(&block_id).await?;
+    let versions = ws.app.comment_versions(&block_id).await?;
     Ok(json_response(&versions))
 }
 
@@ -546,43 +545,51 @@ async fn handle_get_comment_versions(
 /// `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,
-    path = "/boards/{boardId}/blocks/{blockId}",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}",
     operation_id = "patchBlock",
     tag = tag::BLOCKS,
-    params(BoardId, BlockId, DisableNotify),
+    params(MemberWorkspaceId, BoardId, BlockId, DisableNotify),
     request_body = BlockPatch,
     responses((status = 204, description = "The block is changed.")),
 )]
 async fn handle_patch_block(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((board_id, block_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Who cannot even comment changes nothing, whatever the block.
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
-    let block = block_on_board(&app, &block_id, &board_id).await?;
-    require_block_permission(&app, user_id, &block, BlockAction::Change, CHANGES_DENIED).await?;
+    let block = block_on_board(&ws.app, &block_id, &board_id).await?;
+    require_block_permission(
+        &ws.app,
+        user_id,
+        &block,
+        BlockAction::Change,
+        CHANGES_DENIED,
+    )
+    .await?;
     let (mut patch, changes): (BlockPatch, _) =
         decode_object_with(&body, |patch| take_patch_bodies([Some(patch)], None))?;
     put_patch_bodies([&mut patch], changes?, None)?;
-    require_block_patch_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
-    app.check_body_files(&board_id, patch.body.new_body())
+    require_block_patch_permission(&ws.app, user_id, &block, &patch, CHANGES_DENIED).await?;
+    ws.app
+        .check_body_files(&board_id, patch.body.new_body())
         .await?;
 
     // The store names what it refuses as a block has it; a patch has it under another
     // name.
-    app.patch_block(&block_id, &patch, user_id, notification)
+    ws.app
+        .patch_block(&block_id, &patch, user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, PATCH_FIELDS))?;
     tracing::debug!(board_id, block_id, "PATCH Block");
@@ -597,32 +604,31 @@ async fn handle_patch_block(
 /// for the comment of somebody else the board's admin role.
 #[utoipa::path(
     patch,
-    path = "/boards/{boardId}/blocks",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks",
     operation_id = "patchBlocks",
     tag = tag::BLOCKS,
-    params(BoardId, DisableNotify),
+    params(MemberWorkspaceId, BoardId, DisableNotify),
     request_body = BlockPatchBatch,
     responses((status = 204, description = "The blocks are changed.")),
 )]
 async fn handle_patch_blocks(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     // Who cannot even comment changes nothing, whatever the blocks.
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
-    let board = app.board(&board_id).await?;
+    let board = ws.app.board(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
         take_patch_bodies(objects_mut(batch, "blockPatches"), Some(PATCHES))
     })?;
@@ -643,18 +649,26 @@ async fn handle_patch_blocks(
         }
     }
     for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
-        let block = block_on_board(&app, block_id, &board_id).await?;
-        require_block_permission(&app, user_id, &block, BlockAction::Change, CHANGES_DENIED)
-            .await?;
-        require_block_patch_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
+        let block = block_on_board(&ws.app, block_id, &board_id).await?;
+        require_block_permission(
+            &ws.app,
+            user_id,
+            &block,
+            BlockAction::Change,
+            CHANGES_DENIED,
+        )
+        .await?;
+        require_block_patch_permission(&ws.app, user_id, &block, patch, CHANGES_DENIED).await?;
     }
     for (index, patch) in batch.block_patches.iter().enumerate() {
-        app.check_body_files(&board_id, patch.body.new_body())
+        ws.app
+            .check_body_files(&board_id, patch.body.new_body())
             .await
             .map_err(|error| error.under(&element_pointer(Some(PATCHES), index)))?;
     }
 
-    app.patch_blocks(&board.workspace_id, &batch, user_id, notification)
+    ws.app
+        .patch_blocks(&board.workspace_id, &batch, user_id, notification)
         .await
         .map_err(|error| {
             error
@@ -671,10 +685,10 @@ async fn handle_patch_blocks(
 /// be copied. For editors.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/blocks/{blockId}/duplicate",
+    path = "/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/duplicate",
     operation_id = "duplicateBlock",
     tag = tag::BLOCKS,
-    params(BoardId, BlockId, AsTemplate),
+    params(MemberWorkspaceId, BoardId, BlockId, AsTemplate),
     responses((
         status = 201,
         description = "The copies: the copy of the block first, then those of the blocks directly below it, oldest first.",
@@ -682,27 +696,26 @@ async fn handle_patch_blocks(
     )),
 )]
 async fn handle_duplicate_block(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((board_id, block_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, board_id, block_id)): Path<(String, String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     let duplicate_as = duplicate_as(query.as_deref());
 
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ViewBoard,
         "access denied to modify board cards",
     )
     .await?;
-    let board = app.board(&board_id).await?;
-    let block = block_on_board(&app, &block_id, &board.id).await?;
+    let board = ws.app.board(&board_id).await?;
+    let block = block_on_board(&ws.app, &block_id, &board.id).await?;
     if block.block_type == BlockType::Comment {
         require_board_permission(
-            &app,
+            &ws.app,
             user_id,
             &board_id,
             BoardPermission::CommentBoardCards,
@@ -714,7 +727,7 @@ async fn handle_duplicate_block(
         return Err(AppError::bad_request("a comment cannot be duplicated"));
     }
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
@@ -723,7 +736,8 @@ async fn handle_duplicate_block(
     .await?;
 
     tracing::debug!(board_id, block_id, "DuplicateBlock");
-    let blocks = app
+    let blocks = ws
+        .app
         .duplicate_block(&board_id, &block_id, user_id, duplicate_as)
         .await?;
     Ok(created(&blocks))

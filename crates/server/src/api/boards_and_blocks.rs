@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 
 use axum::body::Bytes;
-use axum::extract::State;
 use fvoci_model::{
     Block, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids,
@@ -13,12 +12,14 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewBoardsAndBlocks;
+use super::contract::params::MemberWorkspaceId;
 use super::contract::tag;
+use super::workspace::Ws;
 
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
-use super::{ApiResult, RequiredSession, json_response, no_content};
-use super::{decode_object, require_board_permission, require_workspace_in_body, user_is_guest};
+use super::{ApiResult, json_response, no_content};
+use super::{decode_object, require_board_permission};
 use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
 
 /// The JSON Pointers to the blocks of a `BoardsAndBlocks` and to the block patches of a
@@ -52,7 +53,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// category.
 #[utoipa::path(
     post,
-    path = "/boards-and-blocks",
+    path = "/w/{workspaceId}/boards-and-blocks",
+    params(MemberWorkspaceId),
     operation_id = "createBoardsAndBlocks",
     tag = tag::BOARDS,
     request_body = NewBoardsAndBlocks,
@@ -62,12 +64,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         body = BoardsAndBlocks,
     )),
 )]
-async fn handle_create_boards_and_blocks(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    body: Bytes,
-) -> ApiResult {
-    let user_id = &session.user_id;
+async fn handle_create_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
+    let user_id = &ws.session.user_id;
     let (mut request, (invalid, bodies)): (BoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
             let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
@@ -104,27 +102,23 @@ async fn handle_create_boards_and_blocks(
         return Err(AppError::bad_request("at least one board is required"));
     }
 
-    let workspace_id = request.boards[0].workspace_id.as_str();
-    let mut board_ids = HashSet::new();
-    for board in &request.boards {
-        board_ids.insert(board.id.as_str());
-        if workspace_id != board.workspace_id {
-            return Err(AppError::bad_request(
-                "cannot create boards for multiple workspaces",
-            ));
-        }
+    // Whoever works in the workspace makes boards in it.
+    ws.require_board_maker("access denied to create board")
+        .await?;
+    for (index, board) in request.boards.iter_mut().enumerate() {
+        ws.place_board(board, "workspaceId")
+            .map_err(|error| error.under(&element_pointer(Some("/boards"), index)))?;
         if board.id.is_empty() {
             return Err(AppError::bad_request(
                 "boards need an ID to be referenced from the blocks",
             ));
         }
     }
-
-    // Whoever works in the workspace makes boards in it.
-    require_workspace_in_body(&app, user_id, workspace_id, "boards").await?;
-    if user_is_guest(&app, user_id).await? {
-        return Err(AppError::forbidden("access denied to create board"));
-    }
+    let board_ids: HashSet<&str> = request
+        .boards
+        .iter()
+        .map(|board| board.id.as_str())
+        .collect();
 
     let problem = request
         .blocks
@@ -146,7 +140,8 @@ async fn handle_create_boards_and_blocks(
         .iter()
         .map(|block| block.id.clone())
         .collect();
-    let created = app
+    let created = ws
+        .app
         .create_boards_and_blocks_with_admin(request, user_id)
         .await
         .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), BLOCKS))?;
@@ -195,7 +190,8 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'stat
 /// what `patchBoard` needs, each block what `patchBlock` needs.
 #[utoipa::path(
     patch,
-    path = "/boards-and-blocks",
+    path = "/w/{workspaceId}/boards-and-blocks",
+    params(MemberWorkspaceId),
     operation_id = "patchBoardsAndBlocks",
     tag = tag::BOARDS,
     request_body = PatchBoardsAndBlocks,
@@ -205,12 +201,8 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'stat
         body = BoardsAndBlocks,
     )),
 )]
-async fn handle_patch_boards_and_blocks(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    body: Bytes,
-) -> ApiResult {
-    let user_id = &session.user_id;
+async fn handle_patch_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
+    let user_id = &ws.session.user_id;
     // The patches' types and minimum roles are validated board by board below, as in the
     // original, not while decoding.
     let (mut patches, (invalid_members, changes)): (PatchBoardsAndBlocks, _) =
@@ -240,7 +232,7 @@ async fn handle_patch_boards_and_blocks(
             return Err(invalid.into_error());
         }
         require_board_permission(
-            &app,
+            &ws.app,
             user_id,
             board_id,
             BoardPermission::ManageBoardProperties,
@@ -249,7 +241,7 @@ async fn handle_patch_boards_and_blocks(
         .await?;
         if patch.board_type.is_some() || patch.minimum_role.is_some() {
             require_board_permission(
-                &app,
+                &ws.app,
                 user_id,
                 board_id,
                 BoardPermission::ManageBoardType,
@@ -258,7 +250,7 @@ async fn handle_patch_boards_and_blocks(
             .await?;
         }
 
-        let board = app.board(board_id).await?;
+        let board = ws.app.board(board_id).await?;
         if workspace_id.is_empty() {
             workspace_id.clone_from(&board.workspace_id);
         }
@@ -267,18 +259,20 @@ async fn handle_patch_boards_and_blocks(
         }
     }
 
-    require_block_patches(&app, user_id, &patches, &board_ids).await?;
+    require_block_patches(&ws.app, user_id, &patches, &board_ids).await?;
     let block_patches = patches.block_ids.iter().zip(&patches.block_patches);
     for (index, (block_id, patch)) in block_patches.enumerate() {
         if let Some(body) = patch.body.new_body() {
-            let block = app.block(block_id).await?;
-            app.check_body_files(&block.board_id, Some(body))
+            let block = ws.app.block(block_id).await?;
+            ws.app
+                .check_body_files(&block.board_id, Some(body))
                 .await
                 .map_err(|error| error.under(&element_pointer(Some(PATCHES), index)))?;
         }
     }
 
-    let result = app
+    let result = ws
+        .app
         .patch_boards_and_blocks(&patches, user_id)
         .await
         .map_err(|error| {
@@ -360,18 +354,15 @@ async fn block_of_boards(
 /// admins of every board named.
 #[utoipa::path(
     delete,
-    path = "/boards-and-blocks",
+    path = "/w/{workspaceId}/boards-and-blocks",
+    params(MemberWorkspaceId),
     operation_id = "deleteBoardsAndBlocks",
     tag = tag::BOARDS,
     request_body = DeleteBoardsAndBlocks,
     responses((status = 204, description = "The boards and blocks are deleted.")),
 )]
-async fn handle_delete_boards_and_blocks(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    body: Bytes,
-) -> ApiResult {
-    let user_id = &session.user_id;
+async fn handle_delete_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
+    let user_id = &ws.session.user_id;
     let request: DeleteBoardsAndBlocks = decode_object(&body)?;
     request.validate().map_err(AppError::bad_request)?;
 
@@ -380,14 +371,14 @@ async fn handle_delete_boards_and_blocks(
     for board_id in &request.boards {
         board_ids.insert(board_id.as_str());
         require_board_permission(
-            &app,
+            &ws.app,
             user_id,
             board_id,
             BoardPermission::DeleteBoard,
             "access denied to delete board",
         )
         .await?;
-        let board = app.board(board_id).await?;
+        let board = ws.app.board(board_id).await?;
         if workspace_id.is_empty() {
             workspace_id.clone_from(&board.workspace_id);
         }
@@ -398,8 +389,8 @@ async fn handle_delete_boards_and_blocks(
         }
     }
 
-    require_blocks_to_delete(&app, user_id, &request.blocks, &board_ids).await?;
+    require_blocks_to_delete(&ws.app, user_id, &request.blocks, &board_ids).await?;
 
-    app.delete_boards_and_blocks(&request, user_id).await?;
+    ws.app.delete_boards_and_blocks(&request, user_id).await?;
     Ok(no_content())
 }

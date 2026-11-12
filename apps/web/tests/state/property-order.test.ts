@@ -1,12 +1,11 @@
 /** The order of a board's card properties: moved, stored by its own request, followed elsewhere, undone. */
 import { describe, expect, it, vi } from 'vitest';
 
-import { ServerBackend } from '$lib/api/backend.ts';
 import { movedProperty, withPropertyOrder } from '$lib/logic/property-order.ts';
 import { createBoard } from '$lib/logic/wire.ts';
 import { BackendError, Workspace } from '$lib/state/index.ts';
 
-import { OWNER, STATUS, openFirstBoard, settle } from './support.ts';
+import { openFirstBoard, OWNER, serverBackend, settle, STATUS } from './support.ts';
 
 const ids = (board: { cardProperties: { id: string }[] } | undefined): string[] =>
   board?.cardProperties.map((template) => template.id) ?? [];
@@ -171,15 +170,12 @@ describe('the server backend', () => {
       );
     });
     try {
-      expect(await new ServerBackend('').reorderCardProperties('x', ['b', 'a'])).toEqual([
-        'b',
-        'a',
-      ]);
+      expect(await serverBackend('').reorderCardProperties('x', ['b', 'a'])).toEqual(['b', 'a']);
     } finally {
       vi.unstubAllGlobals();
     }
     expect(sent).toEqual([
-      { url: '/api/v1/boards/x/property-order', method: 'PUT', body: ['b', 'a'] },
+      { url: '/api/v1/w/w1/boards/x/property-order', method: 'PUT', body: ['b', 'a'] },
     ]);
   });
 });

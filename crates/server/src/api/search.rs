@@ -16,18 +16,18 @@ use crate::app::App;
 use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
-    OpenApiRouter::new()
-        .routes(routes!(handle_search_boards))
-        .routes(routes!(handle_search_all_boards))
+    OpenApiRouter::new().routes(routes!(handle_search_boards))
 }
 
-/// Search the boards, asked through a workspace
+/// Search the boards of a workspace
 ///
-/// The boards the user finds (a member of them, or open where the user works), whose title matches
-/// the term as `searchBoards` matches it, or with `field=property_name` those whose own
-/// `properties` have a member of exactly that name, whatever its value (`null` too). The
-/// workspace of the path is not part of the search: the boards of every workspace are
-/// searched. A `field` that is neither is 400. Oldest first.
+/// The boards of the workspace the user finds (a member of them, or open where the user
+/// works), whose title matches the term: a title matches if every word of the term, as
+/// spaces divide it, is somewhere in it, whatever the case of the letters (of every
+/// letter, not only ASCII); `%` and `_` are characters like any other. With
+/// `field=property_name` those whose own `properties` have a member of exactly that
+/// name, whatever its value (`null` too). A `field` that is neither is 400. Templates are
+/// never found, and an empty term finds nothing. Oldest first.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards/search",
@@ -57,35 +57,9 @@ async fn handle_search_boards(
         .require_works_there()?;
     let workspace_id = &ws.workspace_id;
 
-    // Preserved quirk: the workspace of the path is not part of the search. The boards found
-    // are those of every workspace (server/api/search.go:171).
-    let boards = search_boards(&ws.app, &ws.session.user_id, &term, search_field).await?;
+    let mut boards = search_boards(&ws.app, &ws.session.user_id, &term, search_field).await?;
+    boards.retain(|board| board.workspace_id == *workspace_id);
     tracing::debug!(workspace_id, boards_count = boards.len(), "SearchBoards");
-    Ok(json_response(&boards))
-}
-
-/// Search the boards
-///
-/// The boards the user finds (a member of them, or open where the user works), whose title matches
-/// the term: a title matches if every word of the term, as spaces divide it, is somewhere
-/// in it, whatever the case of the letters (of every letter, not only ASCII). Templates
-/// are never found. `%` and `_` are characters like any other. Oldest first.
-#[utoipa::path(
-    get,
-    path = "/boards/search",
-    operation_id = "searchBoards",
-    tag = tag::BOARDS,
-    params(SearchTerm),
-    responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
-)]
-async fn handle_search_all_boards(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    RawQuery(query): RawQuery,
-) -> ApiResult {
-    let term = query_param(query.as_deref(), "q");
-    let boards = search_boards(&app, &session.user_id, &term, BoardSearchField::Title).await?;
-    tracing::debug!(boards_count = boards.len(), "SearchAllBoards");
     Ok(json_response(&boards))
 }
 

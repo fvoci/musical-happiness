@@ -47,10 +47,14 @@ test('a date is stored as a calendar day, and a value is cleared by naming it al
   });
   const cardId = board.cards['Renew the lease'] ?? '';
   const values = async (): Promise<Schemas['Card']['properties']> =>
-    ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card']).properties;
+    (
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+      ).json()) as Schemas['Card']
+    ).properties;
   const patches: unknown[] = [];
   page.on('request', (request) => {
-    if (request.method() === 'PATCH' && request.url().endsWith(`/api/v1/cards/${cardId}`)) {
+    if (request.method() === 'PATCH' && request.url().endsWith(`/cards/${cardId}`)) {
       patches.push(request.postDataJSON());
     }
   });
@@ -104,7 +108,11 @@ test('two people change two values of one card at about the same time, and both 
   });
   const cardId = board.cards['Plan the trip'] ?? '';
   const values = async (): Promise<Schemas['Card']['properties']> =>
-    ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card']).properties;
+    (
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+      ).json()) as Schemas['Card']
+    ).properties;
 
   const first = await (await browser.newContext({ locale: 'en-US' })).newPage();
   const second = await (await browser.newContext({ locale: 'en-US' })).newPage();
@@ -123,7 +131,7 @@ test('two people change two values of one card at about the same time, and both 
     release = resolve;
   });
   const held: unknown[] = [];
-  await first.route(`**/api/v1/cards/${cardId}`, async (route) => {
+  await first.route(`**/cards/${cardId}`, async (route) => {
     if (route.request().method() !== 'PATCH') {
       await route.continue();
       return;

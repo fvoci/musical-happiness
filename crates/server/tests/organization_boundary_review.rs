@@ -16,6 +16,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::common::ROOT_WS;
 use common::{HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID};
 
 fn open(config: &mut fvoci_server::config::Configuration) {
@@ -105,15 +106,12 @@ async fn another_organizations_user_cannot_discover_the_oldest_workspace() {
     let (store, workspace, _, _) = other_organization(&ts).await;
     move_second_user(&ts, &store, &workspace).await;
     ts.client2
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
+        .get(&format!("{ROOT_WS}/boards"))
         .await
         .check_not_found();
 
-    let workspace = ts.client2.get(&format!("/w/{ROOT_WORKSPACE_ID}")).await;
-    let boards = ts
-        .client2
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
-        .await;
+    let workspace = ts.client2.get(ROOT_WS).await;
+    let boards = ts.client2.get(&format!("{ROOT_WS}/boards")).await;
     let workspaces: Vec<UserWorkspace> = ts.client2.get("/users/me/workspaces").await.ok_json();
     ts.teardown().await;
 
@@ -147,12 +145,12 @@ async fn another_organizations_user_cannot_join_and_edit_an_open_board() {
 
     let joined = ts
         .client2
-        .post(&format!("/boards/{}/join", board.id), &json!({}))
+        .post(&format!("{ROOT_WS}/boards/{}/join", board.id), &json!({}))
         .await;
     let changed = ts
         .client2
         .patch(
-            &format!("/boards/{}", board.id),
+            &format!("{ROOT_WS}/boards/{}", board.id),
             &json!({"title": "Changed by another organization"}),
         )
         .await;
@@ -183,21 +181,17 @@ async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_rou
         ))
         .await
         .expect("the workspace role becomes guest");
-    let visible: Vec<Board> = ts
-        .client2
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let visible: Vec<Board> = ts.client2.get(&format!("{ROOT_WS}/boards")).await.ok_json();
     assert!(visible.is_empty(), "the guest is not on this open board");
 
     let joined = ts
         .client2
-        .post(&format!("/boards/{}/join", board.id), &json!({}))
+        .post(&format!("{ROOT_WS}/boards/{}/join", board.id), &json!({}))
         .await;
     let changed = ts
         .client2
         .patch(
-            &format!("/boards/{}", board.id),
+            &format!("{ROOT_WS}/boards/{}", board.id),
             &json!({"title": "Changed by a guest"}),
         )
         .await;
@@ -230,13 +224,17 @@ async fn a_workspace_user_search_and_profile_lookup_do_not_expose_another_organi
     let (_, _, owner, _) = other_organization(&ts).await;
     let found: Vec<User> = ts
         .client2
-        .get(&format!(
-            "/w/{ROOT_WORKSPACE_ID}/users?search=confidential.other"
-        ))
+        .get(&format!("{ROOT_WS}/users?search=confidential.other"))
         .await
         .ok_json();
-    let profile = ts.client2.get(&format!("/users/{}", owner.id)).await;
-    let by_ids = ts.client2.post("/users", &vec![owner.id.clone()]).await;
+    let profile = ts
+        .client2
+        .get(&format!("{ROOT_WS}/users/{}", owner.id))
+        .await;
+    let by_ids = ts
+        .client2
+        .post(&format!("{ROOT_WS}/users"), &vec![owner.id.clone()])
+        .await;
     ts.teardown().await;
 
     assert_eq!(
@@ -408,10 +406,8 @@ async fn a_hidden_workspace_in_the_same_organization_also_rejects_legacy_board_c
     let create_in = async |workspace_id: &str| {
         ts.client2
             .post(
-                "/boards",
-                &json!({
-                    "workspaceId": workspace_id, "type": "P", "title": "Created inside a hidden workspace"
-                }),
+                &format!("/w/{workspace_id}/boards"),
+                &json!({"type": "P", "title": "Created inside a hidden workspace"}),
             )
             .await
     };
@@ -428,14 +424,11 @@ async fn a_hidden_workspace_in_the_same_organization_also_rejects_legacy_board_c
         .await
         .expect("the boards of the hidden workspace are counted");
     ts.teardown().await;
-    // The reviewer's test asked for a 404 here. A workspace that a body names and that is
-    // not there is a 400 naming the member, by the API's rule for what a body names;
-    // a hidden workspace answers as one that is not there, so that the two cannot be told
-    // apart, and a 404 for the hidden one alone would tell them apart.
-    hidden.check_error(StatusCode::BAD_REQUEST, "no such workspace");
+    // The path names the workspace: a hidden one is not there, as one that does not exist.
+    hidden.check_error(StatusCode::NOT_FOUND, "workspace not found");
     assert_eq!(
-        (hidden.status, hidden.error_message(), hidden.refused_at()),
-        (absent.status, absent.error_message(), absent.refused_at()),
+        (hidden.status, hidden.error_message()),
+        (absent.status, absent.error_message()),
         "a hidden workspace answers as one that does not exist"
     );
     assert_eq!(boards, 0, "and no board is made in it");

@@ -9,6 +9,8 @@ use fvoci_model::{
 use fvoci_store::{DbType, Store};
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
+use crate::common::TEST_WS;
 use crate::common::{
     ApiResponse, Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID,
     TestServer, UNKNOWN_ID,
@@ -116,23 +118,11 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
 
     // A member gets what the workspace's route gets: the boards they are on, and the open
     // ones.
-    let boards: Vec<Board> = ts
-        .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let boards: Vec<Board> = ts.client.get(&format!("{ROOT_WS}/boards")).await.ok_json();
     assert_eq!(ids(&boards), [open.id.as_str(), private.id.as_str()]);
-    let of_the_workspace: Vec<Board> = ts
-        .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let of_the_workspace: Vec<Board> = ts.client.get(&format!("{ROOT_WS}/boards")).await.ok_json();
     assert_eq!(boards, of_the_workspace, "as the workspace's route answers");
-    let boards: Vec<Board> = ts
-        .client2
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let boards: Vec<Board> = ts.client2.get(&format!("{ROOT_WS}/boards")).await.ok_json();
     assert_eq!(ids(&boards), [open.id.as_str()], "the open board only");
 
     // Nobody is a member of the hidden workspace: it is there for neither user.
@@ -164,7 +154,7 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
     let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
     assert_eq!(listed.len(), 2, "the system's is not listed: {listed:?}");
     ts.anonymous()
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
+        .get(&format!("{ROOT_WS}/boards"))
         .await
         .check_unauthorized();
     ts.anonymous()
@@ -307,11 +297,7 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .await
         .ok_json();
     assert_eq!(ids(&boards), [their_board.as_str()], "their open board");
-    let boards: Vec<Board> = ts
-        .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let boards: Vec<Board> = ts.client.get(&format!("{ROOT_WS}/boards")).await.ok_json();
     assert_eq!(ids(&boards), [mine.id.as_str()], "and mine in mine");
     // The second user was let into nothing.
     not_there(
@@ -364,12 +350,12 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .await
         .expect("the user is put on their board");
     ts.client
-        .get(&format!("/boards/{their_board}"))
+        .get(&format!("{ROOT_WS}/boards/{their_board}"))
         .await
         .check_not_found();
     // A route that names the workspace in its body, not its path, is one of them.
     let board = json!({"workspaceId": their_workspace, "type": "P", "title": "new"});
-    let refused = ts.client.post("/boards", &board).await;
+    let refused = ts.client.post(&format!("{ROOT_WS}/boards"), &board).await;
     refused.check_error(reqwest::StatusCode::BAD_REQUEST, "no such workspace");
 
     ts.teardown().await;
@@ -397,7 +383,13 @@ async fn the_moved_routes_find_no_workspace_of_another_organization() {
         .await
         .expect("the user is let into their workspace");
     let hidden = not_there(&ts.client.get(&format!("/w/{UNKNOWN_ID}/categories")).await);
-    for path in ["", "/categories", "/templates", "/users", "/trash/boards"] {
+    for path in [
+        "",
+        "/categories",
+        "/templates",
+        &format!("{ROOT_WS}/users"),
+        "/trash/boards",
+    ] {
         let refused = ts.client.get(&format!("/w/{their_workspace}{path}")).await;
         assert_eq!(not_there(&refused), hidden, "{path}");
     }
@@ -534,19 +526,16 @@ async fn an_open_board_of_a_workspace_the_user_is_not_in_is_not_there() {
     let template = open_board_in(&ts, HIDDEN_WORKSPACE_ID, template).await;
     let nothing = json!({});
 
+    let pair = |id: &str, rest: &str| {
+        (
+            format!("{ROOT_WS}/boards/{id}{rest}"),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}{rest}"),
+        )
+    };
     for (hidden, absent) in [
-        (
-            format!("/boards/{}", board.id),
-            format!("/boards/{UNKNOWN_ID}"),
-        ),
-        (
-            format!("/boards/{}/blocks", board.id),
-            format!("/boards/{UNKNOWN_ID}/blocks"),
-        ),
-        (
-            format!("/boards/{}/blocks", template.id),
-            format!("/boards/{UNKNOWN_ID}/blocks"),
-        ),
+        pair(&board.id, ""),
+        pair(&board.id, "/blocks"),
+        pair(&template.id, "/blocks"),
     ] {
         let (hidden_answer, absent_answer) =
             (ts.client.get(&hidden).await, ts.client.get(&absent).await);
@@ -554,20 +543,14 @@ async fn an_open_board_of_a_workspace_the_user_is_not_in_is_not_there() {
         hidden_answer.check_not_found();
     }
     for (hidden, absent) in [
-        (
-            format!("/boards/{}/join", board.id),
-            format!("/boards/{UNKNOWN_ID}/join"),
-        ),
-        (
-            format!("/boards/{}/duplicate", template.id),
-            format!("/boards/{UNKNOWN_ID}/duplicate"),
-        ),
+        pair(&board.id, "/join"),
+        pair(&template.id, "/duplicate"),
         (
             format!(
-                "/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
+                "{ROOT_WS}/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
                 template.id
             ),
-            format!("/boards/{UNKNOWN_ID}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}"),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}"),
         ),
     ] {
         let hidden_answer = ts.client.post(&hidden, &nothing).await;
@@ -577,8 +560,8 @@ async fn an_open_board_of_a_workspace_the_user_is_not_in_is_not_there() {
     }
 
     for search in [
-        "/boards/search?q=Concealed".to_owned(),
-        format!("/w/{ROOT_WORKSPACE_ID}/boards/search?q=Concealed"),
+        format!("{ROOT_WS}/boards/search?q=Concealed"),
+        format!("{ROOT_WS}/boards/search?q=Concealed"),
     ] {
         let found: Vec<Board> = ts.client.get(&search).await.ok_json();
         assert!(found.is_empty(), "{search} finds {found:?}");
@@ -617,7 +600,13 @@ async fn an_open_board_of_a_workspace_the_user_is_not_in_is_not_there() {
         )
         .await
         .expect("the user is let into the hidden workspace");
-    let found: Vec<Board> = ts.client.get("/boards/search?q=Concealed").await.ok_json();
+    let found: Vec<Board> = ts
+        .client
+        .get(&format!(
+            "/w/{HIDDEN_WORKSPACE_ID}/boards/search?q=Concealed"
+        ))
+        .await
+        .ok_json();
     assert_eq!(ids(&found), [board.id.as_str()], "a member finds it");
     let names = exported(HIDDEN_WORKSPACE_ID).await;
     assert!(
@@ -713,7 +702,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     // The stranger is in the root workspace, as everybody is, and not in the board's.
     let stranger = ts.stranger().await;
-    let members = format!("/boards/{}/members", board.id);
+    let members = format!("{TEST_WS}/boards/{}/members", board.id);
     let add = async |user_id: &str| {
         ts.client
             .post(&members, &json!({"userId": user_id, "schemeEditor": true}))
@@ -738,7 +727,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
     // stranger is not in, the board has the importing user alone.
     let archive = ts
         .client
-        .get(&format!("/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let members_after_import_into = async |workspace_id: &str| {
@@ -756,7 +745,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
             .expect("the imported board is in the workspace");
         let members: Vec<BoardMember> = ts
             .client
-            .get(&format!("/boards/{}/members", imported.id))
+            .get(&format!("/w/{workspace_id}/boards/{}/members", imported.id))
             .await
             .ok_json();
         let mut members: Vec<String> = members.into_iter().map(|one| one.user_id).collect();
@@ -791,10 +780,7 @@ async fn a_path_that_is_no_text_is_malformed_but_for_the_boards_of_a_workspace()
         .await
         .check_error(reqwest::StatusCode::BAD_REQUEST, "the request is malformed");
     ts.client
-        .put(
-            &format!("/w/{ROOT_WORKSPACE_ID}/categories/%FF"),
-            &json!({"name": "x"}),
-        )
+        .put(&format!("{ROOT_WS}/categories/%FF"), &json!({"name": "x"}))
         .await
         .check_error(reqwest::StatusCode::BAD_REQUEST, "the request is malformed");
     ts.client

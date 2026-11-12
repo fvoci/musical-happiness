@@ -1,7 +1,7 @@
 [
   {
     "name": "create: no type",
-    "request": "POST /api/v1/boards as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -15,7 +15,7 @@
   },
   {
     "name": "create: bad type",
-    "request": "POST /api/v1/boards as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -29,28 +29,33 @@
   },
   {
     "name": "create: no workspace",
-    "request": "POST /api/v1/boards as boards-alice",
-    "status": 400,
-    "content_type": "application/problem+json",
+    "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
+    "status": 201,
+    "content_type": "application/json",
     "body": {
-      "detail": "no such workspace",
-      "errors": [
-        {
-          "detail": "no such workspace",
-          "pointer": "/workspaceId",
-          "reason": "invalid"
-        }
-      ],
-      "instance": "urn:uuid:<request-id>",
-      "requestId": "<request-id>",
-      "status": 400,
-      "title": "Bad request",
-      "type": "/problems/bad-request"
+      "cardProperties": [],
+      "createAt": "<ts>",
+      "createdBy": "<id:2>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:3>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "editor",
+      "modifiedBy": "<id:2>",
+      "properties": {},
+      "showDescription": false,
+      "templateVersion": 0,
+      "title": "x",
+      "type": "P",
+      "updateAt": "<ts>",
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "create: without session",
-    "request": "POST /api/v1/boards as anonymous",
+    "request": "POST /api/v1/w/<id:1>/boards as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -64,7 +69,7 @@
   },
   {
     "name": "create: malformed body",
-    "request": "POST /api/v1/boards as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -78,7 +83,7 @@
   },
   {
     "name": "create board Roadmap",
-    "request": "POST /api/v1/boards as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -91,15 +96,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "plans",
       "icon": "🎯",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "blue"
       },
@@ -108,38 +113,38 @@
       "title": "Roadmap",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "create board Open board",
-    "request": "POST /api/v1/boards as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as boards-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "get",
-    "request": "GET /api/v1/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -152,15 +157,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "plans",
       "icon": "🎯",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "blue"
       },
@@ -169,12 +174,12 @@
       "title": "Roadmap",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "get: non-member, private",
-    "request": "GET /api/v1/boards/<id:2> as boards-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -188,33 +193,33 @@
   },
   {
     "name": "get: non-member, open",
-    "request": "GET /api/v1/boards/<id:4> as boards-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:5> as boards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "get: anonymous",
-    "request": "GET /api/v1/boards/<id:2> as anonymous",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -228,7 +233,7 @@
   },
   {
     "name": "get: unknown board",
-    "request": "GET /api/v1/boards/unknown-board as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/unknown-board as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -242,10 +247,30 @@
   },
   {
     "name": "list: member",
-    "request": "GET /api/v1/w/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
+      {
+        "cardProperties": [],
+        "createAt": "<ts>",
+        "createdBy": "<id:2>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "minimumRole": "editor",
+        "modifiedBy": "<id:2>",
+        "properties": {},
+        "showDescription": false,
+        "templateVersion": 0,
+        "title": "x",
+        "type": "P",
+        "updateAt": "<ts>",
+        "workspaceId": "<id:1>"
+      },
       {
         "cardProperties": [
           {
@@ -256,15 +281,15 @@
           }
         ],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "plans",
         "icon": "🎯",
-        "id": "<id:2>",
+        "id": "<id:4>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {
           "color": "blue"
         },
@@ -273,61 +298,61 @@
         "title": "Roadmap",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
-        "id": "<id:4>",
+        "id": "<id:5>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
         "type": "O",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   },
   {
     "name": "list: other user",
-    "request": "GET /api/v1/w/<id:3>/boards as boards-bob",
+    "request": "GET /api/v1/w/<id:1>/boards as boards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
-        "id": "<id:4>",
+        "id": "<id:5>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
         "type": "O",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   },
   {
     "name": "metadata",
-    "request": "GET /api/v1/boards/<id:2>/metadata as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4>/metadata as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -341,7 +366,7 @@
   },
   {
     "name": "patch",
-    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -360,15 +385,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "new plans",
       "icon": "🚀",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "red",
         "size": 3
@@ -378,12 +403,12 @@
       "title": "Roadmap 2",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "patch: delete properties",
-    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -396,15 +421,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "new plans",
       "icon": "🚀",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "red"
       },
@@ -413,12 +438,12 @@
       "title": "Roadmap 2",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "patch: non-member",
-    "request": "PATCH /api/v1/boards/<id:2> as boards-bob",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -432,7 +457,7 @@
   },
   {
     "name": "patch: bad type",
-    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -446,7 +471,7 @@
   },
   {
     "name": "patch: to open",
-    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -459,15 +484,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "new plans",
       "icon": "🚀",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "red"
       },
@@ -476,12 +501,12 @@
       "title": "Roadmap 2",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "patch: back to private",
-    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -494,15 +519,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "new plans",
       "icon": "🚀",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "red"
       },
@@ -511,38 +536,38 @@
       "title": "Roadmap 2",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "patch: minimum role",
-    "request": "PATCH /api/v1/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:5> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "patch: unknown board",
-    "request": "PATCH /api/v1/boards/unknown-board as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/unknown-board as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -556,7 +581,7 @@
   },
   {
     "name": "patch: malformed body",
-    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -570,7 +595,7 @@
   },
   {
     "name": "get after patches",
-    "request": "GET /api/v1/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -583,15 +608,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "new plans",
       "icon": "🚀",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "red"
       },
@@ -600,26 +625,26 @@
       "title": "Roadmap 2",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "insert a card",
-    "request": "POST /api/v1/boards/<id:2>/blocks as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/blocks as boards-alice",
     "status": 201,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:4>",
         "body": null,
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
-        "id": "<id:5>",
-        "modifiedBy": "<id:1>",
+        "id": "<id:6>",
+        "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
         "title": "A card",
@@ -630,22 +655,22 @@
   },
   {
     "name": "duplicate",
-    "request": "POST /api/v1/boards/<id:2>/duplicate as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/duplicate as boards-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "blocks": [
         {
-          "boardId": "<id:6>",
+          "boardId": "<id:7>",
           "body": null,
           "createAt": "<ts>",
-          "createdBy": "<id:1>",
+          "createdBy": "<id:2>",
           "deleteAt": 0,
           "fields": {
             "icon": "x"
           },
-          "id": "<id:7>",
-          "modifiedBy": "<id:1>",
+          "id": "<id:8>",
+          "modifiedBy": "<id:2>",
           "parentId": "",
           "schema": 1,
           "title": "A card",
@@ -664,15 +689,15 @@
             }
           ],
           "createAt": "<ts>",
-          "createdBy": "<id:1>",
+          "createdBy": "<id:2>",
           "deleteAt": 0,
           "description": "new plans",
           "icon": "🚀",
-          "id": "<id:6>",
+          "id": "<id:7>",
           "isBuiltin": false,
           "isTemplate": false,
           "minimumRole": "editor",
-          "modifiedBy": "<id:1>",
+          "modifiedBy": "<id:2>",
           "properties": {
             "color": "red"
           },
@@ -681,29 +706,29 @@
           "title": "Roadmap 2 copy",
           "type": "P",
           "updateAt": "<ts>",
-          "workspaceId": "<id:3>"
+          "workspaceId": "<id:1>"
         }
       ]
     }
   },
   {
     "name": "duplicate as template",
-    "request": "POST /api/v1/boards/<id:2>/duplicate?asTemplate=true as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/duplicate?asTemplate=true as boards-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "blocks": [
         {
-          "boardId": "<id:8>",
+          "boardId": "<id:9>",
           "body": null,
           "createAt": "<ts>",
-          "createdBy": "<id:1>",
+          "createdBy": "<id:2>",
           "deleteAt": 0,
           "fields": {
             "icon": "x"
           },
-          "id": "<id:9>",
-          "modifiedBy": "<id:1>",
+          "id": "<id:10>",
+          "modifiedBy": "<id:2>",
           "parentId": "",
           "schema": 1,
           "title": "A card",
@@ -722,15 +747,15 @@
             }
           ],
           "createAt": "<ts>",
-          "createdBy": "<id:1>",
+          "createdBy": "<id:2>",
           "deleteAt": 0,
           "description": "new plans",
           "icon": "🚀",
-          "id": "<id:8>",
+          "id": "<id:9>",
           "isBuiltin": false,
           "isTemplate": true,
           "minimumRole": "editor",
-          "modifiedBy": "<id:1>",
+          "modifiedBy": "<id:2>",
           "properties": {
             "color": "red"
           },
@@ -739,14 +764,14 @@
           "title": "New board template",
           "type": "P",
           "updateAt": "<ts>",
-          "workspaceId": "<id:3>"
+          "workspaceId": "<id:1>"
         }
       ]
     }
   },
   {
     "name": "duplicate: non-member",
-    "request": "POST /api/v1/boards/<id:2>/duplicate as boards-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/duplicate as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -760,7 +785,7 @@
   },
   {
     "name": "duplicate: unknown board",
-    "request": "POST /api/v1/boards/unknown-board/duplicate as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/unknown-board/duplicate as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -774,21 +799,21 @@
   },
   {
     "name": "blocks of the copy",
-    "request": "GET /api/v1/boards/<id:6>/blocks as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:7>/blocks as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:6>",
+        "boardId": "<id:7>",
         "body": null,
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
-        "id": "<id:7>",
-        "modifiedBy": "<id:1>",
+        "id": "<id:8>",
+        "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
         "title": "A card",
@@ -799,7 +824,7 @@
   },
   {
     "name": "delete: non-member",
-    "request": "DELETE /api/v1/boards/<id:2> as boards-bob",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:4> as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -813,13 +838,13 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v1/boards/<id:2> as boards-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "get deleted",
-    "request": "GET /api/v1/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -833,7 +858,7 @@
   },
   {
     "name": "delete again",
-    "request": "DELETE /api/v1/boards/<id:2> as boards-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -847,7 +872,7 @@
   },
   {
     "name": "undelete: other user",
-    "request": "POST /api/v1/boards/<id:2>/undelete as boards-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/undelete as boards-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -861,7 +886,7 @@
   },
   {
     "name": "undelete",
-    "request": "POST /api/v1/boards/<id:2>/undelete as boards-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/undelete as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -874,15 +899,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "new plans",
       "icon": "🚀",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "red"
       },
@@ -891,12 +916,12 @@
       "title": "Roadmap 2",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "get undeleted",
-    "request": "GET /api/v1/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -909,15 +934,15 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "new plans",
       "icon": "🚀",
-      "id": "<id:2>",
+      "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "color": "red"
       },
@@ -926,26 +951,26 @@
       "title": "Roadmap 2",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "blocks after undelete",
-    "request": "GET /api/v1/boards/<id:2>/blocks as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4>/blocks as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:4>",
         "body": null,
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
-        "id": "<id:5>",
-        "modifiedBy": "<id:1>",
+        "id": "<id:6>",
+        "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
         "title": "A card",
@@ -956,10 +981,30 @@
   },
   {
     "name": "list at the end",
-    "request": "GET /api/v1/w/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/w/<id:1>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
+      {
+        "cardProperties": [],
+        "createAt": "<ts>",
+        "createdBy": "<id:2>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "minimumRole": "editor",
+        "modifiedBy": "<id:2>",
+        "properties": {},
+        "showDescription": false,
+        "templateVersion": 0,
+        "title": "x",
+        "type": "P",
+        "updateAt": "<ts>",
+        "workspaceId": "<id:1>"
+      },
       {
         "cardProperties": [
           {
@@ -970,15 +1015,15 @@
           }
         ],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "new plans",
         "icon": "🚀",
-        "id": "<id:2>",
+        "id": "<id:4>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {
           "color": "red"
         },
@@ -987,27 +1032,27 @@
         "title": "Roadmap 2",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
-        "id": "<id:4>",
+        "id": "<id:5>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open board",
         "type": "O",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [
@@ -1019,15 +1064,15 @@
           }
         ],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "new plans",
         "icon": "🚀",
-        "id": "<id:6>",
+        "id": "<id:7>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {
           "color": "red"
         },
@@ -1036,7 +1081,7 @@
         "title": "Roadmap 2 copy",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   }

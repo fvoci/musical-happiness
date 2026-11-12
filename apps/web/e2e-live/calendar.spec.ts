@@ -33,7 +33,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   const board = await makeBoard(api, { title: 'Harvest calendar' });
   // A second date, after "Due": the one the page will choose. Not the first, which a new
   // calendar is placed by, so that the reload shows the choice and not the start.
-  const added = await api.patch(`/api/v1/boards/${board.boardId}`, {
+  const added = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
     data: { updatedCardProperties: [{ id: 'start', name: 'Start', type: 'date', options: [] }] },
   });
   expect(added.ok()).toBe(true);
@@ -41,7 +41,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
     ['Pick apples', { from: '2026-11-12' }, { from: '2026-11-03' }],
     ['Press cider', { from: '2026-11-12', to: '2026-11-17' }, { from: '2026-11-04' }],
   ] as const) {
-    const answer = await api.post(`/api/v1/boards/${board.boardId}/cards`, {
+    const answer = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
       data: { title, properties: { due, start } },
     });
     expect(answer.ok()).toBe(true);
@@ -49,7 +49,9 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   /** The board's calendar view as the server keeps it. */
   const stored = async (): Promise<Schemas['Block'] | undefined> => {
     const views = (await (
-      await api.get(`/api/v1/boards/${board.boardId}/blocks`, { params: { type: 'view' } })
+      await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
+        params: { type: 'view' },
+      })
     ).json()) as Schemas['Block'][];
     return views.find((each) => each.fields.viewType === 'calendar');
   };
@@ -106,13 +108,17 @@ test('a date changed on the calendar is kept by the server, whole, after a reloa
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, { title: 'Moving calendar' });
-  const made = await api.post(`/api/v1/boards/${board.boardId}/cards`, {
+  const made = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
     data: { title: 'Press cider', properties: { due: { from: '2026-11-12', to: '2026-11-17' } } },
   });
   expect(made.ok()).toBe(true);
   const cardId = ((await made.json()) as Schemas['Card']).id;
   const due = async (): Promise<unknown> =>
-    ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card']).properties.due;
+    (
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+      ).json()) as Schemas['Card']
+    ).properties.due;
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);
@@ -152,7 +158,7 @@ test('on the server: a card made on a day, undone; a timed card moved keeps its 
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, { title: 'Writing calendar' });
   const make = async (title: string, due?: unknown): Promise<string> => {
-    const answer = await api.post(`/api/v1/boards/${board.boardId}/cards`, {
+    const answer = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
       data: { title, properties: due === undefined ? {} : { due } },
     });
     expect(answer.ok()).toBe(true);
@@ -163,10 +169,16 @@ test('on the server: a card made on a day, undone; a timed card moved keeps its 
   const loose = await make('Someday');
   const cardsOf = async (): Promise<Schemas['Card'][]> =>
     (await (
-      await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } })
+      await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
+        params: { perPage: 0 },
+      })
     ).json()) as Schemas['Card'][];
   const dueOf = async (cardId: string): Promise<unknown> =>
-    ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card']).properties.due;
+    (
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+      ).json()) as Schemas['Card']
+    ).properties.due;
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);

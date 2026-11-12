@@ -54,7 +54,9 @@ test('a card made in a column is the server’s, with the value of that column',
   await expect
     .poll(async () => {
       const [made] = (await (
-        await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } })
+        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
+          params: { perPage: 0 },
+        })
       ).json()) as Schemas['Card'][];
       return made?.hasBody;
     })
@@ -65,7 +67,9 @@ test('a card made in a column is the server’s, with the value of that column',
 
   // On the server, in that column.
   const cards = (await (
-    await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } })
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
+      params: { perPage: 0 },
+    })
   ).json()) as Schemas['Card'][];
   expect(cards).toHaveLength(1);
   expect(cards[0]?.properties).toEqual({ status: board.options.Doing });
@@ -94,7 +98,9 @@ test('a card’s title and values are changed on the server, the last value take
   });
   const cardId = board.cards['Paint the shed'] ?? '';
   const stored = async (): Promise<Schemas['Card']> =>
-    (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
+    (await (
+      await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+    ).json()) as Schemas['Card'];
 
   const errors = watchErrors(page);
   await page.goto(boardPath(board, board.viewId));
@@ -132,7 +138,11 @@ test('a card’s title and values are changed on the server, the last value take
   await expect
     .poll(
       async () =>
-        ((await (await api.get(`/api/v1/cards/${gate}`)).json()) as Schemas['Card']).properties,
+        (
+          (await (
+            await api.get(`/api/v1/w/${board.workspaceId}/cards/${gate}`)
+          ).json()) as Schemas['Card']
+        ).properties,
     )
     .toEqual({ status: board.options.Doing, note: 'the latch' });
   await page.goBack();
@@ -190,13 +200,17 @@ test('a card carried to another column and a place in it is moved on the server'
   await expect
     .poll(
       async () =>
-        ((await (await api.get(`/api/v1/cards/${sweep}`)).json()) as Schemas['Card']).properties,
+        (
+          (await (
+            await api.get(`/api/v1/w/${board.workspaceId}/cards/${sweep}`)
+          ).json()) as Schemas['Card']
+        ).properties,
     )
     .toEqual({ status: board.options.Done });
   await expect
     .poll(async () => {
       const [view] = (await (
-        await api.get(`/api/v1/boards/${board.boardId}/blocks`, {
+        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
           params: { blockId: board.viewId },
         })
       ).json()) as Schemas['Block'][];
@@ -214,7 +228,7 @@ test('a card carried to another column and a place in it is moved on the server'
   await expect
     .poll(async () => {
       const [view] = (await (
-        await api.get(`/api/v1/boards/${board.boardId}/blocks`, {
+        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
           params: { blockId: board.viewId },
         })
       ).json()) as Schemas['Block'][];
@@ -250,7 +264,9 @@ test('a card deleted goes to the server’s trash, and undo brings it back from 
   const onServer = async (): Promise<string[]> =>
     (
       (await (
-        await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } })
+        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
+          params: { perPage: 0 },
+        })
       ).json()) as Schemas['Card'][]
     ).map((card) => card.title);
 
@@ -264,7 +280,7 @@ test('a card deleted goes to the server’s trash, and undo brings it back from 
   await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(1);
   await expect.poll(onServer).toEqual(['Keep me']);
   // Gone from the board: the server no longer gives it.
-  expect((await api.get(`/api/v1/cards/${gone}`)).status()).toBe(404);
+  expect((await api.get(`/api/v1/w/${board.workspaceId}/cards/${gone}`)).status()).toBe(404);
 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(column(page, 'To do').getByText('Throw me out')).toBeVisible();

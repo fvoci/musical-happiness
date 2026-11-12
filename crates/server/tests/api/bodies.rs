@@ -6,6 +6,7 @@ use fvoci_model::{BLOCK_TITLE_MAX_CHARS, BoardType, Card};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID};
 
 fn paragraph(text: &str) -> Value {
@@ -39,19 +40,22 @@ fn check_refused_member(response: &ApiResponse, field: &str) {
 
 async fn new_card(client: &Client, board_id: &str, card: &Value) -> ApiResponse {
     client
-        .post(&format!("/boards/{board_id}/cards"), card)
+        .post(&format!("{TEST_WS}/boards/{board_id}/cards"), card)
         .await
 }
 
 async fn card(client: &Client, card_id: &str) -> Card {
-    client.get(&format!("/cards/{card_id}")).await.ok_json()
+    client
+        .get(&format!("{TEST_WS}/cards/{card_id}"))
+        .await
+        .ok_json()
 }
 
 /// What the list of cards says of a card's body: whether it has one, and its tasks,
 /// done and all. The list reads them from what was stored with the body.
 async fn listed(client: &Client, board_id: &str, card_id: &str) -> (bool, u64, u64) {
     let cards = client
-        .get(&format!("/boards/{board_id}/cards"))
+        .get(&format!("{TEST_WS}/boards/{board_id}/cards"))
         .await
         .value();
     let Value::Array(cards) = cards else {
@@ -108,7 +112,7 @@ async fn a_card_is_made_with_its_body_and_listed_without_it() {
 
     let listed = th
         .client
-        .get(&format!("/boards/{}/cards", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/cards", board.id))
         .await
         .value();
     let listed = listed.as_array().expect("a list");
@@ -133,7 +137,7 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
     let created: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
         .await
         .created_json();
-    let path = format!("/cards/{}", created.id);
+    let path = format!("{TEST_WS}/cards/{}", created.id);
 
     let response = th.client.patch(&path, &json!({"body": document()})).await;
     check_refused_member(&response, "readAt");
@@ -227,7 +231,7 @@ async fn a_body_that_is_no_document_is_refused() {
         let response = th
             .client
             .patch(
-                &format!("/cards/{}", created.id),
+                &format!("{TEST_WS}/cards/{}", created.id),
                 &json!({"body": body, "readAt": created.update_at}),
             )
             .await;
@@ -257,7 +261,7 @@ async fn a_read_at_from_before_a_change_is_refused() {
     .await
     .created_json();
     assert_eq!(created.body, None, "`null` is no body");
-    let path = format!("/cards/{}", created.id);
+    let path = format!("{TEST_WS}/cards/{}", created.id);
 
     // Two patches made from the same read, one right after the other.
     let first: Card = th
@@ -285,7 +289,7 @@ async fn a_read_at_from_before_a_change_is_refused() {
     assert_eq!(card(&th.client, &created.id).await, first, "unchanged");
 
     // The routes of blocks check `readAt` too.
-    let block_path = format!("/boards/{}/blocks/{}", board.id, created.id);
+    let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, created.id);
     let stale = th
         .client
         .patch(
@@ -320,7 +324,7 @@ async fn a_body_comes_back_from_the_trash_and_is_copied() {
     )
     .await
     .created_json();
-    let block_path = format!("/boards/{}/blocks/{}", board.id, created.id);
+    let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, created.id);
 
     th.client.delete(&block_path).await.check_no_content();
     th.client
@@ -378,7 +382,7 @@ fn with_image(file_id: &str) -> Value {
 async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let blocks = format!("/boards/{}/blocks", board.id);
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
 
     // Made with a body, which is checked and counted.
     let made: Vec<Value> = th
@@ -433,7 +437,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
         "blockIds": [card_id], "blockPatches": [{"body": null, "readAt": read.update_at}],
     });
     th.client
-        .patch("/boards-and-blocks", &request)
+        .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
         .await
         .check_ok();
     assert_eq!(card(&th.client, &card_id).await.body, None);
@@ -442,7 +446,7 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let made: Value = th
         .client
         .post(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block("bd", &document())],
@@ -486,7 +490,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         let response = th
             .client
             .post(
-                &format!("/boards/{}/blocks", board.id),
+                &format!("{TEST_WS}/boards/{}/blocks", board.id),
                 &[card_block(&board.id, &with_image(missing))],
             )
             .await;
@@ -502,20 +506,20 @@ async fn the_images_of_a_body_are_files_of_its_board() {
     let response = th
         .client
         .patch(
-            &format!("/cards/{}", created.id),
+            &format!("{TEST_WS}/cards/{}", created.id),
             &json!({"body": with_image(&elsewhere), "readAt": created.update_at}),
         )
         .await;
     check_refused_member(&response, "body");
 
     // Each route of patches refuses it too.
-    let block_path = format!("/boards/{}/blocks/{}", board.id, created.id);
+    let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, created.id);
     let patch = json!({"body": with_image(&elsewhere), "readAt": created.update_at});
     check_refused_member(&th.client.patch(&block_path, &patch).await, "body");
     let batch = json!({"blockIds": [created.id], "blockPatches": [patch]});
     check_refused_member(
         &th.client
-            .patch(&format!("/boards/{}/blocks", board.id), &batch)
+            .patch(&format!("{TEST_WS}/boards/{}/blocks", board.id), &batch)
             .await,
         "blockPatches/0/body",
     );
@@ -524,14 +528,16 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         "blockIds": [created.id], "blockPatches": [patch],
     });
     check_refused_member(
-        &th.client.patch("/boards-and-blocks", &request).await,
+        &th.client
+            .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
+            .await,
         "blockPatches/0/body",
     );
     // A new board has no files.
     let response = th
         .client
         .post(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boards": [{"id": board.id, "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block(&board.id, &with_image(&file_id))],
@@ -551,7 +557,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
 async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let blocks = format!("/boards/{}/blocks", board.id);
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let made: Vec<Value> = th
         .client
         .post(&blocks, &[card_block(&board.id, &document())])
@@ -581,7 +587,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     let response = th
         .client
         .post(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [card_block("bd", &json!("attachment"))],
@@ -605,11 +611,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
         Some(1),
         "only the card: {stored}"
     );
-    let boards = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .value();
+    let boards = th.client.get(&format!("{TEST_WS}/boards")).await.value();
     assert_eq!(boards.as_array().map(Vec::len), Some(1), "{boards}");
 
     th.teardown().await;
@@ -637,7 +639,10 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     let response = th
         .client
         .post(
-            &format!("/boards/{}/blocks?sourceBoardId={}", other.id, board.id),
+            &format!(
+                "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
+                other.id, board.id
+            ),
             &[card_block(&other.id, &with_image(&file_id))],
         )
         .await;
@@ -648,7 +653,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
         .to_owned();
     assert_ne!(moved, file_id, "a copy of the file");
     th.client
-        .get(&format!("/boards/{}/files/{moved}", other.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{moved}", other.id))
         .await
         .check_ok();
 
@@ -656,7 +661,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     let copies: Vec<Value> = th
         .client
         .post_empty(&format!(
-            "/boards/{}/blocks/{}/duplicate",
+            "{TEST_WS}/boards/{}/blocks/{}/duplicate",
             board.id, created.id
         ))
         .await
@@ -685,7 +690,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
     // A copy of the board too.
     let board_copy: Value = th
         .client
-        .post_empty(&format!("/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
         .await
         .created_json();
     let new_board = board_copy["boards"][0]["id"]
@@ -700,7 +705,7 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
                 .as_str()
                 .expect("a file");
             th.client
-                .get(&format!("/boards/{new_board}/files/{name}"))
+                .get(&format!("{TEST_WS}/boards/{new_board}/files/{name}"))
                 .await
                 .check_ok();
             let stored = card(&th.client, block["id"].as_str().expect("an id")).await;
@@ -712,7 +717,10 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
         "both cards of the board were copied with their image"
     );
     th.client
-        .get(&format!("/boards/{}/files/{copied_file}", board.id))
+        .get(&format!(
+            "{TEST_WS}/boards/{}/files/{copied_file}",
+            board.id
+        ))
         .await
         .check_ok();
 
@@ -743,7 +751,7 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
     let copy: Value = th
         .client
         .post_empty(&format!(
-            "/boards/{}/blocks/{}/duplicate",
+            "{TEST_WS}/boards/{}/blocks/{}/duplicate",
             board.id, created.id
         ))
         .await
@@ -751,7 +759,10 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
     let made: Vec<Value> = th
         .client
         .post(
-            &format!("/boards/{}/blocks?sourceBoardId={}", other.id, board.id),
+            &format!(
+                "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
+                other.id, board.id
+            ),
             &[card_block(&other.id, &with_image(&file_id))],
         )
         .await
@@ -784,7 +795,7 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
     );
     for (board_id, name) in std::iter::once((board.id.clone(), file_id)).chain(copies) {
         th.client
-            .get(&format!("/boards/{board_id}/files/{name}"))
+            .get(&format!("{TEST_WS}/boards/{board_id}/files/{name}"))
             .await
             .check_ok();
     }
@@ -795,7 +806,7 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
 /// The block of that identifier, as the routes of blocks list it.
 async fn block_of(client: &Client, board_id: &str, block_id: &str) -> Value {
     let blocks: Vec<Value> = client
-        .get(&format!("/boards/{board_id}/blocks"))
+        .get(&format!("{TEST_WS}/boards/{board_id}/blocks"))
         .await
         .ok_json();
     blocks
@@ -811,7 +822,7 @@ async fn a_comment_has_a_body() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let blocks = format!("/boards/{}/blocks", board.id);
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
     );
@@ -885,7 +896,10 @@ async fn a_comment_has_a_body() {
     let made: Vec<Value> = th
         .client
         .post(
-            &format!("/boards/{}/blocks?sourceBoardId={}", other.id, board.id),
+            &format!(
+                "{TEST_WS}/boards/{}/blocks?sourceBoardId={}",
+                other.id, board.id
+            ),
             &json!([{"id": "c2", "boardId": other.id, "parentId": other_card.id,
                      "type": "comment", "createAt": 1, "updateAt": 1,
                      "body": with_image(&file_id)}]),
@@ -897,7 +911,7 @@ async fn a_comment_has_a_body() {
         .expect("a file");
     assert_ne!(name, file_id, "a copy of the file");
     th.client
-        .get(&format!("/boards/{}/files/{name}", other.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{name}", other.id))
         .await
         .check_ok();
 
@@ -911,7 +925,7 @@ async fn a_comment_has_a_body() {
 async fn a_comment_body_goes_every_way_a_card_body_does() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let blocks = format!("/boards/{}/blocks", board.id);
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
     );
@@ -943,7 +957,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
         "blockPatches": [{"body": with_image(&file_id), "readAt": read["updateAt"]}],
     });
     th.client
-        .patch("/boards-and-blocks", &request)
+        .patch(&format!("{TEST_WS}/boards-and-blocks"), &request)
         .await
         .check_ok();
     let read = block_of(&th.client, &board.id, &comment_id).await;
@@ -975,7 +989,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
     let made: Value = th
         .client
         .post(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boards": [{"id": "bd", "workspaceId": TEST_WORKSPACE_ID, "type": "P"}],
                 "blocks": [
@@ -1006,7 +1020,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let source = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let blocks = format!("/boards/{}/blocks", board.id);
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let file_id = crate::files::uploaded_id(
         &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
     );
@@ -1093,7 +1107,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
 async fn a_changed_comment_says_so_and_its_members_read_what_it_said() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
-    let blocks = format!("/boards/{}/blocks", board.id);
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     let me = th.client.me().await;
     let card: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
         .await

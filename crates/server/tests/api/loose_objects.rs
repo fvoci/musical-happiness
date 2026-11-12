@@ -11,6 +11,7 @@ use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, LooseState, Store};
 use tokio::io::AsyncWriteExt as _;
 
+use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::files::{upload, uploaded_id};
 use crate::metrics::{sample, scrape};
@@ -57,7 +58,7 @@ async fn doomed_objects_are_removed_and_tried_again(ts: &TestServer) {
     let (_, unshown) = uploaded(ts, b"shown by no block").await;
     let (board_id, purged) = uploaded(ts, b"of a purged board").await;
     ts.client
-        .delete(&format!("/boards/{board_id}"))
+        .delete(&format!("{TEST_WS}/boards/{board_id}"))
         .await
         .check_no_content();
     housekeeping
@@ -231,7 +232,7 @@ async fn misbound_upload(ts: &TestServer, path: &str) -> Upload {
 async fn abandoning_it_keeps_the_file(ts: &TestServer, path: &str) {
     let upload = misbound_upload(ts, path).await;
     ts.client2
-        .delete(&format!("/uploads/{}", upload.id))
+        .delete(&format!("{TEST_WS}/uploads/{}", upload.id))
         .await
         .check_no_content();
     assert!(
@@ -401,7 +402,7 @@ async fn finish(
 async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
     let (board_id, path, writer, write) = slow_write(ts).await;
     ts.client
-        .delete(&format!("/boards/{board_id}"))
+        .delete(&format!("{TEST_WS}/boards/{board_id}"))
         .await
         .check_no_content();
     finish(writer, write)

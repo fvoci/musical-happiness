@@ -10,7 +10,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use axum::extract::multipart::{Field, MultipartRejection};
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Multipart, Path};
 use axum::http::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
     EXPECT, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
@@ -26,12 +26,12 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::{Binary, FileForm};
+use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, FileId};
 use super::contract::tag;
+use super::workspace::Ws;
 
-use super::{
-    ApiResult, RequiredSession, created, json_response, require_board_permission, require_granted,
-};
+use super::{ApiResult, created, json_response, require_board_permission, require_granted};
 use crate::app::App;
 use crate::app::FILE;
 use crate::error::{AppError, Reason};
@@ -106,10 +106,10 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 /// with the `If-Modified-Since` of an earlier answer gets the whole file again.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/files/{fileId}",
+    path = "/w/{workspaceId}/boards/{boardId}/files/{fileId}",
     operation_id = "getFile",
     tag = tag::FILES,
-    params(BoardId, FileId),
+    params(MemberWorkspaceId, BoardId, FileId),
     responses(
         (status = 200, description = "The file.", body = inline(Binary), content_type = "application/octet-stream"),
         (status = 206, description = "The range of the file that was asked for.", body = inline(Binary), content_type = "application/octet-stream"),
@@ -119,13 +119,12 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
     ),
 )]
 async fn handle_serve_file(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((board_id, file_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, board_id, file_id)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
-    require_file_reader(&app, &session.user_id, &board_id).await?;
-    serve_board_file(&app, &board_id, &file_id, &headers).await
+    require_file_reader(&ws.app, &ws.session.user_id, &board_id).await?;
+    serve_board_file(&ws.app, &board_id, &file_id, &headers).await
 }
 
 /// Checks that the user may read the files of the board.
@@ -159,20 +158,19 @@ pub(super) async fn serve_board_file(
 /// board's members.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/files/{fileId}/info",
+    path = "/w/{workspaceId}/boards/{boardId}/files/{fileId}/info",
     operation_id = "getFileInfo",
     tag = tag::FILES,
-    params(BoardId, FileId),
+    params(MemberWorkspaceId, BoardId, FileId),
     responses((status = 200, description = "What is known about the file.", body = FileInfo)),
 )]
 async fn handle_get_file_info(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((board_id, file_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, board_id, file_id)): Path<(String, String, String)>,
 ) -> ApiResult {
-    require_file_reader(&app, &session.user_id, &board_id).await?;
+    require_file_reader(&ws.app, &ws.session.user_id, &board_id).await?;
     Ok(json_response(
-        &board_file_info(&app, &board_id, file_id.as_str()).await?,
+        &board_file_info(&ws.app, &board_id, file_id.as_str()).await?,
     ))
 }
 
@@ -201,30 +199,29 @@ pub(super) async fn board_file_info(
 /// anything but letters and digits in it, is left off. For editors.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/files",
+    path = "/w/{workspaceId}/boards/{boardId}/files",
     operation_id = "uploadFile",
     tag = tag::FILES,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     request_body(content = FileForm, content_type = "multipart/form-data"),
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]
 async fn handle_upload_file(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     headers: HeaderMap,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
         "access denied to make board changes",
     )
     .await?;
-    let limit = SingleUploadLimit::of(&app);
+    let limit = SingleUploadLimit::of(&ws.app);
     let mut multipart = multipart.map_err(|_| AppError::bad_request(NOT_MULTIPART))?;
     let declared = headers
         .get(CONTENT_LENGTH)
@@ -258,7 +255,7 @@ async fn handle_upload_file(
         };
         // The stored name is what a reader asks for the file by; it stays out of the log.
         tracing::debug!(filename, "uploadFile");
-        break store_field(&app, &board_id, &filename, field, limit).await;
+        break store_field(&ws.app, &board_id, &filename, field, limit).await;
     };
     match stored {
         Ok(file_id) => Ok(created(&UploadedFile { file_id })),

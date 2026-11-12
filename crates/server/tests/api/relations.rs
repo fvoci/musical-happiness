@@ -7,6 +7,7 @@ use fvoci_model::{Block, Board, BoardType, Card, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 const RELATION: &str = "rel";
@@ -27,7 +28,7 @@ struct Related {
 async fn related_board(client: &Client, cards: usize) -> Related {
     let board: Board = client
         .post(
-            "/boards",
+            &format!("{TEST_WS}/boards"),
             &json!({
                 "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Related",
                 "cardProperties": [
@@ -43,7 +44,7 @@ async fn related_board(client: &Client, cards: usize) -> Related {
         made.push(
             client
                 .post(
-                    &format!("/boards/{}/cards", board.id),
+                    &format!("{TEST_WS}/boards/{}/cards", board.id),
                     &json!({"title": format!("Card {index}")}),
                 )
                 .await
@@ -56,14 +57,17 @@ async fn related_board(client: &Client, cards: usize) -> Related {
 async fn patch_relation(client: &Client, card_id: &str, value: Value) -> ApiResponse {
     client
         .patch(
-            &format!("/cards/{card_id}"),
+            &format!("{TEST_WS}/cards/{card_id}"),
             &json!({"updatedProperties": {RELATION: value}}),
         )
         .await
 }
 
 async fn relation_of(client: &Client, card_id: &str) -> Value {
-    let card: Card = client.get(&format!("/cards/{card_id}")).await.ok_json();
+    let card: Card = client
+        .get(&format!("{TEST_WS}/cards/{card_id}"))
+        .await
+        .ok_json();
     card.properties
         .get(RELATION)
         .cloned()
@@ -103,7 +107,7 @@ async fn hidden_card(th: &TestServer) -> String {
     let board: Board = th
         .client2
         .post(
-            "/boards",
+            &format!("{TEST_WS}/boards"),
             &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Hidden"}),
         )
         .await
@@ -111,7 +115,7 @@ async fn hidden_card(th: &TestServer) -> String {
     let card: Card = th
         .client2
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &json!({"title": "x"}),
         )
         .await
@@ -123,7 +127,7 @@ async fn hidden_card(th: &TestServer) -> String {
 async fn view_of(client: &Client, board_id: &str) -> String {
     let created: Vec<Block> = client
         .post(
-            &format!("/boards/{board_id}/blocks"),
+            &format!("{TEST_WS}/boards/{board_id}/blocks"),
             &json!([{
                 "id": "v", "boardId": board_id, "parentId": board_id, "type": "view",
                 "title": "Table", "schema": 1, "createAt": 1, "updateAt": 1,
@@ -221,7 +225,7 @@ async fn a_card_of_a_hidden_board_is_answered_as_one_that_is_not_there() {
     // Of the same length, so that the words could not differ by it.
     let none = new_id();
 
-    for path in [format!("/cards/{}", cards[0].id), String::new()] {
+    for path in [format!("{TEST_WS}/cards/{}", cards[0].id), String::new()] {
         let answer = |id: &str| {
             let value = json!([id]);
             let client = &th.client;
@@ -231,7 +235,7 @@ async fn a_card_of_a_hidden_board_is_answered_as_one_that_is_not_there() {
                 if path.is_empty() {
                     client
                         .post(
-                            &format!("/boards/{board_id}/cards"),
+                            &format!("{TEST_WS}/boards/{board_id}/cards"),
                             &json!({"title": "new", "properties": {RELATION: value}}),
                         )
                         .await
@@ -266,7 +270,7 @@ async fn a_card_in_the_trash_may_be_named_and_one_gone_for_good_may_not() {
     let (first, deleted, purged) = (&cards[0].id, &cards[1].id, &cards[2].id);
     for card in [deleted, purged] {
         th.client
-            .delete(&format!("/boards/{}/blocks/{card}", board.id))
+            .delete(&format!("{TEST_WS}/boards/{}/blocks/{card}", board.id))
             .await
             .check_no_content();
     }
@@ -275,7 +279,10 @@ async fn a_card_in_the_trash_may_be_named_and_one_gone_for_good_may_not() {
         .check_ok();
     // Gone for good: the purge removes what was deleted before now.
     th.client
-        .post_empty(&format!("/boards/{}/blocks/{deleted}/undelete", board.id))
+        .post_empty(&format!(
+            "{TEST_WS}/boards/{}/blocks/{deleted}/undelete",
+            board.id
+        ))
         .await
         .check_ok();
     th.app
@@ -307,7 +314,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let created = th
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &json!({"title": "new", "properties": {RELATION: refused}}),
         )
         .await;
@@ -324,7 +331,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let blocks = th
         .client
         .post(
-            &format!("/boards/{}/blocks", board.id),
+            &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([view, block]),
         )
         .await;
@@ -333,7 +340,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let patched = th
         .client
         .patch(
-            &format!("/boards/{}/blocks/{card}", board.id),
+            &format!("{TEST_WS}/boards/{}/blocks/{card}", board.id),
             &json!({"updatedFields": {"properties": {RELATION: refused}}}),
         )
         .await;
@@ -342,7 +349,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let batch = th
         .client
         .patch(
-            &format!("/boards/{}/blocks", board.id),
+            &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!({
                 "blockIds": [card],
                 "blockPatches": [{"updatedFields": {"properties": {RELATION: refused}}}],
@@ -354,7 +361,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let both = th
         .client
         .patch(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boardIds": [board.id], "boardPatches": [{}],
                 "blockIds": [card],
@@ -369,7 +376,7 @@ async fn every_way_of_writing_a_card_checks_its_relations() {
     let new_board = th
         .client
         .post(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boards": [{
                     "id": "b", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "new",
@@ -403,7 +410,7 @@ async fn new_cards_of_one_request_may_name_each_other() {
     let created: Vec<Block> = th
         .client
         .post(
-            &format!("/boards/{}/blocks", board.id),
+            &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &json!([card("a", json!(["b", there])), card("b", json!(["a"]))]),
         )
         .await
@@ -415,7 +422,7 @@ async fn new_cards_of_one_request_may_name_each_other() {
     let made: Value = th
         .client
         .post(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boards": [{
                     "id": "nb", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "new",
@@ -463,7 +470,7 @@ async fn a_value_stored_before_the_rules_does_not_stop_other_changes() {
     let patched: Card = th
         .client
         .patch(
-            &format!("/cards/{card}"),
+            &format!("{TEST_WS}/cards/{card}"),
             &json!({"title": "renamed", "updatedProperties": {"note": "after"}}),
         )
         .await
@@ -510,7 +517,7 @@ async fn a_change_of_the_property_kind_leaves_the_values_alone() {
     patch_relation(&th.client, card, json!([other]))
         .await
         .check_ok();
-    let path = format!("/boards/{}", board.id);
+    let path = format!("{TEST_WS}/boards/{}", board.id);
     for kind in ["text", "relation"] {
         th.client
             .patch(
@@ -536,7 +543,7 @@ async fn the_board_of_a_relation_is_the_board_of_the_card() {
     let other = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     th.client
         .patch(
-            &format!("/boards/{}", other.id),
+            &format!("{TEST_WS}/boards/{}", other.id),
             &json!({"updatedCardProperties": [{"id": RELATION, "type": "relation"}]}),
         )
         .await
@@ -544,7 +551,7 @@ async fn the_board_of_a_relation_is_the_board_of_the_card() {
     let card: Card = th
         .client
         .post(
-            &format!("/boards/{}/cards", other.id),
+            &format!("{TEST_WS}/boards/{}/cards", other.id),
             &json!({"title": "x"}),
         )
         .await
@@ -565,7 +572,7 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
     let th = Setup::native().start().await.init_basic().await;
     let client = &th.client;
     let Related { board, cards } = related_board(client, 1).await;
-    let blocks = format!("/boards/{}/blocks", board.id);
+    let blocks = format!("{TEST_WS}/boards/{}/blocks", board.id);
     for (id, value) in [
         ("odd", json!({RELATION: [new_id()]})),
         ("fine", json!({RELATION: [cards[0].id]})),

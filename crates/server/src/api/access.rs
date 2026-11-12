@@ -308,25 +308,6 @@ pub(crate) async fn require_workspace_access(
     app.workspace(workspace_id).await
 }
 
-/// Fails with a 400 that names the member `field` if the workspace a request body names
-/// does not exist, or is one the user does not work in: the two answer alike.
-pub(crate) async fn require_workspace_in_body(
-    app: &App,
-    user_id: &str,
-    workspace_id: &str,
-    field: &'static str,
-) -> Result<(), AppError> {
-    let no_such_workspace = || AppError::bad_request("no such workspace").with_field(field);
-    if !app.works_in_workspace(user_id, workspace_id).await? {
-        return Err(no_such_workspace());
-    }
-    match app.workspace(workspace_id).await {
-        Ok(_) => Ok(()),
-        Err(error) if error.is_not_found() => Err(no_such_workspace()),
-        Err(error) => Err(error),
-    }
-}
-
 /// Returns whether a user is a guest. There are no guests on a standalone server, but
 /// the user must exist: a missing user is a 404.
 pub(crate) async fn user_is_guest(app: &App, user_id: &str) -> Result<bool, AppError> {

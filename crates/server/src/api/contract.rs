@@ -276,12 +276,12 @@ const SCHEMAS: &[(&str, Members)] = &[
 /// different things. The document names each as what it is.
 const RENAMED_PATHS: [(&str, &str); 2] = [
     (
-        "/api/v1/subscriptions/{blockOrSubscriberId}/{subscriberId}",
-        "/api/v1/subscriptions/{blockId}/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}",
     ),
     (
-        "/api/v1/subscriptions/{blockOrSubscriberId}",
-        "/api/v1/subscriptions/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{subscriberId}",
     ),
 ];
 

@@ -58,6 +58,7 @@ const worthAgain = (error: unknown): boolean =>
  */
 export async function sendInParts<T>(
   http: Http,
+  workspaceId: string,
   file: File,
   options: UploadOptions,
   open: () => Promise<Schemas['UploadOpened']>,
@@ -78,8 +79,8 @@ export async function sendInParts<T>(
         signal?.throwIfAborted();
         try {
           await http.request(
-            '/api/v1/uploads/{uploadId}/parts/{partNumber}',
-            { uploadId, partNumber: String(number) },
+            '/api/v1/w/{workspaceId}/uploads/{uploadId}/parts/{partNumber}',
+            { workspaceId, uploadId, partNumber: String(number) },
             { method: 'PUT', bytes: part, headers: { 'Content-Digest': digest }, signal },
           );
           break;
@@ -102,7 +103,11 @@ export async function sendInParts<T>(
     // Given up or failed: what the server holds of it is thrown away (an
     // upload that has ended already is 404, which is no matter).
     void http
-      .request('/api/v1/uploads/{uploadId}', { uploadId }, { method: 'DELETE' })
+      .request(
+        '/api/v1/w/{workspaceId}/uploads/{uploadId}',
+        { workspaceId, uploadId },
+        { method: 'DELETE' },
+      )
       .catch(() => undefined);
     throw error;
   }
@@ -116,24 +121,25 @@ function newUploadOf(file: File): Schemas['NewUpload'] {
 /** A file of a board: opened by `createUpload`, ended into a file by `completeUpload`. */
 export function uploadInParts(
   http: Http,
-  boardId: string,
+  { workspaceId, boardId }: { workspaceId: string; boardId: string },
   file: File,
   options: UploadOptions = {},
 ): Promise<UploadedFile> {
   return sendInParts(
     http,
+    workspaceId,
     file,
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        '/api/v1/boards/{boardId}/uploads',
-        { boardId },
+        '/api/v1/w/{workspaceId}/boards/{boardId}/uploads',
+        { workspaceId, boardId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const done = await http.request<Schemas['UploadedFile']>(
-        '/api/v1/uploads/{uploadId}/complete',
-        { uploadId },
+        '/api/v1/w/{workspaceId}/uploads/{uploadId}/complete',
+        { workspaceId, uploadId },
         { method: 'POST', signal },
       );
       return {
@@ -158,6 +164,7 @@ export function importInParts(
 ): Promise<Schemas['ImportResult']> {
   return sendInParts(
     http,
+    workspaceId,
     file,
     options,
     () =>

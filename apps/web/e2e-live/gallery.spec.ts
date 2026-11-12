@@ -43,14 +43,16 @@ test('a gallery shows each card’s first picture and the start of its text, rea
   });
   const sunset = board.cards.Sunset ?? '';
 
-  const uploaded = await api.post(`/api/v1/boards/${board.boardId}/files`, {
+  const uploaded = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/files`, {
     multipart: { file: { name: 'pixel.png', mimeType: 'image/png', buffer: PIXEL } },
   });
   expect(uploaded.ok()).toBe(true);
   const { fileId } = (await uploaded.json()) as Schemas['UploadedFile'];
   const writeBody = async (content: unknown[]) => {
-    const now = (await (await api.get(`/api/v1/cards/${sunset}`)).json()) as Schemas['Card'];
-    const written = await api.patch(`/api/v1/cards/${sunset}`, {
+    const now = (await (
+      await api.get(`/api/v1/w/${board.workspaceId}/cards/${sunset}`)
+    ).json()) as Schemas['Card'];
+    const written = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${sunset}`, {
       data: { readAt: now.updateAt, body: { type: 'doc', content } },
     });
     expect(written.ok()).toBe(true);
@@ -61,7 +63,7 @@ test('a gallery shows each card’s first picture and the start of its text, rea
     paragraph('Second line'),
   ]);
   const [gallery] = (await (
-    await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
+    await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
       data: [
         {
           boardId: board.boardId,

@@ -9,6 +9,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
+use super::common::ROOT_WS;
 use super::common::{Client, ROOT_WORKSPACE_ID, Setup};
 use super::{answer, db_type_of_the_tests, open};
 
@@ -157,13 +158,19 @@ impl Scene {
             };
             let hidden = Client::send(
                 ts.client
-                    .request(method.clone(), &format!("/uploads/{}{suffix}", ub.id))
+                    .request(
+                        method.clone(),
+                        &format!("{ROOT_WS}/uploads/{}{suffix}", ub.id),
+                    )
                     .body("x"),
             )
             .await;
             let absent = Client::send(
                 ts.client
-                    .request(method.clone(), &format!("/uploads/missing-upload{suffix}"))
+                    .request(
+                        method.clone(),
+                        &format!("{ROOT_WS}/uploads/missing-upload{suffix}"),
+                    )
                     .body("x"),
             )
             .await;
@@ -452,7 +459,7 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
     let cancelled = scene
         .ts
         .client2
-        .delete(&format!("/uploads/{}", forged.id))
+        .delete(&format!("{ROOT_WS}/uploads/{}", forged.id))
         .await;
     let exists = scene
         .b_app

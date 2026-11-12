@@ -65,719 +65,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/boards": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make a board
-         * @description The user becomes the board's admin, and the board is filed under the user's default
-         *     category, unless it is a template.
-         */
-        post: operations["createBoard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards-and-blocks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make boards with their blocks
-         * @description Makes boards and their blocks together, all or none, under identifiers the server
-         *     makes; the identifiers of the request only say which block belongs to which board
-         *     and to which other block. The request needs at least one board and one block; every
-         *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
-         *     each board, and each board that is no template is filed under the user's default
-         *     category.
-         */
-        post: operations["createBoardsAndBlocks"];
-        /**
-         * Delete boards and blocks together
-         * @description Deletes several boards of one workspace, all or none. The request names at least one
-         *     board, and every block it names must be on one of its boards and be the user's to
-         *     delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
-         *     board takes all of its blocks along. The boards go to the trash as `deleteBoard`
-         *     puts them there, and `undeleteBoard` brings each back with its blocks. For the
-         *     admins of every board named.
-         */
-        delete: operations["deleteBoardsAndBlocks"];
-        options?: never;
-        head?: never;
-        /**
-         * Change boards and blocks together
-         * @description Applies a patch to each of several boards of one workspace and to blocks of those
-         *     boards, all or none. The request names at least one board, and every block it names
-         *     is on one of its boards: blocks alone are not changed this way. Each board needs
-         *     what `patchBoard` needs, each block what `patchBlock` needs.
-         */
-        patch: operations["patchBoardsAndBlocks"];
-        trace?: never;
-    };
-    "/api/v1/boards/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search the boards
-         * @description The boards the user finds (a member of them, or open where the user works), whose title matches
-         *     the term: a title matches if every word of the term, as spaces divide it, is somewhere
-         *     in it, whatever the case of the letters (of every letter, not only ASCII). Templates
-         *     are never found. `%` and `_` are characters like any other. Oldest first.
-         */
-        get: operations["searchBoards"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A board
-         * @description For a user who may see the board: a member of it, or for an open board anyone in
-         *     its workspace.
-         */
-        get: operations["getBoard"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete a board
-         * @description The board goes to the trash with its blocks and its members, and `undeleteBoard`
-         *     brings it back until the trash is emptied of it. Its sharing ends, with its read
-         *     token, and so do its places in the users' sidebars and the subscriptions to its
-         *     blocks; those do not come back with the board. For the board's admins.
-         */
-        delete: operations["deleteBoard"];
-        options?: never;
-        head?: never;
-        /**
-         * Change a board
-         * @description For who may manage the board's properties. Changing `type` or `minimumRole` is for
-         *     the board's admins.
-         */
-        patch: operations["patchBoard"];
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/archive/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export a board
-         * @description An archive of the board with its blocks, its files and its members, offered as a
-         *     download with its length. For the board's members. The archive is a ZIP of version
-         *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
-         *     `block` or `boardMember` per line, in the shapes of this contract, bodies included)
-         *     and the files the blocks show, the images of bodies among them.
-         *
-         *     A user runs one export at a time, and the server as many as its setting
-         *     `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
-         *     `export_running` or `server_exports_busy`, and is to be asked for again later. An
-         *     export runs until its archive is sent or the client goes away; a download that takes
-         *     nothing for `export_stall_seconds` (60 unless set) is given up, and its connection
-         *     broken before the archive's end.
-         */
-        get: operations["exportBoardArchive"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/blocks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The blocks of a board
-         * @description For the board's members, and for an open template everyone in its workspace.
-         *
-         *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
-         *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
-         *     list is every block of the board. A parameter with an empty value counts as left
-         *     out. Oldest first; the blocks that one request made come in the order that request
-         *     had them in.
-         */
-        get: operations["getBlocks"];
-        put?: never;
-        /**
-         * Insert blocks
-         * @description Inserts blocks under identifiers the server makes; the identifiers of the request
-         *     only link its blocks to each other. All blocks are inserted or none, and they are
-         *     listed afterwards in the order the request had them in. Comments need the role of a
-         *     commenter, everything else that of an editor. A comment is on a card of the board,
-         *     and no block is below a comment (400 at the block's `parentId`).
-         */
-        post: operations["createBlocks"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Change several blocks
-         * @description Applies a patch to each of several blocks of the board, all or none. A body that
-         *     names no block changes nothing and is answered 204 too. Each block needs what
-         *     `patchBlock` needs: the editor's role, for a comment its author's commenter role or
-         *     for the comment of somebody else the board's admin role.
-         */
-        patch: operations["patchBlocks"];
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/blocks/{blockId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete a block
-         * @description The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
-         *     back until the trash is emptied of it. For editors; a comment is its author's to
-         *     delete from the commenter's role up, and a comment of somebody else the board's
-         *     admins' only (403, `access denied to delete other users' comments`), also as a
-         *     reply below a comment the user deletes.
-         */
-        delete: operations["deleteBlock"];
-        options?: never;
-        head?: never;
-        /**
-         * Change a block
-         * @description For editors. A comment is changed by its author with the commenter's role, and the
-         *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-         *     editor may not change it. The commenter's role changes a comment's text (its body);
-         *     moving a comment to another card (`parentId`) or making it a block of another type
-         *     is for editors, and making a block of somebody else a comment for the board's admins.
-         *     A comment goes only on a card of the board, no block goes below a comment (400 at
-         *     `parentId`), and a card with comments stays a card (400 at `type`). The block's
-         *     `modifiedBy` and `updateAt` say who changed it and when.
-         */
-        patch: operations["patchBlock"];
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/blocks/{blockId}/duplicate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Copy a block
-         * @description Copies a block and the blocks directly below it, except comments. A comment cannot
-         *     be copied. For editors.
-         */
-        post: operations["duplicateBlock"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/blocks/{blockId}/undelete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bring a deleted block back
-         * @description Restores a block of the board from the trash, with the blocks that went there with
-         *     it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
-         *     may no longer hold it (a comment off a card, a block below a comment): 409. For who may
-         *     delete what comes back, as `deleteBlock` has it: editors, a comment its author from
-         *     the commenter's role up if they deleted it themselves, and a comment of somebody
-         *     else the board's admins only (403, `access denied to undelete other users' comments`),
-         *     as one of the user's that somebody else deleted (403, `a comment somebody else
-         *     deleted is brought back by the board's admins`). What decides is what was
-         *     deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
-         *     so a block below somebody else's comment is brought back by the admins only, and a
-         *     card alone, so a comment that went with its card comes back for whoever may bring
-         *     back the card.
-         */
-        post: operations["undeleteBlock"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/blocks/{blockId}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * What a comment said before
-         * @description The earlier versions of a comment's body: every version but the one it has now, with
-         *     who wrote it and when. The first one first; it is the text the comment was posted
-         *     with, by its author. The server keeps the first version and the newest ones, up to
-         *     its setting `max_comment_versions` in all, so the numbers of the versions may leave
-         *     gaps. Empty for a comment whose body was never changed; the comment's `editedAt` says
-         *     whether it was. For the board's members, also in the trash: the versions go only
-         *     when the comment is gone for good. Not for a reader by the board's read token. A
-         *     block that is no comment is not there (404).
-         */
-        get: operations["getCommentVersions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/cards": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The cards of a board
-         * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
-         *     that order. A `page` or `perPage` that is no whole number is 400. With
-         *     `preview=true` each card has its `preview` (the first image and the beginning of the
-         *     text of its body), which a list without it leaves out.
-         */
-        get: operations["getCards"];
-        put?: never;
-        /**
-         * Make a card
-         * @description The server chooses the identifier, the creator and the times. For editors.
-         *
-         *     The value of a card relation property (of the `type` `relation`) is `null` or a list
-         *     of other cards of the board, in the trash or not, each once, at most 50 (a value over
-         *     it from before may be written with fewer of its cards, not with another). Any other is
-         *     400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,
-         *     `relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board
-         *     that is no card) or `relation_card_not_found`: no card of that identifier on the
-         *     board, which is also the answer for a card of another board. Every write of a card
-         *     checks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it
-         *     changes, and does not ask again for a card that a value named before.
-         */
-        post: operations["createCard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/duplicate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Copy a board
-         * @description Copies a board with its blocks, except comments, as a board or as a template. The
-         *     user becomes the admin of the copy, which is always private. A copy of the same kind
-         *     has the title of the original with ` copy` after it; a template made from a board is
-         *     titled `New board template`, and a board made from a template keeps the title. The
-         *     board's members may copy it; an open template is for everyone in its workspace, and a
-         *     built-in template for everyone.
-         */
-        post: operations["duplicateBoard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/files": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload a file
-         * @description Stores a file with the board. The request is a `multipart/form-data` form whose
-         *     part `file` carries the file and a file name. The file is limited to one part of an
-         *     upload in parts (8 MiB unless the server is configured otherwise), and to the
-         *     `maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where
-         *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
-         *     `maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is
-         *     not kept. The `fileId` of the answer ends in the extension of the file name, in lower
-         *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
-         *     anything but letters and digits in it, is left off. For editors.
-         */
-        post: operations["uploadFile"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/files/{fileId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A file
-         * @description The content of a file of the board, for the board's members. A file is asked for
-         *     through its own board only: through another board it is not there.
-         *
-         *     Every file is sent as `application/octet-stream` and offered as a download
-         *     (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
-         *     uploaded with, which `getFileInfo` has. The answer honours `Range` with one range,
-         *     unless the request has `If-Range`. It may be cached by the browser of who asked but
-         *     must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
-         *     download: the `Last-Modified` of an answer is the time of that answer, so a request
-         *     with the `If-Modified-Since` of an earlier answer gets the whole file again.
-         */
-        get: operations["getFile"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/files/{fileId}/info": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * What is known about a file
-         * @description The name a file was uploaded under, its size and when it was uploaded. For the
-         *     board's members.
-         */
-        get: operations["getFileInfo"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/join": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Join an open board
-         * @description Makes the user a member of an open board, with the board's minimum role. A member
-         *     below that role is raised to it; a member with that role or a higher one stays as
-         *     they are. A template cannot be joined, and a private board is not there for who is
-         *     no member of it.
-         */
-        post: operations["joinBoard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/leave": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Leave a board
-         * @description Ends the user's own membership of a board. The last admin of a board cannot leave
-         *     it: that is 409 with the reason `last_admin`.
-         */
-        post: operations["leaveBoard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/members": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The members of a board
-         * @description For the board's members and the workspace's administrators. Who left the workspace
-         *     is not listed, whatever role they had on the board. By the identifier of the user: a
-         *     membership has no time of its own, so this is not the order in which the users came
-         *     to the board.
-         */
-        get: operations["getMembers"];
-        put?: never;
-        /**
-         * Make a user a member of a board
-         * @description The board's admins add members with the roles the request names; with no role at
-         *     all the member may do nothing on the board, not even view it. On an open board
-         *     editors who work in the workspace add members too, with the board's minimum role,
-         *     whatever else the request names; a request of theirs that asks for `schemeAdmin` is
-         *     403. A guest of the workspace is given no role above editor: asking for
-         *     `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
-         *     member already stays as they are. The workspace's administrators manage the members
-         *     of every board of it; one who makes themselves a member of a board whose content
-         *     they could not read is recorded in the organization's audit log.
-         */
-        post: operations["addMember"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/members/{userId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Change the roles of a member
-         * @description Replaces the roles of a member of the board; with no role at all the member may do
-         *     nothing on the board, not even view it. For the board's admins. The last admin of a
-         *     board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
-         *     workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
-         *     reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
-         *     more, is 404.
-         */
-        put: operations["updateMember"];
-        post?: never;
-        /**
-         * Remove a member from a board
-         * @description For the board's admins. The last admin of a board cannot be removed: that is 409
-         *     with the reason `last_admin`. Removing a user who is no member is no error, and is
-         *     answered 204 like a removal.
-         */
-        delete: operations["removeMember"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/property-order": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Put the card properties of a board in an order
-         * @description The body names every card property of the board (`cardProperties`, by `id`) once,
-         *     in the new order, as `reorderCategories` names categories; one left out, one named
-         *     twice or one the board does not have is 400, and nothing changes. For who may manage
-         *     the board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as
-         *     for any change of the board.
-         */
-        put: operations["reorderCardProperties"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/sharing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Whether a board is shared
-         * @description Whether the board is shared, and with which read token. A board that was never
-         *     shared is not shared. For the board's admins.
-         */
-        get: operations["getSharing"];
-        put?: never;
-        /**
-         * Share a board, or stop sharing it
-         * @description Shares the board, shares it under a new read token, or stops sharing it. The server
-         *     makes the token; a request that names one is 400. Where the server is configured
-         *     without public sharing, every request is refused with 403 and the reason
-         *     `sharing_disabled`, also one that stops sharing. For the board's admins.
-         */
-        post: operations["setSharing"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/trash/cards": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The deleted cards of a board
-         * @description One page of the board's cards that are in the trash, each with its identifier, its
-         *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
-         *     trash is emptied of it. A card that went with the block it was on (another card, a
-         *     view) comes back with that block, and is not listed. For the board's editors. The
-         *     last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
-         *     number is 400.
-         */
-        get: operations["getDeletedCards"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/undelete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Bring a deleted board back
-         * @description Restores a board from the trash with its blocks and its members. Each user who had
-         *     filed it, and can see it again, finds it where it was in the sidebar (the same
-         *     category and place, hidden or not) or in the default category if that one was
-         *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
-         *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-         *     the deletion and stay ended. For who was an admin of the board when it was deleted,
-         *     and for the workspace's administrators (who, if they were no member, get it without
-         *     its description and properties); to anybody else there is no such board.
-         */
-        post: operations["undeleteBoard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/boards/{boardId}/uploads": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Open an upload
-         * @description Opens an upload of a file to the board in parts. The answer says how large the
-         *     parts are and how many; send each with `putUploadPart`, in any order and again
-         *     after a failure, then `completeUpload`. A file larger than `maxFileSize` of
-         *     `getClientConfig` is 413. A user has at most 8
-         *     uploads open, holding back at most twice `maxFileSize` together, and the server's
-         *     open uploads hold back at most what it is configured for: an upload over one of
-         *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
-         *     `server_uploads_pending`. An upload is open until it is completed, abandoned or
-         *     ends; one that ends is thrown away with its parts within the hour. For editors, as
-         *     `uploadFile`.
-         */
-        post: operations["createUpload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/cards/{cardId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A card
-         * @description For the members of the card's board. To a user who is no member of it there is no
-         *     such card.
-         */
-        get: operations["getCard"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Change a card
-         * @description For editors of the card's board. To a user who is no member of that board there is
-         *     no such card. The relation values it changes are checked as `createCard` says.
-         */
-        patch: operations["patchCard"];
-        trace?: never;
-    };
     "/api/v1/client-config": {
         parameters: {
             query?: never;
@@ -1133,179 +420,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/subscriptions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Subscribe to a block
-         * @description Subscribes the user of the session to a block of a board they are a member of. A
-         *     `subscriberId` that is not the user of the session is 403, and a `subscriberType`
-         *     other than `user` is 400. The `blockType` is stored as it is sent, and not compared
-         *     with the block. Subscribing again is no error: the subscription stays as it was
-         *     made, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.
-         */
-        post: operations["createSubscription"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/subscriptions/{blockId}/{subscriberId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * End a subscription
-         * @description Ends the subscription of the user of the session to a block. Nothing about the
-         *     block is checked: a subscription to a block the user may no longer see can still be
-         *     ended. A subscription that is not there is 404, and so are those of another user.
-         */
-        delete: operations["deleteSubscription"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/subscriptions/{subscriberId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The subscriptions of the user
-         * @description The subscriptions of the user of the session; those of another user are not there.
-         *     Oldest first, and by the identifier of the block among those made in the same
-         *     millisecond.
-         */
-        get: operations["getSubscriptions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/uploads/{uploadId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get an upload
-         * @description The upload and the parts it has received: what a client that lost its place sends
-         *     next. Another user's upload, and one that has ended, is 404.
-         */
-        get: operations["getUpload"];
-        put?: never;
-        post?: never;
-        /**
-         * Abandon an upload
-         * @description Ends the upload and throws its parts away. An upload that is being completed is
-         *     409.
-         */
-        delete: operations["deleteUpload"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/uploads/{uploadId}/complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Complete an upload
-         * @description Makes the file of the upload from its parts and ends the upload. Every part must
-         *     have been received; a part missing is 400, and the upload stays open for it. The
-         *     answer is the one of `uploadFile`. For editors of the board, at completion as when
-         *     the upload was opened: a user who may not upload to the board any more is refused,
-         *     and the upload is thrown away. An upload that is being completed is 409; an upload
-         *     of an archive is 400, and is imported with `importArchive`.
-         */
-        post: operations["completeUpload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/uploads/{uploadId}/parts/{partNumber}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Send a part
-         * @description Sends part `partNumber` of the upload as the body, `application/octet-stream`.
-         *     `Content-Length` is required and must be the part's size: `partSize`, or the rest
-         *     for the last part; another length is refused with 400 before the body is looked at.
-         *     What is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5
-         *     seconds, so that the client reads the answer; a larger or slower body is cut off.
-         *     (A browser sets `Content-Length` itself.)
-         *     `Content-Digest` carries the part's SHA-256. A part whose length or digest differs
-         *     is 400 and is not kept; a part sent again replaces the one received. An upload that
-         *     is being completed or abandoned is 409.
-         */
-        put: operations["putUploadPart"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Users by their identifiers
-         * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be of a user the user sees and none may be there
-         *     twice; otherwise the request is 404. A user sees who shares with them a workspace
-         *     they work in (are no guest of), who holds a role with them on a board of a workspace
-         *     both are in, who created or last changed a card, block or comment of a board they
-         *     read (also after leaving its workspace), and themselves. Oldest account first, not in
-         *     the order of the request.
-         */
-        post: operations["getUsers"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -1449,27 +563,6 @@ export interface paths {
          *     workspace first.
          */
         get: operations["getMyWorkspaces"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/users/{userId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A user
-         * @description A user the user sees, as `getUsers` has it; anybody else is 404, as one who does not
-         *     exist.
-         */
-        get: operations["getUser"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1635,11 +728,57 @@ export interface paths {
          */
         get: operations["getWorkspaceBoards"];
         put?: never;
-        post?: never;
+        /**
+         * Make a board
+         * @description The user becomes the board's admin, and the board is filed under the user's default
+         *     category, unless it is a template.
+         */
+        post: operations["createBoard"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards-and-blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make boards with their blocks
+         * @description Makes boards and their blocks together, all or none, under identifiers the server
+         *     makes; the identifiers of the request only say which block belongs to which board
+         *     and to which other block. The request needs at least one board and one block; every
+         *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
+         *     each board, and each board that is no template is filed under the user's default
+         *     category.
+         */
+        post: operations["createBoardsAndBlocks"];
+        /**
+         * Delete boards and blocks together
+         * @description Deletes several boards of one workspace, all or none. The request names at least one
+         *     board, and every block it names must be on one of its boards and be the user's to
+         *     delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
+         *     board takes all of its blocks along. The boards go to the trash as `deleteBoard`
+         *     puts them there, and `undeleteBoard` brings each back with its blocks. For the
+         *     admins of every board named.
+         */
+        delete: operations["deleteBoardsAndBlocks"];
+        options?: never;
+        head?: never;
+        /**
+         * Change boards and blocks together
+         * @description Applies a patch to each of several boards of one workspace and to blocks of those
+         *     boards, all or none. The request names at least one board, and every block it names
+         *     is on one of its boards: blocks alone are not changed this way. Each board needs
+         *     what `patchBoard` needs, each block what `patchBlock` needs.
+         */
+        patch: operations["patchBoardsAndBlocks"];
         trace?: never;
     };
     "/api/v1/w/{workspaceId}/boards/search": {
@@ -1650,12 +789,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search the boards, asked through a workspace
-         * @description The boards the user finds (a member of them, or open where the user works), whose title matches
-         *     the term as `searchBoards` matches it, or with `field=property_name` those whose own
-         *     `properties` have a member of exactly that name, whatever its value (`null` too). The
-         *     workspace of the path is not part of the search: the boards of every workspace are
-         *     searched. A `field` that is neither is 400. Oldest first.
+         * Search the boards of a workspace
+         * @description The boards of the workspace the user finds (a member of them, or open where the user
+         *     works), whose title matches the term: a title matches if every word of the term, as
+         *     spaces divide it, is somewhere in it, whatever the case of the letters (of every
+         *     letter, not only ASCII); `%` and `_` are characters like any other. With
+         *     `field=property_name` those whose own `properties` have a member of exactly that
+         *     name, whatever its value (`null` too). A `field` that is neither is 400. Templates are
+         *     never found, and an empty term finds nothing. Oldest first.
          */
         get: operations["searchWorkspaceBoards"];
         put?: never;
@@ -1664,6 +805,634 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A board
+         * @description For a user who may see the board: a member of it, or for an open board anyone in
+         *     its workspace.
+         */
+        get: operations["getBoard"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a board
+         * @description The board goes to the trash with its blocks and its members, and `undeleteBoard`
+         *     brings it back until the trash is emptied of it. Its sharing ends, with its read
+         *     token, and so do its places in the users' sidebars and the subscriptions to its
+         *     blocks; those do not come back with the board. For the board's admins.
+         */
+        delete: operations["deleteBoard"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a board
+         * @description For who may manage the board's properties. Changing `type` or `minimumRole` is for
+         *     the board's admins.
+         */
+        patch: operations["patchBoard"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/archive/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export a board
+         * @description An archive of the board with its blocks, its files and its members, offered as a
+         *     download with its length. For the board's members. The archive is a ZIP of version
+         *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
+         *     `block` or `boardMember` per line, in the shapes of this contract, bodies included)
+         *     and the files the blocks show, the images of bodies among them.
+         *
+         *     A user runs one export at a time, and the server as many as its setting
+         *     `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
+         *     `export_running` or `server_exports_busy`, and is to be asked for again later. An
+         *     export runs until its archive is sent or the client goes away; a download that takes
+         *     nothing for `export_stall_seconds` (60 unless set) is given up, and its connection
+         *     broken before the archive's end.
+         */
+        get: operations["exportBoardArchive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The blocks of a board
+         * @description For the board's members, and for an open template everyone in its workspace.
+         *
+         *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
+         *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
+         *     list is every block of the board. A parameter with an empty value counts as left
+         *     out. Oldest first; the blocks that one request made come in the order that request
+         *     had them in.
+         */
+        get: operations["getBlocks"];
+        put?: never;
+        /**
+         * Insert blocks
+         * @description Inserts blocks under identifiers the server makes; the identifiers of the request
+         *     only link its blocks to each other. All blocks are inserted or none, and they are
+         *     listed afterwards in the order the request had them in. Comments need the role of a
+         *     commenter, everything else that of an editor. A comment is on a card of the board,
+         *     and no block is below a comment (400 at the block's `parentId`).
+         */
+        post: operations["createBlocks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change several blocks
+         * @description Applies a patch to each of several blocks of the board, all or none. A body that
+         *     names no block changes nothing and is answered 204 too. Each block needs what
+         *     `patchBlock` needs: the editor's role, for a comment its author's commenter role or
+         *     for the comment of somebody else the board's admin role.
+         */
+        patch: operations["patchBlocks"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a block
+         * @description The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
+         *     back until the trash is emptied of it. For editors; a comment is its author's to
+         *     delete from the commenter's role up, and a comment of somebody else the board's
+         *     admins' only (403, `access denied to delete other users' comments`), also as a
+         *     reply below a comment the user deletes.
+         */
+        delete: operations["deleteBlock"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a block
+         * @description For editors. A comment is changed by its author with the commenter's role, and the
+         *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
+         *     editor may not change it. The commenter's role changes a comment's text (its body);
+         *     moving a comment to another card (`parentId`) or making it a block of another type
+         *     is for editors, and making a block of somebody else a comment for the board's admins.
+         *     A comment goes only on a card of the board, no block goes below a comment (400 at
+         *     `parentId`), and a card with comments stays a card (400 at `type`). The block's
+         *     `modifiedBy` and `updateAt` say who changed it and when.
+         */
+        patch: operations["patchBlock"];
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a block
+         * @description Copies a block and the blocks directly below it, except comments. A comment cannot
+         *     be copied. For editors.
+         */
+        post: operations["duplicateBlock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/undelete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a deleted block back
+         * @description Restores a block of the board from the trash, with the blocks that went there with
+         *     it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
+         *     may no longer hold it (a comment off a card, a block below a comment): 409. For who may
+         *     delete what comes back, as `deleteBlock` has it: editors, a comment its author from
+         *     the commenter's role up if they deleted it themselves, and a comment of somebody
+         *     else the board's admins only (403, `access denied to undelete other users' comments`),
+         *     as one of the user's that somebody else deleted (403, `a comment somebody else
+         *     deleted is brought back by the board's admins`). What decides is what was
+         *     deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
+         *     so a block below somebody else's comment is brought back by the admins only, and a
+         *     card alone, so a comment that went with its card comes back for whoever may bring
+         *     back the card.
+         */
+        post: operations["undeleteBlock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/blocks/{blockId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a comment said before
+         * @description The earlier versions of a comment's body: every version but the one it has now, with
+         *     who wrote it and when. The first one first; it is the text the comment was posted
+         *     with, by its author. The server keeps the first version and the newest ones, up to
+         *     its setting `max_comment_versions` in all, so the numbers of the versions may leave
+         *     gaps. Empty for a comment whose body was never changed; the comment's `editedAt` says
+         *     whether it was. For the board's members, also in the trash: the versions go only
+         *     when the comment is gone for good. Not for a reader by the board's read token. A
+         *     block that is no comment is not there (404).
+         */
+        get: operations["getCommentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The cards of a board
+         * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
+         *     that order. A `page` or `perPage` that is no whole number is 400. With
+         *     `preview=true` each card has its `preview` (the first image and the beginning of the
+         *     text of its body), which a list without it leaves out.
+         */
+        get: operations["getCards"];
+        put?: never;
+        /**
+         * Make a card
+         * @description The server chooses the identifier, the creator and the times. For editors.
+         *
+         *     The value of a card relation property (of the `type` `relation`) is `null` or a list
+         *     of other cards of the board, in the trash or not, each once, at most 50 (a value over
+         *     it from before may be written with fewer of its cards, not with another). Any other is
+         *     400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,
+         *     `relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board
+         *     that is no card) or `relation_card_not_found`: no card of that identifier on the
+         *     board, which is also the answer for a card of another board. Every write of a card
+         *     checks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it
+         *     changes, and does not ask again for a card that a value named before.
+         */
+        post: operations["createCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a board
+         * @description Copies a board with its blocks, except comments, as a board or as a template. The
+         *     user becomes the admin of the copy, which is always private. A copy of the same kind
+         *     has the title of the original with ` copy` after it; a template made from a board is
+         *     titled `New board template`, and a board made from a template keeps the title. The
+         *     board's members may copy it; an open template is for everyone in its workspace, and a
+         *     built-in template for everyone.
+         */
+        post: operations["duplicateBoard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file
+         * @description Stores a file with the board. The request is a `multipart/form-data` form whose
+         *     part `file` carries the file and a file name. The file is limited to one part of an
+         *     upload in parts (8 MiB unless the server is configured otherwise), and to the
+         *     `maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where
+         *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
+         *     `maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is
+         *     not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+         *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
+         *     anything but letters and digits in it, is left off. For editors.
+         */
+        post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A file
+         * @description The content of a file of the board, for the board's members. A file is asked for
+         *     through its own board only: through another board it is not there.
+         *
+         *     Every file is sent as `application/octet-stream` and offered as a download
+         *     (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
+         *     uploaded with, which `getFileInfo` has. The answer honours `Range` with one range,
+         *     unless the request has `If-Range`. It may be cached by the browser of who asked but
+         *     must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
+         *     download: the `Last-Modified` of an answer is the time of that answer, so a request
+         *     with the `If-Modified-Since` of an earlier answer gets the whole file again.
+         */
+        get: operations["getFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/files/{fileId}/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What is known about a file
+         * @description The name a file was uploaded under, its size and when it was uploaded. For the
+         *     board's members.
+         */
+        get: operations["getFileInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join an open board
+         * @description Makes the user a member of an open board, with the board's minimum role. A member
+         *     below that role is raised to it; a member with that role or a higher one stays as
+         *     they are. A template cannot be joined, and a private board is not there for who is
+         *     no member of it.
+         */
+        post: operations["joinBoard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave a board
+         * @description Ends the user's own membership of a board. The last admin of a board cannot leave
+         *     it: that is 409 with the reason `last_admin`.
+         */
+        post: operations["leaveBoard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The members of a board
+         * @description For the board's members and the workspace's administrators. Who left the workspace
+         *     is not listed, whatever role they had on the board. By the identifier of the user: a
+         *     membership has no time of its own, so this is not the order in which the users came
+         *     to the board.
+         */
+        get: operations["getMembers"];
+        put?: never;
+        /**
+         * Make a user a member of a board
+         * @description The board's admins add members with the roles the request names; with no role at
+         *     all the member may do nothing on the board, not even view it. On an open board
+         *     editors who work in the workspace add members too, with the board's minimum role,
+         *     whatever else the request names; a request of theirs that asks for `schemeAdmin` is
+         *     403. A guest of the workspace is given no role above editor: asking for
+         *     `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
+         *     member already stays as they are. The workspace's administrators manage the members
+         *     of every board of it; one who makes themselves a member of a board whose content
+         *     they could not read is recorded in the organization's audit log.
+         */
+        post: operations["addMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change the roles of a member
+         * @description Replaces the roles of a member of the board; with no role at all the member may do
+         *     nothing on the board, not even view it. For the board's admins. The last admin of a
+         *     board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
+         *     workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
+         *     reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
+         *     more, is 404.
+         */
+        put: operations["updateMember"];
+        post?: never;
+        /**
+         * Remove a member from a board
+         * @description For the board's admins. The last admin of a board cannot be removed: that is 409
+         *     with the reason `last_admin`. Removing a user who is no member is no error, and is
+         *     answered 204 like a removal.
+         */
+        delete: operations["removeMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/property-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put the card properties of a board in an order
+         * @description The body names every card property of the board (`cardProperties`, by `id`) once,
+         *     in the new order, as `reorderCategories` names categories; one left out, one named
+         *     twice or one the board does not have is 400, and nothing changes. For who may manage
+         *     the board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as
+         *     for any change of the board.
+         */
+        put: operations["reorderCardProperties"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether a board is shared
+         * @description Whether the board is shared, and with which read token. A board that was never
+         *     shared is not shared. For the board's admins.
+         */
+        get: operations["getSharing"];
+        put?: never;
+        /**
+         * Share a board, or stop sharing it
+         * @description Shares the board, shares it under a new read token, or stops sharing it. The server
+         *     makes the token; a request that names one is 400. Where the server is configured
+         *     without public sharing, every request is refused with 403 and the reason
+         *     `sharing_disabled`, also one that stops sharing. For the board's admins.
+         */
+        post: operations["setSharing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/trash/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted cards of a board
+         * @description One page of the board's cards that are in the trash, each with its identifier, its
+         *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
+         *     trash is emptied of it. A card that went with the block it was on (another card, a
+         *     view) comes back with that block, and is not listed. For the board's editors. The
+         *     last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
+         *     number is 400.
+         */
+        get: operations["getDeletedCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/undelete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a deleted board back
+         * @description Restores a board from the trash with its blocks and its members. Each user who had
+         *     filed it, and can see it again, finds it where it was in the sidebar (the same
+         *     category and place, hidden or not) or in the default category if that one was
+         *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
+         *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
+         *     the deletion and stay ended. For who was an admin of the board when it was deleted,
+         *     and for the workspace's administrators (who, if they were no member, get it without
+         *     its description and properties); to anybody else there is no such board.
+         */
+        post: operations["undeleteBoard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/{boardId}/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open an upload
+         * @description Opens an upload of a file to the board in parts. The answer says how large the
+         *     parts are and how many; send each with `putUploadPart`, in any order and again
+         *     after a failure, then `completeUpload`. A file larger than `maxFileSize` of
+         *     `getClientConfig` is 413. A user has at most 8
+         *     uploads open, holding back at most twice `maxFileSize` together, and the server's
+         *     open uploads hold back at most what it is configured for: an upload over one of
+         *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
+         *     `server_uploads_pending`. An upload is open until it is completed, abandoned or
+         *     ends; one that ends is thrown away with its parts within the hour. For editors, as
+         *     `uploadFile`.
+         */
+        post: operations["createUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/cards/{cardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A card
+         * @description For the members of the card's board. To a user who is no member of it there is no
+         *     such card.
+         */
+        get: operations["getCard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a card
+         * @description For editors of the card's board. To a user who is no member of that board there is
+         *     no such card. The relation values it changes are checked as `createCard` says.
+         */
+        patch: operations["patchCard"];
         trace?: never;
     };
     "/api/v1/w/{workspaceId}/categories": {
@@ -1882,6 +1651,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Subscribe to a block
+         * @description Subscribes the user of the session to a block of a board they are a member of. A
+         *     `subscriberId` that is not the user of the session is 403, and a `subscriberType`
+         *     other than `user` is 400. The `blockType` is stored as it is sent, and not compared
+         *     with the block. Subscribing again is no error: the subscription stays as it was
+         *     made, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.
+         */
+        post: operations["createSubscription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End a subscription
+         * @description Ends the subscription of the user of the session to a block. Nothing about the
+         *     block is checked: a subscription to a block the user may no longer see can still be
+         *     ended. A subscription that is not there is 404, and so are those of another user.
+         */
+        delete: operations["deleteSubscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/subscriptions/{subscriberId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The subscriptions of the user
+         * @description The subscriptions of the user of the session; those of another user are not there.
+         *     Oldest first, and by the identifier of the block among those made in the same
+         *     millisecond.
+         */
+        get: operations["getSubscriptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/templates": {
         parameters: {
             query?: never;
@@ -1928,6 +1765,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/uploads/{uploadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an upload
+         * @description The upload and the parts it has received: what a client that lost its place sends
+         *     next. Another user's upload, and one that has ended, is 404.
+         */
+        get: operations["getUpload"];
+        put?: never;
+        post?: never;
+        /**
+         * Abandon an upload
+         * @description Ends the upload and throws its parts away. An upload that is being completed is
+         *     409.
+         */
+        delete: operations["deleteUpload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/uploads/{uploadId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete an upload
+         * @description Makes the file of the upload from its parts and ends the upload. Every part must
+         *     have been received; a part missing is 400, and the upload stays open for it. The
+         *     answer is the one of `uploadFile`. For editors of the board, at completion as when
+         *     the upload was opened: a user who may not upload to the board any more is refused,
+         *     and the upload is thrown away. An upload that is being completed is 409; an upload
+         *     of an archive is 400, and is imported with `importArchive`.
+         */
+        post: operations["completeUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/uploads/{uploadId}/parts/{partNumber}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Send a part
+         * @description Sends part `partNumber` of the upload as the body, `application/octet-stream`.
+         *     `Content-Length` is required and must be the part's size: `partSize`, or the rest
+         *     for the last part; another length is refused with 400 before the body is looked at.
+         *     What is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5
+         *     seconds, so that the client reads the answer; a larger or slower body is cut off.
+         *     (A browser sets `Content-Length` itself.)
+         *     `Content-Digest` carries the part's SHA-256. A part whose length or digest differs
+         *     is 400 and is not kept; a part sent again replaces the one received. An upload that
+         *     is being completed or abandoned is 409.
+         */
+        put: operations["putUploadPart"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/users": {
         parameters: {
             query?: never;
@@ -1955,6 +1871,27 @@ export interface paths {
          *     account first, not in the order of the request.
          */
         post: operations["getWorkspaceUsersById"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A user of a workspace
+         * @description A user the user sees in the workspace, as `getWorkspaceUsersById` finds them; anybody
+         *     else is 404, as one who does not exist.
+         */
+        get: operations["getWorkspaceUser"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2678,14 +2615,12 @@ export interface components {
             title?: string | null;
             /** @description Whether the board is open or private. */
             type: components["schemas"]["BoardType"];
-            /** @description The identifier of the workspace the board is made in. */
-            workspaceId: string;
         };
         /** @description Boards and their blocks, to make together. */
         NewBoardsAndBlocks: {
             /** @description The blocks, at least one. The `boardId` of each is the `id` of one of `boards`. */
             blocks: components["schemas"]["NewBlock"][];
-            /** @description The boards, at least one, all of one workspace. Each needs an `id`. */
+            /** @description The boards, at least one. Each needs an `id`. */
             boards: components["schemas"]["NewBoard"][];
         };
         /** @description A card to make. */
@@ -3368,1333 +3303,6 @@ export interface operations {
             };
         };
     };
-    createBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewBoard"];
-            };
-        };
-        responses: {
-            /** @description The board that was made. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createBoardsAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewBoardsAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardsAndBlocks"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteBoardsAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteBoardsAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards and blocks are deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchBoardsAndBlocks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchBoardsAndBlocks"];
-            };
-        };
-        responses: {
-            /** @description The boards and the blocks as they are now, each in the order of the request. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardsAndBlocks"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    searchBoards: {
-        parameters: {
-            query?: {
-                /** @description What to look for. Without it nothing is found. */
-                q?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The boards that match. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The board. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The board is deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BoardPatch"];
-            };
-        };
-        responses: {
-            /** @description The board as it is now. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    exportBoardArchive: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The archive. */
-            200: {
-                headers: {
-                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
-                    "Content-Disposition"?: string;
-                    /** @description The size of the archive in bytes. */
-                    "Content-Length"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getBlocks: {
-        parameters: {
-            query?: {
-                /** @description Any value that is not empty asks for every block of the board, and the other parameters are not looked at. */
-                all?: string;
-                /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
-                blockId?: string;
-                /** @description Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board. */
-                parentId?: string;
-                /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
-                type?: string;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The blocks. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createBlocks: {
-        parameters: {
-            query?: {
-                /** @description The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. */
-                sourceBoardId?: string;
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewBlock"][];
-            };
-        };
-        responses: {
-            /** @description The blocks as they were stored, in the order of the request. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchBlocks: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BlockPatchBatch"];
-            };
-        };
-        responses: {
-            /** @description The blocks are changed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteBlock: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The block is deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchBlock: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BlockPatch"];
-            };
-        };
-        responses: {
-            /** @description The block is changed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    duplicateBlock: {
-        parameters: {
-            query?: {
-                /** @description `true` makes the copy a template. Any other value does not. */
-                asTemplate?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The copies: the copy of the block first, then those of the blocks directly below it, oldest first. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    undeleteBlock: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The block as it is again. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Block"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getCommentVersions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the block. */
-                blockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The earlier versions, the first one first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CommentVersion"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getCards: {
-        parameters: {
-            query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
-                page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
-                perPage?: number;
-                /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
-                preview?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The cards of the page. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Card"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createCard: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewCard"];
-            };
-        };
-        responses: {
-            /** @description The card that was made. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Card"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    duplicateBoard: {
-        parameters: {
-            query?: {
-                /** @description `true` makes the copy a template. Any other value does not. */
-                asTemplate?: boolean;
-                /** @description The workspace the copy goes to. Left out, it stays in the workspace of the board. */
-                toWorkspace?: string;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The copy: one board and its blocks. The blocks are in the order of the original's, oldest first. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardsAndBlocks"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    uploadFile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["FileForm"];
-            };
-        };
-        responses: {
-            /** @description The file is stored. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadedFile"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getFile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
-                fileId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The file. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-            /** @description The range of the file that was asked for. */
-            206: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-            /** @description Only for a request with `If-None-Match: *`, or with an `If-Modified-Since` that is not before the time of the answer. No body. */
-            304: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request has an `If-Unmodified-Since` before the time of the answer. */
-            412: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description The range is not in the file, or is no range. A range that is not in the file is answered with a `Content-Range` that tells the file's length. */
-            416: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getFileInfo: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
-                fileId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description What is known about the file. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FileInfo"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    joinBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The membership as it is now. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardMember"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    leaveBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The user is no member any more. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getMembers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The members. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardMember"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    addMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewMember"];
-            };
-        };
-        responses: {
-            /** @description The membership as it is now. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardMember"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    updateMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the user. */
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MemberRoles"];
-            };
-        };
-        responses: {
-            /** @description The membership as it is now. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BoardMember"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    removeMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-                /** @description The identifier of the user. */
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The user is no member any more. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    reorderCardProperties: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description The identifiers of the card properties in their new order. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getSharing: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The sharing state. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Sharing"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    setSharing: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SharingRequest"];
-            };
-        };
-        responses: {
-            /** @description The sharing state as it is now, with the token while the board is shared. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Sharing"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getDeletedCards: {
-        parameters: {
-            query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
-                page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
-                perPage?: number;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The deleted cards of the page. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeletedItem"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    undeleteBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The board as it is again. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createUpload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewUpload"];
-            };
-        };
-        responses: {
-            /** @description The upload is open. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadOpened"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getCard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the card. */
-                cardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The card. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Card"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    patchCard: {
-        parameters: {
-            query?: {
-                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
-                disableNotify?: boolean;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the card. */
-                cardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CardPatch"];
-            };
-        };
-        responses: {
-            /** @description The card as it is now. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Card"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
     getClientConfig: {
         parameters: {
             query?: never;
@@ -5269,269 +3877,6 @@ export interface operations {
             };
         };
     };
-    createSubscription: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewSubscription"];
-            };
-        };
-        responses: {
-            /** @description The subscription. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Subscription"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteSubscription: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the block. */
-                blockId: string;
-                /** @description The identifier of the subscriber: the user of the session. */
-                subscriberId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The subscription is ended. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getSubscriptions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the subscriber: the user of the session. */
-                subscriberId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The subscriptions. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Subscription"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getUpload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
-                uploadId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The upload. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadState"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteUpload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
-                uploadId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The upload is gone. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    completeUpload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
-                uploadId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The file is stored. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadedFile"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    putUploadPart: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description The SHA-256 digest of the part, as RFC 9530 writes it: `sha-256=:<base64 of the 32 bytes>:`. Other algorithms in the header are not looked at. */
-                "Content-Digest": string;
-            };
-            path: {
-                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
-                uploadId: string;
-                /** @description The number of the part, from 1 to the `partCount` of the upload. */
-                partNumber: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/octet-stream": string;
-            };
-        };
-        responses: {
-            /** @description The part is received. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getUsers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description The users. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["User"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
     getMe: {
         parameters: {
             query?: never;
@@ -5824,38 +4169,6 @@ export interface operations {
             };
         };
     };
-    getUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the user. */
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The user. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["User"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
     setUserAdmin: {
         parameters: {
             query?: never;
@@ -6064,6 +4377,148 @@ export interface operations {
             };
         };
     };
+    createBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewBoard"];
+            };
+        };
+        responses: {
+            /** @description The board that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createBoardsAndBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewBoardsAndBlocks"];
+            };
+        };
+        responses: {
+            /** @description The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardsAndBlocks"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteBoardsAndBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteBoardsAndBlocks"];
+            };
+        };
+        responses: {
+            /** @description The boards and blocks are deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchBoardsAndBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchBoardsAndBlocks"];
+            };
+        };
+        responses: {
+            /** @description The boards and the blocks as they are now, each in the order of the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardsAndBlocks"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     searchWorkspaceBoards: {
         parameters: {
             query?: {
@@ -6088,6 +4543,1235 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Board"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BoardPatch"];
+            };
+        };
+        responses: {
+            /** @description The board as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exportBoardArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archive. */
+            200: {
+                headers: {
+                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
+                    "Content-Disposition"?: string;
+                    /** @description The size of the archive in bytes. */
+                    "Content-Length"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getBlocks: {
+        parameters: {
+            query?: {
+                /** @description Any value that is not empty asks for every block of the board, and the other parameters are not looked at. */
+                all?: string;
+                /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
+                blockId?: string;
+                /** @description Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board. */
+                parentId?: string;
+                /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
+                type?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The blocks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createBlocks: {
+        parameters: {
+            query?: {
+                /** @description The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies. */
+                sourceBoardId?: string;
+                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewBlock"][];
+            };
+        };
+        responses: {
+            /** @description The blocks as they were stored, in the order of the request. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchBlocks: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BlockPatchBatch"];
+            };
+        };
+        responses: {
+            /** @description The blocks are changed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteBlock: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The block is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchBlock: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BlockPatch"];
+            };
+        };
+        responses: {
+            /** @description The block is changed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    duplicateBlock: {
+        parameters: {
+            query?: {
+                /** @description `true` makes the copy a template. Any other value does not. */
+                asTemplate?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The copies: the copy of the block first, then those of the blocks directly below it, oldest first. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undeleteBlock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The block as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCommentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The earlier versions, the first one first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentVersion"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCards: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+                /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
+                preview?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCard: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCard"];
+            };
+        };
+        responses: {
+            /** @description The card that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    duplicateBoard: {
+        parameters: {
+            query?: {
+                /** @description `true` makes the copy a template. Any other value does not. */
+                asTemplate?: boolean;
+                /** @description The workspace the copy goes to: one the user works in. Left out, the workspace of the path. */
+                toWorkspace?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The copy: one board and its blocks. The blocks are in the order of the original's, oldest first. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardsAndBlocks"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["FileForm"];
+            };
+        };
+        responses: {
+            /** @description The file is stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadedFile"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The range of the file that was asked for. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Only for a request with `If-None-Match: *`, or with an `If-Modified-Since` that is not before the time of the answer. No body. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request has an `If-Unmodified-Since` before the time of the answer. */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The range is not in the file, or is no range. A range that is not in the file is answered with a `Content-Range` that tells the file's length. */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getFileInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What is known about the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileInfo"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    joinBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The membership as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMember"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    leaveBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user is no member any more. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMember"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewMember"];
+            };
+        };
+        responses: {
+            /** @description The membership as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMember"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoles"];
+            };
+        };
+        responses: {
+            /** @description The membership as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoardMember"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user is no member any more. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reorderCardProperties: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description The identifiers of the card properties in their new order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sharing state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sharing"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setSharing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharingRequest"];
+            };
+        };
+        responses: {
+            /** @description The sharing state as it is now, with the token while the board is shared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sharing"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDeletedCards: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted cards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedItem"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    undeleteBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board as it is again. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewUpload"];
+            };
+        };
+        responses: {
+            /** @description The upload is open. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOpened"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The card. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchCard: {
+        parameters: {
+            query?: {
+                /** @description `true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing. */
+                disableNotify?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the card. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardPatch"];
+            };
+        };
+        responses: {
+            /** @description The card as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
@@ -6479,6 +6163,110 @@ export interface operations {
             };
         };
     };
+    createSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewSubscription"];
+            };
+        };
+        responses: {
+            /** @description The subscription. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Subscription"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the block. */
+                blockId: string;
+                /** @description The identifier of the subscriber: the user of the session. */
+                subscriberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The subscription is ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSubscriptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the subscriber: the user of the session. */
+                subscriberId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The subscriptions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Subscription"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getTemplates: {
         parameters: {
             query?: never;
@@ -6536,6 +6324,147 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeletedItem"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadState"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upload is gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    completeUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file is stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadedFile"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putUploadPart: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The SHA-256 digest of the part, as RFC 9530 writes it: `sha-256=:<base64 of the 32 bytes>:`. Other algorithms in the header are not looked at. */
+                "Content-Digest": string;
+            };
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+                /** @description The number of the part, from 1 to the `partCount` of the upload. */
+                partNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The part is received. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -6606,6 +6535,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
+                workspaceId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

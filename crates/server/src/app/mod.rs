@@ -103,6 +103,10 @@ pub struct App {
     inner: Arc<Inner>,
     store: Store,
     ws: Hub,
+    /// The workspace a request names in its path ([`App::in_workspace`]): what is of
+    /// another workspace is not there for this handle. `None` reaches every workspace
+    /// of the organization.
+    workspace: Option<Arc<str>>,
 }
 
 #[derive(Debug)]
@@ -228,6 +232,7 @@ impl App {
         Ok(Self {
             store,
             ws,
+            workspace: None,
             inner: Arc::new(Inner {
                 config,
                 auth,
@@ -276,7 +281,35 @@ impl App {
             inner: Arc::clone(&self.inner),
             ws,
             store,
+            workspace: None,
         }
+    }
+
+    /// The same handle, for a request that names the workspace in its path: a board of
+    /// another workspace, and what is on it, is not there for it ([`App::board_access`]),
+    /// but for the built-in templates, which are every workspace's.
+    #[must_use]
+    pub fn in_workspace(&self, workspace_id: &str) -> Self {
+        Self {
+            workspace: Some(Arc::from(workspace_id)),
+            ..self.clone()
+        }
+    }
+
+    /// Whether what is of `workspace_id` is there for this handle: always, unless the
+    /// handle is for one workspace ([`App::in_workspace`]) and that is another.
+    #[must_use]
+    pub fn reaches_workspace(&self, workspace_id: &str) -> bool {
+        self.workspace
+            .as_deref()
+            .is_none_or(|ours| ours == workspace_id)
+    }
+
+    /// Whether the board is there for this handle: a built-in template always, any other
+    /// board if its workspace is ([`App::reaches_workspace`]).
+    #[must_use]
+    pub fn reaches_board(&self, board: &fvoci_model::Board) -> bool {
+        board.is_builtin || self.reaches_workspace(&board.workspace_id)
     }
 
     /// The database, as this handle reaches it.

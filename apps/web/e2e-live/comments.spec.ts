@@ -35,11 +35,11 @@ function lines(body: unknown): string[] {
 
 async function commentsOn(
   api: APIRequestContext,
-  boardId: string,
+  board: { workspaceId: string; boardId: string },
   cardId: string,
 ): Promise<Schemas['Block'][]> {
   return (await (
-    await api.get(`/api/v1/boards/${boardId}/blocks`, {
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
       params: { parentId: cardId, type: 'comment' },
     })
   ).json()) as Schemas['Block'][];
@@ -70,7 +70,7 @@ test('a comment is written, changed and deleted on the server, its text a docume
     cards: [{ title: 'Choose a date', status: 'To do' }],
   });
   const cardId = board.cards['Choose a date'] ?? '';
-  const stored = () => commentsOn(api, board.boardId, cardId);
+  const stored = () => commentsOn(api, board, cardId);
 
   const errors = watchErrors(page);
   await openCard(page, boardPath(board, board.viewId, cardId), owner);
@@ -161,7 +161,7 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
   await hostPage.getByTestId('comment-edit').locator('textarea').fill('No mushrooms, no olives');
   await hostPage.getByRole('button', { name: 'Save' }).click();
   await expect(hostPage.getByTestId('comment-edit')).toHaveCount(0);
-  expect((await commentsOn(api, board.boardId, cardId)).map((one) => lines(one.body))).toEqual([
+  expect((await commentsOn(api, board, cardId)).map((one) => lines(one.body))).toEqual([
     ['No mushrooms, no olives'],
   ]);
 
@@ -173,7 +173,7 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
   await guestPage.getByRole('button', { name: 'Save' }).click();
   await expect(guestPage.getByTestId('comment-edit')).toHaveCount(0);
   const me = (await (await api.get('/api/v1/users/me')).json()) as Schemas['User'];
-  expect((await commentsOn(api, board.boardId, cardId))[0]?.modifiedBy).toBe(me.id);
+  expect((await commentsOn(api, board, cardId))[0]?.modifiedBy).toBe(me.id);
 
   // Everybody sees who changed it last, as it happens, and can read what it said before.
   for (const page of pages) {
@@ -199,12 +199,14 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
 
   // A reader by the public link gets the comment, but not what it said before.
   const shared = (await (
-    await api.post(`/api/v1/boards/${board.boardId}/sharing`, { data: { enabled: true } })
+    await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`, {
+      data: { enabled: true },
+    })
   ).json()) as Schemas['Sharing'];
   const anonymous = await request.newContext({ baseURL: base });
-  const [comment] = await commentsOn(api, board.boardId, cardId);
+  const [comment] = await commentsOn(api, board, cardId);
   const asReader = await anonymous.get(
-    `/api/v1/boards/${board.boardId}/blocks/${comment?.id ?? ''}/versions`,
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${comment?.id ?? ''}/versions`,
     { params: { readToken: shared.token ?? '' } },
   );
   expect(asReader.status()).toBe(401);
@@ -228,7 +230,7 @@ test('a comment changed elsewhere while its field is open is not written over un
     cards: [{ title: 'Draft the letter', status: 'To do' }],
   });
   const cardId = board.cards['Draft the letter'] ?? '';
-  const stored = () => commentsOn(api, board.boardId, cardId);
+  const stored = () => commentsOn(api, board, cardId);
   const paragraph = (text: string) => ({
     type: 'doc',
     content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
@@ -245,9 +247,12 @@ test('a comment changed elsewhere while its field is open is not written over un
 
   // Meanwhile the same person changes it in another tab; the page hears of it.
   const [comment] = await stored();
-  const changed = await api.patch(`/api/v1/boards/${board.boardId}/blocks/${comment?.id ?? ''}`, {
-    data: { body: paragraph('Words from the other tab'), readAt: comment?.updateAt },
-  });
+  const changed = await api.patch(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${comment?.id ?? ''}`,
+    {
+      data: { body: paragraph('Words from the other tab'), readAt: comment?.updateAt },
+    },
+  );
   expect(changed.status()).toBe(204);
 
   // Saving on the version the field was opened on is refused: theirs is shown, nothing written over.
@@ -288,13 +293,13 @@ test('a commenter deletes their own comment and brings it back with undo; somebo
   const cardId = board.cards.Plan ?? '';
   const path = boardPath(board, board.viewId, cardId);
   const stored = async () =>
-    (await commentsOn(api, board.boardId, cardId)).map((one) => lines(one.body)).sort();
+    (await commentsOn(api, board, cardId)).map((one) => lines(one.body)).sort();
 
   const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
   const errors = watchErrors(page);
   await openCard(page, path, guest);
   // The owner's comment first, then the guest's own.
-  await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
+  await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
         boardId: board.boardId,

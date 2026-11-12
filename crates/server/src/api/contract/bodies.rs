@@ -26,8 +26,6 @@ pub(crate) struct NewBoard {
     /// the board another identifier. Where one board is made, a board with an `id` is
     /// refused.
     id: Option<String>,
-    /// The identifier of the workspace the board is made in.
-    workspace_id: String,
     /// Whether the board is open or private.
     #[schema(rename = "type")]
     board_type: BoardType,
@@ -95,7 +93,7 @@ pub(crate) struct NewBlock {
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewBoardsAndBlocks {
-    /// The boards, at least one, all of one workspace. Each needs an `id`.
+    /// The boards, at least one. Each needs an `id`.
     boards: Vec<NewBoard>,
     /// The blocks, at least one. The `boardId` of each is the `id` of one of `boards`.
     blocks: Vec<NewBlock>,

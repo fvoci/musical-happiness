@@ -7,6 +7,8 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
+use crate::common::TEST_WS;
 use crate::common::{
     Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, USER1_USERNAME,
 };
@@ -167,7 +169,7 @@ async fn the_type_of_a_problem_is_the_address_of_a_page_about_its_kind() {
         .expect("the kinds of problem of the contract");
     assert!(listed.len() > 20, "{} kinds", listed.len());
 
-    for base_path in ["", "/boards"] {
+    for base_path in ["", &format!("{ROOT_WS}/boards")] {
         let th = Setup::native().base_path(base_path).start().await;
         let origin = th
             .base_url
@@ -238,7 +240,11 @@ async fn the_type_of_a_problem_is_the_address_of_a_page_about_its_kind() {
 #[tokio::test]
 async fn a_path_that_is_no_text_is_a_problem_like_any_other_error() {
     let th = Setup::native().start().await.init_basic().await;
-    for path in ["/boards/%FF", "/boards/%FF/sharing", "/users/%C3%28"] {
+    for path in [
+        &format!("{ROOT_WS}/boards/%FF"),
+        &format!("{ROOT_WS}/boards/%FF/sharing"),
+        &format!("{ROOT_WS}/users/%C3%28"),
+    ] {
         let response = th.client.get(path).await;
         response.check_error(StatusCode::BAD_REQUEST, "the request is malformed");
         assert_eq!(response.header("cache-control"), "no-store", "{path}");
@@ -258,7 +264,10 @@ async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
         .id;
     let card: Value = th
         .client
-        .post(&format!("/boards/{board}/cards"), &json!({"title": "card"}))
+        .post(
+            &format!("{TEST_WS}/boards/{board}/cards"),
+            &json!({"title": "card"}),
+        )
         .await
         .created_json();
     let card = card["id"].as_str().expect("the card has an identifier");
@@ -268,20 +277,24 @@ async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
     let requests = [
         (
             Method::PATCH,
-            format!("/boards/{board}/blocks/{card}"),
+            format!("{TEST_WS}/boards/{board}/blocks/{card}"),
             json!({"title": "patched"}),
         ),
         (
             Method::PATCH,
-            format!("/boards/{board}/blocks"),
+            format!("{TEST_WS}/boards/{board}/blocks"),
             json!({"blockIds": [card], "blockPatches": [{"title": "patched in a batch"}]}),
         ),
         (
             Method::DELETE,
-            format!("/boards/{board}/blocks/{card}"),
+            format!("{TEST_WS}/boards/{board}/blocks/{card}"),
             Value::Null,
         ),
-        (Method::DELETE, format!("/boards/{board}"), Value::Null),
+        (
+            Method::DELETE,
+            format!("{TEST_WS}/boards/{board}"),
+            Value::Null,
+        ),
         (
             Method::POST,
             "/login".to_owned(),
@@ -322,7 +335,7 @@ async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
 #[tokio::test]
 async fn base_path_prefixes_every_route() {
     let th = Setup::native()
-        .base_path("/boards")
+        .base_path(&format!("{ROOT_WS}/boards"))
         .configure(|config| config.server_root = "https://example.com/boards".to_owned())
         .start()
         .await
@@ -340,7 +353,7 @@ async fn base_path_prefixes_every_route() {
     );
 
     // Outside the prefix there is nothing.
-    let root = th.base_url.trim_end_matches("/boards");
+    let root = th.base_url.trim_end_matches(&format!("{ROOT_WS}/boards"));
     let outside = reqwest::get(format!("{root}/api/v1/client-config"))
         .await
         .expect("the server answers");
@@ -359,11 +372,11 @@ async fn startup_refuses_a_malformed_base_path() {
     for base_path in [
         "boards",
         "/boards/{workspace}",
-        "/boards/*rest",
+        &format!("{ROOT_WS}/boards/*rest"),
         // The router would read these as patterns, or never match them.
         "/:boards",
-        "/boards/:workspace",
-        "/boards?x=1",
+        &format!("{ROOT_WS}/boards/:workspace"),
+        &format!("{ROOT_WS}/boards?x=1"),
         "/boards#top",
         "/a//b",
         "/my boards",
@@ -382,9 +395,15 @@ async fn startup_refuses_a_malformed_base_path() {
     }
 
     // A trailing slash is fine, as before: the base path is the same without it.
-    let th = Setup::native().base_path("/boards/").start().await;
+    let th = Setup::native()
+        .base_path(&format!("{ROOT_WS}/boards/"))
+        .start()
+        .await;
     let hello = format!("{}/api/v1/hello", th.base_url.trim_end_matches('/'));
-    assert!(hello.ends_with("/boards/api/v1/hello"), "{hello}");
+    assert!(
+        hello.ends_with(&format!("{ROOT_WS}/boards/api/v1/hello")),
+        "{hello}"
+    );
     let response = Client::send(reqwest::Client::new().get(hello)).await;
     response.check_ok();
     assert_eq!(response.text(), "Hello", "the API, not the web app's page");
@@ -406,7 +425,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
         let body =
             json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}).to_string();
         let request = format!(
-            "POST /api/v1/boards HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\n\
+            "POST /api/v1/w/{ROOT_WORKSPACE_ID}/boards HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\n\
              X-Requested-With: XMLHttpRequest\r\nContent-Type: application/json\r\n\
              Content-Length: {}\r\n\r\n{body}",
             th.client.token,
@@ -431,11 +450,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
     let mut settled = (0, 0, 0);
     for _ in 0..100 {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        let boards = th
-            .client
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
-            .await
-            .value();
+        let boards = th.client.get(&format!("{ROOT_WS}/boards")).await.value();
         let created: Vec<&str> = boards
             .as_array()
             .into_iter()
@@ -444,7 +459,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
             .collect();
         let categories = th
             .client
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
+            .get(&format!("{ROOT_WS}/categories"))
             .await
             .value();
         let filed: Vec<&str> = categories

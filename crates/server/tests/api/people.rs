@@ -7,6 +7,8 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::boards::{member, new_board};
+use crate::common::ROOT_WS;
+use crate::common::TEST_WS;
 use crate::common::{
     ApiResponse, Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID,
     TestServer, UNKNOWN_ID,
@@ -62,20 +64,22 @@ async fn a_user_sees_who_shares_a_workspace_and_nobody_else() {
     let user2 = th.client2.me().await.id;
     let elsewhere = somebody_elsewhere(&th).await;
 
-    let listed: Vec<User> = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/users"))
-        .await
-        .ok_json();
+    let listed: Vec<User> = th.client.get(&format!("{TEST_WS}/users")).await.ok_json();
     let found = search(&th.client, TEST_WORKSPACE_ID, "elsewhere").await;
-    let profile = th.client.get(&format!("/users/{elsewhere}")).await;
-    let unknown = th.client.get(&format!("/users/{UNKNOWN_ID}")).await;
-    let by_ids = th.client.post("/users", &[&user2, &elsewhere]).await;
+    let profile = th.client.get(&format!("{TEST_WS}/users/{elsewhere}")).await;
+    let unknown = th
+        .client
+        .get(&format!("{TEST_WS}/users/{UNKNOWN_ID}"))
+        .await;
+    let by_ids = th
+        .client
+        .post(&format!("{TEST_WS}/users"), &[&user2, &elsewhere])
+        .await;
     let in_workspace = th
         .client
-        .post(&format!("/w/{TEST_WORKSPACE_ID}/users"), &[&elsewhere])
+        .post(&format!("{TEST_WS}/users"), &[&elsewhere])
         .await;
-    let coworker = th.client.get(&format!("/users/{user2}")).await;
+    let coworker = th.client.get(&format!("{TEST_WS}/users/{user2}")).await;
     th.teardown().await;
 
     assert_eq!(names(&listed), ["user1", "user2"], "the workspace's people");
@@ -113,15 +117,11 @@ async fn a_guest_sees_who_is_on_its_boards() {
         .await
         .check_ok();
 
-    let listed: Vec<User> = th
-        .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/users"))
-        .await
-        .ok_json();
+    let listed: Vec<User> = th.client2.get(&format!("{TEST_WS}/users")).await.ok_json();
     let found = search(&th.client2, TEST_WORKSPACE_ID, "third").await;
     let third_by_id = th
         .client2
-        .post(&format!("/w/{TEST_WORKSPACE_ID}/users"), &[&third])
+        .post(&format!("{TEST_WS}/users"), &[&third])
         .await;
     // In the root workspace, where the second user works, the third is a coworker.
     let third_from_root = search(&th.client2, ROOT_WORKSPACE_ID, "third").await;
@@ -154,7 +154,7 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         .check_ok();
     th.client2
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &json!({"title": "Mine"}),
         )
         .await
@@ -173,30 +173,30 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
     // The first user reads the board, where the leaver wrote a card.
     let by_id: Vec<User> = th
         .client
-        .post(&format!("/w/{TEST_WORKSPACE_ID}/users"), &[&leaver])
+        .post(&format!("{TEST_WS}/users"), &[&leaver])
         .await
         .ok_json();
-    let profile = th.client.get(&format!("/users/{leaver}")).await;
+    let profile = th.client.get(&format!("{TEST_WS}/users/{leaver}")).await;
     let found: Vec<User> = th
         .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/users?search=user2"))
+        .get(&format!("{TEST_WS}/users?search=user2"))
         .await
         .ok_json();
     let members: Vec<BoardMember> = th
         .client
-        .get(&format!("/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
         .await
         .ok_json();
     let archive = th
         .client
-        .get(&format!("/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let archive = archive_text(&archive.body);
     // The leaver sees nobody but themselves.
     let user1 = th.client.me().await.id;
-    let seen_by_leaver = th.client2.get(&format!("/users/{user1}")).await;
-    let themselves = th.client2.get(&format!("/users/{leaver}")).await;
+    let seen_by_leaver = th.client2.get(&format!("{TEST_WS}/users/{user1}")).await;
+    let themselves = th.client2.get(&format!("{TEST_WS}/users/{leaver}")).await;
     th.teardown().await;
 
     assert_eq!(names(&by_id), ["user2"], "the card's author is named");
@@ -210,8 +210,9 @@ async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
         !archive.contains(&format!("\"userId\":\"{leaver}\"")),
         "the archive's members leave out who left"
     );
+    // The workspace is not there for who left it any more, whoever they ask about.
     seen_by_leaver.check_not_found();
-    themselves.check_ok();
+    themselves.check_not_found();
 }
 
 #[tokio::test]
@@ -257,9 +258,15 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
         th.client.add_member(&membership).await.check_ok();
     }
 
-    let coworker = th.client2.get(&format!("/users/{user1}")).await;
-    let not_shared = th.client2.post("/users", &[&third]).await;
-    let missing = th.client2.post("/users", &[UNKNOWN_ID]).await;
+    let coworker = th.client2.get(&format!("{TEST_WS}/users/{user1}")).await;
+    let not_shared = th
+        .client2
+        .post(&format!("{TEST_WS}/users"), &[&third])
+        .await;
+    let missing = th
+        .client2
+        .post(&format!("{TEST_WS}/users"), &[UNKNOWN_ID])
+        .await;
     let found = search(&th.client2, TEST_WORKSPACE_ID, "third").await;
     th.teardown().await;
 
@@ -354,12 +361,12 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
         .await
         .created_json();
     th.client2
-        .post_empty(&format!("/boards/{}/join", open.id))
+        .post_empty(&format!("{ROOT_WS}/boards/{}/join", open.id))
         .await
         .check_ok();
     th.client2
         .post(
-            &format!("/boards/{}/cards", open.id),
+            &format!("{ROOT_WS}/boards/{}/cards", open.id),
             &json!({"title": "Mine"}),
         )
         .await
@@ -367,22 +374,22 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
     leave_every_workspace(&th, &leaver).await;
     let by_id = async |client: &crate::common::Client| {
         client
-            .post(&format!("/w/{ROOT_WORKSPACE_ID}/users"), &[&leaver])
+            .post(&format!("{ROOT_WS}/users"), &[&leaver])
             .await
             .status
     };
 
     let before = (
         by_id(&third).await,
-        third.get(&format!("/users/{leaver}")).await.status,
+        third.get(&format!("{ROOT_WS}/users/{leaver}")).await.status,
     );
     third
-        .post_empty(&format!("/boards/{}/join", open.id))
+        .post_empty(&format!("{ROOT_WS}/boards/{}/join", open.id))
         .await
         .check_ok();
     let after = (
         by_id(&third).await,
-        third.get(&format!("/users/{leaver}")).await.status,
+        third.get(&format!("{ROOT_WS}/users/{leaver}")).await.status,
     );
     th.teardown().await;
 
@@ -412,34 +419,40 @@ async fn a_guest_names_who_wrote_on_its_board_and_finds_them_nowhere() {
         .created_json();
     for (user_id, editor) in [(&guest, false), (&writer_id, true)] {
         th.client
-            .add_member(&BoardMember {
-                scheme_viewer: !editor,
-                scheme_editor: editor,
-                ..member(&board.id, user_id)
-            })
+            .add_member_in(
+                ROOT_WORKSPACE_ID,
+                &BoardMember {
+                    scheme_viewer: !editor,
+                    scheme_editor: editor,
+                    ..member(&board.id, user_id)
+                },
+            )
             .await
             .check_ok();
     }
     writer
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{ROOT_WS}/boards/{}/cards", board.id),
             &json!({"title": "Mine"}),
         )
         .await
         .check_created();
     th.client
-        .delete(&format!("/boards/{}/members/{writer_id}", board.id))
+        .delete(&format!(
+            "{ROOT_WS}/boards/{}/members/{writer_id}",
+            board.id
+        ))
         .await
         .check_no_content();
 
     let named: Vec<User> = th
         .client2
-        .post(&format!("/w/{ROOT_WORKSPACE_ID}/users"), &[&writer_id])
+        .post(&format!("{ROOT_WS}/users"), &[&writer_id])
         .await
         .ok_json();
     let found: Vec<User> = th
         .client2
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/users?search=writer"))
+        .get(&format!("{ROOT_WS}/users?search=writer"))
         .await
         .ok_json();
     th.teardown().await;

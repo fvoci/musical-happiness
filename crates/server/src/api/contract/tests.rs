@@ -511,10 +511,6 @@ const ORDERS: &[(&str, &str)] = &[
         "Oldest first, and by the identifier of the block",
     ),
     ("getTemplates", "Each of the two oldest first"),
-    (
-        "getUsers",
-        "Oldest account first, not in the order of the request",
-    ),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceUsers", "Oldest account first"),
     (
@@ -525,7 +521,6 @@ const ORDERS: &[(&str, &str)] = &[
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
-    ("searchBoards", "Oldest first"),
     ("searchWorkspaceBoards", "Oldest first"),
 ];
 
@@ -591,11 +586,11 @@ fn the_routes_that_share_a_position_are_named_apart() {
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let paths = document["paths"].as_object().expect("paths");
     assert!(
-        paths.contains_key("/api/v1/subscriptions/{blockId}/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}"),
         "the path that ends a subscription"
     );
     assert!(
-        paths.contains_key("/api/v1/subscriptions/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{subscriberId}"),
         "the path that lists subscriptions"
     );
     assert!(

@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ServerBackend } from '$lib/api/backend.ts';
+import { serverBackend } from './support.ts';
 import { dispositionName } from '$lib/api/download.ts';
 import { isBackendError } from '$lib/state/index.ts';
 
@@ -40,10 +40,10 @@ describe('an export', () => {
       );
     });
     const seen: [number, number][] = [];
-    const archive = await new ServerBackend('/base').exportBoard('b1', {
+    const archive = await serverBackend('/base').exportBoard('b1', {
       onProgress: (progress) => seen.push([progress.sentBytes, progress.totalBytes]),
     });
-    expect(urls).toEqual(['/base/api/v1/boards/b1/archive/export']);
+    expect(urls).toEqual(['/base/api/v1/w/w1/boards/b1/archive/export']);
     expect(archive.name).toBe('archive-2026-11-11.boardarchive');
     expect(await archive.bytes.text()).toBe('PK1234ab');
     expect(seen).toEqual([
@@ -71,7 +71,7 @@ describe('an export', () => {
         ),
       );
     });
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .exportWorkspace('t1')
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && [refused.status, refused.reason]).toEqual([
@@ -122,7 +122,7 @@ describe('an import', () => {
   it('opens an import upload, sends the parts and names the upload to import', async () => {
     const calls = importServer(100);
     const seen: number[] = [];
-    const imported = await new ServerBackend('').importArchive(
+    const imported = await serverBackend('').importArchive(
       't1',
       new File(['12345678'], 'boards.boardarchive', { type: 'application/zip' }),
       { onProgress: (progress) => seen.push(progress.sentBytes) },
@@ -131,8 +131,8 @@ describe('an import', () => {
     expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
       'GET /api/v1/client-config',
       'POST /api/v1/w/t1/archive/uploads',
-      'PUT /api/v1/uploads/up9/parts/1',
-      'PUT /api/v1/uploads/up9/parts/2',
+      'PUT /api/v1/w/t1/uploads/up9/parts/1',
+      'PUT /api/v1/w/t1/uploads/up9/parts/2',
       'POST /api/v1/w/t1/archive/import',
     ]);
     expect(calls[1]?.json).toEqual({
@@ -146,7 +146,7 @@ describe('an import', () => {
 
   it('refuses an archive over the server’s limit before sending anything', async () => {
     const calls = importServer(5);
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .importArchive('t1', new File(['12345678'], 'big.boardarchive'))
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && [refused.status, refused.limit, refused.reason]).toEqual([
@@ -165,7 +165,9 @@ describe('an export that does not arrive whole', () => {
         new Response(streamOf(['PK12']), { status: 200, headers: { 'Content-Length': '10' } }),
       ),
     );
-    const refused = await new ServerBackend('').exportBoard('b1').catch((error: unknown) => error);
+    const refused = await serverBackend('')
+      .exportBoard('b1')
+      .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(0);
   });
 });

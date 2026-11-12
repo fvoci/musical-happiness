@@ -21,6 +21,7 @@ use fvoci_store::testing::db_type_of_the_tests;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
 use common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID};
 
 fn open(config: &mut fvoci_server::config::Configuration) {
@@ -41,7 +42,7 @@ async fn uploaded(client: &Client, board_id: &str, bytes: &[u8]) -> ApiResponse 
     let file = reqwest::multipart::Part::bytes(bytes.to_vec()).file_name("private.txt");
     Client::send(
         client
-            .request(Method::POST, &format!("/boards/{board_id}/files"))
+            .request(Method::POST, &format!("{ROOT_WS}/boards/{board_id}/files"))
             .multipart(reqwest::multipart::Form::new().part("file", file)),
     )
     .await
@@ -75,7 +76,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     let board: Board = ts
         .client2
         .post(
-            "/boards",
+            &format!("{ROOT_WS}/boards"),
             &json!({
                 "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Workspace secret"
             }),
@@ -85,7 +86,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     let card = ts
         .client2
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{ROOT_WS}/boards/{}/cards", board.id),
             &json!({
                 "title": "Confidential card"
             }),
@@ -102,7 +103,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
     let upload = ts
         .client2
         .post(
-            &format!("/boards/{}/uploads", board.id),
+            &format!("{ROOT_WS}/boards/{}/uploads", board.id),
             &json!({
                 "name": "after-removal.txt", "size": 0
             }),
@@ -142,7 +143,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
             .expect("its workspace membership");
     }
     ts.client2
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
+        .get(&format!("{ROOT_WS}/boards"))
         .await
         .check_not_found();
     FormerMember {
@@ -158,41 +159,44 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
 fn read_paths(board: &Board, card_id: &str, file_id: &str) -> Vec<(String, String)> {
     vec![
         (
-            format!("/boards/{}", board.id),
-            format!("/boards/{UNKNOWN_ID}"),
+            format!("{ROOT_WS}/boards/{}", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}"),
         ),
         (
-            format!("/boards/{}/blocks", board.id),
-            format!("/boards/{UNKNOWN_ID}/blocks"),
+            format!("{ROOT_WS}/boards/{}/blocks", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/blocks"),
         ),
         (
-            format!("/boards/{}/cards", board.id),
-            format!("/boards/{UNKNOWN_ID}/cards"),
+            format!("{ROOT_WS}/boards/{}/cards", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/cards"),
         ),
         (
-            format!("/boards/{}/members", board.id),
-            format!("/boards/{UNKNOWN_ID}/members"),
+            format!("{ROOT_WS}/boards/{}/members", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/members"),
         ),
         (
-            format!("/boards/{}/sharing", board.id),
-            format!("/boards/{UNKNOWN_ID}/sharing"),
+            format!("{ROOT_WS}/boards/{}/sharing", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/sharing"),
         ),
         (
-            format!("/boards/{}/trash/cards", board.id),
-            format!("/boards/{UNKNOWN_ID}/trash/cards"),
+            format!("{ROOT_WS}/boards/{}/trash/cards", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/trash/cards"),
         ),
         (
-            format!("/boards/{}/archive/export", board.id),
-            format!("/boards/{UNKNOWN_ID}/archive/export"),
-        ),
-        (format!("/cards/{card_id}"), format!("/cards/{UNKNOWN_ID}")),
-        (
-            format!("/boards/{}/files/{file_id}", board.id),
-            format!("/boards/{UNKNOWN_ID}/files/{file_id}"),
+            format!("{ROOT_WS}/boards/{}/archive/export", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/archive/export"),
         ),
         (
-            format!("/boards/{}/files/{file_id}/info", board.id),
-            format!("/boards/{UNKNOWN_ID}/files/{file_id}/info"),
+            format!("{ROOT_WS}/cards/{card_id}"),
+            format!("{ROOT_WS}/cards/{UNKNOWN_ID}"),
+        ),
+        (
+            format!("{ROOT_WS}/boards/{}/files/{file_id}", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/files/{file_id}"),
+        ),
+        (
+            format!("{ROOT_WS}/boards/{}/files/{file_id}/info", board.id),
+            format!("{ROOT_WS}/boards/{UNKNOWN_ID}/files/{file_id}/info"),
         ),
     ]
 }
@@ -224,37 +228,37 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
     for (method, path, body) in [
         (
             Method::PATCH,
-            format!("/boards/{}", board.id),
+            format!("{ROOT_WS}/boards/{}", board.id),
             json!({"title": "Modified after removal"}),
         ),
         (
             Method::PATCH,
-            format!("/cards/{card_id}"),
+            format!("{ROOT_WS}/cards/{card_id}"),
             json!({"title": "Card modified after removal"}),
         ),
         (
             Method::POST,
-            format!("/boards/{}/cards", board.id),
+            format!("{ROOT_WS}/boards/{}/cards", board.id),
             json!({"title": "New card after removal"}),
         ),
         (
             Method::PUT,
-            format!("/boards/{}/property-order", board.id),
+            format!("{ROOT_WS}/boards/{}/property-order", board.id),
             json!([]),
         ),
         (
             Method::POST,
-            format!("/boards/{}/uploads", board.id),
+            format!("{ROOT_WS}/boards/{}/uploads", board.id),
             json!({"name": "new.txt", "size": 0}),
         ),
         (
             Method::POST,
-            format!("/uploads/{upload_id}/complete"),
+            format!("{ROOT_WS}/uploads/{upload_id}/complete"),
             json!({}),
         ),
         (
             Method::POST,
-            "/subscriptions".to_owned(),
+            format!("{ROOT_WS}/subscriptions"),
             json!({"blockId": card_id, "blockType": "card", "subscriberId": user_id, "subscriberType": "user"}),
         ),
     ] {
@@ -305,7 +309,7 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
     let board: Board = ts
         .client2
         .post(
-            "/boards",
+            &format!("{ROOT_WS}/boards"),
             &json!({
                 "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Deleted workspace secret"
             }),
@@ -313,7 +317,7 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
         .await
         .created_json();
     ts.client2
-        .delete(&format!("/boards/{}", board.id))
+        .delete(&format!("{ROOT_WS}/boards/{}", board.id))
         .await
         .check_no_content();
     ts.app
@@ -325,7 +329,10 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
         .expect("the workspace membership ends");
     let response = ts
         .client2
-        .post(&format!("/boards/{}/undelete", board.id), &json!({}))
+        .post(
+            &format!("{ROOT_WS}/boards/{}/undelete", board.id),
+            &json!({}),
+        )
         .await;
     let restored = ts.app.store().get_board(&board.id).await.is_ok();
     ts.teardown().await;

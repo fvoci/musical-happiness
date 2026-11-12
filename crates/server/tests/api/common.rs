@@ -40,6 +40,10 @@ pub(crate) const TEST_WORKSPACE_ID: &str = "00000000-0000-7000-8000-000000000001
 /// A third workspace of the organization, which nobody is let into: a workspace that is
 /// there and hidden from every user of a test.
 pub(crate) const HIDDEN_WORKSPACE_ID: &str = "00000000-0000-7000-8000-000000000002";
+/// The path of the root workspace, `/w/{ROOT_WORKSPACE_ID}`: what is of it is under it.
+pub(crate) const ROOT_WS: &str = "/w/00000000-0000-7000-8000-000000000000";
+/// The path of the test workspace, `/w/{TEST_WORKSPACE_ID}`.
+pub(crate) const TEST_WS: &str = "/w/00000000-0000-7000-8000-000000000001";
 /// The identifier of nothing: well-formed, and never given to anything.
 pub(crate) const UNKNOWN_ID: &str = "00000000-0000-7000-8000-00000000dead";
 
@@ -325,11 +329,7 @@ impl TestServer {
         self.client = self
             .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD, "")
             .await;
-        let workspace: Workspace = self
-            .client
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-            .await
-            .ok_json();
+        let workspace: Workspace = self.client.get(ROOT_WS).await.ok_json();
         assert!(
             !workspace.signup_token.is_empty(),
             "the workspace has a signup token"
@@ -489,7 +489,10 @@ impl TestServer {
             board_type,
             ..Board::default()
         };
-        self.client.post("/boards", &board).await.created_json()
+        self.client
+            .post(&format!("/w/{workspace_id}/boards"), &board)
+            .await
+            .created_json()
     }
 
     /// Stops the server, removes its database and files, and returns how serving ended.
@@ -781,19 +784,46 @@ impl Client {
 
     /// Creates a board with the given fields as this client's user.
     pub(crate) async fn create_board(&self, board: &Board) -> ApiResponse {
-        self.post("/boards", board).await
+        self.post(&format!("/w/{}/boards", board.workspace_id), board)
+            .await
     }
 
-    /// `InsertBlocks`.
+    /// `InsertBlocks` on a board of the test workspace (`TEST_WORKSPACE_ID`).
     pub(crate) async fn insert_blocks(&self, board_id: &str, blocks: &[Block]) -> ApiResponse {
-        self.post(&format!("/boards/{board_id}/blocks"), &blocks)
+        self.insert_blocks_in(TEST_WORKSPACE_ID, board_id, blocks)
             .await
     }
 
-    /// `AddMemberToBoard`.
+    /// `InsertBlocks` on a board of the workspace.
+    pub(crate) async fn insert_blocks_in(
+        &self,
+        workspace_id: &str,
+        board_id: &str,
+        blocks: &[Block],
+    ) -> ApiResponse {
+        self.post(
+            &format!("/w/{workspace_id}/boards/{board_id}/blocks"),
+            &blocks,
+        )
+        .await
+    }
+
+    /// `AddMemberToBoard` on a board of the test workspace (`TEST_WORKSPACE_ID`).
     pub(crate) async fn add_member(&self, member: &BoardMember) -> ApiResponse {
-        self.post(&format!("/boards/{}/members", member.board_id), member)
-            .await
+        self.add_member_in(TEST_WORKSPACE_ID, member).await
+    }
+
+    /// `AddMemberToBoard` on a board of the workspace.
+    pub(crate) async fn add_member_in(
+        &self,
+        workspace_id: &str,
+        member: &BoardMember,
+    ) -> ApiResponse {
+        self.post(
+            &format!("/w/{workspace_id}/boards/{}/members", member.board_id),
+            member,
+        )
+        .await
     }
 }
 

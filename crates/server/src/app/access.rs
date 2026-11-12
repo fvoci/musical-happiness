@@ -6,7 +6,7 @@
 //! Every check of a route that names a board asks [`App::board_access`], and decides by
 //! the [`Grant`] it gives; nothing else reads a membership to decide what a user may do.
 
-use fvoci_model::{Board, BoardMember};
+use fvoci_model::{Board, BoardMember, Upload, UploadPart, UploadPurpose};
 use fvoci_store::DeletedBoard;
 
 use super::App;
@@ -37,8 +37,10 @@ pub struct DeletedBoardAccess {
 }
 
 impl App {
-    /// The board and what the user may do on it; `None` if there is no such board.
-    /// A user without an identifier may do nothing.
+    /// The board and what the user may do on it; `None` if there is no such board, and
+    /// for a handle of one workspace ([`App::in_workspace`]) if the board is of another:
+    /// this is where a request's workspace and the workspace of what it names are
+    /// compared. A user without an identifier may do nothing.
     ///
     /// The same three reads are made whether the board is there or not, so that a
     /// board that is not there for the user takes as long to refuse as one that does
@@ -58,7 +60,7 @@ impl App {
             self.store().get_member_for_board(board_id, user_id),
         );
         let board = match board {
-            Ok(board) => Some(board),
+            Ok(board) => Some(board).filter(|board| self.reaches_board(board)),
             Err(error) if error.is_not_found() => None,
             Err(error) => {
                 return Err(AppError::from(error).context("reading a board to check access"));
@@ -95,6 +97,39 @@ impl App {
         }))
     }
 
+    /// The user's upload that is still going and the parts it has received, as
+    /// [`App::upload`] gives them, if it is of this handle's workspace: the workspace an
+    /// archive is imported into, or the one of the board a file is for (a board in the
+    /// trash is of none). For a handle of every workspace, any of the user's uploads.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error for an upload of another workspace and whatever
+    /// [`App::upload`] returns.
+    pub async fn workspace_upload(
+        &self,
+        upload_id: &str,
+        user_id: &str,
+    ) -> Result<(Upload, Vec<UploadPart>), AppError> {
+        let (upload, parts) = self.upload(upload_id, user_id).await?;
+        if self.workspace.is_none() {
+            return Ok((upload, parts));
+        }
+        let reached = match upload.purpose {
+            UploadPurpose::Import => self.reaches_workspace(&upload.workspace_id),
+            UploadPurpose::File => match self.store().get_board(&upload.board_id).await {
+                Ok(board) => self.reaches_board(&board),
+                Err(error) if error.is_not_found() => false,
+                Err(error) => return Err(error.into()),
+            },
+        };
+        if reached {
+            Ok((upload, parts))
+        } else {
+            Err(AppError::not_found("upload"))
+        }
+    }
+
     /// What the user may do on the board; nothing if there is no such board.
     ///
     /// # Errors
@@ -108,7 +143,7 @@ impl App {
     }
 
     /// A board in the trash and what the user may do with it; `None` if no board of
-    /// that identifier is there. The role is the one the trash kept of the user, and
+    /// that identifier is there, or for a handle of one workspace if it is of another. The role is the one the trash kept of the user, and
     /// counts as what the user is in the board's workspace now: who has left the
     /// workspace since brings nothing back. A board in the trash is open to nobody
     /// (`BoardScope::in_the_trash`).
@@ -121,7 +156,11 @@ impl App {
         user_id: &str,
         board_id: &str,
     ) -> Result<Option<DeletedBoardAccess>, AppError> {
-        let Some(deleted) = self.deleted_board(board_id).await? else {
+        let Some(deleted) = self
+            .deleted_board(board_id)
+            .await?
+            .filter(|deleted| self.reaches_board(&deleted.board))
+        else {
             return Ok(None);
         };
         let actor = self.actor(user_id, &deleted.board.workspace_id).await?;

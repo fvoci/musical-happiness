@@ -4,6 +4,7 @@ use fvoci_model::{Board, BoardType, new_id};
 use serde_json::{Value, json};
 
 use crate::cards::cards_path;
+use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// An open board with a person property `owner` and two cards: "with", owned by the
@@ -21,7 +22,7 @@ async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
     let later_id = crate::files::uploaded_id(&later);
     th.client
         .patch(
-            &format!("/boards/{}", board.id),
+            &format!("{TEST_WS}/boards/{}", board.id),
             &json!({"updatedCardProperties": [
                 {"id": "owner", "name": "Owner", "type": "person", "options": []},
             ]}),
@@ -51,7 +52,7 @@ async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
                          "createAt": 1, "updateAt": 1});
     th.client
         .post(
-            &format!("/boards/{}/blocks", board.id),
+            &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &[with_body, without],
         )
         .await
