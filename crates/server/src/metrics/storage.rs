@@ -8,9 +8,10 @@ use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
 
 use super::{Metrics, PREFIX, ScrapeRead};
 
-/// How long a count of the open uploads stays fresh: a scrape before then reads none. Whoever reaches the listener may scrape, and without a token
-/// anyone may; so the database is asked for it at most this often, however many
-/// scrapes come. Prometheus scrapes more seldom than this.
+/// How long a count of the open uploads stays fresh: a scrape before then reads none.
+/// Whoever reaches the listener may scrape, and without a token anyone may; so the
+/// database is asked for it at most this often, however many scrapes come. Prometheus
+/// scrapes more seldom than this.
 const UPLOADS_FRESH_FOR: Duration = Duration::from_secs(5);
 
 /// The work on archives that is counted while it holds its place.

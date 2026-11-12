@@ -63,9 +63,9 @@ use sqlx::types::Uuid;
 /// How many connections a store keeps to a file or server database.
 const MAX_CONNECTIONS: u32 = 10;
 
-/// How long the statement of [`Store::check_ready`] may run on PostgreSQL: less than
-/// the two seconds the server's readiness check waits, so that the statement ends by
-/// itself before its caller gives it up.
+/// How long the read of [`Store::check_ready`] may run on PostgreSQL: less than the two
+/// seconds the server's readiness check waits, so that the read ends by itself soon
+/// after its caller gives it up, if not before, and does not keep its connection.
 const READY_STATEMENT_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// Whose rows the operations of a [`Store`] handle reach.
@@ -368,7 +368,8 @@ impl Store {
     }
 
     /// Reads one row of the sessions at most, to see that the database answers and holds
-    /// the table every signed-in request reads: one connection, one statement. A
+    /// the table every signed-in request reads: one connection, one read of the sessions
+    /// (on PostgreSQL after setting its statement timeout). A
     /// database that answers but has lost this server's tables is not one it can serve
     /// from; the schema as a whole is not compared. On PostgreSQL the statement gives
     /// up after one and a half seconds, also while it waits for a lock on the table

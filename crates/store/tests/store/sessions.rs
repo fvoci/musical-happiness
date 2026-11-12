@@ -816,7 +816,8 @@ async fn the_live_sessions_are_those_that_would_be_found() {
 
 /// The readiness check reads the sessions; on PostgreSQL it gives up by itself behind a
 /// lock on the table, before the server's two seconds, and its connection comes back.
-/// SQLite readers wait for no such lock.
+/// On SQLite there is no such lock to hold; a reader waits only for a writer, up to the
+/// busy timeout, and only when the database is not in WAL mode.
 #[tokio::test]
 async fn a_readiness_check_behind_a_lock_on_the_sessions_gives_up_by_itself() {
     let test = common::setup().await;

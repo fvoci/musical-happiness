@@ -310,7 +310,7 @@ async fn the_base_path_is_not_part_of_the_route() {
 /// Scrapes until `holds` is true of the metrics, for ten seconds at most; returns the
 /// last scrape.
 pub(crate) async fn scrape_until(server: &TestServer, holds: impl Fn(&str) -> bool) -> String {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         let body = scrape(server).await;
         if holds(&body) || tokio::time::Instant::now() >= deadline {

@@ -58,7 +58,7 @@
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `filesdriver` | `FVOCI_FILESDRIVER` | 문자열 | `"local"` | `local`(디스크) 또는 `amazons3`(S3와 S3 호환 저장소). 그 밖의 값이면 시작하지 않는다 |
-| `filespath` | `FVOCI_FILESPATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리. 파일은 그 아래 `.tmp/writing`에 다 쓴 뒤 제자리로 옮긴다(같은 파일시스템이라 원자적이다. `tmp_path`와 상관없다). 이 DB의 서버만 쓴다: 관리 소켓의 파일 대조(`removeUnrecorded`)는 서버가 만드는 모양의 자리(`boards/…`)에서 이 DB가 이름하지 않는 파일을 지운다 |
+| `filespath` | `FVOCI_FILESPATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리. 파일은 그 아래 `.tmp/writing`에 다 쓴 뒤 제자리로 옮긴다(같은 파일시스템이라 원자적이다. `tmp_path`와 상관없다). 이 DB의 서버만 쓴다: 관리 소켓의 파일 대조(`removeUnrecorded`)는 서버가 만드는 모양의 자리(`boards/…`)에서 이 DB가 이름하지 않는 파일을 지운다. 준비 상태(`GET /api/v1/ready`)는 5초에 한 번까지 `<filespath>/.fvoci-ready`를 같은 길로 써서 읽고 지워 보고, 디렉터리가 없으면 만든다 |
 | `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(1 이상, 바이트) | `104857600` | 올릴 수 있는 파일의 가장 큰 크기(100 MiB). 0이나 음수는 시작 오류다(예전에는 0이 "한도 없음"이었다). `upload_part_bytes` × 10,000(S3 멀티파트의 부분 수 한도)을 넘어도 시작 오류다. 요청 하나로 올리는 파일(`uploadFile`)은 그에 더해 `upload_part_bytes`까지다. 사용자 한 명이 열린 업로드에 걸어 둘 수 있는 크기는 이 한도와 `max_import_bytes` 가운데 큰 것의 두 배다 |
 | `filess3config.accesskeyid` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `filess3config.secretaccesskey` | — | 문자열 | `""` | 비밀 키. `accesskeyid`가 있을 때만 쓴다. 로그에 남기지 않는다 |

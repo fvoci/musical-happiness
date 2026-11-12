@@ -1,5 +1,5 @@
-//! Whether the server is ready to serve: the database answers, and the file storage can
-//! be used. Asked by the readiness check of the API and by a scrape of the metrics, and
+//! Whether the server is ready to serve: the database reads the table of the sessions,
+//! and the file storage takes, gives back and removes a small file. Asked by the readiness check of the API and by a scrape of the metrics, and
 //! kept for a few seconds, so that neither asks the database every time.
 
 use std::sync::{Arc, Mutex};
