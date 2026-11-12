@@ -38,6 +38,11 @@ impl Queued {
         }
     }
 
+    /// Whether it is a sync message of the room `doc`.
+    fn in_frames_of(&self, doc: u32) -> bool {
+        self.doc == doc && matches!(self.what, What::Sync { .. })
+    }
+
     pub(super) fn text(doc: u32, text: String) -> Self {
         Self {
             doc,
@@ -178,22 +183,29 @@ impl Queue {
     ) -> Result<(), NotQueued> {
         {
             let mut waiting = self.waiting();
-            waiting
-                .drop_where(|queued| queued.doc == doc && matches!(queued.what, What::Sync { .. }));
+            waiting.drop_where(|queued| queued.in_frames_of(doc));
             waiting.push(self.capacity, messages)?;
         }
         self.wake.notify_one();
         Ok(())
     }
 
-    /// Drops what waits for a room the connection is no longer in.
+    /// Drops what waits for a room the connection left of its own accord.
     pub(super) fn forget(&self, doc: u32) {
         self.waiting().drop_where(|queued| queued.doc == doc);
     }
 
+    /// Drops the sync messages that wait for a room the connection is no longer in.
+    /// The answers it was given there (`DOC_JOINED`, `DOC_ACK`, `DOC_NACK`) wait on:
+    /// each says what became of something the connection sent.
+    pub(super) fn forget_frames(&self, doc: u32) {
+        self.waiting().drop_where(|queued| queued.in_frames_of(doc));
+    }
+
     /// Queues a notice whatever waits: the answer to a connection that is refused or
-    /// put out because its queue is full. With `doc`, what waits for that room is
-    /// dropped first. Notices alone past twice what may wait end the connection.
+    /// put out, be it because its queue is full. With `doc`, the sync messages that
+    /// wait for that room are dropped first; the answers it was given there wait on,
+    /// before the notice. Messages past twice what may wait end the connection.
     pub(super) fn notice(&self, doc: Option<u32>, text: String) {
         {
             let mut waiting = self.waiting();
@@ -201,7 +213,7 @@ impl Queue {
                 return;
             }
             if let Some(doc) = doc {
-                waiting.drop_where(|queued| queued.doc == doc);
+                waiting.drop_where(|queued| queued.in_frames_of(doc));
             }
             waiting.bytes += text.len();
             waiting.messages.push_back(Queued::text(0, text));
@@ -302,7 +314,24 @@ mod tests {
         queue.notice(Some(1), "left".to_owned());
         assert!(!queue.overrun().is_cancelled());
         let sent = drained(&queue).await;
-        assert_eq!(sent, [Outgoing::Text("left".to_owned())], "{sent:?}");
+        assert_eq!(
+            sent,
+            [
+                Outgoing::Text("a".to_owned()),
+                Outgoing::Text("left".to_owned())
+            ],
+            "the answer waits on, before the notice"
+        );
+        queue.push([text(1, "a"), sync(1), sync(2)]).expect("room");
+        queue.forget_frames(1);
+        assert_eq!(
+            drained(&queue).await.len(),
+            2,
+            "the answer, and the other room's"
+        );
+        queue.push([text(1, "a"), sync(1), sync(2)]).expect("room");
+        queue.forget(1);
+        assert_eq!(drained(&queue).await.len(), 1, "the other room's");
     }
 
     #[tokio::test]

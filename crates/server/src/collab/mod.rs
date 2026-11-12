@@ -111,6 +111,10 @@ struct Inner {
     /// for the tests of what is written to the card meanwhile.
     #[cfg(feature = "test-util")]
     projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// What the next update waits for, between the worker taking it and the log
+    /// having it: for the tests of what is sent on meanwhile.
+    #[cfg(feature = "test-util")]
+    log_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 /// A document as an editor loads it.
@@ -166,9 +170,10 @@ pub enum DocChange {
     /// The worker that held it ended, and it was opened again from what was stored.
     /// What an editor sent and was refused for that is not in it.
     Reopened,
-    /// It was closed after a write of its card's whole body, because it could not be
-    /// made again from that body: the next request opens it from the card. Editors
-    /// load it anew.
+    /// Its card's body was written whole while it was not open (its worker had ended
+    /// over it), or it was closed after such a write because it could not be made
+    /// again from that body: the next request opens it from the card. Editors load
+    /// it anew.
     Closed,
 }
 
@@ -210,6 +215,8 @@ impl Collab {
                 rooms: rooms::Rooms::new(settings),
                 #[cfg(feature = "test-util")]
                 projection_pause: Mutex::new(None),
+                #[cfg(feature = "test-util")]
+                log_pause: Mutex::new(None),
             }),
         })
     }
@@ -579,6 +586,40 @@ impl Collab {
         let pause = self
             .inner
             .projection_pause
+            .lock()
+            .expect("the pause is not poisoned")
+            .take();
+        if let Some((waiting, go)) = pause {
+            waiting.notify_one();
+            go.notified().await;
+        }
+    }
+
+    /// Has the next update wait, after the worker took it and before it is logged,
+    /// until the second is notified; the first is notified when it waits. For the
+    /// tests of what is sent to anybody meanwhile.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pause_next_log(&self) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
+        let pause = (
+            Arc::new(tokio::sync::Notify::new()),
+            Arc::new(tokio::sync::Notify::new()),
+        );
+        *self
+            .inner
+            .log_pause
+            .lock()
+            .expect("the pause is not poisoned") = Some(pause.clone());
+        pause
+    }
+
+    /// Waits where [`Collab::pause_next_log`] asked.
+    #[cfg(feature = "test-util")]
+    async fn paused_before_log(&self) {
+        let pause = self
+            .inner
+            .log_pause
             .lock()
             .expect("the pause is not poisoned")
             .take();

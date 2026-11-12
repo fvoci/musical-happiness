@@ -867,3 +867,40 @@ async fn a_card_of_another_organization_is_reached_through_its_workspace_only() 
     assert_eq!(stored.body.map(|body| body.document().clone()), body);
     th.teardown().await;
 }
+
+/// An update is sent on, and answered, only once the log has it: held between the
+/// worker that took it and the log, it reaches nobody.
+#[tokio::test]
+async fn nothing_is_sent_on_before_the_log_has_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let user1 = th.client.me().await.id;
+    let app = th
+        .app
+        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .await
+        .expect("the membership is read")
+        .expect("a member")
+        .app;
+    let logged = async || {
+        let stored = app.store().get_body_doc(&t.card_id).await.expect("read");
+        stored.expect("a document").updates
+    };
+
+    let (held, go) = th.app.collab().pause_next_log();
+    let update = one.write("typed").await;
+    held.notified().await;
+    assert_eq!(two.incoming(QUIET).await, Incoming::Nothing, "not sent on");
+    assert_eq!(one.incoming(QUIET).await, Incoming::Nothing, "nor answered");
+    assert!(logged().await.is_empty(), "the log does not have it yet");
+    go.notify_one();
+    match two.incoming(PATIENCE).await {
+        Incoming::Frame(frame) => assert_eq!(frame.payload, update, "sent on once logged"),
+        other => panic!("the update reaches the other: {other:?}"),
+    }
+    let log = logged().await;
+    assert_eq!(log.len(), 1, "{log:?}");
+    let ack = one.text("DOC_ACK").await;
+    assert_eq!(ack["seq"], json!(log[0].seq), "{ack}");
+    th.teardown().await;
+}

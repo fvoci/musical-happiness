@@ -235,6 +235,8 @@ impl Seat {
     }
 
     async fn leave(&mut self, doc: u32) {
+        // Counted, and carried out whatever the count says: it makes room.
+        let _ = self.rate.admits(1);
         let Some(room) = self.connection.forget(doc) else {
             return;
         };

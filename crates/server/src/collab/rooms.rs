@@ -19,18 +19,19 @@
 //! logged and sent to the others, never logged and not sent.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
-use super::queue::{Capacity, Queue, Queued};
+use super::queue::{Capacity, NotQueued, Queue, Queued};
 use super::{Collab, DocChange, DocEvent, Loaded, admission, place, refusals};
 use crate::app::App;
 use crate::config::collab::CollabSettings;
@@ -65,8 +66,9 @@ pub(super) struct Rooms {
     queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
-    /// The server stops: nobody comes in any more, and no update is taken.
-    ended: AtomicBool,
+    /// Cancelled when the server stops: nobody comes in any more, no update is taken,
+    /// and the tasks of the rooms end.
+    stopping: CancellationToken,
 }
 
 impl Rooms {
@@ -80,8 +82,16 @@ impl Rooms {
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
-            ended: AtomicBool::new(false),
+            stopping: CancellationToken::new(),
         }
+    }
+}
+
+/// Waits until `at`, or for ever if there is no such time.
+async fn wait_until(at: Option<Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -196,7 +206,11 @@ struct Asked {
 
 /// Whom the store is asked about: a user, and the workspace they named as they came
 /// in.
-type Who = (String, String);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct Who {
+    user_id: String,
+    workspace_id: String,
+}
 
 /// What the store answered of one: how they are in the room, `None` for who is not
 /// let in; or the reason it could not be asked.
@@ -209,8 +223,9 @@ impl Turn {
             .position(|member| member.connection.id == connection.id && member.doc == doc)
     }
 
-    /// Puts a member out of the room and tells its connection why, in place of what
-    /// waited for it of the room.
+    /// Puts a member out of the room and tells its connection why, in place of the
+    /// sync messages that waited for it of the room and after the answers it was
+    /// given there.
     fn put_out(&mut self, index: usize, reason: &str) {
         let member = self.members.swap_remove(index);
         member.connection.forget(member.doc);
@@ -218,17 +233,6 @@ impl Turn {
             .connection
             .queue
             .notice(Some(member.doc), messages::left(member.doc, reason));
-    }
-
-    /// Puts a member out of the room and tells its connection why, after what waits
-    /// for it of the room: the answers to what it sent before, which the room took.
-    fn put_out_after_answers(&mut self, index: usize, reason: &str) {
-        let member = self.members.swap_remove(index);
-        member.connection.forget(member.doc);
-        member
-            .connection
-            .queue
-            .notice(None, messages::left(member.doc, reason));
     }
 
     /// Queues what `make` makes for each member `to` picks. A member whose connection
@@ -239,10 +243,21 @@ impl Turn {
         to: impl Fn(&Member) -> bool,
         make: impl Fn(&Member) -> [Queued; N],
     ) {
+        self.queue_for_each(|member| {
+            if to(member) {
+                member.connection.queue.push(make(member))
+            } else {
+                Ok(())
+            }
+        });
+    }
+
+    /// Has `queue` queue something for each member, and puts out who has no room
+    /// for it.
+    fn queue_for_each(&mut self, queue: impl Fn(&Member) -> Result<(), NotQueued>) {
         let mut index = 0;
         while index < self.members.len() {
-            let member = &self.members[index];
-            if to(member) && member.connection.queue.push(make(member)).is_err() {
+            if queue(&self.members[index]).is_err() {
                 self.put_out(index, Reason::ConnectionTooSlow.as_str());
             } else {
                 index += 1;
@@ -256,20 +271,14 @@ impl Turn {
         self.epoch = loaded.epoch;
         let epoch = loaded.epoch;
         let whole = frame::message(Sync::Missing, &loaded.state);
-        let mut index = 0;
-        while index < self.members.len() {
-            let member = &self.members[index];
+        self.queue_for_each(|member| {
             let doc = member.doc;
             let anew = [
                 Queued::text(doc, messages::reset(doc, epoch)),
                 Queued::sync(doc, epoch, &whole),
             ];
-            if member.connection.queue.push_anew(doc, anew).is_err() {
-                self.put_out(index, Reason::ConnectionTooSlow.as_str());
-            } else {
-                index += 1;
-            }
-        }
+            member.connection.queue.push_anew(doc, anew)
+        });
     }
 }
 
@@ -293,7 +302,7 @@ impl Collab {
     /// Nobody comes into a room any more, and the rooms take no update: the server
     /// stops.
     pub(super) fn end_rooms(&self) {
-        self.inner.rooms.ended.store(true, Ordering::Relaxed);
+        self.inner.rooms.stopping.cancel();
     }
 
     /// How many commands and frames of the rooms a connection may send in a second.
@@ -302,7 +311,18 @@ impl Collab {
     }
 
     fn rooms_ended(&self) -> bool {
-        self.inner.rooms.ended.load(Ordering::Relaxed)
+        self.inner.rooms.stopping.is_cancelled()
+    }
+
+    /// Whether a card of `app`'s organization has a room.
+    pub(super) fn has_room(&self, app: &App, card_id: &str) -> bool {
+        let key = place::key_of(app.store().tenant(), card_id);
+        self.inner
+            .rooms
+            .by_key
+            .lock()
+            .expect("the rooms are never held across a panic")
+            .contains_key(&key)
     }
 
     /// How many rooms there are, for the tests of what a connection leaves behind.
@@ -352,12 +372,15 @@ impl Collab {
     /// there, and has the room sent the document anew.
     async fn watch(self, room: Arc<Room>, mut events: broadcast::Receiver<DocEvent>) {
         let tenant = room.app.store().tenant();
-        // Whether the room is still to be sent its document: it could not be opened.
-        let mut owed = false;
+        let stopping = self.inner.rooms.stopping.clone();
+        // When the room is tried to be sent its document again, which could not be
+        // opened: kept across what is heard of other cards meanwhile.
+        let mut again_at: Option<Instant> = None;
         loop {
             let heard = tokio::select! {
                 () = room.gone.cancelled() => return,
-                () = tokio::time::sleep(SEND_ANEW_AGAIN), if owed => None,
+                () = stopping.cancelled() => return,
+                () = wait_until(again_at) => None,
                 event = events.recv() => match event {
                     Ok(event) if event.tenant == tenant && event.card_id == room.card_id => {
                         Some(event.change)
@@ -378,7 +401,11 @@ impl Collab {
             if turn.members.is_empty() {
                 continue;
             }
-            owed = !self.anew(&room, &mut turn, heard).await;
+            again_at = if self.anew(&room, &mut turn, heard).await {
+                None
+            } else {
+                Some(Instant::now() + SEND_ANEW_AGAIN)
+            };
             self.shut_if_empty(&room, &mut turn).await;
         }
     }
@@ -391,15 +418,19 @@ impl Collab {
         due.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // The first tick is at once; who is in the room was asked as they came in.
         due.tick().await;
+        let stopping = self.inner.rooms.stopping.clone();
         loop {
             tokio::select! {
                 () = room.gone.cancelled() => return,
+                () = stopping.cancelled() => return,
                 _ = due.tick() => {}
             }
-            if self.rooms_ended() {
-                return;
+            // Given up when the server stops: nothing is asked of a store that is
+            // about to close.
+            tokio::select! {
+                () = stopping.cancelled() => return,
+                () = self.recheck(&room) => {}
             }
-            self.recheck(&room).await;
         }
     }
 
@@ -417,10 +448,10 @@ impl Collab {
                 .map(|member| Asked {
                     connection: member.connection.id,
                     doc: member.doc,
-                    who: (
-                        member.connection.user_id.clone(),
-                        member.workspace_id.clone(),
-                    ),
+                    who: Who {
+                        user_id: member.connection.user_id.clone(),
+                        workspace_id: member.workspace_id.clone(),
+                    },
                 })
                 .collect()
         };
@@ -471,7 +502,8 @@ impl Collab {
             .map(move |who| {
                 let (app, card_id) = (app.clone(), card_id.clone());
                 async move {
-                    let admitted = admission::admit(&app, &who.0, &who.1, &card_id).await;
+                    let admitted =
+                        admission::admit(&app, &who.user_id, &who.workspace_id, &card_id).await;
                     let answer = match admitted {
                         Ok(admitted) => Ok(admitted.map(|admitted| admitted.mode)),
                         Err(error) => {
@@ -589,7 +621,7 @@ impl Collab {
             {
                 let before = turn.members.swap_remove(index);
                 connection.forget(before.doc);
-                connection.queue.forget(before.doc);
+                connection.queue.forget_frames(before.doc);
             }
             if !turn.members.is_empty() && turn.epoch != epoch {
                 // Made again since the members were sent it, and not yet told.
@@ -616,8 +648,7 @@ impl Collab {
         self.shut_if_empty(room, &mut turn).await;
     }
 
-    /// Puts a connection out of a room it knows as `doc`, and tells it why, after
-    /// the answers to what it sent before.
+    /// Puts a connection out of a room it knows as `doc`, and tells it why.
     pub(super) async fn put_out(
         &self,
         room: &Arc<Room>,
@@ -627,7 +658,7 @@ impl Collab {
     ) {
         let mut turn = room.turn.lock().await;
         if let Some(index) = turn.index_of(connection, doc) {
-            turn.put_out_after_answers(index, reason);
+            turn.put_out(index, reason);
         }
         self.shut_if_empty(room, &mut turn).await;
     }

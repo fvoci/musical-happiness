@@ -44,8 +44,14 @@ async fn left_for_not_reading(
     assert_eq!(collab.room_members(&app, card_id).await, 3, "still in");
     one.write_acked("one too many").await;
     assert_eq!(collab.room_members(&app, card_id).await, 2, "put out");
+    // The answer it was given as it came in waits on; the document and the updates
+    // that waited are dropped for the notice.
+    let Some(Outgoing::Text(joined)) = waiting.next().await else {
+        panic!("the answer to JOIN_DOC waits on");
+    };
+    assert!(joined.contains("DOC_JOINED"), "{joined}");
     let Some(Outgoing::Text(left)) = waiting.next().await else {
-        panic!("what waited is dropped for the notice");
+        panic!("what waited of the document is dropped for the notice");
     };
     let left: Value = serde_json::from_str(&left).expect("JSON");
     assert_eq!(

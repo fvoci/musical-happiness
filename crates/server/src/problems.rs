@@ -361,8 +361,8 @@ fn describe_rooms(reason: Reason) -> &'static str {
             "Over the websocket only (`DOC_LEFT`, `DOC_REFUSED`). As many messages wait \
              for the connection as may (settings `collab_queue_messages`, and twice \
              `collab_state_bytes` in bytes), and it was put out of the room, or not let \
-             in, so that the others go on. What waited for it of the room is dropped. \
-             Come into the room again: the whole document is sent anew."
+             in, so that the others go on. The frames that waited for it of the room \
+             are dropped. Come into the room again: the whole document is sent anew."
         }
         Reason::TooManyDocumentsJoined => {
             "Over the websocket only (`DOC_REFUSED`). The connection is in as many rooms \
