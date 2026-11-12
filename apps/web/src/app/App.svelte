@@ -244,6 +244,13 @@
     );
   });
 
+  /** The reader's workspaces that this session opens: where else to go from one it does not. */
+  const openWorkspaces = $derived(
+    (workspace?.workspaces ?? [])
+      .filter((one) => !one.ssoRequired)
+      .map((one) => ({ ...one, href: router.href({ workspaceId: one.id }) })),
+  );
+
   /** The organization the address names; the screen's state is made anew only when it changes. */
   const orgId = $derived(router.route.orgId);
   const orgAdmin = $derived(
@@ -351,13 +358,30 @@
   </main>
 {:else if router.route.orgId}
   {#if orgAdmin}
+    {@const closedOrgId = orgAdmin.orgId}
     <OrgPage
       admin={orgAdmin}
       locale={workspace.locale}
       meId={workspace.me?.id}
       homeHref={router.href({})}
       workspaceHref={(workspaceId: string) => router.href({ workspaceId })}
-    />
+    >
+      {#snippet closed()}
+        <!-- The settings are the shell's: connecting single sign-on is done from the app's own page. -->
+        <SsoRequired
+          name=""
+          others={openWorkspaces}
+          onContinue={() => toProvider(closedOrgId)}
+          onOpenLinked={() => {
+            router.go({});
+            openLinked();
+          }}
+          onGo={(workspaceId: string) => {
+            router.go({ workspaceId });
+          }}
+        />
+      {/snippet}
+    </OrgPage>
   {:else}
     <NotFound {router} />
   {/if}
@@ -418,9 +442,7 @@
       {#key orgId}
         <SsoRequired
           name={workspace.closed.title}
-          others={workspace.workspaces
-            .filter((one) => !one.ssoRequired)
-            .map((one) => ({ ...one, href: router.href({ workspaceId: one.id }) }))}
+          others={openWorkspaces}
           onContinue={() => toProvider(orgId)}
           onOpenLinked={openLinked}
           onGo={(workspaceId: string) => {

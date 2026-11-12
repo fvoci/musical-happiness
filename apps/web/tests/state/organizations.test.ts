@@ -65,6 +65,33 @@ describe('the organization on the server', () => {
     expect(await organizations().administered()).toBeUndefined();
   });
 
+  it('passes over an organization the session does not open, for the next it administers', async () => {
+    const closed = { status: 401, body: { status: 401, reason: 'sso_required', orgId: 'o1' } };
+    const mine = [
+      { id: 'w1', orgId: 'o1', name: '', role: 'admin', ssoRequired: true },
+      { id: 'w2', orgId: 'o2', name: '', role: 'admin' },
+    ];
+    serve({
+      'GET /api/v1/users/me/workspaces': { body: mine },
+      'GET /api/v1/org/o1': closed,
+      'GET /api/v1/org/o2': { body: { id: 'o2', name: '', publicLinks: true } },
+    });
+    expect(await organizations().administered()).toBe('o2');
+
+    serve({
+      'GET /api/v1/users/me/workspaces': { body: mine.slice(0, 1) },
+      'GET /api/v1/org/o1': closed,
+    });
+    expect(await organizations().administered()).toBeUndefined();
+
+    // A session that is over is no organization passed over: it is told.
+    serve({
+      'GET /api/v1/users/me/workspaces': { body: mine },
+      'GET /api/v1/org/o1': { status: 401, body: { status: 401 } },
+    });
+    await expect(organizations().administered()).rejects.toMatchObject({ status: 401 });
+  });
+
   it('sends each change to its route', async () => {
     const sent = serve({
       'POST /api/v1/org/o/workspaces': { status: 201, body: {} },
@@ -121,6 +148,35 @@ describe('the organization screen', () => {
     expect(await admin.createWorkspace('Taken')).toBe(false);
     expect(admin.refusal).toBe('name_taken');
     expect(admin.organization?.name).toBe('Acme');
+  });
+
+  it('asks for single sign-on where the organization takes no other session, at once or after a change', async () => {
+    const closed = { status: 401, body: { status: 401, reason: 'sso_required', orgId: 'o' } };
+    const answers: Record<string, { status?: number; body?: unknown }> = {
+      'GET /api/v1/org/o': closed,
+      'GET /api/v1/org/o/workspaces': closed,
+      'GET /api/v1/org/o/members': closed,
+      'GET /api/v1/org/o/audit': closed,
+    };
+    serve(answers);
+    const admin = new OrgAdmin(organizations(), 'o');
+    await admin.load();
+    expect(admin.status).toBe('sso');
+
+    // Closed while the screen was open: the change is refused, and the screen says why.
+    const empty = { body: [] };
+    serve({
+      'GET /api/v1/org/o': { body: { id: 'o', name: 'Acme', publicLinks: true } },
+      'GET /api/v1/org/o/workspaces': empty,
+      'GET /api/v1/org/o/members': empty,
+      'GET /api/v1/org/o/audit': empty,
+    });
+    const open = new OrgAdmin(organizations(), 'o');
+    await open.load();
+    expect(open.status).toBe('ready');
+    serve({ ...answers, 'PATCH /api/v1/org/o': closed });
+    expect(await open.setPublicLinks(false)).toBe(false);
+    expect(open.status).toBe('sso');
   });
 
   it('is missing for whoever does not administer the organization', async () => {

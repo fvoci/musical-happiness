@@ -3137,7 +3137,7 @@ export interface components {
              *     links: what the provider vouches for is tied to that account, in place of
              *     signing in.
              */
-            linkPassword?: string | null;
+            linkPassword?: string;
         };
         /** @description What starting the tour answers: where the tour's board is. */
         OnboardingStart: {

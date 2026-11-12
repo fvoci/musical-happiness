@@ -496,9 +496,9 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
             "Status 409, setting or removing an organization's provider. While the \
              organization takes no password (`ssoRequired`), its provider is not switched \
              off, removed, or set to another issuer or client: nobody would get in. \
-             Switch `ssoRequired` off first; `errors` names what of the request was \
-             refused. The client secret can still be set, and a wrong one lets nobody \
-             in either. If nobody gets in through the provider any more, who runs the \
+             Switch `ssoRequired` off first. A refused setting names in `errors` what of \
+             it was refused; a refused removal names nothing. The client secret can \
+             still be set, and a wrong one lets nobody in either. If nobody gets in through the provider any more, who runs the \
              server releases the organization on its administration socket \
              (`POST /api/v1/admin/orgs/{orgId}/sso/release`)."
         }

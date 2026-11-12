@@ -15,6 +15,9 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
 
+/** The test that closes the server's one organization to passwords. */
+const SSO = /sso\.spec\.ts$/;
+
 export default defineConfig({
   testDir: 'e2e-live',
   outputDir: 'test-results/live',
@@ -26,7 +29,19 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'desktop', use: { ...devices['Desktop Chrome'] } }],
+  // The organization that takes no password is the one organization of this
+  // server: while sso.spec.ts has it closed, every other test's password is
+  // refused. It runs after the others are done, however many workers there
+  // are (alone: `e2e:live --project=sso --no-deps`).
+  projects: [
+    { name: 'desktop', testIgnore: SSO, use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'sso',
+      testMatch: SSO,
+      dependencies: ['desktop'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
   webServer: {
     command: `node tools/live-server.ts ${PORT}`,
     // No `url` or `port`: on this host a connection to a closed port hangs

@@ -1820,10 +1820,7 @@
         "properties": {
           "linkPassword": {
             "description": "The password of the account of the request's session. With it the sign-in\nlinks: what the provider vouches for is tied to that account, in place of\nsigning in.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           }
         },
         "type": "object"

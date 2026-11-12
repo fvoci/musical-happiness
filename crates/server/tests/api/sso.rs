@@ -470,8 +470,6 @@ impl Named {
             .replace("{boardId}", &self.board.id)
             .replace("{cardId}", &self.card_id)
             .replace("{blockId}", &self.card_id)
-            .replace("{thingId}", &self.card_id)
-            .replace("{blockOrSubscriberId}", &self.card_id)
             .replace("{fileId}", &self.file_id)
             .replace("{uploadId}", &self.upload_id)
             .replace("{userId}", &self.user_id)
@@ -557,6 +555,48 @@ fn operations() -> Vec<(String, String, String)> {
     operations
 }
 
+/// What one operation of the sweep was answered.
+struct Answer {
+    status: StatusCode,
+    body: Value,
+    /// The operation and its answer, to be told.
+    told: String,
+}
+
+impl Answer {
+    fn says_sso_required_of(&self, org_id: &str) -> bool {
+        self.status == StatusCode::UNAUTHORIZED
+            && self.body["reason"] == "sso_required"
+            && self.body["orgId"] == org_id
+    }
+}
+
+/// Asks every operation of the contract that is not the account's own, as `client`.
+async fn sweep(client: &Client, named: &Named) -> Vec<Answer> {
+    let mut answers = Vec::new();
+    for (method, template, operation) in operations() {
+        if OPEN_TO_ANY_SESSION.contains(&operation.as_str()) {
+            continue;
+        }
+        let response = Client::send(
+            client
+                .request(method.parse().expect("a method"), &named.path(&template))
+                .json(&named.body(&operation)),
+        )
+        .await;
+        let body: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+        answers.push(Answer {
+            status: response.status,
+            told: format!(
+                "{operation} ({method} {template}): {} {body}",
+                response.status
+            ),
+            body,
+        });
+    }
+    answers
+}
+
 /// A server whose organization takes no password, with what the sweep names, made
 /// before, and the session of its administrator made through the provider.
 async fn walled(fake: &FakeProvider) -> (TestServer, Named, Client) {
@@ -587,31 +627,17 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
     let fake = FakeProvider::start().await;
     let (ts, named, admin) = walled(&fake).await;
 
-    let mut violations = Vec::new();
-    let mut asked = 0;
-    for (method, template, operation) in operations() {
-        if OPEN_TO_ANY_SESSION.contains(&operation.as_str()) {
-            continue;
-        }
-        asked += 1;
-        let response = Client::send(
-            ts.client
-                .request(method.parse().expect("a method"), &named.path(&template))
-                .json(&named.body(&operation)),
-        )
-        .await;
-        let body: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
-        if response.status != StatusCode::UNAUTHORIZED
-            || body["reason"] != "sso_required"
-            || body["orgId"] != named.org_id.as_str()
-        {
-            violations.push(format!(
-                "{operation} ({method} {template}): {} {body}",
-                response.status
-            ));
-        }
-    }
-    assert!(asked > 60, "the contract was read: {asked} operations");
+    let answers = sweep(&ts.client, &named).await;
+    assert!(
+        answers.len() > 60,
+        "the contract was read: {} operations",
+        answers.len()
+    );
+    let violations: Vec<&str> = answers
+        .iter()
+        .filter(|answer| !answer.says_sso_required_of(&named.org_id))
+        .map(|answer| answer.told.as_str())
+        .collect();
     assert!(
         violations.is_empty(),
         "reached with a session that does not open the organization:\n{}",
@@ -628,6 +654,20 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
         .await
         .ok_json();
     assert_eq!(cards.len(), 1, "{cards:?}");
+
+    // It was the wall that answered, not what the requests lack: the session the
+    // organization takes is told of none of them that it is not signed in.
+    let stopped: Vec<String> = sweep(&admin, &named)
+        .await
+        .into_iter()
+        .filter(|answer| answer.status == StatusCode::UNAUTHORIZED)
+        .map(|answer| answer.told)
+        .collect();
+    assert!(
+        stopped.is_empty(),
+        "refused the session made through the provider:\n{}",
+        stopped.join("\n")
+    );
     ts.teardown().await;
     fake.stop();
 }

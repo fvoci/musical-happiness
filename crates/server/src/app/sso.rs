@@ -39,9 +39,10 @@ impl SsoChange {
 /// place it is recorded. `user_id` is the administrator who did it, `None` for who
 /// runs the server.
 ///
-/// TEMPORARY: a line of the log, under the target `audit`. The record of an
-/// organization's changes is its place when there is one; `audit_log` holds a
-/// workspace's alone.
+/// TEMPORARY: a line of the log, under the target `audit`. Its place is the
+/// organization's records (`audit_log`), which take it once a record may be of who
+/// runs the server: `actor_id` is a user's there, and a release on the administration
+/// socket has none.
 fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
     tracing::info!(
         target: "audit",
@@ -197,9 +198,9 @@ impl App {
     /// workspace was asked when it subscribed. For after that is stored; also when it
     /// was on already, which closes again what a failure may have left.
     ///
-    /// If the organization's workspaces cannot be read, every connection of a session
-    /// made otherwise is closed, whatever it follows: the pages connect again, and are
-    /// asked then.
+    /// If the organization's workspaces cannot be read, every connection that follows a
+    /// workspace with a session made otherwise is closed, whose workspace it may be:
+    /// the pages connect again, and are asked then.
     pub(crate) async fn close_connections_shut_out(&self, provider: &StoredProvider) {
         match self.store().get_workspaces().await {
             Ok(workspaces) => {

@@ -152,6 +152,7 @@ pub struct OidcStartRequest {
     /// The password of the account of the request's session. With it the sign-in
     /// links: what the provider vouches for is tied to that account, in place of
     /// signing in.
+    #[schema(nullable = false)]
     pub link_password: Option<String>,
 }
 

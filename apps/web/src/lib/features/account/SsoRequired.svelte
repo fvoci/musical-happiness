@@ -28,6 +28,7 @@
 
   let { name, others, onContinue, onOpenLinked, onGo }: Props = $props();
 
+  const uid = $props.id();
   let working = $state(false);
   let failed = $state(false);
 
@@ -89,8 +90,8 @@
       >
     </p>
     {#if others.length > 0}
-      <nav class="grid gap-1 border-t pt-3 text-sm" aria-labelledby="sso-others">
-        <p id="sso-others" class="text-muted-foreground">{m.account_sso_others()}</p>
+      <nav class="grid gap-1 border-t pt-3 text-sm" aria-labelledby="{uid}-others">
+        <p id="{uid}-others" class="text-muted-foreground">{m.account_sso_others()}</p>
         <ul class="grid gap-1">
           {#each others as other (other.id)}
             <li>

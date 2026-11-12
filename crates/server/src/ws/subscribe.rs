@@ -160,12 +160,15 @@ impl Hub {
     }
 
     /// As [`Self::close_sessions_closed_out`] where the organization's workspaces are
-    /// not known: closes every connection of a session that was not made through the
-    /// provider, whatever it follows.
+    /// not known: closes every connection that follows a workspace, whichever, with a
+    /// session that was not made through the provider. One that follows none has
+    /// nothing of the organization to be told: blocks followed by a read token are
+    /// asked about at each change.
     pub fn close_sessions_made_otherwise(&self, provider_id: &str) {
         self.listeners().walls_raised += 1;
         self.close_where(Disconnect::SsoRequired, |listener| {
-            !listener.user_id.is_empty() && listener.login_provider.as_deref() != Some(provider_id)
+            !listener.workspaces.is_empty()
+                && listener.login_provider.as_deref() != Some(provider_id)
         });
     }
 }
