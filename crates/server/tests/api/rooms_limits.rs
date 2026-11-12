@@ -8,7 +8,7 @@ use serde_json::json;
 
 use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::rooms::{
-    Incoming, PATIENCE, Peer, QUIET, STEP_1, UPDATE, frame, no_rooms, paragraphs, table,
+    Incoming, PATIENCE, Peer, QUIET, STEP_1, UPDATE, frame, give, no_rooms, paragraphs, table,
     two_in_a_room,
 };
 
@@ -239,7 +239,7 @@ async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
     // the server, but for the few megabytes the server's own side of the socket holds.
     let mut slow = Peer::on(th.client.connect_websocket_receiving(64 * 1024).await, 102);
     let mut reader = Peer::connect(&th.client2, 103).await;
-    crate::rooms::give(&th, &t.board_id, &th.client2.me().await.id, "viewer").await;
+    give(&th, &t.board_id, &th.client2.me().await.id, "viewer").await;
     one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     slow.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     reader.joined(TEST_WORKSPACE_ID, &t.card_id).await;
@@ -249,30 +249,41 @@ async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
     slow.settle().await;
     reader.settle().await;
     let mut written = vec!["first".to_owned(), "y".repeat(60 * 1024)];
-    let mut asked = 0;
+    let (mut asked, mut sent_while_in) = (0, 0);
     while th.app.collab().room_members(&app, &t.card_id).await == 3 {
-        assert!(asked < 20_000, "put out before {asked} answers waited");
-        for _ in 0..50 {
+        // 60 KiB an answer: the bytes that may wait would hold some two thousand.
+        assert!(
+            asked < 1000,
+            "not put out after {asked} answers: not for the messages that wait"
+        );
+        // Fewer at a time than may wait, so that it is in the room over several
+        // updates whatever the system holds of what it does not read.
+        for _ in 0..4 {
             slow.send_binary(frame(slow.doc, slow.epoch, STEP_1, &[0]))
                 .await;
         }
-        asked += 50;
-        // While the one does not read, the other is sent each update as it is
-        // written: it holds it before the next is.
-        written.push(format!("meanwhile {asked}"));
-        one.write_acked(&written[written.len() - 1]).await;
-        match reader.incoming(PATIENCE).await {
-            Incoming::Frame(update) => {
-                assert_eq!(update.sync, UPDATE, "{:?}", update.sync);
-                reader.editor().receive(&update.payload);
-            }
-            other => panic!("the connection that reads is sent the update: {other:?}"),
-        }
+        asked += 4;
+        // The one that reads is sent each update as it is written: it holds it
+        // before the next is.
+        let line = format!("meanwhile {asked}");
+        one.write_acked(&line).await;
+        written.push(line);
+        receive_update(&mut reader).await;
         assert_eq!(reader.lines(), written, "held by the one that reads");
+        // Who is in a room stays until put out: still in now, it was in when the
+        // update was sent on.
+        if th.app.collab().room_members(&app, &t.card_id).await == 3 {
+            sent_while_in += 1;
+        }
     }
-    written.push("after it was put out".to_owned());
-    one.write_acked("after it was put out").await;
-    reader.settle().await;
+    assert!(
+        sent_while_in >= 2,
+        "the one that reads was sent {sent_while_in} updates while the other was in the room"
+    );
+    let line = "after it was put out";
+    one.write_acked(line).await;
+    written.push(line.to_owned());
+    receive_update(&mut reader).await;
     assert_eq!(reader.lines(), written, "and after the other was put out");
     assert_eq!(reader.body(), one.body());
     assert_eq!(
@@ -289,9 +300,22 @@ async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
     );
     slow.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(slow.body(), one.body());
-    assert_eq!(
-        one.lines().last().map(String::as_str),
-        Some("after it was put out")
-    );
+    assert_eq!(one.lines().last().map(String::as_str), Some(line));
     th.teardown().await;
+}
+
+/// Takes the next message of a connection, which is an update of the document it
+/// holds, into that document.
+async fn receive_update(peer: &mut Peer) {
+    match peer.incoming(PATIENCE).await {
+        Incoming::Frame(update) => {
+            assert_eq!(
+                (update.doc, update.epoch, update.sync),
+                (peer.doc, peer.epoch, UPDATE),
+                "an update of the document it holds"
+            );
+            peer.editor().receive(&update.payload);
+        }
+        other => panic!("the connection that reads is sent the update: {other:?}"),
+    }
 }
