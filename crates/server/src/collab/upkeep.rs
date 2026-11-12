@@ -15,6 +15,10 @@ use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
 use crate::error::{AppError, Reason};
 
+/// How many times the body of a document is written to a card that keeps changing
+/// meanwhile (its title, its fields) before the write is given up for now.
+const PROJECTION_TRIES: u32 = 3;
+
 impl Collab {
     /// Takes an update into the document of a held slot and logs it with what a repair
     /// deleted; a document whose log could not be written is closed, so that the next
@@ -292,28 +296,48 @@ impl Collab {
             }
         };
         let digest = digest_of(body.as_ref());
-        let open = slot.open.as_mut().expect("the document is open");
+        let open = slot.open.as_ref().expect("the document is open");
         let through = open.log_end;
         let changed = digest != open.body_digest;
-        let write = changed.then_some(body);
-        let projected = app
-            .store()
-            .project_body(
-                card_id,
-                write,
-                held.update_at,
-                through,
-                &digest,
-                &open.last_writer,
-            )
-            .await;
-        if let Err(StoreError::Stale { .. }) = projected {
-            // Written past the document since it was read.
-            let held = app.store().get_block(card_id).await?.body;
-            self.replaced(app, card_id, slot, held.as_ref()).await?;
-            return Ok(true);
+        let last_writer = open.last_writer.clone();
+        let mut read_at = held.update_at;
+        #[cfg(feature = "test-util")]
+        self.paused_before_projection().await;
+        let mut tries = 0;
+        loop {
+            let projected = app
+                .store()
+                .project_body(
+                    card_id,
+                    changed.then(|| body.clone()),
+                    read_at,
+                    through,
+                    &digest,
+                    &last_writer,
+                )
+                .await;
+            let Err(StoreError::Stale { .. }) = projected else {
+                projected?;
+                break;
+            };
+            // The card changed since it was read: its body was written past the
+            // document, or something else of it was (a title), and the body is written
+            // again with the card as it is now.
+            let held = app.store().get_block(card_id).await?;
+            let open = slot.open.as_ref().expect("the document is open");
+            if digest_of(held.body.as_ref()) != open.body_digest {
+                self.replaced(app, card_id, slot, held.body.as_ref())
+                    .await?;
+                return Ok(true);
+            }
+            tries += 1;
+            if tries >= PROJECTION_TRIES {
+                return Err(AppError::conflict(
+                    "the card kept changing while the body of its document was written to it",
+                ));
+            }
+            read_at = held.update_at;
         }
-        projected?;
         let open = slot.open.as_mut().expect("the document is open");
         open.written_seq = through;
         open.body_digest = digest;

@@ -1,0 +1,136 @@
+//! Bodies written whole to cards by the routes (a patch, a batch of patches, a block
+//! stored again): around the documents of the cards, so that what their editors typed
+//! is in the card before, and their documents are that body after.
+
+use std::future::Future;
+
+use super::place::Held;
+use super::upkeep::digest_of;
+use super::{Collab, refusals};
+use crate::app::App;
+use crate::error::AppError;
+
+impl Collab {
+    /// Runs `write`, a write of the whole bodies of the cards `card_ids` (with the
+    /// `updateAt` its writer read), around their documents, in a task of its own that
+    /// holds each card's place (taken in the order of their keys, so that two of them
+    /// never wait on each other), so that a caller that stops waiting leaves no half
+    /// of it:
+    ///
+    /// - before, what the editors typed and the card does not hold yet is written to
+    ///   it, so that a writer who read the card before is refused (409) and reads it
+    ///   again; this includes the log of a document that is not open. If that cannot be
+    ///   done, `write` does not run: it would write over updates its writer never saw;
+    /// - after, an open document whose card holds another body now is made again from
+    ///   that body, and the room is told ([`super::DocChange::Replaced`]). A document
+    ///   that is not open is made again from its card's body when it is opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns `document_unavailable` if what the editors typed cannot be written
+    /// first, and the error of `write`. What fails after `write` is logged: the cards
+    /// hold what was written, and a document that was not made again is closed.
+    pub async fn write_whole<R, W, F>(
+        &self,
+        app: &App,
+        card_ids: Vec<String>,
+        write: W,
+    ) -> Result<R, AppError>
+    where
+        R: Send + 'static,
+        W: FnOnce(App) -> F + Send + 'static,
+        F: Future<Output = Result<R, AppError>> + Send + 'static,
+    {
+        let (collab, app_of_task) = (self.clone(), app.clone());
+        let task = app.spawn_tracked(async move {
+            collab.write_whole_held(&app_of_task, card_ids, write).await
+        });
+        task.await.map_err(|error| {
+            AppError::internal(format_args!("the write of whole bodies ended: {error}"))
+        })?
+    }
+
+    async fn write_whole_held<R, W, F>(
+        &self,
+        app: &App,
+        mut card_ids: Vec<String>,
+        write: W,
+    ) -> Result<R, AppError>
+    where
+        W: FnOnce(App) -> F,
+        F: Future<Output = Result<R, AppError>>,
+    {
+        card_ids.sort();
+        card_ids.dedup();
+        let mut held: Vec<(String, Held, bool)> = Vec::with_capacity(card_ids.len());
+        for card_id in card_ids {
+            let slot = self.slot(app, &card_id).await;
+            held.push((card_id, slot, false));
+        }
+        let mut written_first = Ok(());
+        for (card_id, slot, opened_here) in &mut held {
+            if let Err(error) = self.write_first(app, card_id, slot, opened_here).await {
+                written_first = Err(error);
+                break;
+            }
+        }
+        let written = match written_first {
+            Ok(()) => write(app.clone()).await,
+            Err(error) => Err(error),
+        };
+        for (card_id, mut slot, opened_here) in held {
+            if opened_here {
+                // Opened to write its log: the next request opens it from the card.
+                self.forget(&mut slot).await;
+            } else if written.is_ok() && slot.open.is_some() {
+                self.after_whole(app, &card_id, &mut slot).await;
+            }
+            self.retire(&mut slot);
+        }
+        written
+    }
+
+    /// Writes to a card what the editors typed and it does not hold yet: from its open
+    /// document, or from the document's log, opened for that.
+    async fn write_first(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        opened_here: &mut bool,
+    ) -> Result<(), AppError> {
+        if slot.open.is_none() {
+            if !app.store().has_unwritten_body(card_id).await? {
+                return Ok(());
+            }
+            self.ensure_open(app, card_id, slot).await?;
+            *opened_here = true;
+        }
+        self.write_now(app, card_id, slot).await.map_err(|error| {
+            tracing::error!(%error, card_id, "cannot write what the editors typed before a body is written whole");
+            refusals::unavailable()
+        })
+    }
+
+    /// Makes an open document whose card was written whole again from that body.
+    async fn after_whole(&self, app: &App, card_id: &str, slot: &mut Held) {
+        let body = match app.store().get_block(card_id).await {
+            Ok(block) => block.body,
+            Err(error) => {
+                tracing::error!(%error, card_id, "cannot read a card written whole; its document is closed");
+                self.forget(slot).await;
+                return;
+            }
+        };
+        if slot
+            .open
+            .as_ref()
+            .is_some_and(|open| digest_of(body.as_ref()) == open.body_digest)
+        {
+            return;
+        }
+        if let Err(error) = self.replaced(app, card_id, slot, body.as_ref()).await {
+            tracing::error!(%error, card_id, "cannot make a document again from a body written whole");
+        }
+    }
+}

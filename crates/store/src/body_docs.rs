@@ -249,7 +249,9 @@ impl Store {
     /// document is marked as written up to there, with `body_digest` the digest of
     /// `body`. With `body` `None` the block is not patched: its body is the document's
     /// already. `read_at` is the block's `update_at` as it was read: a block changed
-    /// since is not written over.
+    /// since is not written over. (A restore from the trash in the same millisecond as
+    /// the read, and the import's own writing of bodies, which keeps `update_at`, are
+    /// not seen; neither writes a block whose document is open.)
     ///
     /// # Errors
     ///
@@ -287,6 +289,21 @@ impl Store {
 }
 
 impl Store {
+    /// Whether a block has a document whose log holds updates the block's body does not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn has_unwritten_body(&self, block_id: &str) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql =
+                scope.sql("SELECT 1 FROM body_docs WHERE projected_seq < log_end AND block_id = ");
+            sql.bind(Id(block_id));
+            Ok(scope.fetch_optional(sql).await?.is_some())
+        })
+        .await
+    }
+
     /// The documents whose block does not hold their body yet, with the organization
     /// of each: what a server that ended before it wrote them has to write. Blocks in
     /// the trash are left out; theirs is written when they are opened again.

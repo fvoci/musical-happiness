@@ -30,6 +30,7 @@ mod open;
 mod place;
 mod refusals;
 mod upkeep;
+mod whole;
 pub mod worker;
 
 use std::collections::HashMap;
@@ -90,6 +91,10 @@ struct Inner {
     numbers: AtomicU64,
     limits: Limits,
     events: broadcast::Sender<DocEvent>,
+    /// What the next write of a body waits for, between reading its card and writing it:
+    /// for the tests of what is written to the card meanwhile.
+    #[cfg(feature = "test-util")]
+    projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 /// An update a document took.
@@ -168,6 +173,8 @@ impl Collab {
                 numbers: AtomicU64::new(1),
                 limits,
                 events: broadcast::channel(EVENTS).0,
+                #[cfg(feature = "test-util")]
+                projection_pause: Mutex::new(None),
             }),
         })
     }
@@ -335,41 +342,6 @@ impl Collab {
         .await
     }
 
-    /// Runs `write`, a write of a card's whole body that is not the document's (over the
-    /// routes, with the `updateAt` its writer read), around the card's document if it is
-    /// open: the document's body is written to the card first, so that a writer who read
-    /// the card before the editors' last updates is refused for that (409); and once
-    /// `write` is done, the document is made again from the body written, and the room
-    /// is told ([`DocChange::Replaced`]): its editors load it anew. A document that is not
-    /// open is made again from the card's body when it is opened.
-    ///
-    /// # Errors
-    ///
-    /// Returns the error of `write`, and the store's if the card cannot be read after
-    /// it. What fails with the document is logged: the card holds what was written, and
-    /// a document that was not made again is closed.
-    pub async fn write_whole<T>(
-        &self,
-        app: &App,
-        card_id: &str,
-        write: impl Future<Output = Result<T, AppError>>,
-    ) -> Result<T, AppError> {
-        let Some(mut slot) = self.existing_slot(app, card_id).await else {
-            return write.await;
-        };
-        if let Err(error) = self.write_now(app, card_id, &mut slot).await {
-            tracing::error!(%error, card_id, "cannot write a card's body before it is written whole");
-        }
-        let written = write.await?;
-        if slot.open.is_some() {
-            let body = app.store().get_block(card_id).await?.body;
-            if let Err(error) = self.replaced(app, card_id, &mut slot, body.as_ref()).await {
-                tracing::error!(%error, card_id, "cannot make a document again from a body written whole");
-            }
-        }
-        Ok(written)
-    }
-
     /// Writes the body of every open document and closes them, and ends the workers:
     /// for a server that stops. `app` is any handle of the server: each document is
     /// written as its card's organization.
@@ -488,6 +460,40 @@ impl Collab {
             },
         )
         .await
+    }
+
+    /// Has the next write of a document's body to its card wait, after it read the card
+    /// and before it writes it, until the second is notified; the first is notified when
+    /// it waits. For the tests of what is written to the card meanwhile.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pause_next_projection(&self) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
+        let pause = (
+            Arc::new(tokio::sync::Notify::new()),
+            Arc::new(tokio::sync::Notify::new()),
+        );
+        *self
+            .inner
+            .projection_pause
+            .lock()
+            .expect("the pause is not poisoned") = Some(pause.clone());
+        pause
+    }
+
+    /// Waits where [`Collab::pause_next_projection`] asked.
+    #[cfg(feature = "test-util")]
+    async fn paused_before_projection(&self) {
+        let pause = self
+            .inner
+            .projection_pause
+            .lock()
+            .expect("the pause is not poisoned")
+            .take();
+        if let Some((waiting, go)) = pause {
+            waiting.notify_one();
+            go.notified().await;
+        }
     }
 
     /// Forgets every open document without writing its body, and ends the workers: as

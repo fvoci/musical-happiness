@@ -18,6 +18,7 @@ mod cards;
 mod collab;
 mod collab_deaths;
 mod collab_upkeep;
+mod collab_whole;
 mod comments;
 mod compression;
 mod content_blocks;
