@@ -1,0 +1,204 @@
+//! The lock that makes one process the server of a database: what runs in the
+//! background and what the start cleans up run in that process only.
+//!
+//! On PostgreSQL it is an advisory lock of a session, on a connection of its own outside
+//! the pool, keyed by the schema the tables are in: it lasts as long as that connection
+//! does, and nothing the transactions of the pool set touches it. On SQLite it is a
+//! lock of a file beside the database's (`<database>-server.lock`), held while the file
+//! is open. An in-memory database is no other process's, and has none.
+
+use std::fs::{File, OpenOptions, TryLockError};
+use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+use std::path::{Path, PathBuf};
+
+use sqlx::Connection as _;
+use sqlx::postgres::PgConnection;
+
+use crate::db::Dialect;
+use crate::error::StoreError;
+use crate::{Pool, Store};
+
+/// The first key of the advisory lock, the same for every server: `fvoc`. The second
+/// is the hash of the schema the tables are in, so that servers of other schemas of
+/// one database do not hold each other back.
+const LOCK_CLASS: i32 = i32::from_be_bytes(*b"fvoc");
+
+/// The condition on `pg_locks` (as `l`) that is the lock of the server of this schema.
+const THE_LOCK: &str = "l.locktype = 'advisory' AND l.granted AND l.classid = 1719037795::oid \
+     AND l.objid = hashtext(COALESCE(current_schema(), ''))::oid AND l.objsubid = 2";
+
+/// The lock of the server of a database, held until it is released or dropped (see the
+/// module).
+#[derive(Debug)]
+pub struct ServerLock {
+    held: Held,
+}
+
+#[derive(Debug)]
+enum Held {
+    /// The connection whose session holds the advisory lock.
+    Postgres(tokio::sync::Mutex<PgConnection>),
+    /// The open lock file.
+    Sqlite(File),
+    /// An in-memory database: nothing to hold.
+    Memory,
+}
+
+/// The lock file of the SQLite database `database`.
+pub(crate) fn file_beside(database: &Path) -> PathBuf {
+    let mut name = database.as_os_str().to_owned();
+    name.push("-server.lock");
+    PathBuf::from(name)
+}
+
+fn io(error: std::io::Error) -> StoreError {
+    StoreError::Database(sqlx::Error::Io(error))
+}
+
+impl Store {
+    /// Takes the lock of the server of the database if no other process holds it, and
+    /// leaves `holder` with it: a few words that whoever is refused the lock is told
+    /// ([`Store::server_lock_holder`]). Returns `None` if another holds it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the database cannot be reached or the lock
+    /// file cannot be opened.
+    pub async fn try_lock_server(&self, holder: &str) -> Result<Option<ServerLock>, StoreError> {
+        let held = match &self.inner.pool {
+            Pool::Postgres(pool) => {
+                let options = (*pool.connect_options()).clone().application_name(holder);
+                let mut conn = PgConnection::connect_with(&options).await?;
+                let taken: bool = sqlx::query_scalar(
+                    "SELECT pg_try_advisory_lock($1, hashtext(COALESCE(current_schema(), '')))",
+                )
+                .bind(LOCK_CLASS)
+                .fetch_one(&mut conn)
+                .await?;
+                if !taken {
+                    conn.close().await?;
+                    return Ok(None);
+                }
+                Held::Postgres(tokio::sync::Mutex::new(conn))
+            }
+            Pool::Sqlite(_) => match &self.inner.lock_file {
+                None => Held::Memory,
+                Some(path) => match lock_file(path, holder).map_err(io)? {
+                    Some(file) => Held::Sqlite(file),
+                    None => return Ok(None),
+                },
+            },
+        };
+        Ok(Some(ServerLock { held }))
+    }
+
+    /// Who holds the lock of the server of the database, in the words it was taken
+    /// with, if anyone does.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails or the lock file cannot be
+    /// read.
+    pub async fn server_lock_holder(&self) -> Result<Option<String>, StoreError> {
+        if self.dialect() == Dialect::Postgres {
+            return self
+                .with_conn(async |scope| {
+                    let sql = scope.sql(&format!(
+                        "SELECT a.application_name || ', connected since ' || \
+                         a.backend_start::text FROM pg_locks l \
+                         JOIN pg_stat_activity a ON a.pid = l.pid WHERE {THE_LOCK}"
+                    ));
+                    match scope.fetch_optional(sql).await? {
+                        Some(row) => row.text(0).map(Some),
+                        None => Ok(None),
+                    }
+                })
+                .await;
+        }
+        let Some(path) = &self.inner.lock_file else {
+            return Ok(None);
+        };
+        let mut text = String::new();
+        match File::open(path) {
+            Ok(mut file) => file.read_to_string(&mut text).map_err(io)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(io(error)),
+        };
+        Ok(Some(format!("{text} (the lock file {})", path.display())))
+    }
+}
+
+/// Opens and locks the lock file at `path`, and writes `holder` into it; `None` if
+/// another holds it.
+fn lock_file(path: &Path, holder: &str) -> std::io::Result<Option<File>> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => return Ok(None),
+        Err(TryLockError::Error(error)) => return Err(error),
+    }
+    file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(holder.as_bytes())?;
+    file.sync_data()?;
+    Ok(Some(file))
+}
+
+impl ServerLock {
+    /// Whether the lock is still held: on PostgreSQL, the connection answers and its
+    /// session holds the lock. A lock file is held as long as it is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the connection does not answer, after which
+    /// the lock is to be taken for lost.
+    pub async fn is_held(&self) -> Result<bool, StoreError> {
+        match &self.held {
+            Held::Postgres(conn) => {
+                let mut conn = conn.lock().await;
+                let held: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT EXISTS (SELECT 1 FROM pg_locks l \
+                     WHERE l.pid = pg_backend_pid() AND {THE_LOCK})"
+                )))
+                .fetch_one(&mut *conn)
+                .await?;
+                Ok(held)
+            }
+            Held::Sqlite(_) | Held::Memory => Ok(true),
+        }
+    }
+
+    /// Lets the lock go, for the next server.
+    pub async fn release(self) {
+        match self.held {
+            // The session ends with its connection, and its lock with it.
+            Held::Postgres(conn) => {
+                if let Err(error) = conn.into_inner().close().await {
+                    tracing::warn!(%error, "the connection of the server's lock did not close cleanly");
+                }
+            }
+            Held::Sqlite(file) => {
+                if let Err(error) = file.unlock() {
+                    tracing::warn!(%error, "the lock file of the server could not be unlocked");
+                }
+            }
+            Held::Memory => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_lock_class_is_the_one_the_queries_name() {
+        assert_eq!(LOCK_CLASS, 1_719_037_795);
+        assert!(THE_LOCK.contains(&LOCK_CLASS.to_string()));
+    }
+}

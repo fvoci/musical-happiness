@@ -1793,7 +1793,7 @@
         "properties": {
           "database": {
             "$ref": "#/components/schemas/ReadinessCheck",
-            "description": "Whether the database answers a statement."
+            "description": "Whether the database answers a statement, and this process holds the lock of\nthe server of the database in it."
           },
           "files": {
             "$ref": "#/components/schemas/ReadinessCheck",

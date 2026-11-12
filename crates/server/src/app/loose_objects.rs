@@ -95,8 +95,11 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the list cannot be read, or counted for the metrics.
+    /// Returns a 503 error if this process does not hold the lock of the server (also
+    /// once it lost it during the run), and the store's error if the list cannot be
+    /// read, or counted for the metrics.
     pub async fn remove_doomed_objects(&self, now: i64) -> Result<RemovedObjects, AppError> {
+        self.require_server_lock()?;
         // What cannot be doomed now is doomed by a later run; the removals go on.
         match self.store().doom_stale_writing(now).await {
             Ok(0) => {}
@@ -107,6 +110,7 @@ impl App {
         }
         let mut done = RemovedObjects::default();
         while done.removed + done.failed + done.kept < DOOMED_PER_RUN {
+            self.require_server_lock()?;
             let due = self
                 .store()
                 .due_doomed_objects(now, DOOMED_PER_BATCH)

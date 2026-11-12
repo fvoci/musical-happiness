@@ -25,6 +25,7 @@ mod loose_objects;
 mod members;
 mod observe;
 mod schema;
+mod server_lock;
 mod sessions;
 mod sharing;
 mod subscriptions;
@@ -53,6 +54,7 @@ pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
+pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
@@ -164,6 +166,9 @@ struct Inner {
     /// Whether rows name places of the file storage otherwise than the one way, once
     /// asked ([`Store::other_spellings_stored`]).
     other_spellings: tokio::sync::OnceCell<bool>,
+    /// The file of the lock of the server of an SQLite database in a file
+    /// ([`Store::try_lock_server`]).
+    lock_file: Option<std::path::PathBuf>,
 }
 
 /// The connections. Nothing takes one but [`Store::with_conn`] and
@@ -219,9 +224,13 @@ impl Store {
     /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, and
     /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
+        let mut lock_file = None;
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
+                if !settings.in_memory {
+                    lock_file = Some(server_lock::file_beside(settings.options.get_filename()));
+                }
                 let options = if settings.in_memory {
                     // The database exists only while a connection to it does, and a single
                     // connection sidesteps the table-level locks of SQLite's shared cache.
@@ -256,6 +265,7 @@ impl Store {
                 ),
                 observer: std::sync::OnceLock::new(),
                 other_spellings: tokio::sync::OnceCell::new(),
+                lock_file,
             }),
         })
     }

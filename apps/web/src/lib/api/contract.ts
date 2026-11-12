@@ -2564,7 +2564,10 @@ export interface components {
         };
         /** @description The checks of the readiness: what the server depends on to serve. */
         Readiness: {
-            /** @description Whether the database answers a statement. */
+            /**
+             * @description Whether the database answers a statement, and this process holds the lock of
+             *     the server of the database in it.
+             */
             database: components["schemas"]["ReadinessCheck"];
             /**
              * @description Whether the file storage can be used: on the local disk, the directory; on the

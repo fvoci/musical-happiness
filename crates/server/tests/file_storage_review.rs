@@ -3,6 +3,15 @@
 #[path = "api/common.rs"]
 mod common;
 
+#[path = "file_storage_review/races.rs"]
+mod races;
+
+#[path = "file_storage_review/s3.rs"]
+mod s3;
+
+#[path = "file_storage_review/startup.rs"]
+mod startup;
+
 use fvoci_model::{BoardType, Body, Card, FileInfo, Upload, UploadPurpose};
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::auth::now_millis;
