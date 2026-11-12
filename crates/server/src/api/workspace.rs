@@ -340,17 +340,9 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
     request_body = Vec<String>,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_workspace_users_by_id(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(workspace_id): Path<String>,
-    body: Bytes,
-) -> ApiResult {
-    // The body is read before the workspace is asked for, as it always was.
+async fn handle_get_workspace_users_by_id(ws: Ws, body: Bytes) -> ApiResult {
+    let ws = ws.require_home()?;
     let user_ids: Vec<String> = decode_json(&body)?;
-    let ws = Ws::enter(&app, session, workspace_id)
-        .await?
-        .require_home()?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
     }

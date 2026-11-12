@@ -99,8 +99,9 @@ impl App {
 
     /// The user's upload that is still going and the parts it has received, as
     /// [`App::upload`] gives them, if it is of this handle's workspace: the workspace an
-    /// archive is imported into, or the one of the board a file is for (a board in the
-    /// trash is of none). For a handle of every workspace, any of the user's uploads.
+    /// archive is imported into, or the one of the board a file is for, in the trash too.
+    /// An upload for a board that is gone altogether is of no workspace, and its owner
+    /// ends it under any. For a handle of every workspace, any of the user's uploads.
     ///
     /// # Errors
     ///
@@ -119,7 +120,10 @@ impl App {
             UploadPurpose::Import => self.reaches_workspace(&upload.workspace_id),
             UploadPurpose::File => match self.store().get_board(&upload.board_id).await {
                 Ok(board) => self.reaches_board(&board),
-                Err(error) if error.is_not_found() => false,
+                Err(error) if error.is_not_found() => self
+                    .deleted_board(&upload.board_id)
+                    .await?
+                    .is_none_or(|deleted| self.reaches_board(&deleted.board)),
                 Err(error) => return Err(error.into()),
             },
         };
@@ -143,8 +147,9 @@ impl App {
     }
 
     /// A board in the trash and what the user may do with it; `None` if no board of
-    /// that identifier is there, or for a handle of one workspace if it is of another. The role is the one the trash kept of the user, and
-    /// counts as what the user is in the board's workspace now: who has left the
+    /// that identifier is there, or for a handle of one workspace if it is of another.
+    /// The role is the one the trash kept of the user, and counts as what the user is in
+    /// the board's workspace now: who has left the
     /// workspace since brings nothing back. A board in the trash is open to nobody
     /// (`BoardScope::in_the_trash`).
     ///

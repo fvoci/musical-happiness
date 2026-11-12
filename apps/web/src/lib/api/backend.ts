@@ -67,7 +67,7 @@ import {
 import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
-import { ServerRequests } from './requests.ts';
+import { ServerRequests, underWorkspace } from './requests.ts';
 import { seenUsers } from './seen-users.ts';
 import { importInParts, uploadInParts } from './upload.ts';
 
@@ -140,7 +140,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * (`getWorkspaceUsers` without a search; `docs/contract-assumptions.md`, D2).
    */
   async users(workspaceId: string): Promise<User[]> {
-    const users = await this.#http.request<Schemas['User'][]>('/api/v1/w/{workspaceId}/users', {
+    const users = await this.#http.request<Schemas['User'][]>(underWorkspace('/users'), {
       workspaceId,
     });
     return users.map(userOf);
@@ -149,7 +149,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
     const ask = (json: string[]) =>
       this.#http.request<Schemas['User'][]>(
-        '/api/v1/w/{workspaceId}/users',
+        underWorkspace('/users'),
         { workspaceId },
         { method: 'POST', json },
       );
@@ -184,17 +184,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   // ------------------------------------------------------------- boards
-
-  async boards(workspaceId: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>('/api/v1/w/{workspaceId}/boards', {
-      workspaceId,
-    });
-    return boards.map(boardOf);
-  }
-
-  async board(boardId: string): Promise<Board> {
-    return boardOf(await this.inWorkspace<Schemas['Board']>('/boards/{boardId}', { boardId }));
-  }
 
   /**
    * Makes the board and its first view in one request
@@ -246,7 +235,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** `searchWorkspaceBoards` by title: the boards of the workspace. */
   async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
     const boards = await this.#http.request<Schemas['Board'][]>(
-      '/api/v1/w/{workspaceId}/boards/search',
+      underWorkspace('/boards/search'),
       { workspaceId },
       { query: { q: query } },
     );
@@ -254,10 +243,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   async templates(workspaceId: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>(
-      '/api/v1/w/{workspaceId}/templates',
-      { workspaceId },
-    );
+    const boards = await this.#http.request<Schemas['Board'][]>(underWorkspace('/templates'), {
+      workspaceId,
+    });
     return boards.map(boardOf);
   }
 
@@ -275,7 +263,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   async onboard(workspaceId: string): Promise<string> {
     const started = await this.#http.request<Schemas['OnboardingStart']>(
-      '/api/v1/w/{workspaceId}/onboard',
+      underWorkspace('/onboard'),
       { workspaceId },
       { method: 'POST' },
     );
@@ -360,7 +348,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** `getWorkspaceUsers` with a search: ten at most, whatever the case (D2). */
   async searchUsers(workspaceId: string, query: string): Promise<User[]> {
     const users = await this.#http.request<Schemas['User'][]>(
-      '/api/v1/w/{workspaceId}/users',
+      underWorkspace('/users'),
       { workspaceId },
       { query: { search: query } },
     );
@@ -382,7 +370,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   async categories(workspaceId: string): Promise<Category[]> {
     const categories = await this.#http.request<Schemas['CategoryBoards'][]>(
-      '/api/v1/w/{workspaceId}/categories',
+      underWorkspace('/categories'),
       { workspaceId },
     );
     return categories.map(categoryOf);
@@ -407,7 +395,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const { id: userId } = await this.me();
     const request: Schemas['NewCategory'] = { name: draft.name, userId, workspaceId };
     const made = await this.#http.request<Schemas['Category']>(
-      '/api/v1/w/{workspaceId}/categories',
+      underWorkspace('/categories'),
       { workspaceId },
       { method: 'POST', json: request },
     );
@@ -437,7 +425,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       collapsed: patch.collapsed ?? before.collapsed,
     };
     const updated = await this.#http.request<Schemas['Category']>(
-      '/api/v1/w/{workspaceId}/categories/{categoryId}',
+      underWorkspace('/categories/{categoryId}'),
       { workspaceId, categoryId },
       { method: 'PUT', json: request },
     );
@@ -452,7 +440,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   deleteCategory(workspaceId: string, categoryId: string): Promise<void> {
     return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
-        '/api/v1/w/{workspaceId}/categories/{categoryId}',
+        underWorkspace('/categories/{categoryId}'),
         { workspaceId, categoryId },
         { method: 'DELETE' },
       );
@@ -462,7 +450,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void> {
     return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
-        '/api/v1/w/{workspaceId}/category-order',
+        underWorkspace('/category-order'),
         { workspaceId },
         { method: 'PUT', json: categoryIds },
       );
@@ -493,7 +481,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     index: number,
   ): Promise<void> {
     await this.#http.request(
-      '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}',
+      underWorkspace('/categories/{categoryId}/boards/{boardId}'),
       { workspaceId, categoryId, boardId },
       { method: 'POST' },
     );
@@ -502,7 +490,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
     filed.splice(Math.max(0, Math.min(index, filed.length)), 0, boardId);
     await this.#http.request(
-      '/api/v1/w/{workspaceId}/categories/{categoryId}/board-order',
+      underWorkspace('/categories/{categoryId}/board-order'),
       { workspaceId, categoryId },
       { method: 'PUT', json: filed },
     );
@@ -517,8 +505,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
         hidden
-          ? '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/hide'
-          : '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/unhide',
+          ? underWorkspace('/categories/{categoryId}/boards/{boardId}/hide')
+          : underWorkspace('/categories/{categoryId}/boards/{boardId}/unhide'),
         { workspaceId, categoryId, boardId },
         { method: 'PUT' },
       );
@@ -636,7 +624,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * backend says): 404.
    */
   async #card(boardId: string, cardId: string): Promise<Schemas['Card']> {
-    const card = await this.inWorkspace<Schemas['Card']>('/cards/{cardId}', { cardId });
+    // The board names the workspace (`workspaceOf`); the path does not.
+    const card = await this.inWorkspace<Schemas['Card']>('/cards/{cardId}', { cardId, boardId });
     if (card.boardId !== boardId) {
       throw new BackendError(404, { detail: 'no such card on this board' });
     }
@@ -660,8 +649,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * still go one after another, so that two quick ones of the same value
    * arrive in the order they were made.
    */
-  patchCard(_boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    return this.#inTurn(cardId, () => this.#patchCard(cardId, patch));
+  patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+    return this.#inTurn(cardId, () => this.#patchCard(boardId, cardId, patch));
   }
 
   /**
@@ -683,7 +672,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return running;
   }
 
-  async #patchCard(cardId: string, patch: CardPatch): Promise<CardSummary> {
+  async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
     const request: Schemas['CardPatch'] = {};
     if (patch.title !== undefined) request.title = patch.title;
     if (patch.icon !== undefined) request.icon = patch.icon;
@@ -693,7 +682,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     if (deleted.length > 0) request.deletedProperties = deleted;
     const card = await this.inWorkspace<Schemas['Card']>(
       '/cards/{cardId}',
-      { cardId },
+      { cardId, boardId },
       { method: 'PATCH', json: request },
     );
     return cardOf(card);
@@ -705,7 +694,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * nothing. An empty document is sent as it is; the server stores it as no
    * body. The body goes in the same turn as the card's other changes.
    */
-  writeCardBody(_boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
+  writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
     return this.#inTurn(cardId, async () => {
       const request: Schemas['CardPatch'] = {
         body: write.body ? wireBody(write.body) : null,
@@ -713,7 +702,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       };
       const card = await this.inWorkspace<Schemas['Card']>(
         '/cards/{cardId}',
-        { cardId },
+        { cardId, boardId },
         { method: 'PATCH', json: request },
       );
       return cardDetailOf(card);
@@ -921,7 +910,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     return downloadWithProgress(
       this.#http,
-      '/api/v1/w/{workspaceId}/boards/{boardId}/archive/export',
+      underWorkspace('/boards/{boardId}/archive/export'),
       this.workspaceOf({ boardId }),
       'archive.boardarchive',
       options,
@@ -932,7 +921,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     return downloadWithProgress(
       this.#http,
-      '/api/v1/w/{workspaceId}/archive/export',
+      underWorkspace('/archive/export'),
       { workspaceId },
       'archive.boardarchive',
       options,

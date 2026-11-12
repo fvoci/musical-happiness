@@ -1,6 +1,6 @@
 //! Searching boards.
 
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::RawQuery;
 use fvoci_model::{Board, BoardSearchField};
 use fvoci_store::PublicBoards;
 use utoipa_axum::router::OpenApiRouter;
@@ -11,7 +11,7 @@ use super::contract::tag;
 
 use super::user_is_guest;
 use super::workspace::Ws;
-use super::{ApiResult, RequiredSession, json_response, query_param};
+use super::{ApiResult, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -36,12 +36,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     params(WorkspaceId, SearchTerm, SearchField),
     responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
 )]
-async fn handle_search_boards(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(workspace_id): Path<String>,
-    RawQuery(query): RawQuery,
-) -> ApiResult {
+async fn handle_search_boards(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
+    let ws = ws.require_works_there()?;
     let term = query_param(query.as_deref(), "q");
     let field_text = query_param(query.as_deref(), "field");
     let search_field = if field_text.is_empty() {
@@ -51,10 +47,6 @@ async fn handle_search_boards(
             .parse::<BoardSearchField>()
             .map_err(AppError::bad_request)?
     };
-    // The query is read before the workspace is asked for, as it always was.
-    let ws = Ws::enter(&app, session, workspace_id)
-        .await?
-        .require_works_there()?;
     let workspace_id = &ws.workspace_id;
 
     let mut boards = search_boards(&ws.app, &ws.session.user_id, &term, search_field).await?;

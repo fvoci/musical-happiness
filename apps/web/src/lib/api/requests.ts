@@ -4,6 +4,7 @@
  * reader's own and reading their workspaces, and reading the trash.
  * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
+import type { Board } from '../logic/wire.ts';
 import type {
   DeletedItem,
   LoginOrganization,
@@ -16,7 +17,7 @@ import type {
 
 import { BackendError } from '../state/backend.ts';
 
-import { workspacesOf, userOf, type Schemas } from './convert.ts';
+import { boardOf, workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { ApiPath, Http, RequestOptions } from './http.ts';
 
 /** A path under a workspace, as the contract writes it after `/api/v1/w/{workspaceId}`. */
@@ -26,10 +27,24 @@ export type WorkspacePath = ApiPath extends infer P
     : never
   : never;
 
+/**
+ * The API path of `path` under a workspace: every address under
+ * `/api/v1/w/{workspaceId}` is made from this.
+ */
+export function underWorkspace<P extends WorkspacePath>(path: P): `/api/v1/w/{workspaceId}${P}` {
+  return `/api/v1/w/{workspaceId}${path}`;
+}
+
 export class ServerRequests implements TrashReads {
   readonly #http: Http;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
   #workspaceId: string | undefined;
+  /**
+   * The workspace of each board read (`learnPlaces`): a board's paths are
+   * under its own, also when the reader has entered another since a request
+   * on it began (an upload waiting for its turn, a write after a reading).
+   */
+  readonly #places = new Map<string, string>();
 
   constructor(http: Http) {
     this.#http = http;
@@ -41,13 +56,28 @@ export class ServerRequests implements TrashReads {
   }
 
   /**
+   * Keeps the workspace of each board, for the paths of the board
+   * (`workspaceOf`). A built-in template is every workspace's: its paths are
+   * under the one the reader is in.
+   */
+  protected learnPlaces(
+    boards: readonly { id: string; workspaceId: string; isBuiltin?: boolean }[],
+  ): void {
+    for (const board of boards) {
+      if (!board.isBuiltin) this.#places.set(board.id, board.workspaceId);
+    }
+  }
+
+  /**
    * The parameters of a path under `/w/{workspaceId}` with the workspace
-   * filled in: the one the reader is in, unless `workspaceId` names another.
+   * filled in: the board's own when `boardId` names a board read before (in
+   * the path, or beside it for a path of a card), else the one the reader is
+   * in, unless `workspaceId` names another.
    * Every address under a workspace is made with these.
    */
   protected workspaceOf<P extends Record<string, string>>(
     params: P,
-    workspaceId = this.#workspaceId,
+    workspaceId = (params.boardId && this.#places.get(params.boardId)) || this.#workspaceId,
   ): P & { workspaceId: string } {
     if (workspaceId === undefined) {
       throw new BackendError(500, { detail: 'no workspace was entered' });
@@ -63,7 +93,7 @@ export class ServerRequests implements TrashReads {
     workspaceId?: string,
   ): Promise<T> {
     return this.#http.request<T>(
-      `/api/v1/w/{workspaceId}${path}`,
+      underWorkspace(path),
       this.workspaceOf(params, workspaceId),
       options,
     );
@@ -71,12 +101,28 @@ export class ServerRequests implements TrashReads {
 
   /** The bytes at `path` under the workspace (a file). */
   protected inWorkspaceBytes(path: WorkspacePath, params: Record<string, string>): Promise<Blob> {
-    return this.#http.bytes(`/api/v1/w/{workspaceId}${path}`, this.workspaceOf(params));
+    return this.#http.bytes(underWorkspace(path), this.workspaceOf(params));
   }
 
   /** The address of `path` under the workspace. */
   protected inWorkspaceUrl(path: WorkspacePath, params: Record<string, string>): string {
-    return this.#http.url(`/api/v1/w/{workspaceId}${path}`, this.workspaceOf(params));
+    return this.#http.url(underWorkspace(path), this.workspaceOf(params));
+  }
+
+  async boards(workspaceId: string): Promise<Board[]> {
+    const boards = await this.#http.request<Schemas['Board'][]>(underWorkspace('/boards'), {
+      workspaceId,
+    });
+    this.learnPlaces(boards);
+    return boards.map(boardOf);
+  }
+
+  async board(boardId: string): Promise<Board> {
+    const board = boardOf(
+      await this.inWorkspace<Schemas['Board']>('/boards/{boardId}', { boardId }),
+    );
+    this.learnPlaces([board]);
+    return board;
   }
 
   async register(registration: Registration): Promise<void> {
@@ -140,7 +186,7 @@ export class ServerRequests implements TrashReads {
 
   async deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
     return this.#http.request<Schemas['DeletedItem'][]>(
-      '/api/v1/w/{workspaceId}/trash/boards',
+      underWorkspace('/trash/boards'),
       { workspaceId },
       { query: { ...paging } },
     );

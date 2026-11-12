@@ -16,8 +16,8 @@ use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::common::{ROOT_WS, TEST_WS};
 
 /// The smallest part size, which the tests use so that a file of two parts stays small.
 const PART: usize = 5 * 1024 * 1024;
@@ -347,6 +347,28 @@ async fn another_users_upload_is_not_found() {
         .get(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_ok();
+}
+
+/// An upload for a board that went to the trash is of the board's workspace still: its
+/// user ends it there, and under another workspace it is not there.
+#[tokio::test]
+async fn an_upload_for_a_board_in_the_trash_is_ended_in_its_workspace() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
+    ts.client
+        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .await
+        .check_no_content();
+
+    ts.client
+        .delete(&format!("{ROOT_WS}/uploads/{upload_id}"))
+        .await
+        .check_not_found();
+    ts.client
+        .delete(&format!("{TEST_WS}/uploads/{upload_id}"))
+        .await
+        .check_no_content();
 }
 
 /// An abandoned upload is gone, its parts with it.

@@ -66,6 +66,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 )]
 async fn handle_create_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
+    // Whoever works in the workspace makes boards in it.
+    ws.require_board_maker("access denied to create board")
+        .await?;
     let (mut request, (invalid, bodies)): (BoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
             let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
@@ -102,9 +105,6 @@ async fn handle_create_boards_and_blocks(ws: Ws, body: Bytes) -> ApiResult {
         return Err(AppError::bad_request("at least one board is required"));
     }
 
-    // Whoever works in the workspace makes boards in it.
-    ws.require_board_maker("access denied to create board")
-        .await?;
     for (index, board) in request.boards.iter_mut().enumerate() {
         ws.place_board(board, "workspaceId")
             .map_err(|error| error.under(&element_pointer(Some("/boards"), index)))?;

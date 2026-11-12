@@ -293,10 +293,9 @@ pub(crate) async fn require_board_visible(
 /// the user is no member of, and a workspace of another organization, answer as one that
 /// does not exist.
 ///
-/// For the copy of a board, whose query names the workspace it goes to: the routes that name
-/// no workspace in their path work in the server's one organization (TEMPORARY, with
-/// `only_organization_scope`), and ask the same fact the routes under a workspace ask
-/// (`api/workspace.rs`, `WorksIn`).
+/// For the copy of a board, whose query names the workspace it goes to besides the one of
+/// the path: it asks the same fact the routes under a workspace ask (`api/workspace.rs`,
+/// `WorksIn`).
 pub(crate) async fn require_workspace_access(
     app: &App,
     user_id: &str,

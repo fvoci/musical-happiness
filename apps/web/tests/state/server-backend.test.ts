@@ -70,6 +70,20 @@ describe('the server backend', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 
+  it('asks for a board read before under its own workspace, also after entering another', async () => {
+    const sent = serve({ ...BLOCK, id: 'b9', workspaceId: 'w2', title: 'Elsewhere', type: 'O' });
+    const backend = serverBackend('');
+    await backend.board('b9');
+    backend.enter('w3');
+    await backend.views('b9').catch(() => undefined);
+    await backend.patchCard('b9', 'c9', { title: 'x' }).catch(() => undefined);
+    expect(sent.map((one) => one.url)).toEqual([
+      '/api/v1/w/w1/boards/b9',
+      '/api/v1/w/w2/boards/b9/blocks?type=view',
+      '/api/v1/w/w2/cards/c9',
+    ]);
+  });
+
   it('makes a card from a draft, its body along', async () => {
     const sent = serve({
       ...BLOCK,

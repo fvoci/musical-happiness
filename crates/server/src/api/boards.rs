@@ -125,14 +125,13 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
 )]
 async fn handle_create_board(ws: Ws, body: Bytes) -> ApiResult {
     let user_id = &ws.session.user_id;
+    // Whoever works in the workspace makes boards in it, open ones and private ones.
+    ws.require_board_maker("access denied to create board")
+        .await?;
     let mut requested = json_object(decode_json(&body)?)?;
     let invalid = take_invalid_board_members(&mut requested);
     let mut board: Board =
         serde_json::from_value(Value::Object(requested)).map_err(AppError::bad_request)?;
-
-    // Whoever works in the workspace makes boards in it, open ones and private ones.
-    ws.require_board_maker("access denied to create board")
-        .await?;
     ws.place_board(&mut board, "workspaceId")?;
 
     board.validate().map_err(AppError::bad_request)?;

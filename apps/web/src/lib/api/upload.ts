@@ -19,6 +19,7 @@
 import { BackendError, type UploadedFile, type UploadOptions } from '../state/backend.ts';
 
 import type { Schemas } from './convert.ts';
+import { underWorkspace } from './requests.ts';
 import type { Http } from './http.ts';
 
 /** How many times one part is sent before the upload fails. */
@@ -79,7 +80,7 @@ export async function sendInParts<T>(
         signal?.throwIfAborted();
         try {
           await http.request(
-            '/api/v1/w/{workspaceId}/uploads/{uploadId}/parts/{partNumber}',
+            underWorkspace('/uploads/{uploadId}/parts/{partNumber}'),
             { workspaceId, uploadId, partNumber: String(number) },
             { method: 'PUT', bytes: part, headers: { 'Content-Digest': digest }, signal },
           );
@@ -104,7 +105,7 @@ export async function sendInParts<T>(
     // upload that has ended already is 404, which is no matter).
     void http
       .request(
-        '/api/v1/w/{workspaceId}/uploads/{uploadId}',
+        underWorkspace('/uploads/{uploadId}'),
         { workspaceId, uploadId },
         { method: 'DELETE' },
       )
@@ -132,13 +133,13 @@ export function uploadInParts(
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        '/api/v1/w/{workspaceId}/boards/{boardId}/uploads',
+        underWorkspace('/boards/{boardId}/uploads'),
         { workspaceId, boardId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const done = await http.request<Schemas['UploadedFile']>(
-        '/api/v1/w/{workspaceId}/uploads/{uploadId}/complete',
+        underWorkspace('/uploads/{uploadId}/complete'),
         { workspaceId, uploadId },
         { method: 'POST', signal },
       );
@@ -169,14 +170,14 @@ export function importInParts(
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        '/api/v1/w/{workspaceId}/archive/uploads',
+        underWorkspace('/archive/uploads'),
         { workspaceId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const request: Schemas['ImportRequest'] = { uploadId };
       return http.request<Schemas['ImportResult']>(
-        '/api/v1/w/{workspaceId}/archive/import',
+        underWorkspace('/archive/import'),
         { workspaceId },
         { method: 'POST', json: request, signal },
       );

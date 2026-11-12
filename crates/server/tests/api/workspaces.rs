@@ -242,8 +242,7 @@ async fn workspaces_of(client: &Client) -> Vec<String> {
 
 /// A workspace of another organization is not there, and answers as one that nobody
 /// has. For a user who is let into it, the route works in that organization: it lists
-/// the boards there, which the routes that name no workspace, working in the server's
-/// one organization, do not reach.
+/// the boards there, and its board is read under it, not under the server's workspace.
 #[tokio::test]
 async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
     // SQLite holds one organization.
@@ -254,7 +253,8 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
     let (theirs, their_workspace, their_board) = another_organization(&ts).await;
     let mine = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
 
-    let hidden = not_there(&ts.client.get(&format!("/w/{their_workspace}/boards")).await);
+    let their_boards = format!("/w/{their_workspace}/boards");
+    let hidden = not_there(&ts.client.get(&their_boards).await);
     let absent = not_there(&ts.client.get(&format!("/w/{UNKNOWN_ID}/boards")).await);
     assert_eq!(hidden, absent, "theirs answers as one nobody has");
     let mine_before = workspaces_of(&ts.client).await;
@@ -291,20 +291,12 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
     );
     assert_ne!(listed[0].org_id, listed[2].org_id, "two organizations");
 
-    let boards: Vec<Board> = ts
-        .client
-        .get(&format!("/w/{their_workspace}/boards"))
-        .await
-        .ok_json();
+    let boards: Vec<Board> = ts.client.get(&their_boards).await.ok_json();
     assert_eq!(ids(&boards), [their_board.as_str()], "their open board");
     let boards: Vec<Board> = ts.client.get(&format!("{ROOT_WS}/boards")).await.ok_json();
     assert_eq!(ids(&boards), [mine.id.as_str()], "and mine in mine");
     // The second user was let into nothing.
-    not_there(
-        &ts.client2
-            .get(&format!("/w/{their_workspace}/boards"))
-            .await,
-    );
+    not_there(&ts.client2.get(&their_boards).await);
     // Let into the workspace as a guest, without belonging to their organization, the
     // user finds the workspace, and in it the boards they are on: none.
     let user2 = ts.client2.me().await.id;
@@ -312,11 +304,7 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .add_workspace_member(&their_workspace, &user2, WorkspaceRole::Guest)
         .await
         .expect("the second user is let in as a guest");
-    let boards: Vec<Board> = ts
-        .client2
-        .get(&format!("/w/{their_workspace}/boards"))
-        .await
-        .ok_json();
+    let boards: Vec<Board> = ts.client2.get(&their_boards).await.ok_json();
     assert!(boards.is_empty(), "a guest is on no board: {boards:?}");
     let of_the_guest = workspaces_of(&ts.client2).await;
     assert!(of_the_guest.contains(&their_workspace), "{of_the_guest:?}");
@@ -338,8 +326,8 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         "the older first"
     );
 
-    // The routes that name no workspace work in the server's one organization: their
-    // board is not there for them, also for a member of it.
+    // Under the server's workspace their board is not there, also for a member of it;
+    // under its own workspace it is.
     theirs
         .save_member(&BoardMember {
             board_id: their_board.clone(),
@@ -353,10 +341,17 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .get(&format!("{ROOT_WS}/boards/{their_board}"))
         .await
         .check_not_found();
-    // A route that names the workspace in its body, not its path, is one of them.
+    ts.client
+        .get(&format!("/w/{their_workspace}/boards/{their_board}"))
+        .await
+        .check_ok();
+    // A body that names their workspace under the server's is refused: the path names it.
     let board = json!({"workspaceId": their_workspace, "type": "P", "title": "new"});
     let refused = ts.client.post(&format!("{ROOT_WS}/boards"), &board).await;
-    refused.check_error(reqwest::StatusCode::BAD_REQUEST, "no such workspace");
+    refused.check_error(
+        reqwest::StatusCode::BAD_REQUEST,
+        "the board is made in the workspace of the path",
+    );
 
     ts.teardown().await;
 }
@@ -383,13 +378,7 @@ async fn the_moved_routes_find_no_workspace_of_another_organization() {
         .await
         .expect("the user is let into their workspace");
     let hidden = not_there(&ts.client.get(&format!("/w/{UNKNOWN_ID}/categories")).await);
-    for path in [
-        "",
-        "/categories",
-        "/templates",
-        &format!("{ROOT_WS}/users"),
-        "/trash/boards",
-    ] {
+    for path in ["", "/categories", "/templates", "/users", "/trash/boards"] {
         let refused = ts.client.get(&format!("/w/{their_workspace}{path}")).await;
         assert_eq!(not_there(&refused), hidden, "{path}");
     }
@@ -787,5 +776,15 @@ async fn a_path_that_is_no_text_is_malformed_but_for_the_boards_of_a_workspace()
         .get("/w/%FF/boards")
         .await
         .check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
+    // The routes that moved under `/w/` (`Ws`): the workspace that is no text is one of
+    // others, another parameter that is none a malformed request.
+    ts.client
+        .get("/w/%FF/boards/x")
+        .await
+        .check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
+    ts.client
+        .get(&format!("{ROOT_WS}/boards/%FF"))
+        .await
+        .check_error(reqwest::StatusCode::BAD_REQUEST, "the request is malformed");
     ts.teardown().await;
 }

@@ -301,8 +301,11 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             hidden.status == StatusCode::BAD_REQUEST && absent.status == StatusCode::NOT_FOUND
         } else if asker == Asker::Guest && REACHED_BY_ITEM.contains(operation) {
             // The workspace is there for its guest: what is refused is what the path
-            // names, or the operation; nothing is done.
-            hidden.status.is_client_error() && absent.status == StatusCode::NOT_FOUND
+            // names, the operation, or the empty body; nothing is done.
+            matches!(
+                hidden.status,
+                StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+            ) && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
             // The guest's archive has the boards the guest is on, none here.
             hidden.status == StatusCode::OK
@@ -336,7 +339,12 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         };
         let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
-        if hidden.status != StatusCode::BAD_REQUEST || answer(&hidden) != answer(&absent) {
+        // Refused for the path's workspace (400), or the path's workspace is not there.
+        let refused = matches!(
+            hidden.status,
+            StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND
+        );
+        if !refused || answer(&hidden) != answer(&absent) {
             violations.push(format!(
                 "workspace in body (bulk={bulk}): {:?} versus {:?}",
                 answer(&hidden),
@@ -641,18 +649,40 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
     );
 }
 
-/// The ID-only inventory comes from the contract, so adding a resource operation
-/// automatically includes it in the comparisons. The workspace inventory above spells out
-/// the complete workspace list separately, and body/query targets are checked below.
+/// What the routes of [`compare_resource_routes`] are asked about: the things of one
+/// workspace that the paths name, and who is named in them.
+struct Items<'a> {
+    board: &'a Board,
+    card: &'a Block,
+    file: &'a str,
+    upload_id: &'a str,
+    category: &'a str,
+    /// A user of the items' workspace.
+    user: &'a str,
+    /// The subscriber of the path, and the one of the same path for nothing: the asker
+    /// themselves for both when they are subscribed to the card.
+    subscriber: (&'a str, &'a str),
+}
+
+/// Asks every operation under `/w/{workspace}` whose path names something (and the
+/// subscriptions, whose body names a block) about `items`, and again about nothing:
+/// the answers must be the same, and none a success. Where both requests are the same
+/// (the asker's own subscriptions), the answer must not name the card. The operations
+/// come from the contract, so a new one is compared as it is added.
 async fn compare_resource_routes(
     client: &Client,
-    board: &Board,
-    card: &Block,
-    file: &str,
-    owner: &str,
-    upload_id: &str,
-    category: &str,
+    workspace: &str,
+    items: &Items<'_>,
 ) -> Vec<String> {
+    let Items {
+        board,
+        card,
+        file,
+        upload_id,
+        category,
+        user,
+        subscriber,
+    } = items;
     let caller = client.me().await.id;
     let contract: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -661,8 +691,6 @@ async fn compare_resource_routes(
     .expect("the contract");
     let mut violations = Vec::new();
     for (template, methods) in contract["paths"].as_object().expect("paths") {
-        // Every operation under a workspace that names something of it in its path, and
-        // the subscriptions, whose body names a block.
         let Some(rest) = template.strip_prefix("/api/v1/w/{workspaceId}") else {
             continue;
         };
@@ -673,35 +701,41 @@ async fn compare_resource_routes(
             let Some(operation) = operation["operationId"].as_str() else {
                 continue;
             };
+            // The contract writes methods in lower case, which HTTP does not.
+            let method: reqwest::Method = method.to_uppercase().parse().expect("an HTTP method");
+            let pick = |absent: bool, there: &str, nothing: &'static str| -> String {
+                if absent { nothing } else { there }.to_owned()
+            };
             let path = |absent: bool| {
                 template
                     .trim_start_matches("/api/v1")
-                    .replace("{workspaceId}", ROOT_WORKSPACE_ID)
-                    .replace("{boardId}", if absent { UNKNOWN_ID } else { &board.id })
-                    .replace("{cardId}", if absent { UNKNOWN_ID } else { &card.id })
-                    .replace("{blockId}", if absent { UNKNOWN_ID } else { &card.id })
-                    .replace("{fileId}", if absent { "missing-file" } else { file })
+                    .replace("{workspaceId}", workspace)
+                    .replace("{boardId}", &pick(absent, &board.id, UNKNOWN_ID))
+                    .replace("{cardId}", &pick(absent, &card.id, UNKNOWN_ID))
+                    .replace("{blockId}", &pick(absent, &card.id, UNKNOWN_ID))
+                    .replace("{fileId}", &pick(absent, file, "missing-file"))
+                    .replace("{uploadId}", &pick(absent, upload_id, "missing-upload"))
+                    .replace("{userId}", &pick(absent, user, UNKNOWN_ID))
                     .replace(
-                        "{uploadId}",
-                        if absent { "missing-upload" } else { upload_id },
+                        "{subscriberId}",
+                        if absent { subscriber.1 } else { subscriber.0 },
                     )
-                    .replace("{userId}", if absent { UNKNOWN_ID } else { owner })
-                    .replace("{subscriberId}", if absent { UNKNOWN_ID } else { owner })
                     .replace("{partNumber}", "1")
-                    .replace("{categoryId}", if absent { UNKNOWN_ID } else { category })
+                    .replace("{categoryId}", &pick(absent, category, UNKNOWN_ID))
             };
+            let block = |absent: bool| pick(absent, &card.id, UNKNOWN_ID);
             let body = |absent: bool| match operation {
                 "patchBlocks" => {
-                    json!({"blockIds": [if absent {UNKNOWN_ID} else {&card.id}], "blockPatches": [{"title": "changed"}]})
+                    json!({"blockIds": [block(absent)], "blockPatches": [{"title": "changed"}]})
                 }
                 "reorderCardProperties" | "createBlocks" => json!([]),
                 "createCard" => json!({"title": "new card"}),
                 "patchCard" | "patchBoard" | "patchBlock" => json!({"title": "changed"}),
                 "createUpload" => json!({"name": "new.bin", "size": 0}),
-                "addMember" => json!({"userId": owner, "schemeViewer": true}),
+                "addMember" => json!({"userId": user, "schemeViewer": true}),
                 "setSharing" => json!({"enabled": true}),
                 "createSubscription" => {
-                    json!({"blockId": if absent {UNKNOWN_ID} else {&card.id}, "blockType": "card", "subscriberType": "user", "subscriberId": caller})
+                    json!({"blockId": block(absent), "blockType": "card", "subscriberType": "user", "subscriberId": caller})
                 }
                 _ => json!({}),
             };
@@ -711,21 +745,21 @@ async fn compare_resource_routes(
                 ));
                 continue;
             }
-            let hidden_body = body(false);
-            let missing_body = body(true);
-            let hidden = Client::send(
-                client
-                    .request(method.parse().expect("method"), &path(false))
-                    .json(&hidden_body),
-            )
-            .await;
-            let absent = Client::send(
-                client
-                    .request(method.parse().expect("method"), &path(true))
-                    .json(&missing_body),
-            )
-            .await;
-            if hidden.status.is_success() || answer(&hidden) != answer(&absent) {
+            let ask = async |absent: bool| {
+                Client::send(
+                    client
+                        .request(method.clone(), &path(absent))
+                        .json(&body(absent)),
+                )
+                .await
+            };
+            let (hidden, absent) = (ask(false).await, ask(true).await);
+            let refused = if path(false) == path(true) && body(false) == body(true) {
+                !hidden.text().contains(&card.id)
+            } else {
+                !hidden.status.is_success()
+            };
+            if !refused || answer(&hidden) != answer(&absent) {
                 violations.push(format!(
                     "{operation} ({method} {template}): hidden={:?}, absent={:?}",
                     answer(&hidden),
@@ -767,6 +801,34 @@ async fn move_to_another_organization(ts: &super::common::TestServer) {
         .expect("admission elsewhere");
 }
 
+/// A new user who works in `workspace` and in no other: a user is stored in the
+/// default workspace of the organization, the root one, and is taken out of it.
+async fn user_of_only(ts: &super::common::TestServer, workspace: &str) -> String {
+    let mut user = fvoci_model::User {
+        id: new_id(),
+        username: format!("only-{workspace}"),
+        email: format!("only-{workspace}@sample.com"),
+        ..fvoci_model::User::default()
+    };
+    let store = ts.app.store();
+    store
+        .create_user(&mut user)
+        .await
+        .expect("the user is stored");
+    store
+        .execute_unchecked(&format!(
+            "DELETE FROM workspace_members WHERE user_id = '{}' AND workspace_id = '{ROOT_WORKSPACE_ID}'",
+            user.id
+        ))
+        .await
+        .expect("the user leaves the root workspace");
+    store
+        .add_workspace_member(workspace, &user.id, WorkspaceRole::Member)
+        .await
+        .expect("the user works in the workspace");
+    user.id
+}
+
 /// A category of the owner in the hidden workspace.
 async fn hidden_category(ts: &super::common::TestServer, owner: &str) -> String {
     ts.app
@@ -784,12 +846,7 @@ async fn hidden_category(ts: &super::common::TestServer, owner: &str) -> String 
 #[tokio::test]
 async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
-    let owner = ts.stranger().await;
-    ts.app
-        .store()
-        .add_workspace_member(HIDDEN_WORKSPACE_ID, &owner, WorkspaceRole::Member)
-        .await
-        .expect("the resource owner works in the hidden workspace");
+    let owner = user_of_only(&ts, HIDDEN_WORKSPACE_ID).await;
     let mut board = Board {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
@@ -841,28 +898,21 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         .await
         .expect("a guest who has no board invitation");
     let category = hidden_category(&ts, &owner).await;
-    let mut violations = compare_resource_routes(
-        &ts.client, &board, &card, &file, &owner, &upload.id, &category,
-    )
-    .await;
-    violations.extend(
-        compare_resource_routes(&guest, &board, &card, &file, &owner, &upload.id, &category).await,
-    );
+    let items = Items {
+        board: &board,
+        card: &card,
+        file: &file,
+        upload_id: &upload.id,
+        category: &category,
+        user: &owner,
+        subscriber: (&owner, UNKNOWN_ID),
+    };
+    let mut violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
+    violations.extend(compare_resource_routes(&guest, ROOT_WORKSPACE_ID, &items).await);
     // A role in another organization must not change the answer of any ID route.
     if db_type_of_the_tests() == DbType::Postgres {
         move_to_another_organization(&ts).await;
-        violations.extend(
-            compare_resource_routes(
-                &ts.client2,
-                &board,
-                &card,
-                &file,
-                &owner,
-                &upload.id,
-                &category,
-            )
-            .await,
-        );
+        violations.extend(compare_resource_routes(&ts.client2, ROOT_WORKSPACE_ID, &items).await);
     }
     ts.teardown().await;
     assert!(
@@ -932,14 +982,17 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
         );
         concealed.check_not_found();
     }
-    let found: Vec<Board> = client
+    // For somebody of another organization the root workspace is not there either.
+    let search = client
         .get(&format!("{ROOT_WS}/boards/search?q=Hidden%20query"))
-        .await
-        .ok_json();
-    assert!(
-        found.is_empty(),
-        "global board search does not find hidden open boards"
-    );
+        .await;
+    if search.status != StatusCode::NOT_FOUND {
+        let found: Vec<Board> = search.ok_json();
+        assert!(
+            found.is_empty(),
+            "the search does not find hidden open boards"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1118,4 +1171,108 @@ async fn the_paths_from_before_the_workspace_are_not_there() {
         "the operations that moved, and the two that went"
     );
     assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// What is of one workspace is not there under another, also for somebody who works in
+/// both and may do anything with it in its own: every operation that names something in
+/// its path answers about a board, card, file, upload, category and user of the test
+/// workspace under the root one as about nothing, and the asker's subscription to the
+/// card is not among theirs there.
+#[tokio::test]
+async fn what_is_of_one_workspace_is_not_there_under_another() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let me = ts.client.me().await.id;
+    let elsewhere = user_of_only(&ts, TEST_WORKSPACE_ID).await;
+    let mut board = Board {
+        id: new_id(),
+        workspace_id: TEST_WORKSPACE_ID.to_owned(),
+        board_type: BoardType::Open,
+        title: "Sibling board".to_owned(),
+        ..Board::default()
+    };
+    let store = ts.app.store();
+    store
+        .insert_board_with_admin(&mut board, &me)
+        .await
+        .expect("a board of the test workspace that the asker administers");
+    let mut card = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        title: "Sibling card".to_owned(),
+        ..Block::default()
+    };
+    store.insert_block(&mut card, &me).await.expect("its card");
+    let mut data = &b"sibling workspace file"[..];
+    let file = ts
+        .app
+        .save_file(&mut data, &board.id, "sibling.txt")
+        .await
+        .expect("its file");
+    let to_upload = fvoci_server::app::FileToUpload {
+        name: "sibling-upload.txt".to_owned(),
+        size: 0,
+        content_type: String::new(),
+    };
+    let upload = ts
+        .app
+        .create_upload(&me, &board.id, to_upload)
+        .await
+        .expect("the asker's upload to it");
+    let category = ts
+        .app
+        .create_category(fvoci_model::Category {
+            name: "Sibling category".to_owned(),
+            user_id: me.clone(),
+            workspace_id: TEST_WORKSPACE_ID.to_owned(),
+            ..fvoci_model::Category::default()
+        })
+        .await
+        .expect("the asker's category there")
+        .id;
+    store
+        .create_subscription(fvoci_model::Subscription {
+            block_type: BlockType::Card,
+            block_id: card.id.clone(),
+            subscriber_type: fvoci_model::SubscriberType::User,
+            subscriber_id: me.clone(),
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
+        })
+        .await
+        .expect("the asker follows the card");
+    // Under its own workspace each of them is there.
+    for path in [
+        format!("/w/{TEST_WORKSPACE_ID}/boards/{}", board.id),
+        format!("/w/{TEST_WORKSPACE_ID}/cards/{}", card.id),
+        format!("/w/{TEST_WORKSPACE_ID}/uploads/{}", upload.id),
+        format!("/w/{TEST_WORKSPACE_ID}/users/{elsewhere}"),
+    ] {
+        ts.client.get(&path).await.check_ok();
+    }
+    let subscriptions = ts
+        .client
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/subscriptions/{me}"))
+        .await;
+    assert!(
+        subscriptions.text().contains(&card.id),
+        "followed in its workspace"
+    );
+    let items = Items {
+        board: &board,
+        card: &card,
+        file: &file,
+        upload_id: &upload.id,
+        category: &category,
+        user: &elsewhere,
+        subscriber: (&me, &me),
+    };
+    let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
+    ts.teardown().await;
+    assert!(
+        violations.is_empty(),
+        "what is of the test workspace, asked for under the root one:\n{}",
+        violations.join("\n")
+    );
 }
