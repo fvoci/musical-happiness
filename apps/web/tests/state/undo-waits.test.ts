@@ -2,8 +2,8 @@
  * Undo and redo on a backend that answers 400ms late, through the board
  * store: Ctrl+Z right after a change takes back that change; a refused
  * change leaves the undo that waited for it nothing to do; a change made
- * while an undo waits comes after it; a gesture of several writes is one
- * step from its start.
+ * while an undo waits drops it; a gesture of several writes is one step
+ * from its start.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -52,17 +52,20 @@ describe('undo asked for while a change is being written', () => {
     expect(workspace.canRedo).toBe(false);
   });
 
-  it('comes before a change made while it waits, which starts from what it left', async () => {
+  it('is dropped by a change made while it waits, which is made at once', async () => {
     const { board, workspace, alpha, title, stored } = await slowBoard();
-    void board.setCardTitle(alpha, 'Two');
+    const renaming = board.setCardTitle(alpha, 'Two');
     const undoing = workspace.undoLast();
     const changing = board.setCardProperty(alpha, STATUS, 'done');
-    await Promise.all([undoing, changing]);
-    expect(title()).toBe('One');
-    expect(await stored()).toBe('One');
     expect(board.card(alpha)?.fields.properties[STATUS]).toBe('done');
+    await Promise.all([renaming, undoing, changing]);
+    expect(title()).toBe('Two');
+    expect(await stored()).toBe('Two');
+    expect(board.card(alpha)?.fields.properties[STATUS]).toBe('done');
+    // The steps go on from what is in force: the status, then "Two", then "One".
     await workspace.undoLast();
     expect(board.card(alpha)?.fields.properties[STATUS]).toBe('todo');
+    await workspace.undoLast();
     expect(title()).toBe('One');
   });
 });

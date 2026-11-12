@@ -47,19 +47,13 @@ function setup() {
       throw error;
     }
   };
-  /**
-   * Changes the value as a step of undo, from what is shown when it is made;
-   * a refusal is caught, as the stores do.
-   */
+  /** Changes the value as a step of undo, from what is shown; a refusal is caught, as the stores do. */
   const change = async (to: string): Promise<void> => {
-    let from: string | undefined;
+    const from = shown;
     await manager
       .perform(
-        () => {
-          from ??= shown;
-          return write(to);
-        },
-        () => write(from ?? 'start'),
+        () => write(to),
+        () => write(from),
       )
       .catch(() => undefined);
   };
@@ -171,30 +165,83 @@ describe('undo while a change is being written', () => {
     expect(manager.canRedo).toBe(true);
   });
 
-  it('makes a change asked for while an undo waits after that undo, and from what it left', async () => {
+  it('drops an undo still waiting when a change is made: it was made on what the screen showed', async () => {
     const { manager, change, answer, shown, saved, writes } = setup();
     void change('one');
     await answer();
     void change('two');
     const undone = manager.undo();
-    const made = change('three');
-    // "three" is the newest step at once, and waits for the undo asked for before it.
-    expect(manager.canRedo).toBe(false);
-    expect(manager.canUndo).toBe(true);
-    expect(writes).toHaveLength(1);
-    await answer(); // "two"; the undo of "two" is sent
-    expect(shown()).toBe('one');
-    await answer(); // the undo of "two"; "three" is sent
-    await undone;
+    // Made at once, from "two", which is what is shown: the undo of "two" is dropped.
+    void change('three');
     expect(shown()).toBe('three');
-    await answer();
-    await made;
+    expect(manager.canRedo).toBe(false);
+    await answer(); // "two"
+    await answer(); // "three"
+    await undone;
+    expect(manager.busy).toBe(false);
+    expect(writes).toHaveLength(0);
     expect(saved()).toBe('three');
-    // Undo of "three" goes back to what it was made from: "one".
+    // The steps are "one", "two" and "three", each undone in turn.
     const again = manager.undo();
     await answer();
     await again;
-    expect(saved()).toBe('one');
+    expect(saved()).toBe('two');
+    expect(manager.canUndo).toBe(true);
+  });
+
+  it('frees the queue from a write that never answers once a change is made', async () => {
+    const { manager, change, answerAt, shown, writes } = setup();
+    void change('one');
+    const undone = manager.undo();
+    expect(manager.busy).toBe(true);
+    // "one" never answers. A change is made and sent at once all the same.
+    void change('two');
+    expect(writes).toHaveLength(2);
+    await undone;
+    expect(manager.busy).toBe(false);
+    expect(shown()).toBe('two');
+    // Its own undo is not held behind the write that hangs (the first one).
+    const again = manager.undo();
+    await answerAt(1); // "two"
+    expect(writes).toHaveLength(2);
+    await answerAt(1); // the undo of "two"
+    await again;
+    expect(shown()).toBe('one');
+  });
+
+  it('still carries out the undo of a new change when an undo before it fails', async () => {
+    const { manager, change, answer, refuse, flush, writes } = setup();
+    void change('one');
+    await answer();
+    const first = manager.undo().catch((error: unknown) => error);
+    await flush(); // the undo of "one" is being written
+    void change('two');
+    const second = manager.undo();
+    await refuse(); // the undo of "one"
+    expect(await first).toEqual(new Error('refused'));
+    await answer(); // "two"; its undo is sent
+    expect(writes).toHaveLength(1);
+    await answer();
+    await second;
+    expect(manager.canUndo).toBe(false);
+    expect(manager.canRedo).toBe(true);
+  });
+
+  it('keeps what can be redone when a change is refused, or a gesture changes nothing', async () => {
+    const { manager, change, answer, refuse } = setup();
+    void change('one');
+    await answer();
+    void change('two');
+    await answer();
+    await Promise.all([manager.undo(), answer()]);
+    expect(manager.canRedo).toBe(true);
+    await manager.group(async () => undefined);
+    expect(manager.canRedo).toBe(true);
+    void change('three');
+    expect(manager.canRedo).toBe(false);
+    await refuse();
+    // "three" never happened: "two" can be done again.
+    expect(manager.canRedo).toBe(true);
     expect(manager.canUndo).toBe(true);
   });
 });

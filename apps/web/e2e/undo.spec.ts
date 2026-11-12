@@ -115,7 +115,7 @@ test('Ctrl+Z right after a change takes back that change, and Ctrl+Shift+Z does 
   // "Two" can still be done again.
   await expect(redo).toBeEnabled();
 
-  // Undo, then once more: the first board title comes back, step by step.
+  // Undo "One": the first title of the board comes back, and nothing is left to undo.
   await undo.press('Control+z');
   await expect(undo).toBeDisabled();
   await expect(title).toHaveValue(FIRST_BOARD);
@@ -156,7 +156,11 @@ test('a redo that waited for a refused undo is dropped, and the change stays in 
   await refuseNextWrite(page);
   await undo.press('Control+z');
   await undo.press('Control+Shift+z');
-  expect((await presses()).map((press) => press.stored)).toEqual(['One', 'One']);
+  // The redo was pressed while the undo still waited for its write.
+  expect(await presses()).toEqual([
+    { stored: 'One', busy: true },
+    { stored: 'One', busy: true },
+  ]);
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
   await expect(title).toHaveValue('One');
   await expect.poll(() => stored(page)).toBe('One');

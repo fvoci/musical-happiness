@@ -11,7 +11,6 @@
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
-import { manualComparator } from '../logic/sort.ts';
 import {
   createBoardView,
   viewGrouping,
@@ -38,11 +37,11 @@ import {
   type Change,
   type ViewDraft,
 } from './backend.ts';
-import { droppedCardOrder, placeAmongAll } from './card-order.ts';
+import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
-import { patchStep, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
+import { roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -51,7 +50,6 @@ import {
   boardPatches,
   cardPatches,
   isEmptyBlockPatch,
-  isEmptyBoardPatch,
   isEmptyCardPatch,
   viewPatches,
 } from './patches.ts';
@@ -458,9 +456,8 @@ export class BoardStore {
   }
 
   /**
-   * Changes a card: `change` gets the card as it is when the change is made
-   * (after an undo asked for before it) and returns it as it should be (a
-   * new object). Nothing is sent when the two say the same.
+   * Changes a card: `change` gets the card as it is and returns it as it
+   * should be (a new object). Nothing is sent when the two say the same.
    */
   async changeCard(
     cardId: string,
@@ -468,15 +465,16 @@ export class BoardStore {
     description = 'changeCard',
     groupId?: string,
   ): Promise<void> {
-    const patches = (): [CardPatch, CardPatch] | undefined => {
-      const current = this.card(cardId);
-      const pair = current && cardPatches(change(current), current);
-      return pair && !isEmptyCardPatch(pair[0]) ? pair : undefined;
-    };
-    if (!patches()) return;
-    const send = (patch: CardPatch, reverse: CardPatch) =>
-      this.#sendCardPatch(cardId, patch, reverse);
-    await this.#perform(...patchStep(patches, send), description, groupId);
+    const current = this.card(cardId);
+    if (!current) return;
+    const [forward, backward] = cardPatches(change(current), current);
+    if (isEmptyCardPatch(forward)) return;
+    await this.#perform(
+      () => this.#sendCardPatch(cardId, forward, backward),
+      () => this.#sendCardPatch(cardId, backward, forward),
+      description,
+      groupId,
+    );
   }
 
   /** Sets the value of a property on a card; `undefined` clears it. */
@@ -588,58 +586,7 @@ export class BoardStore {
    * manual order changes). One undo takes all of it back.
    */
   async dropCards(drop: CardDrop): Promise<void> {
-    const view = this.view(drop.viewId);
-    if (!view) return;
-    await this.inOneStep(async (groupId) => {
-      const groupById = this.groupingOf(view)?.id;
-      const optionId = drop.optionId;
-      const valueOf = (card: Card): string => {
-        const value = groupById ? card.fields.properties[groupById] : undefined;
-        return typeof value === 'string' ? value : '';
-      };
-
-      if (drop.index !== undefined) {
-        // The cards as they stand in the manual order, the dropped ones taken out.
-        const shown = [...this.realCards].sort(manualComparator(view.fields.cardOrder));
-        const moved = drop.cardIds;
-        const column = shown
-          .filter((card) => !moved.includes(card.id))
-          .filter((card) => optionId === undefined || valueOf(card) === optionId)
-          .map((card) => card.id);
-        const cardOrder = droppedCardOrder(
-          shown.map((card) => card.id),
-          column,
-          // The dropped cards keep the order they had.
-          shown.filter((card) => moved.includes(card.id)).map((card) => card.id),
-          drop.shown
-            ? placeAmongAll(
-                column,
-                drop.shown.filter((id) => !moved.includes(id)),
-                drop.index,
-              )
-            : drop.index,
-        );
-        await this.changeView(
-          view.id,
-          (current) => ({ ...current, fields: { ...current.fields, cardOrder } }),
-          'moveCard',
-          groupId,
-        );
-      }
-
-      if (groupById && optionId !== undefined) {
-        for (const cardId of drop.cardIds) {
-          const card = this.card(cardId);
-          if (!card || valueOf(card) === optionId) continue;
-          await this.setCardProperty(
-            cardId,
-            groupById,
-            optionId === '' ? undefined : optionId,
-            groupId,
-          );
-        }
-      }
-    });
+    await dropCardsOn(this, drop);
   }
 
   // -------------------------------------------------------------- views
@@ -661,22 +608,23 @@ export class BoardStore {
     }
   }
 
-  /** Changes a view: `change` gets the view as it is when the change is made, as a card's. */
+  /** Changes a view: `change` gets the view as it is and returns it as it should be. */
   async changeView(
     viewId: string,
     change: (view: BoardView) => BoardView,
     description = 'changeView',
     groupId?: string,
   ): Promise<void> {
-    const patches = (): [BlockPatch, BlockPatch] | undefined => {
-      const current = this.view(viewId);
-      const pair = current && viewPatches(change(current), current);
-      return pair && !isEmptyBlockPatch(pair[0]) ? pair : undefined;
-    };
-    if (!patches()) return;
-    const send = (patch: BlockPatch, reverse: BlockPatch) =>
-      this.#sendViewPatch(viewId, patch, reverse);
-    await this.#perform(...patchStep(patches, send), description, groupId);
+    const current = this.view(viewId);
+    if (!current) return;
+    const [forward, backward] = viewPatches(change(current), current);
+    if (isEmptyBlockPatch(forward)) return;
+    await this.#perform(
+      () => this.#sendViewPatch(viewId, forward, backward),
+      () => this.#sendViewPatch(viewId, backward, forward),
+      description,
+      groupId,
+    );
   }
 
   /** Changes the members of a view's `fields`, such as its filter or its sort options. */
@@ -756,13 +704,21 @@ export class BoardStore {
     description = 'changeBoard',
     groupId?: string,
   ): Promise<void> {
-    const patches = (): [BoardPatch, BoardPatch] | undefined => {
-      const pair = this.board && boardPatches(change(this.board), this.board);
-      return pair && !isEmptyBoardPatch(pair[0]) ? pair : undefined;
-    };
-    if (!patches()) return;
-    const send = (patch: BoardPatch, reverse: BoardPatch) => this.#sendBoardPatch(patch, reverse);
-    await this.#perform(...patchStep(patches, send), description, groupId);
+    if (!this.board) return;
+    const [forward, backward] = boardPatches(change(this.board), this.board);
+    const empty = Object.keys(forward).every((key) => {
+      const value = (forward as Record<string, unknown>)[key];
+      if (Array.isArray(value)) return value.length === 0;
+      if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0;
+      return value === undefined;
+    });
+    if (empty) return;
+    await this.#perform(
+      () => this.#sendBoardPatch(forward, backward),
+      () => this.#sendBoardPatch(backward, forward),
+      description,
+      groupId,
+    );
   }
 
   /**

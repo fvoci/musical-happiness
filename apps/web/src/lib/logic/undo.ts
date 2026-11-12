@@ -14,21 +14,17 @@
  * leaves the history, and an undo or redo that was waiting for it is
  * dropped without touching the step before it.
  *
+ * A change is made at once, also while undos or redos wait. It was made on
+ * the screen as it was, which did not show them yet: they are dropped, and
+ * the history goes on from what is in force.
+ *
  * Changes that share a `groupId` are one step. A gesture whose changes are
  * made one after the other (each waiting for the one before) runs inside
  * `group`, so that its step is in place from the start and an undo asked
  * for meanwhile waits for all of it.
  *
- * A change made while an undo or redo waits is made after it, in the order
- * the person asked for them: its `redo` is called then, so a change that
- * works out what to send from what is shown should do that in `redo`. A
- * `redo` that finds nothing to change then answers `NO_CHANGE`, and the
- * step is forgotten. `redo` and `undo` must not perform changes themselves:
- * a change made while an undo is carried out is a new step, as any other.
+ * `redo` and `undo` must not perform changes themselves.
  */
-
-/** What a change's first `redo` answers when it found nothing to change. */
-export const NO_CHANGE = Symbol('no change');
 
 interface Step {
   undo: (value?: unknown) => Promise<void>;
@@ -47,11 +43,8 @@ interface Entry {
   /** Settles when the gesture of a `group` is over; settled otherwise. */
   closed: Promise<void>;
   open: boolean;
-  /**
-   * The undos and redos asked for before this step took its place, while
-   * they are not over: its changes are made after them.
-   */
-  after: Promise<void> | undefined;
+  /** What could be redone when this step was made: back if it ends with no change. */
+  cut: Entry[];
 }
 
 type Action = 'undo' | 'redo';
@@ -63,16 +56,20 @@ export class UndoManager {
   onStateDidChange?: () => void;
 
   #entries: Entry[] = [];
-  /** The step undo takes back next, as asked for (not necessarily carried out yet). */
+  /** The step undo takes back next, as asked for. */
   #index = -1;
+  /** The same, as far as undos and redos have been begun: the last step in force. */
+  #inForce = -1;
   /** Groups whose gesture is still under way, by identifier. */
   readonly #open = new Map<string, Entry>();
   /** Undo and redo carried out one after the other. */
   #queue: Promise<void> = Promise.resolve();
   /** Undos and redos asked for and not yet over. */
   #waiting = 0;
-  /** Raised when a carried-out undo or redo failed: what was asked after it is dropped. */
+  /** Raised when what is asked for is dropped: by a new change, a failure, `clear`. */
   #generation = 0;
+  /** Settles when the asks of this generation are dropped. */
+  #dropped = deferred();
 
   /** When the change that would be undone next was made; 0 without one. */
   get currentCheckpoint(): number {
@@ -102,9 +99,8 @@ export class UndoManager {
 
   /**
    * Performs a change and remembers how to take it back: the step is in place
-   * at once, and the change is made now, or after the undos and redos asked
-   * for before it. Returns what `redo` returned; rejects, and forgets the
-   * change, when `redo` rejects. A discardable change takes the checkpoint of the
+   * at once. Returns what `redo` returned; rejects, and forgets the change,
+   * when `redo` rejects. A discardable change takes the checkpoint of the
    * change before it instead of the current time (0 when it is the first).
    */
   async perform<T>(
@@ -121,15 +117,15 @@ export class UndoManager {
       value: undefined,
     };
     const entry = this.#place(step, groupId, isDiscardable);
-    const making = entry.after ? entry.after.then(redo) : call(redo);
+    const making = call(redo);
     entry.making.add(making);
     try {
       const value = await making;
-      if (value === NO_CHANGE) this.#forget(entry, step);
       step.value = value;
       return value;
     } catch (error) {
-      this.#forget(entry, step);
+      entry.steps = entry.steps.filter((other) => other !== step);
+      this.#forgetIfEmpty(entry);
       throw error;
     } finally {
       entry.making.delete(making);
@@ -144,8 +140,8 @@ export class UndoManager {
   async group<T>(gesture: (groupId: string) => Promise<T>): Promise<T> {
     groupCounter += 1;
     const groupId = `group-${groupCounter}`;
-    let close = (): void => undefined;
-    const entry = this.#push(groupId, false, new Promise((resolve) => (close = resolve)));
+    const closed = deferred();
+    const entry = this.#push(groupId, false, closed.promise);
     entry.open = true;
     this.#open.set(groupId, entry);
     try {
@@ -153,7 +149,7 @@ export class UndoManager {
     } finally {
       entry.open = false;
       this.#open.delete(groupId);
-      close();
+      closed.resolve();
       this.#forgetIfEmpty(entry);
     }
   }
@@ -185,7 +181,8 @@ export class UndoManager {
     const hadEntries = this.#entries.length > 0;
     this.#entries = [];
     this.#index = -1;
-    this.#generation += 1;
+    this.#inForce = -1;
+    this.#drop();
     if (hadEntries) this.onStateDidChange?.();
   }
 
@@ -199,9 +196,16 @@ export class UndoManager {
     return entry;
   }
 
-  /** A new step after the one undo would take back next; what was undone is gone. */
+  /**
+   * A new step after the last one in force. Undos and redos that wait are
+   * dropped; what could be redone is gone (kept in `cut`).
+   */
   #push(groupId: string | undefined, isDiscardable: boolean, closed: Promise<void>): Entry {
-    this.#entries.splice(this.#index + 1);
+    if (this.#waiting > 0) {
+      this.#drop();
+      this.#index = this.#inForce;
+    }
+    const cut = this.#entries.splice(this.#index + 1);
     const checkpoint = isDiscardable ? (this.#entries.at(-1)?.checkpoint ?? 0) : Date.now();
     const entry: Entry = {
       checkpoint,
@@ -210,45 +214,54 @@ export class UndoManager {
       making: new Set(),
       closed,
       open: false,
-      after: undefined,
+      cut,
     };
-    if (this.#waiting > 0) {
-      const after = this.#queue;
-      entry.after = after;
-      void after.then(() => {
-        if (entry.after === after) entry.after = undefined;
-      });
-    }
     this.#entries.push(entry);
     this.#index = this.#entries.length - 1;
+    this.#inForce = this.#index;
     this.onStateDidChange?.();
     return entry;
   }
 
-  /** A change refused, or that changed nothing, is not part of its step. */
-  #forget(entry: Entry, step: Step): void {
-    entry.steps = entry.steps.filter((other) => other !== step);
-    this.#forgetIfEmpty(entry);
-  }
-
-  /** A step left without changes (all refused) leaves the history. */
+  /**
+   * A step left without changes (all refused, or a gesture that changed
+   * nothing) leaves the history. When it is still the last step, what could
+   * be redone before it was made comes back.
+   */
   #forgetIfEmpty(entry: Entry): void {
     if (entry.steps.length > 0 || entry.open) return;
     const at = this.#entries.indexOf(entry);
     if (at === -1) return;
     this.#entries.splice(at, 1);
+    if (at === this.#entries.length) this.#entries.push(...entry.cut);
     if (at <= this.#index) this.#index -= 1;
+    if (at <= this.#inForce) this.#inForce -= 1;
     this.onStateDidChange?.();
+  }
+
+  /** Drops the undos and redos asked for and not yet begun. */
+  #drop(): void {
+    this.#generation += 1;
+    this.#dropped.resolve();
+    this.#dropped = deferred();
   }
 
   /** Queues an undo or redo of `entry`, and waits for it to be over. */
   async #ask(entry: Entry, action: Action): Promise<void> {
     const generation = this.#generation;
+    const dropped = this.#dropped.promise;
+    const current = (): boolean => generation === this.#generation;
     this.#waiting += 1;
     this.onStateDidChange?.();
     const turn = this.#queue.then(async () => {
-      await settled(entry);
-      if (generation === this.#generation) await this.#carryOut(entry, action);
+      if (!current()) return;
+      // Waits for the writes of the step, or for being dropped (a write that never ends).
+      await Promise.race([settled(entry), dropped]);
+      const at = this.#entries.indexOf(entry);
+      // Dropped, or every change of the step was refused.
+      if (!current() || at === -1) return;
+      this.#inForce = action === 'undo' ? at - 1 : at;
+      await this.#carryOut(entry, action);
     });
     this.#queue = turn.catch(() => undefined);
     try {
@@ -288,15 +301,16 @@ export class UndoManager {
    * force, and the undos and redos asked for after it are dropped.
    */
   #failed(entry: Entry, done: number): void {
-    this.#generation += 1;
     const at = this.#entries.indexOf(entry);
-    // Something new was done meanwhile: the step is no longer in the history.
+    // A new change was made meanwhile: the step is no longer in the history.
     if (at === -1) return;
-    const inForce = { ...entry, steps: entry.steps.slice(0, done) };
-    const notInForce = { ...entry, steps: entry.steps.slice(done) };
+    this.#drop();
+    const inForce = { ...entry, steps: entry.steps.slice(0, done), cut: [] };
+    const notInForce = { ...entry, steps: entry.steps.slice(done), cut: [] };
     const pieces = [inForce, notInForce].filter((piece) => piece.steps.length > 0);
     this.#entries.splice(at, 1, ...pieces);
     this.#index = inForce.steps.length > 0 ? at : at - 1;
+    this.#inForce = this.#index;
     this.onStateDidChange?.();
   }
 }
@@ -304,6 +318,14 @@ export class UndoManager {
 /** Calls `run` now, turning a throw into a rejection. */
 async function call<T>(run: () => Promise<T>): Promise<T> {
   return run();
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve = (): void => undefined;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 /** Waits until the gesture of `entry` is over and its writes have come back. */
