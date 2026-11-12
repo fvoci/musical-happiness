@@ -22,7 +22,7 @@
   import { cardFrame } from '$lib/layout/presentation.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
-  import type { BoardStore } from '$lib/state/index.ts';
+  import { whileHere, type BoardStore } from '$lib/state/index.ts';
   import * as Dialog from '$lib/ui/dialog/index.js';
 
   import CardContent from './CardContent.svelte';
@@ -114,7 +114,7 @@
 
   /** Shows another card in place of this one, when this one may be left. */
   async function openOther(otherId: string): Promise<void> {
-    if (await mayLeave()) onOpenCard?.(otherId);
+    if (await whileHere(board, mayLeave)) onOpenCard?.(otherId);
   }
 
   /**

@@ -39,7 +39,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { pane } from '$lib/layout/room.svelte.ts';
   import type { BoardView, PropertyTemplate } from '$lib/logic/wire.ts';
-  import type { BoardStore } from '$lib/state/index.ts';
+  import { whileHere, type BoardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
 
@@ -151,10 +151,10 @@
   // ------------------------------------------------------------- views
 
   async function addView(viewType: AddableViewType): Promise<void> {
-    const made = await board.createView({
-      title: NEW_VIEW_TITLES[viewType](),
-      fields: newViewFields(viewType, templates),
-    });
+    const title = NEW_VIEW_TITLES[viewType]();
+    const made = await whileHere(board, () =>
+      board.createView({ title, fields: newViewFields(viewType, templates) }),
+    );
     if (made) onOpenView(made.id);
   }
 
