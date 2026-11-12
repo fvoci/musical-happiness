@@ -40,23 +40,44 @@ afterEach(() => {
   delete (window as { pwned?: unknown }).pwned;
 });
 
-/** Puts a body into the page and draws what is to be drawn in it. */
+/**
+ * Puts a body into the page and draws what is to be drawn in it. The page
+ * stops drawing formulas once the library has taken its budget of time
+ * (embeds.ts `MATH_BUDGET`), and leaves the rest as they are: on a busy
+ * machine the deep formulas here took it all. The clock stands still while
+ * they are drawn, so what is drawn does not depend on how busy the machine is.
+ */
 async function show(body: DocNode): Promise<HTMLElement> {
   const rendered = renderBody(body);
   if (!rendered.ok) throw new Error(rendered.problems.join(' / '));
   host.replaceChildren(rendered.fragment);
-  drawEmbeds(host);
-  await settled();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+  try {
+    drawEmbeds(host);
+    await settled();
+  } finally {
+    clock.mockRestore();
+  }
   return host;
 }
 
-/** Waits until no formula is left waiting to be drawn. */
+/**
+ * Waits until no formula is left waiting to be drawn: until every slot says
+ * how it ended (`data-state`). Only the test's own time limit bounds it; a
+ * poll with a limit of its own (a second, `vi.waitFor`) gave up while a busy
+ * machine was still drawing the deep ones.
+ */
 async function settled(): Promise<void> {
-  await vi.waitFor(() => {
-    const waiting = Array.from(host.querySelectorAll('.doc-math')).filter(
-      (slot) => !slot.hasAttribute('data-state'),
-    );
-    expect(waiting).toHaveLength(0);
+  const waiting = (): boolean =>
+    Array.from(host.querySelectorAll('.doc-math')).some((slot) => !slot.hasAttribute('data-state'));
+  if (!waiting()) return;
+  await new Promise<void>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (waiting()) return;
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(host, { subtree: true, childList: true, attributeFilter: ['data-state'] });
   });
 }
 

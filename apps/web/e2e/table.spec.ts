@@ -1012,12 +1012,32 @@ test.describe('moving rows', () => {
     const start = { x: from.box.x + 14, y: from.y };
     const end = { x: start.x, y: to.y + to.box.height / 2 - 3 };
 
+    // When the finger lands and when the table says the row is picked up, by
+    // the page's own clock: a busy machine runs the test's steps late, the
+    // page's timers never early.
+    await table(page).evaluate((element) => {
+      const times: { landed?: number; picked?: number } = {};
+      Reflect.set(window, 'restTimes', times);
+      document.addEventListener(
+        'pointerdown',
+        (event) => {
+          times.landed ??= event.timeStamp;
+        },
+        { capture: true },
+      );
+      new MutationObserver(() => {
+        if (element.hasAttribute('data-dragging')) times.picked ??= performance.now();
+      }).observe(element, { attributes: true, attributeFilter: ['data-dragging'] });
+    });
     await touch('touchStart', start);
-    // Not yet: a finger that has only just landed may still be about to scroll.
-    await page.waitForTimeout(100);
-    await expect(table(page)).not.toHaveAttribute('data-dragging');
-    await page.waitForTimeout(350);
     await expect(table(page)).toHaveAttribute('data-dragging', 'pointer');
+    // Not at once: a finger that has only just landed may still be about to
+    // scroll. It rests 300ms (drag/settings.ts `touchDelay`) first.
+    const rest = await page.evaluate(() => {
+      const times = Reflect.get(window, 'restTimes') as { landed?: number; picked?: number };
+      return (times.picked ?? 0) - (times.landed ?? Infinity);
+    });
+    expect(rest).toBeGreaterThanOrEqual(295);
     for (let step = 1; step <= 8; step += 1) {
       await touch('touchMove', { x: start.x, y: start.y + ((end.y - start.y) * step) / 8 });
       await page.waitForTimeout(20);
