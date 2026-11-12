@@ -15,9 +15,8 @@
 # function <lines> <path> <name>
 
 file 1009 crates/server/src/app/uploads.rs
-file 1002 crates/server/src/ws.rs
 file 2727 crates/server/tests/api/blocks.rs
-file 3264 crates/server/tests/api/boards.rs
+file 3262 crates/server/tests/api/boards.rs
 file 2827 crates/server/tests/api/sidebar.rs
 file 1001 crates/store/src/boards.rs
 file 4159 crates/store/tests/store/blocks.rs
@@ -25,8 +24,6 @@ file 4393 crates/store/tests/store/boards.rs
 function 114 crates/server/src/api/blocks.rs handle_post_blocks
 function 117 crates/server/src/app/import.rs App::import_archive
 function 101 crates/server/src/ws.rs Hub::serve
-function 238 crates/server/tests/api/visibility.rs cases
-function 211 crates/server/tests/regression/accounts.rs auth
 function 322 crates/server/tests/regression/blocks.rs blocks
 function 221 crates/server/tests/regression/permissions.rs request
 function 201 crates/server/tests/regression/sidebar.rs categories
