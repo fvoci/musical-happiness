@@ -131,6 +131,35 @@ fn workspace_subscription() {
     );
 }
 
+/// A workspace that goes to the trash is followed by nobody: each of its listeners stops
+/// following it, and what else they follow stays.
+#[test]
+fn a_workspace_in_the_trash_is_followed_by_nobody() {
+    let mut listeners = Listeners::default();
+    let one = add_listener(&mut listeners, "a");
+    let other = add_listener(&mut listeners, "b");
+    for id in [one, other] {
+        subscribe_to_workspace(&mut listeners, id, "trashed");
+    }
+    subscribe_to_workspace(&mut listeners, one, "kept");
+
+    listeners.stop_following_workspace("trashed");
+    assert!(
+        !listeners.by_workspace.contains_key("trashed"),
+        "nobody follows it"
+    );
+    assert_eq!(
+        workspaces_of(&listeners, one),
+        ["kept"],
+        "the other one stays"
+    );
+    assert!(
+        workspaces_of(&listeners, other).is_empty(),
+        "nothing else was followed"
+    );
+    assert_eq!(workspace_listeners(&listeners, "kept"), [one]);
+}
+
 /// `TestTeamSubscription/"Subscribe users to team retrieve by user"`: the listeners of
 /// a user in the workspace are the ones that are told about their categories, every tab of
 /// the user and no other user's.

@@ -445,6 +445,14 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
     }
 }
 
+/// Whether a user who is `role` in a workspace (`None`: no member) reads its audit log:
+/// whoever works there, an administrator of the organization who joined it among them.
+/// A guest does not: what the log names is the workspace's, not a board's.
+#[must_use]
+pub const fn reads_the_audit_log(role: Option<WorkspaceRole>) -> bool {
+    matches!(role, Some(WorkspaceRole::Admin | WorkspaceRole::Member))
+}
+
 /// The membership with exactly the flag of `role`, and none for `None`.
 #[must_use]
 pub fn with_role(member: BoardMember, role: Option<BoardRole>) -> BoardMember {

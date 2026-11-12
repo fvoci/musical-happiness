@@ -1,0 +1,82 @@
+/**
+ * What an organization's administrators manage (its workspaces, its members'
+ * roles, its public links) and the audit log of a workspace, which its members
+ * read. A boundary of its own beside `Backend`: only the server has it. The
+ * backend in memory has no organization, and the screens that need one are
+ * not offered there.
+ */
+export type OrgRole = 'admin' | 'member';
+
+/** What somebody is in a workspace, as the organization lists it. */
+export type OrgWorkspaceRole = 'admin' | 'member' | 'guest';
+
+export interface Organization {
+  id: string;
+  /** Empty when it was given none. */
+  name: string;
+  /** Whether its boards may be read by a public link. */
+  publicLinks: boolean;
+  /** The workspace whoever joins the organization gets into; it is not deleted. */
+  defaultWorkspaceId: string;
+}
+
+export interface OrgMember {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: OrgRole;
+}
+
+/** A workspace as the organization's administrators list it: nothing of what is in it. */
+export interface OrgWorkspace {
+  id: string;
+  name: string;
+  memberCount: number;
+  isDefault: boolean;
+  /** When it was put in the trash, in milliseconds; 0 while it is in use. */
+  deletedAt: number;
+  /** What the administrator who asks is in it; null for no member. */
+  role: OrgWorkspaceRole | null;
+  /** Whether they are in it having joined it as the organization's administrator. */
+  joinedAsOrgAdmin: boolean;
+}
+
+export {
+  AUDIT_ACTIONS,
+  type AuditAction,
+  type AuditPerson,
+  type AuditRecord,
+} from '../logic/audit.ts';
+import type { AuditRecord } from '../logic/audit.ts';
+
+export interface OrganizationPatch {
+  name?: string;
+  publicLinks?: boolean;
+}
+
+/**
+ * The organization's administration, and the audit log of a workspace. Every
+ * call rejects with a `BackendError` as the backend's do; for anybody but an
+ * administrator of the organization it is not there (404).
+ */
+export interface Organizations {
+  /** The organization the reader administers; undefined when they administer none. */
+  administered(): Promise<string | undefined>;
+  organization(orgId: string): Promise<Organization>;
+  changeOrganization(orgId: string, patch: OrganizationPatch): Promise<Organization>;
+  /** Its members, the oldest first. */
+  members(orgId: string): Promise<OrgMember[]>;
+  setRole(orgId: string, userId: string, role: OrgRole): Promise<void>;
+  /** Every workspace, in use and in the trash, the oldest first. */
+  workspaces(orgId: string): Promise<OrgWorkspace[]>;
+  createWorkspace(orgId: string, name: string): Promise<OrgWorkspace>;
+  renameWorkspace(orgId: string, workspaceId: string, name: string): Promise<OrgWorkspace>;
+  deleteWorkspace(orgId: string, workspaceId: string): Promise<void>;
+  restoreWorkspace(orgId: string, workspaceId: string): Promise<OrgWorkspace>;
+  joinWorkspace(orgId: string, workspaceId: string): Promise<OrgWorkspace>;
+  leaveWorkspace(orgId: string, workspaceId: string): Promise<OrgWorkspace>;
+  /** What was done to the organization itself, the newest first. */
+  records(orgId: string): Promise<AuditRecord[]>;
+  /** The audit log of a workspace the reader works in, the newest first. */
+  workspaceRecords(workspaceId: string): Promise<AuditRecord[]>;
+}

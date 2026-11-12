@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 21] = [
+const STEPS: [Step; 22] = [
     Step {
         version: 1,
         description: "baseline",
@@ -159,7 +159,13 @@ const STEPS: [Step; 21] = [
         sqlite: include_str!("../schema/sqlite/0021_body_docs.sql"),
         postgres: include_str!("../schema/postgres/0021_body_docs.sql"),
     },
-    // 22 and 23 are other work's.
+    // 22 is other work's.
+    Step {
+        version: 23,
+        description: "organization management",
+        sqlite: include_str!("../schema/sqlite/0023_org_management.sql"),
+        postgres: include_str!("../schema/postgres/0023_org_management.sql"),
+    },
     Step {
         version: 24,
         description: "sso",
@@ -176,6 +182,11 @@ pub(crate) const ORGANIZATIONS_VERSION: i64 = 14;
 /// The migration that renames the table of the workspaces and the columns that name one.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const WORKSPACES_VERSION: i64 = 17;
+
+/// The migration that makes a workspace's name its own in its organization, among much
+/// else of the organization's management.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].

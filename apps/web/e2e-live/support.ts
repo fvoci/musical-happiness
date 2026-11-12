@@ -280,9 +280,10 @@ function serverDatabase(baseURL: string): DatabaseSync {
 
 /**
  * Makes `who` a member of a new workspace of their organization, as its
- * administrator, and returns its identifier. No request of the server makes
- * a workspace yet, so it is written into the server's database
- * (`tools/live-server.ts` says where that is), as the server would.
+ * administrator, and returns its identifier. It is written into the server's
+ * database (`tools/live-server.ts` says where that is), as the server would,
+ * under a name that begins with `name`: each name in use in an organization
+ * is its own.
  */
 export function addWorkspace(baseURL: string, who: Person, name: string): string {
   const database = serverDatabase(baseURL);
@@ -312,7 +313,7 @@ export function addWorkspace(baseURL: string, who: Person, name: string): string
         now,
         now,
         home.org_id,
-        name,
+        uniqueName(name),
       );
     database
       .prepare(

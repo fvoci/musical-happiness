@@ -25,6 +25,7 @@ mod deleted_item;
 mod file_info;
 mod id;
 mod oidc;
+mod org_admin;
 mod organization;
 mod problem;
 mod refusal;
@@ -83,6 +84,10 @@ pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
     OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,
     UnlinkRequest,
+};
+pub use org_admin::{
+    AuditAction, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRoleChange, OrgWorkspace,
+    Organization, OrganizationPatch, UnknownAuditAction, WorkspaceName,
 };
 pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};

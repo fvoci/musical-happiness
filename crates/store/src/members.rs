@@ -5,10 +5,17 @@
 
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
-use crate::Store;
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
+use crate::{Store, org_admin};
+
+/// Opens the condition that the board `b` is in a workspace in use the membership `wm`
+/// is of: the caller narrows the memberships and closes the parenthesis. A workspace in
+/// the trash has no members to anybody.
+const IN_USE_MEMBERSHIPS: &str = " AND b.workspace_id IN (SELECT wm.workspace_id \
+     FROM workspace_members AS wm JOIN workspaces AS ws ON ws.id = wm.workspace_id \
+     WHERE ws.delete_at = 0";
 
 /// Opens the condition on a board `b` that it is an open board of a workspace the user
 /// works in (a member who is no guest: `WorkspaceAccess::works_there`), "or": the
@@ -16,8 +23,8 @@ use crate::users::InstanceRole;
 /// board is no secret to who works in its workspace, and to nobody else.
 pub(crate) fn push_open_boards_at_work<'sql>(sql: &'sql mut Sql, user_id: &str) -> &'sql mut Sql {
     sql.push_bind(" AND ((b.type = ", BoardType::Open.as_str())
-        .push(" AND b.workspace_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
-        .push_bind(" WHERE wm.user_id = ", Id(user_id))
+        .push(IN_USE_MEMBERSHIPS)
+        .push_bind(" AND wm.user_id = ", Id(user_id))
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
         .push(")) OR ")
 }
@@ -34,8 +41,8 @@ pub(crate) fn push_own_membership_in_workspace<'sql>(
     user_id: &str,
 ) -> &'sql mut Sql {
     sql.push_bind("bm.user_id = ", Id(user_id))
-        .push(" AND b.workspace_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
-        .push_bind(" WHERE wm.user_id = ", Id(user_id))
+        .push(IN_USE_MEMBERSHIPS)
+        .push_bind(" AND wm.user_id = ", Id(user_id))
         .push(")")
 }
 
@@ -130,9 +137,18 @@ async fn add_organization_member(
     Ok(())
 }
 
-/// The roles in an organization and in its workspaces that go with being, or not
-/// being, an administrator of the instance.
-fn roles_of(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
+/// The role in an organization that goes with being, or not being, an administrator
+/// of the instance.
+const fn org_role_of_instance(role: InstanceRole) -> OrgRole {
+    match role {
+        InstanceRole::Administrator => OrgRole::Admin,
+        InstanceRole::User => OrgRole::Member,
+    }
+}
+
+/// The roles in an organization and in its default workspace of who registers, by what
+/// they are to the instance: its first user administers both.
+const fn roles_on_registering(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
     match role {
         InstanceRole::Administrator => (OrgRole::Admin, WorkspaceRole::Admin),
         InstanceRole::User => (OrgRole::Member, WorkspaceRole::Member),
@@ -151,7 +167,7 @@ pub(crate) async fn join_organization(
     user_id: &str,
     instance_role: InstanceRole,
 ) -> Result<(), StoreError> {
-    let (org_role, workspace_role) = roles_of(instance_role);
+    let (org_role, workspace_role) = roles_on_registering(instance_role);
     add_organization_member(scope, user_id, org_role).await?;
     let mut sql = scope.sql(
         "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
@@ -184,7 +200,7 @@ pub(crate) async fn join_organization_unless_member(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<bool, StoreError> {
-    let (org_role, workspace_role) = roles_of(InstanceRole::User);
+    let (org_role, workspace_role) = roles_on_registering(InstanceRole::User);
     let mut sql =
         scope.sql("INSERT INTO organization_members (org_id, user_id, role, create_at) VALUES (");
     sql.bind(scope.org()?)
@@ -227,9 +243,11 @@ pub(crate) async fn join_organization_unless_member(
     Ok(true)
 }
 
-/// Gives a member of the organization the role that goes with being, or no longer
-/// being, an administrator of the instance: in the organization, and in its workspaces
-/// where the user is no guest. Somebody who is no member stays none.
+/// Gives a member of the organization the role in it that goes with being, or no
+/// longer being, an administrator of the instance, as the organization's route does
+/// (`org_admin::change_org_role`): recorded, and who stops being one is taken out of
+/// what they joined as its administrator, on behalf of `actor_id`. No role in a
+/// workspace changes. Somebody who is no member stays none.
 ///
 /// TEMPORARY, as [`join_organization`] is: while the instance's administrators are the
 /// organization's.
@@ -237,23 +255,20 @@ pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,
     instance_role: InstanceRole,
+    actor_id: &str,
 ) -> Result<(), StoreError> {
-    let (org_role, workspace_role) = roles_of(instance_role);
-    let mut sql = scope.sql("UPDATE organization_members SET role = ");
-    sql.bind(org_role.as_str())
-        .push_bind(" WHERE user_id = ", Id(user_id))
-        .push_bind(" AND org_id = ", scope.org()?);
-    scope.execute(sql).await?;
-    let mut sql = scope.sql("UPDATE workspace_members SET role = ");
-    sql.bind(workspace_role.as_str())
-        .push_bind(" WHERE user_id = ", Id(user_id))
-        .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str())
-        .push_bind(
-            " AND workspace_id IN (SELECT id FROM workspaces WHERE org_id = ",
-            scope.org()?,
-        )
-        .push(")");
-    scope.execute(sql).await?;
+    let org_role = org_role_of_instance(instance_role);
+    let org = org_admin::lock_organization(scope).await?;
+    match org_admin::org_role_of(scope, user_id).await? {
+        Some(before) if before != org_role => {
+            org_admin::change_org_role(scope, &org.id, user_id, org_role, actor_id).await?;
+        }
+        // Already of that role; one who is no administrator has joined nothing to keep.
+        _ if org_role != OrgRole::Admin => {
+            org_admin::revoke_joinings(scope, user_id, actor_id).await?;
+        }
+        _ => {}
+    }
     Ok(())
 }
 

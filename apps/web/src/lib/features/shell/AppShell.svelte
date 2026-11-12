@@ -36,7 +36,9 @@
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
   import { whileHere, type Workspace } from '$lib/state/index.ts';
+  import type { AuditRecord } from '$lib/state/organization.ts';
 
+  import AuditDialog from './AuditDialog.svelte';
   import { devReadout } from './dev.svelte.ts';
   import DevReadout from './DevReadout.svelte';
   import { shellLayout } from './layout.ts';
@@ -72,6 +74,12 @@
     accountSettings?: Snippet;
     /** Whether the settings are open: the app opens them for what it has to show there. */
     settingsOpen?: boolean;
+    /** The address of the organization's screen, for whoever administers it. */
+    orgHref?: string;
+    /** Goes to another workspace of the reader's. */
+    onSwitchWorkspace?: (workspaceId: string) => void;
+    /** Reads the workspace's records. Without it (no server) they are not offered. */
+    readRecords?: (workspaceId: string) => Promise<AuditRecord[]>;
     /** The page: what is shown beside the sidebar. */
     children: Snippet;
   }
@@ -89,6 +97,9 @@
     onChangePassword,
     accountSettings,
     settingsOpen = $bindable(false),
+    orgHref,
+    onSwitchWorkspace,
+    readRecords,
     children,
   }: Props = $props();
 
@@ -102,6 +113,9 @@
 
   let shell = $state<HTMLElement | null>(null);
   let panel = $state<HTMLElement | null>(null);
+  let recordsOpen = $state(false);
+  /** The reader works in the workspace shown (no guest of it): its records are theirs to read. */
+  const worksHere = $derived(workspace.workspaces.some((one) => one.id === workspace.info?.id));
 
   // Where the page has no drawer (the sidebar is fixed, or folded on an
   // expanded page) an open one is over, and stays so.
@@ -305,6 +319,8 @@
       onClose={closeList}
       onAddBoard={addBoard}
       onOpenSettings={openSettings}
+      {orgHref}
+      {onSwitchWorkspace}
     />
   </div>
 
@@ -348,7 +364,22 @@
   {onSignOut}
   {onChangePassword}
   account={accountSettings}
+  onOpenRecords={readRecords && worksHere
+    ? () => {
+        settingsOpen = false;
+        recordsOpen = true;
+      }
+    : undefined}
 />
+
+{#if readRecords}
+  <AuditDialog
+    bind:open={recordsOpen}
+    workspaceId={workspace.info?.id}
+    locale={workspace.locale}
+    {readRecords}
+  />
+{/if}
 
 {#if devReadout.shown}
   <DevReadout />
