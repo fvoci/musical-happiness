@@ -1,6 +1,6 @@
 /*
- * Diagrams and block formulas in the editor (diagram-block.ts, math-block.ts):
- * the picture alone until the place is opened, then the source right under it.
+ * Diagrams in the editor (diagram-block.ts, editing-place.ts): the picture
+ * alone until the place is opened, then the source right under it.
  */
 
 /* ------------------------------------------------------------ a diagram */
@@ -12,12 +12,15 @@
 /* The source is the block's text, in sight only while the place is open. */
 .doc-diagram-block:not([data-open]) > .doc-diagram-source,
 .doc-diagram-block:not([data-open]) > .doc-diagram-problem,
-.doc-diagram-block:not([data-open]) > .doc-place-footer,
-.doc-math-block:not([data-open]) > .doc-place {
+.doc-diagram-block:not([data-open]) > .doc-place-footer {
   display: none;
 }
-.doc-body .doc-diagram-block > .doc-diagram {
+.doc-body .doc-diagram-block > .doc-diagram:not([data-state='error']) {
   border-color: transparent;
+}
+/* Room for the picture while it is being drawn, so that the page does not jump twice. */
+.doc-body .doc-diagram-block > .doc-diagram[data-state='pending'] {
+  min-height: 6em;
 }
 .doc-body .doc-diagram-block > .doc-diagram[data-state='empty']:empty {
   display: none;
@@ -37,16 +40,14 @@
 }
 
 /* Where it can be edited, the picture says so when pointed at or selected. */
-.ProseMirror[contenteditable='true'] .doc-diagram-block:not([data-open]) > .doc-diagram,
-.ProseMirror[contenteditable='true'] .doc-math-block:not([data-open]) > .doc-math {
+.ProseMirror[contenteditable='true'] .doc-diagram-block:not([data-open]) > .doc-diagram {
   cursor: pointer;
 }
 .ProseMirror[contenteditable='true'] .doc-diagram-block:not([data-open]):hover > .doc-diagram,
 .doc-diagram-block.ProseMirror-selectednode > .doc-diagram {
   border-color: var(--input-border);
 }
-.doc-diagram-block.ProseMirror-selectednode > .doc-diagram,
-.doc-math-block.ProseMirror-selectednode > .doc-math {
+.doc-diagram-block.ProseMirror-selectednode > .doc-diagram {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
@@ -78,8 +79,7 @@
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
-.doc-diagram[data-stale],
-.doc-math[data-stale] {
+.doc-diagram[data-stale] {
   opacity: 0.4;
 }
 .doc-body .doc-diagram-block[data-open] > pre.doc-diagram-source {
@@ -88,14 +88,12 @@
   border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
-/* ------------------------------------------------------------ the place, for both */
+/* ------------------------------------------------------------ the place */
 
-.doc-diagram-problem:empty,
-.doc-place-problem:empty {
+.doc-diagram-problem:empty {
   display: none;
 }
-.doc-diagram-problem,
-.doc-place-problem {
+.doc-diagram-problem {
   margin: 0.4em 0 0;
 }
 .doc-place-footer {
@@ -119,46 +117,10 @@
   color: var(--primary-foreground);
   font-size: var(--text-sm);
 }
-.doc-place-footer button:focus-visible,
-.doc-place textarea:focus-visible {
+.doc-place-footer button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
-.doc-place {
-  margin-top: 0.25em;
-}
-.doc-place textarea {
-  display: block;
-  width: 100%;
-  min-height: 4.5em;
-  padding: 0.5em;
-  border: 1px solid var(--ring);
-  border-radius: var(--radius-md);
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono-stack);
-  font-size: var(--text-sm);
-  resize: vertical;
-}
-/* Somewhere out of sight but laid out, where a formula is drawn before it is shown. */
-.doc-math-block {
-  position: relative;
-}
-.doc-math-aside {
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-.doc-place-new .doc-math-preview:empty {
-  display: none;
-}
-/* A new formula's empty line shows its place, not the editor's placeholder. */
-.doc-body p:has(> .doc-place-new)::before {
-  content: none;
-}
-
 /* Said by a screen reader, seen by nobody. */
 .doc-announce {
   position: absolute;

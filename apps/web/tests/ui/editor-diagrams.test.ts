@@ -75,9 +75,11 @@ const figure = (target: Editor): HTMLElement => {
 };
 const isOpen = (target: Editor): boolean => block(target).hasAttribute('data-open');
 
+/** A key pressed in the editor, the way the page hands it over. Whether something took it. */
 function press(target: Editor, init: KeyboardEventInit): boolean {
   const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
-  return target.view.someProp('handleKeyDown', (handle) => handle(target.view, event)) ?? false;
+  target.view.dom.dispatchEvent(event);
+  return event.defaultPrevented;
 }
 
 /** Types into the editor the way a keyboard does. */
@@ -144,6 +146,11 @@ describe('a closed diagram', () => {
     expect(figure(target).querySelector('.doc-embed-detail')?.textContent).toBe(
       'Parse error on line 2',
     );
+    // The press is its name; what went wrong describes it.
+    const described = figure(target).getAttribute('aria-describedby');
+    expect(described && document.getElementById(described)?.textContent).toBe(
+      'This diagram cannot be drawn.',
+    );
   });
 
   it('is a plain code block when its language is another', () => {
@@ -178,7 +185,7 @@ describe('opening and closing the place', () => {
 
     const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     const stop = vi.spyOn(escape, 'stopPropagation');
-    target.view.someProp('handleKeyDown', (handle) => handle(target.view, escape));
+    target.view.dom.dispatchEvent(escape);
     expect(stop).toHaveBeenCalled();
     expect(isOpen(target)).toBe(false);
     expect(target.state.selection).toBeInstanceOf(NodeSelection);
@@ -198,28 +205,56 @@ describe('opening and closing the place', () => {
     expect(isOpen(target)).toBe(true);
   });
 
-  it('closes on a press elsewhere, and when the cursor leaves the block', () => {
+  it('closes on a press elsewhere, not on a touch that only scrolls, and when the cursor leaves the block', () => {
     const target = create(BODY);
     figure(target).click();
+    // A finger put down to scroll the page is no press.
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(isOpen(target)).toBe(true);
+    document.body.click();
     expect(isOpen(target)).toBe(false);
 
     figure(target).click();
     // A press inside the place keeps it open.
-    block(target)
-      .querySelector('pre')
-      ?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    block(target).querySelector('pre')?.click();
     expect(isOpen(target)).toBe(true);
     target.view.dispatch(target.state.tr.setSelection(TextSelection.create(target.state.doc, 2)));
     expect(isOpen(target)).toBe(false);
   });
 
-  it('closes with its button, back on the block', () => {
+  it('closes with its button, back on the block, and with the keys while the button has the focus', () => {
     const target = create(BODY);
     figure(target).click();
-    block(target).querySelector<HTMLButtonElement>('.doc-place-footer button')?.click();
+    const done = (): HTMLButtonElement => {
+      const found = block(target).querySelector<HTMLButtonElement>('.doc-place-footer button');
+      if (!found) throw new Error('no button');
+      return found;
+    };
+    done().click();
     expect(isOpen(target)).toBe(false);
     expect(target.state.selection).toBeInstanceOf(NodeSelection);
+
+    // The editor does not hear keys on the button; the place does, and keeps Escape to itself.
+    figure(target).click();
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    const heard = vi.fn();
+    document.addEventListener('keydown', heard);
+    done().dispatchEvent(escape);
+    document.removeEventListener('keydown', heard);
+    expect(isOpen(target)).toBe(false);
+    expect(heard).not.toHaveBeenCalled();
+    figure(target).click();
+    done().dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+    );
+    expect(isOpen(target)).toBe(false);
+  });
+
+  it('does not let typed text take the place of a selected diagram', () => {
+    const target = create(BODY);
+    target.view.dispatch(target.state.tr.setSelection(NodeSelection.create(target.state.doc, AT)));
+    type(target, 'a');
+    expect(stored(target)).toEqual(BODY);
   });
 
   it('changes nothing in the document by opening and closing', () => {
@@ -272,6 +307,57 @@ describe('opening and closing the place', () => {
 });
 
 describe('editing the source', () => {
+  it('makes a new line of every Enter, empty lines too, without leaving the source', () => {
+    const target = create(BODY);
+    figure(target).click();
+    for (let line = 0; line < 3; line += 1) press(target, { key: 'Enter' });
+    type(target, '  B --> C');
+    expect(isOpen(target)).toBe(true);
+    expect(stored(target)).toEqual(
+      doc(
+        paragraph(text('before')),
+        code('mermaid', `${FLOW}\n\n\n  B --> C`),
+        paragraph(text('after')),
+      ),
+    );
+  });
+
+  it('shows no source while the first picture is being drawn', async () => {
+    drawDiagram.mockImplementationOnce(() => new Promise<Drawn>(() => undefined));
+    const target = create(BODY);
+    expect(block(target).getAttribute('data-state')).toBe('pending');
+    expect(figure(target).textContent).toBe('');
+    expect(figure(target).getAttribute('aria-busy')).toBe('true');
+    // The drawing that never ends is the one asked for here, not by a later test.
+    await vi.waitFor(() => {
+      expect(drawDiagram).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('draws again once the drawing under way is done, when the page turned dark meanwhile', async () => {
+    let finish: (value: Drawn) => void = () => undefined;
+    drawDiagram.mockImplementationOnce(
+      () =>
+        new Promise<Drawn>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    create(BODY);
+    await vi.waitFor(() => {
+      expect(drawDiagram).toHaveBeenCalledTimes(1);
+    });
+    document.documentElement.classList.add('dark');
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      finish({ ok: true, picture: picture(FLOW) });
+      await vi.waitFor(() => {
+        expect(drawDiagram).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      document.documentElement.classList.remove('dark');
+    }
+  });
+
   it('draws again a moment after the typing stops, once for a burst', async () => {
     vi.useFakeTimers();
     try {
@@ -333,10 +419,14 @@ describe('editing the source', () => {
     const problem = block(target).querySelector('.doc-diagram-problem');
     expect(problem?.getAttribute('aria-live')).toBe('polite');
     expect(problem?.textContent).toContain('This diagram cannot be drawn.');
+    // Typing on does not say it again (the same words, not new ones).
+    const said = problem?.firstChild;
+    type(target, ' more');
+    expect(problem?.firstChild).toBe(said);
     // Closed, the source shows in place of the picture.
     press(target, { key: 'Escape' });
     expect(figure(target).querySelector('svg')).toBeNull();
-    expect(figure(target).querySelector('.doc-diagram-copy')?.textContent).toBe(`${FLOW} bad`);
+    expect(figure(target).querySelector('.doc-diagram-copy')?.textContent).toBe(`${FLOW} bad more`);
   });
 
   it('puts what was typed in the undo of the body', () => {

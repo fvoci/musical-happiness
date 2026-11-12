@@ -180,26 +180,47 @@ function arrowOntoDiagram(view: EditorView, event: KeyboardEvent): boolean {
   return true;
 }
 
-function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
+/** Whether a key closes the place: Escape, or Ctrl+Enter or Cmd+Enter. Never one an input method is composing with. */
+export const closesPlace = (event: KeyboardEvent): boolean =>
+  !event.isComposing &&
+  (event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey)));
+
+/**
+ * The keys that open and close a place, heard before the editor's own
+ * handling: the editor leaves Enter on Android to the change it makes in the
+ * page, which a selected diagram does not make.
+ */
+function placeKeys(view: EditorView, event: KeyboardEvent): boolean {
   if (event.isComposing) return false;
   const place = placeOf(view.state);
-  const closing =
-    event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey));
-  if (place && closing) {
+  const { selection } = view.state;
+  if (place && closesPlace(event)) {
     // The key belongs to the place: it must not also close what the editor is in.
     event.stopPropagation();
     closePlace(view, true);
-    return true;
-  }
-  const { selection } = view.state;
-  if (
+  } else if (
+    !place &&
     event.key === 'Enter' &&
     !event.shiftKey &&
     !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
     selection instanceof NodeSelection &&
-    !place
-  )
-    return openPlace(view, selection.from);
+    view.editable
+  ) {
+    if (!openPlace(view, selection.from)) return false;
+  } else return false;
+  event.preventDefault();
+  return true;
+}
+
+function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {
+  if (event.isComposing) return false;
+  if (placeOf(view.state) && event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+    // A new line, always: a source may have empty lines, and three Enters do not leave it.
+    view.dispatch(view.state.tr.insertText('\n').scrollIntoView());
+    return true;
+  }
   return arrowOntoDiagram(view, event);
 }
 
@@ -233,14 +254,16 @@ function placeView(view: EditorView) {
     if (!place || !(target instanceof Node)) return false;
     return !holderOf(view, place)?.contains(target);
   };
-  const onPointerDown = (event: Event): void => {
-    if (outside(event.target)) closePlace(view, false);
+  // A press, not a touch: a finger that only scrolls the page leaves the place open.
+  const onClick = (event: Event): void => {
+    if (outside(event.target) && !view.composing) closePlace(view, false);
   };
   const onFocusIn = (event: Event): void => {
     // The editor itself is not "elsewhere": a press in it moves the selection, which closes.
-    if (outside(event.target) && event.target !== view.dom) closePlace(view, false);
+    if (outside(event.target) && event.target !== view.dom && !view.composing)
+      closePlace(view, false);
   };
-  page.addEventListener('pointerdown', onPointerDown, true);
+  page.addEventListener('click', onClick, true);
   page.addEventListener('focusin', onFocusIn);
   return {
     update: (_: EditorView, before: EditorState) => {
@@ -256,7 +279,7 @@ function placeView(view: EditorView) {
       if (said !== undefined) live.textContent = said;
     },
     destroy: () => {
-      page.removeEventListener('pointerdown', onPointerDown, true);
+      page.removeEventListener('click', onClick, true);
       page.removeEventListener('focusin', onFocusIn);
       live.remove();
     },
@@ -278,7 +301,14 @@ export const EditingPlace = Extension.create({
         },
         appendTransaction: keepOutOfClosed,
         props: {
+          handleDOMEvents: { keydown: placeKeys },
           handleKeyDown,
+          // Text typed while a closed diagram is selected does not take its place: passing
+          // over a diagram with the arrows is not one key away from losing it.
+          handleTextInput: (view) => {
+            const { selection } = view.state;
+            return selection instanceof NodeSelection && isDiagramNode(selection.node);
+          },
           decorations: (state) => {
             const place = placeOf(state);
             if (!place) return null;

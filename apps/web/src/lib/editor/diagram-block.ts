@@ -26,7 +26,7 @@ import { m } from '$lib/i18n/paraglide/messages.js';
 import type { DiagramResult } from './diagram.ts';
 import { diagramKind } from './diagram-kind.ts';
 import { DIAGRAM_REDRAW_DELAY, diagramProblem, onLookChange } from './embeds.ts';
-import { closePlace, isDiagramNode, openPlace, placeIn } from './editing-place.ts';
+import { closePlace, closesPlace, isDiagramNode, openPlace, placeIn } from './editing-place.ts';
 
 type Shown = 'pending' | 'drawn' | 'error' | 'empty';
 type DiagramFailed = Extract<DiagramResult, { ok: false }>;
@@ -56,6 +56,8 @@ function codeView(node: DocumentNode, page: Document): NodeView {
   };
 }
 
+let lastId = 0;
+
 class DiagramView implements NodeView {
   readonly dom: HTMLElement;
   readonly contentDOM: HTMLElement;
@@ -74,7 +76,13 @@ class DiagramView implements NodeView {
   #timer: ReturnType<typeof setTimeout> | undefined;
   /** The source being drawn now, if a drawing is under way. */
   #drawing: string | undefined;
+  /** Asked to draw again while a drawing was under way (the page turned dark, say). */
+  #again = false;
+  /** The failure the line under the source says, so that it is said once. */
+  #said: DiagramFailed | undefined;
   #destroyed = false;
+  /** Names the parts that others point to (`aria-describedby`). */
+  readonly #id = `doc-diagram-block-${(lastId += 1)}`;
   /** The diagrams of the same editor, this one among them while it is in the page. */
   readonly #known: Set<DiagramView>;
 
@@ -105,10 +113,7 @@ class DiagramView implements NodeView {
     });
     this.#editButton.append(page.createTextNode(m.editor_place_edit()));
     const source = element(page, 'pre', { class: 'doc-diagram-source' });
-    this.contentDOM = element(page, 'code', {
-      class: 'language-mermaid',
-      'aria-label': m.editor_diagram_source(),
-    });
+    this.contentDOM = element(page, 'code', { class: 'language-mermaid' });
     source.append(this.contentDOM);
     this.#problem = element(page, 'div', {
       class: 'doc-diagram-problem',
@@ -117,6 +122,14 @@ class DiagramView implements NodeView {
     });
     const footer = placeFooter(page, () => {
       closePlace(this.#view, true);
+    });
+    // The keys that close the place work on its button too, which the editor does not hear.
+    footer.addEventListener('keydown', (event) => {
+      if (closesPlace(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        closePlace(this.#view, true);
+      }
     });
     this.dom.append(this.#figure, this.#editButton, source, this.#problem, footer);
 
@@ -178,9 +191,13 @@ class DiagramView implements NodeView {
 
   /** Draws the source as it is now. One drawing at a time; the newest source is drawn next. */
   async #draw(): Promise<void> {
-    if (this.#drawing !== undefined) return;
+    if (this.#drawing !== undefined) {
+      this.#again = true;
+      return;
+    }
     const source = this.#source;
     this.#drawing = source;
+    this.#again = false;
     let result: DiagramResult;
     try {
       const { drawDiagram } = await import('./diagram.ts');
@@ -191,9 +208,9 @@ class DiagramView implements NodeView {
     }
     this.#drawing = undefined;
     if (this.#destroyed) return;
-    if (source !== this.#source) {
-      // Typed on meanwhile: what was drawn is already old.
-      this.#schedule(0);
+    if (this.#isOld(source)) {
+      // Typed on meanwhile, or the look changed: what was drawn is already old.
+      this.#schedule(source === this.#source ? 0 : DIAGRAM_REDRAW_DELAY);
       return;
     }
     if (result.ok) {
@@ -207,6 +224,11 @@ class DiagramView implements NodeView {
     this.refresh();
   }
 
+  /** Whether a drawing of `source` that has just ended is out of date already. */
+  #isOld(source: string): boolean {
+    return source !== this.#source || this.#again;
+  }
+
   /** Brings the page up to date with the source, the drawing and whether the place is open. */
   refresh(): void {
     const page = this.#page;
@@ -215,15 +237,18 @@ class DiagramView implements NodeView {
     this.dom.toggleAttribute('data-open', this.#open);
     this.dom.setAttribute('data-state', shown);
     figure.setAttribute('data-state', shown);
+    figure.setAttribute('aria-busy', String(shown === 'pending'));
     // Open, a picture that cannot be drawn again stays, dimmed, until one can.
     const stale = this.#open && shown === 'error' && this.#picture !== undefined;
     figure.toggleAttribute('data-stale', stale);
     const pictured = shown === 'drawn' || stale;
+    const failure = shown === 'error' ? this.#failure : undefined;
 
     if (pictured) {
       if (this.#picture && figure.firstChild !== this.#picture)
         figure.replaceChildren(this.#picture);
-    } else if (this.#open) {
+    } else if (this.#open || shown === 'pending') {
+      // Nothing to show yet, or nothing while the source is in sight under it.
       figure.replaceChildren();
     } else if (shown === 'empty') {
       const empty = element(page, 'p', { class: 'doc-diagram-empty' });
@@ -233,11 +258,22 @@ class DiagramView implements NodeView {
       // Closed and not drawn: the source, readable, in place of the picture.
       const copy = element(page, 'pre', { class: 'doc-diagram-copy' });
       copy.append(page.createTextNode(this.#source));
-      const failure = shown === 'error' ? this.#failure : undefined;
       figure.replaceChildren(...(failure ? diagramProblem(page, failure) : []), copy);
     }
+    this.#name(pictured, failure);
 
-    const kind = shown === 'empty' ? m.editor_diagram_empty() : diagramKind(this.#source);
+    // Said once for each failure, not again with every key typed meanwhile.
+    const problem = this.#open ? failure : undefined;
+    if (problem !== this.#said) {
+      this.#said = problem;
+      this.#problem.replaceChildren(...(problem ? diagramProblem(page, problem) : []));
+    }
+  }
+
+  /** The name of the picture: its kind, what a press does, and what went wrong with it. */
+  #name(pictured: boolean, failure: DiagramFailed | undefined): void {
+    const figure = this.#figure;
+    const kind = this.#shown === 'empty' ? m.editor_diagram_empty() : diagramKind(this.#source);
     if (this.#view.editable && !this.#open) {
       figure.setAttribute('role', 'button');
       figure.setAttribute('aria-label', m.editor_diagram_named({ kind }));
@@ -245,9 +281,12 @@ class DiagramView implements NodeView {
       figure.setAttribute('role', pictured ? 'img' : 'group');
       figure.setAttribute('aria-label', kind);
     }
-
-    const problem = this.#open && shown === 'error' ? this.#failure : undefined;
-    this.#problem.replaceChildren(...(problem ? diagramProblem(page, problem) : []));
+    // A button's label is all that is read of it: what went wrong is its description.
+    const notice = failure && !this.#open ? figure.querySelector('[role="note"]') : null;
+    if (notice) {
+      notice.id = `${this.#id}-problem`;
+      figure.setAttribute('aria-describedby', notice.id);
+    } else figure.removeAttribute('aria-describedby');
   }
 }
 

@@ -62,8 +62,7 @@ test('a press opens the source under the picture, typing draws it again, Escape 
 
 test('with the keys alone: arrows reach the diagram, Enter opens, Escape closes', async ({
   page,
-}, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'a keyboard');
+}) => {
   const body = await openCardWithBody(page, 'Welcome', {
     type: 'doc',
     content: [

@@ -771,7 +771,7 @@ WOFF2만 싣는 방법: KaTeX의 스타일시트는 글꼴마다 WOFF2·WOFF·TT
 | `tests/ui/body-safe-svg.test.ts`                              | jsdom    | 88       | 걸러 내기                                                                                |
 | `tests/ui/body-math.test.ts`                                  | jsdom    | 35       | 표시기의 수식(진짜 KaTeX), 적대적인 수식, 받지 않는 경우                                 |
 | `tests/ui/body-compare.test.ts`                               | jsdom    | 86       | 편집기와 표시기의 비교                                                                   |
-| `tests/ui/editor-formulas.test.ts`, `editor-diagrams.test.ts` | jsdom    | 65       | 입력 규칙, 원문 상자, 붙여넣기, 다이어그램의 편집 자리, 이모지 목록이 불리는 때          |
+| `tests/ui/editor-formulas.test.ts`, `editor-diagrams.test.ts` | jsdom    | 69       | 입력 규칙, 원문 상자, 붙여넣기, 다이어그램의 편집 자리, 이모지 목록이 불리는 때          |
 | `tests/ui/editor-component.test.ts`                           | jsdom    | 16       | 제품 부품: 읽는 때, 알리는 것, 거절, 읽기 전용, 이름, 올리기, 스타일시트를 넣지 않는다   |
 | `spikes/editor/embeds.spec.ts`                                | Chromium | 22       | 받는 시점, 이모지(한글 뒤, 한국어 찾기), 수식 입력과 고치기, 다이어그램, 두 화면, 올리기 |
 | `spikes/editor/attacks.spec.ts`                               | Chromium | 62       | 위 "공격 문자열 테스트"(데스크톱 프로젝트에서만 돈다)                                    |
