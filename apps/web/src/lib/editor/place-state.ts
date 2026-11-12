@@ -25,6 +25,8 @@ export type PlaceKind = 'diagram' | 'formula' | 'new-formula';
 export interface Draft {
   /** The source as written, trimmed. Set by whoever holds the field. */
   value: () => string;
+  /** Whether the field was written in since the place opened; kept with the place, not its view. */
+  touched?: boolean;
 }
 
 /** The place of a formula that is not in the document yet, drawn on its empty line. */
@@ -134,23 +136,40 @@ function finishFormula(tr: Transaction, place: Place): number | undefined {
 }
 
 /**
- * A selection drawn from outside into the hidden source of a closed diagram
- * (Shift and an arrow) takes the whole diagram in, and does not end in text
- * that cannot be seen, where typing would replace part of it.
+ * Where an end of a selection goes that lies in the hidden source of a closed
+ * diagram: past it, away from the other end, and past every closed diagram
+ * that follows, to the first place for text; with none, the edge of the body.
+ */
+function pastClosed(state: EditorState, $end: ResolvedPos, dir: 1 | -1): number {
+  let $at = $end;
+  for (
+    let pos = closedDiagramAt(state, $at);
+    pos !== undefined;
+    pos = closedDiagramAt(state, $at)
+  ) {
+    const node = state.doc.nodeAt(pos);
+    if (!node) break;
+    const beyond = state.doc.resolve(dir > 0 ? pos + node.nodeSize : pos);
+    const found = Selection.findFrom(beyond, dir, true);
+    if (!found) return beyond.pos;
+    $at = found.$head;
+  }
+  return $at.pos;
+}
+
+/**
+ * A selection with an end in the hidden source of a closed diagram (drawn
+ * into it with Shift and an arrow, or left there when its place closed) takes
+ * that diagram in whole, and never ends in text that cannot be seen, where
+ * typing would replace part of it.
  */
 function reachOver(state: EditorState): Transaction | null {
   const { $anchor, $head } = state.selection;
-  const pos = closedDiagramAt(state, $head);
-  if (pos === undefined || closedDiagramAt(state, $anchor) === pos) return null;
-  const node = state.doc.nodeAt(pos);
-  if (!node) return null;
-  const forward = $anchor.pos < pos;
-  const beyond = state.doc.resolve(forward ? pos + node.nodeSize : pos);
-  // The first place for text past the diagram; with none, the selection stays as it was.
-  const past = Selection.findFrom(beyond, forward ? 1 : -1, true);
-  return past
-    ? state.tr.setSelection(TextSelection.create(state.doc, $anchor.pos, past.head))
-    : null;
+  const forward = $head.pos > $anchor.pos;
+  const head = pastClosed(state, $head, forward ? 1 : -1);
+  const anchor = pastClosed(state, $anchor, forward ? -1 : 1);
+  if (head === $head.pos && anchor === $anchor.pos) return null;
+  return state.tr.setSelection(TextSelection.create(state.doc, anchor, head));
 }
 
 /**

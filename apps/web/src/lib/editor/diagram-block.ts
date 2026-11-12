@@ -66,6 +66,10 @@ function codeView(node: DocumentNode, page: Document): NodeView {
 
 let lastId = 0;
 
+/** Whether two failures say the same thing (two drawings never give the same object). */
+const sameFailure = (one: DiagramFailed | undefined, other: DiagramFailed | undefined): boolean =>
+  one?.reason === other?.reason && one?.detail === other?.detail;
+
 class DiagramView implements NodeView {
   readonly dom: HTMLElement;
   readonly contentDOM: HTMLElement;
@@ -271,9 +275,10 @@ class DiagramView implements NodeView {
     }
     this.#name(pictured, failure);
 
-    // Said once for each failure, not again with every key typed meanwhile.
+    // Said once for each failure, not again with every key typed or every drawing that fails
+    // the same way meanwhile: the words in the live region change only when the words do.
     const problem = this.#open ? failure : undefined;
-    if (problem !== this.#said) {
+    if (!sameFailure(problem, this.#said)) {
       this.#said = problem;
       this.#problem.replaceChildren(...(problem ? diagramProblem(page, problem) : []));
     }

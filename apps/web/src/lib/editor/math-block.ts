@@ -204,16 +204,16 @@ class FormulaView implements NodeView {
     if (place && !this.#panel) {
       const page = this.dom.ownerDocument;
       // A place already open (this view was made again) keeps what its field held.
-      const held = place.draft?.value() ?? this.#latex;
+      const held = place.draft?.touched === true ? place.draft.value() : this.#latex;
       const field = sourceField(page, held);
       const { box, problem } = placeBox(page, this.#editor, field);
-      let written = held !== this.#latex;
+      const touched = (): boolean => place.draft?.touched === true;
       field.addEventListener('input', () => {
-        written = true;
+        if (place.draft) place.draft.touched = true;
         this.#edited(field.value);
       });
       this.dom.append(box);
-      this.#panel = { box, field, problem, written: () => written };
+      this.#panel = { box, field, problem, written: touched };
       this.dom.setAttribute('data-open', '');
       // What is wrong with the source is said under the field from the start.
       void this.#preview(held);
@@ -225,11 +225,10 @@ class FormulaView implements NodeView {
     }
     if (place?.draft && this.#panel) {
       const { field, written } = this.#panel;
-      const stored = this.#latex;
       // What closing the place keeps: the field once it was written in (it may be empty while
-      // the document is not); until then the stored source, exactly, so that only opening and
-      // closing changes nothing.
-      place.draft.value = () => (written() ? field.value.trim().slice(0, MAX_LATEX) : stored);
+      // the document is not); until then the source as it is stored now, exactly, so that only
+      // opening and closing changes nothing, even when the source changed meanwhile elsewhere.
+      place.draft.value = () => (written() ? field.value.trim().slice(0, MAX_LATEX) : this.#latex);
     }
   }
 

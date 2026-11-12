@@ -215,6 +215,16 @@ describe('a block formula', () => {
     expect(stored(target)).toEqual(doc(mathBlock('other')));
   });
 
+  it('writes nothing when its field was not written in, though the source changed meanwhile', () => {
+    // Found by an independent review: a change from elsewhere (a collaborator, later) is kept.
+    const target = create(doc(mathBlock('x^2'), paragraph()));
+    formula(target).click();
+    target.view.dispatch(target.state.tr.setNodeAttribute(0, 'latex', 'y^2'));
+    expect(field().value).toBe('y^2');
+    pressIn(field(), { key: 'Escape' });
+    expect(stored(target)).toEqual(doc(mathBlock('y^2'), paragraph()));
+  });
+
   it('says what is wrong with a source that cannot be drawn as soon as it opens', async () => {
     const target = create(doc(mathBlock('\\frac{')));
     await vi.waitFor(() => {
