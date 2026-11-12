@@ -183,11 +183,14 @@ async fn a_server_killed_before_it_wrote_a_body_writes_it_when_it_starts_again()
     let th = th
         .killed_and_started_again(async |app| app.collab().abandon().await)
         .await;
-    assert_eq!(
-        body_of(&card(&th.client, &card_id).await),
-        wanted,
-        "written as the server started"
-    );
+    let began = Instant::now();
+    while body_of(&card(&th.client, &card_id).await) != wanted {
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "written as the server started"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let e = Editing {
         card_id,
         ..editing_app(&th).await
@@ -250,6 +253,48 @@ async fn a_body_written_past_a_closed_document_makes_it_again() {
     assert_eq!(
         refused.reason().map(fvoci_server::error::Reason::as_str),
         Some("update_out_of_step")
+    );
+    th.teardown().await;
+}
+
+/// A take whose caller stops waiting is done whole: the update is in the document and
+/// in its log, and a document opened again from the log has it.
+#[tokio::test]
+async fn a_take_given_up_half_way_is_done_whole() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let given_up = tokio::time::timeout(
+        Duration::ZERO,
+        collab.take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph("left"),
+        ),
+    )
+    .await;
+    assert!(given_up.is_err(), "given up before it was done");
+    let wanted = editor.body().map(|body| body.document().clone());
+    let held = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    assert_eq!(
+        held.body().map(|body| body.document().clone()),
+        wanted,
+        "in the document"
+    );
+    collab.close(&e.app, &e.card_id).await.expect("closed");
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        wanted,
+        "written"
+    );
+    collab.abandon().await;
+    let again = Editor::join(103, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    assert_eq!(
+        again.body().map(|body| body.document().clone()),
+        wanted,
+        "in the log"
     );
     th.teardown().await;
 }

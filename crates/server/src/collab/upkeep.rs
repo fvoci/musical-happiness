@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use tokio::time::{Instant, sleep_until};
 
 use super::open::unexpected;
-use super::place::{OpenDoc, Opening, Slot};
+use super::place::{Held, OpenDoc, Opening, died_over};
 use super::{Collab, DocChange, FOLD_AFTER, Taken, bytes};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
@@ -22,7 +22,7 @@ impl Collab {
         &self,
         app: &App,
         card_id: &str,
-        slot: &mut Slot,
+        slot: &mut Held,
         user_id: &str,
         update: &[u8],
     ) -> Result<Taken, AppError> {
@@ -68,13 +68,16 @@ impl Collab {
     /// its body if its state is near its limit; whether it was made again. The update
     /// before is logged whatever happens here: what fails is logged and tried again
     /// after the next update.
-    async fn keep_up(&self, app: &App, card_id: &str, slot: &mut Slot) -> bool {
+    async fn keep_up(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
         let Some(open) = slot.open.as_ref() else {
             return false;
         };
-        let near_limit =
-            open.state_bytes.saturating_mul(4) >= self.inner.limits.state_bytes.saturating_mul(3);
-        if near_limit {
+        let limit = self.inner.limits.state_bytes;
+        let near_limit = open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3);
+        // A document made from a body that is near the limit itself is not made again
+        // at every update: only once it grew by a quarter of the limit since.
+        let grown = open.state_bytes >= open.made_bytes.saturating_add(limit / 4);
+        if near_limit && grown {
             match self.remake(app, card_id, slot).await {
                 Ok(()) => {
                     self.tell(card_id, DocChange::Remade);
@@ -93,7 +96,7 @@ impl Collab {
     }
 
     /// Stores the document's state in place of its log.
-    async fn fold(&self, app: &App, card_id: &str, slot: &mut Slot) -> Result<(), AppError> {
+    async fn fold(&self, app: &App, card_id: &str, slot: &mut Held) -> Result<(), AppError> {
         let state = bytes(self.ask(app, card_id, slot, Request::State).await?)?;
         let open = slot.open.as_mut().expect("the document is open");
         let through = open.log_end;
@@ -103,15 +106,18 @@ impl Collab {
     }
 
     /// Writes the document's body to its card, and makes the document again from it.
-    async fn remake(&self, app: &App, card_id: &str, slot: &mut Slot) -> Result<(), AppError> {
+    async fn remake(&self, app: &App, card_id: &str, slot: &mut Held) -> Result<(), AppError> {
         self.write_now(app, card_id, slot).await?;
         let body = app.store().get_block(card_id).await?.body;
-        let open = slot.open.as_mut().expect("the document is open");
+        let Some(open) = slot.open.as_mut() else {
+            return Ok(());
+        };
         match self.remake_from(app, card_id, open, body.as_ref()).await {
             Ok(()) => Ok(()),
             Err(Opening::Refused(error)) => Err(error),
             Err(Opening::Died) => {
-                slot.open = None;
+                self.lost(slot);
+                died_over(slot);
                 Err(super::refusals::unavailable())
             }
         }
@@ -142,6 +148,7 @@ impl Collab {
         open.written_seq = open.log_end;
         open.body_digest = digest;
         open.state_bytes = state_bytes;
+        open.made_bytes = state_bytes;
         open.first_unwritten = None;
         Ok(())
     }
@@ -150,17 +157,38 @@ impl Collab {
     /// as the last writer changed it, with what any change of a body brings (its text,
     /// task counts, the files it shows), and told to the card's listeners and the
     /// webhooks. A body that is the card's already is only marked as written.
+    ///
+    /// A card whose body is no longer the one the document last matched was written
+    /// past the document, whole: that body is not written over; the document is made
+    /// again from it ([`DocChange::Replaced`]), and the updates the card did not hold
+    /// are gone with the document before.
     pub(super) async fn write_now(
         &self,
         app: &App,
         card_id: &str,
-        slot: &mut Slot,
+        slot: &mut Held,
     ) -> Result<(), AppError> {
         let Some(open) = slot.open.as_ref() else {
             return Ok(());
         };
         if open.written_seq >= open.log_end {
             return Ok(());
+        }
+        let held = app.store().get_block(card_id).await?.body;
+        if digest_of(held.as_ref()) != open.body_digest {
+            let open = slot.open.as_mut().expect("the document is open");
+            return match self.remake_from(app, card_id, open, held.as_ref()).await {
+                Ok(()) => {
+                    self.tell(card_id, DocChange::Replaced);
+                    Ok(())
+                }
+                Err(Opening::Refused(error)) => Err(error),
+                Err(Opening::Died) => {
+                    self.lost(slot);
+                    died_over(slot);
+                    Err(super::refusals::unavailable())
+                }
+            };
         }
         let json = match self.ask(app, card_id, slot, Request::Body).await? {
             Answer::Body(json) => json,
@@ -178,7 +206,7 @@ impl Collab {
         let open = slot.open.as_mut().expect("the document is open");
         let through = open.log_end;
         let changed = digest != open.body_digest;
-        let write = changed.then(|| body.clone());
+        let write = changed.then_some(body);
         app.store()
             .project_body(card_id, write, through, &digest, &open.last_writer)
             .await?;
@@ -236,6 +264,13 @@ impl Collab {
             }
             if let Err(error) = self.write_now(app, card_id, &mut slot).await {
                 tracing::error!(%error, card_id, "cannot write a card's body from its document");
+                if error.is_not_found() {
+                    // The card went (to the trash): its document waits in the store
+                    // for the card to come back.
+                    self.forget(&mut slot).await;
+                    self.retire(&mut slot);
+                    return;
+                }
             }
             if let Some(open) = slot.open.as_mut() {
                 open.writing_scheduled = false;

@@ -502,6 +502,22 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("the board is filed");
     in_the_files(store, &user_id, &board_id, username).await;
+    // The document of a card's body that is edited together, with an update logged.
+    let mut edited = fvoci_model::Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: BlockType::Card,
+        ..fvoci_model::Block::default()
+    };
+    common::insert_blocks(store, std::slice::from_mut(&mut edited), &user_id).await;
+    store
+        .create_body_doc(&edited.id, b"a state", b"a digest")
+        .await
+        .expect("a document is stored");
+    store
+        .append_body_updates(&edited.id, &[(b"an update", user_id.as_str())])
+        .await
+        .expect("an update is logged");
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),
@@ -950,17 +966,19 @@ fn the_systems_reach_is_asked_for_in_few_places() {
 
 /// The files of the server that say whose rows a handle reaches: the way into a
 /// workspace, the templates (as the system organization), the start (the one
-/// organization of the routes that name no workspace), the housekeeping, and the
-/// application's own `scoped`. All of them are the logic's; no handler names one. A handler that named an organization by what a request
+/// organization of the routes that name no workspace), the housekeeping, the
+/// application's own `scoped`, and the documents of bodies edited together, which the
+/// server writes to their cards as the organization of each when it starts and stops. All of them are the logic's; no handler names one. A handler that named an organization by what a request
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
-    const ALLOWED: [&str; 5] = [
+    const ALLOWED: [&str; 6] = [
         "app/housekeeping.rs",
         "app/mod.rs",
         "app/startup.rs",
         "app/templates.rs",
         "app/workspaces.rs",
+        "collab/mod.rs",
     ];
     let server = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

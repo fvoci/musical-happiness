@@ -44,7 +44,7 @@ use crate::app::App;
 use crate::collab_worker::wire::{Answer, Limits, Request};
 use crate::config::CollabSettings;
 use crate::error::AppError;
-use place::Slot;
+use place::{Held, Slot};
 use worker::{Worker, WorkerCommand, WorkerSettings};
 
 /// How many updates the log of a document holds before they are folded into its state.
@@ -173,6 +173,25 @@ impl Collab {
         self.inner.events.subscribe()
     }
 
+    /// Runs `work` on a card's slot, held, in a task of its own: what a caller that
+    /// stops waiting leaves is a step done whole, never half of one (an update taken
+    /// and not logged, a document made and not counted). Shutdown waits for it.
+    async fn on_slot<T, W, F>(&self, app: &App, card_id: &str, work: W) -> Result<T, AppError>
+    where
+        T: Send + 'static,
+        W: FnOnce(Self, App, String, Held) -> F + Send + 'static,
+        F: Future<Output = Result<T, AppError>> + Send + 'static,
+    {
+        let (collab, app_of_task, card_id) = (self.clone(), app.clone(), card_id.to_owned());
+        let task = app.spawn_tracked(async move {
+            let slot = collab.slot(&app_of_task, &card_id).await;
+            work(collab, app_of_task, card_id, slot).await
+        });
+        task.await.map_err(|error| {
+            AppError::internal(format_args!("the work on a document ended: {error}"))
+        })?
+    }
+
     /// The whole document of a card's body, as a version 1 update, opened if it is not
     /// open: from what is stored, or made from the card's body the first time.
     ///
@@ -182,8 +201,15 @@ impl Collab {
     /// reasons of [`crate::error::Reason`] for the document (too many open,
     /// unavailable), and the store's errors.
     pub async fn open(&self, app: &App, card_id: &str) -> Result<Vec<u8>, AppError> {
-        let mut slot = self.slot(app, card_id).await?;
-        bytes(self.ask(app, card_id, &mut slot, Request::State).await?)
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                bytes(collab.ask(app, card_id, slot, Request::State).await?)
+            },
+        )
+        .await
     }
 
     /// The state vector of a card's document, version 1, opened if it is not open.
@@ -192,11 +218,15 @@ impl Collab {
     ///
     /// As [`Collab::open`].
     pub async fn state_vector(&self, app: &App, card_id: &str) -> Result<Vec<u8>, AppError> {
-        let mut slot = self.slot(app, card_id).await?;
-        bytes(
-            self.ask(app, card_id, &mut slot, Request::StateVector)
-                .await?,
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                bytes(collab.ask(app, card_id, slot, Request::StateVector).await?)
+            },
         )
+        .await
     }
 
     /// What a card's document has that a holder of `state_vector` has not, as a version
@@ -212,12 +242,20 @@ impl Collab {
         card_id: &str,
         state_vector: &[u8],
     ) -> Result<Vec<u8>, AppError> {
-        let mut slot = self.slot(app, card_id).await?;
-        let request = |doc| Request::Diff {
-            doc,
-            state_vector: state_vector.to_vec(),
-        };
-        bytes(self.ask(app, card_id, &mut slot, request).await?)
+        let state_vector = state_vector.to_vec();
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                let request = |doc| Request::Diff {
+                    doc,
+                    state_vector: state_vector.clone(),
+                };
+                bytes(collab.ask(app, card_id, slot, request).await?)
+            },
+        )
+        .await
     }
 
     /// Takes an editor's update into a card's document, by `user_id`, and logs it; what
@@ -237,8 +275,16 @@ impl Collab {
         user_id: &str,
         update: &[u8],
     ) -> Result<Taken, AppError> {
-        let mut slot = self.slot(app, card_id).await?;
-        self.take_in(app, card_id, &mut slot, user_id, update).await
+        let (user_id, update) = (user_id.to_owned(), update.to_vec());
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                collab.take_in(app, card_id, slot, &user_id, &update).await
+            },
+        )
+        .await
     }
 
     /// Writes the body of a card's document to the card now, if it has updates whose
@@ -248,41 +294,56 @@ impl Collab {
     ///
     /// Returns the errors of reading the body from the worker and of writing it.
     pub async fn write_body(&self, app: &App, card_id: &str) -> Result<(), AppError> {
-        let Some(mut slot) = self.existing_slot(app, card_id).await else {
-            return Ok(());
-        };
-        self.write_now(app, card_id, &mut slot).await
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                let written = collab.write_now(app, card_id, slot).await;
+                collab.retire(slot);
+                written
+            },
+        )
+        .await
     }
 
     /// Writes the body of a card's document to the card and closes the document. The
-    /// next request opens it again from what is stored.
+    /// next request opens it again from what is stored. A body that cannot be written
+    /// now stays in the log and is written when the document is opened again, or when
+    /// the server starts: the document is closed all the same.
     ///
     /// # Errors
     ///
-    /// As [`Collab::write_body`]; the document stays open if its body could not be
-    /// written.
+    /// Returns why the body could not be written.
     pub async fn close(&self, app: &App, card_id: &str) -> Result<(), AppError> {
-        let Some(mut slot) = self.existing_slot(app, card_id).await else {
-            return Ok(());
-        };
-        self.write_now(app, card_id, &mut slot).await?;
-        self.forget(&mut slot).await;
-        self.retire(card_id, &mut slot);
-        Ok(())
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                let written = collab.write_now(app, card_id, slot).await;
+                collab.forget(slot).await;
+                collab.retire(slot);
+                written
+            },
+        )
+        .await
     }
 
     /// Writes the body of every open document and closes them, and ends the workers:
-    /// for a server that stops.
+    /// for a server that stops. `app` is any handle of the server: each document is
+    /// written as its card's organization.
     pub async fn end(&self, app: &App) {
-        for (card_id, slot) in self.all_slots() {
-            let mut slot = slot.lock().await;
-            let Some(tenant) = slot.tenant else { continue };
-            let app = app.scoped(tenant);
-            if let Err(error) = self.write_now(&app, &card_id, &mut slot).await {
-                tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
+        for slot in self.all_slots() {
+            let mut slot = slot.lock_owned().await;
+            let app = app.scoped(slot.tenant);
+            if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
+                if let Err(error) = self.write_now(&app, &card_id, &mut slot).await {
+                    tracing::error!(%error, card_id, "cannot write a card's body as the server stops");
+                }
+                self.forget(&mut slot).await;
             }
-            self.forget(&mut slot).await;
-            self.retire(&card_id, &mut slot);
+            self.retire(&mut slot);
         }
         for worker in &self.inner.workers {
             worker.end().await;
@@ -301,23 +362,37 @@ impl Collab {
             }
         };
         for (card_id, org_id) in unwritten {
-            let written = async {
-                let tenant = Tenant::org(&org_id).map_err(anyhow::Error::from)?;
-                let app = app.scoped(tenant);
-                let mut slot = self.slot(&app, &card_id).await?;
-                self.ensure_open(&app, &card_id, &mut slot).await?;
-                self.write_now(&app, &card_id, &mut slot).await?;
-                self.forget(&mut slot).await;
-                self.retire(&card_id, &mut slot);
-                Ok::<(), AppError>(())
+            let tenant = match Tenant::org(&org_id) {
+                Ok(tenant) => tenant,
+                Err(error) => {
+                    tracing::error!(%error, card_id, "the organization of a document is no identifier");
+                    continue;
+                }
             };
-            match written.await {
+            match self.close_after_open(&app.scoped(tenant), &card_id).await {
                 Ok(()) => tracing::info!(card_id, "wrote a body the server had not written"),
                 Err(error) => {
                     tracing::error!(%error, card_id, "cannot write a body the server had not written");
                 }
             }
         }
+    }
+
+    /// Opens a card's document, writes its body and closes it.
+    async fn close_after_open(&self, app: &App, card_id: &str) -> Result<(), AppError> {
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                collab.ensure_open(app, card_id, slot).await?;
+                let written = collab.write_now(app, card_id, slot).await;
+                collab.forget(slot).await;
+                collab.retire(slot);
+                written
+            },
+        )
+        .await
     }
 
     /// The process identifiers of the running workers, for the tests of their deaths.
@@ -352,10 +427,10 @@ impl Collab {
     #[cfg(feature = "test-util")]
     #[doc(hidden)]
     pub async fn abandon(&self) {
-        for (card_id, slot) in self.all_slots() {
-            let mut slot = slot.lock().await;
-            slot.open = None;
-            self.retire(&card_id, &mut slot);
+        for slot in self.all_slots() {
+            let mut slot = slot.lock_owned().await;
+            self.lost(&mut slot);
+            self.retire(&mut slot);
         }
         for worker in &self.inner.workers {
             worker.end().await;

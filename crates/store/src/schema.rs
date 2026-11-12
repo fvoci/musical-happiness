@@ -178,9 +178,9 @@ pub(crate) const GLOBAL_TABLES: [&str; 6] = [
 pub(crate) const ORG_TABLES: [&str; 21] = [
     "blocks",
     "board_members",
+    "boards",
     "body_docs",
     "body_updates",
-    "boards",
     "categories",
     "category_boards",
     "comment_versions",

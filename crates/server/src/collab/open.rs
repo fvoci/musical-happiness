@@ -4,7 +4,7 @@
 use std::sync::atomic::Ordering;
 
 use fvoci_model::{Block, BlockType, Body};
-use fvoci_store::{StoreError, StoredDoc};
+use fvoci_store::{LoggedUpdate, StoreError, StoredDoc};
 use tokio::time::Instant;
 
 use super::place::{OpenDoc, Opening};
@@ -64,6 +64,7 @@ impl Collab {
             written_seq: 0,
             body_digest: digest,
             state_bytes,
+            made_bytes: state_bytes,
             last_writer: block.modified_by.clone(),
             first_unwritten: None,
             last_update: Instant::now(),
@@ -90,40 +91,9 @@ impl Collab {
                 },
             )
             .await?;
-        let (
-            generation,
-            Answer::Opened {
-                mut state_bytes, ..
-            },
-        ) = opened
-        else {
+        let (generation, Answer::Opened { state, state_bytes }) = opened else {
             return Err(unexpected(&opened.1).into());
         };
-        let mut last_writer = block.modified_by.clone();
-        for update in stored.updates {
-            let request = Request::Take {
-                doc: number,
-                update: update.bytes,
-            };
-            match self.call(worker, Some(generation), &request).await {
-                Ok((
-                    _,
-                    Answer::Taken {
-                        state_bytes: now, ..
-                    },
-                )) => state_bytes = now,
-                Ok((_, other)) => return Err(unexpected(&other).into()),
-                Err(Opening::Refused(error)) => {
-                    // Taken once, it was refused now: what was stored is kept as it is
-                    // and the update is passed over, as nothing would take it later.
-                    tracing::error!(%error, card_id = block.id, seq = update.seq, "a logged update is not taken again");
-                }
-                Err(died) => return Err(died),
-            }
-            if !update.written_by.is_empty() {
-                last_writer = update.written_by;
-            }
-        }
         let unwritten = stored.projected_seq < stored.log_end;
         let mut open = OpenDoc {
             worker,
@@ -134,18 +104,90 @@ impl Collab {
             written_seq: stored.projected_seq,
             body_digest: stored.body_digest,
             state_bytes,
-            last_writer,
+            made_bytes: 0,
+            last_writer: block.modified_by.clone(),
             first_unwritten: unwritten.then(Instant::now),
             last_update: Instant::now(),
             writing_scheduled: false,
         };
-        let written_elsewhere = upkeep::digest_of(block.body.as_ref()) != open.body_digest;
-        if !unwritten && written_elsewhere {
+        let replayed = self
+            .replay(
+                app,
+                &block.id,
+                &mut open,
+                state,
+                stored.state_seq,
+                stored.updates,
+            )
+            .await;
+        if let Err(failed) = replayed {
+            // The document is not opened short of an update of its log: a log that is
+            // in the card already is left for a document made again from the card, and
+            // one that is not waits for the next try.
+            self.close_number(worker, generation, number).await;
+            if unwritten || matches!(failed, Opening::Died) {
+                return Err(failed);
+            }
+            tracing::error!(
+                card_id = block.id,
+                "a logged update is not taken again; the document is made again from its card"
+            );
+            open.number = self.next_number();
             self.remake_from(app, &block.id, &mut open, block.body.as_ref())
                 .await?;
             self.tell(&block.id, DocChange::Remade);
+            return Ok(open);
+        }
+        let written_elsewhere = upkeep::digest_of(block.body.as_ref()) != open.body_digest;
+        if !unwritten && written_elsewhere {
+            if let Err(failed) = self
+                .remake_from(app, &block.id, &mut open, block.body.as_ref())
+                .await
+            {
+                self.close_number(worker, open.generation, open.number)
+                    .await;
+                return Err(failed);
+            }
+            self.tell(&block.id, DocChange::Remade);
         }
         Ok(open)
+    }
+
+    /// Takes the logged updates again into a document opened from its stored state,
+    /// after the state the worker repaired as it opened it is stored.
+    async fn replay(
+        &self,
+        app: &App,
+        card_id: &str,
+        open: &mut OpenDoc,
+        repaired: Option<Vec<u8>>,
+        state_seq: i64,
+        updates: Vec<LoggedUpdate>,
+    ) -> Result<(), Opening> {
+        // What a repair deleted from the stored state is stored, so that the state and
+        // the log after it stay the document's.
+        if let Some(repaired) = repaired {
+            app.store()
+                .fold_body_doc(card_id, &repaired, state_seq)
+                .await?;
+        }
+        for update in updates {
+            let request = Request::Take {
+                doc: open.number,
+                update: update.bytes,
+            };
+            match self
+                .call(open.worker, Some(open.generation), &request)
+                .await?
+            {
+                (_, Answer::Taken { state_bytes, .. }) => open.state_bytes = state_bytes,
+                (_, other) => return Err(unexpected(&other).into()),
+            }
+            if !update.written_by.is_empty() {
+                open.last_writer = update.written_by;
+            }
+        }
+        Ok(())
     }
 
     /// Opens a document made from a body in a worker: its generation, state and size.

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fvoci_store::Tenant;
-use tokio::sync::OwnedMutexGuard;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio::time::Instant;
 
 use super::worker::CallError;
@@ -21,13 +21,21 @@ const FIRST_CLOSING: Duration = Duration::from_secs(10);
 /// The longest a document is closed for ending its worker.
 const LONGEST_CLOSING: Duration = Duration::from_mins(5);
 
-/// What is known of a card's document. Held while one request works on it.
-#[derive(Debug, Default)]
+/// A slot, held by the one request that works on its document.
+pub(super) type Held = OwnedMutexGuard<Slot>;
+
+/// What is known of a card's document. A slot is an organization's card's: the same
+/// identifier in another organization is another slot.
+#[derive(Debug)]
 pub(super) struct Slot {
+    /// Its key in the place.
+    key: String,
+    /// The card.
+    pub(super) card_id: String,
+    /// The organization of the card.
+    pub(super) tenant: Tenant,
     /// The slot is no longer in the place: whoever waited for it looks again.
     retired: bool,
-    /// Whose card it is: the organization of the handle that first opened it.
-    pub(super) tenant: Option<Tenant>,
     pub(super) open: Option<OpenDoc>,
     /// How many requests about it in a row ended its worker.
     deaths: u32,
@@ -52,6 +60,8 @@ pub(super) struct OpenDoc {
     pub(super) body_digest: Vec<u8>,
     /// The size of its state.
     pub(super) state_bytes: u64,
+    /// The size of its state when it was made from its body; 0 if it was not here.
+    pub(super) made_bytes: u64,
     /// Who sent the last update; what writes the body writes it as them.
     pub(super) last_writer: String,
     /// When the first update whose body is not written was taken.
@@ -70,87 +80,83 @@ impl OpenDoc {
     }
 }
 
+/// The key of an organization's card in the place.
+fn key_of(tenant: Tenant, card_id: &str) -> String {
+    format!("{tenant:?} {card_id}")
+}
+
 impl Collab {
-    /// The slot of a card, held, for a request of `app`'s organization.
-    ///
-    /// # Errors
-    ///
-    /// Returns a not-found error if the card's document is open for another
-    /// organization (no card of that identifier is in this one's reach).
-    pub(super) async fn slot(
-        &self,
-        app: &App,
-        card_id: &str,
-    ) -> Result<OwnedMutexGuard<Slot>, AppError> {
+    /// The slot of a card of `app`'s organization, held.
+    pub(super) async fn slot(&self, app: &App, card_id: &str) -> Held {
+        let tenant = app.store().tenant();
+        let key = key_of(tenant, card_id);
         loop {
             let shared = {
                 let mut slots = self.inner.slots.lock().expect("the slots are not poisoned");
-                Arc::clone(slots.entry(card_id.to_owned()).or_default())
+                Arc::clone(slots.entry(key.clone()).or_insert_with(|| {
+                    Arc::new(Mutex::new(Slot {
+                        key: key.clone(),
+                        card_id: card_id.to_owned(),
+                        tenant,
+                        retired: false,
+                        open: None,
+                        deaths: 0,
+                        closed_until: None,
+                    }))
+                }))
             };
-            let mut slot = shared.lock_owned().await;
-            if slot.retired {
-                continue;
+            let slot = shared.lock_owned().await;
+            if !slot.retired {
+                return slot;
             }
-            let tenant = app.store().tenant();
-            if slot.tenant.is_some_and(|holder| holder != tenant) {
-                return Err(AppError::not_found("card"));
-            }
-            slot.tenant = Some(tenant);
-            return Ok(slot);
         }
     }
 
-    /// The slot of a card if it has one, held, for a request of `app`'s organization.
-    pub(super) async fn existing_slot(
-        &self,
-        app: &App,
-        card_id: &str,
-    ) -> Option<OwnedMutexGuard<Slot>> {
+    /// The slot of a card of `app`'s organization if it has one, held.
+    pub(super) async fn existing_slot(&self, app: &App, card_id: &str) -> Option<Held> {
+        let key = key_of(app.store().tenant(), card_id);
         loop {
             let shared = {
                 let slots = self.inner.slots.lock().expect("the slots are not poisoned");
-                Arc::clone(slots.get(card_id)?)
+                Arc::clone(slots.get(&key)?)
             };
             let slot = shared.lock_owned().await;
-            if slot.retired {
-                continue;
+            if !slot.retired {
+                return Some(slot);
             }
-            return (slot.tenant == Some(app.store().tenant())).then_some(slot);
         }
     }
 
-    /// Every slot, by card.
-    pub(super) fn all_slots(&self) -> Vec<(String, Arc<tokio::sync::Mutex<Slot>>)> {
+    /// Every slot.
+    pub(super) fn all_slots(&self) -> Vec<Arc<Mutex<Slot>>> {
         let slots = self.inner.slots.lock().expect("the slots are not poisoned");
-        slots
-            .iter()
-            .map(|(card_id, slot)| (card_id.clone(), Arc::clone(slot)))
-            .collect()
+        slots.values().map(Arc::clone).collect()
     }
 
-    /// Takes a slot out of the place, unless it remembers that its document is closed
-    /// for a while.
-    pub(super) fn retire(&self, card_id: &str, slot: &mut Slot) {
-        if slot.open.is_some()
-            || slot
-                .closed_until
-                .is_some_and(|until| until > Instant::now())
-        {
+    /// Takes a slot out of the place, unless its document is open or it remembers that
+    /// its document is closed for a while.
+    pub(super) fn retire(&self, slot: &mut Held) {
+        let closed = slot
+            .closed_until
+            .is_some_and(|until| until > Instant::now());
+        if slot.retired || slot.open.is_some() || closed {
             return;
         }
         slot.retired = true;
         let mut slots = self.inner.slots.lock().expect("the slots are not poisoned");
-        slots.remove(card_id);
+        if slots
+            .get(&slot.key)
+            .is_some_and(|there| Arc::ptr_eq(there, OwnedMutexGuard::mutex(slot)))
+        {
+            slots.remove(&slot.key);
+        }
     }
 
     /// Closes the document in its worker, if it is open, and forgets it.
-    pub(super) async fn forget(&self, slot: &mut Slot) {
+    pub(super) async fn forget(&self, slot: &mut Held) {
         if let Some(open) = slot.open.take() {
             taken_from(&self.inner.loads[open.worker]);
-            let worker = &self.inner.workers[open.worker];
-            // A worker that is gone took the document with it.
-            let _ = worker
-                .call(Some(open.generation), &Request::Close(open.number))
+            self.close_number(open.worker, open.generation, open.number)
                 .await;
         }
     }
@@ -167,7 +173,7 @@ impl Collab {
         &self,
         app: &App,
         card_id: &str,
-        slot: &mut Slot,
+        slot: &mut Held,
         request: impl Fn(DocNumber) -> Request,
     ) -> Result<Answer, AppError> {
         for _ in 0..2 {
@@ -204,7 +210,8 @@ impl Collab {
         Err(refusals::unavailable())
     }
 
-    /// Opens the document if it is not open, unless it is closed for a while.
+    /// Opens the document if it is not open, unless it is closed for a while. A slot
+    /// whose document did not open leaves the place, unless it is closed for a while.
     ///
     /// # Errors
     ///
@@ -213,7 +220,7 @@ impl Collab {
         &self,
         app: &App,
         card_id: &str,
-        slot: &mut Slot,
+        slot: &mut Held,
     ) -> Result<(), AppError> {
         if slot.open.is_some() {
             return Ok(());
@@ -224,21 +231,23 @@ impl Collab {
         {
             return Err(refusals::unavailable());
         }
-        match self.open_stored(app, card_id).await {
+        let error = match self.open_stored(app, card_id).await {
             Ok(open) => {
                 slot.open = Some(open);
-                Ok(())
+                return Ok(());
             }
-            Err(Opening::Refused(error)) => Err(error),
+            Err(Opening::Refused(error)) => error,
             Err(Opening::Died) => {
                 died_over(slot);
-                Err(refusals::unavailable())
+                refusals::unavailable()
             }
-        }
+        };
+        self.retire(slot);
+        Err(error)
     }
 
     /// Forgets a document whose worker is gone.
-    fn lost(&self, slot: &mut Slot) {
+    pub(super) fn lost(&self, slot: &mut Slot) {
         if let Some(open) = slot.open.take() {
             taken_from(&self.inner.loads[open.worker]);
         }
@@ -256,7 +265,7 @@ impl Collab {
 
 /// Counts a death of the worker over the document, and closes the document for a
 /// while from the second in a row.
-fn died_over(slot: &mut Slot) {
+pub(super) fn died_over(slot: &mut Slot) {
     slot.deaths = slot.deaths.saturating_add(1);
     if slot.deaths >= 2 {
         let doublings = (slot.deaths - 2).min(16);

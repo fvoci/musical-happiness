@@ -129,8 +129,13 @@ impl Server {
             .context("unable to get root workspace")?;
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
-        // The bodies of documents that a run that ended did not write to their cards.
-        app.collab().recover(&app.housekeeping()).await;
+        // The bodies of documents that a run that ended did not write to their cards,
+        // in the background: each takes the worker's time, which a start does not wait
+        // for.
+        let everyone = app.housekeeping();
+        app.spawn_background(async move {
+            everyone.collab().recover(&everyone).await;
+        });
         match app.housekeeping().sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
