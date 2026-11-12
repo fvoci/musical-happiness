@@ -6,7 +6,7 @@
 //! here (`insert_account`) and are let in here (`join_organization`,
 //! `join_workspace`).
 
-use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole};
+use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole, new_id};
 
 use crate::Store;
 use crate::db::{Id, Scope, Sql, now_millis};
@@ -16,15 +16,13 @@ use crate::workspaces;
 
 /// The organization somebody who signs up with the name of an organization starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Founding<'a> {
+pub enum Founding {
     /// The organization of the handle, which is there and nobody's: the one the server
     /// made when it started. Only the first user of the instance takes it.
     First,
-    /// A new organization, under the identifier of the handle.
-    New {
-        /// The identifier of its first workspace.
-        workspace_id: &'a str,
-    },
+    /// A new organization, under an identifier the store gives it, whatever
+    /// organization the handle names.
+    New,
 }
 
 /// A workspace of the scope's organization that a user is let into.
@@ -38,9 +36,9 @@ pub(crate) enum Which<'a> {
 
 impl Store {
     /// Stores the account of somebody who signs up, and what they start: the
-    /// organization of the handle and its first workspace, both under `name`, with the
-    /// user as the administrator of both. Returns the identifier of the workspace. All
-    /// of it happens or none.
+    /// organization `founding` says and its first workspace, both under
+    /// `organization_name`, with the user as the administrator of both. Returns the
+    /// identifier of the workspace. All of it happens or none.
     ///
     /// `user` is updated to what was stored (its times, and whether an administrator,
     /// whatever the caller put there); whoever is the
@@ -53,39 +51,47 @@ impl Store {
     /// Returns [`StoreError::NotFirstUser`] if [`Founding::First`] is asked and the
     /// instance has had its first user; [`StoreError::Conflict`] if another user,
     /// deleted or not, has the name or the email address in any letter case;
-    /// [`StoreError::NoOrganization`] if the handle names no organization; and
-    /// [`StoreError::Database`] if a statement fails, as it does for
-    /// [`Founding::New`] on an SQLite database, which holds one organization.
+    /// [`StoreError::NoOrganization`] if [`Founding::First`] is asked of a handle that
+    /// names no organization; and [`StoreError::Database`] if a statement fails, as it
+    /// does for [`Founding::New`] on an SQLite database, which holds one organization.
     pub async fn sign_up(
         &self,
         user: &mut User,
         organization_name: &str,
-        founding: Founding<'_>,
+        founding: Founding,
     ) -> Result<String, StoreError> {
-        self.transaction(async |scope| {
-            let role = become_first(scope).await?;
-            let workspace_id = match founding {
-                Founding::First if role == InstanceRole::User => {
-                    return Err(StoreError::NotFirstUser);
-                }
-                Founding::First => name_organization(scope, organization_name).await?,
-                Founding::New { workspace_id } => {
-                    found_organization(scope, organization_name, workspace_id).await?;
-                    workspace_id.to_owned()
-                }
-            };
-            insert_account(scope, user, role).await?;
-            join_organization(scope, &user.id, OrgRole::Admin).await?;
-            join_workspace(
-                scope,
-                Which::Workspace(&workspace_id),
-                &user.id,
-                WorkspaceRole::Admin,
-            )
-            .await?;
-            Ok(workspace_id)
-        })
-        .await
+        // A new organization is made behind its own wall: the handle of the
+        // transaction names it before it is there.
+        let store = match founding {
+            Founding::First => self.clone(),
+            Founding::New => self.for_org(&new_id())?,
+        };
+        store
+            .transaction(async |scope| {
+                let role = become_first(scope).await?;
+                let workspace_id = match founding {
+                    Founding::First if role == InstanceRole::User => {
+                        return Err(StoreError::NotFirstUser);
+                    }
+                    Founding::First => name_organization(scope, organization_name).await?,
+                    Founding::New => {
+                        let workspace_id = new_id();
+                        found_organization(scope, organization_name, &workspace_id).await?;
+                        workspace_id
+                    }
+                };
+                insert_account(scope, user, role).await?;
+                join_organization(scope, &user.id, OrgRole::Admin).await?;
+                join_workspace(
+                    scope,
+                    Which::Workspace(&workspace_id),
+                    &user.id,
+                    WorkspaceRole::Admin,
+                )
+                .await?;
+                Ok(workspace_id)
+            })
+            .await
     }
 
     /// Whether the instance has had its first user.

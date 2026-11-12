@@ -43,11 +43,17 @@
     onSignIn: (login: string, password: string) => Promise<void>;
     /** Shows where the invitation let the reader in. */
     onJoined: (accepted: AcceptedInvitation) => void;
+    /**
+     * Whoever was signed in no longer is (the session ended while the page was
+     * open): the page is to be shown again, to nobody.
+     */
+    onSessionEnded: () => void;
     /** The address of the app's first page, for a link that lets nobody in. */
     homeHref: string;
   }
 
-  let { token, signedInAs, preview, accept, onSignIn, onJoined, homeHref }: Props = $props();
+  let { token, signedInAs, preview, accept, onSignIn, onJoined, onSessionEnded, homeHref }: Props =
+    $props();
 
   /** What the link shows; `undefined` for one that lets nobody in. */
   const shown = $derived(
@@ -111,7 +117,14 @@
   /** Joins as whoever is signed in. */
   function join(): Promise<void> {
     return run(undefined, async () => {
-      onJoined(await accept(token));
+      try {
+        onJoined(await accept(token));
+      } catch (error) {
+        // The session ended meanwhile: there is nobody to join as, and nothing
+        // on this form of the page to sign in with.
+        if (isBackendError(error) && error.status === 401) onSessionEnded();
+        else throw error;
+      }
     });
   }
 

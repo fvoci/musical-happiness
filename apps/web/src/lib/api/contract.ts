@@ -1823,7 +1823,8 @@ export interface paths {
          *     link ends seven days after it was made, or when it is revoked.
          *
          *     With the `role` `member` the link makes members of the workspace, as often as it is
-         *     used. Only the workspace's administrators make one: anybody else is refused (403).
+         *     used. Only the workspace's administrators make one: anybody else who works there is
+         *     refused (403), and a guest of the workspace is told that it is not there (404).
          *     Whoever accepts it becomes a member of the workspace's organization too.
          */
         post: operations["createInvitation"];
@@ -6396,7 +6397,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
                 workspaceId: string;
             };
             cookie?: never;

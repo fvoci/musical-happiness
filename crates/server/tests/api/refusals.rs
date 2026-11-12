@@ -93,6 +93,7 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
             }),
         )
         .await;
+    response.check_bad_request();
     assert_eq!(
         refused(&response),
         pairs(&[

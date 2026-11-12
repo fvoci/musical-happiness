@@ -177,7 +177,7 @@
       <p class="mt-2 text-muted-foreground" role="status">{m.app_loading()}</p>
     </div>
   </main>
-{:else if invitation !== undefined && account && workspace.status !== 'failed'}
+{:else if invitation !== undefined && account}
   {@const signedInAs = workspace.status === 'ready' ? workspace.me : undefined}
   {@const accounts = account}
   <InvitePage
@@ -188,8 +188,15 @@
     onSignIn={(login: string, password: string) => accounts.signIn(login, password)}
     onJoined={(accepted: AcceptedInvitation) => {
       // Loaded afresh where the invitation let the reader in: what the page
-      // has in memory is of whoever was, or was not, signed in before.
-      router.restart({ workspaceId: accepted.workspaceId, boardId: accepted.boardId });
+      // has in memory is of whoever was, or was not, signed in before. In
+      // place of the link, whose token is not to stay in the history.
+      router.restart(
+        { workspaceId: accepted.workspaceId, boardId: accepted.boardId },
+        { replace: true },
+      );
+    }}
+    onSessionEnded={() => {
+      location.reload();
     }}
     homeHref={router.href({})}
   />

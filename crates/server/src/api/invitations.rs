@@ -15,7 +15,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::auth::address_of;
-use super::contract::params::MemberWorkspaceId;
+use super::contract::params::WorkerWorkspaceId;
 use super::contract::tag;
 use super::workspace::Ws;
 use super::{ApiResult, OptionalSession, created, decode_object, json_response};
@@ -46,18 +46,20 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 /// link ends seven days after it was made, or when it is revoked.
 ///
 /// With the `role` `member` the link makes members of the workspace, as often as it is
-/// used. Only the workspace's administrators make one: anybody else is refused (403).
+/// used. Only the workspace's administrators make one: anybody else who works there is
+/// refused (403), and a guest of the workspace is told that it is not there (404).
 /// Whoever accepts it becomes a member of the workspace's organization too.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/invitations",
     operation_id = "createInvitation",
     tag = tag::WORKSPACES,
-    params(MemberWorkspaceId),
+    params(WorkerWorkspaceId),
     request_body = NewInvitation,
     responses((status = 201, description = "The invitation, with its token.", body = Invitation)),
 )]
 async fn handle_create_invitation(ws: Ws, body: Bytes) -> ApiResult {
+    let ws = ws.require_no_guest()?;
     let request: NewInvitation = decode_object(&body)?;
     match request.role {
         WorkspaceRole::Member => {

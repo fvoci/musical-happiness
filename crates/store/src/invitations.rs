@@ -22,6 +22,9 @@ use crate::users::InstanceRole;
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
 const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
                        expires_at, max_uses, uses";
+/// [`COLUMNS`] of the table as `i`.
+const COLUMNS_OF_I: &str = "i.id, i.workspace_id, i.role, i.board_id, i.board_role, \
+                            i.created_by, i.create_at, i.expires_at, i.max_uses, i.uses";
 
 /// A link to store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -242,8 +245,13 @@ impl Store {
                     user.id.clone()
                 }
             };
-            let used = match (&link.board_id, link.board_role) {
-                (Some(board_id), Some(board_role)) => {
+            // What the link gives is said by its role: a row whose board does not go
+            // with its role is broken, and lets nobody in as anything.
+            let used = match (link.role, &link.board_id, link.board_role) {
+                (WorkspaceRole::Member, None, None) => {
+                    let_in_as_member(scope, &link.workspace_id, &user_id).await?
+                }
+                (WorkspaceRole::Guest, Some(board_id), Some(board_role)) => {
                     let invited = BoardMember {
                         board_id: board_id.clone(),
                         user_id: user_id.clone(),
@@ -252,7 +260,13 @@ impl Store {
                     .with_role(Some(board_role));
                     let_in_as_guest(scope, &link.workspace_id, invited).await?
                 }
-                _ => let_in_as_member(scope, &link.workspace_id, &user_id).await?,
+                _ => {
+                    return Err(StoreError::Corrupt {
+                        column: "role",
+                        reason: "an invitation is for members, or for a guest of a board"
+                            .to_owned(),
+                    });
+                }
             };
             if used {
                 let mut sql = scope.sql("UPDATE invitations SET uses = uses + 1 WHERE id = ");
@@ -340,13 +354,8 @@ async fn let_in_as_guest(
 /// Starts the query for the live links of the scope's organization at `now`;
 /// conditions follow with `AND`.
 fn select_live(scope: &Scope<'_>, now: i64) -> Result<Sql, StoreError> {
-    let columns = COLUMNS
-        .split(", ")
-        .map(|column| format!("i.{}", column.trim()))
-        .collect::<Vec<_>>()
-        .join(", ");
     let mut sql = scope.sql(&format!(
-        "SELECT {columns} FROM invitations AS i WHERE i.org_id = "
+        "SELECT {COLUMNS_OF_I} FROM invitations AS i WHERE i.org_id = "
     ));
     sql.bind(scope.org()?);
     push_live(&mut sql, now);
@@ -369,9 +378,11 @@ pub(crate) fn push_live(sql: &mut Sql, now: i64) {
 }
 
 fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
-    let corrupt = |error: fvoci_model::UnknownRole| StoreError::Corrupt {
-        column: "role",
-        reason: error.to_string(),
+    let corrupt = |column: &'static str| {
+        move |error: fvoci_model::UnknownRole| StoreError::Corrupt {
+            column,
+            reason: error.to_string(),
+        }
     };
     let board_id = row.id(3)?;
     let board_role = row.text(4)?;
@@ -379,12 +390,12 @@ fn invitation_from_row(row: &Row) -> Result<Invitation, StoreError> {
     Ok(Invitation {
         id: row.id(0)?,
         workspace_id: row.id(1)?,
-        role: row.text(2)?.parse().map_err(corrupt)?,
+        role: row.text(2)?.parse().map_err(corrupt("role"))?,
         board_id: (!board_id.is_empty()).then_some(board_id),
         board_role: if board_role.is_empty() {
             None
         } else {
-            Some(board_role.parse().map_err(corrupt)?)
+            Some(board_role.parse().map_err(corrupt("board_role"))?)
         },
         created_by: row.id(5)?,
         create_at: row.int(6)?,

@@ -1,0 +1,412 @@
+//! Invitations in the store: a link is found by the digest of its token while it is
+//! live, and whoever accepts it is let in with the count of the use, or not at all.
+
+use std::sync::Arc;
+
+use fvoci_model::{BoardMember, BoardRole, Invitation, User, WorkspaceRole, new_id};
+use fvoci_store::{Acceptor, NewLink, Store, StoreError};
+use tokio::sync::Barrier;
+use tokio::task::JoinSet;
+
+use crate::common::{self, TestStore};
+
+const NOW: i64 = 1_000_000;
+const LATER: i64 = NOW + 1_000;
+
+/// Somebody who is not stored yet.
+fn newcomer(username: &str) -> User {
+    User {
+        id: new_id(),
+        username: username.to_owned(),
+        email: format!("{username}@example.com"),
+        ..User::default()
+    }
+}
+
+/// Stores a link into the workspace of the test that `maker` makes.
+async fn link(
+    test: &TestStore,
+    maker: &str,
+    token_hash: &str,
+    guest_of: Option<(&str, BoardRole)>,
+    max_uses: Option<i64>,
+) -> Invitation {
+    test.create_invitation(&NewLink {
+        workspace_id: &test.workspace_id,
+        guest_of,
+        token_hash,
+        created_by: maker,
+        now: NOW,
+        expires_at: LATER,
+        max_uses,
+    })
+    .await
+    .expect("the link is stored")
+}
+
+/// What `user_id` is in the workspace of the test; `None` for nobody there.
+async fn role_in_the_workspace(test: &TestStore, user_id: &str) -> Option<WorkspaceRole> {
+    test.resolve_workspace(user_id, &test.workspace_id)
+        .await
+        .expect("the membership is read")
+        .map(|access| access.workspace_role)
+}
+
+async fn uses_of(test: &TestStore, token_hash: &str) -> Option<i64> {
+    test.live_invitation(token_hash, NOW)
+        .await
+        .expect("the link is read")
+        .map(|link| link.uses)
+}
+
+/// A link is live until it ends, is used as often as it may be, or is revoked; it is
+/// found in its own organization only, by the digest of its token.
+#[tokio::test]
+async fn a_link_is_live_until_it_ends_is_used_up_or_is_revoked() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    let for_members = link(&test, &admin, "members", None, None).await;
+    let for_a_guest = link(
+        &test,
+        &admin,
+        "guest",
+        Some((&boards[0].id, BoardRole::Viewer)),
+        Some(1),
+    )
+    .await;
+    assert_eq!(
+        (
+            for_members.role,
+            for_members.max_uses,
+            &for_members.board_id
+        ),
+        (WorkspaceRole::Member, None, &None)
+    );
+    assert_eq!(
+        (
+            for_a_guest.role,
+            for_a_guest.max_uses,
+            for_a_guest.board_role
+        ),
+        (WorkspaceRole::Guest, Some(1), Some(BoardRole::Viewer))
+    );
+    assert_eq!(for_members.token, None, "the store never has a token");
+
+    // The organization of a token is found past the wall, for a live link only.
+    let found = async |token_hash: &'static str, now: i64| {
+        test.org_of_live_invitation(token_hash, now)
+            .await
+            .expect("the organization is asked")
+    };
+    assert_eq!(
+        found("members", NOW).await.as_deref(),
+        Some(test.org_id.as_str())
+    );
+    assert_eq!(found("members", LATER).await, None, "ended");
+    assert_eq!(found("nothing", NOW).await, None, "no such link");
+
+    // A link for a guest names a board of its workspace that is no template.
+    for board_id in [new_id(), "no identifier".to_owned()] {
+        let refused = test
+            .create_invitation(&NewLink {
+                workspace_id: &test.workspace_id,
+                guest_of: Some((&board_id, BoardRole::Editor)),
+                token_hash: "elsewhere",
+                created_by: &admin,
+                now: NOW,
+                expires_at: LATER,
+                max_uses: Some(1),
+            })
+            .await
+            .expect_err("no such board");
+        assert!(
+            refused.is_not_found() || matches!(refused, StoreError::InvalidId(_)),
+            "{refused:?}"
+        );
+    }
+
+    // Listed newest first, all of them or one maker's; revoked, a link is gone.
+    let listed = test
+        .live_invitations(&test.workspace_id, None, NOW)
+        .await
+        .expect("the links are listed");
+    let mut ids: Vec<&str> = listed.iter().map(|link| link.id.as_str()).collect();
+    ids.sort_unstable();
+    let mut both = [for_members.id.as_str(), for_a_guest.id.as_str()];
+    both.sort_unstable();
+    assert_eq!(ids, both);
+    let somebody_else = new_id();
+    for (maker, revoked) in [
+        (Some(somebody_else.as_str()), false),
+        (None, true),
+        (None, false),
+    ] {
+        assert_eq!(
+            test.revoke_invitation(&test.workspace_id, &for_members.id, maker, NOW)
+                .await
+                .expect("the link is revoked, or not"),
+            revoked,
+            "{maker:?}"
+        );
+    }
+    assert_eq!(found("members", NOW).await, None, "revoked");
+    assert_eq!(
+        uses_of(&test, "guest").await,
+        Some(0),
+        "the other is as it was"
+    );
+
+    test.teardown().await;
+}
+
+/// Of many who accept at once a link that lets one in, one gets in and the others are
+/// told that there is no such link; nothing of them is stored, not the account of who
+/// came with one to make.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn of_many_who_accept_a_link_for_one_at_once_one_gets_in() {
+    const ROUNDS: usize = 6;
+    const RACERS: usize = 6;
+
+    for round in 0..ROUNDS {
+        let test = common::setup().await;
+        let admin = common::user(&test, "admin").await;
+        let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+        let board_id = boards[0].id.clone();
+        link(
+            &test,
+            &admin,
+            "one",
+            Some((&board_id, BoardRole::Editor)),
+            Some(1),
+        )
+        .await;
+        // Half come with an account they have, somewhere else; half with one to make.
+        let unscoped = test.scoped(fvoci_store::Tenant::Unset);
+        let mut racers = JoinSet::new();
+        let barrier = Arc::new(Barrier::new(RACERS));
+        for index in 0..RACERS {
+            let store: Store = test.store.clone();
+            let barrier = Arc::clone(&barrier);
+            let mut user = newcomer(&format!("racer{index}"));
+            if index % 2 == 0 {
+                unscoped
+                    .create_user(&mut user)
+                    .await
+                    .expect("an account of no organization");
+            }
+            racers.spawn(async move {
+                barrier.wait().await;
+                let acceptor = if index % 2 == 0 {
+                    Acceptor::Account(&user.id)
+                } else {
+                    Acceptor::NewAccount(&mut user)
+                };
+                let accepted = store.accept_invitation("one", acceptor, NOW).await;
+                (user.id.clone(), index % 2 == 1, accepted)
+            });
+        }
+        let outcomes = racers.join_all().await;
+
+        let mut let_in = Vec::new();
+        for (user_id, made, outcome) in &outcomes {
+            match outcome {
+                Ok(Some(accepted)) => {
+                    assert!(accepted.used, "round {round}: {accepted:?}");
+                    assert_eq!(accepted.board_id.as_deref(), Some(board_id.as_str()));
+                    let_in.push(user_id.clone());
+                }
+                Ok(None) => {
+                    assert_eq!(
+                        role_in_the_workspace(&test, user_id).await,
+                        None,
+                        "round {round}: who was refused is not in the workspace"
+                    );
+                    if *made {
+                        let stored = test.get_user_by_id(user_id).await;
+                        assert!(
+                            stored.is_err_and(|error| error.is_not_found()),
+                            "round {round}: no account is left of a refused acceptance"
+                        );
+                    }
+                }
+                Err(error) => panic!("round {round}: {error:?}"),
+            }
+        }
+        assert_eq!(let_in.len(), 1, "round {round}: one gets in");
+        assert_eq!(
+            role_in_the_workspace(&test, &let_in[0]).await,
+            Some(WorkspaceRole::Guest),
+            "round {round}"
+        );
+        assert_eq!(uses_of(&test, "one").await, None, "round {round}: used up");
+        let members = test
+            .get_members_for_board(&board_id)
+            .await
+            .expect("the members of the board");
+        assert_eq!(members.len(), 1, "round {round}: {members:?}");
+        assert_eq!(members[0].user_id, let_in[0], "round {round}");
+        assert!(members[0].scheme_editor, "round {round}: {:?}", members[0]);
+
+        test.teardown().await;
+    }
+}
+
+/// A link for members lets in as many as accept it, at once too, and counts each once;
+/// who accepts again uses nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_for_members_counts_everyone_it_lets_in_once() {
+    const RACERS: usize = 6;
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    link(&test, &admin, "many", None, None).await;
+
+    let mut racers = JoinSet::new();
+    for index in 0..RACERS {
+        let store: Store = test.store.clone();
+        racers.spawn(async move {
+            let mut user = newcomer(&format!("member{index}"));
+            let accepted = store
+                .accept_invitation("many", Acceptor::NewAccount(&mut user), NOW)
+                .await
+                .expect("the acceptance is stored")
+                .expect("the link is live");
+            assert!(accepted.used, "{accepted:?}");
+            user.id
+        });
+    }
+    let members = racers.join_all().await;
+    assert_eq!(uses_of(&test, "many").await, i64::try_from(RACERS).ok());
+    for user_id in &members {
+        assert_eq!(
+            role_in_the_workspace(&test, user_id).await,
+            Some(WorkspaceRole::Member)
+        );
+    }
+    // Again, and by who administers the workspace: nothing changes, nothing is used.
+    for user_id in [&members[0], &admin] {
+        let again = test
+            .accept_invitation("many", Acceptor::Account(user_id), NOW)
+            .await
+            .expect("the acceptance is read")
+            .expect("the link is live");
+        assert!(!again.used, "{again:?}");
+    }
+    assert_eq!(uses_of(&test, "many").await, i64::try_from(RACERS).ok());
+    assert_eq!(
+        role_in_the_workspace(&test, &admin).await,
+        Some(WorkspaceRole::Admin),
+        "a link for members lowers nobody"
+    );
+    // An ended link lets nobody in, and stores no account for who came with one.
+    let mut late = newcomer("late");
+    let refused = test
+        .accept_invitation("many", Acceptor::NewAccount(&mut late), LATER)
+        .await
+        .expect("the acceptance is read");
+    assert_eq!(refused, None);
+    assert!(
+        test.get_user_by_id(&late.id)
+            .await
+            .is_err_and(|error| error.is_not_found())
+    );
+
+    test.teardown().await;
+}
+
+/// A guest's link makes somebody of the workspace a member of its board and leaves
+/// what they are in the workspace; a member's link makes a guest a member.
+#[tokio::test]
+async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let member = common::user(&test, "member").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 2).await;
+    link(
+        &test,
+        &admin,
+        "guest",
+        Some((&boards[0].id, BoardRole::Viewer)),
+        Some(1),
+    )
+    .await;
+    link(&test, &admin, "members", None, None).await;
+
+    // The administrator of the board accepts the link to it: nothing changes, and the
+    // link is not used.
+    let as_admin = BoardMember {
+        board_id: boards[0].id.clone(),
+        user_id: admin.clone(),
+        ..BoardMember::default()
+    }
+    .with_role(Some(BoardRole::Admin));
+    test.add_member(&as_admin)
+        .await
+        .expect("the administrator of the board");
+    let unchanged = test
+        .accept_invitation("guest", Acceptor::Account(&admin), NOW)
+        .await
+        .expect("the acceptance is read")
+        .expect("the link is live");
+    assert!(!unchanged.used, "{unchanged:?}");
+    let role = async |board: usize, user_id: &str| {
+        test.get_member_for_board(&boards[board].id, user_id)
+            .await
+            .ok()
+            .and_then(|member| member.role())
+    };
+    assert_eq!(role(0, &admin).await, Some(BoardRole::Admin));
+    assert_eq!(uses_of(&test, "guest").await, Some(0));
+
+    // A member of the workspace accepts it: on the board, and still a member.
+    let joined = test
+        .accept_invitation("guest", Acceptor::Account(&member), NOW)
+        .await
+        .expect("the acceptance is stored")
+        .expect("the link is live");
+    assert!(joined.used, "{joined:?}");
+    assert_eq!(role(0, &member).await, Some(BoardRole::Viewer));
+    assert_eq!(
+        role_in_the_workspace(&test, &member).await,
+        Some(WorkspaceRole::Member)
+    );
+
+    // Somebody from outside comes in as a guest of the other board, and then accepts
+    // the link for members: a member, with the board they were on.
+    link(
+        &test,
+        &admin,
+        "second",
+        Some((&boards[1].id, BoardRole::Editor)),
+        Some(1),
+    )
+    .await;
+    let mut outsider = newcomer("outsider");
+    test.accept_invitation("second", Acceptor::NewAccount(&mut outsider), NOW)
+        .await
+        .expect("the acceptance is stored")
+        .expect("the link is live");
+    assert_eq!(
+        role_in_the_workspace(&test, &outsider.id).await,
+        Some(WorkspaceRole::Guest)
+    );
+    assert_eq!(role(1, &outsider.id).await, Some(BoardRole::Editor));
+    assert_eq!(
+        role(0, &outsider.id).await,
+        None,
+        "on the board of the link only"
+    );
+    let raised = test
+        .accept_invitation("members", Acceptor::Account(&outsider.id), NOW)
+        .await
+        .expect("the acceptance is stored")
+        .expect("the link is live");
+    assert!(raised.used, "{raised:?}");
+    assert_eq!(
+        role_in_the_workspace(&test, &outsider.id).await,
+        Some(WorkspaceRole::Member)
+    );
+    assert_eq!(role(1, &outsider.id).await, Some(BoardRole::Editor));
+
+    test.teardown().await;
+}

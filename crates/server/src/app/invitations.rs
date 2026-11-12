@@ -176,15 +176,11 @@ impl App {
             return Err(AppError::invitation_unavailable());
         };
         // Only now, for a link that is there, is a password hashed.
-        let mut new_user = match accepting {
-            Accepting::SignedIn { .. } => None,
-            Accepting::NewAccount(account) => Some(app.new_account(account).await?),
-        };
-        let acceptor = match (accepting, new_user.as_mut()) {
-            (Accepting::SignedIn { user_id }, _) => Acceptor::Account(user_id),
-            (Accepting::NewAccount(_), Some(user)) => Acceptor::NewAccount(user),
-            (Accepting::NewAccount(_), None) => {
-                return Err(AppError::internal("a new account was not prepared"));
+        let mut new_user = None;
+        let acceptor = match accepting {
+            Accepting::SignedIn { user_id } => Acceptor::Account(user_id),
+            Accepting::NewAccount(account) => {
+                Acceptor::NewAccount(new_user.insert(app.new_account(account).await?))
             }
         };
         let accepted = app

@@ -286,18 +286,12 @@ impl App {
         } else {
             self.store().sign_up(&mut user, name, Founding::First).await
         };
-        // Another registration was first after all, or one was long ago: an organization of
-        // its own, in an organization of its own, where the server takes several.
+        // Another registration was first after all, or one was long ago: an
+        // organization of its own, where the server takes several.
         if matches!(stored, Err(StoreError::NotFirstUser))
             && self.config().takes_several_organizations()
         {
-            let founding = Founding::New {
-                workspace_id: &new_id(),
-            };
-            stored = match self.store().for_org(&new_id()) {
-                Ok(store) => store.sign_up(&mut user, name, founding).await,
-                Err(error) => Err(error),
-            };
+            stored = self.store().sign_up(&mut user, name, Founding::New).await;
         }
         match stored {
             Ok(workspace_id) => {

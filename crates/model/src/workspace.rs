@@ -27,7 +27,6 @@ pub struct Workspace {
     #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Whether the admins of the workspace's boards may invite guests to them.
-    #[serde(deserialize_with = "null_as_default")]
     pub guest_invitations: bool,
 }
 

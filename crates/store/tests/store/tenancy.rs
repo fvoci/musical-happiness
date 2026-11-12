@@ -538,7 +538,24 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("a board goes to the trash");
     sign_in_under_way(store, username).await;
+    a_link_for_a_guest(store, &board, &user_id).await;
     (card.id, user_id)
+}
+
+/// A link that invites a guest to the board, made by the user.
+async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
+    store
+        .create_invitation(&fvoci_store::NewLink {
+            workspace_id: &board.workspace_id,
+            guest_of: Some((&board.id, fvoci_model::BoardRole::Viewer)),
+            token_hash: &format!("link of {user_id}"),
+            created_by: user_id,
+            now: 0,
+            expires_at: i64::MAX,
+            max_uses: Some(1),
+        })
+        .await
+        .expect("a link is stored");
 }
 
 /// The organization's provider of sign-ins (one, whoever sets it) and a sign-in through

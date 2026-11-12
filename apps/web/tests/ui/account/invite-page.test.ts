@@ -28,6 +28,7 @@ function mount(options: {
   const accept = vi.fn(options.accept ?? (() => Promise.resolve({ workspaceId: 'w1' })));
   const onSignIn = vi.fn(options.onSignIn ?? (() => Promise.resolve()));
   const onJoined = vi.fn();
+  const onSessionEnded = vi.fn();
   render(InvitePage, {
     props: {
       token: 'the-token',
@@ -37,10 +38,11 @@ function mount(options: {
       accept,
       onSignIn,
       onJoined,
+      onSessionEnded,
       homeHref: '/',
     },
   });
-  return { accept, onSignIn, onJoined };
+  return { accept, onSignIn, onJoined, onSessionEnded };
 }
 
 async function fill(label: RegExp, value: string): Promise<void> {
@@ -154,6 +156,19 @@ describe('the page of an invitation', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Join' }));
     expect(await screen.findByTestId('invite-unavailable')).toBeInTheDocument();
     expect(onJoined).not.toHaveBeenCalled();
+  });
+
+  it('starts again, signed out, when the session ended before the press', async () => {
+    const { onJoined, onSessionEnded } = mount({
+      signedInAs: 'grace',
+      accept: () => Promise.reject(new BackendError(401, { detail: 'no session' })),
+    });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Join' }));
+    await waitFor(() => {
+      expect(onSessionEnded).toHaveBeenCalledOnce();
+    });
+    expect(onJoined).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('offers to try again when the link could not be read at all', async () => {

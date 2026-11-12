@@ -7413,11 +7413,11 @@
     },
     "/api/v1/w/{workspaceId}/invitations": {
       "post": {
-        "description": "Makes a link that lets whoever accepts it into the workspace, and answers it with\nits `token`: the one time the token is told, as the server keeps its digest only. A\nlink ends seven days after it was made, or when it is revoked.\n\nWith the `role` `member` the link makes members of the workspace, as often as it is\nused. Only the workspace's administrators make one: anybody else is refused (403).\nWhoever accepts it becomes a member of the workspace's organization too.",
+        "description": "Makes a link that lets whoever accepts it into the workspace, and answers it with\nits `token`: the one time the token is told, as the server keeps its digest only. A\nlink ends seven days after it was made, or when it is revoked.\n\nWith the `role` `member` the link makes members of the workspace, as often as it is\nused. Only the workspace's administrators make one: anybody else who works there is\nrefused (403), and a guest of the workspace is told that it is not there (404).\nWhoever accepts it becomes a member of the workspace's organization too.",
         "operationId": "createInvitation",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
             "in": "path",
             "name": "workspaceId",
             "required": true,

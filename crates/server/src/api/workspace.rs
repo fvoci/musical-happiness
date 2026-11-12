@@ -148,6 +148,20 @@ impl Ws {
         self.require_home()
     }
 
+    /// The workspace for one who works in it, a member who is no guest, in whatever
+    /// organization it is: what the routes take that were made under `/w/` and never
+    /// read their workspace anywhere else. A guest is told what anybody else is.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 for a guest.
+    pub(crate) fn require_no_guest(self) -> Result<Self, AppError> {
+        if self.role == WorkspaceRole::Guest {
+            return Err(workspace_not_found());
+        }
+        Ok(self)
+    }
+
     /// The workspace for a member of it, a guest too, if it is of the organization the
     /// server stands in: the routes that read their workspace there before they moved
     /// under `/w/` keep that answer until the routes are decided anew.

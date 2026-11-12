@@ -339,8 +339,8 @@ async fn register_user_cases() {
 }
 
 /// A registration answers the user that was made: the members a profile has and no
-/// others, so neither the address nor anything of the password. Only the first user of
-/// an instance is its administrator. Registering signs nobody in: no cookie is set.
+/// others, so neither the address nor anything of the password. The first user of an
+/// instance is its administrator. Registering signs nobody in: no cookie is set.
 #[tokio::test]
 async fn a_registration_answers_the_user_that_was_made() {
     let th = Setup::native().start().await;
@@ -357,50 +357,50 @@ async fn a_registration_answers_the_user_that_was_made() {
         )
         .await;
 
-    for (response, username, is_admin) in [(&first, "first", true)] {
-        response.check_created();
-        let made = response.value();
-        let mut members: Vec<&str> = made
-            .as_object()
-            .expect("the answer is an object")
-            .keys()
-            .map(String::as_str)
-            .collect();
-        members.sort_unstable();
-        assert_eq!(
-            members,
-            [
-                "createAt",
-                "deleteAt",
-                "displayName",
-                "id",
-                "isAdmin",
-                "updateAt",
-                "username"
-            ],
-            "{username}: the members of the answer, sorted: {made}"
-        );
-        assert_eq!(made["username"], json!(username), "{made}");
-        assert_eq!(made["isAdmin"], json!(is_admin), "{made}");
-        assert_eq!(made["deleteAt"], json!(0), "{made}");
-        assert!(
-            made["id"].as_str().is_some_and(fvoci_model::is_id),
-            "{username}: the identifier the server gave: {made}"
-        );
-        assert_eq!(
-            response.set_cookies(),
-            Vec::<&str>::new(),
-            "{username}: a registration opens no session"
-        );
+    let (response, username, is_admin) = (&first, "first", true);
+    response.check_created();
+    let made = response.value();
+    let mut members: Vec<&str> = made
+        .as_object()
+        .expect("the answer is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    members.sort_unstable();
+    assert_eq!(
+        members,
+        [
+            "createAt",
+            "deleteAt",
+            "displayName",
+            "id",
+            "isAdmin",
+            "updateAt",
+            "username"
+        ],
+        "{username}: the members of the answer, sorted: {made}"
+    );
+    assert_eq!(made["username"], json!(username), "{made}");
+    assert_eq!(made["isAdmin"], json!(is_admin), "{made}");
+    assert_eq!(made["deleteAt"], json!(0), "{made}");
+    assert!(
+        made["id"].as_str().is_some_and(fvoci_model::is_id),
+        "{username}: the identifier the server gave: {made}"
+    );
+    assert_eq!(
+        response.set_cookies(),
+        Vec::<&str>::new(),
+        "{username}: a registration opens no session"
+    );
 
-        // The answer is the user as the API tells it afterwards.
-        let client = th.login(username, PASSWORD).await;
-        assert_eq!(
-            client.get("/users/me").await.value(),
-            made,
-            "{username}: the same as the user reads about themselves"
-        );
-    }
+    // The answer is the user as the API tells it afterwards.
+    let client = th.login(username, PASSWORD).await;
+    assert_eq!(
+        client.get("/users/me").await.value(),
+        made,
+        "{username}: the same as the user reads about themselves"
+    );
+
     th.teardown().await;
 }
 
