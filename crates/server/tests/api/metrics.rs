@@ -310,7 +310,7 @@ async fn the_base_path_is_not_part_of_the_route() {
 /// Scrapes until `holds` is true of the metrics, for ten seconds at most; returns the
 /// last scrape.
 pub(crate) async fn scrape_until(server: &TestServer, holds: impl Fn(&str) -> bool) -> String {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         let body = scrape(server).await;
         if holds(&body) || tokio::time::Instant::now() >= deadline {
@@ -419,10 +419,10 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
 }
 
 /// The open uploads and their bytes, as scrapes find them once they are counted anew:
-/// a count is kept five seconds, so this scrapes until both are `want`, ten seconds at
-/// most.
+/// a count is kept five seconds, so this scrapes until both are `want`, fifteen seconds
+/// at most (two counts, one of which may fail after two seconds, and slack).
 async fn open_uploads_become(server: &TestServer, want: (f64, f64)) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         let body = scrape(server).await;
         let found = (
@@ -491,6 +491,11 @@ async fn the_pool_and_the_open_uploads_are_measured() {
             sample(&body, "fvoci_uploads_open", &[]),
             Some(0.0),
             "the count of a moment ago: {body}"
+        );
+        assert_eq!(
+            sample(&body, "fvoci_uploads_read_failures_total", &[]),
+            Some(0.0),
+            "kept, not failed: {body}"
         );
     }
     open_uploads_become(&server, (2.0, 30.0)).await;

@@ -8,8 +8,7 @@ use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
 
 use super::{Metrics, PREFIX, ScrapeRead};
 
-/// How long a count of the open uploads stays fresh, as the readiness is kept: a scrape
-/// before then reads none. Whoever reaches the listener may scrape, and without a token
+/// How long a count of the open uploads stays fresh: a scrape before then reads none. Whoever reaches the listener may scrape, and without a token
 /// anyone may; so the database is asked for it at most this often, however many
 /// scrapes come. Prometheus scrapes more seldom than this.
 const UPLOADS_FRESH_FOR: Duration = Duration::from_secs(5);
@@ -95,14 +94,15 @@ impl StorageMetrics {
         )?;
         let uploads_open_bytes = gauge(
             "uploads_open_bytes",
-            "The sizes of the open uploads together, in bytes: what they hold back of \
-             max_pending_upload_bytes.",
+            "The sizes of the open uploads together, in bytes, counted with them: what \
+             they hold back of max_pending_upload_bytes.",
         )?;
         let uploads_read = ScrapeRead::register(
             registry,
             "uploads_read_failures_total",
-            "How many scrapes could not count the open uploads (the database failed or \
-             took over two seconds) and gave the values counted before.",
+            "How many counts of the open uploads failed (the database failed or took \
+             over two seconds); the scrapes until the next count give the values counted \
+             before.",
             UPLOADS_FRESH_FOR,
         )?;
         let archives = IntGaugeVec::new(

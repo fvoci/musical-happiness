@@ -113,8 +113,9 @@ impl AccountMetrics {
         let sessions_read = ScrapeRead::register(
             registry,
             "sessions_read_failures_total",
-            "How many scrapes could not count the live sessions (the database failed or \
-             took over two seconds) and gave the value counted before.",
+            "How many counts of the live sessions failed (the database failed or took \
+             over two seconds); the scrapes until the next count give the value counted \
+             before.",
             SESSIONS_FRESH_FOR,
         )?;
         Ok(Self {
