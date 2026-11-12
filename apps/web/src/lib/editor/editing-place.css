@@ -50,10 +50,11 @@
   cursor: pointer;
 }
 .ProseMirror[contenteditable='true'] .doc-diagram-block:not([data-open]):hover > .doc-diagram,
-.doc-diagram-block.ProseMirror-selectednode > .doc-diagram {
+.ProseMirror[contenteditable='true'] .doc-diagram-block.ProseMirror-selectednode > .doc-diagram {
   border-color: var(--input-border);
 }
-.doc-diagram-block.ProseMirror-selectednode > .doc-diagram {
+/* Selected, where it can be edited: where nothing opens, a press leaves no frame. */
+.ProseMirror[contenteditable='true'] .doc-diagram-block.ProseMirror-selectednode > .doc-diagram {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
@@ -159,7 +160,7 @@
   outline: 1px solid var(--input-border);
   outline-offset: 1px;
 }
-.doc-math-block.ProseMirror-selectednode > .doc-math {
+.ProseMirror[contenteditable='true'] .doc-math-block.ProseMirror-selectednode > .doc-math {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
