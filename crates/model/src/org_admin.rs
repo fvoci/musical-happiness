@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::organization::{OrgRole, UnknownRole, WorkspaceRole};
+use crate::organization::{OrgRole, WorkspaceRole};
 
 /// An organization as its administrators see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -168,32 +168,21 @@ impl AuditAction {
             Self::PublicLinksEnabled => "public_links_enabled",
         }
     }
-
-    /// Whether the action is the organization's, recorded in no workspace.
-    #[must_use]
-    pub const fn of_the_organization(self) -> bool {
-        matches!(
-            self,
-            Self::OrgAdminGranted
-                | Self::OrgAdminRemoved
-                | Self::WorkspaceCreated
-                | Self::WorkspaceRenamed
-                | Self::WorkspaceDeleted
-                | Self::WorkspaceRestored
-                | Self::PublicLinksDisabled
-                | Self::PublicLinksEnabled
-        )
-    }
 }
 
+/// Text that names no action of the audit log.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0:?} is no audit action")]
+pub struct UnknownAuditAction(pub String);
+
 impl FromStr for AuditAction {
-    type Err = UnknownRole;
+    type Err = UnknownAuditAction;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         Self::ALL
             .into_iter()
             .find(|action| action.as_str() == text)
-            .ok_or_else(|| UnknownRole(text.to_owned()))
+            .ok_or_else(|| UnknownAuditAction(text.to_owned()))
     }
 }
 

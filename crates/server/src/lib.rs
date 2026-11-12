@@ -557,11 +557,15 @@ async fn purge_trash(app: &App) -> JobOutcome {
     // A workspace in the trash goes as its boards do: they go into the trash with it
     // and from there for good, with their files doomed.
     let workspaces = match app.purge_workspaces(deleted_before).await {
-        Ok((records, files)) => {
-            if records > 0 || files > 0 {
-                tracing::info!(records, files, "removed old workspaces from the trash");
+        Ok(done) => {
+            if done.records > 0 || done.files > 0 {
+                tracing::info!(
+                    records = done.records,
+                    files = done.files,
+                    "removed old workspaces from the trash"
+                );
             }
-            JobOutcome::Done
+            JobOutcome::from_left(done.failed)
         }
         Err(error) => {
             tracing::error!(%error, "unable to purge the workspaces in the trash");

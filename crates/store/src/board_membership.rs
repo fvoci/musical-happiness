@@ -9,7 +9,7 @@ use crate::boards::{
 };
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
-use crate::members;
+use crate::{members, org_admin};
 
 impl Store {
     /// Returns the members of a board who are members of its workspace now, by the
@@ -63,6 +63,7 @@ impl Store {
         entry: &AuditEntry,
     ) -> Result<MemberChange, StoreError> {
         self.transaction(async |scope| {
+            manager_still(scope, entry).await?;
             let change = change_member(scope, member).await?;
             if change == MemberChange::Done {
                 audit::record_entry(scope, entry).await?;
@@ -104,6 +105,7 @@ impl Store {
         entry: &AuditEntry,
     ) -> Result<Option<BoardMember>, StoreError> {
         self.transaction(async |scope| {
+            manager_still(scope, entry).await?;
             let existing = add_member(scope, member).await?;
             if existing.is_none() {
                 audit::record_entry(scope, entry).await?;
@@ -161,4 +163,16 @@ async fn change_member(
     }
     save_member(scope, member).await?;
     Ok(MemberChange::Done)
+}
+
+/// Whether who gives the role `entry` records still administers the board's workspace,
+/// in the transaction that gives it: one whose administration ended meanwhile (an
+/// organization's administrator whose joining was taken back) gives none, and the board
+/// is not there for them.
+async fn manager_still(scope: &mut Scope<'_>, entry: &AuditEntry) -> Result<(), StoreError> {
+    if org_admin::still_workspace_admin(scope, &entry.workspace_id, &entry.actor_id).await? {
+        Ok(())
+    } else {
+        Err(StoreError::not_found("board"))
+    }
 }

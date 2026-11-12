@@ -442,6 +442,23 @@ async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &s
         .expect("an object is being written");
 }
 
+/// Makes the user an administrator of the workspace: a role is recorded as given by a
+/// board's manager only while they administer its workspace.
+async fn administer(store: &Store, workspace_id: &str, user_id: &str) {
+    let made = store
+        .add_workspace_member(workspace_id, user_id, WorkspaceRole::Admin)
+        .await;
+    if made.is_err() {
+        store
+            .execute_unchecked(&format!(
+                "UPDATE workspace_members SET role = 'admin' WHERE user_id = '{user_id}' \
+                 AND workspace_id = '{workspace_id}'"
+            ))
+            .await
+            .expect("the user administers the workspace");
+    }
+}
+
 /// Stores, through `store`, something in every table of an organization: a workspace, a
 /// board with a member and the record of a change of its roles, a card and a comment
 /// whose text was changed, files, sharing, a subscription, a category with the board in
@@ -483,6 +500,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         AuditAction::SelfAddedToBoard,
         &board_id,
     );
+    administer(store, &board.workspace_id, &user_id).await;
     store
         .change_member_recorded(&as_viewer, &entry)
         .await

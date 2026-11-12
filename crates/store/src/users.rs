@@ -8,7 +8,7 @@
 //! (`server/services/store/sqlstore/user.go:105`, `:217` and `:226`).
 
 use fvoci_model::{
-    CLIENT_STATE_MAX_ENTRIES, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    CLIENT_STATE_MAX_ENTRIES, OrgRole, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
 };
 
 use crate::Store;
@@ -227,13 +227,7 @@ impl Store {
     ) -> Result<AdminChange, StoreError> {
         let is_admin = role == InstanceRole::Administrator;
         self.transaction(async |scope| {
-            // One change to who is an administrator at a time: the instance's row is
-            // held. On SQLite a transaction that writes holds the whole database.
-            let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
-            if scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR UPDATE");
-            }
-            scope.fetch_optional(sql).await?;
+            lock_instance(scope).await?;
 
             let mut sql = select_users(scope);
             sql.push_bind(" AND id = ", Id(user_id));
@@ -848,4 +842,44 @@ pub(crate) async fn patch_user_preferences(
         });
     }
     Ok(preferences)
+}
+
+/// Holds the instance's row to the end of the transaction: the changes of who
+/// administers the instance are made one at a time. On SQLite a transaction that writes
+/// holds the whole database.
+pub(crate) async fn lock_instance(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE");
+    }
+    scope.fetch_optional(sql).await?;
+    Ok(())
+}
+
+/// Makes the user an administrator of the instance if `role` is the organization's
+/// administrator, and ends that otherwise, unless they are its last administrator: then
+/// nothing changes and the answer is `false`. The caller holds the instance's row
+/// ([`lock_instance`]).
+pub(crate) async fn follow_org_role(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    role: OrgRole,
+) -> Result<bool, StoreError> {
+    let is_admin = role == OrgRole::Admin;
+    if !is_admin {
+        let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+        sql.bind(true)
+            .push_bind(" AND id <> ", Id(user_id))
+            .push(" LIMIT 1");
+        if scope.fetch_optional(sql).await?.is_none() {
+            return Ok(false);
+        }
+    }
+    let mut sql = scope.sql("UPDATE users SET is_admin = ");
+    sql.bind(is_admin)
+        .push_bind(", update_at = ", now_millis())
+        .push_bind(" WHERE id = ", Id(user_id))
+        .push_bind(" AND is_admin <> ", is_admin);
+    scope.execute(sql).await?;
+    Ok(true)
 }

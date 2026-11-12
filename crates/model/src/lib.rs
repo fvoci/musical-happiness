@@ -86,7 +86,7 @@ pub use oidc::{
 };
 pub use org_admin::{
     AuditAction, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRoleChange, OrgWorkspace,
-    Organization, OrganizationPatch, WorkspaceName,
+    Organization, OrganizationPatch, UnknownAuditAction, WorkspaceName,
 };
 pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};

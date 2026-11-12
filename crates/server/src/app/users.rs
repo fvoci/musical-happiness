@@ -47,7 +47,14 @@ impl App {
         actor_id: &str,
     ) -> Result<User, AppError> {
         match self.store().set_user_admin(user_id, role, actor_id).await? {
-            AdminChange::Done(user) => Ok(*user),
+            AdminChange::Done(user) => {
+                if role != InstanceRole::Administrator {
+                    // The workspaces they joined as the organization's administrator
+                    // are theirs no more (`Store::set_user_admin`).
+                    self.ws().follow_only_own_workspaces(user_id).await;
+                }
+                Ok(*user)
+            }
             AdminChange::NoSuchUser => Err(AppError::not_found("user")),
             AdminChange::LastAdmin => Err(AppError::conflict(
                 "the instance must keep an administrator",

@@ -22,6 +22,11 @@ CREATE UNIQUE INDEX workspaces_name_in_use_key ON workspaces (org_id, name)
 -- The workspaces in the trash, which the housekeeping looks through.
 CREATE INDEX workspaces_deleted_idx ON workspaces (delete_at) WHERE delete_at > 0;
 
+-- The roles on the workspace's boards an administrator of the organization held when
+-- they joined it as its administrator (workspace_members.via_org_admin), as JSON: they
+-- have those again, and no other, when the joining ends. NULL while not joined so.
+ALTER TABLE workspace_members ADD COLUMN prior_board_roles TEXT;
+
 -- The audit log records, besides what is done in a workspace, what is done to the
 -- organization (no workspace), and whom a thing was done to besides what it was
 -- done to (subject_id: a user, kept when the account goes). SQLite changes no
@@ -55,14 +60,15 @@ CREATE INDEX audit_log_workspace_id_idx ON audit_log (workspace_id, create_at);
 CREATE INDEX audit_log_org_idx ON audit_log (org_id, create_at) WHERE workspace_id IS NULL;
 
 -- A record is never changed, and goes only with its workspace when that is removed
--- for good: by then the workspace is not there. A record of the organization stays.
+-- for good, or with its organization: by then that is not there.
 CREATE TRIGGER audit_log_unchanged BEFORE UPDATE ON audit_log
 BEGIN
     SELECT RAISE(ABORT, 'a record of the audit log is not changed or removed');
 END;
 CREATE TRIGGER audit_log_kept BEFORE DELETE ON audit_log
-WHEN OLD.workspace_id IS NULL
-    OR EXISTS (SELECT 1 FROM workspaces WHERE id = OLD.workspace_id)
+WHEN EXISTS (SELECT 1 FROM organizations WHERE id = OLD.org_id)
+    AND (OLD.workspace_id IS NULL
+         OR EXISTS (SELECT 1 FROM workspaces WHERE id = OLD.workspace_id))
 BEGIN
     SELECT RAISE(ABORT, 'a record of the audit log is not changed or removed');
 END;

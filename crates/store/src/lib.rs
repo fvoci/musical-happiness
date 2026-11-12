@@ -23,6 +23,7 @@ mod directory;
 mod error;
 mod file_info;
 mod file_refs;
+mod joinings;
 mod loose_objects;
 mod members;
 mod observe;

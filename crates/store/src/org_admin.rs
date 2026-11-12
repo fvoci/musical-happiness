@@ -16,7 +16,7 @@ use crate::audit::{self, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::trash::{self, Purged, Trashed};
-use crate::{Paging, Store, workspaces};
+use crate::{Paging, Store, joinings, users, workspaces};
 
 /// What became of a change of a member's role in the organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,7 +78,7 @@ impl Store {
         actor_id: &str,
     ) -> Result<Organization, StoreError> {
         self.transaction(async |scope| {
-            let before = lock_organization(scope).await?;
+            let before = held_by_admin(scope, actor_id).await?;
             let mut sql = scope.sql("UPDATE organizations SET update_at = ");
             sql.bind(now_millis());
             if let Some(name) = &patch.name {
@@ -156,7 +156,10 @@ impl Store {
         actor_id: &str,
     ) -> Result<OrgRoleChange, StoreError> {
         self.transaction(async |scope| {
-            let org = lock_organization(scope).await?;
+            // The instance's row first, as a change of who administers the instance
+            // takes it: the two are one role for now (`members::follow_instance_role`).
+            users::lock_instance(scope).await?;
+            let org = held_by_admin(scope, actor_id).await?;
             let Some(current) = org_role_of(scope, user_id).await? else {
                 return Ok(OrgRoleChange::NotAMember);
             };
@@ -164,6 +167,13 @@ impl Store {
                 return Ok(OrgRoleChange::Done);
             }
             if current == OrgRole::Admin && !another_admin(scope, user_id).await? {
+                return Ok(OrgRoleChange::LastAdmin);
+            }
+            // The organization's administrators are the instance's for now
+            // (`members::follow_instance_role`): who becomes one administers the
+            // instance, and who stops does not, or they would make themselves, or
+            // anybody, its administrator again past this log.
+            if !users::follow_org_role(scope, user_id, role).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
             let mut sql = scope.sql("UPDATE organization_members SET role = ");
@@ -242,6 +252,7 @@ impl Store {
         actor_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
+            held_by_admin(scope, actor_id).await?;
             let org = scope.org()?;
             workspaces::insert_workspace(scope, workspace, org)
                 .await
@@ -267,6 +278,7 @@ impl Store {
         actor_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
+            held_by_admin(scope, actor_id).await?;
             let mut sql = scope.sql("UPDATE workspaces SET name = ");
             sql.bind(name)
                 .push_bind(", modified_by = ", OptId(actor_id))
@@ -297,7 +309,7 @@ impl Store {
         actor_id: &str,
     ) -> Result<WorkspaceTrashing, StoreError> {
         self.transaction(async |scope| {
-            let org = lock_organization(scope).await?;
+            let org = held_by_admin(scope, actor_id).await?;
             if org.default_workspace_id == workspace_id {
                 return Ok(WorkspaceTrashing::Default);
             }
@@ -332,6 +344,7 @@ impl Store {
         actor_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
+            held_by_admin(scope, actor_id).await?;
             // Of a restoration and the removal for good, the one that comes second finds
             // the workspace the first left: the removal holds the row.
             let mut sql = scope.sql("UPDATE workspaces SET delete_at = ");
@@ -435,30 +448,33 @@ impl Store {
             if scope.fetch_optional(sql).await?.is_none() {
                 return Ok(Joining::NotFound);
             }
-            match membership(scope, workspace_id, user_id).await? {
-                Some((WorkspaceRole::Admin, _)) => return Ok(Joining::Already),
-                Some((prior, _)) => {
-                    let mut sql = scope.sql("UPDATE workspace_members SET role = ");
-                    sql.bind(WorkspaceRole::Admin.as_str())
-                        .push_bind(", via_org_admin = ", true)
-                        .push_bind(", prior_role = ", prior.as_str())
-                        .push_bind(" WHERE workspace_id = ", Id(workspace_id))
-                        .push_bind(" AND user_id = ", Id(user_id));
-                    scope.execute(sql).await?;
-                }
-                None => {
-                    let mut sql = scope.sql(
-                        "INSERT INTO workspace_members \
-                         (workspace_id, user_id, role, via_org_admin, create_at) VALUES (",
-                    );
-                    sql.bind(Id(workspace_id))
-                        .push_bind(", ", Id(user_id))
-                        .push_bind(", ", WorkspaceRole::Admin.as_str())
-                        .push_bind(", ", true)
-                        .push_bind(", ", now_millis())
-                        .push(")");
-                    scope.execute(sql).await?;
-                }
+            let membership = membership(scope, workspace_id, user_id).await?;
+            if matches!(membership, Some((WorkspaceRole::Admin, _))) {
+                return Ok(Joining::Already);
+            }
+            let held = joinings::held_roles(scope, workspace_id, user_id).await?;
+            if let Some((prior, _)) = membership {
+                let mut sql = scope.sql("UPDATE workspace_members SET role = ");
+                sql.bind(WorkspaceRole::Admin.as_str())
+                    .push_bind(", via_org_admin = ", true)
+                    .push_bind(", prior_role = ", prior.as_str())
+                    .push_bind(", prior_board_roles = ", held.as_str())
+                    .push_bind(" WHERE workspace_id = ", Id(workspace_id))
+                    .push_bind(" AND user_id = ", Id(user_id));
+                scope.execute(sql).await?;
+            } else {
+                let mut sql = scope.sql(
+                    "INSERT INTO workspace_members (workspace_id, user_id, role, \
+                     via_org_admin, prior_board_roles, create_at) VALUES (",
+                );
+                sql.bind(Id(workspace_id))
+                    .push_bind(", ", Id(user_id))
+                    .push_bind(", ", WorkspaceRole::Admin.as_str())
+                    .push_bind(", ", true)
+                    .push_bind(", ", held.as_str())
+                    .push_bind(", ", now_millis())
+                    .push(")");
+                scope.execute(sql).await?;
             }
             let entry = AuditEntry::new(
                 workspace_id,
@@ -524,7 +540,7 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
 /// Reads the handle's organization and holds its row to the end of the transaction:
 /// the changes of who administers it and of its workspaces are made one at a time. On
 /// SQLite a transaction that writes holds the whole database.
-async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
+pub(crate) async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
     sql.bind(scope.org()?);
     if scope.dialect() == Dialect::Postgres {
@@ -534,8 +550,37 @@ async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organization, StoreE
     organization(scope).await
 }
 
+/// Holds the handle's organization's row as [`lock_organization`] does, for a change
+/// `actor_id` makes as its administrator: one who stopped being one meanwhile changes
+/// nothing, as if the organization were not there.
+async fn held_by_admin(scope: &mut Scope<'_>, actor_id: &str) -> Result<Organization, StoreError> {
+    let org = lock_organization(scope).await?;
+    if org_role_of(scope, actor_id).await? == Some(OrgRole::Admin) {
+        Ok(org)
+    } else {
+        Err(StoreError::not_found("organization"))
+    }
+}
+
+/// Holds the handle's organization's row and tells whether `user_id` administers the
+/// workspace: a manager of a board who stopped being one meanwhile gives no role on it.
+pub(crate) async fn still_workspace_admin(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    lock_organization(scope).await?;
+    Ok(matches!(
+        membership(scope, workspace_id, user_id).await?,
+        Some((WorkspaceRole::Admin, _))
+    ))
+}
+
 /// What the user is in the handle's organization; `None` for no member.
-async fn org_role_of(scope: &mut Scope<'_>, user_id: &str) -> Result<Option<OrgRole>, StoreError> {
+pub(crate) async fn org_role_of(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Option<OrgRole>, StoreError> {
     let mut sql = scope.sql("SELECT role FROM organization_members WHERE org_id = ");
     sql.bind(scope.org()?)
         .push_bind(" AND user_id = ", Id(user_id));
@@ -572,9 +617,11 @@ async fn another_admin(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, Sto
 
 /// How a user who joined a workspace as the organization's administrator was in it
 /// before: as what, if a member.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Joined {
     prior: Option<WorkspaceRole>,
+    /// Their roles on the workspace's boards then (`joinings::held_roles`).
+    held: String,
 }
 
 /// What the user is in the workspace and, if they joined it as the organization's
@@ -584,8 +631,10 @@ async fn membership(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<Option<(WorkspaceRole, Option<Joined>)>, StoreError> {
-    let mut sql = scope
-        .sql("SELECT role, via_org_admin, prior_role FROM workspace_members WHERE workspace_id = ");
+    let mut sql = scope.sql(
+        "SELECT role, via_org_admin, prior_role, prior_board_roles FROM workspace_members \
+         WHERE workspace_id = ",
+    );
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
@@ -599,6 +648,7 @@ async fn membership(
             } else {
                 Some(role(&row, 2)?)
             },
+            held: row.text(3)?,
         })
     } else {
         None
@@ -615,7 +665,8 @@ pub(crate) async fn revoke_joinings(
     actor_id: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(
-        "SELECT wm.workspace_id, wm.prior_role FROM workspace_members AS wm \
+        "SELECT wm.workspace_id, wm.prior_role, wm.prior_board_roles \
+         FROM workspace_members AS wm \
          JOIN workspaces AS w ON w.id = wm.workspace_id WHERE wm.user_id = ",
     );
     sql.bind(Id(user_id))
@@ -632,6 +683,7 @@ pub(crate) async fn revoke_joinings(
             } else {
                 Some(role(row, 1)?)
             },
+            held: row.text(2)?,
         };
         end_joining(scope, &workspace_id, user_id, joined).await?;
         let entry = AuditEntry::new(
@@ -647,34 +699,21 @@ pub(crate) async fn revoke_joinings(
 }
 
 /// Ends a joining of a workspace as the organization's administrator: the user is
-/// what they were in it before, or no member if they were none; and loses the roles on
-/// its boards they gave themselves since they joined, which they had as its
-/// administrator only (the audit log says which: they were recorded).
+/// what they were in it before, or no member if they were none, and has the roles on
+/// its boards they had when they joined, and no other (`joinings::give_back_roles`).
 async fn end_joining(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
     joined: Joined,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
-    sql.bind(Id(user_id))
-        .push(" AND board_id IN (SELECT a.target_id FROM audit_log AS a WHERE a.workspace_id = ")
-        .bind(Id(workspace_id))
-        .push_bind(" AND a.actor_id = ", Id(user_id))
-        .push_bind(" AND a.action = ", AuditAction::SelfAddedToBoard.as_str())
-        .push(
-            " AND a.create_at >= (SELECT MAX(j.create_at) FROM audit_log AS j \
-             WHERE j.workspace_id = a.workspace_id AND j.actor_id = a.actor_id AND j.action = ",
-        )
-        .bind(AuditAction::OrgAdminJoined.as_str())
-        .push("))");
-    scope.execute(sql).await?;
+    joinings::give_back_roles(scope, workspace_id, user_id, &joined.held).await?;
     let mut sql = match joined.prior {
         Some(prior) => {
             let mut sql = scope.sql("UPDATE workspace_members SET role = ");
             sql.bind(prior.as_str())
                 .push_bind(", via_org_admin = ", false)
-                .push(", prior_role = NULL");
+                .push(", prior_role = NULL, prior_board_roles = NULL");
             sql
         }
         None => scope.sql("DELETE FROM workspace_members"),

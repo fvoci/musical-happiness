@@ -28,25 +28,35 @@ impl App {
 
     /// Removes for good the workspaces of every organization that have been in the
     /// trash since before `deleted_before`, each in its organization, with what is in
-    /// them. Returns how many boards and blocks went, and how many files were doomed.
-    /// For the housekeeping, whose reach this is.
+    /// them. Returns how many boards and blocks went, how many files were doomed, and
+    /// how many workspaces could not be removed: one that fails is logged and left for
+    /// the next run, and the others go. For the housekeeping, whose reach this is.
     ///
     /// # Errors
     ///
-    /// Returns the store's error; what was removed before stays removed.
-    pub async fn purge_workspaces(&self, deleted_before: i64) -> Result<(u64, usize), AppError> {
-        let mut records = 0;
-        let mut files = 0;
+    /// Returns the store's error if the workspaces to remove cannot be read.
+    pub async fn purge_workspaces(
+        &self,
+        deleted_before: i64,
+    ) -> Result<WorkspacesPurged, AppError> {
+        let mut done = WorkspacesPurged::default();
         for (org_id, workspace_id) in self.store().workspaces_to_purge(deleted_before).await? {
-            let store = self.store().for_org(&org_id).map_err(|error| {
-                AppError::from(anyhow::Error::from(error))
-                    .context("the organization of a workspace as the store has it")
-            })?;
-            let purged = store.purge_workspace(&workspace_id, deleted_before).await?;
-            records += purged.records;
-            files += purged.files.len();
+            let purged = match self.store().for_org(&org_id) {
+                Ok(store) => store.purge_workspace(&workspace_id, deleted_before).await,
+                Err(error) => Err(error),
+            };
+            match purged {
+                Ok(purged) => {
+                    done.records += purged.records;
+                    done.files += purged.files.len();
+                }
+                Err(error) => {
+                    tracing::error!(%error, org_id, workspace_id, "unable to purge a workspace");
+                    done.failed += 1;
+                }
+            }
         }
-        Ok((records, files))
+        Ok(done)
     }
 
     /// Removes what the temporary directories hold that nothing will use: the parts of
@@ -140,4 +150,15 @@ async fn remove_entry(path: &Path) -> bool {
             false
         }
     }
+}
+
+/// What a purge of the workspaces in the trash came to.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WorkspacesPurged {
+    /// The boards and blocks that went for good.
+    pub records: u64,
+    /// The files whose objects were doomed.
+    pub files: usize,
+    /// The workspaces that could not be removed, left for the next run.
+    pub failed: usize,
 }

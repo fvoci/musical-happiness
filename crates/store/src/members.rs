@@ -3,8 +3,9 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
+use fvoci_model::{AuditAction, BoardType, OrgRole, WorkspaceRole};
 
+use crate::audit::{self, AuditEntry};
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
@@ -238,7 +239,8 @@ pub(crate) async fn join_organization_unless_member(
 /// being, an administrator of the instance: in the organization, and in its workspaces
 /// where the user is no guest. Somebody who is no member stays none. Who stops being an
 /// administrator is taken out of the workspaces they joined as the organization's
-/// administrator, on behalf of `actor_id` (`org_admin::revoke_joinings`).
+/// administrator, on behalf of `actor_id` (`org_admin::revoke_joinings`). A change of
+/// their role in the organization is recorded in its audit log.
 ///
 /// TEMPORARY, as [`join_organization`] is: while the instance's administrators are the
 /// organization's.
@@ -249,9 +251,21 @@ pub(crate) async fn follow_instance_role(
     actor_id: &str,
 ) -> Result<(), StoreError> {
     let (org_role, workspace_role) = roles_of(instance_role);
+    let org = org_admin::lock_organization(scope).await?;
+    let before = org_admin::org_role_of(scope, user_id).await?;
     if org_role != OrgRole::Admin {
         // What they joined as the organization's administrator is theirs no more.
         org_admin::revoke_joinings(scope, user_id, actor_id).await?;
+    }
+    // A member who becomes, or stops being, the organization's administrator is
+    // recorded as one made so through the organization's route is.
+    if before.is_some_and(|before| before != org_role) {
+        let action = match org_role {
+            OrgRole::Admin => AuditAction::OrgAdminGranted,
+            OrgRole::Member => AuditAction::OrgAdminRemoved,
+        };
+        let entry = AuditEntry::new("", actor_id, action, &org.id).with_subject(user_id);
+        audit::record_entry(scope, &entry).await?;
     }
     let mut sql = scope.sql("UPDATE organization_members SET role = ");
     sql.bind(org_role.as_str())

@@ -6,22 +6,31 @@ use fvoci_model::{
     AuditAction, Board, BoardMember, BoardType, FileInfo, OrgRole, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AuditEntry, AuditPlace, Joining, LooseState, OrgRoleChange, Paging, Purged, Store, StoreError,
-    Taken, WorkspaceTrashing,
+    AuditEntry, AuditPlace, InstanceRole, Joining, LooseState, OrgRoleChange, Paging, Purged,
+    Store, StoreError, Taken, WorkspaceTrashing,
 };
 
 use crate::common::{self, TestStore};
 
 /// A user who is a member of the test's organization with the role: a user made through
-/// its handle joins it.
+/// its handle joins it. An administrator of it administers the instance, as the two
+/// are one for now.
 async fn org_member(test: &TestStore, username: &str, role: OrgRole) -> String {
     let user_id = common::user(test, username).await;
-    test.execute_unchecked(&format!(
-        "UPDATE organization_members SET role = '{}' WHERE user_id = '{user_id}'",
-        role.as_str()
-    ))
-    .await
-    .expect("the user has the role in the organization");
+    for statement in [
+        format!(
+            "UPDATE organization_members SET role = '{}' WHERE user_id = '{user_id}'",
+            role.as_str()
+        ),
+        format!(
+            "UPDATE users SET is_admin = {} WHERE id = '{user_id}'",
+            role == OrgRole::Admin
+        ),
+    ] {
+        test.execute_unchecked(&statement)
+            .await
+            .expect("the user has the role in the organization");
+    }
     user_id
 }
 
@@ -480,6 +489,143 @@ async fn a_name_is_one_workspaces_in_use_and_the_default_one_stays() {
             .await
             .expect("asked"),
         WorkspaceTrashing::NotFound
+    );
+    test.teardown().await;
+}
+
+/// Whatever a joined administrator made themselves on the workspace's boards goes when
+/// the joining ends: a role raised on a board they read before is lowered again, and the
+/// membership of a board made meanwhile goes. What they held before stays.
+#[tokio::test]
+async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let owner = org_member(&test, "owner", OrgRole::Member).await;
+    let workspace = named_workspace(&test, "Work", &admin).await;
+    for user in [&admin, &owner] {
+        test.add_workspace_member(&workspace, user, WorkspaceRole::Member)
+            .await
+            .expect("a member");
+    }
+    let read = private_board(&test, &workspace, &owner).await;
+    let as_viewer = BoardMember {
+        board_id: read.clone(),
+        user_id: admin.clone(),
+        scheme_viewer: true,
+        ..BoardMember::default()
+    };
+    test.add_member(&as_viewer).await.expect("a viewer of it");
+
+    test.join_workspace_as_org_admin(&workspace, &admin)
+        .await
+        .expect("joined");
+    test.change_member(&BoardMember {
+        scheme_admin: true,
+        ..as_viewer.clone()
+    })
+    .await
+    .expect("the admin raises their own role");
+    let made = private_board(&test, &workspace, &admin).await;
+    test.leave_workspace_as_org_admin(&workspace, &admin)
+        .await
+        .expect("left");
+
+    let held = test
+        .get_member_for_board(&read, &admin)
+        .await
+        .expect("the role they had stays");
+    assert!(
+        held.scheme_viewer && !held.scheme_admin,
+        "a viewer again: {held:?}"
+    );
+    let error = test
+        .get_member_for_board(&made, &admin)
+        .await
+        .expect_err("the board made meanwhile is not theirs");
+    assert!(error.is_not_found(), "{error:?}");
+    test.teardown().await;
+}
+
+/// A change of the organization is made by its administrator alone, also one whose
+/// request was let in before they stopped being one; and a role on a board is given as
+/// its manager only by who still administers the workspace.
+#[tokio::test]
+async fn who_administers_no_more_changes_nothing() {
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let former = org_member(&test, "former", OrgRole::Member).await;
+    let workspace = named_workspace(&test, "Work", &admin).await;
+    let board = private_board(&test, &workspace, &admin).await;
+
+    let refused = [
+        test.set_org_role(&former, OrgRole::Admin, &former)
+            .await
+            .map(|_| ()),
+        test.trash_workspace(&workspace, &former).await.map(|_| ()),
+        test.rename_workspace(&workspace, "Mine", &former).await,
+        test.update_organization(
+            &fvoci_model::OrganizationPatch {
+                public_links: Some(false),
+                ..fvoci_model::OrganizationPatch::default()
+            },
+            &former,
+        )
+        .await
+        .map(|_| ()),
+    ];
+    for refusal in refused {
+        let error = refusal.expect_err("refused");
+        assert!(error.is_not_found(), "{error:?}");
+    }
+    let added = test
+        .add_member_recorded(
+            &BoardMember {
+                board_id: board.clone(),
+                user_id: former.clone(),
+                scheme_viewer: true,
+                ..BoardMember::default()
+            },
+            &AuditEntry::new(&workspace, &former, AuditAction::SelfAddedToBoard, &board),
+        )
+        .await
+        .expect_err("no manager of it");
+    assert!(added.is_not_found(), "{added:?}");
+    assert_eq!(
+        log_of(&test, &workspace).await,
+        Vec::new(),
+        "nothing is recorded"
+    );
+    test.teardown().await;
+}
+
+/// The organization's administrators are the instance's for now: one made a member of
+/// the organization stops administering the instance, unless they are its last
+/// administrator, and a change through the instance is recorded as one through the
+/// organization.
+#[tokio::test]
+async fn the_instance_and_the_organization_keep_one_administration() {
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let other = org_member(&test, "other", OrgRole::Member).await;
+
+    test.set_user_admin(&other, InstanceRole::Administrator, &admin)
+        .await
+        .expect("made the instance's administrator");
+    assert_eq!(
+        test.set_org_role(&admin, OrgRole::Member, &other)
+            .await
+            .expect("asked"),
+        OrgRoleChange::Done
+    );
+    let stepped_down = test.get_user_by_id(&admin).await.expect("the user");
+    assert!(!stepped_down.is_admin, "no administrator of the instance");
+    assert_eq!(
+        organization_records(&test).await,
+        [
+            (AuditAction::OrgAdminRemoved, test.org_id.clone()),
+            (AuditAction::OrgAdminGranted, test.org_id.clone()),
+        ],
+        "both changes are recorded, the newest first"
     );
     test.teardown().await;
 }

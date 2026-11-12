@@ -143,12 +143,12 @@ impl Store {
 }
 
 fn action(row: &Row, index: usize) -> Result<AuditAction, StoreError> {
-    row.text(index)?
-        .parse()
-        .map_err(|error: fvoci_model::UnknownRole| StoreError::Corrupt {
+    row.text(index)?.parse().map_err(
+        |error: fvoci_model::UnknownAuditAction| StoreError::Corrupt {
             column: "action",
-            reason: format!("no audit action is called {:?}", error.0),
-        })
+            reason: error.to_string(),
+        },
+    )
 }
 
 fn record(row: &Row) -> Result<AuditRecord, StoreError> {
@@ -163,15 +163,15 @@ fn record(row: &Row) -> Result<AuditRecord, StoreError> {
             username: row.text(3)?,
             display_name: row.text(4)?,
         },
-        subject: (!subject_id.is_empty())
-            .then(|| -> Result<AuditPerson, StoreError> {
-                Ok(AuditPerson {
-                    id: subject_id,
-                    username: row.text(6)?,
-                    display_name: row.text(7)?,
-                })
+        subject: if subject_id.is_empty() {
+            None
+        } else {
+            Some(AuditPerson {
+                id: subject_id,
+                username: row.text(6)?,
+                display_name: row.text(7)?,
             })
-            .transpose()?,
+        },
         target_id: row.id(8)?,
         // A board's identifier is no workspace's: the join finds none for it.
         target_name: (!target_name.is_empty()).then_some(target_name),

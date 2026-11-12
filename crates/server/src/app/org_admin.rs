@@ -171,7 +171,13 @@ impl App {
             return Err(AppError::not_found("member"));
         }
         match self.store().set_org_role(user_id, role, actor_id).await {
-            Ok(OrgRoleChange::Done) => Ok(()),
+            Ok(OrgRoleChange::Done) => {
+                if role == OrgRole::Member {
+                    // What they joined is theirs no more, and what happens there neither.
+                    self.ws().follow_only_own_workspaces(user_id).await;
+                }
+                Ok(())
+            }
             Ok(OrgRoleChange::NotAMember) => Err(AppError::not_found("member")),
             Ok(OrgRoleChange::LastAdmin) => Err(AppError::conflict(
                 "the organization must keep an administrator",
@@ -351,9 +357,13 @@ impl App {
         user_id: &str,
     ) -> Result<OrgWorkspace, AppError> {
         known_workspace(workspace_id)?;
-        self.store()
+        if self
+            .store()
             .leave_workspace_as_org_admin(workspace_id, user_id)
-            .await?;
+            .await?
+        {
+            self.ws().follow_only_own_workspaces(user_id).await;
+        }
         self.org_workspace(user_id, workspace_id).await
     }
 
