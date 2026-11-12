@@ -426,7 +426,7 @@ impl Server {
     }
 
     /// Waits for notifications in flight, closes the database, and lets the lock of the
-    /// server go.
+    /// server go once no connection of the database is out.
     pub async fn shutdown(mut self) {
         // Websocket connections are not part of the HTTP server's own connections once
         // they are upgraded; they end here.
@@ -438,19 +438,12 @@ impl Server {
         {
             tracing::warn!("background notifications did not finish before shutdown");
         }
-        // A connection that is not given back (a request or an import still under way
-        // after the drain) holds the close up only so long: the lock goes then all the
-        // same, so that a restart is not refused.
-        if tokio::time::timeout(STORE_CLOSE_TIMEOUT, self.app.store().close())
-            .await
-            .is_err()
-        {
-            tracing::warn!("connections of the database still in use at shutdown");
-        }
-        // Last: a request still under way after that writes nothing once the store is
-        // closed, and the next server may then clean up.
         if let Some(server_lock) = self.lock.take() {
-            server_lock.release().await;
+            server_lock
+                .close_store_and_release(STORE_CLOSE_TIMEOUT)
+                .await;
+        } else {
+            self.app.store().close().await;
         }
         tracing::info!("server shut down");
     }

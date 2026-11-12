@@ -228,9 +228,8 @@ impl Store {
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
-                if !settings.in_memory {
-                    lock_file = Some(server_lock::file_beside(settings.options.get_filename()));
-                }
+                let database =
+                    (!settings.in_memory).then(|| settings.options.get_filename().to_path_buf());
                 let options = if settings.in_memory {
                     // The database exists only while a connection to it does, and a single
                     // connection sidesteps the table-level locks of SQLite's shared cache.
@@ -242,7 +241,10 @@ impl Store {
                 } else {
                     SqlitePoolOptions::new().max_connections(MAX_CONNECTIONS)
                 };
-                Pool::Sqlite(options.connect_with(settings.options).await?)
+                let pool = options.connect_with(settings.options).await?;
+                // Once connected, the file of the database is there to be followed to.
+                lock_file = database.as_deref().map(server_lock::file_beside);
+                Pool::Sqlite(pool)
             }
             DbType::Postgres => {
                 let settings = connect::postgres_settings(dbconfig)?;

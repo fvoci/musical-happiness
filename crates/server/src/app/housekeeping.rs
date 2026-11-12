@@ -46,6 +46,7 @@ impl App {
         for (name, path) in entries(&uploads).await {
             // A session's directory is named by its identifier; anything else, such as a
             // directory a completion moved aside, is left over.
+            self.require_server_lock()?;
             if !sessions.contains(&name) && remove_entry(&path).await {
                 removed += 1;
             }
@@ -53,6 +54,7 @@ impl App {
         // Archives being written or sent when the server stopped.
         let exports = self.config().tmp_dir().join(super::export::EXPORTS_DIR);
         for (_, path) in entries(&exports).await {
+            self.require_server_lock()?;
             if remove_entry(&path).await {
                 removed += 1;
             }
@@ -60,6 +62,7 @@ impl App {
         if self.config().files_driver == "local" {
             let writing = Path::new(&self.config().files_path).join(WRITING_DIR);
             for (_, path) in entries(&writing).await {
+                self.require_server_lock()?;
                 if remove_entry(&path).await {
                     removed += 1;
                 }

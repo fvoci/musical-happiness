@@ -83,6 +83,29 @@ impl HeldLock {
     }
 }
 
+impl HeldLock {
+    /// Closes the database, then lets the lock go, last and only once no connection of
+    /// the pool is out: a transaction still under way (a request or an import after the
+    /// drain) could commit after the next server took over. If the pool is not closed
+    /// within `timeout`, the lock is let go once it is, or goes with the process, which
+    /// cuts every connection.
+    pub(crate) async fn close_store_and_release(self, timeout: Duration) {
+        let store = self.app.store().clone();
+        if tokio::time::timeout(timeout, store.close()).await.is_ok() {
+            self.release().await;
+            return;
+        }
+        tracing::warn!(
+            "connections of the database are still in use at shutdown: the lock of the \
+             server goes once they are given back, or with the process"
+        );
+        tokio::spawn(async move {
+            store.close().await;
+            self.release().await;
+        });
+    }
+}
+
 impl Drop for HeldLock {
     fn drop(&mut self) {
         self.app.inner.server_lock.let_go();

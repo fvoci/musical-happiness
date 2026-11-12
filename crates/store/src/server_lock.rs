@@ -66,9 +66,12 @@ enum Held {
     Memory,
 }
 
-/// The lock file of the SQLite database `database`.
+/// The lock file of the SQLite database `database`: beside the file the name leads to,
+/// symbolic links followed, so that every such name of one database has one lock file.
+/// A hard link is a name of its own, and has a lock file of its own.
 pub(crate) fn file_beside(database: &Path) -> PathBuf {
-    let mut name = database.as_os_str().to_owned();
+    let database = std::fs::canonicalize(database).unwrap_or_else(|_| database.to_path_buf());
+    let mut name = database.into_os_string();
     name.push("-server.lock");
     PathBuf::from(name)
 }

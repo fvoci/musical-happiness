@@ -146,6 +146,9 @@ impl App {
                 .iter()
                 .filter(|object| seen.insert(object.path.as_str()))
             {
+                // What was read before the lock was lost is not acted on: the next
+                // server may have written at these places since.
+                self.require_server_lock()?;
                 let removal = if held.contains(&object.path) {
                     self.keep_held(&object.path, now).await
                 } else {
@@ -211,6 +214,15 @@ impl App {
     /// cannot go, the failure is noted on its row, or the row is left as it is.
     async fn remove_doomed_object(&self, doomed: Doomed<'_>, now: i64) -> Removal {
         let Doomed { path, attempts } = doomed;
+        // The last look before the object goes: a process that knows it lost the lock
+        // of the server removes nothing more, and leaves the row to the next server.
+        if !self.holds_server_lock() {
+            tracing::warn!(
+                path,
+                "a doomed object is left: the lock of the server is lost"
+            );
+            return Removal::Failed;
+        }
         let error_kind = match self.files().delete(path).await {
             // Gone already is removed: a run cut off after the removal comes here.
             Ok(()) => {

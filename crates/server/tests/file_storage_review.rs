@@ -3,6 +3,9 @@
 #[path = "api/common.rs"]
 mod common;
 
+#[path = "file_storage_review/lock_handover.rs"]
+mod lock_handover;
+
 #[path = "file_storage_review/races.rs"]
 mod races;
 
