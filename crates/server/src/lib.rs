@@ -527,7 +527,8 @@ async fn clean_up_sessions(app: &App) {
     }
 }
 
-/// Removes for good what has been in the trash for longer than `trash_retention_days`.
+/// Removes for good what has been in the trash for longer than `trash_retention_days`,
+/// boards and workspaces.
 /// The objects of the files of the boards that go are doomed with their records, and
 /// removed by [`remove_doomed_objects`].
 async fn purge_trash(app: &App) -> JobOutcome {
@@ -537,7 +538,7 @@ async fn purge_trash(app: &App) -> JobOutcome {
         return JobOutcome::Failed;
     }
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
-    match app.store().purge_trash(deleted_before).await {
+    let boards = match app.store().purge_trash(deleted_before).await {
         Ok(purged) => {
             if purged.records > 0 || !purged.files.is_empty() {
                 tracing::info!(
@@ -552,7 +553,22 @@ async fn purge_trash(app: &App) -> JobOutcome {
             tracing::error!(%error, "unable to purge the trash");
             JobOutcome::Failed
         }
-    }
+    };
+    // A workspace in the trash goes as its boards do: they go into the trash with it
+    // and from there for good, with their files doomed.
+    let workspaces = match app.purge_workspaces(deleted_before).await {
+        Ok((records, files)) => {
+            if records > 0 || files > 0 {
+                tracing::info!(records, files, "removed old workspaces from the trash");
+            }
+            JobOutcome::Done
+        }
+        Err(error) => {
+            tracing::error!(%error, "unable to purge the workspaces in the trash");
+            JobOutcome::Failed
+        }
+    };
+    boards.and(workspaces)
 }
 
 /// Removes the records of the files that no block, live or in the trash, has shown for

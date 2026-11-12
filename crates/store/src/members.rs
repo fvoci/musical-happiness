@@ -5,10 +5,17 @@
 
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
-use crate::{Store, org_admin};
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
+use crate::{Store, org_admin};
+
+/// Opens the condition that the board `b` is in a workspace in use the membership `wm`
+/// is of: the caller narrows the memberships and closes the parenthesis. A workspace in
+/// the trash has no members to anybody.
+const IN_USE_MEMBERSHIPS: &str = " AND b.workspace_id IN (SELECT wm.workspace_id \
+     FROM workspace_members AS wm JOIN workspaces AS ws ON ws.id = wm.workspace_id \
+     WHERE ws.delete_at = 0";
 
 /// Opens the condition on a board `b` that it is an open board of a workspace the user
 /// works in (a member who is no guest: `WorkspaceAccess::works_there`), "or": the
@@ -16,8 +23,8 @@ use crate::users::InstanceRole;
 /// board is no secret to who works in its workspace, and to nobody else.
 pub(crate) fn push_open_boards_at_work<'sql>(sql: &'sql mut Sql, user_id: &str) -> &'sql mut Sql {
     sql.push_bind(" AND ((b.type = ", BoardType::Open.as_str())
-        .push(" AND b.workspace_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
-        .push_bind(" WHERE wm.user_id = ", Id(user_id))
+        .push(IN_USE_MEMBERSHIPS)
+        .push_bind(" AND wm.user_id = ", Id(user_id))
         .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
         .push(")) OR ")
 }
@@ -34,8 +41,8 @@ pub(crate) fn push_own_membership_in_workspace<'sql>(
     user_id: &str,
 ) -> &'sql mut Sql {
     sql.push_bind("bm.user_id = ", Id(user_id))
-        .push(" AND b.workspace_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
-        .push_bind(" WHERE wm.user_id = ", Id(user_id))
+        .push(IN_USE_MEMBERSHIPS)
+        .push_bind(" AND wm.user_id = ", Id(user_id))
         .push(")")
 }
 

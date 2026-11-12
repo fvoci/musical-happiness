@@ -27,6 +27,102 @@
         ],
         "type": "object"
       },
+      "AuditAction": {
+        "description": "What a record of the audit log says was done.",
+        "enum": [
+          "self_added_to_board",
+          "added_to_board",
+          "org_admin_joined",
+          "org_admin_left",
+          "org_admin_revoked",
+          "org_admin_granted",
+          "org_admin_removed",
+          "workspace_created",
+          "workspace_renamed",
+          "workspace_deleted",
+          "workspace_restored",
+          "public_links_disabled",
+          "public_links_enabled"
+        ],
+        "type": "string"
+      },
+      "AuditPerson": {
+        "description": "A user as a record of the audit log names them.",
+        "properties": {
+          "displayName": {
+            "description": "The name the user shows; empty for none.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The user's identifier.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The user's login name; empty if the account is gone.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "id",
+          "username"
+        ],
+        "type": "object"
+      },
+      "AuditRecord": {
+        "description": "One record of the audit log: who did what, to what and whom, and when.",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/AuditAction",
+            "description": "What was done."
+          },
+          "actor": {
+            "$ref": "#/components/schemas/AuditPerson",
+            "description": "Who did it."
+          },
+          "createAt": {
+            "description": "When, in milliseconds since the epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The record's identifier.",
+            "type": "string"
+          },
+          "subject": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AuditPerson",
+                "description": "Whom it was done to, for an action that names somebody; `null` otherwise."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetId": {
+            "description": "What it was done to: a board, a workspace or the organization.",
+            "type": "string"
+          },
+          "targetName": {
+            "description": "The name of the target, where the reader may know it: the title of a board\nthey see, the name of a workspace. `null` otherwise.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "actor",
+          "createAt",
+          "id",
+          "subject",
+          "targetId",
+          "targetName"
+        ],
+        "type": "object"
+      },
       "Block": {
         "description": "The basic data unit of a board.",
         "properties": {
@@ -1696,6 +1792,157 @@
         ],
         "type": "object"
       },
+      "OrgMember": {
+        "description": "A member of an organization, as its administrators list them.",
+        "properties": {
+          "displayName": {
+            "description": "The name the user shows; empty for none.",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/OrgRole",
+            "description": "What the user is in the organization."
+          },
+          "userId": {
+            "description": "The user's identifier.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The user's login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayName",
+          "role",
+          "userId",
+          "username"
+        ],
+        "type": "object"
+      },
+      "OrgRole": {
+        "description": "What a member of an organization is in it.",
+        "enum": [
+          "admin",
+          "member"
+        ],
+        "type": "string"
+      },
+      "OrgRoleChange": {
+        "additionalProperties": false,
+        "description": "The role a member of an organization is given: the body of a change of it.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/OrgRole",
+            "description": "The role."
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "OrgWorkspace": {
+        "description": "A workspace of an organization as its administrators list it: whether or not they\nare in it, and whether or not it is in the trash. Nothing of what is in it.",
+        "properties": {
+          "deletedAt": {
+            "description": "When it was put in the trash, in milliseconds since the epoch; zero while it is\nin use.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The workspace's identifier.",
+            "type": "string"
+          },
+          "isDefault": {
+            "description": "Whether it is the organization's default workspace, which cannot be deleted.",
+            "type": "boolean"
+          },
+          "joinedAsOrgAdmin": {
+            "description": "Whether the administrator who asks is in it as the organization's administrator,\nhaving joined it as one: leaving gives back what they were before.",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "How many members it has, its guests among them.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The workspace's name; empty if it was given none.",
+            "type": "string"
+          },
+          "role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WorkspaceRole",
+                "description": "What the administrator who asks is in it; `null` for no member."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "deletedAt",
+          "id",
+          "isDefault",
+          "joinedAsOrgAdmin",
+          "memberCount",
+          "name",
+          "role"
+        ],
+        "type": "object"
+      },
+      "Organization": {
+        "description": "An organization as its administrators see it.",
+        "properties": {
+          "defaultWorkspaceId": {
+            "description": "The workspace somebody who joins the organization gets into. It cannot be\ndeleted.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The organization's identifier.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The organization's name; empty if it was given none.",
+            "type": "string"
+          },
+          "publicLinks": {
+            "description": "Whether its boards may be read by a public link. Off, every link is closed and\nnone is made; on again, the links made before open again.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "defaultWorkspaceId",
+          "id",
+          "name",
+          "publicLinks"
+        ],
+        "type": "object"
+      },
+      "OrganizationPatch": {
+        "additionalProperties": false,
+        "description": "A change of an organization: what is left out stays as it is.",
+        "properties": {
+          "name": {
+            "description": "The new name, at most `MAX_NAME_CHARS` characters; may be empty.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publicLinks": {
+            "description": "Whether boards may be read by a public link.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "PatchBoardsAndBlocks": {
         "description": "Patches for several boards and blocks, applied together.\n\nIdentifiers and patches are matched by position.",
         "properties": {
@@ -2034,6 +2281,26 @@
             "reason": "relation_card_not_found",
             "title": "Card relation names a card not on the board",
             "type": "/problems/relation-card-not-found"
+          },
+          {
+            "reason": "workspace_name_taken",
+            "title": "Workspace name taken",
+            "type": "/problems/workspace-name-taken"
+          },
+          {
+            "reason": "default_workspace",
+            "title": "Default workspace",
+            "type": "/problems/default-workspace"
+          },
+          {
+            "reason": "last_org_admin",
+            "title": "Last administrator of the organization",
+            "type": "/problems/last-org-admin"
+          },
+          {
+            "reason": "public_links_off",
+            "title": "Public links turned off",
+            "type": "/problems/public-links-off"
           }
         ]
       },
@@ -2673,6 +2940,20 @@
           "settings",
           "title",
           "updateAt"
+        ],
+        "type": "object"
+      },
+      "WorkspaceName": {
+        "additionalProperties": false,
+        "description": "The name of a workspace: the body of making one and of renaming one.",
+        "properties": {
+          "name": {
+            "description": "The name, 1 to `MAX_NAME_CHARS` characters, not only spaces. Spaces around it\nare dropped. One workspace in use of the organization has it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
         ],
         "type": "object"
       },
@@ -4360,7 +4641,7 @@
         ]
       },
       "post": {
-        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors who work in the workspace add members too, with the board's minimum role,\nwhatever else the request names; a request of theirs that asks for `schemeAdmin` is\n403. A guest of the workspace is given no role above editor: asking for\n`schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a\nmember already stays as they are. The workspace's administrators manage the members\nof every board of it; one who makes themselves a member of a board whose content\nthey could not read is recorded in the organization's audit log.",
+        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors who work in the workspace add members too, with the board's minimum role,\nwhatever else the request names; a request of theirs that asks for `schemeAdmin` is\n403. A guest of the workspace is given no role above editor: asking for\n`schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a\nmember already stays as they are. The workspace's administrators manage the members\nof every board of it; one who could not read a board and gives somebody a role on\nit, themselves or another, is recorded in the workspace's audit log.",
         "operationId": "addMember",
         "parameters": [
           {
@@ -4618,7 +4899,7 @@
         ]
       },
       "post": {
-        "description": "Shares the board, shares it under a new read token, or stops sharing it. The server\nmakes the token; a request that names one is 400. Where the server is configured\nwithout public sharing, every request is refused with 403 and the reason\n`sharing_disabled`, also one that stops sharing. For the board's admins.",
+        "description": "Shares the board, shares it under a new read token, or stops sharing it. The server\nmakes the token; a request that names one is 400. Where the server is configured\nwithout public sharing, every request is refused with 403 and the reason\n`sharing_disabled`, also one that stops sharing. While the organization has its\npublic links off (`patchOrganization`), sharing a board is refused with 403 and the\nreason `public_links_off`; stopping it is not. For the board's admins.",
         "operationId": "setSharing",
         "parameters": [
           {
@@ -5149,6 +5430,287 @@
         ]
       }
     },
+    "/api/v1/org/{orgId}": {
+      "get": {
+        "description": "Its name, whether its boards may be read by a public link, and its default\nworkspace.",
+        "operationId": "getOrganization",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            },
+            "description": "The organization."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "An organization",
+        "tags": [
+          "organization"
+        ]
+      },
+      "patch": {
+        "description": "Changes its name (at most 100 characters, spaces around it dropped; it may be\nempty) and whether its boards may be read by a public link. What the body leaves\nout stays. Turned off, the public links of its boards answer 404 and no board is\nshared anew (403, `public_links_off`); turned on again, the links made before open\nagain. A change of the public links is recorded in the organization's audit log.",
+        "operationId": "patchOrganization",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Organization"
+                }
+              }
+            },
+            "description": "The organization as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/audit": {
+      "get": {
+        "description": "One page of what was done to the organization itself, the newest first: who made a\nmember an administrator or a member, made, renamed, deleted or brought back a\nworkspace, and turned the public links off or on. 50 to a page unless `perPage` says\notherwise, at most 200.",
+        "operationId": "getOrgAudit",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, at most 200. Left out, or zero or less, 50.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuditRecord"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The records of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The audit log of an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/members": {
+      "get": {
+        "description": "One page of them with their roles, the oldest member first. 50 to a page unless\n`perPage` says otherwise, at most 200.",
+        "operationId": "getOrgMembers",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, at most 200. Left out, or zero or less, 50.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrgMember"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The members of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The members of an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/members/{userId}/role": {
+      "put": {
+        "description": "Makes a member of the organization its administrator, or a member. The last\nadministrator stays one: 409 with the reason `last_org_admin`. Who stops being an\nadministrator is taken out of every workspace they joined as one\n(`joinOrgWorkspace`): they are what they were in it before, or no member, and each\nworkspace records it. 404 for a user who is no member. Recorded in the\norganization's audit log.",
+        "operationId": "putOrgRole",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgRoleChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The member has the role."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change a member's role in an organization",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
     "/api/v1/org/{orgId}/oidc": {
       "delete": {
         "description": "Removes the organization's provider and the sign-ins under way through it. The\nsessions made through it go on. An organization without one answers the same.",
@@ -5274,6 +5836,364 @@
         "summary": "Set the provider of an organization",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/workspaces": {
+      "get": {
+        "description": "Every workspace of it, in use (`deletedAt` 0) and in the trash, the oldest first:\nits name, how many members it has and what the administrator who asks is in it.\nNothing of what is in it: that is read by joining it.",
+        "operationId": "getOrgWorkspaces",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OrgWorkspace"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The workspaces."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The workspaces of an organization",
+        "tags": [
+          "organization"
+        ]
+      },
+      "post": {
+        "description": "Makes a workspace of the organization with the name: 1 to 100 characters, spaces\naround it dropped. A name another workspace in use has is 409 with the reason\n`workspace_name_taken`. Nobody is a member of the new workspace, its maker neither.\nRecorded in the organization's audit log.",
+        "operationId": "createOrgWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgWorkspace"
+                }
+              }
+            },
+            "description": "The workspace."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a workspace",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}": {
+      "delete": {
+        "description": "Puts a workspace of the organization in the trash: to its members too it is not\nthere (404), with its boards, their files and their public links. Brought back, it is\nas it was. It is removed for good, with everything in it, when it has been in the\ntrash as long as a deleted board is kept (`trash_retention_days`). The\norganization's default workspace is not deleted: 409 with the reason\n`default_workspace`. Recorded in the organization's audit log.",
+        "operationId": "deleteOrgWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a workspace of the organization. 404 for one of no other organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The workspace is in the trash."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a workspace",
+        "tags": [
+          "organization"
+        ]
+      },
+      "patch": {
+        "description": "Renames a workspace of the organization that is in use, as `createOrgWorkspace`\ntakes a name. Recorded in the organization's audit log.",
+        "operationId": "renameOrgWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a workspace of the organization. 404 for one of no other organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgWorkspace"
+                }
+              }
+            },
+            "description": "The workspace."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Rename a workspace",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}/join": {
+      "post": {
+        "description": "Makes the administrator of the organization who asks an administrator of a\nworkspace of it in use: what is in it is theirs to read from then on, which is\nrecorded in the workspace's audit log, read by its members. A member of it keeps\nwhat they were, to be it again when they leave. One who is its administrator already\nis left as they are, and nothing is recorded.",
+        "operationId": "joinOrgWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a workspace of the organization. 404 for one of no other organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgWorkspace"
+                }
+              }
+            },
+            "description": "The workspace as the administrator is in it now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Join a workspace as its administrator",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}/leave": {
+      "post": {
+        "description": "Takes the administrator of the organization who asks out of a workspace they joined\nas one (`joinOrgWorkspace`): they are what they were in it before, or no member, and\nlose the roles on its boards they gave themselves since they joined. Recorded in the\nworkspace's audit log. One who did not join it so is left as they are.",
+        "operationId": "leaveOrgWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a workspace of the organization. 404 for one of no other organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgWorkspace"
+                }
+              }
+            },
+            "description": "The workspace as the administrator is in it now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Leave a workspace joined as its administrator",
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}/restore": {
+      "post": {
+        "description": "Brings a workspace of the organization back from the trash, with its boards, members,\ncategories and files as they were. 404 unless it is in the trash; 409 with the reason\n`workspace_name_taken` if a workspace in use took its name meanwhile. Recorded in the\norganization's audit log.",
+        "operationId": "restoreOrgWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a workspace of the organization. 404 for one of no other organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgWorkspace"
+                }
+              }
+            },
+            "description": "The workspace."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Bring a workspace back",
+        "tags": [
+          "organization"
         ]
       }
     },
@@ -6456,6 +7376,72 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/audit": {
+      "get": {
+        "description": "One page of what was done in the workspace that its members are to know of, the\nnewest first: an administrator of the organization joining it as its administrator,\nleaving it, or being taken out of it when they stopped administering the\norganization; and an administrator of the workspace who could not read a board\ngiving somebody (themselves or another) a role on it. A board's title is there where\nthe reader sees the board. For whoever works in the workspace (a member who is no\nguest), of any organization. 50 to a page unless `perPage` says otherwise, at most\n200. The records are never changed or removed but with the workspace, when it is\nremoved for good.",
+        "operationId": "getWorkspaceAudit",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has, at most 200. Left out, or zero or less, 50.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuditRecord"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The records of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The audit log of a workspace",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/boards": {
       "get": {
         "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former, an administrator every board\nof the workspace (what is on a private board they are no member of stays 404 to\nthem). Templates are not among them. Oldest first. 404 unless the user is a member of\nthe workspace.",
@@ -7434,6 +8420,10 @@
     {
       "description": "Subscriptions to blocks.",
       "name": "subscriptions"
+    },
+    {
+      "description": "What an organization's administrators manage: the organization, its members' roles, its workspaces and their trash, joining a workspace, and the audit logs.",
+      "name": "organization"
     }
   ]
 }

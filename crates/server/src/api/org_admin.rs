@@ -18,7 +18,7 @@ use super::contract::params::{CappedPerPage, OrgId, OrgWorkspaceId, Page, UserId
 use super::contract::tag;
 use super::org::OrgAdmin;
 use super::{ApiResult, created, decode_object, json_response, no_content};
-use crate::app::{App, DEFAULT_PER_PAGE, page_of};
+use crate::app::{App, DEFAULT_PER_PAGE, PageAsked};
 use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -26,7 +26,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_organization, handle_patch_organization))
         .routes(routes!(handle_get_org_members))
         .routes(routes!(handle_put_org_role))
-        .routes(routes!(handle_get_org_workspaces, handle_create_org_workspace))
+        .routes(routes!(
+            handle_get_org_workspaces,
+            handle_create_org_workspace
+        ))
         .routes(routes!(
             handle_rename_org_workspace,
             handle_delete_org_workspace
@@ -37,13 +40,12 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_org_audit))
 }
 
-/// The page a request asks for with `page` and `perPage`; `None` for one before the
-/// first. A `page` or `perPage` that is no whole number is 400.
-pub(super) fn requested_page(query: Option<&str>) -> Result<Option<fvoci_store::Paging>, AppError> {
+/// The page a request asks for with `page` and `perPage`. A `page` or `perPage` that is no whole number is 400.
+pub(super) fn requested_page(query: Option<&str>) -> Result<PageAsked, AppError> {
     let page = int_query_param(query, "page", 0);
     let per_page = int_query_param(query, "perPage", i64::from(DEFAULT_PER_PAGE));
     match (page, per_page) {
-        (Ok(page), Ok(per_page)) => Ok(page_of(page, per_page)),
+        (Ok(page), Ok(per_page)) => Ok(PageAsked { page, per_page }),
         (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
         (Err(page), Err(per_page)) => Err(page.and(per_page)),
     }

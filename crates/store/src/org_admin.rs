@@ -141,7 +141,7 @@ impl Store {
     /// Gives a member of the handle's organization a role in it, on behalf of
     /// `actor_id`, and records it. An administrator who is made a member is taken out of
     /// every workspace they had joined as the organization's administrator, each of
-    /// which records it ([`end_joining`]). The last administrator stays one.
+    /// which records it (`end_joining`). The last administrator stays one.
     ///
     /// Changes of roles, and joinings, are made one at a time in an organization: of
     /// two administrators who make each other members at once, one is refused.
@@ -246,12 +246,7 @@ impl Store {
             workspaces::insert_workspace(scope, workspace, org)
                 .await
                 .map_err(name_taken)?;
-            let entry = AuditEntry::new(
-                "",
-                actor_id,
-                AuditAction::WorkspaceCreated,
-                &workspace.id,
-            );
+            let entry = AuditEntry::new("", actor_id, AuditAction::WorkspaceCreated, &workspace.id);
             audit::record_entry(scope, &entry).await
         })
         .await
@@ -282,12 +277,7 @@ impl Store {
             if scope.execute(sql).await.map_err(name_taken)? == 0 {
                 return Err(StoreError::not_found("workspace"));
             }
-            let entry = AuditEntry::new(
-                "",
-                actor_id,
-                AuditAction::WorkspaceRenamed,
-                workspace_id,
-            );
+            let entry = AuditEntry::new("", actor_id, AuditAction::WorkspaceRenamed, workspace_id);
             audit::record_entry(scope, &entry).await
         })
         .await
@@ -321,12 +311,7 @@ impl Store {
             if scope.execute(sql).await? == 0 {
                 return Ok(WorkspaceTrashing::NotFound);
             }
-            let entry = AuditEntry::new(
-                "",
-                actor_id,
-                AuditAction::WorkspaceDeleted,
-                workspace_id,
-            );
+            let entry = AuditEntry::new("", actor_id, AuditAction::WorkspaceDeleted, workspace_id);
             audit::record_entry(scope, &entry).await?;
             Ok(WorkspaceTrashing::Done)
         })
@@ -359,12 +344,7 @@ impl Store {
             if scope.execute(sql).await.map_err(name_taken)? == 0 {
                 return Err(StoreError::not_found("workspace in the trash"));
             }
-            let entry = AuditEntry::new(
-                "",
-                actor_id,
-                AuditAction::WorkspaceRestored,
-                workspace_id,
-            );
+            let entry = AuditEntry::new("", actor_id, AuditAction::WorkspaceRestored, workspace_id);
             audit::record_entry(scope, &entry).await
         })
         .await
@@ -430,7 +410,7 @@ impl Store {
 
     /// Makes an administrator of the handle's organization an administrator of a
     /// workspace of it in use, as the organization's: one who was a member of it before
-    /// keeps what they were, to be it again when they leave ([`end_joining`]). Records it.
+    /// keeps what they were, to be it again when they leave (`end_joining`). Records it.
     ///
     /// # Errors
     ///
@@ -493,7 +473,7 @@ impl Store {
     }
 
     /// Takes a user who joined a workspace of the handle's organization as the
-    /// organization's administrator out of it, at their own asking ([`end_joining`]),
+    /// organization's administrator out of it, at their own asking (`end_joining`),
     /// and records it. Says whether they had joined it so.
     ///
     /// # Errors
@@ -525,9 +505,8 @@ impl Store {
 
 /// The handle's organization as it is stored.
 async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
-    let mut sql = scope.sql(
-        "SELECT id, name, public_links, default_workspace_id FROM organizations WHERE id = ",
-    );
+    let mut sql = scope
+        .sql("SELECT id, name, public_links, default_workspace_id FROM organizations WHERE id = ");
     sql.bind(scope.org()?)
         .push(" AND delete_at = 0 AND is_system = false");
     let row = scope
@@ -605,9 +584,8 @@ async fn membership(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<Option<(WorkspaceRole, Option<Joined>)>, StoreError> {
-    let mut sql = scope.sql(
-        "SELECT role, via_org_admin, prior_role FROM workspace_members WHERE workspace_id = ",
-    );
+    let mut sql = scope
+        .sql("SELECT role, via_org_admin, prior_role FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
@@ -678,9 +656,7 @@ async fn end_joining(
     user_id: &str,
     joined: Joined,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(
-        "DELETE FROM board_members WHERE user_id = ",
-    );
+    let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push(" AND board_id IN (SELECT a.target_id FROM audit_log AS a WHERE a.workspace_id = ")
         .bind(Id(workspace_id))
@@ -726,10 +702,11 @@ fn name_taken(error: StoreError) -> StoreError {
 /// Limits a list to one page, if `paging` has a page size.
 fn push_page(sql: &mut crate::db::Sql, paging: Paging) {
     if paging.per_page > 0 {
-        sql.push_bind(" LIMIT ", i64::from(paging.per_page)).push_bind(
-            " OFFSET ",
-            i64::from(paging.page) * i64::from(paging.per_page),
-        );
+        sql.push_bind(" LIMIT ", i64::from(paging.per_page))
+            .push_bind(
+                " OFFSET ",
+                i64::from(paging.page) * i64::from(paging.per_page),
+            );
     }
 }
 

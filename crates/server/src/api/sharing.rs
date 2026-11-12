@@ -143,14 +143,6 @@ async fn handle_post_sharing(
     }
 
     let change = sharing_change(&body)?;
-    // Stopping a board's sharing is never refused; sharing it is, while the organization
-    // has its public links off.
-    if change != SharingChange::Off && !app.public_links_on().await? {
-        return Err(
-            AppError::forbidden("the organization has turned its public links off")
-                .with_reason(Reason::PublicLinksOff),
-        );
-    }
     let sharing = app.set_sharing(&board_id, change, &session.user_id).await?;
     tracing::debug!(board_id, enabled = sharing.enabled, "POST sharing");
     Ok(json_response(&sharing))

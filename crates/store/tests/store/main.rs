@@ -20,6 +20,7 @@ mod loose_objects;
 mod observe;
 mod oidc;
 mod order;
+mod org_admin;
 mod restored_boards;
 mod sessions;
 mod setup;

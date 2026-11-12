@@ -544,6 +544,7 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
             Taken::Username => "the user name is taken",
             Taken::Email => "the email address is taken",
             Taken::Identity => "the identity at the provider is taken",
+            Taken::WorkspaceName => unreachable!("a user takes no workspace's name"),
         };
         assert_eq!(error.to_string(), said, "{username} <{email}>");
         assert!(
@@ -1691,7 +1692,11 @@ async fn of_two_administrators_who_step_down_at_once_one_stays() {
         for user_id in [&first_id, &second_id] {
             let store = test.store.clone();
             let user_id = user_id.clone();
-            racers.spawn(async move { store.set_user_admin(&user_id, InstanceRole::User, &user_id).await });
+            racers.spawn(async move {
+                store
+                    .set_user_admin(&user_id, InstanceRole::User, &user_id)
+                    .await
+            });
         }
         let outcomes: Vec<AdminChange> = racers
             .join_all()

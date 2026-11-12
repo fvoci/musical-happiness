@@ -1,12 +1,10 @@
 //! Boards and their members.
 
 use fvoci_model::{
-    Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
-    AuditAction, DeleteBoardsAndBlocks, new_id,
+    AuditAction, Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType,
+    BoardsAndBlocks, DeleteBoardsAndBlocks, new_id,
 };
-use fvoci_store::{
-    AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards,
-};
+use fvoci_store::{AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards};
 
 use super::{App, DEFAULT_CATEGORY_BOARDS};
 use crate::error::{AppError, Reason};

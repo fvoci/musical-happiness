@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use fvoci_model::{
     AuditAction, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRole, OrgWorkspace, Organization,
-    OrganizationPatch, Workspace, new_id,
+    OrganizationPatch, Workspace, is_id, new_id,
 };
 use fvoci_store::{
     AuditPlace, Joining, OrgRoleChange, Paging, StoreError, Taken, WorkspaceTrashing,
@@ -25,17 +25,29 @@ pub const DEFAULT_PER_PAGE: u32 = 50;
 /// The most records or members one page holds; a request for more gets this many.
 pub const MAX_PER_PAGE: u32 = 200;
 
-/// One page of a list, from the `page` and `perPage` of a request: `None` for a page
-/// before the first. A page size of zero or less is the default one.
-#[must_use]
-pub fn page_of(page: i64, per_page: i64) -> Option<Paging> {
-    let page = u32::try_from(page).ok()?;
-    let per_page = if per_page <= 0 {
-        DEFAULT_PER_PAGE
-    } else {
-        u32::try_from(per_page).unwrap_or(MAX_PER_PAGE).min(MAX_PER_PAGE)
-    };
-    Some(Paging { page, per_page })
+/// One page of a list as a request asks for it, by its `page` and `perPage`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageAsked {
+    /// The page, counted from 0.
+    pub page: i64,
+    /// How many a page has; zero or less is [`DEFAULT_PER_PAGE`], more than
+    /// [`MAX_PER_PAGE`] is that many.
+    pub per_page: i64,
+}
+
+impl PageAsked {
+    /// The page as the store reads it; `None` for a page before the first.
+    fn paging(self) -> Option<Paging> {
+        let page = u32::try_from(self.page).ok()?;
+        let per_page = if self.per_page <= 0 {
+            DEFAULT_PER_PAGE
+        } else {
+            u32::try_from(self.per_page)
+                .unwrap_or(MAX_PER_PAGE)
+                .min(MAX_PER_PAGE)
+        };
+        Some(Paging { page, per_page })
+    }
 }
 
 /// The name of a workspace as it is stored: without the spaces around it, 1 to
@@ -59,6 +71,15 @@ fn name_taken() -> AppError {
 
 fn workspace_not_found() -> AppError {
     AppError::not_found("workspace")
+}
+
+/// A workspace named by text that is no identifier is not there, as one nobody has.
+fn known_workspace(workspace_id: &str) -> Result<(), AppError> {
+    if is_id(workspace_id) {
+        Ok(())
+    } else {
+        Err(workspace_not_found())
+    }
 }
 
 impl App {
@@ -126,8 +147,8 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if they cannot be read.
-    pub async fn org_members(&self, paging: Option<Paging>) -> Result<Vec<OrgMember>, AppError> {
-        let Some(paging) = paging else {
+    pub async fn org_members(&self, asked: PageAsked) -> Result<Vec<OrgMember>, AppError> {
+        let Some(paging) = asked.paging() else {
             return Ok(Vec::new());
         };
         Ok(self.store().org_members(paging).await?)
@@ -146,6 +167,9 @@ impl App {
         role: OrgRole,
         actor_id: &str,
     ) -> Result<(), AppError> {
+        if !is_id(user_id) {
+            return Err(AppError::not_found("member"));
+        }
         match self.store().set_org_role(user_id, role, actor_id).await {
             Ok(OrgRoleChange::Done) => Ok(()),
             Ok(OrgRoleChange::NotAMember) => Err(AppError::not_found("member")),
@@ -223,6 +247,7 @@ impl App {
         name: &str,
         actor_id: &str,
     ) -> Result<OrgWorkspace, AppError> {
+        known_workspace(workspace_id)?;
         let name = workspace_name(name)?;
         match self
             .store()
@@ -250,6 +275,7 @@ impl App {
         workspace_id: &str,
         actor_id: &str,
     ) -> Result<(), AppError> {
+        known_workspace(workspace_id)?;
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
                 self.close_shared_readers(Some(workspace_id)).await?;
@@ -278,6 +304,7 @@ impl App {
         workspace_id: &str,
         actor_id: &str,
     ) -> Result<OrgWorkspace, AppError> {
+        known_workspace(workspace_id)?;
         match self.store().restore_workspace(workspace_id, actor_id).await {
             Ok(()) => self.org_workspace(actor_id, workspace_id).await,
             Err(StoreError::Conflict(Taken::WorkspaceName)) => Err(name_taken()),
@@ -299,6 +326,7 @@ impl App {
         workspace_id: &str,
         user_id: &str,
     ) -> Result<OrgWorkspace, AppError> {
+        known_workspace(workspace_id)?;
         match self
             .store()
             .join_workspace_as_org_admin(workspace_id, user_id)
@@ -322,6 +350,7 @@ impl App {
         workspace_id: &str,
         user_id: &str,
     ) -> Result<OrgWorkspace, AppError> {
+        known_workspace(workspace_id)?;
         self.store()
             .leave_workspace_as_org_admin(workspace_id, user_id)
             .await?;
@@ -333,8 +362,8 @@ impl App {
     /// # Errors
     ///
     /// Returns the store's error if they cannot be read.
-    pub async fn org_audit(&self, paging: Option<Paging>) -> Result<Vec<AuditRecord>, AppError> {
-        let Some(paging) = paging else {
+    pub async fn org_audit(&self, asked: PageAsked) -> Result<Vec<AuditRecord>, AppError> {
+        let Some(paging) = asked.paging() else {
             return Ok(Vec::new());
         };
         Ok(self
@@ -354,9 +383,9 @@ impl App {
         &self,
         reader_id: &str,
         workspace_id: &str,
-        paging: Option<Paging>,
+        asked: PageAsked,
     ) -> Result<Vec<AuditRecord>, AppError> {
-        let Some(paging) = paging else {
+        let Some(paging) = asked.paging() else {
             return Ok(Vec::new());
         };
         let mut records = self
@@ -375,7 +404,9 @@ impl App {
                 let title = self
                     .board_access(reader_id, &record.target_id)
                     .await?
-                    .filter(|access| access.grant.sees() && access.board.workspace_id == workspace_id)
+                    .filter(|access| {
+                        access.grant.sees() && access.board.workspace_id == workspace_id
+                    })
                     .map(|access| access.board.title);
                 titles.insert(record.target_id.clone(), title);
             }
@@ -393,28 +424,4 @@ impl App {
     pub async fn public_links_on(&self) -> Result<bool, AppError> {
         Ok(self.organization().await?.public_links)
     }
-
-    /// Removes for good the workspaces of every organization that have been in the
-    /// trash since before `deleted_before`, each in its organization, with what is in
-    /// them. Returns how many boards and blocks went, and how many files were doomed.
-    /// For the housekeeping, whose reach this is.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error; what was removed before stays removed.
-    pub async fn purge_workspaces(&self, deleted_before: i64) -> Result<(u64, usize), AppError> {
-        let mut records = 0;
-        let mut files = 0;
-        for (org_id, workspace_id) in self.store().workspaces_to_purge(deleted_before).await? {
-            let store = self.store().for_org(&org_id).map_err(|error| {
-                AppError::from(anyhow::Error::from(error))
-                    .context("the organization of a workspace as the store has it")
-            })?;
-            let purged = store.purge_workspace(&workspace_id, deleted_before).await?;
-            records += purged.records;
-            files += purged.files.len();
-        }
-        Ok((records, files))
-    }
 }
-

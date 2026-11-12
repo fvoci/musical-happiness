@@ -2,8 +2,8 @@
 //! changes their members, deletes and restores them) and reads what is on one only as
 //! its member: making themselves one is recorded.
 
-use fvoci_model::{Board, BoardMember, BoardType, WorkspaceRole};
 use fvoci_model::AuditAction;
+use fvoci_model::{Board, BoardMember, BoardType, WorkspaceRole};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -98,7 +98,7 @@ async fn send(client: &Client, method: &Method, path: &str) -> ApiResponse {
 #[tokio::test]
 async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_it() {
     let th = Setup::native().start().await.init_basic().await;
-    workspace_admin(&th).await;
+    let admin_id = workspace_admin(&th).await;
     let (board, card_id) = private_board_with_a_card(&th).await;
     let third = th.add_user("third").await.me().await.id;
 
@@ -171,9 +171,28 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     );
     restored.check_ok();
     assert_eq!(restored.value()["description"], json!(""));
-    assert!(
-        recorded.is_empty(),
-        "nothing the admin did is recorded: {recorded:?}"
+    // Who manages a board without reading it and gives somebody else a role on it is
+    // recorded: the other might be an account of their own. Nothing else is.
+    let recorded: Vec<_> = recorded
+        .iter()
+        .map(|entry| {
+            (
+                entry.action,
+                entry.actor_id.as_str(),
+                entry.target_id.as_str(),
+                entry.subject_id.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        recorded,
+        [(
+            AuditAction::AddedToBoard,
+            admin_id.as_str(),
+            board.id.as_str(),
+            third.as_str()
+        )],
+        "only the member the admin added is recorded"
     );
 }
 

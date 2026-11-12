@@ -17,11 +17,12 @@ use super::contract::params::{
     WorkspaceId,
 };
 use super::contract::tag;
-use super::session::session_of;
 use super::org_admin::requested_page;
+use super::session::session_of;
 use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
+use crate::permissions;
 
 /// The path parameter that names the workspace of a route.
 const WORKSPACE_ID: &str = "workspaceId";
@@ -334,7 +335,7 @@ async fn handle_get_workspace_users_by_id(
     responses((status = 200, description = "The records of the page.", body = Vec<AuditRecord>)),
 )]
 async fn handle_get_workspace_audit(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
-    if ws.role == WorkspaceRole::Guest {
+    if !permissions::reads_the_audit_log(Some(ws.role)) {
         return Err(workspace_not_found());
     }
     let paging = requested_page(query.as_deref())?;
