@@ -545,7 +545,8 @@ export interface paths {
          *     nothing on the board, not even view it. For the board's admins. The last admin of a
          *     board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
          *     workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
-         *     reason `guest_role_limit`. A user who is no member of the board is 404.
+         *     reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
+         *     more, is 404.
          */
         put: operations["updateMember"];
         post?: never;

@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardRole, BoardsAndBlocks,
+    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardsAndBlocks,
     BoardsAndBlocksError, JsonMap, WorkspaceRole, renew_boards_and_blocks_ids,
 };
 use serde_json::Value;
@@ -363,13 +363,7 @@ impl App {
 fn no_more_than_holdable(member: BoardMember, workspace_role: WorkspaceRole) -> BoardMember {
     let highest = permissions::highest_board_role(workspace_role);
     match permissions::role_of(&member) {
-        Some(role) if role > highest => BoardMember {
-            scheme_admin: highest == BoardRole::Admin,
-            scheme_editor: highest == BoardRole::Editor,
-            scheme_commenter: highest == BoardRole::Commenter,
-            scheme_viewer: highest == BoardRole::Viewer,
-            ..member
-        },
+        Some(role) if role > highest => permissions::with_role(member, Some(highest)),
         _ => member,
     }
 }

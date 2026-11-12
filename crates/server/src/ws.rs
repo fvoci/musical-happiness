@@ -872,7 +872,7 @@ impl Hub {
         self.listeners_among(workspace_id, &members, also_user)
     }
 
-    /// The workspace's listeners whose user is one of `members`, or is `also_user`.
+    /// The workspace's listeners whose user is one of `members` with a role, or `also_user`.
     fn listeners_among(
         &self,
         workspace_id: &str,
@@ -889,9 +889,9 @@ impl Hub {
             .filter(|id| {
                 listeners.by_id.get(id).is_some_and(|listener| {
                     also_user == Some(listener.user_id.as_str())
-                        || members
-                            .iter()
-                            .any(|member| member.user_id == listener.user_id)
+                        || members.iter().any(|member| {
+                            member.user_id == listener.user_id && role_of(member).is_some()
+                        })
                 })
             })
             .collect()

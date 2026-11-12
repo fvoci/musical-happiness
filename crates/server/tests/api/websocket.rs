@@ -189,11 +189,11 @@ async fn a_workspace_is_followed_by_its_members_and_guests() {
         Event::Nothing,
         "not in the workspace"
     );
-    assert_ne!(
-        guest.next(QUIET).await,
-        Event::Nothing,
-        "a guest of the workspace is told its own"
-    );
+    let told = guest.next(QUIET).await;
+    let Event::Json(told) = told else {
+        panic!("a guest of the workspace is told its own category: {told:?}");
+    };
+    assert_eq!(told["category"]["name"], json!("a guest's"), "{told}");
     th.teardown().await;
 }
 

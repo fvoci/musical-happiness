@@ -43,15 +43,12 @@ fn requested_member(board_id: String, user_id: String, body: &BoardMember) -> Bo
 
 /// A membership with exactly the one role.
 fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> BoardMember {
-    BoardMember {
+    let member = BoardMember {
         board_id,
         user_id,
-        scheme_admin: role == BoardRole::Admin,
-        scheme_editor: role == BoardRole::Editor,
-        scheme_commenter: role == BoardRole::Commenter,
-        scheme_viewer: role == BoardRole::Viewer,
         ..BoardMember::default()
-    }
+    };
+    permissions::with_role(member, Some(role))
 }
 
 /// Refuses a membership whose role the user's place in the workspace does not let
@@ -284,7 +281,8 @@ async fn handle_leave_board(
 /// nothing on the board, not even view it. For the board's admins. The last admin of a
 /// board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
 /// workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
-/// reason `guest_role_limit`. A user who is no member of the board is 404.
+/// reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
+/// more, is 404.
 #[utoipa::path(
     put,
     path = "/boards/{boardId}/members/{userId}",
@@ -309,17 +307,18 @@ async fn handle_update_member(
     )
     .await?;
     // The board may be deleted between the two lookups; then it is gone for everybody.
-    let board = app.board(&board_id).await?;
+    let target = app
+        .board_access(&member_user_id, &board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
     let request: BoardMember = decode_object(&body)?;
     let member = requested_member(board_id, member_user_id, &request);
-    // Who has left the workspace keeps a role that opens nothing, and may be lowered.
-    if let Some(role) = app
-        .actor(&member.user_id, &board.workspace_id)
-        .await?
-        .workspace
-    {
-        require_holdable(role, &member)?;
-    }
+    // Who is no member of the board is not found, and so is who has left its
+    // workspace: the role left there opens nothing, and is not to be changed.
+    let (Some(_), Some(workspace_role)) = (target.member, target.actor.workspace) else {
+        return Err(AppError::not_found("member"));
+    };
+    require_holdable(workspace_role, &member)?;
 
     match app.update_board_member(&member).await? {
         Some(updated) => Ok(json_response(&updated)),

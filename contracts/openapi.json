@@ -4057,7 +4057,7 @@
         ]
       },
       "put": {
-        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A guest of the\nworkspace is made no more than an editor: `schemeAdmin` for one is 403 with the\nreason `guest_role_limit`. A user who is no member of the board is 404.",
+        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A guest of the\nworkspace is made no more than an editor: `schemeAdmin` for one is 403 with the\nreason `guest_role_limit`. A user who is no member of the board, or of its workspace any\nmore, is 404.",
         "operationId": "updateMember",
         "parameters": [
           {

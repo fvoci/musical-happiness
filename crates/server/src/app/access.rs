@@ -4,7 +4,7 @@
 //! Every check of a route that names a board asks [`App::board_access`], and decides by
 //! the [`Grant`] it gives; nothing else reads a membership to decide what a user may do.
 
-use fvoci_model::{Board, BoardRole};
+use fvoci_model::{Board, BoardMember};
 use fvoci_store::DeletedBoard;
 
 use super::App;
@@ -18,8 +18,8 @@ pub struct BoardAccess {
     pub board: Board,
     /// What the user is in the board's workspace and organization.
     pub actor: Actor,
-    /// The user's role on the board as stored; `None` for who is no member.
-    pub role: Option<BoardRole>,
+    /// The user's membership of the board as stored; `None` for who is no member.
+    pub member: Option<BoardMember>,
     /// What the user may do on the board.
     pub grant: Grant,
 }
@@ -62,8 +62,8 @@ impl App {
                 return Err(AppError::from(error).context("reading a board to check access"));
             }
         };
-        let role = match member {
-            Ok(member) => permissions::role_of(&member),
+        let member = match member {
+            Ok(member) => Some(member),
             Err(error) if error.is_not_found() => None,
             Err(error) => {
                 return Err(AppError::from(error).context("reading the membership of a board"));
@@ -81,14 +81,14 @@ impl App {
                 actor,
                 BoardFacts {
                     scope: BoardScope::of(&board),
-                    role,
+                    role: member.as_ref().and_then(permissions::role_of),
                 },
             )
         };
         Ok(Some(BoardAccess {
             board,
             actor,
-            role,
+            member,
             grant,
         }))
     }

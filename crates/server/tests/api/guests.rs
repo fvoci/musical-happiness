@@ -106,7 +106,7 @@ async fn a_guest_opens_only_the_boards_it_was_invited_to() {
 }
 
 #[tokio::test]
-async fn a_guest_is_given_no_more_than_editor() {
+async fn a_guest_is_given_no_more_than_editor_and_who_left_is_changed_no_more() {
     let th = Setup::native().start().await.init_basic().await;
     let guest = guest_of_the_workspace(&th).await;
     let board = board_of_user1(&th, BoardType::Private, "Guest's board").await;
@@ -128,7 +128,42 @@ async fn a_guest_is_given_no_more_than_editor() {
         .get_member_for_board(&board, &guest)
         .await
         .expect("the guest is a member");
+    // Who is no member of the board is not found, before what the request asks for.
+    let elsewhere = board_of_user1(&th, BoardType::Private, "Not the guest's").await;
+    let not_on_board = update_member(
+        &th.client,
+        &BoardMember {
+            scheme_admin: true,
+            ..member(&elsewhere, &guest)
+        },
+    )
+    .await;
+    // Who has left the workspace keeps a role that is changed no more.
+    let leaver = th.add_user("leaver").await.me().await.id;
+    th.client
+        .add_member(&editor(&board, &leaver))
+        .await
+        .check_ok();
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "DELETE FROM workspace_members WHERE user_id = '{leaver}' \
+             AND workspace_id = '{TEST_WORKSPACE_ID}'"
+        ))
+        .await
+        .expect("the leaver leaves the workspace");
+    let raised = update_member(
+        &th.client,
+        &BoardMember {
+            scheme_admin: true,
+            ..member(&board, &leaver)
+        },
+    )
+    .await;
     th.teardown().await;
+
+    not_on_board.check_not_found();
+    raised.check_not_found();
 
     for refused in [&added_as_admin, &made_admin] {
         assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.text());
@@ -193,6 +228,11 @@ async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
     let other = board_of_user1(&th, BoardType::Open, "Other").await;
     th.client
         .add_member(&viewer(&invited, &guest))
+        .await
+        .check_ok();
+    // A membership without a role opens nothing, over HTTP and here.
+    th.client
+        .add_member(&member(&other, &guest))
         .await
         .check_ok();
     let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, TEST_WORKSPACE_ID, &guest).await;

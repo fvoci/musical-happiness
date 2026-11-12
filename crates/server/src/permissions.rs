@@ -286,6 +286,18 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
     as_member.with(as_worker)
 }
 
+/// The membership with exactly the flag of `role`, and none for `None`.
+#[must_use]
+pub fn with_role(member: BoardMember, role: Option<BoardRole>) -> BoardMember {
+    BoardMember {
+        scheme_admin: role == Some(BoardRole::Admin),
+        scheme_editor: role == Some(BoardRole::Editor),
+        scheme_commenter: role == Some(BoardRole::Commenter),
+        scheme_viewer: role == Some(BoardRole::Viewer),
+        ..member
+    }
+}
+
 /// The role a membership has: the highest of its flags, `None` if it has none.
 #[must_use]
 pub fn role_of(member: &BoardMember) -> Option<BoardRole> {
