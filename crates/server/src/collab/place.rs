@@ -14,8 +14,8 @@ use crate::app::App;
 use crate::collab_worker::wire::{Answer, DocNumber, Request};
 use crate::error::AppError;
 
-/// How long a document that ended its worker twice in a row is closed, the first time;
-/// it doubles with each further time.
+/// How long a document that ended its worker twice, the second within the longest
+/// closing of the first, is closed the first time; it doubles with each further time.
 const FIRST_CLOSING: Duration = Duration::from_secs(10);
 
 /// The longest a document is closed for ending its worker.
@@ -37,8 +37,12 @@ pub(super) struct Slot {
     /// The slot is no longer in the place: whoever waited for it looks again.
     retired: bool,
     pub(super) open: Option<OpenDoc>,
-    /// How many requests about it in a row ended its worker.
+    /// How many requests about it ended its worker, each a little after the one before
+    /// (within the longest closing): a request that ends the worker each time it is
+    /// sent again, between which others are answered, is counted.
     deaths: u32,
+    /// When the last of them ended it.
+    last_death: Option<Instant>,
     /// Until when it is closed for that.
     closed_until: Option<Instant>,
 }
@@ -101,6 +105,7 @@ impl Collab {
                         retired: false,
                         open: None,
                         deaths: 0,
+                        last_death: None,
                         closed_until: None,
                     }))
                 }))
@@ -184,10 +189,7 @@ impl Collab {
                 .call(Some(open.generation), &request(open.number))
                 .await
             {
-                Ok((_, answer)) => {
-                    slot.deaths = 0;
-                    return Ok(answer);
-                }
+                Ok((_, answer)) => return Ok(answer),
                 Err(CallError::Lost) => {
                     self.lost(slot);
                     self.tell(card_id, DocChange::Reopened);
@@ -264,15 +266,23 @@ impl Collab {
 }
 
 /// Counts a death of the worker over the document, and closes the document for a
-/// while from the second in a row.
+/// while from the second (see [`Slot`]).
 pub(super) fn died_over(slot: &mut Slot) {
+    let now = Instant::now();
+    if slot
+        .last_death
+        .is_some_and(|last| now.duration_since(last) > LONGEST_CLOSING)
+    {
+        slot.deaths = 0;
+    }
+    slot.last_death = Some(now);
     slot.deaths = slot.deaths.saturating_add(1);
     if slot.deaths >= 2 {
         let doublings = (slot.deaths - 2).min(16);
         let closing = FIRST_CLOSING
             .saturating_mul(1 << doublings)
             .min(LONGEST_CLOSING);
-        slot.closed_until = Some(Instant::now() + closing);
+        slot.closed_until = Some(now + closing);
     }
 }
 

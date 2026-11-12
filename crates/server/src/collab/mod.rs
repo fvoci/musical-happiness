@@ -421,6 +421,35 @@ impl Collab {
             .map(|_| ())
     }
 
+    /// Has the worker that holds a card's document take `millis` milliseconds over a
+    /// request about it, opening the document first: for the tests of a document whose
+    /// requests end its worker.
+    ///
+    /// # Errors
+    ///
+    /// As a request about the document.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn stall_document(
+        &self,
+        app: &App,
+        card_id: &str,
+        millis: u64,
+    ) -> Result<(), AppError> {
+        self.on_slot(
+            app,
+            card_id,
+            move |collab, app, card_id, mut slot| async move {
+                let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
+                collab
+                    .ask(app, card_id, slot, |_| Request::Stall(millis))
+                    .await
+                    .map(|_| ())
+            },
+        )
+        .await
+    }
+
     /// Forgets every open document without writing its body, and ends the workers: as
     /// a server that is killed leaves them, for the tests of what a server that starts
     /// again makes of that.

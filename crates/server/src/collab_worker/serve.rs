@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 use fvoci_collab::{BodyDoc, TakeError, UpdateError, UpdateLimits};
-use fvoci_model::Body;
+use fvoci_model::{Body, BodyError};
 
 use super::frame::{FrameError, read_frame, write_frame};
 use super::wire::{
@@ -230,8 +230,9 @@ fn take_refused(error: &TakeError) -> Refused {
         TakeError::Update(UpdateError::Unreadable(_)) => Refusal::Unreadable,
         TakeError::Update(UpdateError::MissingChanges) => Refusal::MissingChanges,
         TakeError::Update(UpdateError::DocumentTooLarge { .. }) => Refusal::DocumentTooLarge,
+        TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes)
+        | TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,
         TakeError::Body(_) => Refusal::NoBody,
-        TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,
         _ => Refusal::Unappliable,
     };
     refused(refusal, &error.to_string())

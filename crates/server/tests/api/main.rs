@@ -16,6 +16,7 @@ mod bodies;
 mod card_previews;
 mod cards;
 mod collab;
+mod collab_deaths;
 mod comments;
 mod compression;
 mod content_blocks;
