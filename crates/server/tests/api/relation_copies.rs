@@ -269,3 +269,30 @@ async fn a_copy_of_a_card_names_the_cards_its_source_named() {
     assert!(blocks.iter().any(|block| block.id == view));
     th.teardown().await;
 }
+
+/// A relation is a card's: another block's value names nothing, is not checked, and
+/// does not stop a copy.
+#[tokio::test]
+async fn a_relation_value_of_a_block_that_is_no_card_does_not_stop_a_copy() {
+    let th = Setup::native().start().await.init_basic().await;
+    let Named { board, cards, .. } = named_board(&th).await;
+    th.client
+        .post(
+            &format!("/boards/{}/blocks", board.id),
+            &json!([{
+                "id": "v", "boardId": board.id, "parentId": board.id, "type": "view",
+                "title": "Odd", "schema": 1, "createAt": 1, "updateAt": 1,
+                "fields": {"properties": {RELATION: [cards["A"], new_id()]}},
+            }]),
+        )
+        .await
+        .check_created();
+    let copy: BoardsAndBlocks = th
+        .client
+        .post_empty(&format!("/boards/{}/duplicate", board.id))
+        .await
+        .created_json();
+    let values = relations_by_title(&th.client, &copy.boards[0].id).await;
+    assert_eq!(values["B"], json!(["A", "C"]));
+    th.teardown().await;
+}

@@ -36,7 +36,7 @@ pub(crate) struct NamedCards {
 
 /// Checks the property values a write changes of a block, against what `existing` (the
 /// block as it is stored, if it is) has: a date value for a date property and none for
-/// another, and as a relation value a list of other cards, each once, at most
+/// another, and as a relation value of a card a list of other cards, each once, at most
 /// [`fvoci_model::RELATION_LIMIT`]. Only the values the write changes are checked; one
 /// that was stored before the rules, or that a change of the definitions left behind,
 /// stays until it is written.
@@ -75,6 +75,11 @@ pub(crate) async fn check_written(
     };
     validate_card_property_kinds(&written, &board.card_properties)
         .map_err(|error| invalid(error.into()))?;
+    // A relation is a card's: a value another block holds names nothing, and a copy
+    // leaves it as it is.
+    if block.block_type != BlockType::Card {
+        return Ok(Vec::new());
+    }
     let relations = relation_property_ids(&board.card_properties);
     let mut named = Vec::new();
     for (property, value) in &written {
