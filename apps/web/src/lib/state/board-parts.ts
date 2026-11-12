@@ -32,6 +32,10 @@ interface CopiedFrom {
  * that are on the board: those of the store, and those in the board's trash,
  * as the server's copy of a card keeps them ([valuesOfCopy]). The trash is
  * read only when the source names a card the store does not have.
+ *
+ * It keeps less than the server's copy does: the trash lists the cards
+ * deleted by themselves, not those that went with the block they were on,
+ * and a trash that cannot be read names none.
  */
 export async function draftOfCopy(
   backend: Pick<Backend, 'card' | 'deletedCards'>,

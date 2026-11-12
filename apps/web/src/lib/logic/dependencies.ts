@@ -37,9 +37,9 @@ export interface RelationEdge {
 /**
  * The property values a copy of `card` on its own board is made with: a
  * relation names the cards of `cardIds` it named, each once, not `card`
- * itself, at most RELATION_LIMIT. A deleted card is left out: one in the
- * trash cannot be told here from one gone for good, which the server refuses
- * a new card to name. Other values are as they are.
+ * itself, at most RELATION_LIMIT. `cardIds` are the cards a copy may name,
+ * those in the board's trash too: the caller knows which those are. Other
+ * values are as they are.
  */
 export function valuesOfCopy(
   card: Card,

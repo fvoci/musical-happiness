@@ -191,6 +191,17 @@ describe('a relation property, opened', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2']);
   });
 
+  it('offers no such button when taking the deleted cards out leaves no room', async () => {
+    const many = cardsOf(
+      Object.fromEntries(
+        Array.from({ length: RELATION_LIMIT }, (_, at) => [`c${String(at)}`, `Card ${String(at)}`]),
+      ),
+    );
+    mount('relation', [...many.keys(), 'card-gone'], { cards: many });
+    await fireEvent.click(button());
+    expect(screen.queryByRole('button', { name: /^Take out the deleted cards/ })).toBeNull();
+  });
+
   it('shows no such button while deleted cards leave room', async () => {
     mount('relation', ['card-gone', 'card-2'], { cards: CARDS });
     await fireEvent.click(button());

@@ -566,14 +566,17 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
     let client = &th.client;
     let Related { board, cards } = related_board(client, 1).await;
     let blocks = format!("/boards/{}/blocks", board.id);
-    for (id, value) in [("odd", json!([new_id()])), ("fine", json!([cards[0].id]))] {
+    for (id, value) in [
+        ("odd", json!({RELATION: [new_id()]})),
+        ("fine", json!({RELATION: [cards[0].id]})),
+    ] {
         client
             .post(
                 &blocks,
                 &json!([{
                     "id": id, "boardId": board.id, "parentId": board.id, "type": "view",
                     "title": id, "schema": 1, "createAt": 1, "updateAt": 1,
-                    "fields": {"viewType": "table", "properties": {RELATION: value}},
+                    "fields": {"viewType": "table", "properties": value},
                 }]),
             )
             .await
@@ -596,5 +599,14 @@ async fn a_block_that_becomes_a_card_has_its_relations_checked() {
         .patch(&format!("{blocks}/{}", id_of("fine")), &to_card)
         .await
         .check_no_content();
+    let after: Vec<Block> = client.get(&blocks).await.ok_json();
+    let type_of = |title: &str| {
+        after
+            .iter()
+            .find(|block| block.title == title)
+            .map(|block| block.block_type.clone())
+    };
+    assert_eq!(type_of("odd"), Some(fvoci_model::BlockType::View));
+    assert_eq!(type_of("fine"), Some(fvoci_model::BlockType::Card));
     th.teardown().await;
 }

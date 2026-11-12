@@ -207,6 +207,32 @@ describe('changing the kind of a property', () => {
     expect(await stored()).toEqual(before);
   });
 
+  it('leaves a value no kind of the change takes, so that undo is not stopped by it', async () => {
+    const { board, backend, workspace, definition } = await open();
+    await board.changeBoard((current) => ({
+      ...current,
+      cardProperties: current.cardProperties.map((property) =>
+        property.id === STATUS ? { ...property, type: 'relation', options: [] } : property,
+      ),
+    }));
+    const template = definition(STATUS);
+    const source = board.cards[0];
+    if (!template || !source) throw new Error('a property and a card are needed');
+    const stored = async () =>
+      (await backend.card(board.boardId, source.id)).fields.properties[STATUS];
+    const before = await stored();
+    expect(typeof before).toBe('string');
+
+    // A select value is no relation value and no date value: it stays where it is.
+    await changePropertyType(board, planTypeChange(template, 'date', board.cards));
+    expect(definition(STATUS)?.type).toBe('date');
+    expect(await stored()).toEqual(before);
+    await workspace.undoLast();
+    expect(workspace.problems).toEqual([]);
+    expect(definition(STATUS)?.type).toBe('relation');
+    expect(await stored()).toEqual(before);
+  });
+
   it('takes the views off what they wrote for the old kind', async () => {
     const { board, view, definition } = await open();
     expect(view.fields.groupById).toBe(STATUS);

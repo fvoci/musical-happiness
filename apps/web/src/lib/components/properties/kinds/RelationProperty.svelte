@@ -14,7 +14,8 @@
   keeps them all until the reader takes some out). The hidden ones count, as
   the server counts them: when they fill the value, nothing more is offered,
   and a line says how many deleted cards hold places, with a button that
-  takes them out. Nothing else leaves them out. The list shows the
+  takes them out. Nothing else leaves them out. A card template the value
+  names is not among `cards` either: it counts as deleted here. The list shows the
   picked cards first, then the others by title, at most LIST_LIMIT at a
   time, so that a board of thousands of cards does not draw thousands of
   rows: typing narrows it.
@@ -84,6 +85,8 @@
   // svelte-ignore state_referenced_locally (only where editing starts)
   let open = $state(startOpen);
   let search = $state('');
+  /** The open editor, where the search is. */
+  let editor: HTMLDivElement | undefined = $state();
 
   const untitled = (card: Card | undefined): string => card?.title || m['KanbanCard.untitled']();
   const titleOf = (id: string): string => untitled(cards.get(id));
@@ -142,8 +145,10 @@
     ).length;
   });
   /** What the reader is told about the cards held back: deleted cards in the way, the limit, then loops. */
+  /** Deleted cards fill the value, and taking them out leaves room. */
+  const crowded = $derived(full && hidden.length > 0 && shown.length < RELATION_LIMIT);
   const heldBack = $derived(
-    full && hidden.length > 0
+    crowded
       ? m.property_relation_hidden_full({ count: hidden.length })
       : full
         ? m.property_relation_full({ count: RELATION_LIMIT })
@@ -269,7 +274,7 @@
         </button>
       {/snippet}
 
-      <div class="flex flex-col gap-1">
+      <div class="flex flex-col gap-1" bind:this={editor}>
         {#if shown.length > 0}
           <ul
             class="m-0 flex list-none flex-wrap gap-1 p-1"
@@ -302,7 +307,7 @@
           multiple
           label={name}
           placeholder={m.property_relation_search()}
-          emptyText={m.property_no_matches()}
+          emptyText={full ? '' : m.property_no_matches()}
           onPick={pick}
           onBackspaceEmpty={() => {
             const last = shown.at(-1);
@@ -326,13 +331,15 @@
         >
           {regionReady ? heldBack : ''}
         </p>
-        {#if full && hidden.length > 0}
+        {#if crowded}
           <Button
             variant="ghost"
             class="justify-start group-data-[presentation=sheet]/surface:min-h-touch"
             data-slot="relation-drop-hidden"
             onclick={() => {
               write(shown, false);
+              // The button goes with the deleted cards: the search keeps the focus.
+              editor?.querySelector('input')?.focus();
             }}
           >
             {m.property_relation_drop_hidden({ count: hidden.length })}

@@ -92,34 +92,39 @@ export async function renameProperty(
 }
 
 /**
- * Whether the server takes `value` under a property of the kind `type`: a
- * card relation holds a list of identifiers, a date a date value, any other
- * kind no date value.
+ * Whether the server takes `value` written under a property of the kind
+ * `type`: a date value under a date, any other value under any other kind.
+ * A card relation takes a list of identifiers, but checks each card it names
+ * again, as it would a new one: whether it takes the list is not known here.
  */
 function fitsKind(value: PropertyValue | undefined, type: PropertyType | undefined): boolean {
-  if (type === 'relation')
-    return Array.isArray(value) && value.every((id) => typeof id === 'string');
   const isDate = typeof value === 'object' && !Array.isArray(value);
+  if (type === 'relation') return Array.isArray(value);
   return type === 'date' ? isDate : !isDate;
 }
 
 /**
- * Changes the kind of a property as planned. Each value that goes is taken
- * out while the property has the kind the value fits, so that undo, which
- * goes back the other way, writes it back under a kind the server takes: the
- * values of the old kind first, then the definition changes, then the views
- * that leaned on the old kind, the values rewritten for the new one, and the
- * values left over from a kind before (a text where a card relation is now).
- * A refused definition changes nothing: what went first comes back.
+ * Changes the kind of a property as planned. Undo goes back the other way,
+ * so a value that goes is taken out where undo can write it back: after the
+ * definition changes when the new kind takes it, before when only the old
+ * kind does, and not at all when neither does (it stays on the card, where
+ * the new kind shows nothing of it). Then the views that leaned on the old
+ * kind change, and the values rewritten for the new one are written. A
+ * refused definition changes nothing: what went before it comes back.
+ *
+ * A relation value written back under a relation is checked card by card
+ * again: one that names a card gone for good is refused then, and is lost.
  */
 export async function changePropertyType(board: BoardStore, plan: TypeChangePlan): Promise<void> {
   const { template, values } = plan;
   const groupId = newUndoGroup();
   const oldType = templateOf(board, template.id)?.type;
   const valueOf = (cardId: string) => board.card(cardId)?.fields.properties[template.id];
-  const first = [...values]
-    .filter(([cardId, value]) => value === undefined && fitsKind(valueOf(cardId), oldType))
-    .map(([cardId]) => cardId);
+  const newTakes = (cardId: string) =>
+    template.type !== 'relation' && fitsKind(valueOf(cardId), template.type);
+  const removed = [...values].filter(([, value]) => value === undefined).map(([id]) => id);
+  const first = removed.filter((id) => !newTakes(id) && fitsKind(valueOf(id), oldType));
+  const left = new Set(removed.filter((id) => !newTakes(id)));
   const before = new Map(first.map((cardId) => [cardId, valueOf(cardId)]));
   const setAll = (entries: Iterable<[string, PropertyValue | undefined]>) =>
     Promise.all(
@@ -147,7 +152,7 @@ export async function changePropertyType(board: BoardStore, plan: TypeChangePlan
         groupId,
       ),
     ),
-    setAll([...values].filter(([cardId]) => !before.has(cardId))),
+    setAll([...values].filter(([cardId]) => !left.has(cardId))),
   ]);
 }
 

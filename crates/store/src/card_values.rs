@@ -57,10 +57,10 @@ pub(crate) async fn check_written(
     };
     // A block that becomes a card brings values nothing checked as a card's: all of
     // them are checked as written.
+    let became_card = block.block_type == BlockType::Card
+        && existing.is_some_and(|existing| existing.block_type != BlockType::Card);
     let before = existing
-        .filter(|existing| {
-            existing.block_type == block.block_type || block.block_type != BlockType::Card
-        })
+        .filter(|_| !became_card)
         .and_then(|existing| existing.fields.get("properties"))
         .and_then(Value::as_object);
     let written: JsonMap = values
