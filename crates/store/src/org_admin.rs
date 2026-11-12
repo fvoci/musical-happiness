@@ -146,9 +146,10 @@ impl Store {
     /// Changes of roles, and joinings, are made one at a time in an organization: of
     /// two administrators who make each other members at once, one is refused.
     ///
-    /// Who is made an administrator of the only organization in use administers the
-    /// instance too; of one of several, the organization alone. Who stops administering
-    /// it stops administering the instance, unless they are its last administrator.
+    /// In the instance's own organization (the oldest, the only one of a single
+    /// install) its administrators are the instance's: who is made one administers the
+    /// instance too, and who stops stops administering it, unless they are its last
+    /// administrator, which refuses the change. In another, a role is its own alone.
     ///
     /// # Errors
     ///
@@ -159,8 +160,7 @@ impl Store {
         role: OrgRole,
         actor_id: &str,
     ) -> Result<OrgRoleChange, StoreError> {
-        // Asked outside the organization's wall, which hides the others.
-        let only_org = self.login_organization(None).await?.is_some();
+        let the_instances = self.is_the_instances_organization().await?;
         self.transaction(async |scope| {
             // The instance's row first, as a change of who administers the instance
             // takes it: the two are one role for now (`members::follow_instance_role`).
@@ -175,15 +175,12 @@ impl Store {
             if current == OrgRole::Admin && !another_admin(scope, user_id).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
-            // The administrators of the only organization are the instance's for now
-            // (`members::follow_instance_role`): who becomes one administers the
-            // instance. Of one of several organizations, no: the instance's
-            // administrator reaches the others. Who stops does not, either way, or
-            // they would make themselves, or anybody, its administrator again past
-            // this log.
-            if (only_org || role == OrgRole::Member)
-                && !users::follow_org_role(scope, user_id, role).await?
-            {
+            // The administrators of the instance's own organization are the
+            // instance's for now (`members::follow_instance_role`): who becomes one
+            // administers the instance, and who stops does not, or they would make
+            // themselves, or anybody, its administrator again past this log. Of
+            // another organization, a role is that organization's alone.
+            if the_instances && !users::follow_org_role(scope, user_id, role).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
             let mut sql = scope.sql("UPDATE organization_members SET role = ");
@@ -390,6 +387,9 @@ impl Store {
         deleted_before: i64,
     ) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
+            // The organization's first, as deleting a board takes it before the board's:
+            // with a joining of the workspace that ends meanwhile (`joinings`).
+            lock_organization(scope).await?;
             // Held against a restoration under way, which then finds nothing to restore.
             let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
             sql.bind(Id(workspace_id))
@@ -553,8 +553,10 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
 pub(crate) async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
     sql.bind(scope.org()?);
+    // Not FOR UPDATE: what refers to the organization (a member, a workspace, a record)
+    // is still added meanwhile; only another holder of this lock waits.
     if scope.dialect() == Dialect::Postgres {
-        sql.push(" FOR UPDATE");
+        sql.push(" FOR NO KEY UPDATE");
     }
     scope.fetch_optional(sql).await?;
     organization(scope).await

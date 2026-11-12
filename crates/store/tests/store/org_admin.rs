@@ -698,31 +698,64 @@ async fn the_instance_and_the_organization_keep_one_administration() {
     test.teardown().await;
 }
 
-/// Of one of several organizations, an administrator is not the instance's: who is made
-/// one administers that organization alone, as the instance's administrator reaches the
-/// others. Who stops administering it stops administering the instance.
+/// Of several organizations, the instance's administrators are the oldest one's, the
+/// instance's own: a change of a role in another changes nothing of the instance, either
+/// way, and is never refused for the instance's sake. In the instance's own, who stops
+/// administering it stops administering the instance.
 #[tokio::test]
-async fn an_administrator_of_one_of_several_organizations_is_not_the_instances() {
+async fn the_instance_is_administered_through_its_own_organization_only() {
     // An SQLite database holds one organization.
     if common::db_type() != DbType::Postgres {
         return;
     }
     let test = common::setup().await;
-    let admin = org_member(&test, "admin", OrgRole::Admin).await;
-    let member = org_member(&test, "member", OrgRole::Member).await;
-    let second = org_member(&test, "second", OrgRole::Admin).await;
-    common::organization(&test.scoped(Tenant::Unset), "Another").await;
-
-    assert_eq!(
-        test.set_org_role(&member, OrgRole::Admin, &admin)
+    // The only administrator of the instance, through the test's organization (the
+    // oldest), and a plain member of the other.
+    let instance_admin = org_member(&test, "instance", OrgRole::Admin).await;
+    let (other_org, _) = common::organization(&test.scoped(Tenant::Unset), "Another").await;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    let their_admin = common::user(&theirs, "their-admin").await;
+    let member = common::user(&theirs, "member").await;
+    for statement in [
+        format!(
+            "UPDATE organization_members SET role = 'admin' \
+             WHERE org_id = '{other_org}' AND user_id = '{their_admin}'"
+        ),
+        format!(
+            "INSERT INTO organization_members (org_id, user_id, role, create_at) \
+             VALUES ('{other_org}', '{instance_admin}', 'member', 1)"
+        ),
+    ] {
+        test.execute_unchecked(&statement)
             .await
-            .expect("asked"),
-        OrgRoleChange::Done
-    );
+            .expect("the roles in the other organization");
+    }
+
+    for (user, role) in [
+        (&member, OrgRole::Admin),
+        (&instance_admin, OrgRole::Admin),
+        (&instance_admin, OrgRole::Member),
+    ] {
+        assert_eq!(
+            theirs
+                .set_org_role(user, role, &their_admin)
+                .await
+                .expect("asked"),
+            OrgRoleChange::Done,
+            "{role:?}"
+        );
+    }
     let made = test.get_user_by_id(&member).await.expect("the user");
     assert!(!made.is_admin, "no administrator of the instance");
+    let kept = test
+        .get_user_by_id(&instance_admin)
+        .await
+        .expect("the user");
+    assert!(kept.is_admin, "still the instance's administrator");
+
+    let second = org_member(&test, "second", OrgRole::Admin).await;
     assert_eq!(
-        test.set_org_role(&second, OrgRole::Member, &admin)
+        test.set_org_role(&second, OrgRole::Member, &instance_admin)
             .await
             .expect("asked"),
         OrgRoleChange::Done

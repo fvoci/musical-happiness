@@ -18,13 +18,13 @@ use fvoci_model::{
 };
 use subtle::ConstantTimeEq as _;
 
-use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
+use crate::{Store, Tenant};
 use crate::{users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
@@ -715,6 +715,26 @@ impl Store {
                     Some(row) => role(&row, 0).map(Some),
                     None => Ok(None),
                 }
+            })
+            .await
+    }
+
+    /// Whether the handle's organization is the instance's own: the oldest one in use,
+    /// which the routes that name no workspace work in ([`Store::only_organization`]) and
+    /// whose administrators are the instance's (`members::follow_instance_role`). Asked
+    /// with the system's reach, as the organization's wall hides the others.
+    pub(crate) async fn is_the_instances_organization(&self) -> Result<bool, StoreError> {
+        let Tenant::Org(org) = self.tenant() else {
+            return Ok(false);
+        };
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+                sql.bind(false)
+                    .push_bind(" AND delete_at = ", 0_i64)
+                    .push(" ORDER BY create_at, id LIMIT 1");
+                let oldest = scope.fetch_optional(sql).await?.map(|row| row.id(0));
+                Ok(oldest.transpose()?.is_some_and(|id| id == org.to_string()))
             })
             .await
     }
