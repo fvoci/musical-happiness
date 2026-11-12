@@ -230,6 +230,24 @@ fn describe_reason(reason: Reason) -> &'static str {
         Reason::ServerImportsBusy => {
             "Status 429. The server runs as many imports as it may at once. Try again later."
         }
+        Reason::RelationNotAList
+        | Reason::RelationToItself
+        | Reason::RelationRepeated
+        | Reason::RelationTooMany
+        | Reason::RelationNotACard
+        | Reason::RelationCardNotFound => describe_relation(reason),
+        Reason::UpdateRefused
+        | Reason::UpdateOutOfStep
+        | Reason::UpdateTooLarge
+        | Reason::DocumentTooLarge
+        | Reason::TooManyDocuments
+        | Reason::DocumentUnavailable => describe_editing_together(reason),
+    }
+}
+
+/// What the reasons of a card relation mean.
+fn describe_relation(reason: Reason) -> &'static str {
+    match reason {
         Reason::RelationNotAList => {
             "Status 400. The value of a card relation property (of the `type` `relation`) is \
              `null` or a list of identifiers of cards of the board. `errors` names where the \
@@ -258,12 +276,7 @@ fn describe_reason(reason: Reason) -> &'static str {
              apart. A card in the trash may be named, and what a value named before is not \
              asked for again. `errors` as for `relation-not-a-list`."
         }
-        Reason::UpdateRefused
-        | Reason::UpdateOutOfStep
-        | Reason::UpdateTooLarge
-        | Reason::DocumentTooLarge
-        | Reason::TooManyDocuments
-        | Reason::DocumentUnavailable => describe_editing_together(reason),
+        other => unreachable!("{other:?} is no reason of a card relation"),
     }
 }
 

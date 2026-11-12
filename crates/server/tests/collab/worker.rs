@@ -234,7 +234,16 @@ async fn a_call_given_up_half_way_neither_kills_the_worker_nor_puts_the_answers_
 /// A request larger than a frame is refused before it is sent, and the worker lives.
 #[tokio::test]
 async fn a_request_larger_than_a_frame_is_refused_without_harm_to_the_worker() {
-    let worker = roomy();
+    // Memory for documents as large as a state: a frame is that and a little more.
+    let worker = Worker::new(WorkerSettings {
+        command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
+        limits: Limits {
+            held_bytes: STATE_BYTES,
+            ..limits(100)
+        },
+        timeout: Duration::from_secs(10),
+        memory_bytes: 1024 * 1024 * 1024,
+    });
     let (generation, _) = worker
         .call(None, &open_body(1, &paragraphs(&["kept"])))
         .await
