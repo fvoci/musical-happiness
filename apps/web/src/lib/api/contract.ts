@@ -160,9 +160,7 @@ export interface paths {
         /**
          * A board
          * @description For a user who may see the board: a member of it, or for an open board anyone in
-         *     its workspace. With the board's read token no session is needed. Who reads with the token
-         *     and is no member of the board, without a session or signed in, is not told who made
-         *     the board or changed it last (`createdBy` and `modifiedBy` are empty).
+         *     its workspace.
          */
         get: operations["getBoard"];
         put?: never;
@@ -225,17 +223,7 @@ export interface paths {
         };
         /**
          * The blocks of a board
-         * @description For the board's members, and for an open template everyone in its workspace. With the
-         *     board's read token no session is needed. Who reads with the token and is no member
-         *     of the board, without a session or signed in, is told no user's identifier:
-         *     `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a
-         *     body, and so is each user that the board's person properties (`person`,
-         *     `multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in
-         *     the clauses of a view's `fields.filter`; a list keeps its length, so how many people
-         *     a card has still shows. A card's values of properties the board does not define are
-         *     left out, and a view grouped by a person property keeps of `visibleOptionIds`,
-         *     `hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of
-         *     the cards without a value (`""`).
+         * @description For the board's members, and for an open template everyone in its workspace.
          *
          *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
          *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -390,17 +378,10 @@ export interface paths {
         };
         /**
          * The cards of a board
-         * @description One page of the board's cards, for the board's members, and with the board's read
-         *     token for whoever has it. Oldest first; the pages cut that order. A `page` or
-         *     `perPage` that is no whole number is 400. With `preview=true` each card has its
-         *     `preview` (the first image and the beginning of the text of its body), which a
-         *     list without it leaves out.
-         *
-         *     To a reader with the read token alone (no session, or a user who is no member of
-         *     the board) the cards name no users, as `getBlocks` gives them: `createdBy` and
-         *     `modifiedBy` are empty, the values of person properties are emptied, and values of
-         *     properties the board does not define are left out. The preview's text has no
-         *     mentions in it, and its image `getFile` gives with the same token.
+         * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
+         *     that order. A `page` or `perPage` that is no whole number is 400. With
+         *     `preview=true` each card has its `preview` (the first image and the beginning of the
+         *     text of its body), which a list without it leaves out.
          */
         get: operations["getCards"];
         put?: never;
@@ -487,9 +468,8 @@ export interface paths {
         };
         /**
          * A file
-         * @description The content of a file of the board, for the board's members; with the board's read
-         *     token no session is needed. A file is asked for through its own board only: through
-         *     another board it is not there.
+         * @description The content of a file of the board, for the board's members. A file is asked for
+         *     through its own board only: through another board it is not there.
          *
          *     Every file is sent as `application/octet-stream` and offered as a download
          *     (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
@@ -518,7 +498,7 @@ export interface paths {
         /**
          * What is known about a file
          * @description The name a file was uploaded under, its size and when it was uploaded. For the
-         *     board's members; with the board's read token no session is needed.
+         *     board's members.
          */
         get: operations["getFileInfo"];
         put?: never;
@@ -1028,6 +1008,125 @@ export interface paths {
          *     `invalid_characters`.
          */
         post: operations["register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{boardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A shared board
+         * @description The board whose read token the request has; no session is needed, and one that
+         *     comes along is not looked at. Who made the board or changed it last is not told
+         *     (`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is empty). 404 unless the token is the board's and the
+         *     board is shared and not in the trash; 429 for an address that has had many such
+         *     answers within a minute.
+         */
+        get: operations["getSharedBoard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{boardId}/blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The blocks of a shared board
+         * @description What `getBlocks` gives of the board, with the same parameters, read with its read
+         *     token as `getSharedBoard` is. No block names a user: `createdBy` and `modifiedBy`
+         *     are empty, so is the `userId` of every mention in a body, and so is each user that
+         *     the board's person properties (`person`, `multiPerson`, `createdBy`, `updatedBy`)
+         *     name in a card's `fields.properties` and in the clauses of a view's `fields.filter`;
+         *     a list keeps its length, so how many people a card has still shows. A card's values
+         *     of properties the board does not define are left out, and a view grouped by a person
+         *     property keeps of `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds` and
+         *     `kanbanCalculations` only the group of the cards without a value (`""`). Oldest
+         *     first; the blocks that one request made come in the order that request had them in.
+         */
+        get: operations["getSharedBlocks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{boardId}/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The cards of a shared board
+         * @description What `getCards` gives of the board, read with its read token as `getSharedBoard` is.
+         *     No card names a user: `createdBy` and `modifiedBy` are empty, the values of person
+         *     properties are emptied, and values of properties the board does not define are left
+         *     out. The preview's text has no mentions in it, and its image `getSharedFile` gives.
+         *     Oldest first; the pages cut that order.
+         */
+        get: operations["getSharedCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{boardId}/files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A file of a shared board
+         * @description What `getFile` gives of a file of the board, read with its read token as
+         *     `getSharedBoard` is: a file of another board is not there.
+         */
+        get: operations["getSharedFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{boardId}/files/{fileId}/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What is known about a file of a shared board
+         * @description What `getFileInfo` gives of a file of the board, read with its read token as
+         *     `getSharedBoard` is.
+         */
+        get: operations["getSharedFileInfo"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3433,10 +3532,7 @@ export interface operations {
     };
     getBoard: {
         parameters: {
-            query?: {
-                /** @description The read token of the board. With the token of a board that is shared, the request needs no session. */
-                readToken?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 /** @description The identifier of the board. */
@@ -3579,8 +3675,6 @@ export interface operations {
                 parentId?: string;
                 /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
                 type?: string;
-                /** @description The read token of the board. With the token of a board that is shared, the request needs no session. */
-                readToken?: string;
             };
             header?: never;
             path: {
@@ -3877,8 +3971,6 @@ export interface operations {
                 perPage?: number;
                 /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
                 preview?: boolean;
-                /** @description The read token of the board. With the token of a board that is shared, the request needs no session. */
-                readToken?: string;
             };
             header?: never;
             path: {
@@ -4023,10 +4115,7 @@ export interface operations {
     };
     getFile: {
         parameters: {
-            query?: {
-                /** @description The read token of the board. With the token of a board that is shared, the request needs no session. */
-                readToken?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 /** @description The identifier of the board. */
@@ -4094,10 +4183,7 @@ export interface operations {
     };
     getFileInfo: {
         parameters: {
-            query?: {
-                /** @description The read token of the board. With the token of a board that is shared, the request needs no session. */
-                readToken?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 /** @description The identifier of the board. */
@@ -4968,6 +5054,208 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedBoard: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedBlocks: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+                /** @description Any value that is not empty asks for every block of the board, and the other parameters are not looked at. */
+                all?: string;
+                /** @description Asks for the one block with this identifier, in a list of one. 404 if the board has no such block. */
+                blockId?: string;
+                /** @description Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board. */
+                parentId?: string;
+                /** @description Narrows the list to the blocks of this type. The word `unknown` narrows nothing. */
+                type?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The blocks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Block"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedCards: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+                /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
+                preview?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Card"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedFile: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The range of the file that was asked for, as `getFile` answers it. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSharedFileInfo: {
+        parameters: {
+            query: {
+                /** @description The read token of the board, as `getSharing` answers it while the board is shared. */
+                readToken: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+                /** @description The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension. */
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What is known about the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileInfo"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

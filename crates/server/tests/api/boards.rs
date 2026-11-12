@@ -930,8 +930,8 @@ async fn get_board_a_non_authenticated_user_should_be_rejected() {
     response.check_unauthorized();
     assert_eq!(
         response.error_message(),
-        "access denied to board",
-        "the handler's own refusal, not the session check's"
+        "no session token",
+        "the session check's refusal: the board's routes need a session"
     );
     th.teardown().await;
 }
@@ -961,17 +961,19 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
         .await
         .check_not_found();
 
-    // ...but it can by its link. Who reads by the link is not told who made the board.
+    // ...but it can by its link. Who reads by the link is not told who made the board,
+    // nor its workspace.
     let shared_path = format!("/shared/{}?readToken={sharing_token}", board.id);
     let read: Board = anonymous.get(&shared_path).await.ok_json();
     assert_eq!(
         read,
         Board {
+            workspace_id: String::new(),
             created_by: String::new(),
             modified_by: String::new(),
             ..board.clone()
         },
-        "the shared board, without its creator and modifier"
+        "the shared board, without its workspace, creator and modifier"
     );
 
     // Whoever is signed in reads by the link as its reader, a member of the board too;

@@ -219,7 +219,7 @@
   },
   {
     "name": "board with the read token",
-    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:1> as anonymous",
+    "request": "GET /api/v1/shared/<id:2>?readToken=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -240,40 +240,40 @@
       "title": "Shared board",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": ""
     }
   },
   {
     "name": "board with a wrong read token",
-    "request": "GET /api/v1/boards/<id:2>?readToken=wrong as anonymous",
-    "status": 401,
+    "request": "GET /api/v1/shared/<id:2>?readToken=wrong as anonymous",
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 401,
-      "title": "No valid session",
-      "type": "/problems/unauthorized"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "board with the token under the old name of the parameter",
-    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:1> as anonymous",
-    "status": 401,
+    "request": "GET /api/v1/shared/<id:2>?read_token=<secret:1> as anonymous",
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 401,
-      "title": "No valid session",
-      "type": "/problems/unauthorized"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "blocks with the read token",
-    "request": "GET /api/v1/boards/<id:2>/blocks?readToken=<secret:1> as anonymous",
+    "request": "GET /api/v1/shared/<id:2>/blocks?readToken=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -296,16 +296,16 @@
   },
   {
     "name": "blocks with a wrong read token",
-    "request": "GET /api/v1/boards/<id:2>/blocks?readToken=wrong as anonymous",
-    "status": 401,
+    "request": "GET /api/v1/shared/<id:2>/blocks?readToken=wrong as anonymous",
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 401,
-      "title": "No valid session",
-      "type": "/problems/unauthorized"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -369,21 +369,21 @@
   },
   {
     "name": "board with the token from before regenerating",
-    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:1> as anonymous",
-    "status": 401,
+    "request": "GET /api/v1/shared/<id:2>?readToken=<secret:1> as anonymous",
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 401,
-      "title": "No valid session",
-      "type": "/problems/unauthorized"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "board with the regenerated token",
-    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
+    "request": "GET /api/v1/shared/<id:2>?readToken=<secret:2> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -404,7 +404,7 @@
       "title": "Shared board",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": ""
     }
   },
   {
@@ -429,16 +429,16 @@
   },
   {
     "name": "board with the token of a disabled share",
-    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
-    "status": 401,
+    "request": "GET /api/v1/shared/<id:2>?readToken=<secret:2> as anonymous",
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 401,
-      "title": "No valid session",
-      "type": "/problems/unauthorized"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -460,16 +460,16 @@
   },
   {
     "name": "board with the token from before disabling",
-    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
-    "status": 401,
+    "request": "GET /api/v1/shared/<id:2>?readToken=<secret:2> as anonymous",
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 401,
-      "title": "No valid session",
-      "type": "/problems/unauthorized"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   }
 ]

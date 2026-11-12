@@ -452,7 +452,7 @@
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 401,

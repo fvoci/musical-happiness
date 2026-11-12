@@ -19,8 +19,7 @@ use super::contract::params::{
 use super::contract::tag;
 
 use super::{
-    ApiResult, RequiredSession, created, decode_json,
-    json_response, no_content, query_param,
+    ApiResult, RequiredSession, created, decode_json, json_response, no_content, query_param,
 };
 use super::{
     BlockAction, require_block_patch_permission, require_block_permission,

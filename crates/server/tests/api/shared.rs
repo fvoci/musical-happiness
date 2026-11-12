@@ -55,12 +55,16 @@ async fn fixture() -> Fixture {
         .created_json();
     let card_id = card["id"].as_str().expect("an identifier").to_owned();
     ts.client2
-        .post(
-            &format!("/boards/{}/blocks", board.id),
-            &json!([{"id": "comment", "parentId": card_id, "type": "comment", "title": "fine by me"}]),
-        )
+        .post(&format!("/boards/{}/join", board.id), &json!({}))
         .await
         .check_ok();
+    ts.client2
+        .post(
+            &format!("/boards/{}/blocks", board.id),
+            &json!([{"id": "comment", "boardId": board.id, "parentId": card_id, "type": "comment", "title": "fine by me", "createAt": 1, "updateAt": 1}]),
+        )
+        .await
+        .check_created();
     let file = reqwest::multipart::Part::bytes(b"the shared file".to_vec()).file_name("a.txt");
     let uploaded: Value = Client::send(
         ts.client
@@ -68,7 +72,7 @@ async fn fixture() -> Fixture {
             .multipart(reqwest::multipart::Form::new().part("file", file)),
     )
     .await
-    .ok_json();
+    .created_json();
     let file_id = uploaded["fileId"].as_str().expect("a file").to_owned();
     let sharing: Sharing = ts
         .client
@@ -81,6 +85,7 @@ async fn fixture() -> Fixture {
     let people = [me, other]
         .into_iter()
         .flat_map(|user| [user.id, user.username, user.email])
+        .filter(|name| !name.is_empty())
         .collect();
     Fixture {
         ts,
@@ -115,7 +120,10 @@ fn check_names_nobody(response: &ApiResponse, people: &[String], path: &str) {
     response.check_ok();
     let text = response.text();
     for person in people {
-        assert!(!text.contains(person.as_str()), "{path} names {person}: {text}");
+        assert!(
+            !text.contains(person.as_str()),
+            "{path} names {person}: {text}"
+        );
     }
 }
 
@@ -134,8 +142,8 @@ async fn a_shared_board_is_read_by_its_token_alone_and_names_nobody() {
     let anonymous = f.ts.anonymous();
     let board: Value = anonymous.get(&paths[0]).await.ok_json();
     assert_eq!(
-        (&board["id"], &board["title"]),
-        (&json!(f.board.id), &json!("Shared"))
+        (&board["id"], &board["title"], &board["workspaceId"]),
+        (&json!(f.board.id), &json!("Shared"), &json!(""))
     );
     let blocks: Vec<Value> = anonymous.get(&paths[2]).await.ok_json();
     let comment = blocks
@@ -221,16 +229,25 @@ async fn a_shared_board_is_not_there_without_its_token() {
         .await
         .check_no_content();
     for path in shared_paths(&f.board.id, &f.file_id, &token) {
-        assert_eq!(not_there(path.clone()).await, absent, "in the trash: {path}");
+        assert_eq!(
+            not_there(path.clone()).await,
+            absent,
+            "in the trash: {path}"
+        );
     }
     f.ts.teardown().await;
 }
 
 /// The routes of the board take no read token: without a session they are 401 whatever
-/// the query says, and a user who is no member of the board does not reach it with one.
+/// the query says, and a user who is no member of the private board does not reach it
+/// with one.
 #[tokio::test]
 async fn the_board_routes_take_no_read_token() {
     let f = fixture().await;
+    f.ts.client
+        .patch(&format!("/boards/{}", f.board.id), &json!({"type": "P"}))
+        .await
+        .check_ok();
     let outsider = f.ts.add_user("outsider").await;
     for rest in [
         String::new(),
@@ -266,7 +283,10 @@ async fn guessing_tokens_is_limited_by_address() {
     }
     let refused = anonymous.get(&good).await;
     assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
-    assert!(!refused.header("Retry-After").is_empty(), "how long to wait");
+    assert!(
+        !refused.header("Retry-After").is_empty(),
+        "how long to wait"
+    );
     f.ts.teardown().await;
 }
 

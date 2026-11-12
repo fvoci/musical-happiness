@@ -13,8 +13,7 @@ use super::contract::params::{AsTemplate, BoardId, ToWorkspace};
 use super::contract::tag;
 
 use super::{
-    ApiResult, RequiredSession, created, decode_json,
-    json_response, no_content, query_param,
+    ApiResult, RequiredSession, created, decode_json, json_response, no_content, query_param,
 };
 use super::{
     duplicate_as, json_object, require_board_permission, require_granted, require_workspace_access,

@@ -264,7 +264,7 @@
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "no session token",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 401,
@@ -354,7 +354,7 @@
   },
   {
     "name": "download with the read token",
-    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png?readToken=<secret:4> as anonymous",
+    "request": "GET /api/v1/shared/<id:2>/files/<secret:1>.png?readToken=<secret:4> as anonymous",
     "status": 200,
     "content_type": "application/octet-stream",
     "headers": {
@@ -364,16 +364,16 @@
   },
   {
     "name": "download with a wrong read token",
-    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png?readToken=wrong as anonymous",
-    "status": 401,
+    "request": "GET /api/v1/shared/<id:2>/files/<secret:1>.png?readToken=wrong as anonymous",
+    "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "access denied to board",
+      "detail": "board not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
-      "status": 401,
-      "title": "No valid session",
-      "type": "/problems/unauthorized"
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {

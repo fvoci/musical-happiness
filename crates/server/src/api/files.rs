@@ -30,8 +30,7 @@ use super::contract::params::{BoardId, FileId};
 use super::contract::tag;
 
 use super::{
-    ApiResult, RequiredSession, created, json_response,
-    require_board_permission, require_granted,
+    ApiResult, RequiredSession, created, json_response, require_board_permission, require_granted,
 };
 use crate::app::App;
 use crate::app::FILE;

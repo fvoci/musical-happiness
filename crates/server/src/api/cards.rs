@@ -15,10 +15,7 @@ use super::contract::tag;
 
 use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
-use super::{
-    ApiResult, RequiredSession, TRUE, created, json_response,
-    query_param,
-};
+use super::{ApiResult, RequiredSession, TRUE, created, json_response, query_param};
 use super::{decode_with_document, require_board_permission, require_permission_through};
 use crate::app::{App, CardPreviews};
 use crate::auth::now_millis;

@@ -81,13 +81,11 @@ impl FromRequestParts<App> for SharedBoard {
             Err(_) => return Err(AppError::internal("the route has no path parameters")),
         };
         let token = query_param(parts.uri.query(), READ_TOKEN);
-        match app.enter_shared_board(&board_id, &token).await? {
-            Some(app) => Ok(Self { app, board_id }),
-            None => {
-                app.shared_reads().failed(address);
-                Err(not_shared())
-            }
-        }
+        let Some(app) = app.enter_shared_board(&board_id, &token).await? else {
+            app.shared_reads().failed(address);
+            return Err(not_shared());
+        };
+        Ok(Self { app, board_id })
     }
 }
 
@@ -97,11 +95,13 @@ fn not_shared() -> AppError {
 }
 
 impl SharedBoard {
-    /// The board, as the holder of the link reads it. A board that went between the
+    /// The board, as the holder of the link reads it: naming nobody, and not its
+    /// workspace, which is there only for its members. A board that went between the
     /// token's check and this read is not there either.
     async fn board(&self) -> Result<Board, AppError> {
         let mut board = self.app.board(&self.board_id).await?;
         board.hide_people();
+        board.workspace_id.clear();
         Ok(board)
     }
 }
@@ -110,7 +110,7 @@ impl SharedBoard {
 ///
 /// The board whose read token the request has; no session is needed, and one that
 /// comes along is not looked at. Who made the board or changed it last is not told
-/// (`createdBy` and `modifiedBy` are empty). 404 unless the token is the board's and the
+/// (`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is empty). 404 unless the token is the board's and the
 /// board is shared and not in the trash; 429 for an address that has had many such
 /// answers within a minute.
 #[utoipa::path(

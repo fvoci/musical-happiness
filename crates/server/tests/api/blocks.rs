@@ -991,18 +991,14 @@ async fn get_blocks_permissions() {
 
     let response = th.anonymous().get(&path).await;
     response.check_unauthorized();
-    assert_eq!(
-        response.error_message(),
-        "access denied to board",
-        "no session"
-    );
+    assert_eq!(response.error_message(), "no session token", "no session");
 
     // Without a session the board is not even looked up.
     let response = th.anonymous().get(&blocks_path("no-such-board")).await;
     response.check_unauthorized();
     assert_eq!(
         response.error_message(),
-        "access denied to board",
+        "no session token",
         "no session, no board"
     );
 
@@ -1173,7 +1169,11 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     assert_eq!(people_in(&blocks), hidden, "nobody, to the token alone");
     for client in [&th.client2, &th.client] {
         let blocks = client.get(&path).await.value();
-        assert_eq!(people_in(&blocks), hidden, "nobody, to whoever is signed in");
+        assert_eq!(
+            people_in(&blocks),
+            hidden,
+            "nobody, to whoever is signed in"
+        );
     }
     let shown = people_in(&th.client.get(&blocks_path(&boards.board.id)).await.value());
     assert_eq!(shown["mention"], json!(me.id), "the user, to a member");
@@ -1200,8 +1200,7 @@ async fn get_blocks_with_a_read_token() {
     let content = card_with_content(&th, &boards).await;
     let read_token = th.share(&boards.board.id).await;
     let anonymous = th.anonymous();
-    let with_token =
-        |board: &Board| format!("/shared/{}/blocks?readToken={read_token}", board.id);
+    let with_token = |board: &Board| format!("/shared/{}/blocks?readToken={read_token}", board.id);
 
     let blocks: Vec<Block> = anonymous.get(&with_token(&boards.board)).await.ok_json();
     assert_eq!(
@@ -1216,7 +1215,10 @@ async fn get_blocks_with_a_read_token() {
 
     let wrong = format!("/shared/{}/blocks?readToken=wrong", boards.board.id);
     for client in [&anonymous, &th.client2] {
-        client.get(&wrong).await.check_error(StatusCode::NOT_FOUND, NO_BOARD);
+        client
+            .get(&wrong)
+            .await
+            .check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
 
     // The token of one board opens no other board, by path or by block identifier.
@@ -1237,10 +1239,7 @@ async fn get_blocks_with_a_read_token() {
     let block = new_block(&boards.board.id, BlockType::Card, "");
     anonymous
         .post(
-            &format!(
-                "{}?readToken={read_token}",
-                blocks_path(&boards.board.id)
-            ),
+            &format!("{}?readToken={read_token}", blocks_path(&boards.board.id)),
             &[block],
         )
         .await
