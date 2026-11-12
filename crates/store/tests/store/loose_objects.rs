@@ -575,3 +575,32 @@ async fn a_place_is_taken_and_compared_in_one_spelling() {
     );
     test.teardown().await;
 }
+
+/// A row stored before the rule of one spelling that names a place otherwise keeps
+/// every object: whether it holds a place cannot be told. A record of the trash of
+/// that time comes back as it was.
+#[tokio::test]
+async fn a_row_of_another_spelling_holds_every_place() {
+    let test = common::setup().await;
+    let (board_id, user_id) = board(&test).await;
+    let place = format!("boards/20261112/{board_id}/x.png");
+    test.save_file_info(&file_at(&board_id, &place))
+        .await
+        .expect("a record");
+    test.execute_unchecked(&format!(
+        "UPDATE file_info SET path = 'boards//20261112/{board_id}/x.png'"
+    ))
+    .await
+    .expect("a record of the time before the rule");
+    let elsewhere = "boards/20261112/other/y.png";
+    let held = test.held_objects(&[elsewhere], None).await.expect("read");
+    assert!(held.contains(elsewhere), "{held:?}");
+
+    test.delete_board(&board_id, &user_id)
+        .await
+        .expect("the board goes to the trash");
+    test.undelete_board(&board_id, &user_id)
+        .await
+        .expect("it comes back with its record as it was");
+    test.teardown().await;
+}

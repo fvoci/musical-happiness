@@ -9,7 +9,6 @@ use fvoci_model::FileInfo;
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
-use crate::loose_objects::check_path;
 
 pub(crate) const FILE_INFO_COLUMNS: &str =
     "id, board_id, name, original_name, extension, size, path, create_at";
@@ -53,6 +52,7 @@ impl Store {
     /// [`StoreError::NotFound`] if the board does not exist, and
     /// [`StoreError::Database`] if the board has a file of that stored name already.
     pub async fn save_file_info(&self, file_info: &FileInfo) -> Result<(), StoreError> {
+        check_new_path(&file_info.path)?;
         self.with_conn(async |scope| save_file_info(scope, file_info).await)
             .await
     }
@@ -103,14 +103,65 @@ impl Store {
     }
 }
 
+/// Refuses a place of the file storage that a new record, mark or session would name
+/// otherwise than the one way ([`fvoci_model::is_storage_path`]); the empty place of a
+/// record or session that names none passes. A record the store held already, as one
+/// that comes back from the trash, is taken as it was.
+pub(crate) fn check_new_path(path: &str) -> Result<(), StoreError> {
+    if path.is_empty() || fvoci_model::is_storage_path(path) {
+        Ok(())
+    } else {
+        Err(StoreError::InvalidPath(path.to_owned()))
+    }
+}
+
+/// The places that rows name otherwise than the one way: those that a rough condition
+/// finds, checked with [`fvoci_model::is_storage_path`].
+pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
+    let (trashed_path, trashed_files, backslash) = match scope.dialect() {
+        Dialect::Sqlite => (
+            "json_extract(f.value, '$.path')",
+            "json_each(d.files) AS f",
+            "instr({p}, char(92)) > 0",
+        ),
+        Dialect::Postgres => (
+            "f.value ->> 'path'",
+            "json_array_elements(d.files) AS f(value)",
+            "strpos({p}, chr(92)) > 0",
+        ),
+    };
+    let rough = |p: &str| {
+        format!(
+            "{p} <> '' AND ({p} LIKE '%//%' OR {p} LIKE '/%' OR {p} LIKE '%/' \
+             OR {p} LIKE '.%' OR {p} LIKE '%/.%' OR {})",
+            backslash.replace("{p}", p)
+        )
+    };
+    let statement = format!(
+        "SELECT path FROM file_info WHERE {} \
+         UNION SELECT path FROM uploads WHERE {} \
+         UNION SELECT path FROM loose_objects WHERE {} \
+         UNION SELECT {trashed_path} FROM deleted_boards AS d, {trashed_files} WHERE {}",
+        rough("path"),
+        rough("path"),
+        rough("path"),
+        rough(trashed_path)
+    );
+    let sql = scope.sql(&statement);
+    let mut found = Vec::new();
+    for row in scope.fetch_all(sql).await? {
+        let path = row.text(0)?;
+        if !fvoci_model::is_storage_path(&path) {
+            found.push(path);
+        }
+    }
+    Ok(found)
+}
+
 pub(crate) async fn save_file_info(
     scope: &mut Scope<'_>,
     file_info: &FileInfo,
 ) -> Result<(), StoreError> {
-    // A record of the original's may name no place; one that does names it one way.
-    if !file_info.path.is_empty() {
-        check_path(&file_info.path)?;
-    }
     // A new file is shown by no block until one is written that shows it.
     let mut sql = scope.sql(&format!(
         "INSERT INTO file_info ({FILE_INFO_COLUMNS}, unreferenced_at) VALUES ("

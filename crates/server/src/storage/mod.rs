@@ -214,13 +214,18 @@ impl FileBackend {
         .await
     }
 
-    /// Returns `true` if a file exists at `path`.
+    /// Returns `true` if a file exists at `path`. A path that is no place of the
+    /// storage, as an old record may name, holds none.
     ///
     /// # Errors
     ///
-    /// The errors of [`FileBackend::size`].
+    /// The backend's error if the lookup fails.
     pub async fn exists(&self, path: &str) -> Result<bool, StorageError> {
-        Ok(self.size(path).await?.is_some())
+        match self.size(path).await {
+            Ok(size) => Ok(size.is_some()),
+            Err(StorageError::InvalidPath(_)) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     /// Opens the file at `path` and returns the given byte range of it, or all of it.

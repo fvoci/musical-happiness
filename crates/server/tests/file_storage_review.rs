@@ -75,7 +75,7 @@ async fn abandoning_an_upload_with_a_path_alias_preserves_the_recorded_object() 
         .expect("the session names the place the other way");
     assert!(
         matches!(
-            ts.app.files().exists(&upload.path).await,
+            ts.app.files().size(&upload.path).await,
             Err(StorageError::InvalidPath(_))
         ),
         "the storage takes no other spelling of a place"

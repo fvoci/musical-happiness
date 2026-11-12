@@ -161,6 +161,9 @@ struct Inner {
     comment_versions_kept: std::sync::atomic::AtomicUsize,
     /// Who is told about the calls; see [`Store::observe`].
     observer: std::sync::OnceLock<Box<dyn Observer>>,
+    /// Whether rows name places of the file storage otherwise than the one way, once
+    /// asked ([`Store::other_spellings_stored`]).
+    other_spellings: tokio::sync::OnceCell<bool>,
 }
 
 /// The connections. Nothing takes one but [`Store::with_conn`] and
@@ -252,6 +255,7 @@ impl Store {
                         .unwrap_or(usize::MAX),
                 ),
                 observer: std::sync::OnceLock::new(),
+                other_spellings: tokio::sync::OnceCell::new(),
             }),
         })
     }

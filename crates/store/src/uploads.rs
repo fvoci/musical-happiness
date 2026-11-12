@@ -8,7 +8,7 @@ use fvoci_model::{Upload, UploadPart, UploadPurpose};
 use crate::Store;
 use crate::db::{Id, Row};
 use crate::error::StoreError;
-use crate::loose_objects::check_path;
+use crate::file_info::check_new_path;
 
 /// What became of a part that was to be recorded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,9 +109,7 @@ impl Store {
     /// user that does not exist and, on PostgreSQL, for a board or a workspace that is not
     /// one of the organization's.
     pub async fn create_upload(&self, upload: &Upload) -> Result<(), StoreError> {
-        if !upload.path.is_empty() {
-            check_path(&upload.path)?;
-        }
+        check_new_path(&upload.path)?;
         self.with_conn(async |scope| {
             // An upload goes to a board or a workspace, which `board_id` names.
             let target = match upload.purpose {

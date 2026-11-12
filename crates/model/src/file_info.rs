@@ -53,7 +53,7 @@ pub fn is_storage_path(path: &str) -> bool {
 mod tests {
     use serde_json::json;
 
-    use super::is_storage_path;
+    use super::*;
 
     #[test]
     fn a_place_has_one_spelling() {
@@ -79,8 +79,6 @@ mod tests {
             assert!(!is_storage_path(path), "{path:?}");
         }
     }
-
-    use super::*;
 
     #[test]
     fn json_form_has_no_place_in_the_storage() {
