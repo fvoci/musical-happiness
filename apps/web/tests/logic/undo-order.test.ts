@@ -400,3 +400,55 @@ describe('a gesture of several changes', () => {
     expect(manager.undoDescription).toBe('before');
   });
 });
+
+describe('a history cleared while it is under way (another workspace entered)', () => {
+  it('does not remember a change under way, nor take back an undo or redo under way', async () => {
+    const { manager, change, answer, flush } = setup();
+    void change('one');
+    await answer();
+    const undoing = manager.undo();
+    await flush(); // the undo of "one" is being written
+    void change('two'); // under way too
+    manager.clear();
+    await answer();
+    await answer();
+    await undoing;
+    expect(manager.canUndo).toBe(false);
+    expect(manager.canRedo).toBe(false);
+  });
+
+  it('does not let a failed undo under way put its step into the new history', async () => {
+    const { manager, change, answer, refuse, flush } = setup();
+    void change('one');
+    await answer();
+    const undoing = manager.undo().catch((error: unknown) => error);
+    await flush();
+    manager.clear();
+    void change('new');
+    await refuse(); // the undo of "one"
+    expect(await undoing).toEqual(new Error('refused'));
+    await answer(); // "new"
+    expect(manager.canUndo).toBe(true);
+    await Promise.all([manager.undo(), answer()]);
+    expect(manager.canUndo).toBe(false);
+    expect(manager.canRedo).toBe(true);
+  });
+
+  it('does not remember a gesture begun before it', async () => {
+    const manager = new UndoManager();
+    const gate = held();
+    const gesture = manager.group(async (groupId) => {
+      await gate.promise;
+      await manager.perform(
+        async () => undefined,
+        async () => undefined,
+        'late',
+        groupId,
+      );
+    });
+    manager.clear();
+    gate.answer();
+    await gesture;
+    expect(manager.canUndo).toBe(false);
+  });
+});

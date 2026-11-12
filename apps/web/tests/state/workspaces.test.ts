@@ -252,3 +252,34 @@ describe('a board of another workspace', () => {
     expect(workspace.boards.find((one) => one.id === board.id)?.title).not.toBe('Moved');
   });
 });
+
+describe('entering another workspace while an undo or redo of the one left is written', () => {
+  // Found by a review of web-o3 (its tests/state/workspace-review.test.ts).
+  for (const action of ['undo', 'redo'] as const) {
+    it(`keeps the new workspace's history empty when the ${action} is answered late`, async () => {
+      const { workspace, backend } = twoWorkspaces();
+      await workspace.load();
+      const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+      if (!board) throw new Error('no board');
+      await workspace.hideBoard(board.id);
+      if (action === 'redo') await workspace.undoLast();
+
+      let answer = (): void => undefined;
+      const pending = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      vi.spyOn(backend, 'setBoardHidden').mockReturnValueOnce(pending);
+      const applying = action === 'undo' ? workspace.undoLast() : workspace.redoLast();
+      await workspace.enter(OTHER.id);
+      expect(workspace.info).toEqual(OTHER);
+      expect(workspace.canUndo).toBe(false);
+      expect(workspace.canRedo).toBe(false);
+
+      answer();
+      await applying;
+      expect(workspace.canUndo).toBe(false);
+      expect(workspace.canRedo).toBe(false);
+      workspace.close();
+    });
+  }
+});

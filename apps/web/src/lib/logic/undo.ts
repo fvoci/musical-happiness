@@ -53,6 +53,8 @@ interface Entry {
 interface Gesture {
   over: Promise<void>;
   entry: Entry | undefined;
+  /** The history it was begun in (`clear` begins another). */
+  history: number;
 }
 
 type Action = 'undo' | 'redo';
@@ -80,6 +82,8 @@ export class UndoManager {
   #generation = 0;
   /** Settles when the asks of this generation are dropped. */
   #dropped = deferred();
+  /** Times the history was cleared. */
+  #history = 0;
 
   /** When the change that would be undone next was made; 0 without one. */
   get currentCheckpoint(): number {
@@ -152,7 +156,7 @@ export class UndoManager {
     groupCounter += 1;
     const groupId = `group-${groupCounter}`;
     const over = deferred();
-    const record: Gesture = { over: over.promise, entry: undefined };
+    const record: Gesture = { over: over.promise, entry: undefined, history: this.#history };
     this.#gestures.set(groupId, record);
     try {
       return await gesture(groupId);
@@ -188,8 +192,14 @@ export class UndoManager {
     return this;
   }
 
-  /** Forgets every step. Undos and redos still waiting are dropped. */
+  /**
+   * Forgets every step. Undos and redos still waiting are dropped; changes,
+   * undos and redos still under way end without touching the new history
+   * (their steps are no longer in it), and a gesture begun before is not
+   * remembered.
+   */
   clear(): void {
+    this.#history += 1;
     const hadEntries = this.#entries.length > 0;
     this.#entries = [];
     this.#index = -1;
@@ -208,7 +218,11 @@ export class UndoManager {
         ? last
         : undefined;
     if (!entry) {
-      entry = this.#push(groupId, isDiscardable);
+      // A gesture begun in a history since cleared is of that history: its step is in none.
+      entry =
+        gesture && gesture.history !== this.#history
+          ? detached(groupId)
+          : this.#push(groupId, isDiscardable);
       if (gesture) {
         gesture.entry = entry;
         entry.gesture = gesture;
@@ -230,15 +244,7 @@ export class UndoManager {
     }
     const cut = this.#entries.splice(this.#index + 1);
     const checkpoint = isDiscardable ? (this.#entries.at(-1)?.checkpoint ?? 0) : Date.now();
-    const entry: Entry = {
-      checkpoint,
-      groupId,
-      steps: [],
-      making: new Set(),
-      carrying: undefined,
-      gesture: undefined,
-      cut,
-    };
+    const entry: Entry = { ...detached(groupId), checkpoint, cut };
     this.#entries.push(entry);
     this.#index = this.#entries.length - 1;
     this.#inForce = this.#index;
@@ -374,6 +380,19 @@ export class UndoManager {
     this.#drop();
     this.onStateDidChange?.();
   }
+}
+
+/** A step in no history. */
+function detached(groupId: string | undefined): Entry {
+  return {
+    checkpoint: 0,
+    groupId,
+    steps: [],
+    making: new Set(),
+    carrying: undefined,
+    gesture: undefined,
+    cut: [],
+  };
 }
 
 /** Puts `by` in place of `entry` in what `holder` cut, however deep; whether it was there. */
