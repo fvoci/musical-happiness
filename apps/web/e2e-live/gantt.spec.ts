@@ -190,11 +190,15 @@ test('the dependencies and the zoom chosen on the page are kept by the server, a
     due: { from: '2026-11-06', to: '2026-11-13' },
     after: [foundation],
   });
-  // Starts before the walls end: out of order. And names a card that is not there.
+  // Starts before the walls end: out of order. And names a card that is not there: one
+  // deleted since (the server takes only cards of the board, in the trash too).
+  const scrapped = await card(api, board.boardId, 'Scrapped', {});
   await card(api, board.boardId, 'Raise the roof', {
     due: { from: '2026-11-11', to: '2026-11-14' },
-    after: [walls, 'no-such-card'],
+    after: [walls, scrapped],
   });
+  const deleted = await api.delete(`/api/v1/boards/${board.boardId}/blocks/${scrapped}`);
+  expect(deleted.ok(), await deleted.text()).toBe(true);
   await page.reload();
   const gantt = page.getByTestId('gantt');
   const arrows = gantt.locator('[data-arrow]');

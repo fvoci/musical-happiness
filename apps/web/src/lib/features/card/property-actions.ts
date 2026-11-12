@@ -16,6 +16,7 @@ import type {
   PropertyOption,
   PropertyTemplate,
   PropertyType,
+  PropertyValue,
 } from '$lib/logic/wire.ts';
 import { newUndoGroup, type BoardStore } from '$lib/state/index.ts';
 
@@ -91,20 +92,57 @@ export async function renameProperty(
 }
 
 /**
- * Changes the kind of a property as planned: the definition, then the views
- * that leaned on the old kind and the values that have to be rewritten or
- * removed.
+ * Whether the server takes `value` written under a property of the kind
+ * `type`: a date value under a date, any other value under any other kind.
+ * A card relation takes a list of identifiers, but checks each card it names
+ * again, as it would a new one: whether it takes the list is not known here.
+ */
+function fitsKind(value: PropertyValue | undefined, type: PropertyType | undefined): boolean {
+  const isDate = typeof value === 'object' && !Array.isArray(value);
+  if (type === 'relation') return Array.isArray(value);
+  return type === 'date' ? isDate : !isDate;
+}
+
+/**
+ * Changes the kind of a property as planned. Undo goes back the other way,
+ * so a value that goes is taken out where undo can write it back: after the
+ * definition changes when the new kind takes it, before when only the old
+ * kind does, and not at all when neither does (it stays on the card, where
+ * the new kind shows nothing of it). Then the views that leaned on the old
+ * kind change, and the values rewritten for the new one are written. A
+ * refused definition changes nothing: what went before it comes back.
+ *
+ * A relation value written back under a relation is checked card by card
+ * again: one that names a card gone for good is refused then, and is lost.
  */
 export async function changePropertyType(board: BoardStore, plan: TypeChangePlan): Promise<void> {
   const { template, values } = plan;
   const groupId = newUndoGroup();
+  const oldType = templateOf(board, template.id)?.type;
+  const valueOf = (cardId: string) => board.card(cardId)?.fields.properties[template.id];
+  const newTakes = (cardId: string) =>
+    template.type !== 'relation' && fitsKind(valueOf(cardId), template.type);
+  const removed = [...values].filter(([, value]) => value === undefined).map(([id]) => id);
+  const first = removed.filter((id) => !newTakes(id) && fitsKind(valueOf(id), oldType));
+  const left = new Set(removed.filter((id) => !newTakes(id)));
+  const before = new Map(first.map((cardId) => [cardId, valueOf(cardId)]));
+  const setAll = (entries: Iterable<[string, PropertyValue | undefined]>) =>
+    Promise.all(
+      [...entries].map(([cardId, value]) =>
+        board.setCardProperty(cardId, template.id, value, groupId),
+      ),
+    );
+  await setAll(first.map((cardId) => [cardId, undefined]));
   await board.changeBoard(
     withTemplate(template.id, () => template),
     'changePropertyType',
     groupId,
   );
-  // Refused: the views and the values stay as they are.
-  if (templateOf(board, template.id)?.type !== template.type) return;
+  // Refused: the views stay as they are, and the values come back.
+  if (templateOf(board, template.id)?.type !== template.type) {
+    await setAll(before);
+    return;
+  }
   await Promise.all([
     ...board.views.map((view) =>
       board.changeView(
@@ -114,9 +152,7 @@ export async function changePropertyType(board: BoardStore, plan: TypeChangePlan
         groupId,
       ),
     ),
-    ...[...values].map(([cardId, value]) =>
-      board.setCardProperty(cardId, template.id, value, groupId),
-    ),
+    setAll([...values].filter(([cardId]) => !left.has(cardId))),
   ]);
 }
 

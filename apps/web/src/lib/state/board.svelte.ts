@@ -42,7 +42,14 @@ import { droppedCardOrder, placeAmongAll } from './card-order.ts';
 import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
-import { boardOfWorkspace, newUndoGroup, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
+import {
+  boardOfWorkspace,
+  draftOfCopy,
+  newUndoGroup,
+  roleFlags,
+  roleOf,
+  type CardDrop,
+} from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -530,14 +537,7 @@ export class BoardStore {
     const source = this.card(cardId);
     if (!source) return undefined;
     try {
-      const detail = await this.#backend.card(this.boardId, cardId);
-      return await this.createCard({
-        title: detail.title,
-        icon: detail.fields.icon,
-        properties: detail.fields.properties,
-        isTemplate: asTemplate ?? detail.fields.isTemplate,
-        body: detail.body,
-      });
+      return await this.createCard(await draftOfCopy(this.#backend, this, cardId, asTemplate));
     } catch (error) {
       this.workspace.report('save', error);
       return undefined;
