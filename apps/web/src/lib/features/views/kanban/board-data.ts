@@ -16,7 +16,7 @@ import {
   type PropertyTemplate,
   type PropertyValue,
 } from '$lib/logic/wire.ts';
-import { newUndoGroup, type BoardStore, type CardSummary } from '$lib/state/index.ts';
+import type { BoardStore, CardSummary } from '$lib/state/index.ts';
 
 /** What the face of every card of a view is drawn with. */
 export interface FaceContext {
@@ -138,17 +138,18 @@ export async function addGroup(
     value: name,
     color: DEFAULT_OPTION_COLOR,
   };
-  const groupId = newUndoGroup();
-  await board.changeBoard(
-    (current) => withOptions(current, propertyId, (options) => [...options, option]),
-    'addOption',
-    groupId,
-  );
-  await board.setViewFields(
-    view.id,
-    { visibleOptionIds: [...shownOptionIds, option.id] },
-    'addOption',
-    groupId,
-  );
+  await board.inOneStep(async (groupId) => {
+    await board.changeBoard(
+      (current) => withOptions(current, propertyId, (options) => [...options, option]),
+      'addOption',
+      groupId,
+    );
+    await board.setViewFields(
+      view.id,
+      { visibleOptionIds: [...shownOptionIds, option.id] },
+      'addOption',
+      groupId,
+    );
+  });
   return option.id;
 }

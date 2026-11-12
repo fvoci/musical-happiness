@@ -306,6 +306,42 @@ describe('deleting a property', () => {
   });
 });
 
+describe('a card relation a Gantt view reads as its dependencies', () => {
+  async function withRelation() {
+    const made = await open();
+    const { board, view } = made;
+    const relation = (await addProperty(board, view, 'relation', 'After')) ?? '';
+    await board.setViewFields(view.id, { viewType: 'gantt', dependencyPropertyId: relation });
+    const named = async (): Promise<string | undefined> => {
+      const kept = (await made.backend.views(board.boardId))[0]?.fields.dependencyPropertyId;
+      expect(board.view(view.id)?.fields.dependencyPropertyId).toBe(kept);
+      return kept;
+    };
+    return { ...made, relation, named };
+  }
+
+  it('is no longer read once deleted, and is read again once an undo brings it back', async () => {
+    const { board, workspace, relation, definition, named } = await withRelation();
+    await deleteProperty(board, relation);
+    expect(await named()).toBeUndefined();
+    await workspace.undoLast();
+    expect(definition(relation)?.type).toBe('relation');
+    expect(await named()).toBe(relation);
+  });
+
+  it('is no longer read once it is another kind, and is read again once that is undone', async () => {
+    const { board, workspace, relation, definition, named } = await withRelation();
+    const template = definition(relation);
+    if (!template) throw new Error('no relation');
+    await changePropertyType(board, planTypeChange(template, 'text', board.cards));
+    expect(definition(relation)?.type).toBe('text');
+    expect(await named()).toBeUndefined();
+    await workspace.undoLast();
+    expect(definition(relation)?.type).toBe('relation');
+    expect(await named()).toBe(relation);
+  });
+});
+
 describe('the options of a select, as its editor reports them', () => {
   it('makes an option and hands it back for the value', async () => {
     const { board, stored, definition } = await open();

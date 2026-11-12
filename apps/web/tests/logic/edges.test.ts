@@ -25,18 +25,26 @@ const nothing = async (): Promise<void> => undefined;
 const en = { locale: 'en', timeZone: 'UTC' };
 
 describe('undo manager', () => {
-  it('tells its listener about every change of what can be undone', async () => {
+  it('tells its listener about every change of what can be undone, and of being busy', async () => {
     const manager = new UndoManager();
-    let calls = 0;
+    const seen: string[] = [];
     manager.onStateDidChange = () => {
-      calls += 1;
+      seen.push(`${manager.canUndo}/${manager.canRedo}/${manager.busy}`);
     };
     await manager.perform(nothing, nothing);
     await manager.undo();
     await manager.redo();
     manager.clear();
     manager.clear(); // nothing left to clear: no call
-    expect(calls).toBe(4);
+    // An undo or a redo is told twice: when it is asked for, and when it is over.
+    expect(seen).toEqual([
+      'true/false/false',
+      'false/true/true',
+      'false/true/false',
+      'true/false/true',
+      'true/false/false',
+      'false/false/false',
+    ]);
   });
 
   it('forgets what was undone once a new change is made', async () => {
@@ -50,14 +58,22 @@ describe('undo manager', () => {
     expect(manager.undoDescription).toBe('third');
   });
 
-  it('does not record a change that an undo itself makes', async () => {
+  it('records a change made while an undo is carried out as the newest step', async () => {
     const manager = new UndoManager();
-    await manager.perform(nothing, async () => {
-      manager.registerUndo({ undo: nothing, redo: nothing }, 'made while undoing');
-    });
+    let made: Promise<unknown> | undefined;
+    await manager.perform(
+      nothing,
+      async () => {
+        // The person's change, made while the undo's write is under way.
+        made = manager.perform(nothing, nothing, 'made meanwhile');
+        await Promise.resolve();
+      },
+      'first',
+    );
     await manager.undo();
-    expect(manager.canUndo).toBe(false);
-    expect(manager.redoDescription).toBeUndefined();
+    await made;
+    expect(manager.undoDescription).toBe('made meanwhile');
+    expect(manager.canRedo).toBe(false);
   });
 
   it('keeps working after an undo failed (unlike the original, which stops for good)', async () => {

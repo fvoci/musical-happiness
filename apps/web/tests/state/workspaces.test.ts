@@ -253,6 +253,41 @@ describe('a board of another workspace', () => {
   });
 });
 
+describe('entering another workspace while an undo or redo of the one left is written', () => {
+  // Found by a review of web-o3 (its tests/state/workspace-review.test.ts).
+  for (const action of ['undo', 'redo'] as const) {
+    it(`keeps the new workspace's history empty when the ${action} is answered late`, async () => {
+      const { workspace, backend } = twoWorkspaces();
+      await workspace.load();
+      const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+      if (!board) throw new Error('no board');
+      await workspace.hideBoard(board.id);
+      if (action === 'redo') await workspace.undoLast();
+
+      let answer = (): void => undefined;
+      const pending = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const writing = vi.spyOn(backend, 'setBoardHidden').mockReturnValueOnce(pending);
+      const applying = action === 'undo' ? workspace.undoLast() : workspace.redoLast();
+      // Entered once the write has begun: the undo or redo is being carried out, not waiting.
+      await vi.waitFor(() => {
+        expect(writing).toHaveBeenCalled();
+      });
+      await workspace.enter(OTHER.id);
+      expect(workspace.info).toEqual(OTHER);
+      expect(workspace.canUndo).toBe(false);
+      expect(workspace.canRedo).toBe(false);
+
+      answer();
+      await applying;
+      expect(workspace.canUndo).toBe(false);
+      expect(workspace.canRedo).toBe(false);
+      workspace.close();
+    });
+  }
+});
+
 describe('an answer that would take the reader somewhere', () => {
   it('is handed on while the reader is still in the workspace it was asked in', async () => {
     const { workspace } = twoWorkspaces();
