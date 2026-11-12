@@ -57,6 +57,11 @@ pub(super) fn nack(doc: u32, epoch: i64, reason: &str) -> String {
     json!({"action": "DOC_NACK", "doc": doc, "epoch": epoch, "reason": reason}).to_string()
 }
 
+/// `DOC_MODE`: how the connection is in the room from now on.
+pub(super) fn mode(doc: u32, mode: DocMode) -> String {
+    json!({"action": "DOC_MODE", "doc": doc, "mode": mode.as_str()}).to_string()
+}
+
 /// `DOC_RESET`: the document follows anew, as a sync step 2; of another `epoch` than
 /// before, it is another document.
 pub(super) fn reset(doc: u32, epoch: i64) -> String {

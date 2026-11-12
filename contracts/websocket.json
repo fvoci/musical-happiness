@@ -162,6 +162,13 @@
         "reason": "string"
       }
     },
+    "DOC_MODE": {
+      "members": {
+        "action": "string",
+        "doc": "integer",
+        "mode": "string"
+      }
+    },
     "DOC_RESET": {
       "members": {
         "action": "string",

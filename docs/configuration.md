@@ -137,7 +137,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `max_request_bytes` | `FVOCI_MAX_REQUEST_BYTES` | 정수(1 이상, 바이트) | `4194304` | JSON을 받는 API 요청 본문의 가장 큰 크기(4 MiB). 넘으면 413. 파일 올리기(`uploadFile`과 `putUploadPart`)에는 쓰지 않는다. 아카이브 가져오기(`importArchive`)는 업로드를 이름으로만 받는 JSON이라 이것을 따른다. 세션 없는 요청(64 KiB)과 WebSocket 메시지(64 KiB)의 한도는 설정이 아니다 |
+| `max_request_bytes` | `FVOCI_MAX_REQUEST_BYTES` | 정수(1 이상, 바이트) | `4194304` | JSON을 받는 API 요청 본문의 가장 큰 크기(4 MiB). 넘으면 413. 파일 올리기(`uploadFile`과 `putUploadPart`)에는 쓰지 않는다. 아카이브 가져오기(`importArchive`)는 업로드를 이름으로만 받는 JSON이라 이것을 따른다. 세션 없는 요청(64 KiB)과 WebSocket 메시지(64 KiB. Binary 프레임은 `collab_update_bytes`에 32바이트를 더한 것이 더 크면 그것까지)의 한도는 설정이 아니다 |
 | `trash_retention_days` | `FVOCI_TRASH_RETENTION_DAYS` | 정수(1 이상) | `30` | 지운 보드와 블록이 휴지통에 남아 되살릴 수 있는 날. 지나면 영구히 지운다. 어느 블록도(휴지통의 것까지) 가리키지 않는 파일도 그렇게 된 지 이만큼 지나면 지운다 |
 | `upload_part_bytes` | `FVOCI_UPLOAD_PART_BYTES` | 정수(5242880–5368709120, 바이트) | `8388608` | 청크로 올릴 때(`createUpload`) 마지막을 뺀 부분 하나의 크기(8 MiB). S3 멀티파트가 받는 부분이 5 MiB에서 5 GiB라서 그 밖이면 시작하지 않는다. 서버 앞의 프록시가 받는 요청 본문보다 작아야 한다(Cloudflare의 Free와 Pro는 100 MB). `filesdriver`가 `amazons3`이어도 부분은 `tmp_path`의 파일로 받아 확인한다. 버킷에 보내는 동안만 메모리에 있고, 그 메모리는 이 크기의 8배까지다(기본 64 MiB). 넘으면 다음 부분은 디스크에서 기다린다 |
 | `max_pending_upload_bytes` | `FVOCI_MAX_PENDING_UPLOAD_BYTES` | 정수(`maxfilesize`와 `max_import_bytes` 이상, 바이트) | `2147483648` | 서버의 열린 업로드(`createUpload`, `createImportUpload`) 모두가 걸어 둘 수 있는 크기의 합(2 GiB). 넘는 업로드를 열면 429이고 `reason`이 `server_uploads_pending`이다. `maxfilesize`보다 작으면 가장 큰 파일을 언제나 429로 거절하게 되므로 시작 오류다 |
@@ -159,6 +159,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `collab_state_bytes` | `FVOCI_COLLAB_STATE_BYTES` | 정수(2097152–1073741824, 바이트) | `8388608` | 문서 하나의 저장된 상태의 가장 큰 크기(8 MiB). 문서는 지운 것도 쥐고 있어 고칠수록 자란다. 넘게 하는 업데이트는 거절하고, 4분의 3에 이르면 서버가 카드의 본문에서 문서를 새로 만든다(편집자는 새로 받는다). 낮춰도 이미 저장된 문서는 받아들인 그대로 열리고, 넘는 문서는 본문을 카드에 쓴 뒤 새로 만든다 |
 | `collab_update_bytes` | `FVOCI_COLLAB_UPDATE_BYTES` | 정수(1–`collab_state_bytes`, 바이트) | `65536` | 클라이언트가 보내는 업데이트 하나의 가장 큰 크기(64 KiB). 업데이트 하나에 드는 작업자의 시간은 주로 문서의 크기를 따른다(릴리스 빌드에서 1 MB 문서에 20 KiB 업데이트가 약 30 ms). 받아들일 때의 한도다: 이미 기록된 업데이트는 낮춘 뒤에도 다시 적용된다 |
 | `collab_worker_timeout_ms` | `FVOCI_COLLAB_WORKER_TIMEOUT_MS` | 정수(1 이상, 밀리초) | `10000` | 작업자의 답을 기다리는 시간. 넘으면 그 요청은 거절되고 작업자는 죽였다가 다시 띄운다 |
+| `collab_recheck_seconds` | `FVOCI_COLLAB_RECHECK_SECONDS` | 정수(1–3600, 초) | `30` | 본문을 함께 고치는 방(`contracts/websocket.md` 6절)에 든 연결마다 아직 들어 있어도 되는지, 쓰는지 읽기만 하는지를 다시 묻는 간격. 보드에서 빠지거나 역할이 내려간 사람은 보통 이 안에, 길어야 이것의 두 배(묻는 데 걸리는 시간이 한 간격까지다) 뒤에 내보내지거나 읽기 전용이 된다. 한 번 물을 때 방에 든 사용자 하나에 DB 읽기 다섯 번이고(같은 사용자의 연결 여럿은 한 번에 묻는다), 한 방에서 여덟 사용자씩 함께 묻는다. 한 간격 안에 답을 얻지 못한 연결은 방에서 내보낸다 |
 | `collab_worker_memory_bytes` | `FVOCI_COLLAB_WORKER_MEMORY_BYTES` | 정수(268435456 이상이고 `collab_state_bytes`의 8배 이상, 바이트) | `1073741824` | 작업자의 주소 공간 한도(1 GiB, 유닉스의 `RLIMIT_AS`). 유닉스에서는 그 밖에 코어 파일 0, 열린 파일 16, 자기 프로세스 그룹, 리눅스에서는 서버가 죽으면 함께 죽기가 걸린다. Windows에는 이 한도가 없다 |
 
 ## 키: 공유와 보이는 것

@@ -5,13 +5,14 @@ use anyhow::bail;
 use serde::Deserialize;
 
 /// The variables of the environment of these keys ([`super::ENV_KEYS`]).
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 6] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 7] = [
     ("collab_workers", super::EnvKind::Number),
     ("collab_documents_per_worker", super::EnvKind::Number),
     ("collab_state_bytes", super::EnvKind::Number),
     ("collab_update_bytes", super::EnvKind::Number),
     ("collab_worker_timeout_ms", super::EnvKind::Number),
     ("collab_worker_memory_bytes", super::EnvKind::Number),
+    ("collab_recheck_seconds", super::EnvKind::Number),
 ];
 
 /// The keys `collab_*` of the configuration, at its top level.
@@ -35,6 +36,9 @@ pub struct CollabSettings {
     /// The address space a worker may take, in bytes, where the system limits it
     /// (Unix). At least 256 MiB.
     pub collab_worker_memory_bytes: u64,
+    /// How often, in seconds, the server asks again whether each connection in the
+    /// room of a body may be there, and how. 1 to 3600.
+    pub collab_recheck_seconds: u64,
     /// How a worker is started; `None` for this executable. Not a configuration file
     /// key: the tests, whose executable is no server, set it.
     #[serde(skip)]
@@ -63,6 +67,10 @@ pub(super) const MOST_STATE_BYTES: u64 = 1024 * 1024 * 1024;
 /// with the copies an update makes of it.
 pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 
+/// The most `collab_recheck_seconds`: an hour. A room that asks less often lets who
+/// was taken off a board write on for longer than anybody would expect.
+pub(super) const MOST_RECHECK_SECONDS: u64 = 3600;
+
 /// How many bytes of a worker's memory every byte of the states of its documents
 /// takes: a document in memory is larger than its state, and an update makes a copy of
 /// it and reads its state again. A worker holds states of `collab_worker_memory_bytes`
@@ -78,6 +86,7 @@ impl Default for CollabSettings {
             collab_update_bytes: DEFAULT_UPDATE_BYTES,
             collab_worker_timeout_ms: 10_000,
             collab_worker_memory_bytes: 1024 * 1024 * 1024,
+            collab_recheck_seconds: 30,
             worker_command: None,
         }
     }
@@ -129,6 +138,12 @@ impl CollabSettings {
                 self.collab_worker_memory_bytes
             );
         }
+        if !(1..=MOST_RECHECK_SECONDS).contains(&self.collab_recheck_seconds) {
+            bail!(
+                "collab_recheck_seconds must be 1 to {MOST_RECHECK_SECONDS}, not {}",
+                self.collab_recheck_seconds
+            );
+        }
         if self.collab_worker_memory_bytes < LEAST_WORKER_MEMORY_BYTES {
             bail!(
                 "collab_worker_memory_bytes must be at least {LEAST_WORKER_MEMORY_BYTES}, not {}",
@@ -178,6 +193,11 @@ mod tests {
         refused(
             |s| s.collab_worker_memory_bytes = LEAST_WORKER_MEMORY_BYTES - 1,
             "collab_worker_memory_bytes",
+        );
+        refused(|s| s.collab_recheck_seconds = 0, "collab_recheck_seconds");
+        refused(
+            |s| s.collab_recheck_seconds = MOST_RECHECK_SECONDS + 1,
+            "collab_recheck_seconds",
         );
     }
 }

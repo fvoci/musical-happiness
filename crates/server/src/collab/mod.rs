@@ -207,7 +207,7 @@ impl Collab {
                 numbers: AtomicU64::new(1),
                 limits,
                 events: broadcast::channel(EVENTS).0,
-                rooms: rooms::Rooms::default(),
+                rooms: rooms::Rooms::new(settings),
                 #[cfg(feature = "test-util")]
                 projection_pause: Mutex::new(None),
             }),

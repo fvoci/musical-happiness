@@ -6,9 +6,64 @@ use std::collections::BTreeSet;
 use fvoci_server::collab::Outgoing;
 use serde_json::{Value, json};
 
-use crate::common::{Setup, TEST_WORKSPACE_ID};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::rooms::{Peer, UPDATE, frame, give, paragraphs, table};
 use crate::websocket::{check_message, read_contract};
+
+/// A connection of `user_id` that reads nothing of what it is sent, in the room of
+/// the card with `one` and `two`: the `DOC_LEFT` it finds when it reads at last.
+async fn left_for_not_reading(
+    th: &TestServer,
+    card_id: &str,
+    user_id: &str,
+    one: &mut Peer,
+    two: &mut Peer,
+) -> Value {
+    // A connection that reads nothing of what it is sent: its place among the rooms
+    // is taken from the server itself, and what waits for it is not asked for. With
+    // as many messages waiting as may, it is put out, and the others go on.
+    let collab = th.app.collab();
+    let join = json!({
+        "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": card_id,
+    })
+    .to_string();
+    let (mut slow, waiting) = collab.seat(&th.app, user_id);
+    assert!(slow.command(&join).await, "a command of the rooms");
+    // `DOC_JOINED` and the document wait already: 510 more, and the next is one too many.
+    for n in 0..511 {
+        one.write_acked(&format!("{n}")).await;
+    }
+    let Some(Outgoing::Text(left)) = waiting.next().await else {
+        panic!("what waited is dropped for the notice");
+    };
+    let left: Value = serde_json::from_str(&left).expect("JSON");
+    assert_eq!(
+        left,
+        json!({"action": "DOC_LEFT", "doc": 1, "reason": "connection_too_slow"}),
+        "put out for what waited"
+    );
+    assert!(!slow.overrun().is_cancelled(), "the connection stays");
+    two.settle().await;
+    assert_eq!(two.lines().len(), 512, "the others were sent all of it");
+    assert_eq!(one.body(), two.body(), "and hold the same");
+    // It comes in again, and is sent the whole document.
+    assert!(slow.command(&join).await, "a command of the rooms");
+    let Some(Outgoing::Text(joined)) = waiting.next().await else {
+        panic!("the answer to JOIN_DOC");
+    };
+    let joined: Value = serde_json::from_str(&joined).expect("JSON");
+    assert_eq!(
+        (&joined["action"], &joined["doc"]),
+        (&json!("DOC_JOINED"), &json!(2)),
+        "{joined}"
+    );
+    assert!(
+        matches!(waiting.next().await, Some(Outgoing::Binary(_))),
+        "the whole document follows"
+    );
+    slow.leave_all().await;
+    left
+}
 
 /// Every message the server sends about a body edited together has exactly the
 /// members `contracts/websocket.json` lists for it.
@@ -16,7 +71,12 @@ use crate::websocket::{check_message, read_contract};
 async fn the_messages_of_the_rooms_match_the_websocket_contract() {
     let contract = read_contract("websocket.json");
     let openapi = read_contract("openapi.json");
-    let th = Setup::native().start().await.init_basic().await;
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_recheck_seconds = 1)
+        .start()
+        .await
+        .init_basic()
+        .await;
     let t = table(&th, &paragraphs(&["first"])).await;
     let user2 = th.client2.me().await.id;
     give(&th, &t.board_id, &user2, "editor").await;
@@ -49,45 +109,13 @@ async fn the_messages_of_the_rooms_match_the_websocket_contract() {
     assert_eq!(one.lines(), ["written whole"]);
     assert_eq!(one.body(), two.body());
 
-    // A connection that reads nothing of what it is sent: its place among the rooms
-    // is taken from the server itself, and what waits for it is not asked for. With
-    // as many messages waiting as may, it is put out, and the others go on.
-    let collab = th.app.collab();
-    let join = json!({
-        "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
-    })
-    .to_string();
-    let (mut slow, waiting) = collab.seat(&th.app, &user2);
-    assert!(slow.command(&join).await, "a command of the rooms");
-    // `DOC_JOINED` and the document wait already: 510 more, and the next is one too many.
-    for n in 0..511 {
-        one.write_acked(&format!("{n}")).await;
-    }
-    let Some(Outgoing::Text(left)) = waiting.next().await else {
-        panic!("what waited is dropped for the notice");
-    };
-    let left: Value = serde_json::from_str(&left).expect("JSON");
-    check(&left);
-    assert_eq!(
-        left,
-        json!({"action": "DOC_LEFT", "doc": 1, "reason": "connection_too_slow"})
-    );
-    assert!(!slow.overrun().is_cancelled(), "the connection stays");
-    two.settle().await;
-    assert_eq!(two.lines().len(), 512, "the others were sent all of it");
-    assert_eq!(one.body(), two.body());
-    // It comes in again, and is sent the whole document.
-    assert!(slow.command(&join).await);
-    let Some(Outgoing::Text(joined)) = waiting.next().await else {
-        panic!("the answer to JOIN_DOC");
-    };
-    let joined: Value = serde_json::from_str(&joined).expect("JSON");
-    assert_eq!(
-        (&joined["action"], &joined["doc"]),
-        (&json!("DOC_JOINED"), &json!(2))
-    );
-    assert!(matches!(waiting.next().await, Some(Outgoing::Binary(_))));
-    slow.leave_all().await;
+    // A role lowered while its holder is in the room: told at the next asking.
+    give(&th, &t.board_id, &user2, "viewer").await;
+    check(&two.text("DOC_MODE").await);
+    give(&th, &t.board_id, &user2, "editor").await;
+    assert_eq!(two.text("DOC_MODE").await["mode"], json!("write"));
+
+    check(&left_for_not_reading(&th, &t.card_id, &user2, &mut one, &mut two).await);
 
     let listed: BTreeSet<String> = contract["messages"]
         .as_object()

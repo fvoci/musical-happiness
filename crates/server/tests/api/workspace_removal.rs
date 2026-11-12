@@ -23,7 +23,7 @@ fn answer(response: &ApiResponse) -> (StatusCode, Value) {
 }
 
 /// Ends a user's membership of the test workspace, and of nothing else.
-async fn remove_from_the_test_workspace(th: &TestServer, user_id: &str) {
+pub(crate) async fn remove_from_the_test_workspace(th: &TestServer, user_id: &str) {
     th.app
         .store()
         .execute_unchecked(&format!(
