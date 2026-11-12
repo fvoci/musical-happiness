@@ -84,14 +84,6 @@ impl BoardScope {
     fn open_to_the_workspace(self) -> bool {
         matches!(self, Self::Open | Self::OpenTemplate)
     }
-
-    /// Whether the board is a template, which is read to be copied and not joined.
-    fn is_template(self) -> bool {
-        matches!(
-            self,
-            Self::OpenTemplate | Self::InvitedOnlyTemplate | Self::BuiltIn
-        )
-    }
 }
 
 /// What is known of a board for one user: its scope and the user's role on it.
@@ -112,9 +104,11 @@ pub enum BoardPermission {
     SeeBoard,
     /// Become a member of an open board with its minimum role.
     JoinBoard,
-    /// Read what is on the board: its cards, blocks, files and comments, its members,
-    /// its archive. Copying a board takes this too.
+    /// Read what is on the board: its cards, blocks, files and comments, its archive.
+    /// Copying a board takes this too.
     ViewBoard,
+    /// List the board's members.
+    ListMembers,
     /// Comment on cards.
     CommentBoardCards,
     /// Create, change and delete cards and their content.
@@ -135,10 +129,11 @@ pub enum BoardPermission {
 
 impl BoardPermission {
     /// Every permission, in the order of the declaration.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::SeeBoard,
         Self::JoinBoard,
         Self::ViewBoard,
+        Self::ListMembers,
         Self::CommentBoardCards,
         Self::ManageBoardCards,
         Self::ManageBoardProperties,
@@ -163,10 +158,31 @@ impl BoardPermission {
             Self::DeleteBoard => 8,
             Self::ShareBoard => 9,
             Self::ManageOthersComments => 10,
+            Self::ListMembers => 11,
         };
         1 << place
     }
+
+    /// Whether the permission is over what is on the board: its cards, comments and
+    /// files, and the link that shows them. Refused it, who only manages the board is
+    /// told that it is not there ([`Grant::hides`]).
+    #[must_use]
+    pub const fn is_content(self) -> bool {
+        matches!(
+            self,
+            Self::ViewBoard
+                | Self::CommentBoardCards
+                | Self::ManageBoardCards
+                | Self::ManageOthersComments
+                | Self::ShareBoard
+        )
+    }
 }
+
+/// The bit of a [`Grant`] that says the user sees the board only as one who manages it:
+/// an administrator of the workspace on a board for the invited only that they are no
+/// reader of. No permission has it.
+const MANAGES_ONLY: u16 = 1 << 15;
 
 /// What one user may do on one board.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -206,6 +222,14 @@ impl Grant {
         self.allows(BoardPermission::SeeBoard)
     }
 
+    /// Whether a refusal of `permission` tells that the board is not there (404) rather
+    /// than that it is refused (403): for who does not see the board, and for who only
+    /// manages it and asks for its content.
+    #[must_use]
+    pub const fn hides(self, permission: BoardPermission) -> bool {
+        !self.sees() || (self.0 & MANAGES_ONLY != 0 && permission.is_content())
+    }
+
     /// Whether the user reads what is on the board: refused something reached through
     /// a card or a block, they are told so (403); otherwise that card or block does not
     /// exist for them (404).
@@ -218,10 +242,10 @@ impl Grant {
 /// What a role on a board lets its holder do, each role all that the one below it may.
 const fn role_grant(role: BoardRole) -> Grant {
     use BoardPermission::{
-        CommentBoardCards, DeleteBoard, ManageBoardCards, ManageBoardProperties, ManageBoardRoles,
-        ManageBoardType, ManageOthersComments, SeeBoard, ShareBoard, ViewBoard,
+        CommentBoardCards, DeleteBoard, ListMembers, ManageBoardCards, ManageBoardProperties,
+        ManageBoardRoles, ManageBoardType, ManageOthersComments, SeeBoard, ShareBoard, ViewBoard,
     };
-    let viewer = Grant::of(&[SeeBoard, ViewBoard]);
+    let viewer = Grant::of(&[SeeBoard, ViewBoard, ListMembers]);
     let commenter = viewer.with(Grant::of(&[CommentBoardCards]));
     let editor = commenter.with(Grant::of(&[ManageBoardCards, ManageBoardProperties]));
     match role {
@@ -275,9 +299,15 @@ pub const fn people_reach(workspace_role: WorkspaceRole) -> Reach {
 ///   more than an editor.
 /// - Whoever works in the workspace sees its open boards and may join those that are
 ///   no template, and reads its open templates.
+/// - An administrator of the workspace sees its boards, lists and changes their
+///   members, and deletes and restores them; what is on a board for the invited only
+///   they read as its member, and are told it is not there otherwise
+///   ([`Grant::hides`]).
 /// - What the user is in the organization adds nothing.
 pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
-    use BoardPermission::{JoinBoard, SeeBoard, ViewBoard};
+    use BoardPermission::{
+        DeleteBoard, JoinBoard, ListMembers, ManageBoardRoles, SeeBoard, ViewBoard,
+    };
     if facts.scope == BoardScope::BuiltIn {
         return Grant::of(&[SeeBoard, ViewBoard]);
     }
@@ -287,15 +317,22 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
     let as_member = facts.role.map_or(Grant::NONE, |role| {
         role_grant(role.min(highest_board_role(workspace_role)))
     });
-    if !actor.works_there() || !facts.scope.open_to_the_workspace() {
-        return as_member;
-    }
-    let as_worker = if facts.scope.is_template() {
-        Grant::of(&[SeeBoard, ViewBoard])
-    } else {
-        Grant::of(&[SeeBoard, JoinBoard])
+    let as_worker = match (actor.works_there(), facts.scope) {
+        (true, BoardScope::Open) => Grant::of(&[SeeBoard, JoinBoard]),
+        (true, BoardScope::OpenTemplate) => Grant::of(&[SeeBoard, ViewBoard]),
+        _ => Grant::NONE,
     };
-    as_member.with(as_worker)
+    let as_manager = if workspace_role == WorkspaceRole::Admin {
+        Grant::of(&[SeeBoard, ListMembers, ManageBoardRoles, DeleteBoard])
+    } else {
+        Grant::NONE
+    };
+    let granted = as_member.with(as_worker).with(as_manager);
+    if as_manager != Grant::NONE && !granted.reads() && !facts.scope.open_to_the_workspace() {
+        Grant(granted.0 | MANAGES_ONLY)
+    } else {
+        granted
+    }
 }
 
 /// The membership with exactly the flag of `role`, and none for `None`.

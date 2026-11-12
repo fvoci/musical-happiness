@@ -3917,7 +3917,7 @@
     },
     "/api/v1/boards/{boardId}/members": {
       "get": {
-        "description": "For the board's members. By the identifier of the user: a membership has no time of\nits own, so this is not the order in which the users came to the board.",
+        "description": "For the board's members and the workspace's administrators. By the identifier of\nthe user: a membership has no time of its own, so this is not the order in which the\nusers came to the board.",
         "operationId": "getMembers",
         "parameters": [
           {
@@ -3961,7 +3961,7 @@
         ]
       },
       "post": {
-        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors who work in the workspace add members too, with the board's minimum role,\nwhatever else the request names; a request of theirs that asks for `schemeAdmin` is\n403. A guest of the workspace is given no role above editor: asking for\n`schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a\nmember already stays as they are.",
+        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors who work in the workspace add members too, with the board's minimum role,\nwhatever else the request names; a request of theirs that asks for `schemeAdmin` is\n403. A guest of the workspace is given no role above editor: asking for\n`schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a\nmember already stays as they are. The workspace's administrators manage the members\nof every board of it; one who makes themselves a member of a board whose content\nthey could not read is recorded in the organization's audit log.",
         "operationId": "addMember",
         "parameters": [
           {
@@ -5718,7 +5718,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/export": {
       "get": {
-        "description": "An archive of all boards of the workspace that `getWorkspaceBoards` lists for the\nuser, offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. 404 unless the user is a member of the workspace; a guest's\narchive has the boards they were invited to.",
+        "description": "An archive of the boards of the workspace that the user reads (a member of them, or\nan open board for who works in the workspace), offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. 404 unless the user is a member of the workspace; a guest's\narchive has the boards they were invited to.",
         "operationId": "exportWorkspaceArchive",
         "parameters": [
           {
@@ -5878,7 +5878,7 @@
     },
     "/api/v1/w/{workspaceId}/boards": {
       "get": {
-        "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former. Templates are not among\nthem. Oldest first. 404 unless the user is a member of the workspace.",
+        "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former, an administrator every board\nof the workspace (what is on a private board they are no member of stays 404 to\nthem). Templates are not among them. Oldest first. 404 unless the user is a member of\nthe workspace.",
         "operationId": "getWorkspaceBoards",
         "parameters": [
           {
@@ -6611,7 +6611,7 @@
     },
     "/api/v1/w/{workspaceId}/trash/boards": {
       "get": {
-        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.",
+        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.",
         "operationId": "getDeletedBoards",
         "parameters": [
           {

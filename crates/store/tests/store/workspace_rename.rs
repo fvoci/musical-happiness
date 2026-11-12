@@ -228,7 +228,12 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
     let store = Store::connect(database.db_type(), database.dbconfig())
         .await
         .expect("the store migrates the database");
-    let new = dump(&database).await;
+    let mut new = dump(&database).await;
+    // A table a later migration makes is there, empty.
+    let audit_log = new
+        .remove("audit_log")
+        .expect("the audit log of migration 19");
+    assert!(audit_log.1.is_empty(), "{audit_log:?}");
     the_keys_and_the_check_of_an_upload_find_the_workspaces(&store, &database, workspace).await;
     store.close().await;
 

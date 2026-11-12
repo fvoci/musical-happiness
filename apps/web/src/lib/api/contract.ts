@@ -509,8 +509,9 @@ export interface paths {
         };
         /**
          * The members of a board
-         * @description For the board's members. By the identifier of the user: a membership has no time of
-         *     its own, so this is not the order in which the users came to the board.
+         * @description For the board's members and the workspace's administrators. By the identifier of
+         *     the user: a membership has no time of its own, so this is not the order in which the
+         *     users came to the board.
          */
         get: operations["getMembers"];
         put?: never;
@@ -522,7 +523,9 @@ export interface paths {
          *     whatever else the request names; a request of theirs that asks for `schemeAdmin` is
          *     403. A guest of the workspace is given no role above editor: asking for
          *     `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
-         *     member already stays as they are.
+         *     member already stays as they are. The workspace's administrators manage the members
+         *     of every board of it; one who makes themselves a member of a board whose content
+         *     they could not read is recorded in the organization's audit log.
          */
         post: operations["addMember"];
         delete?: never;
@@ -1281,8 +1284,8 @@ export interface paths {
         };
         /**
          * Export the boards of a workspace
-         * @description An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
-         *     user, offered as a download with its length, in the format of `exportBoardArchive`,
+         * @description An archive of the boards of the workspace that the user reads (a member of them, or
+         *     an open board for who works in the workspace), offered as a download with its length, in the format of `exportBoardArchive`,
          *     and under its limits. 404 unless the user is a member of the workspace; a guest's
          *     archive has the boards they were invited to.
          */
@@ -1375,8 +1378,10 @@ export interface paths {
         /**
          * The boards of a workspace
          * @description The boards of the workspace that the user is a member of, and the workspace's open
-         *     boards; a guest of the workspace gets only the former. Templates are not among
-         *     them. Oldest first. 404 unless the user is a member of the workspace.
+         *     boards; a guest of the workspace gets only the former, an administrator every board
+         *     of the workspace (what is on a private board they are no member of stays 404 to
+         *     them). Templates are not among them. Oldest first. 404 unless the user is a member of
+         *     the workspace.
          */
         get: operations["getWorkspaceBoards"];
         put?: never;
@@ -1658,7 +1663,8 @@ export interface paths {
         /**
          * The deleted boards of a workspace
          * @description One page of the workspace's boards that are in the trash and that the user was an admin
-         *     of when they were deleted, which is who `undeleteBoard` lets bring them back: each
+         *     of when they were deleted, or every one of them for an administrator of the
+         *     workspace, which is who `undeleteBoard` lets bring them back: each
          *     with its identifier, its title, when it was deleted and by whom. The last deleted
          *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
          *     400. For users of the workspace.

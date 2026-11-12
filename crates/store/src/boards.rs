@@ -192,6 +192,29 @@ impl Store {
         .await
     }
 
+    /// Returns every board of a workspace, whoever is a member of it, oldest first:
+    /// what the workspace's administrators list. Templates are left out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_boards_of_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<Board>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "SELECT {} FROM boards AS b WHERE b.is_template = ",
+                board_select_list("b.")
+            ));
+            sql.bind(false)
+                .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+                .push(OLDEST_BOARD_FIRST);
+            fetch_boards(scope, sql).await
+        })
+        .await
+    }
+
     /// Returns the boards of a workspace with the given identifiers, oldest first.
     ///
     /// # Errors
@@ -236,48 +259,6 @@ impl Store {
     pub async fn delete_member(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
         self.transaction(async |scope| delete_member(scope, board_id, user_id).await)
             .await
-    }
-
-    /// Makes a user a member of a board unless they are one already, and says which it
-    /// was: `None` if the membership is new, the membership as it stands if there was
-    /// one. Two requests that add the same user at once end in one membership, the one
-    /// that was stored first.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFound`] if the board or the user does not exist, and
-    /// [`StoreError::InvalidId`] if the user's identifier is not one. Text that is no
-    /// identifier names no board, as an identifier does that nothing has.
-    pub async fn add_member(
-        &self,
-        member: &BoardMember,
-    ) -> Result<Option<BoardMember>, StoreError> {
-        self.transaction(async |scope| {
-            // Held so that "there was one already" is still true when it is answered:
-            // without the lock a removal in between would make this say "new" of a
-            // membership that does not exist.
-            hold_board(scope, &member.board_id).await?;
-            let mut sql = scope.sql(
-                "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
-                 scheme_commenter, scheme_viewer) VALUES (",
-            );
-            sql.bind(Id(&member.board_id))
-                .push_bind(", ", Id(&member.user_id))
-                .push_bind(", ", member.scheme_admin)
-                .push_bind(", ", member.scheme_editor)
-                .push_bind(", ", member.scheme_commenter)
-                .push_bind(", ", member.scheme_viewer)
-                .push(") ON CONFLICT (board_id, user_id) DO NOTHING");
-            let added = scope
-                .execute(sql)
-                .await
-                .map_err(|error| error.missing_reference("user"))?;
-            if added > 0 {
-                return Ok(None);
-            }
-            find_member(scope, &member.board_id, &member.user_id).await
-        })
-        .await
     }
 
     /// Makes a user a member of a board with the board's minimum role, as joining does.
@@ -834,7 +815,7 @@ async fn fetch_members(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<BoardMembe
         .collect()
 }
 
-async fn find_member(
+pub(crate) async fn find_member(
     scope: &mut Scope<'_>,
     board_id: &str,
     user_id: &str,
@@ -923,7 +904,7 @@ pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
 }
 
 /// Locks a board as [`lock_board`] does; one that is not there is not found.
-async fn hold_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
+pub(crate) async fn hold_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
     if lock_board(scope, board_id).await? {
         return Ok(());
     }

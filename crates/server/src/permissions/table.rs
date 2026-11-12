@@ -5,17 +5,19 @@
 use fvoci_model::{BoardRole, OrgRole, WorkspaceRole};
 
 use super::BoardPermission::{
-    CommentBoardCards, DeleteBoard, JoinBoard, ManageBoardCards, ManageBoardProperties,
-    ManageBoardRoles, ManageBoardType, ManageOthersComments, SeeBoard, ShareBoard, ViewBoard,
+    CommentBoardCards, DeleteBoard, JoinBoard, ListMembers, ManageBoardCards,
+    ManageBoardProperties, ManageBoardRoles, ManageBoardType, ManageOthersComments, SeeBoard,
+    ShareBoard, ViewBoard,
 };
 use super::BoardScope::{BuiltIn, InvitedOnly, InvitedOnlyTemplate, Open, OpenTemplate};
 use super::{Actor, BoardFacts, BoardPermission, BoardScope, Grant, grant, highest_board_role};
 
-const VIEWER: &[BoardPermission] = &[SeeBoard, ViewBoard];
-const COMMENTER: &[BoardPermission] = &[SeeBoard, ViewBoard, CommentBoardCards];
+const VIEWER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers];
+const COMMENTER: &[BoardPermission] = &[SeeBoard, ViewBoard, ListMembers, CommentBoardCards];
 const EDITOR: &[BoardPermission] = &[
     SeeBoard,
     ViewBoard,
+    ListMembers,
     CommentBoardCards,
     ManageBoardCards,
     ManageBoardProperties,
@@ -23,6 +25,7 @@ const EDITOR: &[BoardPermission] = &[
 const ADMIN: &[BoardPermission] = &[
     SeeBoard,
     ViewBoard,
+    ListMembers,
     CommentBoardCards,
     ManageBoardCards,
     ManageBoardProperties,
@@ -33,6 +36,10 @@ const ADMIN: &[BoardPermission] = &[
     ManageOthersComments,
 ];
 const NOTHING: &[BoardPermission] = &[];
+/// What a template is to who may read it without a role on it: to read and copy.
+const READ_ONLY: &[BoardPermission] = &[SeeBoard, ViewBoard];
+/// What a workspace's administrator does with a board they have no role on.
+const MANAGE: &[BoardPermission] = &[SeeBoard, ListMembers, ManageBoardRoles, DeleteBoard];
 
 const fn actor(org: Option<OrgRole>, workspace: Option<WorkspaceRole>) -> Actor {
     Actor { org, workspace }
@@ -107,7 +114,7 @@ const ROWS: &[Row] = &[
         MEMBER,
         Open,
         Some(BoardRole::Viewer),
-        &[SeeBoard, ViewBoard, JoinBoard],
+        &[SeeBoard, ViewBoard, ListMembers, JoinBoard],
     ),
     // A workspace is unknown to who is no member of it.
     row(
@@ -152,7 +159,7 @@ const ROWS: &[Row] = &[
         MEMBER,
         OpenTemplate,
         None,
-        VIEWER,
+        READ_ONLY,
     ),
     row(
         "a member: no invited-only template",
@@ -174,21 +181,21 @@ const ROWS: &[Row] = &[
         MEMBER,
         BuiltIn,
         None,
-        VIEWER,
+        READ_ONLY,
     ),
     row(
         "a guest reads a built-in template",
         GUEST,
         BuiltIn,
         None,
-        VIEWER,
+        READ_ONLY,
     ),
     row(
         "a stranger reads a built-in template",
         STRANGER,
         BuiltIn,
         None,
-        VIEWER,
+        READ_ONLY,
     ),
     // A guest sees the boards they were invited to, one by one, as no more than an editor.
     row("a guest: no open board", GUEST, Open, None, NOTHING),
@@ -241,21 +248,75 @@ const ROWS: &[Row] = &[
         Some(BoardRole::Admin),
         EDITOR,
     ),
-    // A workspace's administrator is, on its boards, what a member is (until the
-    // management of private boards is given to them).
+    // A workspace's administrator lists and manages its boards: sees them, lists and
+    // changes their members, deletes and restores them. What is on a board for the
+    // invited only they read as its member, and is not there for them otherwise.
     row(
-        "a workspace admin: an open board as a member",
-        WORKSPACE_ADMIN,
-        Open,
-        None,
-        &[SeeBoard, JoinBoard],
-    ),
-    row(
-        "a workspace admin: no invited-only board",
+        "a workspace admin manages an invited-only board",
         WORKSPACE_ADMIN,
         InvitedOnly,
         None,
-        NOTHING,
+        MANAGE,
+    ),
+    row(
+        "a workspace admin manages an invited-only template",
+        WORKSPACE_ADMIN,
+        InvitedOnlyTemplate,
+        None,
+        MANAGE,
+    ),
+    row(
+        "a workspace admin manages an open board and may join it",
+        WORKSPACE_ADMIN,
+        Open,
+        None,
+        &[
+            SeeBoard,
+            JoinBoard,
+            ListMembers,
+            ManageBoardRoles,
+            DeleteBoard,
+        ],
+    ),
+    row(
+        "a workspace admin reads an open template",
+        WORKSPACE_ADMIN,
+        OpenTemplate,
+        None,
+        &[
+            SeeBoard,
+            ViewBoard,
+            ListMembers,
+            ManageBoardRoles,
+            DeleteBoard,
+        ],
+    ),
+    row(
+        "a workspace admin who made themselves a viewer reads",
+        WORKSPACE_ADMIN,
+        InvitedOnly,
+        Some(BoardRole::Viewer),
+        &[
+            SeeBoard,
+            ViewBoard,
+            ListMembers,
+            ManageBoardRoles,
+            DeleteBoard,
+        ],
+    ),
+    row(
+        "a workspace admin restores a board in the trash",
+        WORKSPACE_ADMIN,
+        IN_THE_TRASH,
+        None,
+        MANAGE,
+    ),
+    row(
+        "a workspace admin of no built-in template",
+        WORKSPACE_ADMIN,
+        BuiltIn,
+        None,
+        READ_ONLY,
     ),
     // An organization's administrator manages the organization; a workspace they are no
     // member of is not there for them.
@@ -279,6 +340,13 @@ const ROWS: &[Row] = &[
         Open,
         None,
         &[SeeBoard, JoinBoard],
+    ),
+    row(
+        "an org admin outside the workspace manages none of its boards",
+        ORG_ADMIN_ONLY,
+        InvitedOnly,
+        None,
+        NOTHING,
     ),
     // Who was removed from the workspace opens nothing with the roles left on its boards.
     row(
@@ -327,6 +395,58 @@ const ROWS: &[Row] = &[
 ];
 
 const IN_THE_TRASH: BoardScope = InvitedOnly;
+
+/// Who only manages a board is told that its content is not there; who sees it any
+/// other way is told that it is refused.
+#[test]
+fn who_only_manages_a_board_is_told_its_content_is_not_there() {
+    let managed = grant(
+        WORKSPACE_ADMIN,
+        BoardFacts {
+            scope: InvitedOnly,
+            role: None,
+        },
+    );
+    for permission in [
+        ViewBoard,
+        CommentBoardCards,
+        ManageBoardCards,
+        ManageOthersComments,
+        ShareBoard,
+    ] {
+        assert!(managed.hides(permission), "{permission:?}");
+    }
+    for permission in [ManageBoardProperties, ManageBoardType, JoinBoard] {
+        assert!(!managed.hides(permission), "{permission:?}");
+    }
+    let open = grant(
+        WORKSPACE_ADMIN,
+        BoardFacts {
+            scope: Open,
+            role: None,
+        },
+    );
+    assert!(
+        !open.hides(ViewBoard),
+        "an open board is refused as to any worker"
+    );
+    let member = grant(
+        MEMBER,
+        BoardFacts {
+            scope: InvitedOnly,
+            role: Some(BoardRole::Viewer),
+        },
+    );
+    assert!(!member.hides(ManageBoardCards), "a viewer is refused");
+    let stranger = grant(
+        STRANGER,
+        BoardFacts {
+            scope: InvitedOnly,
+            role: None,
+        },
+    );
+    assert!(stranger.hides(DeleteBoard), "no board for a stranger");
+}
 
 #[test]
 fn the_trash_is_open_to_nobody() {

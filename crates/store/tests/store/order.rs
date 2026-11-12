@@ -596,7 +596,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         by_id(cards.iter().map(|card| card.id.clone()).collect())
     );
     let listed: Vec<String> = store
-        .get_deleted_boards(&workspace_id, &user_id, None)
+        .get_deleted_boards(&workspace_id, Some(&user_id), None)
         .await
         .expect("the deleted boards")
         .into_iter()
@@ -606,7 +606,7 @@ async fn the_trash_comes_the_last_deleted_first() {
     let page: Vec<String> = store
         .get_deleted_boards(
             &workspace_id,
-            &user_id,
+            Some(&user_id),
             Some(Paging {
                 page: 1,
                 per_page: 2,
@@ -619,7 +619,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         .collect();
     assert_eq!(page, by_id(boards.clone())[2..], "the pages cut that order");
     let not_admin = store
-        .get_deleted_boards(&workspace_id, &other_id, None)
+        .get_deleted_boards(&workspace_id, Some(&other_id), None)
         .await
         .expect("the deleted boards of an editor");
     assert!(not_admin.is_empty(), "only those the user was an admin of");

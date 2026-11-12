@@ -43,7 +43,8 @@ pub(crate) async fn require_board_permission(
 }
 
 /// Checks that the grant of the board named in the path has the permission: refused
-/// (403, `denial`) if the user sees the board, not found (404) if not.
+/// (403, `denial`) if the user sees the board, not found (404) if not, and not found
+/// for the content of a board the user only manages (`Grant::hides`).
 pub(crate) fn require_granted(
     grant: Grant,
     permission: BoardPermission,
@@ -51,13 +52,16 @@ pub(crate) fn require_granted(
 ) -> Result<(), AppError> {
     if grant.allows(permission) {
         Ok(())
+    } else if grant.hides(permission) {
+        Err(AppError::not_found("board"))
     } else {
-        Err(refusal(grant, denial))
+        Err(AppError::forbidden(denial))
     }
 }
 
-/// What a user is told who may not do what they ask on the board named in the path:
-/// refused (403, `denial`) if they see the board, not found (404) if they do not.
+/// What a user is told who may not do what they ask on the board named in the path, if
+/// it is not its content: refused (403, `denial`) if they see the board, not found
+/// (404) if they do not.
 pub(crate) fn refusal(grant: Grant, denial: &str) -> AppError {
     if grant.sees() {
         AppError::forbidden(denial)

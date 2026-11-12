@@ -2179,7 +2179,7 @@ async fn reorder_category_boards_over_the_api() {
 #[tokio::test]
 async fn update_category_board_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
-    let user = th.client.me().await;
+    let user = th.me_as_no_admin(&th.client).await;
     let board = board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;
     let default_id = category_boards(&th.client, ROOT_WORKSPACE_ID).await[0]
         .category

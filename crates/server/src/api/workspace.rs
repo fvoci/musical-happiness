@@ -200,8 +200,10 @@ async fn handle_get_my_workspaces(
 /// The boards of a workspace
 ///
 /// The boards of the workspace that the user is a member of, and the workspace's open
-/// boards; a guest of the workspace gets only the former. Templates are not among
-/// them. Oldest first. 404 unless the user is a member of the workspace.
+/// boards; a guest of the workspace gets only the former, an administrator every board
+/// of the workspace (what is on a private board they are no member of stays 404 to
+/// them). Templates are not among them. Oldest first. 404 unless the user is a member of
+/// the workspace.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards",

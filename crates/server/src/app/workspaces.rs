@@ -125,8 +125,9 @@ impl App {
         Ok(self.store().workspaces_of_user(user_id).await?)
     }
 
-    /// The boards of a workspace that the user is a member of and, unless the user is
-    /// a guest of the workspace, its open boards. Templates are left out. Oldest first.
+    /// The boards of a workspace as the user lists them: an administrator of the
+    /// workspace every board of it, whoever else those the user reads
+    /// ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
     ///
     /// The handle is the one a member entered the workspace with
     /// ([`App::enter_workspace`]).
@@ -135,6 +136,26 @@ impl App {
     ///
     /// Returns the store's error if the query fails.
     pub async fn workspace_boards(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        role: WorkspaceRole,
+    ) -> Result<Vec<Board>, AppError> {
+        if role == WorkspaceRole::Admin {
+            return Ok(self.store().get_boards_of_workspace(workspace_id).await?);
+        }
+        self.readable_workspace_boards(user_id, workspace_id, role)
+            .await
+    }
+
+    /// The boards of a workspace that the user is a member of and, unless the user is a
+    /// guest of the workspace, its open boards: what an archive of the workspace holds
+    /// for the user. Templates are left out. Oldest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the query fails.
+    pub async fn readable_workspace_boards(
         &self,
         user_id: &str,
         workspace_id: &str,

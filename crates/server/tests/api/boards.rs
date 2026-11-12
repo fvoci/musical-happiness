@@ -273,7 +273,7 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
     let th = Setup::native().start().await.init_basic().await;
     let workspace_id = ROOT_WORKSPACE_ID;
     let other_workspace_id = TEST_WORKSPACE_ID;
-    let user1 = th.client.me().await;
+    let user1 = th.me_as_no_admin(&th.client).await;
     let user2 = th.client2.me().await;
 
     let board1 = board_with_admin(

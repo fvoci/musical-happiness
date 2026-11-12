@@ -65,8 +65,9 @@ fn require_holdable(workspace_role: WorkspaceRole, member: &BoardMember) -> Resu
 
 /// The members of a board
 ///
-/// For the board's members. By the identifier of the user: a membership has no time of
-/// its own, so this is not the order in which the users came to the board.
+/// For the board's members and the workspace's administrators. By the identifier of
+/// the user: a membership has no time of its own, so this is not the order in which the
+/// users came to the board.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/members",
@@ -84,7 +85,7 @@ async fn handle_get_members_for_board(
         &app,
         &session.user_id,
         &board_id,
-        BoardPermission::ViewBoard,
+        BoardPermission::ListMembers,
         "access denied to board members",
     )
     .await?;
@@ -100,7 +101,9 @@ async fn handle_get_members_for_board(
 /// whatever else the request names; a request of theirs that asks for `schemeAdmin` is
 /// 403. A guest of the workspace is given no role above editor: asking for
 /// `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
-/// member already stays as they are.
+/// member already stays as they are. The workspace's administrators manage the members
+/// of every board of it; one who makes themselves a member of a board whose content
+/// they could not read is recorded in the organization's audit log.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/members",
@@ -178,12 +181,16 @@ async fn handle_add_member(
         )
     };
     require_holdable(target_role, &member)?;
-    // The board was there a moment ago; if it is not any more, there is nothing to be a
-    // member of.
-    let added = app
-        .add_member_to_board(&member)
-        .await?
-        .ok_or_else(|| AppError::not_found("board"))?;
+    // A workspace's administrator who makes themselves a member of a board they could
+    // not read, and so comes to read it, is recorded doing so. The board was there a
+    // moment ago; if it is not any more, there is nothing to be a member of.
+    let added = if request.user_id == *user_id && !grant.reads() {
+        app.add_self_to_board_recorded(&member, &board.workspace_id)
+            .await?
+    } else {
+        app.add_member_to_board(&member).await?
+    };
+    let added = added.ok_or_else(|| AppError::not_found("board"))?;
     Ok(json_response(&added))
 }
 

@@ -4,7 +4,9 @@ use fvoci_model::{
     Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
     DeleteBoardsAndBlocks, new_id,
 };
-use fvoci_store::{DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards};
+use fvoci_store::{
+    AuditAction, AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards,
+};
 
 use super::{App, DEFAULT_CATEGORY_BOARDS};
 use crate::error::{AppError, Reason};
@@ -528,6 +530,40 @@ impl App {
         &self,
         member: &BoardMember,
     ) -> Result<Option<BoardMember>, AppError> {
+        self.add_member_to_board_recorded(member, None).await
+    }
+
+    /// Makes a user, who manages the board without reading it, a member of it as
+    /// [`App::add_member_to_board`] does and, if the membership is new, records in the
+    /// organization's audit log in the same step that they made themselves one.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::add_member_to_board`]; a record that cannot be written is the store's
+    /// error, and the membership is not made then.
+    pub async fn add_self_to_board_recorded(
+        &self,
+        member: &BoardMember,
+        workspace_id: &str,
+    ) -> Result<Option<BoardMember>, AppError> {
+        let entry = AuditEntry {
+            workspace_id: workspace_id.to_owned(),
+            actor_id: member.user_id.clone(),
+            action: AuditAction::SelfAddedToBoard,
+            target_id: member.board_id.clone(),
+            create_at: 0,
+        };
+        self.add_member_to_board_recorded(member, Some(&entry))
+            .await
+    }
+
+    /// Adds a member as [`App::add_member_to_board`] does and, if the membership is new
+    /// and `entry` is given, records it in the audit log in the same step.
+    async fn add_member_to_board_recorded(
+        &self,
+        member: &BoardMember,
+        entry: Option<&AuditEntry>,
+    ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
             Err(error) if error.is_not_found() => return Ok(None),
@@ -536,7 +572,11 @@ impl App {
 
         // Added unless already there, in one step: of two requests that add the same
         // user at once, the second finds the membership the first made.
-        if let Some(existing) = self.store().add_member(member).await? {
+        let existing = match entry {
+            Some(entry) => self.store().add_member_recorded(member, entry).await?,
+            None => self.store().add_member(member).await?,
+        };
+        if let Some(existing) = existing {
             return Ok(Some(existing));
         }
 

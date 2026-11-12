@@ -128,8 +128,8 @@ async fn handle_export_board(
 
 /// Export the boards of a workspace
 ///
-/// An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
-/// user, offered as a download with its length, in the format of `exportBoardArchive`,
+/// An archive of the boards of the workspace that the user reads (a member of them, or
+/// an open board for who works in the workspace), offered as a download with its length, in the format of `exportBoardArchive`,
 /// and under its limits. 404 unless the user is a member of the workspace; a guest's
 /// archive has the boards they were invited to.
 #[utoipa::path(
@@ -158,7 +158,7 @@ async fn handle_export_workspace(
     let ws = Ws::enter(&app, session, workspace_id).await?;
     let (app, user_id) = (&ws.app, &ws.session.user_id);
     let boards = app
-        .workspace_boards(user_id, &ws.workspace_id, ws.role)
+        .readable_workspace_boards(user_id, &ws.workspace_id, ws.role)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
     let slot = app.start_export(user_id)?;

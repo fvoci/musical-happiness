@@ -6,7 +6,9 @@
 //!
 //! The schema is this server's own: a list of migrations applied by sqlx's migrator.
 
+mod audit;
 mod blocks;
+mod board_membership;
 mod boards;
 mod boards_and_blocks;
 mod categories;
@@ -41,6 +43,7 @@ use sqlx::Connection as _;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
+pub use audit::{AuditAction, AuditEntry};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use boards::{Joined, MemberChange, PublicBoards};
 pub use category_boards::{BoardPlace, BoardVisibility};
