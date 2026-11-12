@@ -35,28 +35,52 @@ beforeEach(() => {
   vi.mocked(loadMath).mockClear();
   drawDiagram.mockClear();
 });
+/** The clock held still by `show`, while it draws. */
+let clock: { mockRestore: () => void } | undefined;
 afterEach(() => {
+  // Also when a drawing never ended: the clock goes on for the next test.
+  clock?.mockRestore();
+  clock = undefined;
   host.replaceChildren();
   delete (window as { pwned?: unknown }).pwned;
 });
 
-/** Puts a body into the page and draws what is to be drawn in it. */
+/**
+ * Puts a body into the page and draws what is to be drawn in it. The page
+ * stops drawing formulas once the library has taken its budget of time
+ * (embeds.ts `MATH_BUDGET`), and leaves the rest as they are: on a busy
+ * machine the deep formulas here took it all. The clock stands still while
+ * they are drawn, so what is drawn does not depend on how busy the machine is.
+ */
 async function show(body: DocNode): Promise<HTMLElement> {
   const rendered = renderBody(body);
   if (!rendered.ok) throw new Error(rendered.problems.join(' / '));
   host.replaceChildren(rendered.fragment);
+  clock = vi.spyOn(performance, 'now').mockReturnValue(0);
   drawEmbeds(host);
   await settled();
+  clock.mockRestore();
+  clock = undefined;
   return host;
 }
 
-/** Waits until no formula is left waiting to be drawn. */
+/**
+ * Waits until no formula is left waiting to be drawn: until every slot says
+ * how it ended (`data-state`). Only the test's own time limit bounds it; a
+ * poll with a limit of its own (a second, `vi.waitFor`) gave up while a busy
+ * machine was still drawing the deep ones.
+ */
 async function settled(): Promise<void> {
-  await vi.waitFor(() => {
-    const waiting = Array.from(host.querySelectorAll('.doc-math')).filter(
-      (slot) => !slot.hasAttribute('data-state'),
-    );
-    expect(waiting).toHaveLength(0);
+  const waiting = (): boolean =>
+    Array.from(host.querySelectorAll('.doc-math')).some((slot) => !slot.hasAttribute('data-state'));
+  if (!waiting()) return;
+  await new Promise<void>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (waiting()) return;
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(host, { subtree: true, childList: true, attributeFilter: ['data-state'] });
   });
 }
 
@@ -105,6 +129,35 @@ describe('a formula in the view', () => {
     expect(block?.querySelector('.katex-display')).not.toBeNull();
     // The words around it are untouched.
     expect(host.querySelector('p')?.firstChild?.nodeValue).toBe('a ');
+  });
+
+  it('shows the source of the formulas left once the budget of time is spent, and says so', async () => {
+    const sources = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const rendered = renderBody(doc(paragraph(...sources.map((latex) => math(latex)))));
+    if (!rendered.ok) throw new Error('not drawn');
+    host.replaceChildren(rendered.fragment);
+    // Every reading of the clock is a second later: the budget of three is soon spent.
+    let tick = 0;
+    clock = vi.spyOn(performance, 'now').mockImplementation(() => (tick += 1000));
+    drawEmbeds(host);
+    await settled();
+    clock.mockRestore();
+    clock = undefined;
+    const slots = Array.from(host.querySelectorAll<HTMLElement>('span.doc-math'));
+    const states = slots.map((slot) => slot.getAttribute('data-state'));
+    // The first ones are drawn until the budget is spent; every one after says it is not.
+    const drawn = states.filter((state) => state === 'drawn').length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(sources.length);
+    expect(states).toEqual(sources.map((_source, index) => (index < drawn ? 'drawn' : 'skipped')));
+    for (const [index, slot] of slots.slice(drawn).entries()) {
+      // Its source, and a line that says it was not drawn, read where it stands.
+      expect(slot.firstChild?.nodeValue).toBe(sources[index + drawn]);
+      expect(slot.querySelector('[role="note"]')?.textContent).toBe(
+        'Not drawn: drawing the formulas here took too long.',
+      );
+      expect(slot.querySelector('.katex')).toBeNull();
+    }
   });
 
   it('takes text of any script without complaint', async () => {
