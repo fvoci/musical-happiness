@@ -501,6 +501,9 @@ const ORDERS: &[(&str, &str)] = &[
     ("getMembers", "By the identifier of the user"),
     ("getMyMemberships", "By the identifier of the board"),
     ("getMyWorkspaces", "the oldest workspace first"),
+    ("getOrgAudit", "the newest first"),
+    ("getOrgMembers", "the oldest member first"),
+    ("getOrgWorkspaces", "the oldest first"),
     (
         "getSharedBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
@@ -511,6 +514,7 @@ const ORDERS: &[(&str, &str)] = &[
         "Oldest first, and by the identifier of the block",
     ),
     ("getTemplates", "Each of the two oldest first"),
+    ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceUsers", "Oldest account first"),
     (

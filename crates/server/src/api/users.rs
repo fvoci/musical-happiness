@@ -182,7 +182,7 @@ async fn handle_set_user_admin(
         }
     };
 
-    let mut user = app.set_user_admin(&user_id, role).await?;
+    let mut user = app.set_user_admin(&user_id, role, &session.user_id).await?;
     if user.id == session.user_id {
         crate::app::sanitize(&mut user);
     } else {

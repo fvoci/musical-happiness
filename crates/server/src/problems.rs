@@ -258,6 +258,10 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationTooMany
         | Reason::RelationNotACard
         | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        Reason::WorkspaceNameTaken
+        | Reason::DefaultWorkspace
+        | Reason::LastOrgAdmin
+        | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
         Reason::UpdateRefused
         | Reason::UpdateOutOfStep
         | Reason::UpdateTooLarge
@@ -265,6 +269,30 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::TooManyDocuments
         | Reason::DocumentUnavailable => describe_editing_together(reason),
     }
+}
+
+/// The descriptions of the reasons an organization's administrators are refused for.
+fn describe_organization(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::WorkspaceNameTaken => {
+            "Status 409. Another workspace of the organization that is in use has the name; \
+             one in the trash leaves its name to be taken. `errors` names `/name`."
+        }
+        Reason::DefaultWorkspace => {
+            "Status 409. The organization's default workspace, which whoever joins the \
+             organization gets into, is not deleted."
+        }
+        Reason::LastOrgAdmin => {
+            "Status 409. The change would leave the organization without an administrator. \
+             Make somebody else one first."
+        }
+        Reason::PublicLinksOff => {
+            "Status 403. The organization has turned its public links off: no board of it is \
+             shared by a link until they are on again. Stopping a board's sharing is not \
+             refused."
+        }
+        _ => return None,
+    })
 }
 
 /// The descriptions of the reasons a value of a card relation is refused for.

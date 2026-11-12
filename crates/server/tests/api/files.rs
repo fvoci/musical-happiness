@@ -14,9 +14,20 @@ use serde_json::{Value, json};
 use crate::common::TEST_WS;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
-/// Uploads `data` under `filename` to a board as the given client.
+/// Uploads `data` under `filename` to a board of the test workspace as the given client.
 pub(crate) async fn upload(
     client: &Client,
+    board_id: &str,
+    filename: &str,
+    data: &[u8],
+) -> crate::common::ApiResponse {
+    upload_in(client, TEST_WORKSPACE_ID, board_id, filename, data).await
+}
+
+/// Uploads `data` under `filename` to a board of a workspace as the given client.
+pub(crate) async fn upload_in(
+    client: &Client,
+    workspace_id: &str,
     board_id: &str,
     filename: &str,
     data: &[u8],
@@ -27,7 +38,10 @@ pub(crate) async fn upload(
         .expect("a valid mime");
     let form = Form::new().part("file", part);
     let request = client
-        .request(Method::POST, &format!("{TEST_WS}/boards/{board_id}/files"))
+        .request(
+            Method::POST,
+            &format!("/w/{workspace_id}/boards/{board_id}/files"),
+        )
         .multipart(form);
     Client::send(request).await
 }

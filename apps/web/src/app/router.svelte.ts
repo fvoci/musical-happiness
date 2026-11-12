@@ -2,7 +2,8 @@
  * The address bar: which workspace, board, view and card are shown.
  *
  * The addresses are `/w/<workspace>/boards/<board>/<view>/<card>`, each part
- * optional from the right (`/w/<workspace>` alone is the workspace), under
+ * optional from the right (`/w/<workspace>` alone is the workspace), and
+ * `/org/<organization>`, the screen of its administrators, under
  * the base path the server serves the app at. A board's public link is
  * `/shared/<board>/<view>/<card>?r=<read token>`, the view and the card
  * optional: whoever has it reads the board, signed in or not. The root `/` names no
@@ -21,6 +22,8 @@ import { afterOwnSteps, releaseOverlayEntries } from '$lib/layout/back.svelte.ts
 import { buildUrl, normalizeBasePath, type BoardPlace } from '$lib/logic/urls.ts';
 
 export interface Route {
+  /** The organization whose screen is shown; then nothing else is. */
+  orgId?: string | undefined;
   workspaceId: string | undefined;
   boardId: string | undefined;
   viewId: string | undefined;
@@ -73,6 +76,11 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
     });
   if (segments.length === 0) return NOWHERE;
   if (segments[0] === 'shared') return sharedRoute(segments.slice(1), search);
+  if (segments[0] === 'org') {
+    return segments.length === 2
+      ? { ...NOWHERE, orgId: segments[1] }
+      : { ...NOWHERE, unknown: true };
+  }
   const [w, workspaceId, boards, boardId, viewId, cardId, ...rest] = segments;
   if (
     w !== 'w' ||
@@ -120,6 +128,7 @@ function settled(route: Partial<Route>): Route {
 
 /** The address of a route, from the root of the site. */
 export function routePath(route: Partial<Route>, basePath: string): string {
+  if (route.orgId) return buildUrl(`/org/${encodeURIComponent(route.orgId)}`, basePath);
   const { workspaceId, boardId, viewId, cardId, readToken } = settled(route);
   if (readToken && boardId) {
     const parts = [boardId, viewId, cardId].filter((part) => part !== undefined);
@@ -161,6 +170,7 @@ export class Router {
       const next = parseRoute(location.pathname, this.basePath, location.search);
       const now = this.route;
       if (
+        next.orgId === now.orgId &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&
         next.viewId === now.viewId &&

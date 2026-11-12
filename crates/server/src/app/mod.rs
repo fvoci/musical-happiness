@@ -21,6 +21,7 @@ mod import;
 mod loose_objects;
 mod oidc;
 mod onboarding;
+mod org_admin;
 mod readiness;
 mod reconcile;
 mod search;
@@ -52,12 +53,14 @@ pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
+pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
     secret_context,
 };
+pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};

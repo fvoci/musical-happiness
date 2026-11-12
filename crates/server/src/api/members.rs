@@ -16,7 +16,7 @@ use super::{ApiResult, json_response, no_content};
 use super::{decode_object, refusal, require_board_permission, require_granted, user_is_guest};
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::{self, BoardPermission};
+use crate::permissions::{self, BoardPermission, Grant};
 
 /// The refusal to add, change or remove a member.
 const MODIFY_MEMBERS_DENIED: &str = "access denied to modify board members";
@@ -106,8 +106,8 @@ async fn handle_get_members_for_board(
 /// 403. A guest of the workspace is given no role above editor: asking for
 /// `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
 /// member already stays as they are. The workspace's administrators manage the members
-/// of every board of it; one who makes themselves a member of a board whose content
-/// they could not read is recorded in the organization's audit log.
+/// of every board of it; one who could not read a board and gives somebody a role on
+/// it, themselves or another, is recorded in the workspace's audit log.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards/{boardId}/members",
@@ -128,7 +128,7 @@ async fn handle_add_member(
         .board_access(user_id, &board_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
-    let (board, grant) = (access.board, access.grant);
+    let (board, grant) = (&access.board, access.grant);
     let manages_roles = grant.allows(BoardPermission::ManageBoardRoles);
     let edits_board = grant.allows(BoardPermission::ManageBoardProperties);
     // A guest's editing adds nobody: who is in the workspace is not a guest's to learn.
@@ -186,16 +186,15 @@ async fn handle_add_member(
         )
     };
     require_holdable(target_role, &member)?;
-    // A workspace's administrator who makes themselves a member of a board they could
-    // not read, with a role, and so comes to read it, is recorded doing so. The board was there a
+    // A workspace's administrator who could not read the board and gives somebody a
+    // role on it is recorded doing so: themselves, by which they come to read it, or
+    // somebody else, who might be another account of theirs. The board was there a
     // moment ago; if it is not any more, there is nothing to be a member of.
-    let added = if request.user_id == *user_id
-        && grant.manages_only()
-        && permissions::role_of(&member).is_some()
-    {
-        ws.app.add_self_to_board_recorded(&member).await?
+    let added = if grant.manages_only() && permissions::role_of(&member).is_some() {
+        ws.app.add_member_as_manager(&member, user_id).await?
     } else {
-        ws.app.add_member_to_board(&member).await?
+        // Only if who asks is still what the check found, where it is written.
+        ws.app.add_member_asked(&member, user_id, &access).await?
     };
     let added = added.ok_or_else(|| AppError::not_found("board"))?;
     Ok(json_response(&added))
@@ -306,7 +305,8 @@ async fn handle_update_member(
     Path((_, board_id, member_user_id)): Path<(String, String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let grant = ws.app.board_grant(&ws.session.user_id, &board_id).await?;
+    let asker = ws.app.board_access(&ws.session.user_id, &board_id).await?;
+    let grant = asker.as_ref().map_or(Grant::NONE, |access| access.grant);
     require_granted(
         grant,
         BoardPermission::ManageBoardRoles,
@@ -327,15 +327,18 @@ async fn handle_update_member(
     };
     require_holdable(workspace_role, &member)?;
 
-    // A workspace's administrator who gives themselves a role on a board they could not
-    // read is recorded doing so, as one who adds themselves.
-    let updated = if member.user_id == ws.session.user_id
-        && grant.manages_only()
-        && permissions::role_of(&member).is_some()
-    {
-        ws.app.update_self_on_board_recorded(&member).await?
+    // A workspace's administrator who could not read the board and gives somebody a
+    // role on it is recorded doing so, as one who adds a member.
+    let updated = if grant.manages_only() && permissions::role_of(&member).is_some() {
+        ws.app
+            .update_member_as_manager(&member, &ws.session.user_id)
+            .await?
     } else {
-        ws.app.update_board_member(&member).await?
+        // Only if who asks is still what the check found, where it is written.
+        let asker = asker.ok_or_else(|| AppError::not_found("board"))?;
+        ws.app
+            .update_member_asked(&member, &ws.session.user_id, &asker)
+            .await?
     };
     match updated {
         Some(updated) => Ok(json_response(&updated)),

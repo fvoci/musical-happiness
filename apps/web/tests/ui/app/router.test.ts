@@ -76,6 +76,14 @@ describe('reading an address', () => {
     expect(routePath({ ...shared, workspaceId: 'w' }, '')).toBe('/shared/b/v?r=t%2F1');
   });
 
+  it("reads the organization's screen, and nothing below it", () => {
+    expect(parseRoute('/org/o', '')).toEqual({ ...none, orgId: 'o' });
+    expect(parseRoute('/app/org/o', 'app')).toEqual({ ...none, orgId: 'o' });
+    expect(parseRoute('/org', '').unknown).toBe(true);
+    expect(parseRoute('/org/o/w', '').unknown).toBe(true);
+    expect(routePath({ orgId: 'o 1' }, 'app')).toBe('/app/org/o%201');
+  });
+
   it('does not know other addresses, the old ones among them', () => {
     expect(parseRoute('/login', '').unknown).toBe(true);
     expect(parseRoute('/w', '').unknown).toBe(true);

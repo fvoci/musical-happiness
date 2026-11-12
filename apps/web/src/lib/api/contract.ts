@@ -181,6 +181,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/org/{orgId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An organization
+         * @description Its name, whether its boards may be read by a public link, and its default
+         *     workspace.
+         */
+        get: operations["getOrganization"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change an organization
+         * @description Changes its name (at most 100 characters, spaces around it dropped; it may be
+         *     empty) and whether its boards may be read by a public link. What the body leaves
+         *     out stays. Turned off, the public links of its boards answer 404 and no board is
+         *     shared anew (403, `public_links_off`); turned on again, the links made before open
+         *     again. A change of the public links is recorded in the organization's audit log.
+         */
+        patch: operations["patchOrganization"];
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The audit log of an organization
+         * @description One page of what was done to the organization itself, the newest first: who made a
+         *     member an administrator or a member, made, renamed, deleted or brought back a
+         *     workspace, and turned the public links off or on. 50 to a page unless `perPage` says
+         *     otherwise, at most 200.
+         */
+        get: operations["getOrgAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The members of an organization
+         * @description One page of them with their roles, the oldest member first. 50 to a page unless
+         *     `perPage` says otherwise, at most 200.
+         */
+        get: operations["getOrgMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/members/{userId}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change a member's role in an organization
+         * @description Makes a member of the organization its administrator, or a member. The last
+         *     administrator stays one: 409 with the reason `last_org_admin`. Who stops being an
+         *     administrator is taken out of every workspace they joined as one
+         *     (`joinOrgWorkspace`): they are what they were in it before, or no member, and each
+         *     workspace records it. 404 for a user who is no member. Recorded in the
+         *     organization's audit log.
+         */
+        put: operations["putOrgRole"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/org/{orgId}/oidc": {
         parameters: {
             query?: never;
@@ -224,6 +322,135 @@ export interface paths {
          *     sessions made through it go on. An organization without one answers the same.
          */
         delete: operations["deleteOidcProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspaces of an organization
+         * @description Every workspace of it, in use (`deletedAt` 0) and in the trash, the oldest first:
+         *     its name, how many members it has and what the administrator who asks is in it.
+         *     Nothing of what is in it: that is read by joining it.
+         */
+        get: operations["getOrgWorkspaces"];
+        put?: never;
+        /**
+         * Make a workspace
+         * @description Makes a workspace of the organization with the name: 1 to 100 characters, spaces
+         *     around it dropped. A name another workspace in use has is 409 with the reason
+         *     `workspace_name_taken`. Nobody is a member of the new workspace, its maker neither.
+         *     Recorded in the organization's audit log.
+         */
+        post: operations["createOrgWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a workspace
+         * @description Puts a workspace of the organization in the trash: to its members too it is not
+         *     there (404), with its boards, their files and their public links. Brought back, it is
+         *     as it was. It is removed for good, with everything in it, when it has been in the
+         *     trash as long as a deleted board is kept (`trash_retention_days`). The
+         *     organization's default workspace is not deleted: 409 with the reason
+         *     `default_workspace`. Recorded in the organization's audit log.
+         */
+        delete: operations["deleteOrgWorkspace"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a workspace
+         * @description Renames a workspace of the organization that is in use, as `createOrgWorkspace`
+         *     takes a name. Recorded in the organization's audit log.
+         */
+        patch: operations["renameOrgWorkspace"];
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join a workspace as its administrator
+         * @description Makes the administrator of the organization who asks an administrator of a
+         *     workspace of it in use: what is in it is theirs to read from then on, which is
+         *     recorded in the workspace's audit log, read by its members. A member of it keeps
+         *     what they were, to be it again when they leave. One who is its administrator already
+         *     is left as they are, and nothing is recorded.
+         */
+        post: operations["joinOrgWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave a workspace joined as its administrator
+         * @description Takes the administrator of the organization who asks out of a workspace they joined
+         *     as one (`joinOrgWorkspace`): they are what they were in it before, or no member, and
+         *     lose the roles on its boards they gave themselves since they joined. Recorded in the
+         *     workspace's audit log. One who did not join it so is left as they are.
+         */
+        post: operations["leaveOrgWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/workspaces/{workspaceId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring a workspace back
+         * @description Brings a workspace of the organization back from the trash, with its boards, members,
+         *     categories and files as they were. 404 unless it is in the trash; 409 with the reason
+         *     `workspace_name_taken` if a workspace in use took its name meanwhile. Recorded in the
+         *     organization's audit log.
+         */
+        post: operations["restoreOrgWorkspace"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -712,6 +939,34 @@ export interface paths {
          *     are not guests, as `importArchive`.
          */
         post: operations["createImportUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The audit log of a workspace
+         * @description One page of what was done in the workspace that its members are to know of, the
+         *     newest first: an administrator of the organization joining it as its administrator,
+         *     leaving it, or being taken out of it when they stopped administering the
+         *     organization; and an administrator of the workspace who could not read a board
+         *     giving somebody (themselves or another) a role on it. A board's title is there where
+         *     the reader sees the board. For whoever works in the workspace (a member who is no
+         *     guest), of any organization. 50 to a page unless `perPage` says otherwise, at most
+         *     200. The records are never changed or removed but with the workspace, when it is
+         *     removed for good.
+         */
+        get: operations["getWorkspaceAudit"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1242,8 +1497,8 @@ export interface paths {
          *     403. A guest of the workspace is given no role above editor: asking for
          *     `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
          *     member already stays as they are. The workspace's administrators manage the members
-         *     of every board of it; one who makes themselves a member of a board whose content
-         *     they could not read is recorded in the organization's audit log.
+         *     of every board of it; one who could not read a board and gives somebody a role on
+         *     it, themselves or another, is recorded in the workspace's audit log.
          */
         post: operations["addMember"];
         delete?: never;
@@ -1326,7 +1581,9 @@ export interface paths {
          * @description Shares the board, shares it under a new read token, or stops sharing it. The server
          *     makes the token; a request that names one is 400. Where the server is configured
          *     without public sharing, every request is refused with 403 and the reason
-         *     `sharing_disabled`, also one that stops sharing. For the board's admins.
+         *     `sharing_disabled`, also one that stops sharing. While the organization has its
+         *     public links off (`patchOrganization`), sharing a board is refused with 403 and the
+         *     reason `public_links_off`; stopping it is not. For the board's admins.
          */
         post: operations["setSharing"];
         delete?: never;
@@ -1922,6 +2179,42 @@ export interface components {
         AdminChange: {
             /** @description `true` makes the user an administrator, `false` ends that. */
             isAdmin: boolean;
+        };
+        /**
+         * @description What a record of the audit log says was done.
+         * @enum {string}
+         */
+        AuditAction: "self_added_to_board" | "added_to_board" | "org_admin_joined" | "org_admin_left" | "org_admin_revoked" | "org_admin_granted" | "org_admin_removed" | "workspace_created" | "workspace_renamed" | "workspace_deleted" | "workspace_restored" | "public_links_disabled" | "public_links_enabled";
+        /** @description A user as a record of the audit log names them. */
+        AuditPerson: {
+            /** @description The name the user shows; empty for none. */
+            displayName: string;
+            /** @description The user's identifier. */
+            id: string;
+            /** @description The user's login name; empty if the account is gone. */
+            username: string;
+        };
+        /** @description One record of the audit log: who did what, to what and whom, and when. */
+        AuditRecord: {
+            /** @description What was done. */
+            action: components["schemas"]["AuditAction"];
+            /** @description Who did it. */
+            actor: components["schemas"]["AuditPerson"];
+            /**
+             * Format: int64
+             * @description When, in milliseconds since the epoch.
+             */
+            createAt: number;
+            /** @description The record's identifier. */
+            id: string;
+            subject: components["schemas"]["AuditPerson"] | null;
+            /** @description What it was done to: a board, a workspace or the organization. */
+            targetId: string;
+            /**
+             * @description The name of the target, where the reader may know it: the title of a board
+             *     they see, the name of a workspace. `null` otherwise.
+             */
+            targetName: string | null;
         };
         /** @description The basic data unit of a board. */
         Block: {
@@ -2783,6 +3076,80 @@ export interface components {
             /** @description The identifier of the workspace. */
             workspaceId: string;
         };
+        /** @description A member of an organization, as its administrators list them. */
+        OrgMember: {
+            /** @description The name the user shows; empty for none. */
+            displayName: string;
+            /** @description What the user is in the organization. */
+            role: components["schemas"]["OrgRole"];
+            /** @description The user's identifier. */
+            userId: string;
+            /** @description The user's login name. */
+            username: string;
+        };
+        /**
+         * @description What a member of an organization is in it.
+         * @enum {string}
+         */
+        OrgRole: "admin" | "member";
+        /** @description The role a member of an organization is given: the body of a change of it. */
+        OrgRoleChange: {
+            /** @description The role. */
+            role: components["schemas"]["OrgRole"];
+        };
+        /**
+         * @description A workspace of an organization as its administrators list it: whether or not they
+         *     are in it, and whether or not it is in the trash. Nothing of what is in it.
+         */
+        OrgWorkspace: {
+            /**
+             * Format: int64
+             * @description When it was put in the trash, in milliseconds since the epoch; zero while it is
+             *     in use.
+             */
+            deletedAt: number;
+            /** @description The workspace's identifier. */
+            id: string;
+            /** @description Whether it is the organization's default workspace, which cannot be deleted. */
+            isDefault: boolean;
+            /**
+             * @description Whether the administrator who asks is in it as the organization's administrator,
+             *     having joined it as one: leaving gives back what they were before.
+             */
+            joinedAsOrgAdmin: boolean;
+            /**
+             * Format: int64
+             * @description How many members it has, its guests among them.
+             */
+            memberCount: number;
+            /** @description The workspace's name; empty if it was given none. */
+            name: string;
+            role: components["schemas"]["WorkspaceRole"] | null;
+        };
+        /** @description An organization as its administrators see it. */
+        Organization: {
+            /**
+             * @description The workspace somebody who joins the organization gets into. It cannot be
+             *     deleted.
+             */
+            defaultWorkspaceId: string;
+            /** @description The organization's identifier. */
+            id: string;
+            /** @description The organization's name; empty if it was given none. */
+            name: string;
+            /**
+             * @description Whether its boards may be read by a public link. Off, every link is closed and
+             *     none is made; on again, the links made before open again.
+             */
+            publicLinks: boolean;
+        };
+        /** @description A change of an organization: what is left out stays as it is. */
+        OrganizationPatch: {
+            /** @description The new name, at most `MAX_NAME_CHARS` characters; may be empty. */
+            name?: string | null;
+            /** @description Whether boards may be read by a public link. */
+            publicLinks?: boolean | null;
+        };
         /**
          * @description Patches for several boards and blocks, applied together.
          *
@@ -3213,6 +3580,14 @@ export interface components {
              */
             updateAt: number;
         };
+        /** @description The name of a workspace: the body of making one and of renaming one. */
+        WorkspaceName: {
+            /**
+             * @description The name, 1 to `MAX_NAME_CHARS` characters, not only spaces. Spaces around it
+             *     are dropped. One workspace in use of the organization has it.
+             */
+            name: string;
+        };
         /**
          * @description What a member of a workspace is in it.
          * @enum {string}
@@ -3496,6 +3871,184 @@ export interface operations {
             };
         };
     };
+    getOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationPatch"];
+            };
+        };
+        responses: {
+            /** @description The organization as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOrgAudit: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditRecord"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOrgMembers: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The members of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgMember"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putOrgRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgRoleChange"];
+            };
+        };
+        responses: {
+            /** @description The member has the role. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getOidcProvider: {
         parameters: {
             query?: never;
@@ -3582,6 +4135,246 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOrgWorkspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspaces. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgWorkspace"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createOrgWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceName"];
+            };
+        };
+        responses: {
+            /** @description The workspace. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgWorkspace"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteOrgWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+                /** @description The identifier of a workspace of the organization. 404 for one of no other organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace is in the trash. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    renameOrgWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+                /** @description The identifier of a workspace of the organization. 404 for one of no other organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceName"];
+            };
+        };
+        responses: {
+            /** @description The workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgWorkspace"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    joinOrgWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+                /** @description The identifier of a workspace of the organization. 404 for one of no other organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace as the administrator is in it now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgWorkspace"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    leaveOrgWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+                /** @description The identifier of a workspace of the organization. 404 for one of no other organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace as the administrator is in it now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgWorkspace"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    restoreOrgWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+                /** @description The identifier of a workspace of the organization. 404 for one of no other organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgWorkspace"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -4362,6 +5155,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadOpened"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceAudit: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has, at most 200. Left out, or zero or less, 50. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditRecord"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

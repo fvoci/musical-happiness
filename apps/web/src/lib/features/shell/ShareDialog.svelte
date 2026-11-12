@@ -47,9 +47,14 @@
     board: BoardStore;
     /** The whole address of the board's public link with a read token. */
     linkOf: (readToken: string) => string;
+    /**
+     * The members alone: for a board the reader manages without reading it, whose
+     * openness and public link are not theirs to change or read.
+     */
+    membersOnly?: boolean;
   }
 
-  let { open = $bindable(), workspace, board, linkOf }: Props = $props();
+  let { open = $bindable(), workspace, board, linkOf, membersOnly = false }: Props = $props();
 
   const uid = $props.id();
   const compact = $derived(page.stage === 'compact');
@@ -152,7 +157,7 @@
     untrack(() => {
       query = '';
       found = [];
-      void readSharing();
+      if (!membersOnly) void readSharing();
     });
   }
 
@@ -205,33 +210,35 @@
 
     <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
       <!-- The workspace. -->
-      <section class="grid gap-2" aria-labelledby="{uid}-workspace">
-        <h3 id="{uid}-workspace" class="font-medium">{m.share_workspace_title()}</h3>
-        <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-          <span class="min-w-0 flex-1 text-muted-foreground">{m.share_workspace_open()}</span>
-          <Switch
-            checked={isOpen}
-            data-testid="share-open"
-            onCheckedChange={(checked: boolean) => void board.setOpen(checked)}
-          />
-        </label>
-        {#if isOpen}
+      {#if !membersOnly}
+        <section class="grid gap-2" aria-labelledby="{uid}-workspace">
+          <h3 id="{uid}-workspace" class="font-medium">{m.share_workspace_title()}</h3>
           <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-            <span class="min-w-0 flex-1 text-muted-foreground">{m.share_minimum_role()}</span>
-            <select
-              class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
-              data-testid="share-minimum-role"
-              value={minimumRole}
-              onchange={(event) =>
-                void board.setMinimumRole(event.currentTarget.value as BoardRole)}
-            >
-              {#each MINIMUM_ROLES as role (role)}
-                <option value={role}>{ROLE_LABELS[role]()}</option>
-              {/each}
-            </select>
+            <span class="min-w-0 flex-1 text-muted-foreground">{m.share_workspace_open()}</span>
+            <Switch
+              checked={isOpen}
+              data-testid="share-open"
+              onCheckedChange={(checked: boolean) => void board.setOpen(checked)}
+            />
           </label>
-        {/if}
-      </section>
+          {#if isOpen}
+            <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
+              <span class="min-w-0 flex-1 text-muted-foreground">{m.share_minimum_role()}</span>
+              <select
+                class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+                data-testid="share-minimum-role"
+                value={minimumRole}
+                onchange={(event) =>
+                  void board.setMinimumRole(event.currentTarget.value as BoardRole)}
+              >
+                {#each MINIMUM_ROLES as role (role)}
+                  <option value={role}>{ROLE_LABELS[role]()}</option>
+                {/each}
+              </select>
+            </label>
+          {/if}
+        </section>
+      {/if}
 
       <!-- The members. -->
       <section class="grid gap-2" aria-labelledby="{uid}-members">
@@ -316,55 +323,57 @@
       </section>
 
       <!-- The public link. -->
-      <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-public">
-        <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
-        <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
-          <span class="min-w-0 flex-1 text-muted-foreground">
-            {m['ShareBoard.PublishDescription']()}
-          </span>
-          {#key switchVersion}
-            <Switch
-              checked={sharing?.enabled ?? false}
-              disabled={!sharing || sharingBusy || sharingOff}
-              data-testid="share-public"
-              onCheckedChange={(checked: boolean) => void changeSharing(checked)}
-            />
-          {/key}
-        </label>
-        {#if sharingOff}
-          <p class="text-muted-foreground" role="status">{m.share_public_off()}</p>
-        {/if}
-        {#if link}
-          <div class="flex items-center gap-1">
-            <Input
-              readonly
-              value={link}
-              aria-label={m.share_public_link()}
-              data-testid="share-link"
-              class="min-w-0 flex-1 roomy:h-touch"
-              onfocus={(event: FocusEvent) => {
-                (event.currentTarget as HTMLInputElement).select();
-              }}
-            />
-            <IconButton
-              label={copied ? m['ShareBoard.copiedLink']() : m['ShareBoard.copyLink']()}
-              onclick={() => void copyLink()}
-            >
-              {#if copied}<CheckIcon />{:else}<CopyIcon />{/if}
-            </IconButton>
-            <IconButton
-              label={m['ShareBoard.regenerate']()}
-              disabled={sharingBusy}
-              data-testid="share-regenerate"
-              onclick={() => {
-                confirmOpen = true;
-              }}
-            >
-              <RefreshCwIcon />
-            </IconButton>
-          </div>
-        {/if}
-      </section>
+      {#if !membersOnly}
+        <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-public">
+          <h3 id="{uid}-public" class="font-medium">{m['ShareBoard.PublishTitle']()}</h3>
+          <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch">
+            <span class="min-w-0 flex-1 text-muted-foreground">
+              {m['ShareBoard.PublishDescription']()}
+            </span>
+            {#key switchVersion}
+              <Switch
+                checked={sharing?.enabled ?? false}
+                disabled={!sharing || sharingBusy || sharingOff}
+                data-testid="share-public"
+                onCheckedChange={(checked: boolean) => void changeSharing(checked)}
+              />
+            {/key}
+          </label>
+          {#if sharingOff}
+            <p class="text-muted-foreground" role="status">{m.share_public_off()}</p>
+          {/if}
+          {#if link}
+            <div class="flex items-center gap-1">
+              <Input
+                readonly
+                value={link}
+                aria-label={m.share_public_link()}
+                data-testid="share-link"
+                class="min-w-0 flex-1 roomy:h-touch"
+                onfocus={(event: FocusEvent) => {
+                  (event.currentTarget as HTMLInputElement).select();
+                }}
+              />
+              <IconButton
+                label={copied ? m['ShareBoard.copiedLink']() : m['ShareBoard.copyLink']()}
+                onclick={() => void copyLink()}
+              >
+                {#if copied}<CheckIcon />{:else}<CopyIcon />{/if}
+              </IconButton>
+              <IconButton
+                label={m['ShareBoard.regenerate']()}
+                disabled={sharingBusy}
+                data-testid="share-regenerate"
+                onclick={() => {
+                  confirmOpen = true;
+                }}
+              >
+                <RefreshCwIcon />
+              </IconButton>
+            </div>
+          {/if}
+        </section>
+      {/if}
     </div>
   </Dialog.Content>
 </Dialog.Root>

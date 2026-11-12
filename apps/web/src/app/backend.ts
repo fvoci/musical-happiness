@@ -9,6 +9,7 @@
  * own, so the app the server serves does not carry the one in memory.
  */
 import type { Account, Backend } from '$lib/state/index.ts';
+import type { Organizations } from '$lib/state/organization.ts';
 
 import { readBasePath } from './router.svelte.ts';
 import { display } from '$lib/display.svelte.ts';
@@ -21,6 +22,8 @@ export interface StartedBackend {
   backend: Backend;
   /** Signing in and out; only a backend with accounts has it. */
   account?: Account;
+  /** The organization's administration and the workspaces' records; only the server has them. */
+  organizations?: Organizations;
 }
 
 export type BackendName = 'server' | 'memory';
@@ -73,10 +76,15 @@ async function keepSettings(backend: Backend): Promise<void> {
 }
 
 async function startServer(): Promise<StartedBackend> {
-  const { ServerBackend } = await import('$lib/api/backend.ts');
+  const [{ ServerBackend }, { Http }, { ServerOrganizations }] = await Promise.all([
+    import('$lib/api/backend.ts'),
+    import('$lib/api/http.ts'),
+    import('$lib/api/organizations.ts'),
+  ]);
   const base = readBasePath(document);
-  const backend = new ServerBackend(base === '' ? '' : `/${base}`);
-  return { backend, account: backend };
+  const path = base === '' ? '' : `/${base}`;
+  const backend = new ServerBackend(path);
+  return { backend, account: backend, organizations: new ServerOrganizations(new Http(path)) };
 }
 
 /**
