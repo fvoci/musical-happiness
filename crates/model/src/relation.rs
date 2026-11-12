@@ -127,9 +127,9 @@ pub fn check_relation_value<'v>(
 
 /// Makes the relation values of a card that is copied ones a write takes: a value that
 /// is no list becomes `null`, and of a list what is no identifier, the card itself and
-/// what is named a second time go, and what is past [`RELATION_LIMIT`]. For copies of
-/// stored cards, whose values may be older than the rules or than a change of the
-/// definitions. Whether the cards named are there is for the copy to settle.
+/// what is named a second time go. For copies of stored cards, whose values may be older
+/// than the rules or than a change of the definitions. Which of the cards named are
+/// there, and so what is left of [`RELATION_LIMIT`], is for the copy to settle.
 pub fn tidy_copied_relations(values: &mut JsonMap, card_id: &str, definitions: &[JsonMap]) {
     let relations = relation_property_ids(definitions);
     for (id, value) in values.iter_mut() {
@@ -148,7 +148,6 @@ pub fn tidy_copied_relations(values: &mut JsonMap, card_id: &str, definitions: &
                 !named.is_empty() && named != card_id && seen.insert(named.to_owned())
             })
         });
-        items.truncate(RELATION_LIMIT);
     }
 }
 
@@ -305,6 +304,10 @@ mod tests {
         );
         let mut values = object(json!({ "rel": many }));
         tidy_copied_relations(&mut values, "me", &definitions);
-        assert_eq!(values["rel"].as_array().map(Vec::len), Some(RELATION_LIMIT));
+        assert_eq!(
+            values["rel"].as_array().map(Vec::len),
+            Some(60),
+            "what is past the limit is for the copy to cut, once it dropped what it cannot name"
+        );
     }
 }

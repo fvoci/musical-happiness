@@ -3510,7 +3510,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50; any other is\n400 with a reason `relation_*` (`/problems`). A card of another board is answered as\nnone. A patch checks the values it changes, and does not ask again for a card that a\nvalue named before.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50. Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -4500,7 +4500,7 @@
         ]
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card.",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.",
         "operationId": "patchCard",
         "parameters": [
           {

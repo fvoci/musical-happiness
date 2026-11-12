@@ -232,32 +232,31 @@ fn describe_reason(reason: Reason) -> &'static str {
         }
         Reason::RelationNotAList => {
             "Status 400. The value of a card relation property (of the `type` `relation`) is \
-             `null` or a list of the identifiers of cards of the board. `errors` names \
-             `/fields` of the block (`/properties` of a new card, `/updatedProperties` of a \
-             card patch); the words name the property."
+             `null` or a list of identifiers of cards of the board. `errors` names where the \
+             request has the card's values (a block's `fields` or `updatedFields`, a card's \
+             `properties` or `updatedProperties`); the words name the property."
         }
         Reason::RelationToItself => {
-            "Status 400. A card relation names the card it is the value of. `errors` names \
-             where the values are, as for `relation-not-a-list`."
+            "Status 400. A card relation names its own card. `errors` as for \
+             `relation-not-a-list`."
         }
         Reason::RelationRepeated => {
-            "Status 400. A card relation names one card twice. `errors` names where the \
-             values are, as for `relation-not-a-list`."
+            "Status 400. A card relation names a card twice. `errors` as for \
+             `relation-not-a-list`."
         }
         Reason::RelationTooMany => {
             "Status 400. A card relation names more cards than one may (`limit`). `errors` \
-             names where the values are, as for `relation-not-a-list`."
+             as for `relation-not-a-list`."
         }
         Reason::RelationNotACard => {
-            "Status 400. A card relation names a block of the board that is no card (a view, \
-             a comment). `errors` names where the values are, as for `relation-not-a-list`."
+            "Status 400. A card relation names a block of the board that is no card. \
+             `errors` as for `relation-not-a-list`."
         }
         Reason::RelationCardNotFound => {
-            "Status 400. A card relation names a card that is not on the board: there is \
-             none of that identifier, it was removed from the trash, or it is another \
-             board's, which the answer does not tell apart. A card in the trash may be \
-             named. What a value named before the write is not asked for again. `errors` \
-             names where the values are, as for `relation-not-a-list`."
+            "Status 400. A card relation names no card of the board: none of that identifier, \
+             one removed from the trash, or another board's, which the answer does not tell \
+             apart. A card in the trash may be named, and what a value named before is not \
+             asked for again. `errors` as for `relation-not-a-list`."
         }
     }
 }

@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::block::{Block, BlockType};
 use crate::id::new_id;
-use crate::relation::RelationProperties;
+use crate::relation::{RELATION_LIMIT, RelationProperties};
 
 /// What becomes of an identifier in a card relation value that names no card among the
 /// blocks whose identifiers are renewed ([`renew_block_ids`]).
@@ -37,16 +37,19 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
 /// values name, too: the values of the `relations` of each card's board. An identifier
 /// in such a value that is a card among `blocks` gets that card's new identifier; one
 /// that is not is kept or dropped as `unmatched` says; kept, an identifier of another
-/// block among them is renamed too, so that the store can tell what it names.
+/// block among them is renamed too, so that the store can tell what it names. Dropped,
+/// a card of another board among them goes too, and a value keeps at most
+/// [`RELATION_LIMIT`] of what is left.
 pub fn renew_block_ids(
     blocks: &mut [Block],
     relations: &RelationProperties,
     unmatched: UnmatchedRelation,
 ) {
-    let cards: HashSet<&str> = blocks
+    // The board of each card: a copy names a copied card of its own board only.
+    let card_boards: HashMap<String, String> = blocks
         .iter()
         .filter(|block| block.block_type == BlockType::Card)
-        .map(|block| block.id.as_str())
+        .map(|block| (block.id.clone(), block.board_id.clone()))
         .collect();
     let mut referenced: HashSet<&str> = HashSet::new();
     for block in blocks.iter() {
@@ -98,8 +101,7 @@ pub fn renew_block_ids(
         })
         .collect();
 
-    let cards: HashSet<String> = cards.into_iter().map(str::to_owned).collect();
-    rename_all_relations(blocks, relations, &renamed, &cards, unmatched);
+    rename_all_relations(blocks, relations, &renamed, &card_boards, unmatched);
 
     let renamed_or_same = |id: &mut String| {
         if let Some(new) = renamed.get(id.as_str()) {
@@ -136,21 +138,31 @@ pub fn renew_block_ids(
 }
 
 /// Renames what the relation values of the cards among `blocks` name ([`renew_block_ids`]):
-/// `renamed` holds the new identifiers, and `cards` the old ones of the cards.
+/// `renamed` holds the new identifiers, and `card_boards` the board of each card by its
+/// old identifier. What a copy drops makes room: a copied value keeps at most
+/// [`RELATION_LIMIT`] of what is left.
 fn rename_all_relations(
     blocks: &mut [Block],
     relations: &RelationProperties,
     renamed: &HashMap<String, String>,
-    cards: &HashSet<String>,
+    card_boards: &HashMap<String, String>,
     unmatched: UnmatchedRelation,
 ) {
+    let keep_at_most = match unmatched {
+        UnmatchedRelation::Kept => usize::MAX,
+        UnmatchedRelation::Dropped => RELATION_LIMIT,
+    };
     for block in blocks.iter_mut() {
-        rename_relations(block, relations, |id| match (renamed.get(id), unmatched) {
+        let board_id = block.board_id.clone();
+        let rename = |id: &str| match (renamed.get(id), unmatched) {
             (Some(new), UnmatchedRelation::Kept) => Some(new.clone()),
-            (Some(new), UnmatchedRelation::Dropped) if cards.contains(id) => Some(new.clone()),
+            (Some(new), UnmatchedRelation::Dropped) if card_boards.get(id) == Some(&board_id) => {
+                Some(new.clone())
+            }
             (None, UnmatchedRelation::Kept) => Some(id.to_owned()),
             (_, UnmatchedRelation::Dropped) => None,
-        });
+        };
+        rename_relations(block, relations, rename, keep_at_most);
     }
 }
 
@@ -174,11 +186,13 @@ fn related_ids<'b>(block: &'b Block, relations: &RelationProperties) -> Vec<&'b 
 }
 
 /// Puts in each relation value of a card, for each identifier in it, what `rename` gives
-/// for it, and leaves the identifiers it gives nothing for out. Other items stay.
+/// for it, and leaves the identifiers it gives nothing for out. Other items stay; of all,
+/// the first `keep_at_most`.
 fn rename_relations(
     block: &mut Block,
     relations: &RelationProperties,
     rename: impl Fn(&str) -> Option<String>,
+    keep_at_most: usize,
 ) {
     let Some(properties) = relations.of(&block.board_id) else {
         return;
@@ -205,6 +219,7 @@ fn rename_relations(
                 None => false,
             }
         });
+        items.truncate(keep_at_most);
     }
 }
 

@@ -231,7 +231,7 @@ async fn a_copy_of_a_card_names_the_cards_its_source_named() {
         board, cards, view, ..
     } = named_board(&th).await;
 
-    for (source, expected) in [("B", json!(["A", "C"])), ("A", json!(["gone", "A"]))] {
+    for (source, expected) in [("B", json!(["A", "C"])), ("A", json!(["gone"]))] {
         let copies: Vec<Block> = th
             .client
             .post_empty(&format!(
@@ -258,7 +258,7 @@ async fn a_copy_of_a_card_names_the_cards_its_source_named() {
         assert_eq!(
             json!(titles),
             expected,
-            "{source}: the same cards, the one in the trash too; what never was is left out"
+            "{source}: the same cards, the one in the trash too; what never was, and the source itself, are left out"
         );
     }
     let blocks: Vec<Block> = th

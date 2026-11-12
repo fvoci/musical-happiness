@@ -10,8 +10,9 @@
 use std::collections::{HashMap, HashSet};
 
 use fvoci_model::{
-    Block, BlockError, BlockType, JsonMap, RelationError, RelationProblem, check_relation_value,
-    relation_property_ids, tidy_copied_relations, validate_card_property_kinds,
+    Block, BlockError, BlockType, JsonMap, RELATION_LIMIT, RelationError, RelationProblem,
+    check_relation_value, relation_property_ids, tidy_copied_relations,
+    validate_card_property_kinds,
 };
 use serde_json::Value;
 
@@ -193,8 +194,9 @@ pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[JsonMap])
 }
 
 /// Leaves out of the relation values of copied blocks of a board what names no card of
-/// the board, in the trash or out of it: copies of cards stored before the rules may
-/// name cards that are gone for good, or blocks that are no cards.
+/// the board, in the trash or out of it, and of the rest what is past
+/// [`fvoci_model::RELATION_LIMIT`]: copies of cards stored before the rules may name
+/// cards that are gone for good, or blocks that are no cards.
 pub(crate) async fn keep_cards_of_board(
     scope: &mut Scope<'_>,
     blocks: &mut [Block],
@@ -230,6 +232,7 @@ pub(crate) async fn keep_cards_of_board(
                     item.as_str()
                         .is_some_and(|id| types.get(id) == Some(&BlockType::Card))
                 });
+                items.truncate(RELATION_LIMIT);
             }
         }
     }

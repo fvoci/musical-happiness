@@ -488,18 +488,16 @@ impl Store {
             let mut copies = Vec::with_capacity(children.len() + 1);
             copies.push(root);
             copies.extend(children);
+            // What the source holds is settled before the copies are named, so that a
+            // value that named its own card names no card; a copy on the same board then
+            // names the cards its source named.
+            let definitions = boards::find_board(scope, board_id)
+                .await?
+                .map(|board| board.card_properties)
+                .unwrap_or_default();
+            card_values::clear_copied_values(&mut copies, &definitions);
             generate_block_ids(&mut copies);
-            // A copy on the same board names the cards its source named.
-            if let Some(board) = boards::find_board(scope, board_id).await? {
-                card_values::clear_copied_values(&mut copies, &board.card_properties);
-                card_values::keep_cards_of_board(
-                    scope,
-                    &mut copies,
-                    board_id,
-                    &board.card_properties,
-                )
-                .await?;
-            }
+            card_values::keep_cards_of_board(scope, &mut copies, board_id, &definitions).await?;
             insert_blocks(scope, &mut copies, user_id).await?;
             Ok(copies)
         })

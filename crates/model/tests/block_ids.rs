@@ -354,10 +354,10 @@ fn generate_block_ids_takes_no_identifier_as_no_reference() {
     );
 }
 
-fn card(id: &str, board_id: &str, related: Value) -> Block {
+fn card(id: &str, board_id: &str, related: &Value) -> Block {
     Block {
         block_type: fvoci_model::BlockType::Card,
-        fields: fields(json!({"properties": {"rel": related, "text": ["a", "b"]}})),
+        fields: fields(json!({"properties": {"rel": related.clone(), "text": ["a", "b"]}})),
         ..block(id, board_id, board_id)
     }
 }
@@ -379,10 +379,10 @@ fn renew_block_ids_renames_what_card_relations_name() {
         ..block("view", "board", "board")
     };
     let given = vec![
-        card("a", "board", json!(["b", "outside", "view", 3])),
-        card("b", "board", json!(["a"])),
+        card("a", "board", &json!(["b", "outside", "view", 3])),
+        card("b", "board", &json!(["a"])),
         view,
-        card("elsewhere", "other", json!(["a"])),
+        card("elsewhere", "other", &json!(["a"])),
     ];
 
     let mut kept = given.clone();
@@ -408,4 +408,30 @@ fn renew_block_ids_renames_what_card_relations_name() {
         "a copy names the copies of the cards and nothing else"
     );
     assert_eq!(related(&copied[1]), &json!([copied[0].id]));
+}
+
+/// A copy of several boards names, in a card's relation, the copies of the cards of the
+/// card's own board only, and at most the limit of what is left.
+#[test]
+fn renew_block_ids_keeps_a_copied_relation_on_its_board() {
+    use fvoci_model::{RELATION_LIMIT, RelationProperties, UnmatchedRelation, renew_block_ids};
+
+    let definitions = [fields(json!({"id": "rel", "type": "relation"}))];
+    let mut relations = RelationProperties::of_board("one", &definitions);
+    relations.add_board("two", &definitions);
+    let mut named: Vec<String> = (0..RELATION_LIMIT).map(|_| id()).collect();
+    named.insert(0, "theirs".to_owned());
+    named.push("mine".to_owned());
+    let mut blocks = vec![
+        card("a", "one", &json!(named)),
+        card("mine", "one", &json!([])),
+        card("theirs", "two", &json!(["a"])),
+    ];
+    renew_block_ids(&mut blocks, &relations, UnmatchedRelation::Dropped);
+    assert_eq!(
+        related(&blocks[0]),
+        &json!([blocks[1].id]),
+        "another board's card goes, and what is left is within the limit"
+    );
+    assert_eq!(related(&blocks[2]), &json!([]));
 }

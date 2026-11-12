@@ -241,7 +241,7 @@ async fn handle_get_cards(
 /// Change a card
 ///
 /// For editors of the card's board. To a user who is no member of that board there is
-/// no such card.
+/// no such card. The relation values it changes are checked as `createCard` says.
 #[utoipa::path(
     patch,
     path = "/cards/{cardId}",
