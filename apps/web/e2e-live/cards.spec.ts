@@ -7,13 +7,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -35,7 +36,7 @@ test('a card made in a column is the server’s, with the value of that column',
   const board = await makeBoard(api, { title: 'Errands' });
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await expect(page.getByTestId('board-page')).toBeVisible();
 
@@ -96,7 +97,7 @@ test('a card’s title and values are changed on the server, the last value take
     (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await column(page, 'To do').getByText('Paint the shed').click();
   const dialog = page.getByTestId('card-dialog');
@@ -170,7 +171,7 @@ test('a card carried to another column and a place in it is moved on the server'
       .evaluateAll((titles) => titles.map((element) => element.textContent.trim()));
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await expect(card('Sweep')).toBeVisible();
 
@@ -254,7 +255,7 @@ test('a card deleted goes to the server’s trash, and undo brings it back from 
     ).map((card) => card.title);
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(2);
 

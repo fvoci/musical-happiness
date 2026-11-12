@@ -95,8 +95,19 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the list cannot be read, or counted for the metrics.
+    /// Returns a 503 error if this process does not hold the lock of the server (also
+    /// once it lost it during the run), and the store's error if the list cannot be
+    /// read, or counted for the metrics.
     pub async fn remove_doomed_objects(&self, now: i64) -> Result<RemovedObjects, AppError> {
+        self.require_server_lock()?;
+        // While rows name places otherwise than the one way, every place counts as held
+        // (`Store::held_objects`): the doomed objects wait, listed, for those rows to be
+        // written the one way, rather than be taken off the list as kept.
+        if self.store().other_spellings_stored().await? {
+            tracing::warn!("doomed objects are not removed while rows name places another way");
+            self.count_loose_objects().await?;
+            return Ok(RemovedObjects::default());
+        }
         // What cannot be doomed now is doomed by a later run; the removals go on.
         match self.store().doom_stale_writing(now).await {
             Ok(0) => {}
@@ -107,6 +118,7 @@ impl App {
         }
         let mut done = RemovedObjects::default();
         while done.removed + done.failed + done.kept < DOOMED_PER_RUN {
+            self.require_server_lock()?;
             let due = self
                 .store()
                 .due_doomed_objects(now, DOOMED_PER_BATCH)
@@ -134,6 +146,9 @@ impl App {
                 .iter()
                 .filter(|object| seen.insert(object.path.as_str()))
             {
+                // What was read before the lock was lost is not acted on: the next
+                // server may have written at these places since.
+                self.require_server_lock()?;
                 let removal = if held.contains(&object.path) {
                     self.keep_held(&object.path, now).await
                 } else {
@@ -199,6 +214,15 @@ impl App {
     /// cannot go, the failure is noted on its row, or the row is left as it is.
     async fn remove_doomed_object(&self, doomed: Doomed<'_>, now: i64) -> Removal {
         let Doomed { path, attempts } = doomed;
+        // The last look before the object goes: a process that knows it lost or let go
+        // the lock of the server removes nothing more, and leaves the row to the next.
+        if !self.holds_server_lock() {
+            tracing::warn!(
+                path,
+                "a doomed object is left: this process does not hold the lock of the server"
+            );
+            return Removal::Failed;
+        }
         let error_kind = match self.files().delete(path).await {
             // Gone already is removed: a run cut off after the removal comes here.
             Ok(()) => {
@@ -276,6 +300,9 @@ impl App {
                         let doomed = Doomed { path, attempts: 0 };
                         self.remove_doomed_object(doomed, now).await;
                     }
+                    // Held for an unknown spelling: left doomed, as the housekeeping
+                    // leaves it.
+                    Ok(_) if !matches!(self.store().other_spellings_stored().await, Ok(false)) => {}
                     Ok(_) => {
                         self.keep_held(path, now).await;
                     }

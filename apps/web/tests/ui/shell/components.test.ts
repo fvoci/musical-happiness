@@ -8,10 +8,12 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { routePath } from '../../../src/app/router.svelte.ts';
 import BoardIcon from '$lib/features/shell/BoardIcon.svelte';
 import BoardTitle from '$lib/features/shell/BoardTitle.svelte';
 import SettingChoice from '$lib/features/shell/SettingChoice.svelte';
 import Sidebar from '$lib/features/shell/Sidebar.svelte';
+import type { BoardPlace } from '$lib/logic/urls.ts';
 
 import { loadTemplates, settle, setup } from '../../state/support.ts';
 
@@ -209,7 +211,8 @@ describe('the sidebar over a workspace', () => {
       props: {
         workspace,
         boardId: first?.id,
-        boardHref: (boardId: string) => `/board/${boardId}`,
+        boardHref: (board: BoardPlace) =>
+          routePath({ workspaceId: board.workspaceId, boardId: board.id }, ''),
         beside: true,
         ...handlers,
       },
@@ -237,7 +240,10 @@ describe('the sidebar over a workspace', () => {
     const first = workspace.sidebar[0]?.boards[0];
     const link = screen.getByRole('link', { name: first?.title });
     expect(link).toHaveAttribute('aria-current', 'page');
-    expect(link).toHaveAttribute('href', `/board/${first?.id}`);
+    expect(link).toHaveAttribute(
+      'href',
+      routePath({ workspaceId: workspace.info?.id, boardId: first?.id }, ''),
+    );
     expect(screen.getAllByRole('link').filter((one) => one.hasAttribute('aria-current'))).toEqual([
       link,
     ]);
@@ -251,7 +257,7 @@ describe('the sidebar over a workspace', () => {
     const plain = new MouseEvent('click', { bubbles: true, cancelable: true });
     link.dispatchEvent(plain);
     expect(plain.defaultPrevented).toBe(true);
-    expect(onOpenBoard).toHaveBeenCalledExactlyOnceWith(board?.id);
+    expect(onOpenBoard).toHaveBeenCalledExactlyOnceWith(board);
 
     const modified = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true });
     // Keep the simulated page from trying to follow the link.

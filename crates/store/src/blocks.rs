@@ -9,17 +9,18 @@ use std::collections::{BTreeMap, HashSet};
 
 use fvoci_model::{
     BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
-    TaskCount, generate_block_ids, validate_card_property_kinds,
+    TaskCount, generate_block_ids,
 };
 use serde_json::Value;
 
 use crate::Store;
 use crate::boards;
+use crate::card_values;
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_refs;
+use crate::file_refs::{self, NewImages};
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
@@ -337,8 +338,10 @@ impl Store {
         blocks: &mut [Block],
         user_id: &str,
     ) -> Result<(), StoreError> {
-        self.transaction(async |scope| insert_blocks(scope, blocks, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            insert_blocks(scope, blocks, user_id, NewImages::Recorded).await
+        })
+        .await
     }
 
     /// Applies `patch` to the block with the given identifier.
@@ -387,7 +390,7 @@ impl Store {
                     )));
                 }
                 let block = get_block(scope, &block_id).await?;
-                file_refs::refresh(scope, &block).await?;
+                file_refs::refresh(scope, &block, NewImages::Recorded).await?;
             }
             Ok(())
         })
@@ -489,9 +492,9 @@ impl Store {
             copies.extend(children);
             generate_block_ids(&mut copies);
             if let Some(board) = boards::find_board(scope, board_id).await? {
-                clear_copied_values(&mut copies, &board.card_properties);
+                card_values::clear_copied_values(&mut copies, &board.card_properties);
             }
-            insert_blocks(scope, &mut copies, user_id).await?;
+            insert_blocks(scope, &mut copies, user_id, NewImages::Unchecked).await?;
             Ok(copies)
         })
         .await
@@ -648,16 +651,17 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    insert_block_at(scope, block, user_id, None).await
+    insert_block_at(scope, block, user_id, None, NewImages::Recorded).await
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`.
+/// that is `None`. The images it shows newly are asked as `new_images` says.
 async fn insert_block_at(
     scope: &mut Scope<'_>,
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
+    new_images: NewImages,
 ) -> Result<(), StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
@@ -694,7 +698,7 @@ async fn insert_block_at(
 
     let existing = find_block(scope, &block.id).await?;
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
-    check_written_kinds(scope, block, existing.as_ref()).await?;
+    card_values::check_written_kinds(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
         // Every change of a block moves its `updateAt` on, also within one millisecond
         // and when the clock steps back: a writer that read the block before this
@@ -733,66 +737,21 @@ async fn insert_block_at(
             } else {
                 existing.edited_at
             };
-        file_refs::refresh(scope, block).await
+        file_refs::refresh(scope, block, new_images).await
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
-        insert_block_row(scope, block).await
-    }
-}
-
-/// Checks that the values a write gives a card fit the kinds of the board's properties
-/// (`docs/s6-design.md` 5.7): a date value for a date property, and none for another.
-/// Only the values the write changes are checked; one that a change of the definitions
-/// left behind stays until it is written.
-async fn check_written_kinds(
-    scope: &mut Scope<'_>,
-    block: &Block,
-    existing: Option<&Block>,
-) -> Result<(), StoreError> {
-    let Some(Value::Object(values)) = block.fields.get("properties") else {
-        return Ok(());
-    };
-    let before = existing
-        .and_then(|existing| existing.fields.get("properties"))
-        .and_then(Value::as_object);
-    let written: fvoci_model::JsonMap = values
-        .iter()
-        .filter(|(id, value)| before.and_then(|before| before.get(*id)) != Some(*value))
-        .map(|(id, value)| (id.clone(), value.clone()))
-        .collect();
-    if written.is_empty() {
-        return Ok(());
-    }
-    let Some(board) = boards::find_board(scope, &block.board_id).await? else {
-        return Ok(());
-    };
-    validate_card_property_kinds(&written, &board.card_properties).map_err(|error| {
-        StoreError::InvalidBlock {
-            id: block.id.clone(),
-            source: BlockError::from(error),
-        }
-    })
-}
-
-/// Clears what copied blocks can no longer be stored with: malformed fields
-/// ([`Block::drop_malformed_fields`]), and the values of cards that no longer fit their
-/// board's definitions, as [`fvoci_model::clear_values_of_another_kind`] does.
-pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[fvoci_model::JsonMap]) {
-    for block in blocks {
-        block.drop_malformed_fields();
-        if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
-            fvoci_model::clear_values_of_another_kind(values, definitions);
-        }
+        insert_block_row(scope, block, new_images).await
     }
 }
 
 /// Inserts a block row with every column as `block` has it. For a new block, and for
-/// one that comes back from the trash.
+/// one that comes back from the trash; its images are asked as `new_images` says.
 pub(crate) async fn insert_block_row(
     scope: &mut Scope<'_>,
     block: &Block,
+    new_images: NewImages,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!(
         "INSERT INTO blocks ({BLOCK_COLUMNS}, {BODY_SUMMARY_COLUMNS}) VALUES ("
@@ -811,7 +770,7 @@ pub(crate) async fn insert_block_row(
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
-    file_refs::refresh(scope, block).await
+    file_refs::refresh(scope, block, new_images).await
 }
 
 /// How [`push_body`] writes the body's columns.
@@ -847,6 +806,7 @@ pub(crate) async fn insert_blocks(
     scope: &mut Scope<'_>,
     blocks: &mut [Block],
     user_id: &str,
+    new_images: NewImages,
 ) -> Result<(), StoreError> {
     for block in blocks.iter() {
         block
@@ -864,7 +824,7 @@ pub(crate) async fn insert_blocks(
     // identifiers, which whoever made them made in the order that is meant.
     let now = now_millis();
     for index in parents_first(blocks) {
-        insert_block_at(scope, &mut blocks[index], user_id, Some(now)).await?;
+        insert_block_at(scope, &mut blocks[index], user_id, Some(now), new_images).await?;
     }
     Ok(())
 }

@@ -136,10 +136,11 @@ async fn the_calls_of_the_database_are_measured() {
     let response = server.client.get("/ping").await;
     assert_eq!(response.status, StatusCode::OK);
     let after = scrape(&server).await;
-    // The second scrape reads itself too: the open uploads at least.
-    assert!(reads(&after) >= reads(&before) + 2.0, "ping reads: {after}");
+    // The second scrape, within five seconds of the first, reads nothing itself: what
+    // it counts is kept that long. So what is counted anew is ping's.
+    assert!(reads(&after) >= reads(&before) + 1.0, "ping reads: {after}");
     assert!(
-        waits(&after) >= waits(&before) + 2.0,
+        waits(&after) >= waits(&before) + 1.0,
         "and waits for a connection: {after}"
     );
     for access in ["read", "write"] {

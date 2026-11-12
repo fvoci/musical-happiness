@@ -24,6 +24,8 @@ export class UndoManager {
   #commands: UndoCommand[] = [];
   #index = -1;
   #isExecuting = false;
+  /** Times the history was cleared: a change begun before the latest is not remembered. */
+  #clearings = 0;
 
   /** When the change that would be undone next was made; 0 without one. */
   get currentCheckpoint(): number {
@@ -46,7 +48,11 @@ export class UndoManager {
     return this.#index < this.#commands.length - 1;
   }
 
-  /** Performs a change and remembers how to take it back. Returns what `redo` returned. */
+  /**
+   * Performs a change and remembers how to take it back. Returns what `redo`
+   * returned. A change still under way when the history is cleared is not
+   * remembered: it is of what was cleared.
+   */
   async perform<T>(
     redo: () => Promise<T>,
     undo: (value: T) => Promise<void>,
@@ -54,7 +60,9 @@ export class UndoManager {
     groupId?: string,
     isDiscardable = false,
   ): Promise<T> {
+    const clearings = this.#clearings;
     const value = await redo();
+    if (clearings !== this.#clearings) return value;
     this.registerUndo(
       { undo: undo as (value?: unknown) => Promise<void>, redo },
       description,
@@ -131,6 +139,7 @@ export class UndoManager {
   }
 
   clear(): void {
+    this.#clearings += 1;
     const hadCommands = this.#commands.length > 0;
     this.#commands = [];
     this.#index = -1;

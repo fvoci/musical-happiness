@@ -38,6 +38,11 @@ const POSTGRES_DATABASE: &str = "fvoci";
 /// superuser passes every policy, and a test run as one would show nothing of them.
 const POSTGRES_TEST_ROLE: &str = "fvoci_app";
 
+/// The connections the PostgreSQL container takes. The tests run side by side, a test
+/// server's pool and the connection that holds its server's lock each; the image's 100
+/// are too few for that on a machine with many processors.
+const POSTGRES_MAX_CONNECTIONS: u32 = 300;
+
 /// The bucket the S3 storage test writes into.
 const S3_BUCKET: &str = "fvoci-test";
 
@@ -71,7 +76,7 @@ impl Container {
                 format!("POSTGRES_PASSWORD={POSTGRES_PASSWORD}"),
                 format!("POSTGRES_DB={POSTGRES_DATABASE}"),
             ],
-            command: Vec::new(),
+            command: vec!["-c", "max_connections=300"],
         })
     }
 
@@ -472,21 +477,7 @@ fn wait_until(what: &str, mut probe: impl FnMut() -> Result<()>) -> Result<()> {
 pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<PostgresUrls> {
     let container = Container::postgres()?;
     container.ensure_running(uses)?;
-    wait_until(&container.name, || {
-        // Over TCP: while the image initializes a new database it answers on the socket
-        // only, and restarts once more before it is ready.
-        docker(&[
-            "exec",
-            &container.name,
-            "pg_isready",
-            "--host",
-            "127.0.0.1",
-            "--username",
-            POSTGRES_USER,
-            "--dbname",
-            POSTGRES_DATABASE,
-        ])
-    })?;
+    wait_until(&container.name, || postgres_ready(&container))?;
     {
         // One run at a time: two that alter the role at once fail ("tuple concurrently
         // updated").
@@ -506,6 +497,7 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<PostgresUrls> {
             &test_role_statements(),
         ])
         .with_context(|| format!("making the role {POSTGRES_TEST_ROLE} in {}", container.name))?;
+        allow_connections(&container)?;
     }
     say(&format!(
         "    {}: accepting connections on port {}, the tests connect as {POSTGRES_TEST_ROLE}",
@@ -515,6 +507,71 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<PostgresUrls> {
         tests: container.postgres_url(),
         superuser: container.postgres_superuser_url(),
     })
+}
+
+/// Raises the connections a container made before [`POSTGRES_MAX_CONNECTIONS`] takes,
+/// which needs a restart of the server in it. It happens once to a container: other
+/// test runs that use it at that moment lose their connections.
+fn allow_connections(container: &Container) -> Result<()> {
+    let psql = |command: &str| {
+        capture(
+            "docker",
+            &[
+                "exec",
+                &container.name,
+                "psql",
+                "--username",
+                POSTGRES_USER,
+                "--dbname",
+                POSTGRES_DATABASE,
+                "--no-align",
+                "--tuples-only",
+                "--command",
+                command,
+            ],
+        )
+    };
+    let shown = psql("SHOW max_connections")?;
+    let now: u32 =
+        shown.output.trim().parse().with_context(|| {
+            format!("reading max_connections of {}: {:?}", container.name, shown)
+        })?;
+    if now >= POSTGRES_MAX_CONNECTIONS {
+        return Ok(());
+    }
+    say(&format!(
+        "    {}: takes {now} connections; restarting it to take {POSTGRES_MAX_CONNECTIONS}",
+        container.name
+    ));
+    let altered = psql(&format!(
+        "ALTER SYSTEM SET max_connections = {POSTGRES_MAX_CONNECTIONS}"
+    ))?;
+    if !altered.succeeded {
+        bail!(
+            "raising max_connections of {}: {}",
+            container.name,
+            altered.error
+        );
+    }
+    docker(&["restart", &container.name])?;
+    wait_until(&container.name, || postgres_ready(container))
+}
+
+/// Whether PostgreSQL in the container accepts connections over TCP: while the image
+/// initializes a new database it answers on the socket only, and restarts once more
+/// before it is ready.
+fn postgres_ready(container: &Container) -> Result<()> {
+    docker(&[
+        "exec",
+        &container.name,
+        "pg_isready",
+        "--host",
+        "127.0.0.1",
+        "--username",
+        POSTGRES_USER,
+        "--dbname",
+        POSTGRES_DATABASE,
+    ])
 }
 
 /// The PostgreSQL URLs the tests are given.
@@ -608,6 +665,13 @@ mod tests {
             environment: vec!["POSTGRES_USER=fvoci".to_owned()],
             command: vec!["server", "-s3"],
         }
+    }
+
+    #[test]
+    fn the_postgres_container_takes_the_connections_of_the_tests() {
+        let container = Container::postgres().expect("the default container");
+        let asked = format!("max_connections={POSTGRES_MAX_CONNECTIONS}");
+        assert_eq!(container.command, ["-c", asked.as_str()]);
     }
 
     #[test]

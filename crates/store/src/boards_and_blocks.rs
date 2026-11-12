@@ -10,9 +10,11 @@ use fvoci_model::{
 use crate::Store;
 use crate::blocks::{self, BlockFilter, DuplicateAs};
 use crate::boards;
+use crate::card_values;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 use crate::file_info;
+use crate::file_refs::NewImages;
 use crate::loose_objects;
 use crate::trash;
 
@@ -61,7 +63,8 @@ impl Store {
             let doomed: Vec<_> = files.iter().map(|file| (file.path.clone(), None)).collect();
             loose_objects::doom(scope, &doomed).await?;
             boards::remove_builtin_templates(scope).await?;
-            create_boards_and_blocks(scope, templates, "").await?;
+            // Their images are pointed at the templates' files once those are stored.
+            create_boards_and_blocks(scope, templates, "", NewImages::Unchecked).await?;
             Ok(Some(files))
         })
         .await
@@ -69,6 +72,7 @@ impl Store {
 
     /// Inserts or updates every board and then every block, as [`Store::insert_board`]
     /// and [`Store::insert_block`] do. `boards_and_blocks` is updated to what was stored.
+    /// The images the blocks show newly are asked as `new_images` says.
     ///
     /// # Errors
     ///
@@ -78,9 +82,10 @@ impl Store {
         &self,
         boards_and_blocks: &mut BoardsAndBlocks,
         user_id: &str,
+        new_images: NewImages,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            create_boards_and_blocks(scope, boards_and_blocks, user_id).await
+            create_boards_and_blocks(scope, boards_and_blocks, user_id, new_images).await
         })
         .await
     }
@@ -99,7 +104,13 @@ impl Store {
         user_id: &str,
     ) -> Result<Vec<BoardMember>, StoreError> {
         self.transaction(async |scope| {
-            create_boards_and_blocks_with_admin(scope, boards_and_blocks, user_id).await
+            create_boards_and_blocks_with_admin(
+                scope,
+                boards_and_blocks,
+                user_id,
+                NewImages::Recorded,
+            )
+            .await
         })
         .await
     }
@@ -170,21 +181,23 @@ pub(crate) async fn create_boards_and_blocks(
     scope: &mut Scope<'_>,
     boards_and_blocks: &mut BoardsAndBlocks,
     user_id: &str,
+    new_images: NewImages,
 ) -> Result<(), StoreError> {
     for board in &mut boards_and_blocks.boards {
         boards::insert_board(scope, board, user_id).await?;
     }
     // Parents first, wherever in the list they are: a copied board hands its blocks
     // over oldest first, and a block may be older than the block it is on.
-    blocks::insert_blocks(scope, &mut boards_and_blocks.blocks, user_id).await
+    blocks::insert_blocks(scope, &mut boards_and_blocks.blocks, user_id, new_images).await
 }
 
 pub(crate) async fn create_boards_and_blocks_with_admin(
     scope: &mut Scope<'_>,
     boards_and_blocks: &mut BoardsAndBlocks,
     user_id: &str,
+    new_images: NewImages,
 ) -> Result<Vec<BoardMember>, StoreError> {
-    create_boards_and_blocks(scope, boards_and_blocks, user_id).await?;
+    create_boards_and_blocks(scope, boards_and_blocks, user_id, new_images).await?;
 
     let mut members = Vec::with_capacity(boards_and_blocks.boards.len());
     for board in &boards_and_blocks.boards {
@@ -300,7 +313,7 @@ pub(crate) async fn duplicate_board(
         .into_iter()
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
-    blocks::clear_copied_values(&mut blocks, &board.card_properties);
+    card_values::clear_copied_values(&mut blocks, &board.card_properties);
 
     // A board without blocks, or with comments only, is copied as a board without
     // blocks. The original refuses it, because it regenerates the identifiers with the
@@ -310,6 +323,9 @@ pub(crate) async fn duplicate_board(
         boards: vec![board],
         blocks,
     });
-    let members = create_boards_and_blocks_with_admin(scope, &mut copies, user_id).await?;
+    // The copies show the original board's files until theirs are copied.
+    let members =
+        create_boards_and_blocks_with_admin(scope, &mut copies, user_id, NewImages::Unchecked)
+            .await?;
     Ok((copies, members))
 }

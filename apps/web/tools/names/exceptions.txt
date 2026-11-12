@@ -36,6 +36,5 @@ e2e/sidebar.spec.ts | in Team.
 # function of its utilities.
 docs/i18n-conversion.md
 docs/ko-review.md
-docs/decisions.md | `/team/<팀>/…`
 PORTING.md | `/team/t`
 PORTING.md | `isTeamAdmin`

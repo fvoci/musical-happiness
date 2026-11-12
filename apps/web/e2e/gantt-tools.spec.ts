@@ -5,6 +5,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { boardPath } from './address.ts';
 import {
   arrows,
   bar,
@@ -325,7 +326,7 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     });
     return { boardId, viewId: view.id };
   });
-  await goTo(page, `/board/${made.boardId}/${made.viewId}`);
+  await goTo(page, boardPath(made.boardId, made.viewId));
   await expect(gantt(page)).toHaveAttribute('data-zoom', 'week');
   // The reader sees the chart whole: bars, the arrow, what is out of order; and opens a card.
   await expect(bars(page)).toHaveCount(2);

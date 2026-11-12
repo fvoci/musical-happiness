@@ -10,6 +10,10 @@
  * 127.0.0.1 only, and serves this app's build (`dist/`), so that the page and
  * the API have one origin. It prints `live: <address>` once it answers.
  *
+ * Where the data folder of the server on a port is, is written to
+ * `target/web-live/server-<port>.json` (`{ "data": … }`), for a test that
+ * must set up what no request can (a second workspace, `e2e-live/support.ts`).
+ *
  * When this process is asked to stop, or ends, the server is stopped too.
  * The data folder stays, with the server's log (`server.log`), for looking
  * into after a failure; each run makes a new one. A server that ends
@@ -40,6 +44,10 @@ if (!existsSync(path.join(dist, 'index.html'))) stop('no build in dist/: run `pn
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const data = path.join(REPO_ROOT, 'target/web-live', `${stamp}-${port}`);
 mkdirSync(path.join(data, 'files'), { recursive: true });
+writeFileSync(
+  path.join(REPO_ROOT, 'target/web-live', `server-${port}.json`),
+  JSON.stringify({ data }),
+);
 const origin = `http://127.0.0.1:${port}`;
 writeFileSync(
   path.join(data, 'config.json'),

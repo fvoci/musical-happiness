@@ -48,11 +48,16 @@ async fn require_token(
     let Some(token) = &token else {
         return next.run(request).await;
     };
-    let challenge = match bearer(request.headers()) {
-        Some(presented) if token.admits(presented) => return next.run(request).await,
+    let challenge = match credentials(request.headers()) {
+        Credentials::Bearer(presented) if token.admits(presented) => {
+            return next.run(request).await;
+        }
         // A token was sent, and is not this one (RFC 6750, 3.1).
-        Some(_) => "Bearer realm=\"metrics\", error=\"invalid_token\"",
-        None => "Bearer realm=\"metrics\"",
+        Credentials::Bearer(_) => "Bearer realm=\"metrics\", error=\"invalid_token\"",
+        // The header repeated: the request is malformed (RFC 6750, 3.1). 401 rather than
+        // the 400 it suggests, so that every refusal of this listener is one status.
+        Credentials::Several => "Bearer realm=\"metrics\", error=\"invalid_request\"",
+        Credentials::None => "Bearer realm=\"metrics\"",
     };
     let mut refused = AppError::unauthorized("a scrape needs the bearer token").into_response();
     refused
@@ -61,14 +66,38 @@ async fn require_token(
     refused
 }
 
-/// The bearer token of the `Authorization` header (RFC 6750): after the scheme, which is
-/// read without regard to case, and the spaces.
-fn bearer(headers: &HeaderMap) -> Option<&str> {
-    let value = headers.get(AUTHORIZATION)?.to_str().ok()?;
-    let (scheme, token) = value.split_once(' ')?;
-    scheme
-        .eq_ignore_ascii_case("bearer")
-        .then(|| token.trim_start_matches(' '))
+/// What the `Authorization` headers of a scrape send. No `Debug` but in tests: it holds
+/// the token presented, which may be the right one.
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+enum Credentials<'h> {
+    /// No bearer token: no header, or one of another scheme, with no space after the
+    /// scheme, or that is no text.
+    None,
+    /// One header with a bearer token (RFC 6750, 2.1): after the scheme, which is read
+    /// without regard to case, and the spaces.
+    Bearer(&'h str),
+    /// More than one header. None of them is taken: which one would be is the order
+    /// of the headers, which a proxy may change.
+    Several,
+}
+
+/// What the `Authorization` headers of `headers` send.
+fn credentials(headers: &HeaderMap) -> Credentials<'_> {
+    let mut values = headers.get_all(AUTHORIZATION).iter();
+    let Some(value) = values.next() else {
+        return Credentials::None;
+    };
+    if values.next().is_some() {
+        return Credentials::Several;
+    }
+    let bearer = value.to_str().ok().and_then(|value| {
+        let (scheme, token) = value.split_once(' ')?;
+        scheme
+            .eq_ignore_ascii_case("bearer")
+            .then(|| token.trim_start_matches(' '))
+    });
+    bearer.map_or(Credentials::None, Credentials::Bearer)
 }
 
 /// Answers a scrape: reads what is measured by asking, then writes all.
@@ -145,9 +174,9 @@ mod tests {
         }
     }
 
-    /// The status of a scrape that sends `authorization`, and the log of it at every
-    /// level.
-    async fn scraped(token: Option<&str>, authorization: Option<&str>) -> (StatusCode, String) {
+    /// The status of a scrape that sends an `Authorization` header with each value of
+    /// `authorization`, and the log of it at every level.
+    async fn scraped(token: Option<&str>, authorization: &[&str]) -> (StatusCode, String) {
         let captured = Captured::default();
         let writer = captured.clone();
         let subscriber = tracing_subscriber::fmt()
@@ -167,8 +196,8 @@ mod tests {
                 require_token,
             ));
         let mut request = Request::get(PATH);
-        if let Some(value) = authorization {
-            request = request.header(AUTHORIZATION, value);
+        for value in authorization {
+            request = request.header(AUTHORIZATION, *value);
         }
         let response = router
             .oneshot(request.body(Body::empty()).expect("a request"))
@@ -206,16 +235,68 @@ mod tests {
             (Some(&right[..]), StatusCode::OK),
             (Some(&format!("bearer  {TOKEN}")[..]), StatusCode::OK),
         ] {
-            let (got, log) = scraped(Some(TOKEN), authorization).await;
+            let (got, log) = scraped(Some(TOKEN), authorization.as_slice()).await;
             assert_eq!(got, status, "{authorization:?}");
             assert!(!log.contains(TOKEN), "the token is not logged: {log}");
             assert!(!log.contains("the-token"), "nor a guess: {log}");
         }
     }
 
+    /// The headers with each of `values`.
+    fn headers(values: &[&[u8]]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(
+                AUTHORIZATION,
+                HeaderValue::from_bytes(value).expect("a value"),
+            );
+        }
+        headers
+    }
+
+    #[test]
+    fn more_than_one_authorization_header_sends_no_token() {
+        let right = format!("Bearer {TOKEN}");
+        let right = right.as_bytes();
+        for values in [
+            [right, b"Bearer wrong"],
+            [b"Bearer wrong", right],
+            [right, right],
+            [b"", right],
+        ] {
+            assert_eq!(
+                credentials(&headers(&values)),
+                Credentials::Several,
+                "{values:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn one_authorization_header_sends_its_bearer_token_if_it_has_one() {
+        let right = format!("Bearer {TOKEN}");
+        let joined = format!("Bearer {TOKEN}, Bearer wrong");
+        for (value, sent) in [
+            (&b""[..], Credentials::None),
+            (b"Basic abc", Credentials::None),
+            (b"Bearer", Credentials::None),
+            (b"Bearer \xff", Credentials::None),
+            (right.as_bytes(), Credentials::Bearer(TOKEN)),
+            // One header that names two: one token, which is not the right one.
+            (
+                joined.as_bytes(),
+                Credentials::Bearer(&joined["Bearer ".len()..]),
+            ),
+        ] {
+            assert_eq!(credentials(&headers(&[value])), sent, "{value:?}");
+        }
+        assert_eq!(credentials(&HeaderMap::new()), Credentials::None);
+    }
+
     #[tokio::test]
     async fn without_a_token_every_scrape_is_answered() {
-        for authorization in [None, Some("Bearer anything")] {
+        let several = ["Bearer anything", "Bearer else"];
+        for authorization in [&[][..], &["Bearer anything"], &several] {
             let (status, _) = scraped(None, authorization).await;
             assert_eq!(status, StatusCode::OK, "{authorization:?}");
         }

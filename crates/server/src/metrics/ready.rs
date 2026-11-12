@@ -48,7 +48,7 @@ impl ReadyMetrics {
             Opts::new(
                 "ready_check",
                 "Whether a check of the readiness is ok (1) or failing (0), by check: \
-                 database (it answers a statement in two seconds), files (the file \
+                 database (it reads the table of the sessions in two seconds), files (the file \
                  storage can be used).",
             )
             .namespace(PREFIX),

@@ -19,7 +19,7 @@
 
   /** The latest start or end, for a screen reader. */
   const announcement = $derived.by(() => {
-    const latest = workspace.transfers.at(-1);
+    const latest = workspace.transfers.list.at(-1);
     return latest ? label(latest) : '';
   });
 
@@ -43,7 +43,7 @@
   class="pointer-events-none fixed right-[calc(1rem+var(--safe-right))] bottom-[calc(1rem+var(--safe-bottom))] z-50 grid w-[min(22rem,calc(100%-2rem))] gap-2"
   data-testid="transfers"
 >
-  {#each workspace.transfers as transfer (transfer.id)}
+  {#each workspace.transfers.list as transfer (transfer.id)}
     <div
       class="pointer-events-auto grid gap-1.5 rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md"
       data-transfer={transfer.kind}
@@ -55,7 +55,7 @@
           label={m.app_problem_dismiss()}
           class="-my-1 -mr-1 size-6"
           onclick={() => {
-            workspace.dismissTransfer(transfer.id);
+            workspace.transfers.dismiss(transfer.id);
           }}
         >
           <XIcon />
