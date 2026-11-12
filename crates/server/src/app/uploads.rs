@@ -34,7 +34,7 @@ use super::files::FilePlace;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
-use crate::storage::{S3Files, WRITING_DIR};
+use crate::storage::S3Files;
 
 /// How long a session lasts after it is opened (`docs/s6-design.md` 5.6, 7).
 pub const UPLOAD_LIFETIME_MILLIS: i64 = 24 * 60 * 60 * 1000;
@@ -858,14 +858,18 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the sessions cannot be read.
+    /// Returns a 503 error if this process does not hold the lock of the server, and
+    /// the store's error if the sessions cannot be read.
     pub async fn clean_up_uploads(&self, now: i64) -> Result<CleanedUp, AppError> {
+        self.require_server_lock()?;
         let uploads = self
             .store()
             .uploads_to_clean_up(now, now.saturating_sub(CLOSED_UPLOAD_GRACE_MILLIS))
             .await?;
         let mut cleaned = CleanedUp::default();
         for upload in &uploads {
+            // A server that lost its lock leaves the rest to the next.
+            self.require_server_lock()?;
             if self.discard_upload(upload).await {
                 cleaned.removed += 1;
             } else {
@@ -873,46 +877,6 @@ impl App {
             }
         }
         Ok(cleaned)
-    }
-
-    /// Removes what the temporary directories hold that nothing will use: the parts of
-    /// sessions that are gone, the directories of completions that were cut off, the
-    /// archives being exported, and the files the local storage was writing. Only for
-    /// when no request is under way, as at the start, and only with one server to the
-    /// files directory and the temporary directory (`docs/configuration.md`). Returns
-    /// how many it removed.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the sessions cannot be read.
-    pub async fn sweep_temporary_files(&self) -> Result<usize, AppError> {
-        let sessions: std::collections::HashSet<String> =
-            self.store().upload_ids().await?.into_iter().collect();
-        let mut removed = 0;
-        let uploads = self.config().tmp_dir().join("uploads");
-        for (name, path) in entries(&uploads).await {
-            // A session's directory is named by its identifier; anything else, such as a
-            // directory a completion moved aside, is left over.
-            if !sessions.contains(&name) && remove_entry(&path).await {
-                removed += 1;
-            }
-        }
-        // Archives being written or sent when the server stopped.
-        let exports = self.config().tmp_dir().join(super::export::EXPORTS_DIR);
-        for (_, path) in entries(&exports).await {
-            if remove_entry(&path).await {
-                removed += 1;
-            }
-        }
-        if self.config().files_driver == "local" {
-            let writing = Path::new(&self.config().files_path).join(WRITING_DIR);
-            for (_, path) in entries(&writing).await {
-                if remove_entry(&path).await {
-                    removed += 1;
-                }
-            }
-        }
-        Ok(removed)
     }
 
     /// The directory that holds the parts of an upload.
@@ -1035,53 +999,6 @@ fn closed() -> AppError {
 /// A part that cannot be written: the server's failure.
 fn part_error(error: &io::Error) -> AppError {
     AppError::internal(format_args!("the part could not be stored: {error}"))
-}
-
-/// The entries of a directory with their names; none if it cannot be read.
-async fn entries(directory: &Path) -> Vec<(String, PathBuf)> {
-    let mut found = Vec::new();
-    let mut listing = match fs::read_dir(directory).await {
-        Ok(listing) => listing,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return found,
-        Err(error) => {
-            tracing::warn!(%error, "a temporary directory could not be read");
-            return found;
-        }
-    };
-    loop {
-        match listing.next_entry().await {
-            Ok(Some(entry)) => {
-                found.push((
-                    entry.file_name().to_string_lossy().into_owned(),
-                    entry.path(),
-                ));
-            }
-            Ok(None) => break,
-            Err(error) => {
-                tracing::warn!(%error, "a temporary directory could not be read to its end");
-                break;
-            }
-        }
-    }
-    found
-}
-
-/// Removes a file or a directory that is left over, with what is in it. Returns whether
-/// it was removed.
-async fn remove_entry(path: &Path) -> bool {
-    let removed = match fs::symlink_metadata(path).await {
-        Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path).await,
-        Ok(_) => fs::remove_file(path).await,
-        Err(error) => Err(error),
-    };
-    match removed {
-        Ok(()) => true,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
-        Err(error) => {
-            tracing::warn!(%error, "a left-over temporary file could not be removed");
-            false
-        }
-    }
 }
 
 /// Removes a directory of parts that is not to be kept, if it is there. Returns false

@@ -100,6 +100,9 @@ pub struct Configuration {
     /// How many times to try to reach the database at startup.
     #[serde(rename = "dbpingattempts")]
     pub db_ping_attempts: u32,
+    /// How long a server that starts waits for the lock of the server of its database,
+    /// which another process holds, before it refuses to start, in seconds.
+    pub server_lock_wait_seconds: u64,
     /// Whether to serve HTTPS, with `./cert/cert.pem` and `./cert/key.pem`.
     #[serde(rename = "usessl")]
     pub use_ssl: bool,
@@ -256,6 +259,7 @@ impl Default for Configuration {
             db_type: "sqlite3".to_owned(),
             db_config: "./fvoci.db".to_owned(),
             db_ping_attempts: 5,
+            server_lock_wait_seconds: 30,
             use_ssl: false,
             web_path: "./pack".to_owned(),
             files_driver: "local".to_owned(),
@@ -338,6 +342,7 @@ impl std::fmt::Debug for Configuration {
             .field("show_full_name", &self.show_full_name)
             .field("auth_mode", &self.auth_mode)
             .field("org_creation", &self.org_creation)
+            .field("server_lock_wait_seconds", &self.server_lock_wait_seconds)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
             .field("compress_responses", &self.compress_responses)
             .field("max_request_bytes", &self.max_request_bytes)
@@ -397,12 +402,13 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 55] = [
+const ENV_KEYS: [(&str, EnvKind); 56] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
     ("dbconfig", EnvKind::Text),
     ("dbpingattempts", EnvKind::Number),
+    ("server_lock_wait_seconds", EnvKind::Number),
     ("usessl", EnvKind::Flag),
     ("webpath", EnvKind::Text),
     ("filesdriver", EnvKind::Text),
@@ -686,6 +692,11 @@ impl Configuration {
     /// (`export_stall_seconds`).
     pub fn export_stall(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.export_stall_seconds)
+    }
+
+    /// How long a start waits for the lock of the server (`server_lock_wait_seconds`).
+    pub fn server_lock_wait(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.server_lock_wait_seconds)
     }
 
     /// Checks the limits on uploads: none turns a limit off, and they fit together.

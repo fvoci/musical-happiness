@@ -16,7 +16,7 @@ use fvoci_model::{
     BoardPatch, BoardType, BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks,
     PatchBoardsAndBlocks, is_id, new_id,
 };
-use fvoci_store::{BlockFilter, DuplicateAs, PublicBoards, Store, StoreError};
+use fvoci_store::{BlockFilter, DuplicateAs, NewImages, PublicBoards, Store, StoreError};
 
 use crate::common;
 
@@ -162,7 +162,7 @@ async fn create_boards_and_blocks() {
             blocks: vec![new_card(&block1, &board1), new_card(&block2, &board2)],
         };
 
-        test.create_boards_and_blocks(&mut new_bab, &user_id)
+        test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect("the boards and blocks are created");
         assert_eq!(new_bab.boards.len(), 3, "got {:?}", new_bab.boards);
@@ -242,7 +242,7 @@ async fn create_boards_and_blocks() {
         };
 
         let error = test
-            .create_boards_and_blocks(&mut new_bab, &user_id)
+            .create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect_err("a block without a board is rejected");
         assert!(
@@ -305,7 +305,7 @@ async fn create_boards_and_blocks() {
         };
 
         let error = test
-            .create_boards_and_blocks(&mut new_bab, &user_id)
+            .create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect_err("a block with an oversized title is rejected");
         assert!(is_title_size_limit_exceeded(&error), "got {error:?}");
@@ -457,7 +457,7 @@ async fn patch_boards_and_blocks() {
             ],
         };
 
-        test.create_boards_and_blocks(&mut new_bab, &user_id)
+        test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
             .await
             .expect("the boards and blocks are created");
         assert_eq!(new_bab.boards.len(), 3, "got {:?}", new_bab.boards);
@@ -674,7 +674,7 @@ async fn duplicate_board() {
         ],
     };
 
-    test.create_boards_and_blocks(&mut new_bab, &user_id)
+    test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
         .await
         .expect("the boards and blocks are created");
     assert_eq!(new_bab.boards.len(), 3, "got {:?}", new_bab.boards);
@@ -764,7 +764,7 @@ async fn duplicate_board_copies_under_new_ids_as_a_private_board_of_the_user() {
             },
         ],
     };
-    test.create_boards_and_blocks(&mut source, &author)
+    test.create_boards_and_blocks(&mut source, &author, NewImages::Recorded)
         .await
         .expect("the board and its blocks are created");
 
@@ -1175,7 +1175,7 @@ async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
             new_card(&card_id, &board_id),
         ],
     };
-    test.create_boards_and_blocks(&mut new_bab, &user_id)
+    test.create_boards_and_blocks(&mut new_bab, &user_id, NewImages::Recorded)
         .await
         .expect("children listed before their parents are accepted");
     assert_eq!(

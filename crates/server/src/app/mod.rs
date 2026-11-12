@@ -22,12 +22,15 @@ mod onboarding;
 mod readiness;
 mod reconcile;
 mod search;
+mod server_lock;
 mod slots;
 
 pub(crate) use download::download;
+pub(crate) use server_lock::HeldLock;
+pub(crate) use server_lock::take_server_lock;
 use slots::Busy;
 pub use slots::Slot;
-pub(crate) use startup::open_store;
+pub(crate) use startup::{open_store, prepare_store};
 mod sharing;
 mod startup;
 mod store_metrics;
@@ -124,6 +127,8 @@ struct Inner {
     exports: slots::Slots,
     /// The imports that run.
     imports: slots::Slots,
+    /// Whether this process holds the lock of the server (`server_lock`).
+    server_lock: server_lock::Holder,
 }
 
 /// What `ping` reports about the server.
@@ -219,6 +224,7 @@ impl App {
                 readiness: readiness::Kept::default(),
                 exports,
                 imports,
+                server_lock: server_lock::Holder::default(),
             }),
         })
     }
