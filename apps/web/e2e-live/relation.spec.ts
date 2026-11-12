@@ -226,7 +226,9 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
 
   // On the page, the copy's card names the copy's card, and opens it.
   const errors = watchErrors(page);
-  await page.goto(`/board/${copyId}/${plan?.id ?? ''}/${copiedPaint}`);
+  await page.goto(
+    boardPath({ workspaceId: board.workspaceId, boardId: copyId }, plan?.id, copiedPaint),
+  );
   await signInOnPage(page, owner);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
   const chip = property(page, 'After').locator('[data-slot="relation-chip"]');
