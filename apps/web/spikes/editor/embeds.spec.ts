@@ -28,7 +28,8 @@ function watch(page: Page) {
     urls,
     // The formula library, its style sheet and its fonts.
     formulas: () => matching(/katex/i),
-    diagrams: () => matching(/mermaid/i),
+    // Not a folder that only happens to have the word in its name (a checkout called `web-mermaid`).
+    diagrams: () => matching(/(?<![\w-])mermaid/i),
     emoji: () => matching(/editor\/emoji\//),
     fonts: () =>
       matching(/KaTeX_[\w-]+\.(woff2?|ttf|otf)/).map((url) => url.split('/').pop()?.split('?')[0]),
@@ -388,9 +389,7 @@ test.describe('formulas', () => {
 });
 
 test.describe('diagrams', () => {
-  test('the view shows the picture in place of the source; the editor shows both', async ({
-    page,
-  }) => {
+  test('the view and the editor show the picture in place of the source', async ({ page }) => {
     await open(page);
     await load(page, 'diagrams');
 
@@ -409,23 +408,34 @@ test.describe('diagrams', () => {
 
     const editor = editorOf(page);
     await expect(editor.locator('.doc-diagram[data-state="drawn"]')).toHaveCount(4);
-    await expect(editor.locator('pre:has(code.language-mermaid):visible')).toHaveCount(6);
+    // Every source is the text of its block, out of sight until its place is opened;
+    // the one that could not be drawn shows a copy where its picture would be.
+    await expect(editor.locator('pre:has(code.language-mermaid)')).toHaveCount(6);
+    await expect(editor.locator('pre:has(code.language-mermaid):visible')).toHaveCount(0);
+    await expect(editor.locator('.doc-diagram-copy:visible')).toHaveCount(1);
+    await expect(editor.locator('pre:has(code.language-ts)')).toBeVisible();
     await expect(editor.locator('.doc-diagram > svg').first()).toContainText('시작');
     await expect(editor.locator('.doc-diagram > svg').first()).toBeVisible();
   });
 
-  test('a diagram that cannot be read keeps its source and says why; an empty one says nothing', async ({
+  test('a diagram that cannot be read keeps its source and says why; an empty one says it is empty, where it can be written', async ({
     page,
   }) => {
     await open(page);
     await load(page, 'diagrams');
-    for (const body of [editorOf(page), viewOf(page)]) {
+    for (const [where, body] of [
+      ['editor', editorOf(page)],
+      ['view', viewOf(page)],
+    ] as const) {
       const failed = body.locator('.doc-diagram[data-state="error"]');
       await expect(failed).toHaveCount(1);
       await expect(failed.getByRole('note')).toHaveText('This diagram cannot be drawn.');
       await expect(failed.locator('.doc-embed-detail')).toContainText('Parse error');
-      await expect(body.locator('.doc-diagram[data-state="empty"]')).toHaveCount(1);
-      await expect(body.locator('.doc-diagram[data-state="empty"]')).toBeHidden();
+      const empty = body.locator('.doc-diagram[data-state="empty"]');
+      await expect(empty).toHaveCount(1);
+      if (where === 'view') await expect(empty).toBeHidden();
+      // In the editor it can be pressed to be written.
+      else await expect(empty).toHaveText('Empty diagram');
     }
     await expect(viewOf(page).locator('pre:has(code)', { hasText: 'A --> --> B' })).toBeVisible();
   });

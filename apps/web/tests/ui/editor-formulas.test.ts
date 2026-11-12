@@ -1,7 +1,8 @@
 /**
- * Formulas, diagrams and the emoji list in the editor, in a simulated page:
- * what typing turns into, what pasted markup becomes, and when the list of
- * emoji is asked for. Runs a real editor without layout.
+ * Formulas and the emoji list in the editor, in a simulated page: what
+ * typing turns into, what pasted markup becomes, and when the list of emoji
+ * is asked for. Runs a real editor without layout. Diagrams are in
+ * editor-diagrams.test.ts.
  */
 import { Editor } from '@tiptap/core';
 import { NodeSelection, Selection } from '@tiptap/pm/state';
@@ -313,61 +314,6 @@ describe('formulas from elsewhere', () => {
     expect(target.getText()).toContain('a<b & "c"');
     // And reads it back as the same document.
     expect(stored(create(html))).toEqual(stored(target));
-  });
-});
-
-describe('a diagram while editing', () => {
-  const diagram = (source: string): DocNode => ({
-    type: 'codeBlock',
-    attrs: { language: 'mermaid' },
-    content: [text(source)],
-  });
-
-  it('gets a figure behind a code block in the language of diagrams, and only there', async () => {
-    const target = create(
-      doc(
-        diagram('flowchart LR\n  A --> B'),
-        { type: 'codeBlock', attrs: { language: 'ts' }, content: [text('x')] },
-        paragraph(),
-      ),
-    );
-    const blocks = Array.from(target.view.dom.querySelectorAll('pre'));
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0]?.nextElementSibling?.classList.contains('doc-diagram')).toBe(true);
-    expect(blocks[1]?.nextElementSibling?.classList.contains('doc-diagram')).toBe(false);
-    // The source stays in sight and stays the document.
-    expect(blocks[0]?.hidden).toBe(false);
-    expect(stored(target).content?.[0]).toEqual(diagram('flowchart LR\n  A --> B'));
-    await vi.waitFor(() => {
-      expect(drawDiagram).toHaveBeenCalledWith('flowchart LR\n  A --> B');
-    });
-  });
-
-  it('draws again a moment after the source changes, once for a burst of typing', async () => {
-    vi.useFakeTimers();
-    try {
-      const target = create(doc(diagram('pie\n  "a" : 1')));
-      await vi.advanceTimersByTimeAsync(10);
-      expect(drawDiagram).toHaveBeenCalledTimes(1);
-      toEnd(target);
-      type(target, '\n  "b" : 2');
-      await vi.advanceTimersByTimeAsync(100);
-      expect(drawDiagram).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1000);
-      expect(drawDiagram).toHaveBeenCalledTimes(2);
-      expect(drawDiagram).toHaveBeenLastCalledWith('pie\n  "a" : 1\n  "b" : 2');
-      // The figure is the same element throughout: the picture does not blink.
-      expect(target.view.dom.querySelectorAll('.doc-diagram')).toHaveLength(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('drops the figure when the block stops being a diagram', () => {
-    const target = create(doc(diagram('pie')));
-    expect(target.view.dom.querySelector('.doc-diagram')).not.toBeNull();
-    target.commands.updateAttributes('codeBlock', { language: 'text' });
-    expect(target.view.dom.querySelector('.doc-diagram')).toBeNull();
   });
 });
 

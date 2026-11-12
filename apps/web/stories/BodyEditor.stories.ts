@@ -18,8 +18,15 @@ export const Empty: Story = { args: { doc: null } };
 export const Mixed: Story = { args: { doc: MIXED } };
 /** Formulas: press one to change its source. */
 export const Formulas: Story = { args: { doc: FORMULAS } };
-/** Diagrams: the source and the picture drawn from it. */
+/**
+ * Diagrams: the picture alone. Point at one (or select it) and it offers to be
+ * edited; press it, or Enter while it is selected, and its source opens under
+ * it, redrawn as it is typed. Escape, Ctrl+Enter or a press elsewhere closes.
+ * A source that cannot be drawn shows, with why, where the picture would be.
+ */
 export const Diagrams: Story = { args: { doc: DIAGRAMS } };
+/** Diagrams where the body is only read: the pictures, which do not open. */
+export const DiagramsReadOnly: Story = { args: { doc: DIAGRAMS, editable: false } };
 /** Not editable. */
 export const ReadOnly: Story = { args: { doc: FORMULAS, editable: false } };
 /** A body the validator refuses is not loaded: the editor stays empty and read-only, and says so. */

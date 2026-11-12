@@ -41,10 +41,11 @@
  *     rule while the selection is on it.
  *  8. The `<span>` inside the `<label>` of a task: hidden text that repeats
  *     the checkbox's `aria-label`.
- * 11. The picture of a diagram behind its source: while editing, the editor
- *     shows both (an element of class `doc-diagram` right behind the code
- *     block). The view puts its picture in the same place, but only when the
- *     body is in the page, which is the business of the component around it.
+ * 11. A diagram around its source: the editor draws a code block in the
+ *     language of diagrams inside an element of its own (`doc-diagram-block`),
+ *     with the picture, its button and the place where the source is changed;
+ *     only the source in it (its class and name aside) is compared. The view
+ *     adds its picture only once the body is in the page (`drawEmbeds`).
  *
  * On both sides:
  *
@@ -113,7 +114,7 @@ const LEFT_OUT = {
   'hidden name of a checkbox': 0, // 8
   'wording of aria-label': 0, // 9
   'attribute aria-readonly': 0, // 10
-  'picture of a diagram': 0, // 11
+  'diagram around its source': 0, // 11
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -146,8 +147,7 @@ function leftOutNode(node: Element): LeftOut | undefined {
     )
       return 'break behind a closing mention or formula';
   }
-  if (node.tagName === 'DIV' && node.classList.contains('doc-diagram'))
-    return 'picture of a diagram';
+
   if (node.tagName === 'SPAN' && node.parentElement?.tagName === 'LABEL')
     return 'hidden name of a checkbox';
   return undefined;
@@ -169,6 +169,14 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
   if (!isElement(node)) throw new Error(`unexpected node of type ${node.nodeType}`);
   const ofEditor = side === 'editor';
 
+  if (ofEditor && node.tagName === 'DIV' && node.classList.contains('doc-diagram-block')) {
+    leaveOut('diagram around its source');
+    const source = node.querySelector(':scope > pre.doc-diagram-source');
+    if (!source) throw new Error('a diagram without its source');
+    source.classList.remove('doc-diagram-source');
+    source.querySelector('code')?.removeAttribute('aria-label');
+    return shapeOf(source, side);
+  }
   const without = ofEditor ? leftOutNode(node) : undefined;
   if (without) {
     leaveOut(without);
