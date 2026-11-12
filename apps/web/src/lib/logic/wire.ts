@@ -18,7 +18,7 @@
  */
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
-import { optionalViewFields, type GanttViewFields } from './view-members.ts';
+import { optionalViewFields, type OptionalViewFields } from './view-members.ts';
 
 // ------------------------------------------------------------ identifiers
 
@@ -294,10 +294,9 @@ export type SortOption = { propertyId: string; reversed: boolean };
 
 export type KanbanCalculation = { calculation: string; propertyId: string };
 
+/** A view's members; those it has only where given a value are declared in view-members.ts. */
 export type BoardViewFields = {
   viewType: ViewType;
-  groupById?: string;
-  dateDisplayPropertyId?: string;
   sortOptions: SortOption[];
   visiblePropertyIds: string[];
   visibleOptionIds: string[];
@@ -309,7 +308,7 @@ export type BoardViewFields = {
   columnCalculations: Record<string, string>;
   kanbanCalculations: Record<string, KanbanCalculation>;
   defaultTemplateId: string;
-} & GanttViewFields;
+} & OptionalViewFields;
 
 export type BoardView = Block & { fields: BoardViewFields };
 
