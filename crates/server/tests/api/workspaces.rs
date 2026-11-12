@@ -206,7 +206,7 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
 /// A second organization on the server of a test, with a workspace and an open board
 /// in it that a user of its own made. Returns a handle that reaches its rows, and the
 /// identifiers of the workspace and the board.
-async fn another_organization(ts: &TestServer) -> (Store, String, String) {
+pub(crate) async fn another_organization(ts: &TestServer) -> (Store, String, String) {
     let workspace = Workspace {
         id: fvoci_model::new_id(),
         signup_token: "signup-token".to_owned(),

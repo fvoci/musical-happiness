@@ -716,12 +716,15 @@ async fn handle_websocket(
         Ok(identity) => identity,
         Err(error) => return error.into_response(),
     };
-    // The commands a connection sends are small; a larger message is a mistake or an
-    // attempt to make the server buffer it, and closes the connection.
+    // The commands a connection sends are small, and an update of a body edited
+    // together is held to its own limit; a larger message is a mistake or an attempt
+    // to make the server buffer it, and closes the connection (a text message past
+    // the limit of a command too, once it is read: `Hub::serve`).
+    let limit = api::WEBSOCKET_MESSAGE_LIMIT.max(app.collab().frame_bytes());
     upgrade
-        .max_message_size(api::WEBSOCKET_MESSAGE_LIMIT)
-        .max_frame_size(api::WEBSOCKET_MESSAGE_LIMIT)
-        .on_upgrade(move |socket| async move { app.ws().serve(socket, identity).await })
+        .max_message_size(limit)
+        .max_frame_size(limit)
+        .on_upgrade(move |socket| async move { app.ws().serve(&app, socket, identity).await })
 }
 
 /// Whose connection a websocket handshake opens; `None` for an anonymous one.

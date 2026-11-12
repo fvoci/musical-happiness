@@ -49,6 +49,8 @@ mod reconcile;
 mod refusals;
 mod relation_copies;
 mod relations;
+mod rooms;
+mod rooms_contract;
 mod search;
 mod server_lock;
 mod sharing;

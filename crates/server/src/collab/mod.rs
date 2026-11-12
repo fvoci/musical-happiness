@@ -1,7 +1,8 @@
 //! Editing a card's body together: the one place that holds the Y document of each
 //! body being edited, in a worker process ([`worker`]), and stores it.
 //!
-//! What a room of editors (the websocket, a later piece of work) calls:
+//! The websocket hands the commands and frames of each of its connections to the
+//! connection's [`Seat`], and the rooms of the connections (`rooms`) call:
 //!
 //! - [`Collab::open`]: the whole document, opened from what is stored, or made from the
 //!   card's body the first time (by the server, never by a client).
@@ -24,15 +25,23 @@
 //! that ended before it wrote a body writes it when it starts again
 //! ([`Collab::recover`]).
 
+mod admission;
 #[cfg(unix)]
 mod child;
+mod frame;
+mod messages;
 mod open;
 mod place;
+mod queue;
 mod refusals;
+mod rooms;
+mod seat;
 mod upkeep;
 mod whole;
 pub mod worker;
 
+pub use queue::Outgoing;
+pub use seat::{Outbox, Seat};
 pub use whole::cards_written_whole;
 
 use std::collections::HashMap;
@@ -96,6 +105,8 @@ struct Inner {
     numbers: AtomicU64,
     limits: Limits,
     events: broadcast::Sender<DocEvent>,
+    /// The connections that hold the documents together.
+    rooms: rooms::Rooms,
     /// What the next write of a body waits for, between reading its card and writing it:
     /// for the tests of what is written to the card meanwhile.
     #[cfg(feature = "test-util")]
@@ -192,6 +203,7 @@ impl Collab {
                 numbers: AtomicU64::new(1),
                 limits,
                 events: broadcast::channel(EVENTS).0,
+                rooms: rooms::Rooms::default(),
                 #[cfg(feature = "test-util")]
                 projection_pause: Mutex::new(None),
             }),
@@ -381,12 +393,13 @@ impl Collab {
         .await
     }
 
-    /// Writes the body of every open document and closes them, and ends the workers:
-    /// for a server that stops. `app` is any handle of the server: each document is
+    /// Lets nobody into a room any more, writes the body of every open document and
+    /// closes them, and ends the workers: for a server that stops. `app` is any handle of the server: each document is
     /// written as its card's organization. What is not done within five seconds (a
     /// write of a whole body that holds a card, a database that does not answer) is
     /// left: the log holds it, and the next start writes it.
     pub async fn end(&self, app: &App) {
+        self.end_rooms();
         let deadline = tokio::time::Instant::now() + END_WAIT;
         for slot in self.all_slots() {
             let ended = tokio::time::timeout_at(deadline, async {

@@ -213,6 +213,10 @@ reasons! {
     TooManyDocuments => "too_many_documents", "Too many documents open";
     /// The body's document cannot be worked on for now.
     DocumentUnavailable => "document_unavailable", "Document unavailable";
+    /// The connection reads the body's document and does not write it.
+    DocumentReadOnly => "document_read_only", "Document read only";
+    /// The websocket connection does not read what it is sent of the body's document.
+    ConnectionTooSlow => "connection_too_slow", "Connection too slow";
     /// The server has no `secret_key` to seal a provider's client secret with.
     SecretKeyRequired => "secret_key_required", "Secret key required";
     /// The issuer of a provider could not be read and checked.

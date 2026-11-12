@@ -1019,7 +1019,7 @@ fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
 }
 
 /// Checks one message the server sent against `contracts/websocket.json`.
-fn check_message(contract: &Value, openapi: &Value, message: &Value) {
+pub(crate) fn check_message(contract: &Value, openapi: &Value, message: &Value) {
     let action = message["action"].as_str().expect("a message has an action");
     let members = &contract["messages"][action]["members"];
     assert!(
@@ -1029,7 +1029,7 @@ fn check_message(contract: &Value, openapi: &Value, message: &Value) {
     check_against(openapi, members, message, action);
 }
 
-fn read_contract(name: &str) -> Value {
+pub(crate) fn read_contract(name: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../contracts")
         .join(name);
@@ -1168,11 +1168,13 @@ async fn messages_match_the_websocket_contract() {
     ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, &members);
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
 
-    // Every message of the contract was heard.
+    // Every message of the contract was heard; those of the bodies edited together
+    // are heard by `rooms_contract`.
     let listed: BTreeSet<&String> = contract["messages"]
         .as_object()
         .expect("the messages are an object")
         .keys()
+        .filter(|action| !action.starts_with("DOC_"))
         .collect();
     let heard: BTreeSet<&String> = contract_check.heard.iter().collect();
     assert_eq!(

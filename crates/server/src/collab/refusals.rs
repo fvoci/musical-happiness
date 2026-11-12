@@ -59,3 +59,17 @@ pub(super) fn unavailable() -> AppError {
     AppError::service_unavailable("the document cannot be worked on for now; try again later")
         .with_reason(Reason::DocumentUnavailable)
 }
+
+/// The error of an update from a connection that only reads the document.
+pub(super) fn read_only() -> AppError {
+    AppError::forbidden("the connection reads the document and does not write it")
+        .with_reason(Reason::DocumentReadOnly)
+}
+
+/// The error of a connection that does not read what it is sent.
+pub(super) fn too_slow() -> AppError {
+    AppError::limited(
+        "the connection does not read what it is sent",
+        Reason::ConnectionTooSlow,
+    )
+}

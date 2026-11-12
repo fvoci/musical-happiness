@@ -263,7 +263,9 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::UpdateTooLarge
         | Reason::DocumentTooLarge
         | Reason::TooManyDocuments
-        | Reason::DocumentUnavailable => describe_editing_together(reason),
+        | Reason::DocumentUnavailable
+        | Reason::DocumentReadOnly
+        | Reason::ConnectionTooSlow => describe_editing_together(reason),
     }
 }
 
@@ -337,6 +339,18 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              a while; or a write of the card's whole body came while what its editors typed \
              could not be written to the card first, and was not done. The document is as \
              it was stored before. Try again later."
+        }
+        Reason::DocumentReadOnly => {
+            "Over the websocket only (`DOC_NACK`). The connection is in the room of the \
+             card's body to read: its user reads the card's board and may not change its \
+             cards. The update went to nobody; the editor that made it holds a change the \
+             document does not, and comes into the room anew to drop it."
+        }
+        Reason::ConnectionTooSlow => {
+            "Over the websocket only (`DOC_LEFT`, `DOC_REFUSED`). As many messages wait \
+             for the connection as may, and it was put out of the room, or not let in, so \
+             that the others go on. What waited for it of the room is dropped. Come into \
+             the room again: the whole document is sent anew."
         }
         other => unreachable!("{other:?} is no reason of editing together"),
     }
