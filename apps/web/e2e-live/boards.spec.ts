@@ -5,6 +5,7 @@
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
+import { ON_A_VIEW } from '../e2e/address.ts';
 import { boardLink, boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.support.ts';
 
 import {
@@ -45,7 +46,7 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await made;
-  await expect(page).toHaveURL(/\/w\/[0-9a-z-]+\/boards\/[0-9a-z-]+\/[0-9a-z-]+$/);
+  await expect(page).toHaveURL(ON_A_VIEW);
   const { boardId, viewId } = placeOf(page.url());
   const board = (await (await api.get(`/api/v1/boards/${boardId}`)).json()) as Schemas['Board'];
   const status = board.cardProperties.find((template) => template.type === 'select');

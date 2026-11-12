@@ -4,7 +4,16 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { boardPath, ON_A_CARD, ON_A_VIEW, SETTLED, WORKSPACE } from './address.ts';
+import {
+  addressOf,
+  boardPath,
+  ON_A_CARD,
+  ON_A_VIEW,
+  placeOf,
+  SETTLED,
+  WORKSPACE,
+  type Place,
+} from './address.ts';
 
 test('the root shows the first board of the sidebar, and its first view', async ({ page }) => {
   await page.goto('/');
@@ -23,7 +32,7 @@ test('the root is put out of the history: back leaves the app', async ({ page })
 
 test('a workspace alone shows its first board, in its place in the history', async ({ page }) => {
   await page.goto('about:blank');
-  await page.goto(`/w/${WORKSPACE}`);
+  await page.goto(addressOf({ workspaceId: WORKSPACE }));
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(page).toHaveURL(SETTLED);
   await page.goBack();
@@ -31,12 +40,10 @@ test('a workspace alone shows its first board, in its place in the history', asy
 });
 
 /** The board and view the root settles on. */
-async function firstPlace(page: Page): Promise<{ boardId: string; viewId: string }> {
+async function firstPlace(page: Page): Promise<Place> {
   await page.goto('/');
   await expect(page).toHaveURL(ON_A_VIEW);
-  const [, boardId = '', viewId = ''] =
-    /\/boards\/([^/]+)\/([^/]+)$/.exec(new URL(page.url()).pathname) ?? [];
-  return { boardId, viewId };
+  return placeOf(page.url());
 }
 
 const NOT_THERE = '01930000-0000-7000-8000-00000000ffff';
@@ -49,8 +56,8 @@ test('an address that does not fit says the same, whatever does not fit, with th
   const seen: string[] = [];
   for (const address of [
     // A workspace that is not there, with a board that is.
-    `/w/${NOT_THERE}/boards/${boardId}/${viewId}`,
-    `/w/${NOT_THERE}`,
+    addressOf({ workspaceId: NOT_THERE, boardId, viewId }),
+    addressOf({ workspaceId: NOT_THERE }),
     // A board that is not there, in the workspace that is.
     boardPath(NOT_THERE),
     // The old shape of the addresses is gone.

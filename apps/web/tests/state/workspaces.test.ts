@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
-import { Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
+import { BackendError, Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
 
 import { settle, setup, type Setup } from './support.ts';
 
@@ -118,12 +118,51 @@ describe('entering another workspace', () => {
     expect(workspace.users).toEqual([]);
     expect(workspace.canUndo).toBe(false);
     // The board left hears nothing any more.
-    const stopped = store.board;
+    const before = store.board?.title;
+    await backend.patchBoard(board.id, { title: 'Changed elsewhere' });
     await settle();
-    expect(store.board).toBe(stopped);
+    expect(store.board?.title).toBe(before);
 
     await workspace.enter(first.id);
     expect(workspace.boards.map((one) => one.id)).toContain(board.id);
+  });
+
+  it('does not remember a change of the workspace left that was still under way', async () => {
+    const { workspace, backend } = twoWorkspaces();
+    await workspace.load();
+    const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!board) throw new Error('no board');
+    const store = await workspace.openBoard(board.id);
+    const card = store.cards[0];
+    if (!card) throw new Error('no card');
+    backend.latency = 20;
+    const renaming = store.setCardTitle(card.id, 'Renamed before leaving');
+    await workspace.enter(OTHER.id);
+    await renaming;
+    expect(workspace.canUndo).toBe(false);
+  });
+
+  it('does not put a category made in the workspace left into the one entered', async () => {
+    const { workspace, backend } = twoWorkspaces();
+    await workspace.load();
+    backend.latency = 20;
+    const making = workspace.createCategory('Made before leaving');
+    await workspace.enter(OTHER.id);
+    await making;
+    expect(workspace.categories).toEqual([]);
+  });
+
+  it('does not take a refused sidebar write of the workspace left back into the one entered', async () => {
+    const { workspace, backend } = twoWorkspaces();
+    await workspace.load();
+    const category = workspace.categories[0];
+    if (!category) throw new Error('no category');
+    backend.latency = 20;
+    backend.failNext('patchCategory', new BackendError(500));
+    const renaming = workspace.renameCategory(category.id, 'Refused');
+    await workspace.enter(OTHER.id);
+    await renaming;
+    expect(workspace.categories).toEqual([]);
   });
 
   it('counts the latest of two entries that overlap', async () => {

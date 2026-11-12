@@ -6,11 +6,13 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { addressOf, ON_A_VIEW } from '../e2e/address.ts';
 import { boardLink, sidebar } from '../e2e/shell.support.ts';
 
 import {
   addWorkspace,
   boardPath,
+  joinWorkspace,
   makeBoard,
   person,
   placeOf,
@@ -57,9 +59,8 @@ test('signing in lands in a workspace of the reader; a card’s address opens it
   await page.goto('/');
   await signInOnPage(page, who);
   // The workspace of the reader (shared with the others of this server), on its first board.
-  await expect(page).toHaveURL(
-    new RegExp(`^${base}/w/${board.workspaceId}/boards/[0-9a-f-]{36}/[0-9a-f-]{36}$`),
-  );
+  await expect(page).toHaveURL(ON_A_VIEW);
+  expect(placeOf(page.url()).workspaceId).toBe(board.workspaceId);
   await expect(page.getByTestId('board-page')).toBeVisible();
 
   await boardLink(page, 'Home board').click();
@@ -109,7 +110,7 @@ test('an address that does not fit is not found, the same whatever does not fit'
     // No such workspace, with a board the reader has.
     boardPath({ workspaceId: NOT_THERE, boardId: board.boardId }, board.viewId),
     // A workspace that is not the reader's.
-    `/w/${theirs}`,
+    addressOf({ workspaceId: theirs }),
     // A board of the reader's other workspace, at this one's address.
     boardPath({ workspaceId: board.workspaceId, boardId: there.boardId }),
     // No such board.
@@ -127,6 +128,38 @@ test('an address that does not fit is not found, the same whatever does not fit'
   await page.goto(boardPath(there));
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`${boardPath(there, there.viewId)}$`));
+  expect(errors).toEqual([]);
+});
+
+test('an open board of another workspace that the reader has not joined is not found here, and can be joined there', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const { who, board } = await readerWithBoard(base);
+  const second = addWorkspace(base, who, 'Second');
+  // Somebody else of the second workspace makes an open board there.
+  const maker = person('maker');
+  await register(base, maker);
+  joinWorkspace(base, maker, second);
+  const api = await signedIn(base, maker);
+  const open = await makeBoard(api, { title: 'Open elsewhere', type: 'O', workspaceId: second });
+  await api.dispose();
+
+  const errors = watchErrors(page);
+  await page.goto(boardPath(board, board.viewId));
+  await signInOnPage(page, who);
+  await expect(page.getByTestId('board-page')).toBeVisible();
+
+  // At this workspace's address: not found, as any board that is not there; nothing to join.
+  await page.goto(boardPath({ workspaceId: board.workspaceId, boardId: open.boardId }));
+  await expect(page.getByTestId('not-found')).toBeVisible();
+  await expect(page.getByTestId('board-join')).toHaveCount(0);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+
+  // At its own: the way to join it.
+  await page.goto(boardPath(open));
+  await expect(page.getByTestId('board-join')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -195,7 +228,8 @@ test('the workspace kept on this browser is each person’s own', async ({ page,
 
   // Somebody else signs in here: their own workspace, not the one kept for the first.
   await signInOnPage(page, other.who);
-  await expect(page).toHaveURL(new RegExp(`^${base}/w/${other.board.workspaceId}/boards/`));
+  await expect(page).toHaveURL(ON_A_VIEW);
+  expect(placeOf(page.url()).workspaceId).toBe(other.board.workspaceId);
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(boardLink(page, 'Away board')).toHaveCount(0);
   await signOut(page);

@@ -58,8 +58,16 @@
   }: Props = $props();
 
   let query = $state('');
-  /** What the backend finds for the query beyond what the sidebar shows. */
-  const boardSearch = new BoardSearch((text) => workspace.searchBoards(text));
+  /**
+   * What the backend finds for the query beyond what the sidebar shows. The
+   * server searches every workspace the reader is in, those they are a guest
+   * of too; only boards of one they can be taken to are offered.
+   */
+  const boardSearch = new BoardSearch(async (text) =>
+    (await workspace.searchBoards(text)).filter((board) =>
+      workspace.workspaces.some((one) => one.id === board.workspaceId),
+    ),
+  );
   onDestroy(() => {
     boardSearch.stop();
   });

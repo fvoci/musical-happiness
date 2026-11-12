@@ -15,6 +15,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
 
+import { addressOf, placeOf } from '../e2e/address.ts';
+
 import type { components } from '../src/lib/api/contract.ts';
 
 export type Schemas = components['schemas'];
@@ -39,32 +41,16 @@ export function person(prefix: string): Person {
   return { username, email: `${username}@example.test`, password: PASSWORD };
 }
 
-/**
- * The address of a board in its workspace, a view of it, a card on that view
- * (`/w/…/boards/…`): the one place the tests write the app's addresses.
- */
+/** The address of a board made for a test, in its workspace, a view of it, a card on that view. */
 export function boardPath(
   board: { workspaceId: string; boardId: string },
   viewId?: string,
   cardId?: string,
 ): string {
-  const parts = [board.boardId, viewId, cardId].filter((part) => part !== undefined);
-  const encoded = parts.map((part) => encodeURIComponent(part)).join('/');
-  return `/w/${encodeURIComponent(board.workspaceId)}/boards/${encoded}`;
+  return addressOf({ workspaceId: board.workspaceId, boardId: board.boardId, viewId, cardId });
 }
 
-/** What an address of the app names; an empty string for what it does not. */
-export function placeOf(address: string): {
-  workspaceId: string;
-  boardId: string;
-  viewId: string;
-  cardId: string;
-} {
-  const { pathname } = new URL(address, 'http://here');
-  const [, workspaceId = '', boardId = '', viewId = '', cardId = ''] =
-    /^\/w\/([^/]+)(?:\/boards\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?)?$/.exec(pathname) ?? [];
-  return { workspaceId, boardId, viewId, cardId };
-}
+export { placeOf };
 
 /** A client of the API, signed in as nobody yet. */
 export async function apiClient(baseURL: string): Promise<APIRequestContext> {
@@ -284,6 +270,14 @@ function newId(): string {
   ].join('-');
 }
 
+/** The database of the live server on the port of `baseURL` (`tools/live-server.ts`). */
+function serverDatabase(baseURL: string): DatabaseSync {
+  const port = new URL(baseURL).port;
+  const pointer = path.resolve(import.meta.dirname, `../../../target/web-live/server-${port}.json`);
+  const { data } = JSON.parse(readFileSync(pointer, 'utf8')) as { data: string };
+  return new DatabaseSync(path.join(data, 'fvoci.db'), { timeout: 10_000 });
+}
+
 /**
  * Makes `who` a member of a new workspace of their organization, as its
  * administrator, and returns its identifier. No request of the server makes
@@ -291,10 +285,7 @@ function newId(): string {
  * (`tools/live-server.ts` says where that is), as the server would.
  */
 export function addWorkspace(baseURL: string, who: Person, name: string): string {
-  const port = new URL(baseURL).port;
-  const pointer = path.resolve(import.meta.dirname, `../../../target/web-live/server-${port}.json`);
-  const { data } = JSON.parse(readFileSync(pointer, 'utf8')) as { data: string };
-  const database = new DatabaseSync(path.join(data, 'fvoci.db'), { timeout: 10_000 });
+  const database = serverDatabase(baseURL);
   try {
     const user = database.prepare('SELECT id FROM users WHERE username = ?').get(who.username) as
       { id: string } | undefined;
@@ -329,6 +320,24 @@ export function addWorkspace(baseURL: string, who: Person, name: string): string
       )
       .run(id, user.id, 'admin', now);
     return id;
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * Makes `who` a member of the workspace `workspaceId` too, written into the
+ * server's database as `addWorkspace` does.
+ */
+export function joinWorkspace(baseURL: string, who: Person, workspaceId: string): void {
+  const database = serverDatabase(baseURL);
+  try {
+    database
+      .prepare(
+        'INSERT INTO workspace_members (workspace_id, user_id, role, create_at) ' +
+          'SELECT ?, id, ?, ? FROM users WHERE username = ?',
+      )
+      .run(workspaceId, 'member', Date.now(), who.username);
   } finally {
     database.close();
   }

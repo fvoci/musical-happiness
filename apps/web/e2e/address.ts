@@ -1,6 +1,7 @@
 /**
  * The app's addresses, as the tests write and read them: the one place that
- * knows their shape (`src/app/router.svelte.ts` is the app's).
+ * knows their shape (`src/app/router.svelte.ts` is the app's). The tests
+ * against the real server use it too (`e2e-live/support.ts`).
  *
  * The world in memory has one workspace, made first by the seed, so its
  * identifier is the seed's first.
@@ -11,10 +12,24 @@ export const WORKSPACE = '01930000-0000-7000-8000-000000000001';
 
 const ID = '[0-9a-f-]{36}';
 
-/** The address of a board, a view of it, a card on that view (`/w/…/boards/…`). */
+/** What an address names, from the left; an empty string for what it does not. */
+export interface Place {
+  workspaceId: string;
+  boardId: string;
+  viewId: string;
+  cardId: string;
+}
+
+/** The address of a workspace, a board of it, a view, a card on that view: `/w/…/boards/…`. */
+export function addressOf(place: Partial<Place> & { workspaceId: string }): string {
+  const parts = [place.boardId, place.viewId, place.cardId].filter((part) => part);
+  const encoded = parts.map((part) => `/${encodeURIComponent(part ?? '')}`).join('');
+  return `/w/${encodeURIComponent(place.workspaceId)}${parts.length > 0 ? '/boards' : ''}${encoded}`;
+}
+
+/** The address of a board of the world in memory, a view of it, a card on that view. */
 export function boardPath(boardId: string, viewId?: string, cardId?: string): string {
-  const parts = [boardId, viewId, cardId].filter((part) => part !== undefined);
-  return `/w/${WORKSPACE}/boards/${parts.map((part) => encodeURIComponent(part)).join('/')}`;
+  return addressOf({ workspaceId: WORKSPACE, boardId, viewId, cardId });
 }
 
 /** The address of a view of a board, and nothing after it. */
@@ -31,12 +46,18 @@ export const SETTLED = new RegExp(`/w/${WORKSPACE}/boards/${ID}/${ID}(/[^/]+)?$`
 /** Any board, with or without a view. */
 export const ON_A_BOARD = new RegExp(`/w/${ID}/boards/${ID}(/${ID})?$`);
 
-/** The board and the view an address names; empty strings for what it does not. */
-export function placeOf(address: string): { boardId: string; viewId: string } {
+/** What an address of the app names. */
+export function placeOf(address: string): Place {
   const { pathname } = new URL(address, 'http://here');
-  const [, boardId = '', viewId = ''] =
-    /\/w\/[^/]+\/boards\/([^/]+)(?:\/([^/]+))?/.exec(pathname) ?? [];
-  return { boardId, viewId };
+  const [, workspaceId = '', boardId = '', viewId = '', cardId = ''] =
+    /\/w\/([^/]+)(?:\/boards\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?)?\/?$/.exec(pathname) ?? [];
+  const decode = (part: string): string => decodeURIComponent(part);
+  return {
+    workspaceId: decode(workspaceId),
+    boardId: decode(boardId),
+    viewId: decode(viewId),
+    cardId: decode(cardId),
+  };
 }
 
 /** The view an address names. */

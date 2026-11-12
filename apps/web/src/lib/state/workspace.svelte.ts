@@ -145,10 +145,8 @@ export class Workspace {
   }
 
   /**
-   * Reads everything the shell needs: the reader, their workspaces and
-   * settings, and then the workspace `workspaceId` (`enter`). Without one,
-   * the workspace they were last in on this device if it is still theirs,
-   * else their first. Call once; call again to retry after a failure.
+   * Reads everything the shell needs: the reader, their workspaces and settings, then the
+   * workspace `workspaceId` (`enter`), or without one `firstChoice`. Call again to retry.
    */
   async load(workspaceId?: string): Promise<void> {
     this.status = 'loading';
@@ -179,10 +177,7 @@ export class Workspace {
     }
   }
 
-  /**
-   * The workspace to start in when the address names none: the one the
-   * reader was last in on this device if it is still theirs, else their first.
-   */
+  /** The workspace to start in when the address names none (`firstChoiceOf`). */
   firstChoice(): string | undefined {
     return firstChoiceOf(this.workspaces, this.me && this.#lastWorkspace?.(this.me.id));
   }
@@ -292,7 +287,10 @@ export class Workspace {
         }));
         break;
       case 'categories':
-        this.categories = change.categories;
+        // Of the workspace shown, or none: no sidebar of another replaces it.
+        if (change.categories.every((one) => one.workspaceId === this.info?.id)) {
+          this.categories = change.categories;
+        }
         break;
       case 'settings':
         this.#takeSettings(change.settings);
@@ -625,13 +623,13 @@ export class Workspace {
    * what arrived from elsewhere meanwhile.
    */
   async #categoryWrite(optimistic: Category[], send: () => Promise<unknown>): Promise<void> {
-    const before = this.categories;
+    const [before, workspace] = [this.categories, this.info];
     this.categories = optimistic;
     this.#sidebarWrites.begin();
     try {
       await send();
     } catch (error) {
-      this.#sidebarRefused(before);
+      this.#sidebarRefused(before, workspace);
       this.report('save', error);
     } finally {
       this.#sidebarWrites.end();
@@ -642,18 +640,22 @@ export class Workspace {
     void this.#refresh();
   });
 
-  #sidebarRefused(before: Category[]): void {
+  #sidebarRefused(before: Category[], workspace: WorkspaceInfo | undefined): void {
+    if (this.info !== workspace) return;
     this.categories = before;
     void this.#refresh();
   }
 
   /** A new category goes first, as the backend puts it. */
   async createCategory(name: string): Promise<void> {
-    if (!this.info) return;
+    const workspace = this.info;
+    if (!workspace) return;
     this.#sidebarWrites.begin();
     try {
-      const category = await this.backend.createCategory(this.info.id, { name });
+      const category = await this.backend.createCategory(workspace.id, { name });
+      // Shown already, or of a workspace left meanwhile: nothing to add.
       if (this.categories.some((existing) => existing.id === category.id)) return;
+      if (this.info !== workspace) return;
       // The others were moved down to make room; until they are read again,
       // the new one is put before them.
       const first = Math.min(...this.categories.map((existing) => existing.sortOrder));
@@ -803,7 +805,7 @@ export class Workspace {
       }
       await this.backend.setBoardHidden(workspace.id, categoryId, boardId, hidden);
     } catch (error) {
-      this.#sidebarRefused(before);
+      this.#sidebarRefused(before, workspace);
       throw error;
     } finally {
       this.#sidebarWrites.end();
