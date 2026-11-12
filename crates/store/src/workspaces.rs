@@ -263,12 +263,15 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = blocks::select_blocks(scope);
             sql.push_bind(" WHERE id = ", Id(block_id))
+                // The block's own board, by its key: what the query costs is the same
+                // whether the block is of the workspace or not.
                 .push_bind(
-                    " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
+                    " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = blocks.board_id \
+                     AND (b.workspace_id = ",
                     Id(workspace_id),
                 )
-                .push_bind(" OR is_builtin = ", true)
-                .push(")");
+                .push_bind(" OR b.is_builtin = ", true)
+                .push("))");
             blocks::fetch_blocks(scope, sql)
                 .await?
                 .into_iter()

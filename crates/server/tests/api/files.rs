@@ -510,52 +510,49 @@ async fn download_with_a_valid_read_token() {
 // -- copying files on duplication ------------------------------------------------------
 
 /// `TestCopyAndUpdateCardFiles`: duplicating a board copies its image file to a new name
-/// and the copy is downloadable.
+/// and the copy is downloadable, also from a copy in another workspace.
 #[tokio::test]
 async fn duplicating_a_board_copies_its_files() {
     let ts = Setup::native().start().await.init_basic().await;
     let (board, file_id) = board_with_attachment(&ts).await;
+    let user_id = ts.client.me().await.id;
+    let other = crate::boards::another_workspace(&ts, &user_id).await;
 
-    let duplicate = ts
-        .client
-        .post(
-            &format!("{TEST_WS}/boards/{}/duplicate", board.id),
-            &json!({}),
-        )
-        .await;
-    let value = duplicate.created_json::<Value>();
-    let new_board_id = value["boards"][0]["id"]
-        .as_str()
-        .expect("a new board")
-        .to_owned();
+    for (query, workspace) in [
+        (String::new(), TEST_WORKSPACE_ID),
+        (format!("?toWorkspace={other}"), other.as_str()),
+    ] {
+        let duplicate = ts
+            .client
+            .post(
+                &format!("{TEST_WS}/boards/{}/duplicate{query}", board.id),
+                &json!({}),
+            )
+            .await;
+        let value = duplicate.created_json::<Value>();
+        let new_board_id = value["boards"][0]["id"].as_str().expect("a new board");
+        let at = format!("/w/{workspace}/boards/{new_board_id}");
+        let blocks = ts
+            .client
+            .get(&format!("{at}/blocks"))
+            .await
+            .ok_json::<Vec<Block>>();
+        let image = blocks
+            .iter()
+            .find(|block| block.block_type == BlockType::Attachment)
+            .expect("the copy has an attachment block");
+        let new_file_id = image.fields.get("fileId").and_then(Value::as_str);
+        let new_file_id = new_file_id.expect("a copied file id");
+        assert_ne!(new_file_id, file_id, "the copy has a new file id");
+        assert_ne!(new_file_id, "", "the copy names a file ({workspace})");
 
-    let blocks = ts
-        .client
-        .get(&format!("{TEST_WS}/boards/{new_board_id}/blocks"))
-        .await
-        .ok_json::<Vec<Block>>();
-    let image = blocks
-        .iter()
-        .find(|block| block.block_type == BlockType::Attachment)
-        .expect("the copy has an attachment block");
-    let new_file_id = image
-        .fields
-        .get("fileId")
-        .and_then(Value::as_str)
-        .expect("a copied file id");
-    assert_ne!(new_file_id, file_id, "the copy has a new file id");
-
-    let download = ts
-        .client
-        .get(&format!(
-            "{TEST_WS}/boards/{new_board_id}/files/{new_file_id}"
-        ))
-        .await;
-    download.check_ok();
-    assert_eq!(
-        download.body, b"hello world, a file\n",
-        "the copy has the content"
-    );
+        let download = ts.client.get(&format!("{at}/files/{new_file_id}")).await;
+        download.check_ok();
+        assert_eq!(
+            download.body, b"hello world, a file\n",
+            "the copy has the content"
+        );
+    }
     ts.teardown().await;
 }
 
