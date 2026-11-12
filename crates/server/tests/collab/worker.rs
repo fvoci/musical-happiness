@@ -454,8 +454,9 @@ async fn the_cost_of_a_request_and_of_held_documents_is_measured() {
     let after = resident_kib(pid);
     let body_bytes = serde_json::to_vec(&body).expect("JSON").len();
     report(&format!(
-        "worker round trip {round_trip:?}; resident {before} KiB with 1 document, \
-         {after} KiB with 21 (20 of {body_bytes} bytes of JSON each)"
+        "({}) worker round trip {round_trip:?}; resident {before} KiB with 1 document, \
+         {after} KiB with 21 (20 of {body_bytes} bytes of JSON each)",
+        profile()
     ));
     worker.end().await;
 }
@@ -466,7 +467,9 @@ async fn the_cost_of_a_request_and_of_held_documents_is_measured() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn the_cost_of_taking_updates_is_measured() {
-    let worker = roomy();
+    // Room for a machine that runs much else: a document of 1 MB takes long in a debug
+    // build.
+    let worker = worker(Duration::from_secs(120), 100);
     let (generation, state) = worker
         .call(None, &open_body(1, &paragraphs(&["measured"])))
         .await
@@ -526,9 +529,10 @@ async fn the_cost_of_taking_updates_is_measured() {
         .expect("taken");
     let near = began.elapsed();
     report(&format!(
-        "1000 updates taken by the worker in {small:?} ({:?} each, the slowest {slowest:?}); \
+        "({}) 1000 updates taken by the worker in {small:?} ({:?} each, the slowest {slowest:?}); \
          into a document of {state_bytes} bytes (960 paragraphs): an update of {large_bytes} \
          bytes refused in {large:?}, one of 20 KiB taken in {near:?}",
+        profile(),
         small / 1_000
     ));
     worker.end().await;
@@ -543,6 +547,15 @@ fn resident_kib(pid: u32) -> u64 {
         .and_then(|value| value.split_whitespace().next())
         .and_then(|kib| kib.parse().ok())
         .expect("its resident memory")
+}
+
+/// Whether the tests run in a debug build: the times they print are of that.
+fn profile() -> &'static str {
+    if cfg!(debug_assertions) {
+        "debug build"
+    } else {
+        "release build"
+    }
 }
 
 #[expect(clippy::print_stderr, reason = "the measurements are for the report")]

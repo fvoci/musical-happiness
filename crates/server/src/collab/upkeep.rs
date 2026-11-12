@@ -9,10 +9,10 @@ use tokio::time::{Instant, sleep_until};
 
 use super::open::unexpected;
 use super::place::{Held, OpenDoc, Opening, died_over};
-use super::{Collab, DocChange, FOLD_AFTER, Taken, bytes};
+use super::{Collab, DocChange, FOLD_AFTER, REMAKE_RETRY, Taken, bytes};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Request};
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 impl Collab {
     /// Takes an update into the document of a held slot and logs it with what a repair
@@ -30,7 +30,14 @@ impl Collab {
             doc,
             update: update.to_vec(),
         };
-        let (repair, state_bytes) = match self.ask(app, card_id, slot, request).await? {
+        let answer = match self.ask(app, card_id, slot, request).await {
+            Ok(answer) => answer,
+            Err(refused) => {
+                self.remake_refused(app, card_id, slot, &refused).await;
+                return Err(refused);
+            }
+        };
+        let (repair, state_bytes) = match answer {
             Answer::Taken {
                 repair,
                 state_bytes,
@@ -64,10 +71,10 @@ impl Collab {
         })
     }
 
-    /// Folds the log of the document into its state, or makes the document again from
-    /// its body if its state is near its limit; whether it was made again. The update
-    /// before is logged whatever happens here: what fails is logged and tried again
-    /// after the next update.
+    /// Makes the document again from its body if its state is near its limit, and
+    /// folds its log into its state if it is long; whether it was made again. The
+    /// update before is logged whatever happens here: what fails is logged, and tried
+    /// again after a later update.
     async fn keep_up(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
         let Some(open) = slot.open.as_ref() else {
             return false;
@@ -77,22 +84,66 @@ impl Collab {
         // A document made from a body that is near the limit itself is not made again
         // at every update: only once it grew by a quarter of the limit since.
         let grown = open.state_bytes >= open.made_bytes.saturating_add(limit / 4);
-        if near_limit && grown {
-            match self.remake(app, card_id, slot).await {
-                Ok(()) => {
-                    self.tell(card_id, DocChange::Remade);
-                    return true;
-                }
-                Err(error) => {
-                    tracing::error!(%error, card_id, "cannot make a document that grew large again");
-                }
-            }
-        } else if open.log_end - open.state_seq >= FOLD_AFTER
+        if near_limit && grown && self.remake_and_tell(app, card_id, slot).await {
+            return true;
+        }
+        if slot
+            .open
+            .as_ref()
+            .is_some_and(|open| open.log_end - open.state_seq >= FOLD_AFTER)
             && let Err(error) = self.fold(app, card_id, slot).await
         {
             tracing::error!(%error, card_id, "cannot fold a document's log into its state");
         }
         false
+    }
+
+    /// Makes a document whose update was refused for the size of its state again from
+    /// its body, if it grew since it was made (what was deleted is in its state), so
+    /// that the editors who load it again can go on; whether it was made again.
+    pub(super) async fn remake_refused(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        refused: &AppError,
+    ) -> bool {
+        let limit = self.inner.limits.state_bytes;
+        let grown = slot.open.as_ref().is_some_and(|open| {
+            open.state_bytes > open.made_bytes
+                && open.state_bytes.saturating_mul(4) >= limit.saturating_mul(3)
+        });
+        refused.reason() == Some(Reason::DocumentTooLarge)
+            && grown
+            && self.remake_and_tell(app, card_id, slot).await
+    }
+
+    /// Makes the document again from its body and tells the room, unless that failed
+    /// a little before (it is tried again after [`REMAKE_RETRY`]); whether it was made
+    /// again. A document that could not be made again is closed: the store holds it.
+    async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
+        if slot
+            .remake_failed_at
+            .is_some_and(|at| at.elapsed() < REMAKE_RETRY)
+        {
+            return false;
+        }
+        match self.remake(app, card_id, slot).await {
+            Ok(replaced) => {
+                // A card written past the document made it again from that, and the
+                // room was told so.
+                if !replaced {
+                    self.tell(card_id, DocChange::Remade);
+                }
+                slot.remake_failed_at = None;
+                true
+            }
+            Err(error) => {
+                tracing::error!(%error, card_id, "cannot make a document that grew large again");
+                slot.remake_failed_at = Some(Instant::now());
+                false
+            }
+        }
     }
 
     /// Stores the document's state in place of its log.
@@ -105,16 +156,36 @@ impl Collab {
         Ok(())
     }
 
-    /// Writes the document's body to its card, and makes the document again from it.
-    async fn remake(&self, app: &App, card_id: &str, slot: &mut Held) -> Result<(), AppError> {
-        self.write_now(app, card_id, slot).await?;
+    /// Writes the document's body to its card, and makes the document again from it;
+    /// whether the card was written past the document, and the document was made again
+    /// from that instead.
+    async fn remake(&self, app: &App, card_id: &str, slot: &mut Held) -> Result<bool, AppError> {
+        if self.write_or_replace(app, card_id, slot).await? {
+            return Ok(true);
+        }
         let body = app.store().get_block(card_id).await?.body;
+        self.remake_held(app, card_id, slot, body.as_ref()).await?;
+        Ok(false)
+    }
+
+    /// Makes the open document of a held slot again from `body`; a document that could
+    /// not be made again is closed (the store holds it as it was, or as it was made).
+    async fn remake_held(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        body: Option<&Body>,
+    ) -> Result<(), AppError> {
         let Some(open) = slot.open.as_mut() else {
             return Ok(());
         };
-        match self.remake_from(app, card_id, open, body.as_ref()).await {
+        match self.remake_from(app, card_id, open, body).await {
             Ok(()) => Ok(()),
-            Err(Opening::Refused(error)) => Err(error),
+            Err(Opening::Refused(error)) => {
+                self.forget(slot).await;
+                Err(error)
+            }
             Err(Opening::Died) => {
                 self.lost(slot);
                 died_over(slot);
@@ -124,7 +195,10 @@ impl Collab {
     }
 
     /// Makes an open document again from `body`, the body its card holds, in the same
-    /// worker, and stores it in place of the one before and its log.
+    /// worker, and stores it in place of the one before and its log. The one before is
+    /// closed first, so that a worker that holds as many documents as it may has room
+    /// for it; whatever fails, `open` is no document to go on with: the caller closes
+    /// it (its number is the new one's once that is open).
     pub(super) async fn remake_from(
         &self,
         app: &App,
@@ -132,18 +206,17 @@ impl Collab {
         open: &mut OpenDoc,
         body: Option<&Body>,
     ) -> Result<(), Opening> {
+        self.close_number(open.worker, open.generation, open.number)
+            .await;
         let number = self.next_number();
         let (generation, state, state_bytes) =
             self.open_from_body(open.worker, number, body).await?;
-        let digest = digest_of(body);
-        if let Err(error) = app.store().remake_body_doc(card_id, &state, &digest).await {
-            self.close_number(open.worker, generation, number).await;
-            return Err(error.into());
-        }
-        self.close_number(open.worker, open.generation, open.number)
-            .await;
         open.generation = generation;
         open.number = number;
+        let digest = digest_of(body);
+        app.store()
+            .remake_body_doc(card_id, &state, &digest)
+            .await?;
         open.state_seq = open.log_end;
         open.written_seq = open.log_end;
         open.body_digest = digest;
@@ -168,27 +241,28 @@ impl Collab {
         card_id: &str,
         slot: &mut Held,
     ) -> Result<(), AppError> {
+        self.write_or_replace(app, card_id, slot).await.map(drop)
+    }
+
+    /// As [`Collab::write_now`]; whether the card was written past the document, and the
+    /// document was made again from it.
+    async fn write_or_replace(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+    ) -> Result<bool, AppError> {
         let Some(open) = slot.open.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
         if open.written_seq >= open.log_end {
-            return Ok(());
+            return Ok(false);
         }
         let held = app.store().get_block(card_id).await?.body;
         if digest_of(held.as_ref()) != open.body_digest {
-            let open = slot.open.as_mut().expect("the document is open");
-            return match self.remake_from(app, card_id, open, held.as_ref()).await {
-                Ok(()) => {
-                    self.tell(card_id, DocChange::Replaced);
-                    Ok(())
-                }
-                Err(Opening::Refused(error)) => Err(error),
-                Err(Opening::Died) => {
-                    self.lost(slot);
-                    died_over(slot);
-                    Err(super::refusals::unavailable())
-                }
-            };
+            self.remake_held(app, card_id, slot, held.as_ref()).await?;
+            self.tell(card_id, DocChange::Replaced);
+            return Ok(true);
         }
         let json = match self.ask(app, card_id, slot, Request::Body).await? {
             Answer::Body(json) => json,
@@ -216,7 +290,7 @@ impl Collab {
         if changed {
             announce(app, card_id).await;
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Has a task write the body of the document when it is due ([`OpenDoc::write_at`]),

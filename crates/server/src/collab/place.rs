@@ -52,6 +52,8 @@ pub(super) struct Slot {
     last_death: Option<Instant>,
     /// Until when it is closed for that.
     closed_until: Option<Instant>,
+    /// When it could not be made again from its body last.
+    pub(super) remake_failed_at: Option<Instant>,
 }
 
 /// A document that a worker holds.
@@ -114,6 +116,7 @@ impl Collab {
                         deaths: 0,
                         last_death: None,
                         closed_until: None,
+                        remake_failed_at: None,
                     }))
                 }))
             };

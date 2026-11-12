@@ -132,9 +132,14 @@ impl Collab {
                 card_id = block.id,
                 "a logged update is not taken again; the document is made again from its card"
             );
-            open.number = self.next_number();
-            self.remake_from(app, &block.id, &mut open, block.body.as_ref())
-                .await?;
+            if let Err(failed) = self
+                .remake_from(app, &block.id, &mut open, block.body.as_ref())
+                .await
+            {
+                self.close_number(worker, open.generation, open.number)
+                    .await;
+                return Err(failed);
+            }
             self.tell(&block.id, DocChange::Remade);
             return Ok(open);
         }

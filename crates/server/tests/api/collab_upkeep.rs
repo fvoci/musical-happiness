@@ -18,20 +18,47 @@ fn paragraphs(texts: &[&str]) -> Value {
     json!({"type": "doc", "content": content})
 }
 
-/// A document that takes a thousand updates folds its log into its state every two
-/// hundred; opened again from what is stored, it is what it was. Prints how long the
-/// opening and the updates took.
+/// Whether the tests run in a debug build: the times they print are of that.
+fn profile() -> &'static str {
+    if cfg!(debug_assertions) {
+        "debug build"
+    } else {
+        "release build"
+    }
+}
+
+/// A document that takes a thousand and fifty updates folds its log into its state at
+/// every two hundredth; the store holds the state and the log after it, and the
+/// document opened again from them is what it was. Prints how long the opening and the
+/// updates took.
 #[tokio::test]
 async fn a_thousand_updates_are_folded_into_the_state_and_the_document_stays_the_same() {
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
+    let other = editing(&th, &paragraphs(&["other"])).await;
     let collab = e.app.collab();
+    let began = Instant::now();
+    collab
+        .open(&other.app, &other.card_id)
+        .await
+        .expect("opened");
+    let first_open = began.elapsed();
     let began = Instant::now();
     let state = collab.open(&e.app, &e.card_id).await.expect("opened");
     let opened = began.elapsed();
     let editor = Editor::join(101, &state);
+    let stored = async || {
+        let stored = e
+            .app
+            .store()
+            .get_body_doc(&e.card_id)
+            .await
+            .expect("read")
+            .expect("a document");
+        (stored.state_seq, stored.log_end, stored.updates.len())
+    };
     let began = Instant::now();
-    for n in 0..1000 {
+    for n in 0..1050 {
         let update = if n % 3 == 2 {
             editor.delete_last()
         } else {
@@ -41,31 +68,35 @@ async fn a_thousand_updates_are_folded_into_the_state_and_the_document_stays_the
             .take(&e.app, &e.card_id, &e.user1, &update)
             .await
             .expect("taken");
+        if n + 1 == 450 {
+            assert_eq!(
+                stored().await,
+                (400, 450, 50),
+                "folded at the four hundredth"
+            );
+        }
     }
     let taken = began.elapsed();
     eprintln!(
-        "measured: open {} ms, 1000 updates {} ms ({} µs each, logged and folded)",
+        "measured ({}): the first open {} ms (the worker started with it), an open {} ms, \
+         1050 updates {} ms ({} µs each: taken, logged, folded at every 200th, and the body \
+         written to the card meanwhile)",
+        profile(),
+        first_open.as_millis(),
         opened.as_millis(),
         taken.as_millis(),
-        taken.as_micros() / 1000
+        taken.as_micros() / 1050
     );
     let wanted = editor.body().map(|body| body.document().clone());
-    let stored = e
-        .app
-        .store()
-        .get_body_doc(&e.card_id)
-        .await
-        .expect("read")
-        .expect("a document");
-    assert_eq!(
-        (stored.state_seq, stored.log_end, stored.updates.len()),
-        (1000, 1000, 0),
-        "folded at the thousandth"
-    );
+    assert_eq!(stored().await, (1000, 1050, 50), "folded at the thousandth");
 
     collab.abandon().await;
     let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
-    assert_eq!(again.body().map(|body| body.document().clone()), wanted);
+    assert_eq!(
+        again.body().map(|body| body.document().clone()),
+        wanted,
+        "the folded state and the log after it"
+    );
     collab.close(&e.app, &e.card_id).await.expect("closed");
     assert_eq!(body_of(&card(&th.client, &e.card_id).await), wanted);
     th.teardown().await;
@@ -86,7 +117,9 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
     let e = editing(&th, &paragraphs(&["kept"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let state = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let editor = Editor::join(101, &state);
+    let idle = Editor::join(105, &state);
     let line = "z".repeat(60 * 1024);
     let mut remade = None;
     for round in 0..60 {
@@ -113,7 +146,12 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
         }
     }
     let round = remade.expect("made again before the state reached its limit");
-    assert!(round > 10, "only once it was near the limit: round {round}");
+    // Each round leaves 60 KiB deleted in the state: three quarters of 2 MiB is reached
+    // in the twenty-sixth.
+    assert!(
+        round >= 24,
+        "only once it was near the limit: round {round}"
+    );
     let event = events.try_recv().expect("an event");
     assert_eq!(
         (event.card_id, event.change),
@@ -143,22 +181,26 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
     );
     let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
     assert_eq!(again.body().map(|body| body.document().clone()), wanted);
-    let refused = collab
-        .take(
-            &e.app,
-            &e.card_id,
-            &e.user1,
-            &editor.append_paragraph("late"),
-        )
-        .await
-        .expect_err("made against the document before");
-    assert_eq!(
-        refused.reason().map(fvoci_server::error::Reason::as_str),
-        Some("update_out_of_step")
-    );
-    collab
-        .take(&e.app, &e.card_id, &e.user1, &again.append_paragraph("on"))
-        .await
-        .expect("an editor that loaded it again goes on");
+    for (late, who) in [
+        (&editor, "the editor that wrote"),
+        (&idle, "an editor that did not"),
+    ] {
+        let refused = collab
+            .take(&e.app, &e.card_id, &e.user1, &late.append_paragraph("late"))
+            .await
+            .expect_err("made against the document before");
+        assert_eq!(
+            refused.reason().map(fvoci_server::error::Reason::as_str),
+            Some("update_out_of_step"),
+            "{who}"
+        );
+    }
+    for line in ["on", "and on", "and further"] {
+        let taken = collab
+            .take(&e.app, &e.card_id, &e.user1, &again.append_paragraph(line))
+            .await
+            .expect("an editor that loaded it again goes on");
+        assert!(!taken.remade, "not made again at every update");
+    }
     th.teardown().await;
 }

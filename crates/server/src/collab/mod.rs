@@ -50,6 +50,9 @@ use worker::{Worker, WorkerCommand, WorkerSettings};
 /// How many updates the log of a document holds before they are folded into its state.
 pub const FOLD_AFTER: i64 = 200;
 
+/// How long after a document could not be made again from its body it is tried again.
+const REMAKE_RETRY: Duration = Duration::from_mins(1);
+
 /// How long after the last update the body of a document is written to its card.
 pub const WRITE_QUIET: Duration = Duration::from_secs(2);
 
@@ -99,7 +102,9 @@ pub struct Taken {
     /// editor, the one that sent the update too; logged after it.
     pub repair: Option<Vec<u8>>,
     /// Whether the document was made again from its body after it (its state came near
-    /// its limit): every editor loads it anew ([`DocChange::Remade`] says so as well).
+    /// its limit): every editor loads it anew ([`DocChange::Remade`] says so as well),
+    /// and the update and its repair, made against the document before, are not sent
+    /// to anyone.
     pub remade: bool,
 }
 
