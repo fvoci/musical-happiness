@@ -200,6 +200,9 @@ export class UndoManager {
    */
   clear(): void {
     this.#history += 1;
+    // What is still carried out is of the history left: the new one waits for none of it.
+    this.#carried = Promise.resolve();
+    this.#waiting = 0;
     const hadEntries = this.#entries.length > 0;
     this.#entries = [];
     this.#index = -1;
@@ -279,6 +282,7 @@ export class UndoManager {
     const generation = this.#generation;
     const dropped = this.#dropped.promise;
     const current = (): boolean => generation === this.#generation;
+    const history = this.#history;
     this.#waiting += 1;
     this.onStateDidChange?.();
     const turn = this.#queue.then(async () => {
@@ -306,7 +310,8 @@ export class UndoManager {
     try {
       await turn;
     } finally {
-      this.#waiting -= 1;
+      // One of a history since cleared was let go of by `clear`.
+      if (history === this.#history) this.#waiting -= 1;
       this.onStateDidChange?.();
     }
   }

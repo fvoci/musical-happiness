@@ -402,7 +402,7 @@ describe('a gesture of several changes', () => {
 });
 
 describe('a history cleared while it is under way (another workspace entered)', () => {
-  it('does not remember a change under way, nor take back an undo or redo under way', async () => {
+  it('does not remember a change under way, nor take back an undo under way', async () => {
     const { manager, change, answer, flush } = setup();
     void change('one');
     await answer();
@@ -450,5 +450,25 @@ describe('a history cleared while it is under way (another workspace entered)', 
     gate.answer();
     await gesture;
     expect(manager.canUndo).toBe(false);
+  });
+
+  it('does not keep the new history waiting for an undo of the one left', async () => {
+    const { manager, change, answer, answerAt, flush, writes } = setup();
+    void change('one');
+    await answer();
+    void manager.undo(); // its write never answers
+    await flush();
+    manager.clear();
+    expect(manager.busy).toBe(false);
+    void change('new');
+    await answerAt(1); // "new"
+    const undoing = manager.undo();
+    await flush();
+    // The undo of "new" is sent at once: it does not wait for the one of the history left.
+    expect(writes).toHaveLength(2);
+    await answerAt(1);
+    await undoing;
+    expect(manager.busy).toBe(false);
+    expect(manager.canRedo).toBe(true);
   });
 });

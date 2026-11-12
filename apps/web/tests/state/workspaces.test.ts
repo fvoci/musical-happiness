@@ -268,8 +268,12 @@ describe('entering another workspace while an undo or redo of the one left is wr
       const pending = new Promise<void>((resolve) => {
         answer = resolve;
       });
-      vi.spyOn(backend, 'setBoardHidden').mockReturnValueOnce(pending);
+      const writing = vi.spyOn(backend, 'setBoardHidden').mockReturnValueOnce(pending);
       const applying = action === 'undo' ? workspace.undoLast() : workspace.redoLast();
+      // Entered once the write has begun: the undo or redo is being carried out, not waiting.
+      await vi.waitFor(() => {
+        expect(writing).toHaveBeenCalled();
+      });
       await workspace.enter(OTHER.id);
       expect(workspace.info).toEqual(OTHER);
       expect(workspace.canUndo).toBe(false);
