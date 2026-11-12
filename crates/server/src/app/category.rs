@@ -158,10 +158,12 @@ impl App {
         let mut board_ids = Vec::with_capacity(source.board_metadata.len());
         let mut elsewhere = Vec::new();
         for metadata in &source.board_metadata {
-            let board = match self.board(&metadata.board_id).await {
+            // Of any workspace: a board of another is filed in its own (below), which a
+            // handle of this workspace would not find (`App::board`).
+            let board = match self.store().get_board(&metadata.board_id).await {
                 Ok(board) => board,
                 Err(error) if error.is_not_found() => continue,
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             };
             if category_of_workspace_takes(&board, workspace_id) {
                 board_ids.push(board.id);

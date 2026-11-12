@@ -245,9 +245,10 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
         .await;
     response.check_bad_request();
     assert_eq!(response.refused_at(), "parameter uploadId", "of the path");
+    // Under another workspace the upload is not there, as one that does not exist.
     let response = import_upload(&ts.client, ROOT_WORKSPACE_ID, &id).await;
-    response.check_bad_request();
-    assert_eq!(response.refused_at(), "/uploadId");
+    response.check_not_found();
+    assert_eq!(response.error_message(), "upload not found");
     import_upload(&ts.client2, TEST_WORKSPACE_ID, &id)
         .await
         .check_status(StatusCode::NOT_FOUND);

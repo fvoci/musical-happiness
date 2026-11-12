@@ -24,14 +24,17 @@ pub(super) enum CreatorMembership {
 }
 
 impl App {
-    /// Returns a board.
+    /// Returns a board: for a handle of one workspace ([`App::in_workspace`]), only a
+    /// board of that workspace or a built-in template.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such board, or the store's error.
     pub async fn board(&self, board_id: &str) -> Result<Board, AppError> {
         match self.store().get_board(board_id).await {
-            Ok(board) => Ok(board),
+            // A board of another workspace than the handle's is not there.
+            Ok(board) if self.reaches_board(&board) => Ok(board),
+            Ok(_) => Err(AppError::not_found("board")),
             Err(error) if error.is_not_found() => Err(AppError::not_found("board")),
             Err(error) => Err(error.into()),
         }

@@ -662,10 +662,11 @@ export interface paths {
          *     upload with `createImportUpload`, send its parts with `putUploadPart`, then name
          *     the upload here, in place of `completeUpload`. A part missing is 400 and the upload
          *     stays open for it; otherwise the upload ends with the import, whether it succeeds or
-         *     not. Another user's upload, or one that has ended, is 404; an upload of a file, or
-         *     one for another workspace, is 400. For users of the workspace who are not guests, at the
-         *     import as when the upload was opened: a user who may not import any more is
-         *     refused, and the upload is thrown away.
+         *     not. Another user's upload, one that has ended, and one for another workspace are
+         *     404; an upload of a file is 400. A workspace the user is not in is 404 before the
+         *     body is read. For users of the workspace who are not guests, at the import as when
+         *     the upload was opened: a user who may not import any more is refused, and the upload
+         *     is thrown away.
          *
          *     The archive is of version 3, as the export routes write it. The formats of the
          *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without

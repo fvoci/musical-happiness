@@ -267,19 +267,54 @@ enum Asker {
     Guest,
 }
 
+/// The workspace is looked at before the body is read: a body that is no JSON changes
+/// nothing of the refusal of a workspace the asker is not in (a guest is in it, and is
+/// told). A body that is JSON but names nothing found answers 404 of its own, which hid
+/// a refusal made after the body was read (`importArchive` did so once).
+async fn compare_malformed_bodies(
+    client: &Client,
+    method: &str,
+    suffix: &str,
+    operation: &str,
+) -> Option<String> {
+    let malformed = async |workspace: &str| {
+        client
+            .send_raw_body(
+                method.parse().expect("an HTTP method"),
+                &format!("/w/{workspace}{suffix}"),
+                "{",
+            )
+            .await
+    };
+    let (hidden, absent) = (
+        malformed(HIDDEN_WORKSPACE_ID).await,
+        malformed(UNKNOWN_ID).await,
+    );
+    (hidden.status != StatusCode::NOT_FOUND || answer(&hidden) != answer(&absent)).then(|| {
+        format!(
+            "{method} {suffix} ({operation}) with a body that is no JSON: hidden={:?}, absent={:?}",
+            answer(&hidden),
+            answer(&absent)
+        )
+    })
+}
+
+/// The body an operation of the table is sent with: one it takes, naming nothing there.
+fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
+    match operation {
+        "createCategory" => json!({"name": "mine", "userId": user_id, "workspaceId": workspace}),
+        "reorderCategories" | "reorderCategoryBoards" | "getWorkspaceUsersById" => json!([]),
+        "importArchive" => json!({"uploadId": "missing-upload"}),
+        "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
+        _ => json!({}),
+    }
+}
+
 async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) -> Vec<String> {
     let mut violations = Vec::new();
     for (method, suffix, operation) in WORKSPACE_ROUTES {
         let suffix = fill_with_nothing(suffix);
-        let body = |workspace: &str| match *operation {
-            "createCategory" => {
-                json!({"name": "mine", "userId": user_id, "workspaceId": workspace})
-            }
-            "reorderCategories" | "reorderCategoryBoards" | "getWorkspaceUsersById" => json!([]),
-            "importArchive" => json!({"uploadId": "missing-upload"}),
-            "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
-            _ => json!({}),
-        };
+        let body = |workspace: &str| route_body(operation, user_id, workspace);
         let send = async |workspace: &str| {
             Client::send(
                 client
@@ -319,6 +354,9 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         } else {
             answer(&hidden) == answer(&absent) && hidden.status == StatusCode::NOT_FOUND
         };
+        if *method != "GET" && asker != Asker::Guest {
+            violations.extend(compare_malformed_bodies(client, method, &suffix, operation).await);
+        }
         if !equal {
             violations.push(format!(
                 "{method} {suffix} ({operation}): hidden={:?}, absent={:?}",

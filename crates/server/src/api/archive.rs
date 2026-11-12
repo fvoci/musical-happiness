@@ -69,6 +69,12 @@ pub(super) async fn require_import_access(
     let ws = Ws::enter(app, session, workspace_id)
         .await?
         .require_works_there()?;
+    admit_import(ws).await
+}
+
+/// The workspace entered, if the user may import into it: who is no guest of the
+/// instance (who works there is asked before, `Ws::require_works_there`).
+async fn admit_import(ws: Ws) -> Result<Ws, AppError> {
     if user_is_guest(&ws.app, &ws.session.user_id).await? {
         return Err(AppError::forbidden(IMPORT_DENIAL));
     }
@@ -185,10 +191,11 @@ async fn handle_export_workspace(
 /// upload with `createImportUpload`, send its parts with `putUploadPart`, then name
 /// the upload here, in place of `completeUpload`. A part missing is 400 and the upload
 /// stays open for it; otherwise the upload ends with the import, whether it succeeds or
-/// not. Another user's upload, or one that has ended, is 404; an upload of a file, or
-/// one for another workspace, is 400. For users of the workspace who are not guests, at the
-/// import as when the upload was opened: a user who may not import any more is
-/// refused, and the upload is thrown away.
+/// not. Another user's upload, one that has ended, and one for another workspace are
+/// 404; an upload of a file is 400. A workspace the user is not in is 404 before the
+/// body is read. For users of the workspace who are not guests, at the import as when
+/// the upload was opened: a user who may not import any more is refused, and the upload
+/// is thrown away.
 ///
 /// The archive is of version 3, as the export routes write it. The formats of the
 /// original (the line-based version 1 and the ZIP of version 2) and a ZIP without
@@ -220,35 +227,22 @@ async fn handle_export_workspace(
         body = ImportResult,
     )),
 )]
-async fn handle_import(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(workspace_id): Path<String>,
-    body: Bytes,
-) -> ApiResult {
-    let user_id = session.user_id.clone();
-    // The workspace is entered first, for the organization its upload is read in, and
-    // refused where it always was: after the body and the upload are looked at, with
-    // the upload thrown away.
-    let entered = require_import_access(&app, session, workspace_id.clone()).await;
-    let reach = entered
-        .as_ref()
-        .map_or_else(|_| app.clone(), |ws| ws.app.clone());
+async fn handle_import(ws: Ws, body: Bytes) -> ApiResult {
+    let ws = ws.require_works_there()?;
+    let user_id = ws.session.user_id.clone();
+    // The workspace is entered, and the user works there, before the body is read; the
+    // upload is one of the workspace (`App::workspace_upload`), and a guest of the
+    // instance is refused after the upload is looked at, with the upload thrown away.
+    let reach = ws.app.clone();
     let ImportRequest { upload_id } = decode_object(&body)?;
-    let (upload, _) = reach.upload(&upload_id, &user_id).await?;
+    let (upload, _) = reach.workspace_upload(&upload_id, &user_id).await?;
     if upload.purpose != UploadPurpose::Import {
         return Err(AppError::bad_request(
             "the upload is of a file; complete it with completeUpload",
         )
         .with_field("uploadId"));
     }
-    if upload.workspace_id != workspace_id {
-        return Err(
-            AppError::bad_request("the upload is of an archive for another workspace")
-                .with_field("uploadId"),
-        );
-    }
-    let ws = match entered {
+    let ws = match admit_import(ws).await {
         Ok(ws) => ws,
         Err(refusal) => {
             // As for a completion (design 5.6, 2): the upload cannot be imported any
