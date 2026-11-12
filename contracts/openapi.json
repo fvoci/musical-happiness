@@ -6982,7 +6982,7 @@
     },
     "/api/v1/w/{workspaceId}/categories": {
       "get": {
-        "description": "The user's categories in the workspace, each with the boards filed under it. A user who\nhas none yet gets the default category made. A guest of the workspace has theirs\ntoo, with the boards they were invited to; the routes that change the sidebar are\nfor who works in the workspace.\n\nThe categories come by `sortOrder`, lowest first, and among those with the same one\nthe oldest first. The boards of a category come in the order the user gave them,\nand by identifier among those with the same place.",
+        "description": "The user's categories in the workspace, each with the boards filed under it. A user who\nhas none yet gets the default category made. A guest of the workspace has theirs\ntoo, with the boards they are on and no other, whatever they filed before; the\nroutes that change the sidebar are for who works in the workspace.\n\nThe categories come by `sortOrder`, lowest first, and among those with the same one\nthe oldest first. The boards of a category come in the order the user gave them,\nand by identifier among those with the same place.",
         "operationId": "getCategories",
         "parameters": [
           {

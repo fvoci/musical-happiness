@@ -66,6 +66,34 @@ impl App {
         Ok(category_boards)
     }
 
+    /// The sidebar of a guest of the workspace: their categories as
+    /// [`App::user_category_boards`] has them, with the boards they are on now and no
+    /// other. A board they filed while they worked in the workspace, or before they
+    /// left it and came back as a guest, is not theirs to know of any more.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the categories or the boards cannot be read.
+    pub async fn category_boards_of_guest(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<Vec<CategoryBoards>, AppError> {
+        let mut category_boards = self.user_category_boards(user_id, workspace_id).await?;
+        let on: HashSet<String> = self
+            .readable_workspace_boards(user_id, workspace_id, fvoci_model::WorkspaceRole::Guest)
+            .await?
+            .into_iter()
+            .map(|board| board.id)
+            .collect();
+        for category in &mut category_boards {
+            category
+                .board_metadata
+                .retain(|entry| on.contains(&entry.board_id));
+        }
+        Ok(category_boards)
+    }
+
     /// Creates the default category and files under it every board the user is an
     /// explicit member of that is in no category yet.
     async fn create_boards_category(

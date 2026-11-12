@@ -1,7 +1,6 @@
 /**
  * The people of a workspace in their dialog: what its administrator sees and
- * does there, against a backend that answers as the server would; and what
- * the sidebar leaves out for a guest.
+ * does there, against a backend that answers as the server would.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -55,6 +54,7 @@ function mount(overrides: Partial<ReturnType<typeof requests>> = {}) {
   // What the panel reads of the workspace store, and no more.
   const workspace = {
     info: { id: 'w1', title: 'Acme', role: 'admin' },
+    boards: [],
     me: { id: 'u1' },
     locale: 'en',
     regional: { timeZone: 'UTC', hourCycle: 'h23' },
@@ -76,13 +76,18 @@ describe('the people of a workspace', () => {
         .getAllByRole('option')
         .map((option) => option.textContent);
     expect(options('Ada (@ada)')).toEqual(['Admin', 'Member']);
+    // Their own role is another admin's to change.
+    expect(screen.getByLabelText('Role of Ada (@ada)')).toBeDisabled();
     expect(options('grace')).toEqual(['Admin', 'Member', 'Guest']);
     // A guest becomes a member by a link, not here.
     expect(screen.getByLabelText('Role of visitor')).toBeDisabled();
     // Nobody takes themselves out.
     expect(screen.getByRole('button', { name: 'Remove Ada (@ada)' })).toBeDisabled();
-    // The links for members are listed; one for a guest is its board's.
+    // The links for members, and those for the guests of boards, each to be revoked.
     expect(within(screen.getByTestId('people-links')).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(screen.getByTestId('people-guest-links')).getAllByRole('listitem')).toHaveLength(
+      1,
+    );
   });
 
   it('shows the address of a link once it is made, and revokes one', async () => {
@@ -91,7 +96,9 @@ describe('the people of a workspace', () => {
     expect(await screen.findByTestId('people-link')).toHaveValue('https://here/invite/the-token');
     expect(people.inviteMembers).toHaveBeenCalledExactlyOnceWith('w1');
     // The lists are read again after the link is made; then the row can be used.
-    const revoke = screen.getByRole('button', { name: 'Revoke' });
+    const revoke = within(screen.getByTestId('people-links')).getByRole('button', {
+      name: 'Revoke',
+    });
     await waitFor(() => {
       expect(revoke).toBeEnabled();
     });
@@ -99,24 +106,41 @@ describe('the people of a workspace', () => {
     await waitFor(() => {
       expect(people.revokeInvitation).toHaveBeenCalledExactlyOnceWith('w1', 'l1');
     });
-    await waitFor(() => {
-      expect(screen.queryByTestId('people-link')).not.toBeInTheDocument();
-    });
+    // Another link than the one just made was revoked: that one is still to be copied.
+    expect(screen.getByTestId('people-link')).toHaveValue('https://here/invite/the-token');
   });
 
-  it('changes a role, says why the last administrator stays one, and reads again', async () => {
+  it('says why a change of role was refused, and shows what the member is again', async () => {
     const people = mount({
       setRole: vi.fn<People['setRole']>(() =>
         Promise.reject(new BackendError(409, { detail: 'no', reason: 'last_admin' })),
       ),
     });
-    const role = await screen.findByLabelText('Role of Ada (@ada)');
-    await fireEvent.change(role, { target: { value: 'member' } });
+    const role = (): HTMLElement => screen.getByLabelText('Role of grace');
+    await screen.findByTestId('people-members');
+    await fireEvent.change(role(), { target: { value: 'admin' } });
     expect(await screen.findByTestId('people-problem')).toHaveTextContent(
       /needs an admin. Make somebody else one first./,
     );
-    expect(people.setRole).toHaveBeenCalledExactlyOnceWith('w1', 'u1', 'member');
+    expect(people.setRole).toHaveBeenCalledExactlyOnceWith('w1', 'u2', 'admin');
     expect(people.members).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      expect(role()).toHaveValue('member');
+    });
+  });
+
+  it('asks before a member is made a guest, and leaves them a member when it is not confirmed', async () => {
+    const people = mount();
+    await screen.findByTestId('people-members');
+    await fireEvent.change(screen.getByLabelText('Role of grace'), { target: { value: 'guest' } });
+    const ask = await screen.findByRole('alertdialog');
+    expect(ask).toHaveTextContent('Make grace a guest?');
+    expect(people.setRole).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Role of grace')).toHaveValue('member');
+    await fireEvent.click(within(ask).getByRole('button', { name: 'Make a guest' }));
+    await waitFor(() => {
+      expect(people.setRole).toHaveBeenCalledExactlyOnceWith('w1', 'u2', 'guest');
+    });
   });
 
   it('switches whether guests are invited', async () => {

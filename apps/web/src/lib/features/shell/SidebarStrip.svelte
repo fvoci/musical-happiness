@@ -100,9 +100,12 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
-  <IconButton label={m.shell_add_board()} data-testid="strip-add-board" onclick={onAddBoard}>
-    <PlusIcon />
-  </IconButton>
+  <!-- A guest is on the boards they were invited to, and makes none. -->
+  {#if workspace.info?.role !== 'guest'}
+    <IconButton label={m.shell_add_board()} data-testid="strip-add-board" onclick={onAddBoard}>
+      <PlusIcon />
+    </IconButton>
+  {/if}
   <IconButton
     label={m.shell_account_of({ name: myName })}
     aria-haspopup="dialog"

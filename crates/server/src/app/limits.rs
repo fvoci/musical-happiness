@@ -25,7 +25,7 @@ impl OrgLimits {
     /// The most bytes the open uploads of one user may hold back: twice the largest
     /// thing a user sends, a file or an archive.
     #[must_use]
-    pub fn open_uploads_of_a_user(self) -> i64 {
+    pub fn open_upload_bytes_of_a_user(self) -> i64 {
         self.largest_file.max(self.largest_import).saturating_mul(2)
     }
 }
@@ -33,7 +33,9 @@ impl OrgLimits {
 impl App {
     /// The limits of the organization this handle works in. They are the
     /// configuration's, the same for every organization, until organizations have
-    /// their own.
+    /// their own: from then on whoever asks holds the handle of the organization whose
+    /// limits they mean, and what the client is told before anybody signs in
+    /// (`App::client_config`) is the configuration's still.
     #[must_use]
     pub fn limits(&self) -> OrgLimits {
         let config = self.config();
@@ -54,8 +56,8 @@ mod tests {
             largest_file,
             largest_import,
         };
-        assert_eq!(limits(10, 3).open_uploads_of_a_user(), 20);
-        assert_eq!(limits(3, 10).open_uploads_of_a_user(), 20);
-        assert_eq!(limits(i64::MAX, 1).open_uploads_of_a_user(), i64::MAX);
+        assert_eq!(limits(10, 3).open_upload_bytes_of_a_user(), 20);
+        assert_eq!(limits(3, 10).open_upload_bytes_of_a_user(), 20);
+        assert_eq!(limits(i64::MAX, 1).open_upload_bytes_of_a_user(), i64::MAX);
     }
 }

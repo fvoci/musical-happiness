@@ -21,13 +21,18 @@ export type EnterStatus = 'none' | 'loading' | 'ready' | 'missing' | 'failed';
 
 /**
  * The workspace to start in when the address names none: `last`, the one
- * the reader was last in on this device, if it is still theirs, else their first.
+ * the reader was last in on this device, if it is still theirs; else the
+ * first they work in, before one they are only a guest of.
  */
 export function firstChoiceOf(
   workspaces: readonly WorkspaceInfo[],
   last: string | undefined,
 ): string | undefined {
-  return (workspaces.find((workspace) => workspace.id === last) ?? workspaces[0])?.id;
+  const chosen =
+    workspaces.find((workspace) => workspace.id === last) ??
+    workspaces.find((workspace) => workspace.role !== 'guest') ??
+    workspaces[0];
+  return chosen?.id;
 }
 
 /**

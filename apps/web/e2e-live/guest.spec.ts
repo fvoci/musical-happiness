@@ -75,9 +75,29 @@ test('a guest comes in by a link from the share dialog, and opens and edits that
   // Nothing else of the workspace: that board in the sidebar, and no way to make one.
   await expect(boardLink(guestPage, 'Guest invitation')).toBeVisible();
   await expect(sidebar(guestPage).getByText('Not for guests')).toHaveCount(0);
-  for (const control of ['add-board', 'open-trash', 'new-category', 'open-people']) {
+  for (const control of [
+    'add-board',
+    'strip-add-board',
+    'open-trash',
+    'new-category',
+    'open-people',
+    'share-board',
+  ]) {
     await expect(guestPage.getByTestId(control)).toHaveCount(0);
   }
+  // What the board's menu in the sidebar has for a guest: saving it, and no more.
+  await sidebar(guestPage)
+    .getByRole('button', { name: 'Menu of the board Guest invitation' })
+    .click();
+  await expect(guestPage.getByRole('menuitem')).toHaveText(['Export the board']);
+  await guestPage.keyboard.press('Escape');
+  // The settings bring no boards in.
+  await guestPage.getByTestId('open-settings').click();
+  await expect(guestPage.getByTestId('export-workspace')).toBeVisible();
+  await expect(guestPage.getByTestId('import-archive')).toHaveCount(0);
+  await guestPage.keyboard.press('Escape');
+  // Nothing the guest's page asked for was refused.
+  await expect(guestPage.locator('[data-problem]')).toHaveCount(0);
   await shot(guestPage, 'guest-in-the-app');
   // And by its address neither: the other board is not there for a guest.
   const guestApi = await signedIn(base, guest);

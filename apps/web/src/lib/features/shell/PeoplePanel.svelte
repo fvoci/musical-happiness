@@ -1,12 +1,13 @@
 <!--
   The people of the workspace, for who administers it: a link that lets members
-  in (made here, shown once, revoked here), whether the admins of boards may
-  invite guests, and everybody who is in the workspace, with what they are in it
+  in (made here, shown once), the links that are out, for members and for the
+  guests of boards, each to be revoked; whether the admins of boards may
+  invite guests; and everybody who is in the workspace, with what they are in it
   and a way to take them out. What `PeopleDialog.svelte` shows while it is open.
 
   Everything is read when the panel is made, which is each time the dialog
-  opens. A request that is refused says so on one line, and the lists are read
-  again: what they showed may be what was refused.
+  opens, and again after every request: what the lists showed may be what was
+  refused. A refusal says so on one line.
 -->
 <script lang="ts">
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
@@ -42,11 +43,21 @@
   let links = $state.raw<Invitation[]>([]);
   let guestsInvited = $state(true);
   /** The link that was just made: its address is shown this once. */
-  let made = $state.raw<string | undefined>(undefined);
-  let status = $state<'loading' | 'ready' | 'failed'>('loading');
+  let made = $state.raw<{ id: string; address: string } | undefined>(undefined);
+  /** `undefined` while the lists are read; then whether they were, or why not. */
+  let failure = $state<string | undefined | false>(undefined);
   let working = $state(false);
   let problem = $state<string | undefined>(undefined);
-  let leaving = $state.raw<WorkspaceMember | undefined>(undefined);
+  /**
+   * Counts the readings. The controls that keep what the reader chose (a
+   * select, a switch) are made anew with each: one that was refused shows
+   * what is so again, not what was asked.
+   */
+  let version = $state(0);
+  /** What is asked before it is done: taking somebody out, or making them a guest, which a change of role does not undo. */
+  let asked = $state.raw<{ kind: 'remove' | 'guest'; member: WorkspaceMember } | undefined>(
+    undefined,
+  );
   let askOpen = $state(false);
 
   const ROLE_LABELS: Record<WorkspaceRole, () => string> = {
@@ -67,8 +78,17 @@
     hourCycle: workspace.regional.hourCycle,
   });
 
-  /** The links that let members in; those for guests are made and seen on their boards. */
   const memberLinks = $derived(links.filter((link) => link.role === 'member'));
+  const guestLinks = $derived(links.filter((link) => link.role === 'guest'));
+
+  const boardTitle = (boardId: string | undefined): string =>
+    workspace.boards.find((board) => board.id === boardId)?.title || m.invite_board_untitled();
+
+  function problemOf(error: unknown, otherwise: string): string {
+    if (isBackendError(error) && error.reason === 'last_admin') return m.people_last_admin();
+    if (isBackendError(error) && error.status === 403) return m.people_not_allowed();
+    return otherwise;
+  }
 
   async function read(): Promise<void> {
     if (!workspaceId) return;
@@ -78,19 +98,14 @@
         people.invitations(workspaceId),
         people.guestInvitations(workspaceId),
       ]);
-      status = 'ready';
-    } catch {
-      status = 'failed';
+      failure = false;
+    } catch (error) {
+      failure = problemOf(error, m.people_load_failed());
     }
+    version += 1;
   }
 
   void read();
-
-  function problemOf(error: unknown): string {
-    if (isBackendError(error) && error.reason === 'last_admin') return m.people_last_admin();
-    if (isBackendError(error) && error.status === 403) return m.people_not_allowed();
-    return m.people_failed();
-  }
 
   /** Does one thing, says so if it is refused, and reads what there is afterwards. */
   async function act(step: (workspaceId: string) => Promise<void>): Promise<void> {
@@ -100,7 +115,7 @@
     try {
       await step(workspaceId);
     } catch (error) {
-      problem = problemOf(error);
+      problem = problemOf(error, m.people_failed());
     } finally {
       await read();
       working = false;
@@ -109,14 +124,15 @@
 
   const makeLink = (): Promise<void> =>
     act(async (id) => {
+      made = undefined;
       const link = await people.inviteMembers(id);
-      made = link.token === undefined ? undefined : inviteLink(link.token);
+      if (link.token !== undefined) made = { id: link.id, address: inviteLink(link.token) };
     });
 
   const revoke = (link: Invitation): Promise<void> =>
     act(async (id) => {
       await people.revokeInvitation(id, link.id);
-      made = undefined;
+      if (made?.id === link.id) made = undefined;
     });
 
   const setRole = (member: WorkspaceMember, role: WorkspaceRole): Promise<void> =>
@@ -133,13 +149,41 @@
     act(async (id) => {
       guestsInvited = await people.setGuestInvitations(id, enabled);
     });
+
+  function chooseRole(member: WorkspaceMember, role: WorkspaceRole): void {
+    if (role !== 'guest') {
+      void setRole(member, role);
+      return;
+    }
+    // Asked first; left alone, the select shows what the member is again.
+    asked = { kind: 'guest', member };
+    askOpen = true;
+    version += 1;
+  }
 </script>
 
+{#snippet linkRow(link: Invitation, text: string)}
+  <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
+    <span class="min-w-0 flex-1 text-sm text-muted-foreground">{text}</span>
+    <Button
+      variant="ghost"
+      size="sm"
+      class="roomy:min-h-touch"
+      disabled={working}
+      onclick={() => void revoke(link)}
+    >
+      {m.people_link_revoke()}
+    </Button>
+  </li>
+{/snippet}
+
 <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
-  {#if status === 'loading'}
+  <!-- There before it says anything, so that what it says is announced. -->
+  <p class="sr-only" role="status">{made ? m.people_link_made() : ''}</p>
+  {#if failure === undefined}
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
-  {:else if status === 'failed'}
-    <p role="alert">{m.people_failed()}</p>
+  {:else if failure}
+    <p role="alert">{failure}</p>
     <Button class="roomy:min-h-touch" onclick={() => void read()}>{m.app_retry()}</Button>
   {:else}
     {#if problem}
@@ -151,12 +195,14 @@
     <section class="grid gap-2" aria-labelledby="{uid}-invite">
       <h3 id="{uid}-invite" class="font-medium">{m.people_invite_title()}</h3>
       {#if made}
-        <InviteLink
-          link={made}
-          label={m.people_invite_link()}
-          note={m.people_invite_note()}
-          testId="people-link"
-        />
+        {#key made.id}
+          <InviteLink
+            link={made.address}
+            label={m.people_invite_link()}
+            note={m.people_invite_note()}
+            testId="people-link"
+          />
+        {/key}
       {:else}
         <p class="text-sm text-muted-foreground">{m.people_invite_hint()}</p>
       {/if}
@@ -172,23 +218,14 @@
       {#if memberLinks.length > 0}
         <ul class="grid gap-1" data-testid="people-links">
           {#each memberLinks as link (link.id)}
-            <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
-              <span class="min-w-0 flex-1 text-sm text-muted-foreground">
-                {m.people_link_row({
-                  made: displayDate(link.createAt, context),
-                  ends: displayDate(link.expiresAt, context),
-                  uses: link.uses,
-                })}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={working}
-                onclick={() => void revoke(link)}
-              >
-                {m.people_link_revoke()}
-              </Button>
-            </li>
+            {@render linkRow(
+              link,
+              m.people_link_row({
+                made: displayDate(link.createAt, context),
+                ends: displayDate(link.expiresAt, context),
+                uses: link.uses,
+              }),
+            )}
           {/each}
         </ul>
       {/if}
@@ -200,13 +237,28 @@
         <span class="min-w-0 flex-1 text-sm text-muted-foreground">
           {m.people_guests_switch()}
         </span>
-        <Switch
-          checked={guestsInvited}
-          disabled={working}
-          data-testid="people-guests"
-          onCheckedChange={(checked: boolean) => void inviteGuests(checked)}
-        />
+        {#key version}
+          <Switch
+            checked={guestsInvited}
+            disabled={working}
+            data-testid="people-guests"
+            onCheckedChange={(checked: boolean) => void inviteGuests(checked)}
+          />
+        {/key}
       </label>
+      {#if guestLinks.length > 0}
+        <ul class="grid gap-1" data-testid="people-guest-links">
+          {#each guestLinks as link (link.id)}
+            {@render linkRow(
+              link,
+              m.people_guest_link_row({
+                board: boardTitle(link.boardId),
+                ends: displayDate(link.expiresAt, context),
+              }),
+            )}
+          {/each}
+        </ul>
+      {/if}
     </section>
 
     <section class="grid gap-2" aria-labelledby="{uid}-members">
@@ -215,26 +267,35 @@
         {#each members as member (member.userId)}
           {@const name = userDisplayName(member)}
           {@const self = member.userId === workspace.me?.id}
-          <li class="flex min-h-8 flex-wrap items-center gap-2 roomy:min-h-touch">
+          <li
+            class="flex min-h-8 flex-wrap items-center gap-2 roomy:min-h-touch"
+            data-member={member.username}
+          >
             <span class="min-w-0 flex-1 truncate" translate="no">{name}</span>
-            <select
-              class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
-              aria-label={m.people_role_of({ name })}
-              value={member.role}
-              disabled={working || member.role === 'guest'}
-              onchange={(event) => void setRole(member, event.currentTarget.value as WorkspaceRole)}
-            >
-              {#each rolesFor(member) as role (role)}
-                <option value={role}>{ROLE_LABELS[role]()}</option>
-              {/each}
-            </select>
+            <!-- Their own role is changed by another admin, as on a board. -->
+            {#key version}
+              <select
+                class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+                aria-label={m.people_role_of({ name })}
+                value={member.role}
+                disabled={working || self || member.role === 'guest'}
+                onchange={(event) => {
+                  chooseRole(member, event.currentTarget.value as WorkspaceRole);
+                }}
+              >
+                {#each rolesFor(member) as role (role)}
+                  <option value={role}>{ROLE_LABELS[role]()}</option>
+                {/each}
+              </select>
+            {/key}
             <Button
               variant="ghost"
               size="sm"
+              class="roomy:min-h-touch"
               disabled={working || self}
               aria-label={m.people_remove_of({ name })}
               onclick={() => {
-                leaving = member;
+                asked = { kind: 'remove', member };
                 askOpen = true;
               }}
             >
@@ -249,11 +310,16 @@
 
 <ConfirmDialog
   bind:open={askOpen}
-  title={m.people_remove_title({ name: leaving ? userDisplayName(leaving) : '' })}
-  description={m.people_remove_description()}
-  confirmLabel={m.people_remove()}
+  title={asked?.kind === 'guest'
+    ? m.people_guest_title({ name: userDisplayName(asked.member) })
+    : m.people_remove_title({ name: asked ? userDisplayName(asked.member) : '' })}
+  description={asked?.kind === 'guest'
+    ? m.people_guest_description()
+    : m.people_remove_description()}
+  confirmLabel={asked?.kind === 'guest' ? m.people_guest_confirm() : m.people_remove()}
   destructive
   onConfirm={() => {
-    if (leaving) void remove(leaving);
+    if (asked?.kind === 'guest') void setRole(asked.member, 'guest');
+    else if (asked) void remove(asked.member);
   }}
 />

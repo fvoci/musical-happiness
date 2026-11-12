@@ -255,7 +255,7 @@ impl App {
                 Reason::TooManyUploads,
             ));
         }
-        let user_share = self.limits().open_uploads_of_a_user();
+        let user_share = self.limits().open_upload_bytes_of_a_user();
         if usage.user_bytes.saturating_add(new.size) > user_share {
             return Err(AppError::limited(
                 format_args!(

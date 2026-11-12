@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Category, CategoryBoards, CategoryType};
+use fvoci_model::{Category, CategoryBoards, CategoryType, WorkspaceRole};
 use fvoci_store::BoardVisibility;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
@@ -217,8 +217,8 @@ async fn handle_delete_category(
 ///
 /// The user's categories in the workspace, each with the boards filed under it. A user who
 /// has none yet gets the default category made. A guest of the workspace has theirs
-/// too, with the boards they were invited to; the routes that change the sidebar are
-/// for who works in the workspace.
+/// too, with the boards they are on and no other, whatever they filed before; the
+/// routes that change the sidebar are for who works in the workspace.
 ///
 /// The categories come by `sortOrder`, lowest first, and among those with the same one
 /// the oldest first. The boards of a category come in the order the user gave them,
@@ -236,12 +236,16 @@ async fn handle_delete_category(
     )),
 )]
 async fn handle_get_user_category_boards(AtHome(ws): AtHome) -> ApiResult {
-    // A guest too: their sidebar has the boards they were invited to, filed as they
-    // have filed them. The rest of the sidebar's routes are for who works there.
-    let category_boards = ws
-        .app
-        .user_category_boards(&ws.session.user_id, &ws.workspace_id)
-        .await?;
+    // A guest too: their sidebar has the boards they are on, filed as they have filed
+    // them. The rest of the sidebar's routes are for who works there.
+    let (user_id, workspace_id) = (&ws.session.user_id, &ws.workspace_id);
+    let category_boards = if ws.role == WorkspaceRole::Guest {
+        ws.app
+            .category_boards_of_guest(user_id, workspace_id)
+            .await?
+    } else {
+        ws.app.user_category_boards(user_id, workspace_id).await?
+    };
     Ok(json_response(&category_boards))
 }
 

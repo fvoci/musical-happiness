@@ -32,7 +32,7 @@ test('an administrator makes and revokes the link for members, changes what one 
 
   await page.getByTestId('open-people').click();
   const dialog = page.getByTestId('people-dialog');
-  const row = dialog.getByTestId('people-members').locator('li', { hasText: colleague.username });
+  const row = dialog.locator(`[data-member="${colleague.username}"]`);
   await expect(row).toBeVisible();
 
   // A link: its address is shown this once, and works for somebody without an account.
@@ -66,10 +66,9 @@ test('an administrator makes and revokes the link for members, changes what one 
   await expect.poll(roleOfColleague).toBe('member');
 
   // The administrator who is signed in is not taken out by themselves.
-  const own = dialog.getByTestId('people-members').locator('li', { hasText: ADMIN.username });
-  await expect(
-    own.first().getByRole('button', { name: `Remove ${ADMIN.username}` }),
-  ).toBeDisabled();
+  const own = dialog.locator(`[data-member="${ADMIN.username}"]`);
+  await expect(own.getByRole('button', { name: `Remove ${ADMIN.username}` })).toBeDisabled();
+  await expect(own.getByLabel(`Role of ${ADMIN.username}`)).toBeDisabled();
 
   // Taken out, the colleague has no workspace to open.
   await row.getByRole('button', { name: `Remove ${colleague.username}` }).click();

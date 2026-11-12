@@ -14,7 +14,7 @@
 # file <lines> <path>
 # function <lines> <path> <name>
 
-file 1024 crates/server/src/app/uploads.rs
+file 1009 crates/server/src/app/uploads.rs
 file 1002 crates/server/src/ws.rs
 file 2909 crates/server/tests/api/blocks.rs
 file 3689 crates/server/tests/api/boards.rs

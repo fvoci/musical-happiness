@@ -491,3 +491,69 @@ async fn a_workspace_keeps_its_last_administrator_when_the_instance_role_goes() 
 
     th.teardown().await;
 }
+
+/// The sidebar of a guest has the boards they are on, and no other: not one they
+/// filed while they worked in the workspace and never were on. The routes that change
+/// the sidebar are not a guest's.
+#[tokio::test]
+async fn the_sidebar_of_a_guest_has_the_boards_they_are_on_and_no_other() {
+    let th = Setup::native().start().await.init_basic().await;
+    let second_id = th.client2.me().await.id;
+    let joined = private_board(&th.client2, "Theirs").await;
+    let open: Board = th
+        .client
+        .post(
+            "/boards",
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": "Open, never joined"}),
+        )
+        .await
+        .created_json();
+    let sidebar = format!("/w/{ROOT_WORKSPACE_ID}/categories");
+    let filed = async || -> (String, Vec<String>) {
+        let categories = th.client2.get(&sidebar).await.value();
+        let boards = categories
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|category| {
+                category["boardMetadata"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .filter_map(|entry| entry["boardId"].as_str().map(str::to_owned))
+            .collect();
+        (
+            categories[0]["id"].as_str().unwrap_or_default().to_owned(),
+            boards,
+        )
+    };
+    let (category_id, _) = filed().await;
+    let file_the_open_board = format!("{sidebar}/{category_id}/boards/{}", open.id);
+    th.client2
+        .post_empty(&file_the_open_board)
+        .await
+        .check_no_content();
+    let mut both = vec![joined.id.clone(), open.id.clone()];
+    both.sort();
+    let mut before = filed().await.1;
+    before.sort();
+    assert_eq!(before, both, "as a member: what they filed");
+
+    set_role(&th.client, &second_id, "guest").await.check_ok();
+    assert_eq!(
+        filed().await.1,
+        std::slice::from_ref(&joined.id),
+        "as a guest: the board they are on"
+    );
+    th.client2
+        .post_empty(&file_the_open_board)
+        .await
+        .check_error(StatusCode::NOT_FOUND, "workspace not found");
+    th.client2
+        .post(&sidebar, &json!({"name": "Mine"}))
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+
+    th.teardown().await;
+}

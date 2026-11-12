@@ -326,36 +326,43 @@
             <DownloadIcon aria-hidden="true" />
             {m.shell_export_workspace()}
           </Button>
-          <Button
-            variant="outline"
-            class="roomy:min-h-touch"
-            aria-describedby="{uid}-import-hint"
-            onclick={() => importField?.click()}
-          >
-            <UploadIcon aria-hidden="true" />
-            {m.shell_import()}
-          </Button>
-          <input
-            bind:this={importField}
-            type="file"
-            accept=".boardarchive,application/zip"
-            hidden
-            data-testid="import-archive"
-            onchange={(event) => {
-              const field = event.currentTarget;
-              const file = field.files?.[0];
-              // The same file can be chosen again.
-              field.value = '';
-              const workspaceId = workspace.info?.id;
-              if (!file || workspaceId === undefined) return;
-              leftOut = undefined;
-              void workspace.importArchive(file).then((imported) => {
-                leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
-              });
-            }}
-          />
+          <!-- A guest brings no boards in: importing makes boards. -->
+          {#if workspace.info?.role !== 'guest'}
+            <Button
+              variant="outline"
+              class="roomy:min-h-touch"
+              aria-describedby="{uid}-import-hint"
+              onclick={() => importField?.click()}
+            >
+              <UploadIcon aria-hidden="true" />
+              {m.shell_import()}
+            </Button>
+            <input
+              bind:this={importField}
+              type="file"
+              accept=".boardarchive,application/zip"
+              hidden
+              data-testid="import-archive"
+              onchange={(event) => {
+                const field = event.currentTarget;
+                const file = field.files?.[0];
+                // The same file can be chosen again.
+                field.value = '';
+                const workspaceId = workspace.info?.id;
+                if (!file || workspaceId === undefined) return;
+                leftOut = undefined;
+                void workspace.importArchive(file).then((imported) => {
+                  leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
+                });
+              }}
+            />
+          {/if}
         </div>
-        <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
+        {#if workspace.info?.role !== 'guest'}
+          <p id="{uid}-import-hint" class="text-xs text-muted-foreground">
+            {m.shell_import_hint()}
+          </p>
+        {/if}
         <!-- There before it says anything, so that what it says is announced. -->
         <p
           role="status"

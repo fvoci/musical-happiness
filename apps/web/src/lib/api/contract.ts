@@ -1651,8 +1651,8 @@ export interface paths {
          * The user's sidebar
          * @description The user's categories in the workspace, each with the boards filed under it. A user who
          *     has none yet gets the default category made. A guest of the workspace has theirs
-         *     too, with the boards they were invited to; the routes that change the sidebar are
-         *     for who works in the workspace.
+         *     too, with the boards they are on and no other, whatever they filed before; the
+         *     routes that change the sidebar are for who works in the workspace.
          *
          *     The categories come by `sortOrder`, lowest first, and among those with the same one
          *     the oldest first. The boards of a category come in the order the user gave them,
