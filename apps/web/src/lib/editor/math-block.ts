@@ -204,16 +204,16 @@ class FormulaView implements NodeView {
     if (place && !this.#panel) {
       const page = this.dom.ownerDocument;
       // A place already open (this view was made again) keeps what its field held.
-      const held = place.draft?.value() ?? this.#latex;
+      const held = place.draft?.touched === true ? place.draft.value() : this.#latex;
       const field = sourceField(page, held);
       const { box, problem } = placeBox(page, this.#editor, field);
-      let written = held !== this.#latex;
+      const touched = (): boolean => place.draft?.touched === true;
       field.addEventListener('input', () => {
-        written = true;
+        if (place.draft) place.draft.touched = true;
         this.#edited(field.value);
       });
       this.dom.append(box);
-      this.#panel = { box, field, problem, written: () => written };
+      this.#panel = { box, field, problem, written: touched };
       this.dom.setAttribute('data-open', '');
       // What is wrong with the source is said under the field from the start.
       void this.#preview(held);

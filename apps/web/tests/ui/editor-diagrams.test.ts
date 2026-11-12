@@ -209,6 +209,43 @@ describe('a selection that reaches a closed diagram at an end of the body', () =
     expect(stored(target)).toEqual(doc(paragraph(text('bx'))));
   });
 
+  it('takes in every closed diagram it reaches, two in a row too', () => {
+    const target = create(doc(paragraph(text('p')), code('mermaid', FLOW), code('mermaid', FLOW)));
+    target.view.dispatch(
+      target.state.tr.setSelection(TextSelection.create(target.state.doc, 2, 6)),
+    );
+    expect(target.state.selection.to).toBe(target.state.doc.content.size);
+    type(target, 'x');
+    expect(stored(target)).toEqual(doc(paragraph(text('px'))));
+  });
+
+  it('starting right before the only diagram of the body, takes it in', () => {
+    const target = create(doc(code('mermaid', FLOW)));
+    target.view.dispatch(
+      target.state.tr.setSelection(TextSelection.create(target.state.doc, 0, 4)),
+    );
+    expect(target.state.selection.from).toBe(0);
+    expect(target.state.selection.to).toBe(target.state.doc.content.size);
+  });
+
+  it('does not leave its other end in a diagram whose place has just closed', () => {
+    const target = create(doc(code('mermaid', FLOW), paragraph(text('after'))));
+    figure(target).click();
+    const { from } = target.state.selection;
+    // Drawn from inside the open source into the line under it; the place stays open.
+    target.view.dispatch(
+      target.state.tr.setSelection(
+        TextSelection.create(target.state.doc, from - 3, target.state.doc.content.size - 1),
+      ),
+    );
+    expect(isOpen(target)).toBe(true);
+    document.body.click();
+    expect(isOpen(target)).toBe(false);
+    expect(target.state.selection.from).toBe(0);
+    type(target, 'x');
+    expect(stored(target)).toEqual(doc(paragraph(text('x'))));
+  });
+
   it('takes the whole first diagram, drawn backwards to it', () => {
     const target = create(doc(code('mermaid', FLOW), paragraph(text('after'))));
     const afterAt = target.state.doc.child(0).nodeSize;
