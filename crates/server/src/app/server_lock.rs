@@ -81,9 +81,7 @@ impl HeldLock {
             lock.release().await;
         }
     }
-}
 
-impl HeldLock {
     /// Closes the database, then lets the lock go, last and only once no connection of
     /// the pool is out: a transaction still under way (a request or an import after the
     /// drain) could commit after the next server took over. If the pool is not closed
@@ -102,6 +100,9 @@ impl HeldLock {
         tokio::spawn(async move {
             store.close().await;
             self.release().await;
+            tracing::info!(
+                "the last connection of the database was given back: the lock of the server is let go"
+            );
         });
     }
 }

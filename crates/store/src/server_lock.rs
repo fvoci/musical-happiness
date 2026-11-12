@@ -70,7 +70,10 @@ enum Held {
 /// symbolic links followed, so that every such name of one database has one lock file.
 /// A hard link is a name of its own, and has a lock file of its own.
 pub(crate) fn file_beside(database: &Path) -> PathBuf {
-    let database = std::fs::canonicalize(database).unwrap_or_else(|_| database.to_path_buf());
+    let database = std::fs::canonicalize(database).unwrap_or_else(|error| {
+        tracing::warn!(%error, path = %database.display(), "the file of the database could not be followed; its lock file goes beside the name given");
+        database.to_path_buf()
+    });
     let mut name = database.into_os_string();
     name.push("-server.lock");
     PathBuf::from(name)

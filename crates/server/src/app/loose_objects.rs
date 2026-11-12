@@ -214,12 +214,12 @@ impl App {
     /// cannot go, the failure is noted on its row, or the row is left as it is.
     async fn remove_doomed_object(&self, doomed: Doomed<'_>, now: i64) -> Removal {
         let Doomed { path, attempts } = doomed;
-        // The last look before the object goes: a process that knows it lost the lock
-        // of the server removes nothing more, and leaves the row to the next server.
+        // The last look before the object goes: a process that knows it lost or let go
+        // the lock of the server removes nothing more, and leaves the row to the next.
         if !self.holds_server_lock() {
             tracing::warn!(
                 path,
-                "a doomed object is left: the lock of the server is lost"
+                "a doomed object is left: this process does not hold the lock of the server"
             );
             return Removal::Failed;
         }

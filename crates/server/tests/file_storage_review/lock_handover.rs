@@ -64,7 +64,9 @@ async fn a_sqlite_database_symlink_cannot_bypass_the_server_lock() {
     wait_for_partial_file(&Path::new(&config.files_path).join(WRITING_DIR)).await;
 
     let second = Server::new(aliased, "").await;
-    let refused = second.is_err();
+    let refused = second
+        .as_ref()
+        .is_err_and(|refusal| format!("{refusal:#}").contains("fvoci-server process"));
     writer.shutdown().await.expect("the first write can finish");
     let saved = saving.await.expect("the first write returns");
     if let Ok(second) = second {
@@ -242,8 +244,8 @@ async fn a_worker_that_observed_lock_loss_cannot_delete_the_new_holders_file() {
 /// A shutdown whose pool does not close in time, because a transaction of a write
 /// still has its connection, keeps the lock of the server until that write ends: a
 /// restart meanwhile is refused, and one after it starts. The write is held up by a
-/// lock of the `blocks` table taken from another pool, and is tracked as the work of
-/// the handlers is.
+/// lock of the `blocks` table taken from another pool for 30 seconds, longer than the
+/// 15 of shutdown's waits, and is tracked as the work of the handlers is.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
     if fvoci_store::testing::db_type_of_the_tests() != DbType::Postgres {
@@ -265,7 +267,7 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
         locking
             .execute_unchecked(
                 "DO $$ BEGIN LOCK TABLE blocks IN ACCESS EXCLUSIVE MODE; \
-                 PERFORM pg_sleep(22); END $$",
+                 PERFORM pg_sleep(30); END $$",
             )
             .await
     });
@@ -299,7 +301,7 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
         format!("{refusal:#}").contains("fvoci-server process"),
         "{refusal:#}"
     );
-    config.server_lock_wait_seconds = 30;
+    config.server_lock_wait_seconds = 60;
     let next = Server::new(config, "")
         .await
         .expect("the next holder starts once the write ended");
@@ -311,12 +313,11 @@ async fn shutdown_cannot_release_the_server_lock_before_an_old_write_commits() {
         .await
         .expect("the blocker returns")
         .expect("the table lock is released");
-    if let Ok(card) = &written {
-        assert!(
-            next.app().store().get_block(&card.id).await.is_ok(),
-            "what the old server committed under its lock is there"
-        );
-    }
+    let card = written.expect("the old write commits under the old server's lock");
+    assert!(
+        next.app().store().get_block(&card.id).await.is_ok(),
+        "what the old server committed under its lock is there"
+    );
     next.shutdown().await;
     independent.close().await;
     kept.remove().await;
