@@ -1,8 +1,8 @@
 /**
  * The requests of the server backend that take nothing but HTTP: making an
- * account, what the login page shows of an organization, changing the reader's own and reading their workspaces, and reading
- * the trash. `ServerBackend`
- * is made of these and the rest (`backend.ts`).
+ * account, what the login page shows of an organization, changing the
+ * reader's own and reading their workspaces, and reading the trash.
+ * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
 import type {
   DeletedItem,

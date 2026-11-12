@@ -134,6 +134,9 @@
         location.reload();
         return;
       }
+      // Signed in on the sign-in page's own address (`/login`, where a sign-in
+      // through a provider comes back refused): no page of the app; the first.
+      if (router.route.unknown) router.go({}, { replace: true });
       await workspace?.load();
       // Signed in, yet the next request is not: the browser did not keep the
       // session (a cookie for https on a page over http, or cookies blocked).

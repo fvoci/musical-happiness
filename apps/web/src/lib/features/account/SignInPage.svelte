@@ -44,7 +44,8 @@
 
   /** What the page's address says: the organization, and what went wrong. */
   const address = new URLSearchParams(location.search);
-  const askedOrg = address.get('org') ?? undefined;
+  // An empty `org` names none: the server's only organization, if it has one.
+  const askedOrg = address.get('org') || undefined;
 
   /** The organization with a provider, once read; undefined while there is none. */
   const organization = $derived(

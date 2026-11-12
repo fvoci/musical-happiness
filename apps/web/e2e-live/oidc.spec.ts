@@ -6,7 +6,15 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { ADMIN, invitation, makeBoard, signedIn, watchErrors, type Schemas } from './support.ts';
+import {
+  ADMIN,
+  invitation,
+  makeBoard,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+  type Schemas,
+} from './support.ts';
 
 // The fake provider's certificate is its own.
 test.use({ locale: 'en-US', ignoreHTTPSErrors: true });
@@ -49,14 +57,32 @@ test('a newcomer signs in through the provider and opens a board', async ({ page
   await join.getByRole('button', { name: 'Join this board' }).click();
   await expect(page.getByTestId('board-page')).toBeVisible();
   expect(errors).toEqual([]);
+  // The other files' sign-in pages are as they were: no provider.
+  expect((await admin.delete(`/api/v1/org/${orgId}/oidc`)).status()).toBe(204);
   await admin.dispose();
 });
 
-test('a sign-in through the provider that went wrong says why', async ({ page }) => {
+test('a sign-in through the provider that went wrong says why, and a password still signs in there', async ({
+  page,
+  baseURL,
+}) => {
+  await invitation(baseURL ?? '');
   const errors = watchErrors(page);
+  // A return from a provider that no sign-in of this browser started: the server
+  // sends it to the sign-in page with the name of what went wrong.
+  await page.goto('/api/v1/auth/oidc/callback?state=never-started&code=anything');
+  expect(new URL(page.url()).pathname).toBe('/login');
+  expect(new URL(page.url()).searchParams.get('oidc_error')).toBe('oidc-state-invalid');
+  await expect(page.getByTestId('sign-in-form').getByRole('alert')).toHaveText(
+    'That sign-in did not come back as it was started. Start it again.',
+  );
   await page.goto('/login?oidc_error=oidc-email-taken');
   await expect(page.getByTestId('sign-in-form').getByRole('alert')).toHaveText(
     'An account with your email address exists already. Sign in to it with its password.',
   );
+  // Signed in with the password from there, the app opens, not "page not found".
+  await signInOnPage(page, ADMIN);
+  await expect(page.getByText('There is nothing at this address.')).toHaveCount(0);
+  expect(new URL(page.url()).pathname).not.toBe('/login');
   expect(errors).toEqual([]);
 });
