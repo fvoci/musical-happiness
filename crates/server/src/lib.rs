@@ -129,6 +129,8 @@ impl Server {
             .context("unable to get root workspace")?;
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
+        // The bodies of documents that a run that ended did not write to their cards.
+        app.collab().recover(&app.housekeeping()).await;
         match app.housekeeping().sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
@@ -411,6 +413,9 @@ impl Server {
         // Websocket connections are not part of the HTTP server's own connections once
         // they are upgraded; they end here.
         self.app.ws().close();
+        // The bodies of the documents being edited are written before the background
+        // work is waited for, which tells of them.
+        self.app.collab().end(&self.app).await;
         if !self
             .app
             .finish_background(BACKGROUND_SHUTDOWN_TIMEOUT)

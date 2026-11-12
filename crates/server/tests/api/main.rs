@@ -15,6 +15,7 @@ mod boards_and_blocks;
 mod bodies;
 mod card_previews;
 mod cards;
+mod collab;
 mod comments;
 mod compression;
 mod content_blocks;

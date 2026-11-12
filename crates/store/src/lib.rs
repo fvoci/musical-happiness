@@ -9,6 +9,7 @@
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod body_docs;
 mod categories;
 mod category_boards;
 mod comment_places;
@@ -43,6 +44,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use boards::{Joined, MemberChange, PublicBoards};
+pub use body_docs::{LoggedUpdate, StoredDoc};
 pub use category_boards::{BoardPlace, BoardVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;

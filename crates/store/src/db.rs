@@ -54,6 +54,8 @@ pub(crate) enum Param {
     OptInt(Option<i64>),
     /// Text that may be `NULL`.
     OptText(Option<String>),
+    /// Bytes, bound to a `bytea` column (`BLOB` on SQLite).
+    Bytes(Vec<u8>),
 }
 
 /// An identifier as a query parameter.
@@ -280,6 +282,7 @@ macro_rules! bind_params {
                 Param::OptJsonb(value) => query.bind(value),
                 Param::OptInt(value) => query.bind(value),
                 Param::OptText(value) => query.bind(value),
+                Param::Bytes(value) => query.bind(value),
             };
         }
         query
@@ -471,6 +474,16 @@ impl Row {
     /// `BIGINT` in the query.
     pub(crate) fn int(&self, index: usize) -> Result<i64, StoreError> {
         let value: Option<i64> = match self {
+            Self::Sqlite(row) => row.try_get(index)?,
+            Self::Postgres(row) => row.try_get(index)?,
+        };
+        Ok(value.unwrap_or_default())
+    }
+
+    /// Reads a column of bytes: `bytea` on PostgreSQL, `BLOB` on SQLite. `NULL` reads
+    /// as no bytes.
+    pub(crate) fn bytes(&self, index: usize) -> Result<Vec<u8>, StoreError> {
+        let value: Option<Vec<u8>> = match self {
             Self::Sqlite(row) => row.try_get(index)?,
             Self::Postgres(row) => row.try_get(index)?,
         };

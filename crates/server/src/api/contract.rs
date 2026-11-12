@@ -138,6 +138,14 @@ Every list comes in an order, and the description of each operation says which. 
 says nothing else, the order is that of creation, oldest first, and by identifier among \
 what was created in the same millisecond.
 
+## Bodies edited together
+
+While people edit a card's body together the server holds it as a Y document, which no \
+operation here reaches yet. What it refuses of an editor has the reason `update_refused`, \
+`update_out_of_step`, `update_too_large` or `document_too_large`; `too_many_documents` and \
+`document_unavailable` say that it cannot take the document for now. The page of each kind \
+says when it comes.
+
 ## Request bodies
 
 A request schema lists the members a request is for. An optional member may be left out or \

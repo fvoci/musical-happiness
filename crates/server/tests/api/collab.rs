@@ -1,0 +1,287 @@
+//! Editing a card's body together, below the websocket: the documents the server holds
+//! in its worker process and stores, and the body it writes to the card from them.
+
+use std::time::{Duration, Instant};
+
+use fvoci_collab::testing::Editor;
+use fvoci_model::{BoardType, Card};
+use fvoci_server::app::App;
+use serde_json::{Value, json};
+
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
+
+fn paragraphs(texts: &[&str]) -> Value {
+    let content: Vec<Value> = texts
+        .iter()
+        .map(|text| json!({"type": "paragraph", "content": [{"type": "text", "text": text}]}))
+        .collect();
+    json!({"type": "doc", "content": content})
+}
+
+/// A card, with that body, on a board of the test workspace; and the application as a
+/// member of the workspace reaches it, and the identifiers of the two users.
+pub(crate) struct Editing {
+    pub(crate) app: App,
+    pub(crate) card_id: String,
+    pub(crate) user1: String,
+    pub(crate) user2: String,
+}
+
+pub(crate) async fn editing(th: &TestServer, body: &Value) -> Editing {
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let card: Card = th
+        .client
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &json!({"title": "Edited together", "body": body}),
+        )
+        .await
+        .created_json();
+    let user1 = th.client.me().await.id;
+    let user2 = th.client2.me().await.id;
+    let entered = th
+        .app
+        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .await
+        .expect("the membership is read")
+        .expect("a member");
+    Editing {
+        app: entered.app,
+        card_id: card.id,
+        user1,
+        user2,
+    }
+}
+
+pub(crate) async fn card(client: &Client, card_id: &str) -> Card {
+    client.get(&format!("/cards/{card_id}")).await.ok_json()
+}
+
+pub(crate) fn body_of(card: &Card) -> Option<Value> {
+    card.body.as_ref().map(|body| body.document().clone())
+}
+
+/// Two editors that each write before they have the other's update: the document takes
+/// both, each editor that asks for what it is missing ends with what the other has,
+/// and the card is given the body of both, written by the last writer.
+#[tokio::test]
+async fn two_editors_converge_and_the_card_is_given_their_body() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let state = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let one = Editor::join(101, &state);
+    let other = Editor::join(102, &state);
+    let from_one = one.append_paragraph("one");
+    let from_other = other.append_paragraph("other");
+    let taken = collab
+        .take(&e.app, &e.card_id, &e.user1, &from_one)
+        .await
+        .expect("taken");
+    assert_eq!(
+        (taken.seq, taken.repair.is_none(), taken.remade),
+        (1, true, false)
+    );
+    let taken = collab
+        .take(&e.app, &e.card_id, &e.user2, &from_other)
+        .await
+        .expect("taken");
+    assert_eq!(taken.seq, 2, "logged after the first");
+    for editor in [&one, &other] {
+        let vector = editor.state_vector();
+        let missing = collab
+            .diff(&e.app, &e.card_id, &vector)
+            .await
+            .expect("what it is missing");
+        editor.receive(&missing);
+    }
+    let merged = one.body().expect("a body").document().clone();
+    assert_eq!(
+        other.body().map(|body| body.document().clone()),
+        Some(merged.clone())
+    );
+    assert_eq!(
+        merged["content"].as_array().map(Vec::len),
+        Some(3),
+        "{merged}"
+    );
+
+    let before = card(&th.client, &e.card_id).await;
+    collab
+        .write_body(&e.app, &e.card_id)
+        .await
+        .expect("written");
+    let after = card(&th.client, &e.card_id).await;
+    assert_eq!(
+        body_of(&after),
+        Some(merged),
+        "the card holds the merged body"
+    );
+    assert!(after.update_at > before.update_at, "a change of the card");
+    assert_eq!(after.modified_by, e.user2, "by the last writer");
+    collab
+        .write_body(&e.app, &e.card_id)
+        .await
+        .expect("nothing to write");
+    assert_eq!(
+        card(&th.client, &e.card_id).await.update_at,
+        after.update_at,
+        "a body that is written is not written again"
+    );
+    th.teardown().await;
+}
+
+/// The body is written two seconds after the last update without being asked for.
+#[tokio::test]
+async fn the_body_is_written_a_little_after_the_last_update() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph("later"),
+        )
+        .await
+        .expect("taken");
+    let wanted = editor.body().map(|body| body.document().clone());
+    let began = Instant::now();
+    while body_of(&card(&th.client, &e.card_id).await) != wanted {
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "written within the two seconds and some"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    th.teardown().await;
+}
+
+/// A server that is killed after it logged updates and before it wrote their body to
+/// the card writes it when it starts again, and the document opens as it was.
+#[tokio::test]
+async fn a_server_killed_before_it_wrote_a_body_writes_it_when_it_starts_again() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    for line in ["one", "two", "three"] {
+        collab
+            .take(&e.app, &e.card_id, &e.user1, &editor.append_paragraph(line))
+            .await
+            .expect("taken");
+    }
+    let wanted = editor.body().map(|body| body.document().clone());
+    assert_ne!(
+        body_of(&card(&th.client, &e.card_id).await),
+        wanted,
+        "not written yet"
+    );
+    let card_id = e.card_id.clone();
+    let th = th
+        .killed_and_started_again(async |app| app.collab().abandon().await)
+        .await;
+    assert_eq!(
+        body_of(&card(&th.client, &card_id).await),
+        wanted,
+        "written as the server started"
+    );
+    let e = Editing {
+        card_id,
+        ..editing_app(&th).await
+    };
+    let again = Editor::join(
+        103,
+        &e.app
+            .collab()
+            .open(&e.app, &e.card_id)
+            .await
+            .expect("opened"),
+    );
+    assert_eq!(again.body().map(|body| body.document().clone()), wanted);
+    th.teardown().await;
+}
+
+/// A body written to the card without the document (here: by the routes, with the
+/// document closed) makes the document again from it the next time it is opened.
+#[tokio::test]
+async fn a_body_written_past_a_closed_document_makes_it_again() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph("typed"),
+        )
+        .await
+        .expect("taken");
+    collab.close(&e.app, &e.card_id).await.expect("closed");
+    let read = card(&th.client, &e.card_id).await;
+    th.client
+        .patch(
+            &format!("/cards/{}", e.card_id),
+            &json!({"body": paragraphs(&["written whole"]), "readAt": read.update_at}),
+        )
+        .await
+        .check_ok();
+    let state = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let fresh = Editor::join(104, &state);
+    assert_eq!(
+        fresh.body().map(|body| body.document().clone()),
+        Some(paragraphs(&["written whole"]))
+    );
+    let event = events.try_recv().expect("an event");
+    assert_eq!(
+        (event.card_id, event.change),
+        (e.card_id.clone(), fvoci_server::collab::DocChange::Remade)
+    );
+    let made_before = editor.append_paragraph("against the old one");
+    let refused = collab
+        .take(&e.app, &e.card_id, &e.user1, &made_before)
+        .await
+        .expect_err("made against the document before");
+    assert_eq!(
+        refused.reason().map(fvoci_server::error::Reason::as_str),
+        Some("update_out_of_step")
+    );
+    th.teardown().await;
+}
+
+/// Only a card that the handle reaches has a document.
+#[tokio::test]
+async fn only_a_card_has_a_document() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let unknown = collab
+        .open(&e.app, crate::common::UNKNOWN_ID)
+        .await
+        .expect_err("no such card");
+    assert_eq!(unknown.kind(), fvoci_server::error::ErrorKind::NotFound);
+    th.teardown().await;
+}
+
+/// The application of a server as user1 reaches the test workspace.
+async fn editing_app(th: &TestServer) -> Editing {
+    let user1 = th.client.me().await.id;
+    let user2 = th.client2.me().await.id;
+    let entered = th
+        .app
+        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .await
+        .expect("the membership is read")
+        .expect("a member");
+    Editing {
+        app: entered.app,
+        card_id: String::new(),
+        user1,
+        user2,
+    }
+}

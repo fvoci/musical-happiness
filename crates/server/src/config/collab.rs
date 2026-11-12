@@ -25,6 +25,10 @@ pub struct CollabSettings {
     /// The address space a worker may take, in bytes, where the system limits it
     /// (Unix). At least 256 MiB.
     pub collab_worker_memory_bytes: u64,
+    /// How a worker is started; `None` for this executable. Not a configuration file
+    /// key: the tests, whose executable is no server, set it.
+    #[serde(skip)]
+    pub worker_command: Option<crate::collab::worker::WorkerCommand>,
 }
 
 /// The default of `collab_state_bytes`: 8 MiB.
@@ -64,6 +68,7 @@ impl Default for CollabSettings {
             collab_update_bytes: DEFAULT_UPDATE_BYTES,
             collab_worker_timeout_ms: 10_000,
             collab_worker_memory_bytes: 1024 * 1024 * 1024,
+            worker_command: None,
         }
     }
 }
