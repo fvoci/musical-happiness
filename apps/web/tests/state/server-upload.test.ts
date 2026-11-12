@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ServerBackend } from '$lib/api/backend.ts';
+import { serverBackend } from './support.ts';
 import { contentDigest } from '$lib/api/upload.ts';
 import { isBackendError } from '$lib/state/index.ts';
 
@@ -79,16 +79,16 @@ describe('uploading a file to the server', () => {
     const calls = uploadServer({ partSize: 4 });
     const file = new File(['0123456789'], 'notes.txt', { type: 'text/plain' });
     const progress: number[] = [];
-    const uploaded = await new ServerBackend('/base').upload('b1', file, {
+    const uploaded = await serverBackend('/base').upload('b1', file, {
       onProgress: ({ sentBytes }) => progress.push(sentBytes),
     });
     expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
       'GET /base/api/v1/client-config',
-      'POST /base/api/v1/boards/b1/uploads',
-      'PUT /base/api/v1/uploads/up1/parts/1',
-      'PUT /base/api/v1/uploads/up1/parts/2',
-      'PUT /base/api/v1/uploads/up1/parts/3',
-      'POST /base/api/v1/uploads/up1/complete',
+      'POST /base/api/v1/w/w1/boards/b1/uploads',
+      'PUT /base/api/v1/w/w1/uploads/up1/parts/1',
+      'PUT /base/api/v1/w/w1/uploads/up1/parts/2',
+      'PUT /base/api/v1/w/w1/uploads/up1/parts/3',
+      'POST /base/api/v1/w/w1/uploads/up1/complete',
     ]);
     expect(calls[1]?.json).toEqual({ name: 'notes.txt', size: 10, contentType: 'text/plain' });
     expect(calls.slice(2, 5).map((call) => call.size)).toEqual([4, 4, 2]);
@@ -112,7 +112,7 @@ describe('uploading a file to the server', () => {
 
   it('completes an empty file without parts', async () => {
     const calls = uploadServer({ partSize: 4 });
-    await new ServerBackend('').upload('b1', new File([], 'empty.txt'));
+    await serverBackend('').upload('b1', new File([], 'empty.txt'));
     expect(calls.map((call) => call.method)).toEqual(['GET', 'POST', 'POST']);
   });
 
@@ -122,22 +122,22 @@ describe('uploading a file to the server', () => {
       fail: (number, attempt) =>
         number === 2 && attempt === 1 ? 0 : number === 2 && attempt === 2 ? 500 : undefined,
     });
-    await new ServerBackend('').upload('b1', new File(['0123456789'], 'a.txt'));
+    await serverBackend('').upload('b1', new File(['0123456789'], 'a.txt'));
     expect(calls.filter((call) => call.url.endsWith('/parts/2'))).toHaveLength(3);
 
     const failing = uploadServer({ partSize: 4, fail: () => 500 });
-    const error = await new ServerBackend('')
+    const error = await serverBackend('')
       .upload('b1', new File(['0123456789'], 'a.txt'))
       .catch((caught: unknown) => caught);
     expect(isBackendError(error) && error.status).toBe(500);
     expect(failing.filter((call) => call.method === 'PUT')).toHaveLength(3);
     // What the server held of it is thrown away.
-    expect(failing.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/uploads/up1' });
+    expect(failing.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/w/w1/uploads/up1' });
   });
 
   it('does not send a part again that the server refused', async () => {
     const calls = uploadServer({ partSize: 4, fail: () => 400 });
-    const error = await new ServerBackend('')
+    const error = await serverBackend('')
       .upload('b1', new File(['0123456789'], 'a.txt'))
       .catch((caught: unknown) => caught);
     expect(isBackendError(error) && error.status).toBe(400);
@@ -147,7 +147,7 @@ describe('uploading a file to the server', () => {
   it('throws the upload away when it is given up', async () => {
     const calls = uploadServer({ partSize: 4 });
     const controller = new AbortController();
-    const uploading = new ServerBackend('').upload('b1', new File(['0123456789'], 'a.txt'), {
+    const uploading = serverBackend('').upload('b1', new File(['0123456789'], 'a.txt'), {
       signal: controller.signal,
       onProgress: () => {
         controller.abort();
@@ -155,12 +155,12 @@ describe('uploading a file to the server', () => {
     });
     await expect(uploading).rejects.toThrow();
     expect(calls.some((call) => call.url.endsWith('/complete'))).toBe(false);
-    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/uploads/up1' });
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/w/w1/uploads/up1' });
   });
 
   it('refuses a file over the server’s limit before sending anything, with the limit', async () => {
     const calls = uploadServer({ partSize: 4, maxFileSize: 5 });
-    const error = await new ServerBackend('')
+    const error = await serverBackend('')
       .upload('b1', new File(['0123456789'], 'big.bin'))
       .catch((caught: unknown) => caught);
     expect(isBackendError(error) && [error.status, error.limit]).toEqual([413, 5]);
@@ -190,7 +190,7 @@ describe('uploading a file to the server', () => {
         ),
       );
     });
-    const attachment = await new ServerBackend('').createAttachment('b1', 'c1', {
+    const attachment = await serverBackend('').createAttachment('b1', 'c1', {
       fileId: 'f1.txt',
       name: 'notes.txt',
       size: 10,
@@ -198,7 +198,7 @@ describe('uploading a file to the server', () => {
     });
     expect(calls[0]).toMatchObject({
       method: 'POST',
-      url: '/api/v1/boards/b1/blocks',
+      url: '/api/v1/w/w1/boards/b1/blocks',
       json: [
         {
           boardId: 'b1',
@@ -210,8 +210,8 @@ describe('uploading a file to the server', () => {
       ],
     });
     expect(attachment).toMatchObject({ id: 'a1', fileId: 'f1.txt', name: 'notes.txt', size: 10 });
-    expect(new ServerBackend('/base').fileUrl('b1', 'f1.txt')).toBe(
-      '/base/api/v1/boards/b1/files/f1.txt',
+    expect(serverBackend('/base').fileUrl('b1', 'f1.txt')).toBe(
+      '/base/api/v1/w/w1/boards/b1/files/f1.txt',
     );
   });
 
@@ -221,9 +221,9 @@ describe('uploading a file to the server', () => {
       urls.push(url);
       return Promise.resolve(new Response('bytes', { status: 200 }));
     });
-    const bytes = await new ServerBackend('/base').fileBytes('b1', 'f1.txt');
+    const bytes = await serverBackend('/base').fileBytes('b1', 'f1.txt');
     expect(await bytes.text()).toBe('bytes');
-    expect(urls).toEqual(['/base/api/v1/boards/b1/files/f1.txt']);
+    expect(urls).toEqual(['/base/api/v1/w/w1/boards/b1/files/f1.txt']);
   });
 
   it('throws away an upload given up while it was being opened', async () => {
@@ -235,12 +235,12 @@ describe('uploading a file to the server', () => {
       if (init.method === 'POST' && url.endsWith('/uploads')) controller.abort();
       return answer(url, init);
     });
-    const uploading = new ServerBackend('').upload('b1', new File(['0123456789'], 'a.txt'), {
+    const uploading = serverBackend('').upload('b1', new File(['0123456789'], 'a.txt'), {
       signal: controller.signal,
     });
     await expect(uploading).rejects.toThrow();
     await vi.waitFor(() => {
-      expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/uploads/up1' });
+      expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: '/api/v1/w/w1/uploads/up1' });
     });
     expect(calls.some((call) => call.method === 'PUT')).toBe(false);
   });
@@ -251,7 +251,7 @@ describe('uploading a file to the server', () => {
     vi.stubGlobal('fetch', (url: string, init: RequestInit) =>
       url.endsWith('/complete') ? Promise.reject(new TypeError('no answer')) : answer(url, init),
     );
-    const error = await new ServerBackend('')
+    const error = await serverBackend('')
       .upload('b1', new File(['0123456789'], 'a.txt'))
       .catch((caught: unknown) => caught);
     expect(isBackendError(error) && error.status).toBe(0);
@@ -271,7 +271,7 @@ describe('uploading a file to the server', () => {
       if (url.endsWith('/complete')) open -= 1;
       return response;
     });
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     const files = Array.from({ length: 7 }, (_, at) => new File(['0123'], `f${String(at)}.txt`));
     await Promise.all(files.map((file) => backend.upload('b1', file)));
     expect(most).toBe(3);
@@ -290,7 +290,7 @@ describe('uploading a file to the server', () => {
       if (url.includes('/parts/')) await held;
       return answer(url, init);
     });
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     const file = (at: number): File => new File(['0123'], `f${String(at)}.txt`);
     const running = [0, 1, 2].map((at) => backend.upload('b1', file(at)));
     const stops = [3, 4, 5].map(() => new AbortController());

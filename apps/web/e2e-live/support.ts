@@ -206,9 +206,8 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
   const statuses = plan.statuses ?? ['To do', 'Doing', 'Done'];
   const options = Object.fromEntries(statuses.map((name, at) => [name, `opt-${at}`]));
   const board = await json<Schemas['Board']>(
-    await api.post('/api/v1/boards', {
+    await api.post(`/api/v1/w/${workspaceId}/boards`, {
       data: {
-        workspaceId,
         type: plan.type ?? 'P',
         title: plan.title,
         ...(plan.description ? { description: plan.description } : {}),
@@ -231,7 +230,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     'create board',
   );
   const [view] = await json<Schemas['Block'][]>(
-    await api.post(`/api/v1/boards/${board.id}/blocks`, {
+    await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.id}/blocks`, {
       data: [
         {
           boardId: board.id,
@@ -263,7 +262,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
       ...(card.note === undefined ? {} : { note: card.note }),
     };
     const made = await json<Schemas['Card']>(
-      await api.post(`/api/v1/boards/${board.id}/cards`, {
+      await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.id}/cards`, {
         data: { title: card.title, properties },
       }),
       `create card ${card.title}`,
@@ -278,7 +277,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     const user = found.find((candidate) => candidate.username === who.username);
     if (!user) throw new Error(`no user ${who.username}`);
     await ok(
-      await api.post(`/api/v1/boards/${board.id}/members`, {
+      await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.id}/members`, {
         data: {
           userId: user.id,
           schemeViewer: true,
@@ -315,9 +314,10 @@ function serverDatabase(baseURL: string): DatabaseSync {
 
 /**
  * Makes `who` a member of a new workspace of their organization, as its
- * administrator, and returns its identifier. No request of the server makes
- * a workspace yet, so it is written into the server's database
- * (`tools/live-server.ts` says where that is), as the server would.
+ * administrator, and returns its identifier. It is written into the server's
+ * database (`tools/live-server.ts` says where that is), as the server would,
+ * under a name that begins with `name`: each name in use in an organization
+ * is its own.
  */
 export function addWorkspace(baseURL: string, who: Person, name: string): string {
   const database = serverDatabase(baseURL);
@@ -339,7 +339,7 @@ export function addWorkspace(baseURL: string, who: Person, name: string): string
         'INSERT INTO workspaces (id, settings, modified_by, create_at, update_at, org_id, name) ' +
           'VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(id, home.settings, user.id, now, now, home.org_id, name);
+      .run(id, home.settings, user.id, now, now, home.org_id, uniqueName(name));
     database
       .prepare(
         'INSERT INTO workspace_members (workspace_id, user_id, role, create_at) VALUES (?, ?, ?, ?)',

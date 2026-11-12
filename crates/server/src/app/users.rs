@@ -32,21 +32,35 @@ impl App {
             .map_err(|error| AppError::from(error).context("unable to find user"))
     }
 
-    /// Makes a user an administrator of the instance, or ends that, and returns the
-    /// user as stored now.
+    /// Makes a user an administrator of the instance, or ends that, on behalf of
+    /// `actor_id`, and returns the user as stored now.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if there is no such user, and a conflict (reason
-    /// `last_admin`) if the user is the only administrator and would stop being one.
+    /// Returns a not-found error if there is no such user, a 403 (reason
+    /// `admin_required`) if `actor_id` stopped administering the instance before the
+    /// change was made, and a conflict (reason `last_admin`) if the user is the only
+    /// administrator, of the instance or of its organization, and would stop being one.
     pub async fn set_user_admin(
         &self,
         user_id: &str,
         role: InstanceRole,
+        actor_id: &str,
     ) -> Result<User, AppError> {
-        match self.store().set_user_admin(user_id, role).await? {
-            AdminChange::Done(user) => Ok(*user),
+        match self.store().set_user_admin(user_id, role, actor_id).await? {
+            AdminChange::Done(user) => {
+                if role != InstanceRole::Administrator {
+                    // The workspaces they joined as the organization's administrator
+                    // are theirs no more (`Store::set_user_admin`).
+                    self.ws().follow_only_own_workspaces(user_id).await;
+                }
+                Ok(*user)
+            }
             AdminChange::NoSuchUser => Err(AppError::not_found("user")),
+            AdminChange::NotAnAdministrator => Err(AppError::forbidden(
+                "only an administrator of the instance may do this",
+            )
+            .with_reason(Reason::AdminRequired)),
             AdminChange::LastAdmin => Err(AppError::conflict(
                 "the instance must keep an administrator",
             )
@@ -67,39 +81,25 @@ impl App {
             Err(error) if error.is_not_found() => return Err(AppError::not_found("user")),
             Err(error) => return Err(error.into()),
         };
-        self.set_user_admin(&user.id, InstanceRole::Administrator)
-            .await
-    }
-
-    /// The users with the given identifiers that the user `seer_id` sees anywhere by
-    /// name (`Sight::Anywhere`, `permissions::sees_person`): who shares a workspace the
-    /// seer works in, or a board of a workspace both are in, or wrote on a board the
-    /// seer reads, and the seer. Oldest account first.
-    ///
-    /// # Errors
-    ///
-    /// Returns a 404 unless every identifier is of a user the seer sees, once.
-    pub async fn users_seen_by(
-        &self,
-        seer_id: &str,
-        user_ids: &[String],
-    ) -> Result<Vec<User>, AppError> {
-        if user_ids.is_empty() {
-            return Ok(Vec::new());
+        match self.store().make_admin_by_operator(&user.id).await? {
+            AdminChange::Done(user) => Ok(*user),
+            AdminChange::NoSuchUser => Err(AppError::not_found("user")),
+            change @ (AdminChange::NotAnAdministrator | AdminChange::LastAdmin) => {
+                Err(AppError::internal(format!(
+                    "the operator's word made no administrator: {change:?}"
+                )))
+            }
         }
-        Ok(self
-            .store()
-            .get_users_in_sight(Sight::Anywhere { seer_id }, user_ids)
-            .await?)
     }
 
     /// The users with the given identifiers that the user `seer_id`, in `role` in the
     /// workspace, sees there by name (`permissions::sees_person`): also who left it and
-    /// wrote on a board the seer reads. Oldest account first.
+    /// wrote on a board the seer reads. Oldest account first, each once; whom the seer
+    /// does not see there is left out, as one who does not exist.
     ///
     /// # Errors
     ///
-    /// Returns a 404 unless every identifier is of a user the seer sees there, once.
+    /// Returns the store's error if the users cannot be read.
     pub async fn users_in_workspace(
         &self,
         seer_id: &str,

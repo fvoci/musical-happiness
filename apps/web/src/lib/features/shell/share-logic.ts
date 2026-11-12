@@ -1,6 +1,6 @@
 /**
- * What the share dialog works out: the roles in their order, the role a
- * membership stands for, and the public link of a board.
+ * What the share dialog works out: the roles in their order, and the role a
+ * membership stands for. The public link's address is the router's.
  */
 import type { BoardMember } from '$lib/logic/wire.ts';
 import type { BoardRole } from '$lib/state/index.ts';
@@ -17,14 +17,4 @@ export function roleOfMember(member: BoardMember): BoardRole | 'none' {
   if (member.schemeEditor) return 'editor';
   if (member.schemeCommenter) return 'commenter';
   return member.schemeViewer ? 'viewer' : 'none';
-}
-
-/**
- * The public link: the board's own address with its read token
- * (`readToken`, as the API names it). `boardAddress` is a whole address.
- */
-export function publicLinkOf(boardAddress: string, token: string): string {
-  const url = new URL(boardAddress);
-  url.searchParams.set('readToken', token);
-  return url.href;
 }

@@ -4,11 +4,11 @@
 //! ([`Tenant::Org`](crate::Tenant::Org)). SQLite has no policy that would keep the
 //! workspaces of the system organization out of an answer.
 
-use fvoci_model::{Board, BoardType, GuestInvitationsChange, Workspace, WorkspaceRole};
+use fvoci_model::{Block, Board, BoardType, GuestInvitationsChange, Workspace, WorkspaceRole};
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{Store, boards, members};
+use crate::{Store, blocks, boards, members};
 
 const WORKSPACE_COLUMNS: &str = "id, name, settings, modified_by, update_at, guest_invitations";
 
@@ -289,4 +289,40 @@ async fn search_boards_for_user_in_workspace(
         boards::fetch_boards(scope, sql).await?,
         term,
     ))
+}
+
+impl Store {
+    /// The block with the identifier, if its board is of the workspace or a built-in
+    /// template, in one query: a block of another workspace is found as one that does
+    /// not exist is, and costs the same.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such block and
+    /// [`StoreError::Database`] if the query fails.
+    pub async fn get_block_in_workspace(
+        &self,
+        block_id: &str,
+        workspace_id: &str,
+    ) -> Result<Block, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = blocks::select_blocks(scope);
+            sql.push_bind(" WHERE id = ", Id(block_id))
+                // The block's own board, by its key: what the query costs is the same
+                // whether the block is of the workspace or not.
+                .push_bind(
+                    " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = blocks.board_id \
+                     AND (b.workspace_id = ",
+                    Id(workspace_id),
+                )
+                .push_bind(" OR b.is_builtin = ", true)
+                .push("))");
+            blocks::fetch_blocks(scope, sql)
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))
+        })
+        .await
+    }
 }

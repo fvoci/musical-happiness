@@ -15,7 +15,8 @@ use serde_json::{Value, json};
 use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{PNG, block, id_of, merged, role_flags};
 use crate::golden;
-use crate::harness::{API, Caller, Http, Payload, id_by_title, multipart, start_server};
+use crate::harness::ROOT_API;
+use crate::harness::{Caller, Http, Payload, id_by_title, multipart, start_server};
 
 /// The kinds of caller, in the order of the table's columns.
 const ROLES: [&str; 6] = [
@@ -141,7 +142,7 @@ impl<'a> Fixture<'a> {
         let board = http
             .api(
                 Method::POST,
-                &format!("{API}/boards"),
+                &format!("{ROOT_API}/boards"),
                 Payload::Json(json!({
                     "workspaceId": ROOT_WORKSPACE_ID, "type": board_type, "title": "Matrix",
                     "properties": {}, "cardProperties": [],
@@ -158,14 +159,14 @@ impl<'a> Fixture<'a> {
             let added = http
                 .api(
                     Method::POST,
-                    &format!("{API}/boards/{board}/members"),
+                    &format!("{ROOT_API}/boards/{board}/members"),
                     Payload::Json(member),
                     &owner,
                 )
                 .await;
             assert_eq!(added.status, 200, "adding the {role} to the board");
         }
-        let blocks = format!("{API}/boards/{board}/blocks");
+        let blocks = format!("{ROOT_API}/boards/{board}/blocks");
         let created = http
             .api(
                 Method::POST,
@@ -231,7 +232,7 @@ impl<'a> Fixture<'a> {
     async fn upload_file(&self) -> String {
         self.owner(
             Method::POST,
-            &format!("{API}/boards/{}/files", self.board),
+            &format!("{ROOT_API}/boards/{}/files", self.board),
             multipart("file", "pixel.png", &PNG, "image/png"),
         )
         .await
@@ -273,11 +274,11 @@ impl Request {
 )]
 async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
     let board = &fx.board;
-    let board_path = format!("{API}/boards/{board}");
+    let board_path = format!("{ROOT_API}/boards/{board}");
     let blocks = format!("{board_path}/blocks");
     let viewer = &fx.users.ids["viewer"];
     let extra = &fx.users.ids["extra"];
-    let workspace = format!("{API}/w/{ROOT_WORKSPACE_ID}");
+    let workspace = ROOT_API.to_owned();
     match route {
         "board: get" => Request::new(Method::GET, board_path),
         "board: patch title" => {
@@ -374,7 +375,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         }
         "boards-and-blocks: patch" => Request::json(
             Method::PATCH,
-            format!("{API}/boards-and-blocks"),
+            format!("{ROOT_API}/boards-and-blocks"),
             json!({
                 "boardIds": [board], "boardPatches": [{"title": "p"}],
                 "blockIds": [fx.card], "blockPatches": [{"title": "p"}],
@@ -382,7 +383,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         ),
         "boards-and-blocks: delete" => Request::json(
             Method::DELETE,
-            format!("{API}/boards-and-blocks"),
+            format!("{ROOT_API}/boards-and-blocks"),
             json!({"boards": [board], "blocks": [fx.card]}),
         ),
         "cards: create" => Request::json(
@@ -391,10 +392,10 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             json!({"title": "new"}),
         ),
         "cards: list" => Request::new(Method::GET, format!("{board_path}/cards")),
-        "cards: get" => Request::new(Method::GET, format!("{API}/cards/{}", fx.card)),
+        "cards: get" => Request::new(Method::GET, format!("{ROOT_API}/cards/{}", fx.card)),
         "cards: patch" => Request::json(
             Method::PATCH,
-            format!("{API}/cards/{}", fx.card),
+            format!("{ROOT_API}/cards/{}", fx.card),
             json!({"title": "patched"}),
         ),
         "sharing: get" => {
@@ -413,7 +414,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         ),
         "subscriptions: create" => Request::json(
             Method::POST,
-            format!("{API}/subscriptions"),
+            format!("{ROOT_API}/subscriptions"),
             subscription(fx, me),
         ),
         "subscriptions: delete" => {
@@ -430,7 +431,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
                     .http
                     .api(
                         Method::POST,
-                        &format!("{API}/subscriptions"),
+                        &format!("{ROOT_API}/subscriptions"),
                         Payload::Json(subscription(fx, me)),
                         &token,
                     )
@@ -450,28 +451,25 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             }
             Request::new(
                 Method::DELETE,
-                format!("{API}/subscriptions/{}/{subscriber}", fx.card),
+                format!("{ROOT_API}/subscriptions/{}/{subscriber}", fx.card),
             )
         }
         "files: upload" => Request {
             method: Method::POST,
-            path: format!("{API}/boards/{board}/files"),
+            path: format!("{board_path}/files"),
             payload: multipart("file", "pixel.png", &PNG, "image/png"),
         },
         "files: download" => {
             let file = fx.upload_file().await;
-            Request::new(Method::GET, format!("{API}/boards/{board}/files/{file}"))
+            Request::new(Method::GET, format!("{board_path}/files/{file}"))
         }
         "files: info" => {
             let file = fx.upload_file().await;
-            Request::new(
-                Method::GET,
-                format!("{API}/boards/{board}/files/{file}/info"),
-            )
+            Request::new(Method::GET, format!("{board_path}/files/{file}/info"))
         }
         "uploads: open" => Request::json(
             Method::POST,
-            format!("{API}/boards/{board}/uploads"),
+            format!("{board_path}/uploads"),
             json!({"name": "pixel.png", "size": PNG.len()}),
         ),
         "archive: export board" => {

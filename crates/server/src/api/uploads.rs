@@ -16,10 +16,12 @@ use utoipa_axum::routes;
 
 use super::archive::require_import_access;
 use super::contract::bodies::Binary;
+use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId, WorkspaceId};
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
+use super::workspace::Ws;
 use super::{
     ApiResult, RequiredSession, body::decode_object, created, json_response, no_content,
     require_board_permission,
@@ -178,22 +180,21 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 /// `uploadFile`.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/uploads",
+    path = "/w/{workspaceId}/boards/{boardId}/uploads",
     operation_id = "createUpload",
     tag = tag::FILES,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     request_body = NewUpload,
     responses((status = 201, description = "The upload is open.", body = UploadOpened)),
 )]
 async fn handle_create_upload(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
@@ -205,7 +206,8 @@ async fn handle_create_upload(
         size,
         content_type,
     } = decode_object(&body)?;
-    let upload = app
+    let upload = ws
+        .app
         .create_upload(
             user_id,
             &board_id,
@@ -269,18 +271,17 @@ async fn handle_create_import_upload(
 /// next. Another user's upload, and one that has ended, is 404.
 #[utoipa::path(
     get,
-    path = "/uploads/{uploadId}",
+    path = "/w/{workspaceId}/uploads/{uploadId}",
     operation_id = "getUpload",
     tag = tag::FILES,
-    params(UploadId),
+    params(MemberWorkspaceId, UploadId),
     responses((status = 200, description = "The upload.", body = UploadState)),
 )]
-async fn handle_get_upload(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(upload_id): Path<String>,
-) -> ApiResult {
-    let (upload, parts) = app.upload(&upload_id, &session.user_id).await?;
+async fn handle_get_upload(ws: Ws, Path((_, upload_id)): Path<(String, String)>) -> ApiResult {
+    let (upload, parts) = ws
+        .app
+        .workspace_upload(&upload_id, &ws.session.user_id)
+        .await?;
     Ok(json_response(&UploadState::new(upload, &parts)))
 }
 
@@ -297,29 +298,32 @@ async fn handle_get_upload(
 /// is being completed or abandoned is 409.
 #[utoipa::path(
     put,
-    path = "/uploads/{uploadId}/parts/{partNumber}",
+    path = "/w/{workspaceId}/uploads/{uploadId}/parts/{partNumber}",
     operation_id = "putUploadPart",
     tag = tag::FILES,
-    params(UploadId, PartNumber, ContentDigest),
+    params(MemberWorkspaceId, UploadId, PartNumber, ContentDigest),
     request_body(content = inline(Binary), content_type = "application/octet-stream"),
     responses((status = 204, description = "The part is received.")),
 )]
 async fn handle_put_upload_part(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((upload_id, number)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, upload_id, number)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Body,
 ) -> ApiResult {
     let mut stream = body.into_data_stream();
     let received = async {
-        let (upload, _) = app.upload(&upload_id, &session.user_id).await?;
+        let (upload, _) = ws
+            .app
+            .workspace_upload(&upload_id, &ws.session.user_id)
+            .await?;
         let number: i64 = number.parse().map_err(|_| {
             AppError::bad_request("the part number is a whole number").with_parameter("partNumber")
         })?;
         let length = content_length(&headers)?;
         let digest = content_digest(&headers)?;
-        app.put_upload_part(&upload, number, length, &digest, &mut stream)
+        ws.app
+            .put_upload_part(&upload, number, length, &digest, &mut stream)
             .await
     }
     .await;
@@ -343,19 +347,15 @@ async fn handle_put_upload_part(
 /// of an archive is 400, and is imported with `importArchive`.
 #[utoipa::path(
     post,
-    path = "/uploads/{uploadId}/complete",
+    path = "/w/{workspaceId}/uploads/{uploadId}/complete",
     operation_id = "completeUpload",
     tag = tag::FILES,
-    params(UploadId),
+    params(MemberWorkspaceId, UploadId),
     responses((status = 201, description = "The file is stored.", body = UploadedFile)),
 )]
-async fn handle_complete_upload(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(upload_id): Path<String>,
-) -> ApiResult {
-    let user_id = session.user_id.as_str();
-    let (upload, _) = app.upload(&upload_id, user_id).await?;
+async fn handle_complete_upload(ws: Ws, Path((_, upload_id)): Path<(String, String)>) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
+    let (upload, _) = ws.app.workspace_upload(&upload_id, user_id).await?;
     if upload.purpose != UploadPurpose::File {
         return Err(AppError::bad_request(
             "the upload is of an archive; import it with importArchive",
@@ -363,7 +363,7 @@ async fn handle_complete_upload(
         .with_parameter("uploadId"));
     }
     if let Err(refusal) = require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &upload.board_id,
         BoardPermission::ManageBoardCards,
@@ -376,11 +376,11 @@ async fn handle_complete_upload(
         // the permission, is let finish first: the throwing away waits for the upload's
         // turn, and finds it gone.
         if refusal.is_client_error() {
-            app.discard_upload(&upload).await;
+            ws.app.discard_upload(&upload).await;
         }
         return Err(refusal);
     }
-    let file_id = app.complete_upload(&upload).await?;
+    let file_id = ws.app.complete_upload(&upload).await?;
     Ok(created(&UploadedFile { file_id }))
 }
 
@@ -390,19 +390,18 @@ async fn handle_complete_upload(
 /// 409.
 #[utoipa::path(
     delete,
-    path = "/uploads/{uploadId}",
+    path = "/w/{workspaceId}/uploads/{uploadId}",
     operation_id = "deleteUpload",
     tag = tag::FILES,
-    params(UploadId),
+    params(MemberWorkspaceId, UploadId),
     responses((status = 204, description = "The upload is gone.")),
 )]
-async fn handle_delete_upload(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(upload_id): Path<String>,
-) -> ApiResult {
-    let (upload, _) = app.upload(&upload_id, &session.user_id).await?;
-    app.abandon_upload(&upload).await?;
+async fn handle_delete_upload(ws: Ws, Path((_, upload_id)): Path<(String, String)>) -> ApiResult {
+    let (upload, _) = ws
+        .app
+        .workspace_upload(&upload_id, &ws.session.user_id)
+        .await?;
+    ws.app.abandon_upload(&upload).await?;
     Ok(no_content())
 }
 

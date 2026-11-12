@@ -23,6 +23,7 @@ mod limits;
 mod loose_objects;
 mod oidc;
 mod onboarding;
+mod org_admin;
 mod readiness;
 mod reconcile;
 mod search;
@@ -35,6 +36,7 @@ pub(crate) use server_lock::take_server_lock;
 use slots::Busy;
 pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
+mod shared_reads;
 mod sharing;
 mod startup;
 mod store_metrics;
@@ -53,6 +55,7 @@ pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
+pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
 pub use invitations::{Accepting, Inviting};
 pub use limits::OrgLimits;
@@ -61,8 +64,10 @@ pub use oidc::{
     CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
     secret_context,
 };
+pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
+pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,
@@ -83,6 +88,7 @@ use crate::auth::Authenticator;
 use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::auth::oidc::fetch::{Addresses, Fetcher};
+use crate::collab::Collab;
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
@@ -105,6 +111,10 @@ pub struct App {
     inner: Arc<Inner>,
     store: Store,
     ws: Hub,
+    /// The workspace a request names in its path ([`App::in_workspace`]): what is of
+    /// another workspace is not there for this handle. `None` reaches every workspace
+    /// of the organization.
+    workspace: Option<Arc<str>>,
 }
 
 #[derive(Debug)]
@@ -139,8 +149,12 @@ struct Inner {
     exports: slots::Slots,
     /// The imports that run.
     imports: slots::Slots,
+    /// The documents of the bodies being edited together.
+    collab: Collab,
     /// Whether this process holds the lock of the server (`server_lock`).
     server_lock: server_lock::Holder,
+    /// The limit on reads of shared boards whose token opens nothing.
+    shared_reads: SharedReads,
 }
 
 /// What `ping` reports about the server.
@@ -225,9 +239,12 @@ impl App {
             |capacity: u32| slots::Slots::new(usize::try_from(capacity).unwrap_or(usize::MAX));
         let exports = slots(config.max_concurrent_exports);
         let imports = slots(config.max_concurrent_imports);
+        let collab = Collab::new(&config.collab)
+            .context("unable to find the executable to start the collab workers from")?;
         Ok(Self {
             store,
             ws,
+            workspace: None,
             inner: Arc::new(Inner {
                 config,
                 auth,
@@ -246,7 +263,9 @@ impl App {
                 readiness: readiness::Kept::default(),
                 exports,
                 imports,
+                collab,
                 server_lock: server_lock::Holder::default(),
+                shared_reads: SharedReads::default(),
             }),
         })
     }
@@ -254,6 +273,11 @@ impl App {
     /// The Prometheus metrics; they do nothing unless `prometheusaddress` is set.
     pub fn metrics(&self) -> &Metrics {
         &self.inner.metrics
+    }
+
+    /// The documents of the bodies being edited together.
+    pub fn collab(&self) -> &Collab {
+        &self.inner.collab
     }
 
     /// The server configuration.
@@ -275,7 +299,35 @@ impl App {
             inner: Arc::clone(&self.inner),
             ws,
             store,
+            workspace: None,
         }
+    }
+
+    /// The same handle, for a request that names the workspace in its path: a board of
+    /// another workspace, and what is on it, is not there for it ([`App::board_access`]),
+    /// but for the built-in templates, which are every workspace's.
+    #[must_use]
+    pub fn in_workspace(&self, workspace_id: &str) -> Self {
+        Self {
+            workspace: Some(Arc::from(workspace_id)),
+            ..self.clone()
+        }
+    }
+
+    /// Whether what is of `workspace_id` is there for this handle: always, unless the
+    /// handle is for one workspace ([`App::in_workspace`]) and that is another.
+    #[must_use]
+    pub fn reaches_workspace(&self, workspace_id: &str) -> bool {
+        self.workspace
+            .as_deref()
+            .is_none_or(|ours| ours == workspace_id)
+    }
+
+    /// Whether the board is there for this handle: a built-in template always, any other
+    /// board if its workspace is ([`App::reaches_workspace`]).
+    #[must_use]
+    pub fn reaches_board(&self, board: &fvoci_model::Board) -> bool {
+        board.is_builtin || self.reaches_workspace(&board.workspace_id)
     }
 
     /// The database, as this handle reaches it.
@@ -291,6 +343,11 @@ impl App {
     /// The session and read-token checks.
     pub fn authenticator(&self) -> &Authenticator {
         &self.inner.auth
+    }
+
+    /// The limit on reads of shared boards whose token opens nothing.
+    pub(crate) fn shared_reads(&self) -> &SharedReads {
+        &self.inner.shared_reads
     }
 
     /// The limits on login attempts.
@@ -448,17 +505,6 @@ impl App {
                 Reason::ServerImportsBusy,
             ),
         })
-    }
-
-    /// Returns whether the user may read the board. Who reads a shared board by its
-    /// read token and may not is told no user's identifier (`Board::hide_people`,
-    /// `Block::hide_people`).
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if a fact of the board cannot be read.
-    pub async fn is_board_reader(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-        Ok(self.board_grant(user_id, board_id).await?.reads())
     }
 
     /// The part of the configuration the web app needs.

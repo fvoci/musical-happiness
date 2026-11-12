@@ -81,10 +81,22 @@ pub(crate) enum Forgery {
     AlgNone,
 }
 
+/// What the provider says of who answered (RFC 9207).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnswerIssuer {
+    /// It says nothing, and its discovery document does not say it would.
+    Silent,
+    /// Its discovery document says it sends `iss`, and it does.
+    Says,
+    /// Its discovery document says it sends `iss`, and it does not.
+    Promises,
+}
+
 /// What the test sets and what the provider saw.
 struct Settings {
     person: Person,
     forgery: Forgery,
+    answer_issuer: AnswerIssuer,
     /// Answer the discovery document with a redirect elsewhere.
     discovery_redirects: bool,
     codes: HashMap<String, Grant>,
@@ -156,6 +168,7 @@ impl FakeProvider {
             state: Mutex::new(Settings {
                 person: Person::new("subject-1", "person@example.com"),
                 forgery: Forgery::None,
+                answer_issuer: AnswerIssuer::Silent,
                 discovery_redirects: false,
                 codes: HashMap::new(),
                 token_requests: 0,
@@ -198,6 +211,11 @@ impl FakeProvider {
     /// Gets `forgery` wrong in the ID tokens from now on.
     pub(crate) fn forge(&self, forgery: Forgery) {
         self.state().forgery = forgery;
+    }
+
+    /// Says, or promises, who answered, from now on.
+    pub(crate) fn answer_issuer(&self, answer: AnswerIssuer) {
+        self.state().answer_issuer = answer;
     }
 
     /// Answers the discovery document with a redirect from now on.
@@ -249,6 +267,12 @@ impl axum::serve::Listener for Tls {
 
 async fn discovery(State(shared): State<Arc<Shared>>) -> Response {
     let issuer = &shared.issuer;
+    let promises_issuer = shared
+        .state
+        .lock()
+        .expect("the state is never held across a panic")
+        .answer_issuer
+        != AnswerIssuer::Silent;
     if shared
         .state
         .lock()
@@ -271,6 +295,7 @@ async fn discovery(State(shared): State<Arc<Shared>>) -> Response {
         "id_token_signing_alg_values_supported": ["RS256"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+        "authorization_response_iss_parameter_supported": promises_issuer,
     }))
     .into_response()
 }
@@ -326,7 +351,16 @@ async fn authorize(State(shared): State<Arc<Shared>>, RawQuery(query): RawQuery)
             },
         );
     let state = get("state");
-    let location = format!("{redirect_uri}?code={code}&state={}", form_encode(&state));
+    let mut location = format!("{redirect_uri}?code={code}&state={}", form_encode(&state));
+    let says = shared
+        .state
+        .lock()
+        .expect("the state is never held across a panic")
+        .answer_issuer
+        == AnswerIssuer::Says;
+    if says {
+        location = format!("{location}&iss={}", form_encode(&shared.issuer));
+    }
     (StatusCode::FOUND, [(header::LOCATION, location)]).into_response()
 }
 

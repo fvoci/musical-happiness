@@ -49,6 +49,8 @@ const GUEST: Actor = actor(Some(OrgRole::Member), Some(WorkspaceRole::Guest));
 const OUTSIDE_GUEST: Actor = actor(None, Some(WorkspaceRole::Guest));
 const ORG_ADMIN_ONLY: Actor = actor(Some(OrgRole::Admin), None);
 const ORG_ADMIN_IN_WORKSPACE: Actor = actor(Some(OrgRole::Admin), Some(WorkspaceRole::Member));
+/// An organization's administrator who joined the workspace as its administrator.
+const ORG_ADMIN_JOINED: Actor = actor(Some(OrgRole::Admin), Some(WorkspaceRole::Admin));
 const REMOVED: Actor = actor(Some(OrgRole::Member), None);
 const STRANGER: Actor = actor(None, None);
 
@@ -345,6 +347,28 @@ const ROWS: &[Row] = &[
         InvitedOnly,
         None,
         NOTHING,
+    ),
+    // Joined as the workspace's administrator, they are one: a board for the invited
+    // only they manage and read as its member alone, which is recorded.
+    row(
+        "an org admin who joined manages an invited-only board and reads none of it",
+        ORG_ADMIN_JOINED,
+        InvitedOnly,
+        None,
+        MANAGE,
+    ),
+    row(
+        "an org admin who joined reads an invited-only board as its member",
+        ORG_ADMIN_JOINED,
+        InvitedOnly,
+        Some(BoardRole::Viewer),
+        &[
+            SeeBoard,
+            ViewBoard,
+            ListMembers,
+            ManageBoardRoles,
+            DeleteBoard,
+        ],
     ),
     // Who was removed from the workspace opens nothing with the roles left on its boards.
     row(
@@ -899,11 +923,39 @@ fn who_administers_the_organization() {
     let rows = [
         ("an org admin outside every workspace", ORG_ADMIN_ONLY, true),
         ("an org admin in a workspace", ORG_ADMIN_IN_WORKSPACE, true),
+        (
+            "an org admin who joined a workspace",
+            ORG_ADMIN_JOINED,
+            true,
+        ),
         ("a workspace admin", WORKSPACE_ADMIN, false),
         ("a member", MEMBER, false),
         ("a stranger", STRANGER, false),
     ];
     for (case, actor, administers) in rows {
         assert_eq!(actor.administers_the_organization(), administers, "{case}");
+    }
+}
+
+/// Who reads the audit log of a workspace: whoever works there, its administrators and
+/// members, an administrator of the organization who joined it among them. A guest
+/// does not, nor does whoever is no member, an administrator of the organization who
+/// did not join it among them. `(case, what the user is in the workspace, reads)`.
+#[test]
+fn who_reads_the_audit_log_of_a_workspace() {
+    use super::reads_the_audit_log;
+    let rows = [
+        ("its administrator", WORKSPACE_ADMIN, true),
+        ("an org admin who joined it", ORG_ADMIN_JOINED, true),
+        ("a member", MEMBER, true),
+        ("an org admin who is a member", ORG_ADMIN_IN_WORKSPACE, true),
+        ("a guest of the organization", GUEST, false),
+        ("a guest from outside", OUTSIDE_GUEST, false),
+        ("an org admin who did not join it", ORG_ADMIN_ONLY, false),
+        ("who was removed", REMOVED, false),
+        ("a stranger", STRANGER, false),
+    ];
+    for (case, actor, reads) in rows {
+        assert_eq!(reads_the_audit_log(actor.workspace), reads, "{case}");
     }
 }

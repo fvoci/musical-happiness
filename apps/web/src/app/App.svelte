@@ -11,6 +11,9 @@
   The link of an invitation (`/invite/<token>`) shows the page of the
   invitation, to whoever is signed in and to whoever is not; where it lets
   them in is then loaded afresh.
+  `/org/<organization>` is the screen of the organization's administrators
+  (`OrgPage`), in place of the workspace; the way to it is in the sidebar of
+  whoever administers one. Only the server has organizations.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -18,6 +21,7 @@
   import { setFileUrlResolver } from '$lib/editor/files.ts';
   import InvitePage from '$lib/features/account/InvitePage.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
+  import OrgPage from '$lib/features/organization/OrgPage.svelte';
   import AppShell from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
@@ -33,6 +37,8 @@
   } from '$lib/state/index.ts';
   import { userDisplayName } from '$lib/logic/users.ts';
   import type { BoardPlace } from '$lib/logic/urls.ts';
+  import { OrgAdmin } from '$lib/state/org-admin.svelte.ts';
+  import type { Organizations } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { startBackend } from './backend.ts';
@@ -53,6 +59,9 @@
 
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let account = $state.raw<Account | undefined>(undefined);
+  let organizations = $state.raw<Organizations | undefined>(undefined);
+  /** The organization the reader administers, once asked; the sidebar then leads to it. */
+  let administered = $state<string | undefined>(undefined);
   /**
    * The names of the account just made on this page: its first sign-in
    * copies the welcome board. Another account signed in here gets none.
@@ -63,6 +72,7 @@
     void startBackend().then(async (started) => {
       const { backend } = started;
       account = started.account;
+      organizations = started.organizations;
       const made = new Workspace({ backend, locale: currentLocale, lastWorkspace });
       if (started.people) {
         providePeople(made, {
@@ -139,6 +149,7 @@
   $effect(() => {
     if (workspace?.status !== 'ready' || router.route.unknown || router.route.workspaceId) return;
     if (invitation !== undefined) return;
+    if (router.route.orgId) return;
     const chosen = workspace.firstChoice();
     if (chosen) router.go({ workspaceId: chosen }, { replace: true });
   });
@@ -170,6 +181,31 @@
     if (!shown || !workspace || router.route.boardId) return;
     const first = workspace.sidebar.flatMap((entry) => entry.boards)[0];
     if (first) router.go({ workspaceId: shown.id, boardId: first.id }, { replace: true });
+  });
+
+  // Once signed in: is there an organization the reader administers? Asked once.
+  let askedAdministered = false;
+  $effect(() => {
+    if (workspace?.status !== 'ready' || !organizations || askedAdministered) return;
+    askedAdministered = true;
+    organizations.administered().then(
+      (orgId) => {
+        administered = orgId;
+      },
+      () => {
+        // Not told: the way to it is not shown.
+      },
+    );
+  });
+
+  /** The organization the address names; the screen's state is made anew only when it changes. */
+  const orgId = $derived(router.route.orgId);
+  const orgAdmin = $derived(
+    organizations && orgId ? new OrgAdmin(organizations, orgId) : undefined,
+  );
+  $effect(() => {
+    // Once the reader is signed in: before that the organization is not there for them.
+    if (workspace?.status === 'ready') void orgAdmin?.load();
   });
 
   const openBoard = (board: BoardPlace): void => {
@@ -272,12 +308,32 @@
       </Button>
     </div>
   </main>
+{:else if router.route.orgId}
+  {#if orgAdmin}
+    <OrgPage
+      admin={orgAdmin}
+      locale={workspace.locale}
+      meId={workspace.me?.id}
+      homeHref={router.href({})}
+      workspaceHref={(workspaceId: string) => router.href({ workspaceId })}
+    />
+  {:else}
+    <NotFound {router} />
+  {/if}
 {:else}
   <AppShell
     {workspace}
+    orgHref={administered ? router.href({ orgId: administered }) : undefined}
+    onSwitchWorkspace={(workspaceId: string) => {
+      router.go({ workspaceId });
+    }}
+    readRecords={organizations
+      ? (workspaceId: string) => organizations?.workspaceRecords(workspaceId) ?? Promise.resolve([])
+      : undefined}
     boardId={router.route.boardId}
     boardHref={(board: BoardPlace) =>
       router.href({ workspaceId: board.workspaceId, boardId: board.id })}
+    sharedHref={(boardId: string, readToken: string) => router.href({ boardId, readToken })}
     onOpenBoard={openBoard}
     {locales}
     language={shownLanguage(workspace.settings.language)}

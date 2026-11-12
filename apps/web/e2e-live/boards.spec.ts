@@ -20,8 +20,13 @@ import {
 
 test.use({ locale: 'en-US' });
 
-async function views(api: APIRequestContext, boardId: string): Promise<Schemas['Block'][]> {
-  const answer = await api.get(`/api/v1/boards/${boardId}/blocks`, { params: { type: 'view' } });
+async function views(
+  api: APIRequestContext,
+  { workspaceId, boardId }: { workspaceId: string; boardId: string },
+): Promise<Schemas['Block'][]> {
+  const answer = await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}/blocks`, {
+    params: { type: 'view' },
+  });
   expect(answer.ok()).toBe(true);
   return (await answer.json()) as Schemas['Block'][];
 }
@@ -41,17 +46,19 @@ test('a board is made with its first view, changed, deleted and brought back', a
 
   // "Add board", an empty one: the board and a kanban grouped by its "Status", made together.
   const made = page.waitForResponse(
-    (answer) => answer.url().endsWith('/api/v1/boards-and-blocks') && answer.status() === 201,
+    (answer) => answer.url().endsWith('/boards-and-blocks') && answer.status() === 201,
   );
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await made;
   await expect(page).toHaveURL(ON_A_VIEW);
-  const { boardId, viewId } = placeOf(page.url());
-  const board = (await (await api.get(`/api/v1/boards/${boardId}`)).json()) as Schemas['Board'];
+  const { workspaceId, boardId, viewId } = placeOf(page.url());
+  const board = (await (
+    await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)
+  ).json()) as Schemas['Board'];
   const status = board.cardProperties.find((template) => template.type === 'select');
   expect(status?.name).toBe('Status');
-  const [first, ...others] = await views(api, boardId);
+  const [first, ...others] = await views(api, { workspaceId, boardId });
   expect(others).toEqual([]);
   expect(first).toMatchObject({ id: viewId, title: 'Board view' });
   expect(first?.fields).toMatchObject({ viewType: 'board', groupById: status?.id });
@@ -71,7 +78,11 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await expect
     .poll(
       async () =>
-        ((await (await api.get(`/api/v1/boards/${boardId}`)).json()) as Schemas['Board']).title,
+        (
+          (await (
+            await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)
+          ).json()) as Schemas['Board']
+        ).title,
     )
     .toBe('Launch plan');
 
@@ -80,22 +91,26 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await page.getByRole('menuitem', { name: 'Table', exact: true }).click();
   await expect(page).not.toHaveURL(new RegExp(`/${viewId}$`));
   await expect
-    .poll(async () => (await views(api, boardId)).map((view) => view.fields.viewType).sort())
+    .poll(async () =>
+      (await views(api, { workspaceId, boardId })).map((view) => view.fields.viewType).sort(),
+    )
     .toEqual(['board', 'table']);
 
   // Deleted: gone from the server; undo brings it back.
   await chooseFromMenu(page, boardMenu(page, 'Launch plan'), 'delete');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(boardLink(page, 'Launch plan')).toHaveCount(0);
-  await expect.poll(async () => (await api.get(`/api/v1/boards/${boardId}`)).status()).toBe(404);
+  await expect
+    .poll(async () => (await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)).status())
+    .toBe(404);
   await expect(page.getByTestId('not-found')).toBeVisible();
   await page.getByTestId('undo').click();
   await expect(boardLink(page, 'Launch plan')).toBeVisible();
   // The page, which showed it as gone, shows it again.
   await expect(title).toHaveValue('Launch plan');
   await expect(page.getByTestId('not-found')).toHaveCount(0);
-  expect((await api.get(`/api/v1/boards/${boardId}`)).status()).toBe(200);
-  expect(await views(api, boardId)).toHaveLength(2);
+  expect((await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}`)).status()).toBe(200);
+  expect(await views(api, { workspaceId, boardId })).toHaveLength(2);
 
   // Brought back, it is filed nowhere; hidden, it is filed first and stays hidden.
   await chooseFromMenu(page, boardMenu(page, 'Launch plan'), 'hide');

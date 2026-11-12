@@ -1,7 +1,7 @@
 //! Subscriptions to blocks.
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::Path;
 use fvoci_model::{BlockType, RefusalReason, SubscriberType, Subscription, SubscriptionError};
 use serde::Deserialize;
 use serde_json::Value;
@@ -9,12 +9,14 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewSubscription;
+use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BlockId, SubscriberId};
 use super::contract::tag;
+use super::workspace::Ws;
 
 use super::decode_object_members;
 use super::require_permission_through;
-use super::{ApiResult, RequiredSession, created, json_response, no_content};
+use super::{ApiResult, created, json_response, no_content};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
@@ -110,29 +112,26 @@ impl SubscriptionRequest {
 /// made, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.
 #[utoipa::path(
     post,
-    path = "/subscriptions",
+    path = "/w/{workspaceId}/subscriptions",
+    params(MemberWorkspaceId),
     operation_id = "createSubscription",
     tag = tag::SUBSCRIPTIONS,
     request_body = NewSubscription,
     responses((status = 201, description = "The subscription.", body = Subscription)),
 )]
-async fn handle_create_subscription(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    body: Bytes,
-) -> ApiResult {
+async fn handle_create_subscription(ws: Ws, body: Bytes) -> ApiResult {
     let subscription = SubscriptionRequest::decode(&body)?.into_subscription()?;
-    if session.user_id != subscription.subscriber_id {
+    if ws.session.user_id != subscription.subscriber_id {
         return Err(
             AppError::forbidden("a user subscribes for themselves only").with_field("subscriberId")
         );
     }
     // The request names a block and no board: a block on a board the user may not read
     // does not exist for them.
-    let block = app.block(&subscription.block_id).await?;
+    let block = ws.app.block(&subscription.block_id).await?;
     require_permission_through(
-        &app,
-        &session.user_id,
+        &ws.app,
+        &ws.session.user_id,
         &block.board_id,
         BoardPermission::ViewBoard,
         ACCESS_DENIED,
@@ -140,7 +139,7 @@ async fn handle_create_subscription(
     )
     .await?;
 
-    let subscription = app.create_subscription(subscription).await?;
+    let subscription = ws.app.create_subscription(subscription).await?;
     tracing::debug!(
         subscriber_id = %subscription.subscriber_id,
         block_id = %subscription.block_id,
@@ -156,23 +155,23 @@ async fn handle_create_subscription(
 /// ended. A subscription that is not there is 404, and so are those of another user.
 #[utoipa::path(
     delete,
-    path = "/subscriptions/{blockOrSubscriberId}/{subscriberId}",
+    path = "/w/{workspaceId}/subscriptions/{blockOrSubscriberId}/{subscriberId}",
     operation_id = "deleteSubscription",
     tag = tag::SUBSCRIPTIONS,
-    params(BlockId, SubscriberId),
+    params(MemberWorkspaceId, BlockId, SubscriberId),
     responses((status = 204, description = "The subscription is ended.")),
 )]
 async fn handle_delete_subscription(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path((block_id, subscriber_id)): Path<(String, String)>,
+    ws: Ws,
+    Path((_, block_id, subscriber_id)): Path<(String, String, String)>,
 ) -> ApiResult {
     // The subscriptions of another user are nobody's business: not even that there is
     // one is said.
-    if session.user_id != subscriber_id {
+    if ws.session.user_id != subscriber_id {
         return Err(AppError::not_found(SUBSCRIPTION));
     }
-    app.delete_subscription(&block_id, &subscriber_id)
+    ws.app
+        .delete_subscription(&block_id, &subscriber_id)
         .await
         .map_err(|error| {
             if error.is_not_found() {
@@ -192,21 +191,20 @@ async fn handle_delete_subscription(
 /// millisecond.
 #[utoipa::path(
     get,
-    path = "/subscriptions/{blockOrSubscriberId}",
+    path = "/w/{workspaceId}/subscriptions/{blockOrSubscriberId}",
     operation_id = "getSubscriptions",
     tag = tag::SUBSCRIPTIONS,
-    params(SubscriberId),
+    params(MemberWorkspaceId, SubscriberId),
     responses((status = 200, description = "The subscriptions.", body = Vec<Subscription>)),
 )]
 async fn handle_get_subscriptions(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(subscriber_id): Path<String>,
+    ws: Ws,
+    Path((_, subscriber_id)): Path<(String, String)>,
 ) -> ApiResult {
-    if session.user_id != subscriber_id {
+    if ws.session.user_id != subscriber_id {
         return Err(AppError::not_found("subscriber"));
     }
-    let subscriptions = app.subscriptions(&subscriber_id).await?;
+    let subscriptions = ws.app.subscriptions(&subscriber_id).await?;
     tracing::debug!(
         subscriber_id,
         count = subscriptions.len(),

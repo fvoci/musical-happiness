@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use crate::board_broadcasts::WorkspaceSocket;
 use crate::boards::{editor, member, new_board, update_member};
+use crate::common::TEST_WS;
 use crate::common::{
     ApiResponse, HIDDEN_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
@@ -76,24 +77,24 @@ async fn a_guest_opens_only_the_boards_it_was_invited_to() {
 
     for path in ["", "/blocks", "/cards", "/members"] {
         th.client2
-            .get(&format!("/boards/{invited}{path}"))
+            .get(&format!("{TEST_WS}/boards/{invited}{path}"))
             .await
             .check_ok();
     }
-    let missing = th.client2.get(&format!("/boards/{UNKNOWN_ID}")).await;
+    let missing = th
+        .client2
+        .get(&format!("{TEST_WS}/boards/{UNKNOWN_ID}"))
+        .await;
     for hidden in [&open, &private, &elsewhere.id] {
-        let response = th.client2.get(&format!("/boards/{hidden}")).await;
+        let response = th.client2.get(&format!("{TEST_WS}/boards/{hidden}")).await;
         assert_eq!(answer(&response), answer(&missing), "board {hidden}");
     }
     th.client2
-        .post(&format!("/boards/{open}/join"), &json!({}))
+        .post(&format!("{TEST_WS}/boards/{open}/join"), &json!({}))
         .await
         .check_not_found();
-    let listed: Vec<fvoci_model::Board> = th
-        .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let listed: Vec<fvoci_model::Board> =
+        th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     th.teardown().await;
     assert_eq!(
         listed
@@ -200,7 +201,7 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
     let shared = th
         .client2
         .post(
-            &format!("/boards/{board}/sharing"),
+            &format!("{TEST_WS}/boards/{board}/sharing"),
             &json!({"enabled": true}),
         )
         .await;
@@ -209,7 +210,7 @@ async fn a_guest_makes_no_public_link_and_manages_no_members_whatever_is_stored(
     let edited = th
         .client2
         .patch(
-            &format!("/boards/{board}"),
+            &format!("{TEST_WS}/boards/{board}"),
             &json!({"title": "Changed by the guest"}),
         )
         .await;
@@ -239,7 +240,10 @@ async fn a_guest_is_told_the_changes_of_its_boards_and_of_no_other() {
 
     for board in [&other, &invited] {
         th.client
-            .patch(&format!("/boards/{board}"), &json!({"title": "Renamed"}))
+            .patch(
+                &format!("{TEST_WS}/boards/{board}"),
+                &json!({"title": "Renamed"}),
+            )
             .await
             .check_ok();
     }

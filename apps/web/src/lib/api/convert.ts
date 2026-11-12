@@ -292,9 +292,11 @@ export function sharingOf(sharing: Schemas['Sharing']): Sharing {
   return { enabled: sharing.enabled, token: sharing.token ?? '' };
 }
 
-/** A board and its first view, to be made in one request (`createBoardsAndBlocks`). */
+/**
+ * A board and its first view, to be made in one request (`createBoardsAndBlocks`);
+ * the workspace is the one of the request's path.
+ */
 export function newBoardAndViewOf(
-  workspaceId: string,
   draft: BoardDraft,
   firstView: ViewDraft,
 ): Schemas['NewBoardsAndBlocks'] {
@@ -303,7 +305,6 @@ export function newBoardAndViewOf(
     boards: [
       {
         id: boardRef,
-        workspaceId,
         type: draft.type ?? 'P',
         title: draft.title,
         description: draft.description ?? '',

@@ -1,14 +1,14 @@
 //! Boards and their members.
 
 use fvoci_model::{
-    Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
-    DeleteBoardsAndBlocks, new_id,
+    AuditAction, Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType,
+    BoardsAndBlocks, DeleteBoardsAndBlocks, new_id,
 };
 use fvoci_store::{
-    AuditAction, AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards,
+    AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards, Standing,
 };
 
-use super::{App, DEFAULT_CATEGORY_BOARDS};
+use super::{App, BoardAccess, DEFAULT_CATEGORY_BOARDS};
 use crate::error::{AppError, Reason};
 
 /// The message of the refusal to remove or demote a board's only admin.
@@ -24,14 +24,17 @@ pub(super) enum CreatorMembership {
 }
 
 impl App {
-    /// Returns a board.
+    /// Returns a board: for a handle of one workspace ([`App::in_workspace`]), only a
+    /// board of that workspace or a built-in template.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such board, or the store's error.
     pub async fn board(&self, board_id: &str) -> Result<Board, AppError> {
         match self.store().get_board(board_id).await {
-            Ok(board) => Ok(board),
+            // A board of another workspace than the handle's is not there.
+            Ok(board) if self.reaches_board(&board) => Ok(board),
+            Ok(_) => Err(AppError::not_found("board")),
             Err(error) if error.is_not_found() => Err(AppError::not_found("board")),
             Err(error) => Err(error.into()),
         }
@@ -543,32 +546,53 @@ impl App {
         &self,
         member: &BoardMember,
     ) -> Result<Option<BoardMember>, AppError> {
-        self.add_member_to_board_recorded(member, None).await
+        self.add_member_to_board_recorded(member, Word::Unasked)
+            .await
     }
 
-    /// Makes a user, who manages the board without reading it, a member of it as
-    /// [`App::add_member_to_board`] does and, if the membership is new, records in the
-    /// organization's audit log in the same step that they made themselves one.
+    /// Makes a user a member of a board as [`App::add_member_to_board`] does, on the
+    /// word of who asked, whose permission was checked with `access`: only if they are
+    /// still what it found when the membership is written (`Store::add_member_asked`).
+    ///
+    /// # Errors
+    ///
+    /// As [`App::add_member_to_board`]; `None` also if who asked is not what they were.
+    pub async fn add_member_asked(
+        &self,
+        member: &BoardMember,
+        user_id: &str,
+        access: &BoardAccess,
+    ) -> Result<Option<BoardMember>, AppError> {
+        let word = Word::Asked(standing(user_id, access));
+        self.add_member_to_board_recorded(member, word).await
+    }
+
+    /// Makes a user a member of a board, on behalf of `actor_id`, who manages the board
+    /// without reading it, as [`App::add_member_to_board`] does and, if the membership
+    /// is new, records in the organization's audit log in the same step who made whom a
+    /// member: themselves, by which they come to read it, or somebody else, who might be
+    /// another account of theirs.
     ///
     /// # Errors
     ///
     /// As [`App::add_member_to_board`]; a record that cannot be written is the store's
     /// error, and the membership is not made then.
-    pub async fn add_self_to_board_recorded(
+    pub async fn add_member_as_manager(
         &self,
         member: &BoardMember,
+        actor_id: &str,
     ) -> Result<Option<BoardMember>, AppError> {
-        self.add_member_to_board_recorded(member, Some(AuditAction::SelfAddedToBoard))
+        self.add_member_to_board_recorded(member, Word::Manager(actor_id))
             .await
     }
 
     /// Adds a member as [`App::add_member_to_board`] does and, if the membership is new
-    /// and `action` is given, records the user doing it in the audit log in the same
+    /// and a manager is given, records the manager doing it in the audit log in the same
     /// step.
     async fn add_member_to_board_recorded(
         &self,
         member: &BoardMember,
-        action: Option<AuditAction>,
+        word: Word<'_>,
     ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
@@ -578,12 +602,21 @@ impl App {
 
         // Added unless already there, in one step: of two requests that add the same
         // user at once, the second finds the membership the first made.
-        let existing = match action {
-            Some(action) => {
-                let entry = audit_entry(&board, member, action);
-                self.store().add_member_recorded(member, &entry).await?
+        let added = match word {
+            Word::Manager(manager_id) => {
+                let entry = audit_entry(&board, member, manager_id);
+                self.store().add_member_recorded(member, &entry).await
             }
-            None => self.store().add_member(member).await?,
+            Word::Asked(asked) => self.store().add_member_asked(member, asked).await,
+            Word::Unasked => self.store().add_member(member).await,
+        };
+        let existing = match added {
+            Ok(existing) => existing,
+            // The board, or who asked as they were, is not there any more.
+            Err(error) if error.is_not_found() && matches!(word, Word::Asked(_)) => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
         };
         if let Some(existing) = existing {
             return Ok(Some(existing));
@@ -658,29 +691,48 @@ impl App {
         &self,
         member: &BoardMember,
     ) -> Result<Option<BoardMember>, AppError> {
-        self.update_board_member_recorded(member, None).await
+        self.update_board_member_recorded(member, Word::Unasked)
+            .await
     }
 
-    /// Gives a user, who manages the board without reading it, roles on it as
-    /// [`App::update_board_member`] does and records in the organization's audit log in
-    /// the same step that they gave them to themselves.
+    /// Replaces the roles of a member of a board as [`App::update_board_member`] does,
+    /// on the word of who asked, as [`App::add_member_asked`] takes it.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::update_board_member`]; `None` also if who asked is not what they were.
+    pub async fn update_member_asked(
+        &self,
+        member: &BoardMember,
+        user_id: &str,
+        access: &BoardAccess,
+    ) -> Result<Option<BoardMember>, AppError> {
+        let word = Word::Asked(standing(user_id, access));
+        self.update_board_member_recorded(member, word).await
+    }
+
+    /// Gives a member of a board roles on it, on behalf of `actor_id`, who manages the
+    /// board without reading it, as [`App::update_board_member`] does and records in the
+    /// organization's audit log in the same step who gave whom the roles, as
+    /// [`App::add_member_as_manager`] does.
     ///
     /// # Errors
     ///
     /// As [`App::update_board_member`]; a record that cannot be written is the store's
     /// error, and the membership is not changed then.
-    pub async fn update_self_on_board_recorded(
+    pub async fn update_member_as_manager(
         &self,
         member: &BoardMember,
+        actor_id: &str,
     ) -> Result<Option<BoardMember>, AppError> {
-        self.update_board_member_recorded(member, Some(AuditAction::SelfAddedToBoard))
+        self.update_board_member_recorded(member, Word::Manager(actor_id))
             .await
     }
 
     async fn update_board_member_recorded(
         &self,
         member: &BoardMember,
-        action: Option<AuditAction>,
+        word: Word<'_>,
     ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
@@ -690,12 +742,21 @@ impl App {
         // A board keeps at least one admin. Whether this change would take the last one
         // away is decided where the change is written, so that two admins who step down
         // at once do not both pass.
-        let change = match action {
-            Some(action) => {
-                let entry = audit_entry(&board, member, action);
-                self.store().change_member_recorded(member, &entry).await?
+        let changed = match word {
+            Word::Manager(manager_id) => {
+                let entry = audit_entry(&board, member, manager_id);
+                self.store().change_member_recorded(member, &entry).await
             }
-            None => self.store().change_member(member).await?,
+            Word::Asked(asked) => self.store().change_member_asked(member, asked).await,
+            Word::Unasked => self.store().change_member(member).await,
+        };
+        let change = match changed {
+            Ok(change) => change,
+            // The board, or who asked as they were, is not there any more.
+            Err(error) if error.is_not_found() && matches!(word, Word::Asked(_)) => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
         };
         match change {
             MemberChange::Done => {}
@@ -757,13 +818,45 @@ impl App {
     }
 }
 
-/// The record of a user doing `action` to their own membership of the board.
-fn audit_entry(board: &Board, member: &BoardMember, action: AuditAction) -> AuditEntry {
-    AuditEntry {
-        workspace_id: board.workspace_id.clone(),
-        actor_id: member.user_id.clone(),
-        action,
-        target_id: board.id.clone(),
-        create_at: 0,
+/// On whose word a board's membership changes, and what is checked of them where it is
+/// written.
+#[derive(Clone, Copy)]
+enum Word<'a> {
+    /// Nobody's that is to be checked again: the server's own (an import).
+    Unasked,
+    /// A user's whose permission was checked: they must still be what it found.
+    Asked(Standing<'a>),
+    /// A workspace's administrator's who manages the board without reading it: they must
+    /// still administer the workspace, and are recorded.
+    Manager(&'a str),
+}
+
+/// What `access` found of the user who asks.
+fn standing<'a>(user_id: &'a str, access: &'a BoardAccess) -> Standing<'a> {
+    Standing {
+        user_id,
+        workspace_role: access.actor.workspace,
+        member: access.member.as_ref(),
+    }
+}
+
+/// The record of a manager of the board, who does not read it, giving `member` its
+/// roles: themselves, or somebody else.
+fn audit_entry(board: &Board, member: &BoardMember, manager_id: &str) -> AuditEntry {
+    if member.user_id == manager_id {
+        AuditEntry::new(
+            &board.workspace_id,
+            manager_id,
+            AuditAction::SelfAddedToBoard,
+            &board.id,
+        )
+    } else {
+        AuditEntry::new(
+            &board.workspace_id,
+            manager_id,
+            AuditAction::AddedToBoard,
+            &board.id,
+        )
+        .with_subject(&member.user_id)
     }
 }

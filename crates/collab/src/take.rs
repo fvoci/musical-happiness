@@ -8,7 +8,7 @@ use yrs::Doc;
 use crate::build::new_doc;
 use crate::project::to_body;
 use crate::repair::{Repair, repaired};
-use crate::update::{UpdateError, UpdateLimits, settled, with_update};
+use crate::update::{UpdateError, UpdateLimits, settled_sized, with_update_sized};
 
 /// A document that took an update, with its body.
 #[derive(Debug)]
@@ -20,6 +20,8 @@ pub struct Taken {
     /// The body of `doc`, and what a repair deleted to make it one: the deletions, as
     /// an update, are for the editors that hold the document, which did not make them.
     pub repair: Repair,
+    /// The size of the state of `doc` ([`crate::state_of`]), in bytes.
+    pub state_bytes: usize,
 }
 
 /// Why an update, or a stored state, is not taken. The document it was given for is as
@@ -77,7 +79,7 @@ pub enum TakeError {
 /// against the old document is refused by the new one
 /// ([`UpdateError::MissingChanges`]).
 pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeError> {
-    let with = with_update(doc, update, limits)?;
+    let with = with_update_sized(doc, update, limits)?;
     to_taken(with, limits)
 }
 
@@ -112,14 +114,14 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
 /// than when it deletes in a document it holds. What is given back is what a server
 /// that stored it reads, with the body of that; if that is no body, the update is
 /// refused.
-fn to_taken(with: Doc, limits: &UpdateLimits) -> Result<Taken, TakeError> {
+fn to_taken((with, with_bytes): (Doc, usize), limits: &UpdateLimits) -> Result<Taken, TakeError> {
     let (mut repair, repaired) = repaired(&with)?;
-    let doc = match repaired {
-        None => with,
+    let (doc, state_bytes) = match repaired {
+        None => (with, with_bytes),
         Some(copy) => {
-            let again = settled(&copy, limits)?;
+            let (again, again_bytes) = settled_sized(&copy, limits)?;
             repair.body = to_body(&again)?;
-            again
+            (again, again_bytes)
         }
     };
     if let Some(body) = &repair.body {
@@ -131,7 +133,11 @@ fn to_taken(with: Doc, limits: &UpdateLimits) -> Result<Taken, TakeError> {
             });
         }
     }
-    Ok(Taken { doc, repair })
+    Ok(Taken {
+        doc,
+        repair,
+        state_bytes,
+    })
 }
 
 /// The size of a body as JSON without whitespace, as its limit is measured.

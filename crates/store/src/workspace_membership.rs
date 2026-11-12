@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use fvoci_model::{BoardMember, BoardRole, WorkspaceMember, WorkspaceRole};
 
 use crate::Store;
-use crate::audit::{self, AuditAction, AuditEntry};
+use crate::audit::{self, AuditEntry};
 use crate::boards::{delete_member, find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
@@ -366,14 +366,13 @@ async fn hand_over(
         .with_role(Some(BoardRole::Admin));
         save_member(scope, &admin).await?;
         if !had_a_role {
-            let entry = AuditEntry {
-                workspace_id: workspace_id.to_owned(),
-                actor_id: by.to_owned(),
-                action: AuditAction::SelfAddedToBoard,
-                target_id: board_id.clone(),
-                create_at: 0,
-            };
-            audit::record(scope, &entry).await?;
+            let entry = AuditEntry::new(
+                workspace_id,
+                by,
+                fvoci_model::AuditAction::SelfAddedToBoard,
+                board_id,
+            );
+            audit::record_entry(scope, &entry).await?;
         }
         taken_over.push(board_id.clone());
     }

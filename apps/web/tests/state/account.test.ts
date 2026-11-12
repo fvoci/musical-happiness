@@ -5,10 +5,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ServerBackend } from '$lib/api/backend.ts';
 import { BackendError, changeDisplayName } from '$lib/state/index.ts';
 
-import { setup } from './support.ts';
+import { serverBackend, setup } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   try {
@@ -87,7 +86,7 @@ describe('the display name, on the server', () => {
         new Response(JSON.stringify(user), { headers: { 'Content-Type': 'application/json' } }),
       );
     });
-    const user = await new ServerBackend('/base').patchMe({ displayName: 'Ada' });
+    const user = await serverBackend('/base').patchMe({ displayName: 'Ada' });
     expect(sent).toEqual([
       { url: '/base/api/v1/users/me', method: 'PATCH', body: { displayName: 'Ada' } },
     ]);
@@ -100,7 +99,7 @@ describe('the display name, on the server', () => {
       sent.push(typeof init.body === 'string' ? JSON.parse(init.body) : undefined);
       return Promise.resolve(Response.json({ workspaceId: 'w1' }));
     });
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     const account = { username: 'a', email: 'a@x', password: 'p' };
     expect(await backend.acceptInvitation('t', { ...account, displayName: '' })).toEqual({
       workspaceId: 'w1',
@@ -121,7 +120,7 @@ describe('the display name, on the server', () => {
       sent.push(typeof init.body === 'string' ? JSON.parse(init.body) : undefined);
       return Promise.resolve(new Response(null, { status: 204 }));
     });
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     const account = { username: 'a', email: 'a@x', password: 'p' };
     await backend.register({ ...account, displayName: 'A', organizationName: 'Acme' });
     await backend.register({ ...account, displayName: '', organizationName: 'Acme' });

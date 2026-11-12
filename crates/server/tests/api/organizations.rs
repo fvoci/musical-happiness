@@ -8,6 +8,7 @@ use fvoci_server::config::Configuration;
 use fvoci_store::testing::{TestDatabase, db_type_of_the_tests};
 use fvoci_store::{DbType, Store};
 
+use crate::common::ROOT_WS;
 use crate::common::{ROOT_WORKSPACE_ID, Setup};
 
 fn open(config: &mut Configuration) {
@@ -151,12 +152,12 @@ async fn a_server_of_one_organization_starts_past_the_wall_and_works() {
         .await;
     let private = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
     ts.client
-        .get(&format!("/boards/{}", private.id))
+        .get(&format!("{ROOT_WS}/boards/{}", private.id))
         .await
         .check_ok();
     // The second user is no member of the board: the server says so, wall or no wall.
     ts.client2
-        .get(&format!("/boards/{}", private.id))
+        .get(&format!("{ROOT_WS}/boards/{}", private.id))
         .await
         .check_not_found();
     ts.teardown().await;

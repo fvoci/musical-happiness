@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 use crate::Store;
 use crate::blocks::{self, Paging, parents_first};
 use crate::boards;
+use crate::body_docs;
 use crate::category_boards::{self, BoardPlace};
 use crate::comment_places;
 use crate::comment_versions;
@@ -30,6 +31,7 @@ use crate::file_info;
 use crate::file_refs::{self, NewImages};
 use crate::loose_objects;
 use crate::members;
+use crate::org_admin;
 use crate::users;
 
 /// A block in the trash.
@@ -200,8 +202,12 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board.
     pub async fn delete_board(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
-        self.transaction(async |scope| delete_board(scope, board_id, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            // Before the board's: with a joining that ends (`joinings::give_back_roles`).
+            org_admin::lock_organization(scope).await?;
+            delete_board(scope, board_id, user_id).await
+        })
+        .await
     }
 
     /// Returns a board that is in the trash, with the memberships it had.
@@ -290,8 +296,12 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if no board of that identifier is in the trash.
     pub async fn undelete_board(&self, board_id: &str, user_id: &str) -> Result<Board, StoreError> {
-        self.transaction(async |scope| undelete_board(scope, board_id, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            // Before the board's: with a joining that ends (`joinings::give_back_roles`).
+            org_admin::lock_organization(scope).await?;
+            undelete_board(scope, board_id, user_id).await
+        })
+        .await
     }
 
     /// Removes for good what was deleted before `deleted_before` (milliseconds since
@@ -304,56 +314,87 @@ impl Store {
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
     pub async fn purge_trash(&self, deleted_before: i64) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
-            // One statement decides and deletes: a board restored meanwhile is not
-            // deleted, and so its files are not doomed.
-            let org = loose_objects::org_column(scope);
-            let mut sql = scope.sql("DELETE FROM deleted_boards WHERE deleted_at < ");
-            sql.bind(deleted_before).push(&format!(
-                " RETURNING files{}",
-                org.map_or(String::new(), |column| format!(", {column}"))
-            ));
-            let boards = scope.fetch_all(sql).await?;
-            let mut records = u64::try_from(boards.len()).unwrap_or(u64::MAX);
-            let mut files = Vec::new();
-            let mut doomed = Vec::new();
-            for row in &boards {
-                let of_board: StoredFiles = from_json(row, 0, "files")?;
-                let org_id = org.map(|_| row.id(1)).transpose()?;
-                for file in Vec::<FileInfo>::from(of_board) {
-                    // Nothing else says where the file is once the board is gone.
-                    doomed.push((file.path.clone(), org_id.clone()));
-                    files.push(file);
-                }
-            }
-            loose_objects::doom(scope, &doomed).await?;
-
+            let mut purged = remove_boards(scope, Trashed::Before(deleted_before)).await?;
             let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deleted_at < ");
             sql.bind(deleted_before);
-            records += scope.execute(sql).await?;
-            // A block that was deleted on its own while its board existed has nothing to
-            // come back to once the board is neither there nor in the trash of the
-            // block's organization.
-            let orphans = [
-                "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM boards b \
-                 WHERE b.id = deleted_blocks.board_id",
-                &scope.same_organization(&[("b", "deleted_blocks")]),
-                ") AND NOT EXISTS (SELECT 1 FROM deleted_boards d \
-                 WHERE d.id = deleted_blocks.board_id",
-                &scope.same_organization(&[("d", "deleted_blocks")]),
-                ")",
-            ]
-            .concat();
-            let sql = scope.sql(&orphans);
-            records += scope.execute(sql).await?;
-            // What the blocks gone for good showed is shown no more, and the texts
-            // the comments among them had go with them.
-            comment_versions::forget_gone_comments(scope).await?;
-            file_refs::forget_gone_blocks(scope).await?;
-            file_refs::mark(scope, None).await?;
-            Ok(Purged { records, files })
+            purged.records += scope.execute(sql).await?;
+            purged.records += remove_what_they_left(scope).await?;
+            Ok(purged)
         })
         .await
     }
+}
+
+/// Which boards of the trash [`remove_boards`] removes for good.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Trashed<'a> {
+    /// Those deleted before the time, in milliseconds since the Unix epoch.
+    Before(i64),
+    /// Those of the workspace, which goes for good.
+    OfWorkspace(&'a str),
+}
+
+/// Removes boards from the trash for good and dooms the objects of their files: the
+/// one way a board and its files go. Returns how many went, and their file records.
+pub(crate) async fn remove_boards(
+    scope: &mut Scope<'_>,
+    which: Trashed<'_>,
+) -> Result<Purged, StoreError> {
+    // One statement decides and deletes: a board restored meanwhile is not deleted, and
+    // so its files are not doomed.
+    let org = loose_objects::org_column(scope);
+    let mut sql = scope.sql("DELETE FROM deleted_boards WHERE ");
+    match which {
+        Trashed::Before(deleted_before) => sql.push_bind("deleted_at < ", deleted_before),
+        Trashed::OfWorkspace(workspace_id) => sql.push_bind("workspace_id = ", Id(workspace_id)),
+    };
+    sql.push(&format!(
+        " RETURNING files{}",
+        org.map_or(String::new(), |column| format!(", {column}"))
+    ));
+    let boards = scope.fetch_all(sql).await?;
+    let records = u64::try_from(boards.len()).unwrap_or(u64::MAX);
+    let mut files = Vec::new();
+    let mut doomed = Vec::new();
+    for row in &boards {
+        let of_board: StoredFiles = from_json(row, 0, "files")?;
+        let org_id = org.map(|_| row.id(1)).transpose()?;
+        for file in Vec::<FileInfo>::from(of_board) {
+            // Nothing else says where the file is once the board is gone.
+            doomed.push((file.path.clone(), org_id.clone()));
+            files.push(file);
+        }
+    }
+    loose_objects::doom(scope, &doomed).await?;
+    Ok(Purged { records, files })
+}
+
+/// Removes what boards that went for good leave behind: the blocks deleted on their
+/// own from them, what those showed and the texts of their comments. Returns how many
+/// blocks went.
+pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
+    // A block that was deleted on its own while its board existed has nothing to come
+    // back to once the board is neither there nor in the trash of the block's
+    // organization.
+    let orphans = [
+        "DELETE FROM deleted_blocks WHERE NOT EXISTS (SELECT 1 FROM boards b \
+         WHERE b.id = deleted_blocks.board_id",
+        &scope.same_organization(&[("b", "deleted_blocks")]),
+        ") AND NOT EXISTS (SELECT 1 FROM deleted_boards d \
+         WHERE d.id = deleted_blocks.board_id",
+        &scope.same_organization(&[("d", "deleted_blocks")]),
+        ")",
+    ]
+    .concat();
+    let sql = scope.sql(&orphans);
+    let records = scope.execute(sql).await?;
+    // What the blocks gone for good showed is shown no more, and the texts the comments
+    // among them had go with them.
+    comment_versions::forget_gone_comments(scope).await?;
+    body_docs::forget_gone_blocks(scope).await?;
+    file_refs::forget_gone_blocks(scope).await?;
+    file_refs::mark(scope, None).await?;
+    Ok(records)
 }
 
 /// What a purge of the trash removed for good.
@@ -466,7 +507,7 @@ pub(crate) async fn change_member_of_deleted_boards(
 }
 
 /// Reads a JSON column of the trash into the type it was written from.
-fn from_json<T: DeserializeOwned>(
+pub(crate) fn from_json<T: DeserializeOwned>(
     row: &Row,
     index: usize,
     column: &'static str,

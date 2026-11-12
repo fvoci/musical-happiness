@@ -1,11 +1,10 @@
 /** The previews a gallery shows: read when it starts, followed by change messages, the same in both backends. */
 import { describe, expect, it, vi } from 'vitest';
 
-import { ServerBackend } from '$lib/api/backend.ts';
 import { cardOfBlock } from '$lib/api/convert.ts';
 import { CardPreviews } from '$lib/state/index.ts';
 
-import { openFirstBoard, settle, text } from './support.ts';
+import { openFirstBoard, serverBackend, settle, text } from './support.ts';
 
 describe('the previews of a gallery', () => {
   it('are read when it starts, follow a body written elsewhere, and stop with it', async () => {
@@ -86,9 +85,9 @@ describe('the server backend', () => {
         ),
       );
     });
-    const previews = await new ServerBackend('').cardPreviews('b');
+    const previews = await serverBackend('').cardPreviews('b');
     vi.unstubAllGlobals();
-    expect(sent).toEqual(['/api/v1/boards/b/cards?perPage=0&preview=true']);
+    expect(sent).toEqual(['/api/v1/w/w1/boards/b/cards?perPage=0&preview=true']);
     expect([...previews]).toEqual([
       ['c1', { imageFileId: 'f1', text: 'Hello' }],
       ['c2', { imageFileId: '', text: '' }],

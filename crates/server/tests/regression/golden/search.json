@@ -1,39 +1,39 @@
 [
   {
     "name": "create board Quarterly zebra plan",
-    "request": "POST /api/v1/boards as search-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as search-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:2>",
+      "id": "<id:3>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Quarterly zebra plan",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "create board Open zebra notes",
-    "request": "POST /api/v1/boards as search-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as search-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
@@ -41,19 +41,19 @@
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open zebra notes",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "create board Private zebra diary",
-    "request": "POST /api/v1/boards as search-bob",
+    "request": "POST /api/v1/w/<id:1>/boards as search-bob",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -74,39 +74,39 @@
       "title": "Private zebra diary",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "workspace search",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q=zebra as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
-        "id": "<id:2>",
+        "id": "<id:3>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
@@ -114,27 +114,27 @@
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   },
   {
     "name": "workspace search: other user",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as search-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q=zebra as search-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
@@ -142,14 +142,14 @@
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
@@ -169,61 +169,61 @@
         "title": "Private zebra diary",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   },
   {
     "name": "workspace search: no match",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q=giraffe as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q=giraffe as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "workspace search: empty term",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q= as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q= as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "workspace search: no term",
-    "request": "GET /api/v1/w/<id:3>/boards/search as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "workspace search: case",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q=ZEBRA as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q=ZEBRA as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
-        "id": "<id:2>",
+        "id": "<id:3>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
@@ -231,47 +231,47 @@
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   },
   {
     "name": "workspace search: by field",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra&field=title as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q=zebra&field=title as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
-        "id": "<id:2>",
+        "id": "<id:3>",
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Quarterly zebra plan",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       },
       {
         "cardProperties": [],
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "description": "",
         "icon": "",
@@ -279,20 +279,20 @@
         "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "properties": {},
         "showDescription": false,
         "templateVersion": 0,
         "title": "Open zebra notes",
         "type": "O",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   },
   {
     "name": "workspace search: bad field",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra&field=nope as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q=zebra&field=nope as search-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -306,7 +306,7 @@
   },
   {
     "name": "workspace search: anonymous",
-    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as anonymous",
+    "request": "GET /api/v1/w/<id:1>/boards/search?q=zebra as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -319,63 +319,36 @@
     }
   },
   {
-    "name": "all search",
+    "name": "all search: gone",
     "request": "GET /api/v1/boards/search?q=zebra as search-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": [
-      {
-        "cardProperties": [],
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "description": "",
-        "icon": "",
-        "id": "<id:2>",
-        "isBuiltin": false,
-        "isTemplate": false,
-        "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
-        "properties": {},
-        "showDescription": false,
-        "templateVersion": 0,
-        "title": "Quarterly zebra plan",
-        "type": "P",
-        "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
-      },
-      {
-        "cardProperties": [],
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "description": "",
-        "icon": "",
-        "id": "<id:4>",
-        "isBuiltin": false,
-        "isTemplate": false,
-        "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
-        "properties": {},
-        "showDescription": false,
-        "templateVersion": 0,
-        "title": "Open zebra notes",
-        "type": "O",
-        "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
-      }
-    ]
+    "status": 404,
+    "content_type": "application/problem+json",
+    "body": {
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
+    }
   },
   {
-    "name": "all search: empty term",
+    "name": "all search: gone, empty term",
     "request": "GET /api/v1/boards/search?q= as search-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": []
+    "status": 404,
+    "content_type": "application/problem+json",
+    "body": {
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
+    }
   },
   {
     "name": "linkable search",
-    "request": "GET /api/v1/w/<id:3>/boards/search/linkable?q=zebra as search-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/search/linkable?q=zebra as search-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -389,7 +362,7 @@
   },
   {
     "name": "channels",
-    "request": "GET /api/v1/teams/<id:3>/channels?search=x as search-alice",
+    "request": "GET /api/v1/teams/<id:1>/channels?search=x as search-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -403,7 +376,7 @@
   },
   {
     "name": "channel",
-    "request": "GET /api/v1/teams/<id:3>/channels/some-channel as search-alice",
+    "request": "GET /api/v1/teams/<id:1>/channels/some-channel as search-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {

@@ -374,7 +374,16 @@ impl App {
                     .as_ref()
                     .is_none_or(|board: &Board| board.id != block.board_id)
                 {
-                    destination = Some(self.board(&block.board_id).await?);
+                    // Of the workspace a copy goes to, which may be another than the
+                    // handle's (checked by the caller): read so, not by `App::board`.
+                    let board = self.store().get_board(&block.board_id).await;
+                    destination = Some(board.map_err(|error| {
+                        if error.is_not_found() {
+                            AppError::not_found("board")
+                        } else {
+                            error.into()
+                        }
+                    })?);
                 }
                 destination
                     .as_ref()

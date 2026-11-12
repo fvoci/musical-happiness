@@ -8,6 +8,7 @@ use serde_json::json;
 use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncReadExt as _;
 
+use super::common::ROOT_WS;
 use super::common::{Client, ROOT_WORKSPACE_ID};
 use super::db_type_of_the_tests;
 use super::media::Scene;
@@ -27,7 +28,7 @@ async fn import_bytes(client: &Client, workspace: &str, bytes: Vec<u8>) {
     let digest = base64::engine::general_purpose::STANDARD.encode(Sha256::digest(&bytes));
     Client::send(
         client
-            .request(Method::PUT, &format!("/uploads/{upload}/parts/1"))
+            .request(Method::PUT, &format!("{ROOT_WS}/uploads/{upload}/parts/1"))
             .header("Content-Digest", format!("sha-256=:{digest}:"))
             .body(bytes),
     )
@@ -67,7 +68,7 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
     let mine: Vec<Subscription> = scene
         .ts
         .client
-        .get(&format!("/subscriptions/{}", scene.user))
+        .get(&format!("{ROOT_WS}/subscriptions/{}", scene.user))
         .await
         .ok_json();
     assert_eq!(
@@ -81,7 +82,7 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
         .ts
         .client
         .delete(&format!(
-            "/subscriptions/{}/{}",
+            "{ROOT_WS}/subscriptions/{}/{}",
             scene.card_b.id, scene.user
         ))
         .await
@@ -98,10 +99,10 @@ async fn subscriptions_are_scoped_even_when_the_subscriber_uses_both_organizatio
     scene
         .ts
         .client2
-        .get(&format!("/subscriptions/{}", scene.user))
+        .get(&format!("{ROOT_WS}/subscriptions/{}", scene.user))
         .await
         .check_not_found();
-    let hidden = scene.ts.client2.post("/subscriptions", &json!({"blockId": scene.card_b.id, "blockType": "card", "subscriberId": scene.ts.client2.me().await.id, "subscriberType": "user"})).await;
+    let hidden = scene.ts.client2.post(&format!("{ROOT_WS}/subscriptions"), &json!({"blockId": scene.card_b.id, "blockType": "card", "subscriberId": scene.ts.client2.me().await.id, "subscriberType": "user"})).await;
     hidden.check_not_found();
     scene.ts.teardown().await;
 }
@@ -166,7 +167,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let boards: Vec<Board> = scene
         .ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
+        .get(&format!("{ROOT_WS}/boards"))
         .await
         .ok_json();
     let imported = boards
@@ -184,7 +185,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let members: Vec<BoardMember> = scene
         .ts
         .client
-        .get(&format!("/boards/{}/members", imported.id))
+        .get(&format!("{ROOT_WS}/boards/{}/members", imported.id))
         .await
         .ok_json();
     assert!(
@@ -206,7 +207,10 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let file = scene
         .ts
         .client
-        .get(&format!("/boards/{}/files/{imported_name}", imported.id))
+        .get(&format!(
+            "{ROOT_WS}/boards/{}/files/{imported_name}",
+            imported.id
+        ))
         .await;
     file.check_ok();
     assert_eq!(

@@ -26,6 +26,7 @@ mod file_info;
 mod id;
 mod invitation;
 mod oidc;
+mod org_admin;
 mod organization;
 mod problem;
 mod refusal;
@@ -41,8 +42,9 @@ mod workspace;
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
-    MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount, ORGANIZATION_NAME_MAX_LENGTH,
-    RegisterRequest, check_new_password, display_name, is_email_valid, organization_name,
+    MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
+    ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, check_new_password, display_name,
+    is_email_valid, organization_name,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
@@ -87,6 +89,10 @@ pub use invitation::{
 pub use oidc::{
     LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES, OIDC_ISSUER_MAX_BYTES,
     OidcProvider, OidcProviderSettings, OidcStart,
+};
+pub use org_admin::{
+    AuditAction, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRoleChange, OrgWorkspace,
+    Organization, OrganizationPatch, UnknownAuditAction, WorkspaceName,
 };
 pub use organization::{
     OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,

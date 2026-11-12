@@ -1,24 +1,33 @@
 //! The workspaces of a user, and the wall of the routes that name a workspace.
 //!
 //! A route under `/w/{workspaceId}` takes [`Ws`]: the session's user as a member of the
-//! workspace, with the application reaching the rows of the workspace's organization.
+//! workspace, with the application reaching the rows of the workspace's organization
+//! and, of those, what is of this workspace (`App::in_workspace`): a board of another
+//! workspace, and what is on it, is not there (404) as for a board that does not exist.
 //! For anybody else the workspace is not there (404), whether it exists or not.
 
 use axum::body::Bytes;
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
-use fvoci_model::{Board, OrgRole, Session, User, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{
+    AuditRecord, Board, OrgRole, Session, User, UserWorkspace, Workspace, WorkspaceRole,
+};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{HomeMemberWorkspaceId, MemberWorkspaceId, UserSearch, WorkspaceId};
+use super::contract::bodies::UserIds;
+use super::contract::params::{
+    CappedPerPage, HomeMemberWorkspaceId, MemberWorkspaceId, Page, UserId, UserSearch,
+    WorkerWorkspaceId, WorkspaceId,
+};
 use super::contract::tag;
+use super::org_admin::requested_page;
 use super::session::session_of;
-use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
+use super::{ApiResult, MAX_USER_IDS, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::Actor;
+use crate::permissions::{self, Actor};
 
 /// The path parameter that names the workspace of a route.
 const WORKSPACE_ID: &str = "workspaceId";
@@ -32,6 +41,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_get_workspace_users,
             handle_get_workspace_users_by_id
         ))
+        .routes(routes!(handle_get_workspace_user))
+        .routes(routes!(handle_get_workspace_audit))
 }
 
 /// The workspace a request names in its path, for a member of it.
@@ -39,9 +50,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// Extraction fails with 401 without a session, and with 404 unless the session's user
 /// is a member of the workspace: one that is another's and one that does not exist
 /// answer alike. The application it hands the handler is behind the wall between
-/// organizations, reaching the rows of the workspace's organization and no other. It
-/// is not narrowed to the workspace: the organization's other workspaces are in its
-/// reach, and a handler asks for what is in this one by `workspace_id`.
+/// organizations, reaching the rows of the workspace's organization and no other, and
+/// finds a board of the organization's other workspaces as one that is not there
+/// (`App::board_access`); a handler that lists asks for what is in this one by
+/// `workspace_id`.
 #[derive(Debug)]
 pub(crate) struct Ws {
     /// The application, reaching the rows of the workspace's organization.
@@ -79,7 +91,18 @@ impl Ws {
         let session = session_of(app, &parts.headers, &parts.extensions).await?;
         let params = match RawPathParams::from_request_parts(parts, app).await {
             Ok(params) => params,
-            Err(RawPathParamsRejection::InvalidUtf8InPathParam(_)) => return Err(no_text()),
+            // The workspace that is no text is `no_text`; another parameter that is none
+            // (a board's, a card's) is the malformed request it was before the route
+            // was under a workspace.
+            Err(RawPathParamsRejection::InvalidUtf8InPathParam(error)) => {
+                return Err(
+                    if error.to_string().ends_with(&format!("`{WORKSPACE_ID}`")) {
+                        no_text()
+                    } else {
+                        malformed_path()
+                    },
+                );
+            }
             Err(_) => return Err(AppError::internal("the route has no path parameters")),
         };
         let workspace_id = params
@@ -110,7 +133,7 @@ impl Ws {
             .await?
             .ok_or_else(workspace_not_found)?;
         Ok(Self {
-            app: entered.app,
+            app: entered.app.in_workspace(&workspace_id),
             session,
             workspace_id,
             role: entered.role,
@@ -126,6 +149,41 @@ impl Ws {
             org: self.org_role,
             workspace: Some(self.role),
         }
+    }
+
+    /// The workspace for one who makes boards in it: whoever works in it, and is no
+    /// guest of the instance either. A guest is refused (403) in `denial`: the workspace
+    /// is there for them.
+    ///
+    /// # Errors
+    ///
+    /// Returns 403 for a guest of the workspace or of the instance, and the store's
+    /// error if the user cannot be read.
+    pub(crate) async fn require_board_maker(&self, denial: &str) -> Result<(), AppError> {
+        if self.role == WorkspaceRole::Guest
+            || self.app.user_is_guest(&self.session.user_id).await?
+        {
+            return Err(AppError::forbidden(denial));
+        }
+        Ok(())
+    }
+
+    /// Puts the path's workspace into a board a request body makes: a body that names
+    /// another is refused (400, naming `field`), one that names none or this one takes
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// Returns 400 for a board that names another workspace.
+    pub(crate) fn place_board(&self, board: &mut Board, field: &str) -> Result<(), AppError> {
+        if !board.workspace_id.is_empty() && board.workspace_id != self.workspace_id {
+            return Err(
+                AppError::bad_request("the board is made in the workspace of the path")
+                    .with_field(field),
+            );
+        }
+        board.workspace_id.clone_from(&self.workspace_id);
+        Ok(())
     }
 
     /// The workspace for one who works in it: a member who is no guest. A guest of the
@@ -313,38 +371,103 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
 
 /// Users of a workspace by their identifiers
 ///
-/// The users with the identifiers of the body, which must name at least one: an empty
-/// list is 400. Every identifier must be of a user the user sees in the workspace and
-/// none may be there twice; otherwise the request is 404. The user sees whom
-/// `getWorkspaceUsers` finds, and who created or last changed a card, block or comment
-/// of a board of the workspace they read, also after leaving the workspace. Oldest
-/// account first, not in the order of the request.
+/// The users with the identifiers of the body that the user sees in the workspace, each
+/// once; the body names at least one and at most 200: an empty list, or a longer one,
+/// is 400. An identifier of
+/// somebody the user does not see finds nothing, as one of nobody: the answer does not
+/// tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
+/// last changed a card, block or comment of a board of the workspace they read, also
+/// after leaving the workspace. Oldest account first, not in the order of the request.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsersById",
     tag = tag::WORKSPACES,
     params(HomeMemberWorkspaceId),
-    request_body = Vec<String>,
+    request_body = UserIds,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_workspace_users_by_id(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(workspace_id): Path<String>,
-    body: Bytes,
-) -> ApiResult {
-    // The body is read before the workspace is asked for, as it always was.
+async fn handle_get_workspace_users_by_id(ws: Ws, body: Bytes) -> ApiResult {
+    let ws = ws.require_home()?;
     let user_ids: Vec<String> = decode_json(&body)?;
-    let ws = Ws::enter(&app, session, workspace_id)
-        .await?
-        .require_home()?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
+    }
+    if user_ids.len() > MAX_USER_IDS {
+        return Err(AppError::bad_request(format_args!(
+            "at most {MAX_USER_IDS} user IDs are asked for at once"
+        )));
     }
     let users = ws
         .app
         .users_in_workspace(&ws.session.user_id, &ws.workspace_id, ws.role, &user_ids)
         .await?;
     Ok(json_response(&users))
+}
+
+/// A user of a workspace
+///
+/// A user the user sees in the workspace, as `getWorkspaceUsersById` finds them; anybody
+/// else is 404, as one who does not exist.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/users/{userId}",
+    operation_id = "getWorkspaceUser",
+    tag = tag::WORKSPACES,
+    params(HomeMemberWorkspaceId, UserId),
+    responses((status = 200, description = "The user.", body = User)),
+)]
+async fn handle_get_workspace_user(
+    ws: Ws,
+    Path((_, user_id)): Path<(String, String)>,
+) -> ApiResult {
+    let ws = ws.require_home()?;
+    let mut user = ws
+        .app
+        .users_in_workspace(
+            &ws.session.user_id,
+            &ws.workspace_id,
+            ws.role,
+            std::slice::from_ref(&user_id),
+        )
+        .await?
+        .pop()
+        .ok_or_else(|| AppError::not_found("user"))?;
+    if user_id == ws.session.user_id {
+        crate::app::sanitize(&mut user);
+    } else {
+        ws.app.sanitize_profile(&mut user);
+    }
+    Ok(json_response(&user))
+}
+
+/// The audit log of a workspace
+///
+/// One page of what was done in the workspace that its members are to know of, the
+/// newest first: an administrator of the organization joining it as its administrator,
+/// leaving it, or being taken out of it when they stopped administering the
+/// organization; and an administrator of the workspace who could not read a board
+/// giving somebody (themselves or another) a role on it. A board's title is there where
+/// the reader sees the board. For whoever works in the workspace (a member who is no
+/// guest), of any organization. 50 to a page unless `perPage` says otherwise, at most
+/// 200. The records are never changed or removed but with the workspace, when it is
+/// removed for good.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/audit",
+    operation_id = "getWorkspaceAudit",
+    tag = tag::WORKSPACES,
+    params(WorkerWorkspaceId, Page, CappedPerPage),
+    responses((status = 200, description = "The records of the page.", body = Vec<AuditRecord>)),
+)]
+async fn handle_get_workspace_audit(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
+    if !permissions::reads_the_audit_log(Some(ws.role)) {
+        return Err(workspace_not_found());
+    }
+    let paging = requested_page(query.as_deref())?;
+    Ok(json_response(
+        &ws.app
+            .workspace_audit(&ws.session.user_id, &ws.workspace_id, paging)
+            .await?,
+    ))
 }

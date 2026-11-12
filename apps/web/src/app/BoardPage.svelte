@@ -21,7 +21,7 @@
   import { newCardMaker, whileHere, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import NotFound from './NotFound.svelte';
+  import ManagedBoard from './ManagedBoard.svelte';
   import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
@@ -97,7 +97,15 @@
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
 {:else if board.missing}
-  <NotFound {router} />
+  <!-- Not there, or there to be managed only: ManagedBoard tells which. -->
+  <ManagedBoard
+    {workspace}
+    {board}
+    {router}
+    onJoined={() => {
+      void tick().then(() => page?.focus());
+    }}
+  />
 {:else if board.joinable && board.board}
   <div class="grid h-full place-items-center p-6 text-center" data-testid="board-join">
     <div class="flex max-w-md flex-col items-center gap-3">

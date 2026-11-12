@@ -109,30 +109,35 @@ const NO_SESSION: [&str; 10] = [
     "register",
     "startOidcLogin",
 ];
-/// The operations that take a session and do without one: what is read with a session
-/// or with the read token of a board, and the acceptance of an invitation, which makes
-/// an account for whoever has none.
-const SESSION_OR_NONE: [&str; 6] = [
-    "acceptInvitation",
-    "getBlocks",
-    "getBoard",
-    "getCards",
-    "getFile",
-    "getFileInfo",
+/// The operations that read a shared board with its read token, and look at no session.
+const READ_TOKEN: [&str; 5] = [
+    "getSharedBlocks",
+    "getSharedBoard",
+    "getSharedCards",
+    "getSharedFile",
+    "getSharedFileInfo",
 ];
+/// The operations that take a session and do without one: the acceptance of an
+/// invitation, which makes an account for whoever has none.
+const SESSION_OR_NONE: [&str; 1] = ["acceptInvitation"];
 
 #[test]
 fn what_needs_no_session_says_so() {
     let text = document().expect("the document");
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let mut no_session = Vec::new();
+    let mut read_token = Vec::new();
     let mut session_or_none = Vec::new();
-    for item in document["paths"].as_object().expect("paths").values() {
+    for (path, item) in document["paths"].as_object().expect("paths") {
         for operation in item.as_object().expect("a path item").values() {
             let name = operation["operationId"].as_str().expect("a name");
             let security = &operation["security"];
             if *security == json!([{}]) {
-                no_session.push(name);
+                if path.starts_with("/api/v1/shared/") {
+                    read_token.push(name);
+                } else {
+                    no_session.push(name);
+                }
             } else if *security == json!([{}, { "sessionCookie": [] }, { "bearerToken": [] }]) {
                 session_or_none.push(name);
             } else {
@@ -145,10 +150,15 @@ fn what_needs_no_session_says_so() {
         }
     }
     no_session.sort_unstable();
+    read_token.sort_unstable();
     session_or_none.sort_unstable();
     assert_eq!(
         no_session, NO_SESSION,
         "these need no session, and no others"
+    );
+    assert_eq!(
+        read_token, READ_TOKEN,
+        "these read a shared board with its token, and are all under /shared"
     );
     assert_eq!(
         session_or_none, SESSION_OR_NONE,
@@ -504,15 +514,20 @@ const ORDERS: &[(&str, &str)] = &[
     ("getMembers", "By the identifier of the user"),
     ("getMyMemberships", "By the identifier of the board"),
     ("getMyWorkspaces", "the oldest workspace first"),
+    ("getOrgAudit", "the newest first"),
+    ("getOrgMembers", "the oldest member first"),
+    ("getOrgWorkspaces", "the oldest first"),
+    (
+        "getSharedBlocks",
+        "Oldest first; the blocks that one request made come in the order that request had them in",
+    ),
+    ("getSharedCards", "Oldest first; the pages cut that order"),
     (
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
     ),
     ("getTemplates", "Each of the two oldest first"),
-    (
-        "getUsers",
-        "Oldest account first, not in the order of the request",
-    ),
+    ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceMembers", "The oldest membership first"),
     ("getWorkspaceUsers", "Oldest account first"),
@@ -524,7 +539,6 @@ const ORDERS: &[(&str, &str)] = &[
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
-    ("searchBoards", "Oldest first"),
     ("searchWorkspaceBoards", "Oldest first"),
 ];
 
@@ -590,11 +604,11 @@ fn the_routes_that_share_a_position_are_named_apart() {
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let paths = document["paths"].as_object().expect("paths");
     assert!(
-        paths.contains_key("/api/v1/subscriptions/{blockId}/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}"),
         "the path that ends a subscription"
     );
     assert!(
-        paths.contains_key("/api/v1/subscriptions/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{subscriberId}"),
         "the path that lists subscriptions"
     );
     assert!(

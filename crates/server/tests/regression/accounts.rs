@@ -7,6 +7,7 @@
 use serde_json::{Value, json};
 
 use crate::common::{ROOT_WORKSPACE_ID, UNKNOWN_ID};
+use crate::harness::ROOT_API;
 use crate::harness::{API, Session};
 
 pub(crate) async fn system(s: &mut Session) {
@@ -216,17 +217,17 @@ pub(crate) async fn auth(s: &mut Session) {
     let client_state = format!("{API}/users/me/client-state");
     s.get("my config", &client_state).user(&alice).await;
     let alice_id = s.user_id(&alice).await;
-    s.get("user by id", &format!("{API}/users/{alice_id}"))
+    s.get("user by id", &format!("{ROOT_API}/users/{alice_id}"))
         .user(&alice)
         .await;
-    s.get("unknown user", &format!("{API}/users/unknown-user"))
+    s.get("unknown user", &format!("{ROOT_API}/users/unknown-user"))
         .user(&alice)
         .await;
-    s.post("users by id", &format!("{API}/users"))
+    s.post("users by id", &format!("{ROOT_API}/users"))
         .json(json!([alice_id]))
         .user(&alice)
         .await;
-    s.post("users by id: empty list", &format!("{API}/users"))
+    s.post("users by id: empty list", &format!("{ROOT_API}/users"))
         .json(json!([]))
         .user(&alice)
         .await;
@@ -337,22 +338,13 @@ pub(crate) async fn workspaces(s: &mut Session) {
     s.get("workspaces", &format!("{API}/users/me/workspaces"))
         .user(&alice)
         .await;
-    s.get("workspace 0", &format!("{API}/w/{ROOT_WORKSPACE_ID}"))
-        .user(&alice)
-        .await;
+    s.get("workspace 0", ROOT_API).user(&alice).await;
     s.get("some other workspace id", &format!("{API}/w/anything"))
         .user(&alice)
         .await;
-    s.get(
-        "workspace without session",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}"),
-    )
-    .await;
+    s.get("workspace without session", ROOT_API).await;
     let users = s
-        .get(
-            "workspace users",
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}/users"),
-        )
+        .get("workspace users", &format!("{ROOT_API}/users"))
         .user(&alice)
         .unrecorded()
         .await;
@@ -365,31 +357,25 @@ pub(crate) async fn workspaces(s: &mut Session) {
     s.note("workspace users include me", &json!(includes_me));
     s.get(
         "workspace users search",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users?search=workspaces-ali"),
+        &format!("{ROOT_API}/users?search=workspaces-ali"),
     )
     .user(&alice)
     .await;
     s.get(
         "workspace users search without match",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users?search=zzzz-no-such"),
+        &format!("{ROOT_API}/users?search=zzzz-no-such"),
     )
     .user(&alice)
     .await;
     let alice_id = s.user_id(&alice).await;
-    s.post(
-        "workspace users by id",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users"),
-    )
-    .json(json!([alice_id]))
-    .user(&alice)
-    .await;
-    s.post(
-        "workspace users by id: empty",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users"),
-    )
-    .json(json!([]))
-    .user(&alice)
-    .await;
+    s.post("workspace users by id", &format!("{ROOT_API}/users"))
+        .json(json!([alice_id]))
+        .user(&alice)
+        .await;
+    s.post("workspace users by id: empty", &format!("{ROOT_API}/users"))
+        .json(json!([]))
+        .user(&alice)
+        .await;
 }
 
 /// Administrators of the instance. The harness's first user, `root`, is the one the
@@ -411,7 +397,7 @@ pub(crate) async fn admins(s: &mut Session) {
         .await;
     s.get(
         "the first user, seen by another",
-        &format!("{API}/users/{root_id}"),
+        &format!("{ROOT_API}/users/{root_id}"),
     )
     .user(&alice)
     .await;
@@ -532,11 +518,15 @@ pub(crate) async fn admins(s: &mut Session) {
         .json(json!({"isAdmin": false}))
         .user(&bob)
         .await;
-    // An administrator of the instance is, for now, one of its workspaces.
-    s.post("invite: the new administrator", &invitations)
-        .json(json!({"role": "member"}))
-        .user(&bob)
-        .await;
+    // An administrator of the instance administers no workspace by that: the members
+    // of a workspace are its administrators' to invite.
+    s.post(
+        "invite: an administrator of the instance alone",
+        &invitations,
+    )
+    .json(json!({"role": "member"}))
+    .user(&bob)
+    .await;
 }
 
 /// What a user has set about how things are shown to them, and the bag of client state
@@ -649,7 +639,7 @@ pub(crate) async fn cookies(s: &mut Session) {
     let [alice] = s.users("cookies", ["alice"]).await;
     let login = format!("{API}/login");
     let me = format!("{API}/users/me");
-    let boards = format!("{API}/boards");
+    let boards = format!("{ROOT_API}/boards");
     let credentials = json!({"username": alice, "password": "test-password"});
     let board = json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "made"});
     // The address the test servers take for their own: the default `serverRoot`.

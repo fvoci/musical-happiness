@@ -1,16 +1,18 @@
 //! Lists of what is in the trash: the deleted cards of a board, and the deleted boards
 //! a user may bring back.
 
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, RawQuery};
 use fvoci_model::DeletedItem;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::cards::page_params;
+use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
 use super::workspace::WorksIn;
-use super::{ApiResult, RequiredSession, json_response, require_board_permission};
+use super::workspace::Ws;
+use super::{ApiResult, json_response, require_board_permission};
 use crate::app::App;
 use crate::permissions::BoardPermission;
 
@@ -30,22 +32,21 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// number is 400.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/trash/cards",
+    path = "/w/{workspaceId}/boards/{boardId}/trash/cards",
     operation_id = "getDeletedCards",
     tag = tag::CARDS,
-    params(BoardId, Page, PerPage),
+    params(MemberWorkspaceId, BoardId, Page, PerPage),
     responses((status = 200, description = "The deleted cards of the page.", body = Vec<DeletedItem>)),
 )]
 async fn handle_get_deleted_cards(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let query = query.as_deref();
     require_board_permission(
-        &app,
-        &session.user_id,
+        &ws.app,
+        &ws.session.user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
         "access denied to the trash of the board",
@@ -53,7 +54,7 @@ async fn handle_get_deleted_cards(
     .await?;
     let (page, per_page) = page_params(query)?;
     Ok(json_response(
-        &app.deleted_cards(&board_id, page, per_page).await?,
+        &ws.app.deleted_cards(&board_id, page, per_page).await?,
     ))
 }
 

@@ -673,6 +673,9 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
     assert_eq!(
         triggers,
         [
+            // No key: what keeps a record of the audit log from being changed, or
+            // removed but with its workspace (0023).
+            ("audit_log".to_owned(), "audit_log_kept".to_owned()),
             (
                 "category_boards".to_owned(),
                 "category_boards_board_of_its_organization".to_owned()

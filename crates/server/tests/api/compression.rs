@@ -7,6 +7,7 @@ use fvoci_model::BoardType;
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, VARY};
 use reqwest::{Method, StatusCode};
 
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID};
 
 /// `GET path` asking for `encoding`.
@@ -56,7 +57,7 @@ async fn json_answers_are_compressed_as_the_client_asks() {
     for _ in 0..3 {
         ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     }
-    let path = format!("/w/{TEST_WORKSPACE_ID}/boards");
+    let path = format!("{TEST_WS}/boards");
     let plain = ts.client.get(&path).await;
     plain.check_ok();
     assert_eq!(encoding(&plain), "", "nothing asked, nothing compressed");
@@ -90,7 +91,7 @@ async fn an_export_is_not_compressed() {
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = get_encoded(
         &ts.client,
-        &format!("/boards/{}/archive/export", board.id),
+        &format!("{TEST_WS}/boards/{}/archive/export", board.id),
         "zstd, br, gzip",
     )
     .await;
@@ -114,12 +115,7 @@ async fn compression_can_be_turned_off() {
         .init_basic()
         .await;
     ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
-    let response = get_encoded(
-        &ts.client,
-        &format!("/w/{TEST_WORKSPACE_ID}/boards"),
-        "gzip, zstd",
-    )
-    .await;
+    let response = get_encoded(&ts.client, &format!("{TEST_WS}/boards"), "gzip, zstd").await;
     response.check_ok();
     assert_eq!(encoding(&response), "", "not compressed");
     ts.teardown().await;
@@ -131,7 +127,12 @@ async fn compression_can_be_turned_off() {
 async fn an_error_is_not_compressed() {
     let ts = Setup::native().start().await.init_basic().await;
     for asked in ["gzip", "br", "zstd"] {
-        let response = get_encoded(&ts.client, "/boards/no-such-board", asked).await;
+        let response = get_encoded(
+            &ts.client,
+            &format!("{TEST_WS}/boards/no-such-board"),
+            asked,
+        )
+        .await;
         assert_eq!(response.status, StatusCode::NOT_FOUND, "{asked}");
         assert_eq!(encoding(&response), "", "{asked}: not compressed");
         let body = response.value();
@@ -150,7 +151,7 @@ async fn refusing_identity_changes_no_status() {
     for refusal in ["identity;q=0", "*;q=0", "deflate, identity;q=0"] {
         let request = ts
             .client
-            .request(Method::POST, "/boards")
+            .request(Method::POST, &format!("{TEST_WS}/boards"))
             .header(ACCEPT_ENCODING, refusal)
             .json(&serde_json::json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "title": "made"}));
         let response = Client::send(request).await;
@@ -160,12 +161,7 @@ async fn refusing_identity_changes_no_status() {
             "",
             "{refusal}: no encoding was acceptable"
         );
-        let listed = get_encoded(
-            &ts.client,
-            &format!("/w/{TEST_WORKSPACE_ID}/boards"),
-            refusal,
-        )
-        .await;
+        let listed = get_encoded(&ts.client, &format!("{TEST_WS}/boards"), refusal).await;
         assert_eq!(listed.status, StatusCode::OK, "{refusal}");
     }
     assert_eq!(

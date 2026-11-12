@@ -19,6 +19,7 @@
 import { BackendError, type UploadedFile, type UploadOptions } from '../state/backend.ts';
 
 import type { Schemas } from './convert.ts';
+import { underWorkspace } from './requests.ts';
 import type { Http } from './http.ts';
 
 /** How many times one part is sent before the upload fails. */
@@ -58,6 +59,7 @@ const worthAgain = (error: unknown): boolean =>
  */
 export async function sendInParts<T>(
   http: Http,
+  workspaceId: string,
   file: File,
   options: UploadOptions,
   open: () => Promise<Schemas['UploadOpened']>,
@@ -78,8 +80,8 @@ export async function sendInParts<T>(
         signal?.throwIfAborted();
         try {
           await http.request(
-            '/api/v1/uploads/{uploadId}/parts/{partNumber}',
-            { uploadId, partNumber: String(number) },
+            underWorkspace('/uploads/{uploadId}/parts/{partNumber}'),
+            { workspaceId, uploadId, partNumber: String(number) },
             { method: 'PUT', bytes: part, headers: { 'Content-Digest': digest }, signal },
           );
           break;
@@ -102,7 +104,11 @@ export async function sendInParts<T>(
     // Given up or failed: what the server holds of it is thrown away (an
     // upload that has ended already is 404, which is no matter).
     void http
-      .request('/api/v1/uploads/{uploadId}', { uploadId }, { method: 'DELETE' })
+      .request(
+        underWorkspace('/uploads/{uploadId}'),
+        { workspaceId, uploadId },
+        { method: 'DELETE' },
+      )
       .catch(() => undefined);
     throw error;
   }
@@ -116,24 +122,25 @@ function newUploadOf(file: File): Schemas['NewUpload'] {
 /** A file of a board: opened by `createUpload`, ended into a file by `completeUpload`. */
 export function uploadInParts(
   http: Http,
-  boardId: string,
+  { workspaceId, boardId }: { workspaceId: string; boardId: string },
   file: File,
   options: UploadOptions = {},
 ): Promise<UploadedFile> {
   return sendInParts(
     http,
+    workspaceId,
     file,
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        '/api/v1/boards/{boardId}/uploads',
-        { boardId },
+        underWorkspace('/boards/{boardId}/uploads'),
+        { workspaceId, boardId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const done = await http.request<Schemas['UploadedFile']>(
-        '/api/v1/uploads/{uploadId}/complete',
-        { uploadId },
+        underWorkspace('/uploads/{uploadId}/complete'),
+        { workspaceId, uploadId },
         { method: 'POST', signal },
       );
       return {
@@ -158,18 +165,19 @@ export function importInParts(
 ): Promise<Schemas['ImportResult']> {
   return sendInParts(
     http,
+    workspaceId,
     file,
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        '/api/v1/w/{workspaceId}/archive/uploads',
+        underWorkspace('/archive/uploads'),
         { workspaceId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const request: Schemas['ImportRequest'] = { uploadId };
       return http.request<Schemas['ImportResult']>(
-        '/api/v1/w/{workspaceId}/archive/import',
+        underWorkspace('/archive/import'),
         { workspaceId },
         { method: 'POST', json: request, signal },
       );

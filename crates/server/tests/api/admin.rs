@@ -14,6 +14,7 @@ use fvoci_server::TlsFiles;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
 use crate::common::{Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer};
 
 /// The administration socket. Unix sockets are what it is made of.
@@ -787,7 +788,7 @@ async fn routes_of_the_host_application_do_not_exist() {
         "/admin/boards?workspace_id=nope&page=x",
         "/admin/boards_history?modified_since=1",
         "/admin/blocks_history?modified_since=1&board_id=nope",
-        "/boards/some-board/metadata",
+        &format!("{ROOT_WS}/boards/some-board/metadata"),
     ];
 
     let th = Setup::native().start().await.init_basic().await;

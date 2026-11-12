@@ -9,8 +9,11 @@
  * own, so the app the server serves does not carry the one in memory.
  */
 import type { Account, Backend, People } from '$lib/state/index.ts';
+import type { Organizations } from '$lib/state/organization.ts';
 
 import { readBasePath } from './router.svelte.ts';
+import { display } from '$lib/display.svelte.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
 import { readDisplaySettings } from '$lib/logic/display.ts';
 import { readLanguageSettings } from '$lib/logic/language.ts';
 import { readRegionalSettings } from '$lib/logic/regional.ts';
@@ -21,6 +24,8 @@ export interface StartedBackend {
   account?: Account;
   /** Managing who is in a workspace; only a backend with accounts has it. */
   people?: People;
+  /** The organization's administration and the workspaces' records; only the server has them. */
+  organizations?: Organizations;
 }
 
 export type BackendName = 'server' | 'memory';
@@ -73,10 +78,37 @@ async function keepSettings(backend: Backend): Promise<void> {
 }
 
 async function startServer(): Promise<StartedBackend> {
-  const { ServerBackend } = await import('$lib/api/backend.ts');
+  const [{ ServerBackend }, { Http }, { ServerOrganizations }] = await Promise.all([
+    import('$lib/api/backend.ts'),
+    import('$lib/api/http.ts'),
+    import('$lib/api/organizations.ts'),
+  ]);
   const base = readBasePath(document);
-  const backend = new ServerBackend(base === '' ? '' : `/${base}`);
-  return { backend, account: backend, people: backend.people };
+  const path = base === '' ? '' : `/${base}`;
+  const backend = new ServerBackend(path);
+  return {
+    backend,
+    account: backend,
+    people: backend.people,
+    organizations: new ServerOrganizations(new Http(path)),
+  };
+}
+
+/**
+ * The backend of a reader by a board's public link (`/shared/…`): the
+ * server's, which reads the board by the link's read token alone, and the
+ * place it shows the board in.
+ */
+export async function startShared(
+  boardId: string,
+  readToken: string,
+): Promise<{ backend: Backend; place: string }> {
+  const { SharedBackend, SHARED_PLACE } = await import('$lib/api/shared-backend.ts');
+  const base = readBasePath(document);
+  // The device's theme and density stay as they are: the reader has no account's.
+  const settings = { ...DEFAULT_ACCOUNT_SETTINGS, ...display.settings };
+  const backend = new SharedBackend(base === '' ? '' : `/${base}`, boardId, readToken, settings);
+  return { backend, place: SHARED_PLACE };
 }
 
 export async function startBackend(): Promise<StartedBackend> {

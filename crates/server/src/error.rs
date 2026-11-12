@@ -202,6 +202,18 @@ reasons! {
     ImportRunning => "import_running", "An import is running";
     /// The server runs as many imports as it may.
     ServerImportsBusy => "server_imports_busy", "The server is busy importing";
+    /// The body's document does not take the update.
+    UpdateRefused => "update_refused", "Update refused";
+    /// The update builds on changes the body's document does not have.
+    UpdateOutOfStep => "update_out_of_step", "Update out of step";
+    /// The update is larger than the server takes.
+    UpdateTooLarge => "update_too_large", "Update too large";
+    /// With the update the body's document, or its body, would be larger than it may be.
+    DocumentTooLarge => "document_too_large", "Document too large";
+    /// The server holds as many documents of bodies being edited as it may.
+    TooManyDocuments => "too_many_documents", "Too many documents open";
+    /// The body's document cannot be worked on for now.
+    DocumentUnavailable => "document_unavailable", "Document unavailable";
     /// The server has no `secret_key` to seal a provider's client secret with.
     SecretKeyRequired => "secret_key_required", "Secret key required";
     /// The issuer of a provider could not be read and checked.
@@ -236,6 +248,14 @@ reasons! {
     RelationNotACard => "relation_not_a_card", "Card relation names no card";
     /// A card relation names a card that is not on the board.
     RelationCardNotFound => "relation_card_not_found", "Card relation names a card not on the board";
+    /// Another workspace in use of the organization has the name.
+    WorkspaceNameTaken => "workspace_name_taken", "Workspace name taken";
+    /// The organization's default workspace is not deleted.
+    DefaultWorkspace => "default_workspace", "Default workspace";
+    /// The change would leave the organization without an administrator.
+    LastOrgAdmin => "last_org_admin", "Last administrator of the organization";
+    /// The organization has turned its public links off.
+    PublicLinksOff => "public_links_off", "Public links turned off";
 }
 
 impl Reason {
@@ -617,6 +637,11 @@ impl AppError {
     /// The kind of this error.
     pub fn kind(&self) -> ErrorKind {
         self.kind
+    }
+
+    /// The reason a client can act on, if the error has one.
+    pub fn reason(&self) -> Option<Reason> {
+        self.reason
     }
 
     /// Returns `true` if this is a 404 error.

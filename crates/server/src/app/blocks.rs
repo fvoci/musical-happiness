@@ -81,13 +81,24 @@ impl App {
             .await?)
     }
 
-    /// Returns the block with the given identifier.
+    /// Returns the block with the given identifier: for a handle of one workspace
+    /// ([`App::in_workspace`]), only a block of a board of that workspace or of a built-in
+    /// template.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such block.
     pub async fn block(&self, block_id: &str) -> Result<Block, AppError> {
-        match self.store().get_block(block_id).await {
+        // A handle of one workspace finds the blocks of its boards only, in the one read.
+        let found = match self.workspace.as_deref() {
+            Some(workspace_id) => {
+                self.store()
+                    .get_block_in_workspace(block_id, workspace_id)
+                    .await
+            }
+            None => self.store().get_block(block_id).await,
+        };
+        match found {
             Ok(block) => Ok(block),
             Err(error) if error.is_not_found() => Err(AppError::not_found("block")),
             Err(error) => Err(error.into()),
@@ -110,7 +121,20 @@ impl App {
         notification: ChangeNotification,
     ) -> Result<(), AppError> {
         let board = self.store().get_board(&block.board_id).await?;
-        self.store().insert_block(block, modified_by).await?;
+        if block.block_type == BlockType::Card {
+            // A card stored again writes its body whole, around its document.
+            let (mut stored, modified_by) = (block.clone(), modified_by.to_owned());
+            let card_ids = vec![block.id.clone()];
+            *block = self
+                .collab()
+                .write_whole(self, card_ids, async move |app| {
+                    app.store().insert_block(&mut stored, &modified_by).await?;
+                    Ok(stored)
+                })
+                .await?;
+        } else {
+            self.store().insert_block(block, modified_by).await?;
+        }
         log_notification(notification, ChangeAction::Add, &block.id);
 
         let app = self.clone();
@@ -155,7 +179,25 @@ impl App {
 
         // All or none: the original stores the blocks one by one, and answers with an
         // error for the third while the first two stay.
-        self.store().insert_blocks(blocks, modified_by).await?;
+        let card_ids: Vec<String> = blocks
+            .iter()
+            .filter(|block| block.block_type == BlockType::Card)
+            .map(|block| block.id.clone())
+            .collect();
+        if card_ids.is_empty() {
+            self.store().insert_blocks(blocks, modified_by).await?;
+        } else {
+            // Cards stored again write their bodies whole, around their documents.
+            let (mut stored, modified_by) = (blocks.to_vec(), modified_by.to_owned());
+            let stored = self
+                .collab()
+                .write_whole(self, card_ids, async move |app| {
+                    app.store().insert_blocks(&mut stored, &modified_by).await?;
+                    Ok(stored)
+                })
+                .await?;
+            blocks.clone_from_slice(&stored);
+        }
         for block in blocks.iter() {
             self.ws()
                 .broadcast_block_change(&board.workspace_id, block)
@@ -184,9 +226,24 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let board = self.store().get_board(&old_block.board_id).await?;
-        self.store()
-            .patch_block(block_id, patch, modified_by)
-            .await?;
+        if patch.body.is_keep() || old_block.block_type != BlockType::Card {
+            self.store()
+                .patch_block(block_id, patch, modified_by)
+                .await?;
+        } else {
+            // A whole body is written around the document of a body edited together.
+            let (block_id, patch, modified_by) =
+                (block_id.to_owned(), patch.clone(), modified_by.to_owned());
+            let card_ids = vec![block_id.clone()];
+            self.collab()
+                .write_whole(self, card_ids, async move |app| {
+                    Ok(app
+                        .store()
+                        .patch_block(&block_id, &patch, &modified_by)
+                        .await?)
+                })
+                .await?;
+        }
         let block = self.store().get_block(block_id).await?;
         log_notification(notification, ChangeAction::Update, block_id);
 
@@ -223,8 +280,20 @@ impl App {
     ) -> Result<(), AppError> {
         // Only whether all of them exist matters here; the original hands the old blocks
         // to its notification service.
-        self.store().get_blocks_by_ids(&batch.block_ids).await?;
-        self.store().patch_blocks(batch, modified_by).await?;
+        let blocks = self.store().get_blocks_by_ids(&batch.block_ids).await?;
+        // Whole bodies are written around the documents of bodies edited together.
+        let card_ids =
+            crate::collab::cards_written_whole(&blocks, &batch.block_ids, &batch.block_patches);
+        if card_ids.is_empty() {
+            self.store().patch_blocks(batch, modified_by).await?;
+        } else {
+            let (batch, modified_by) = (batch.clone(), modified_by.to_owned());
+            self.collab()
+                .write_whole(self, card_ids, async move |app| {
+                    Ok(app.store().patch_blocks(&batch, &modified_by).await?)
+                })
+                .await?;
+        }
         for block_id in &batch.block_ids {
             log_notification(notification, ChangeAction::Update, block_id);
         }

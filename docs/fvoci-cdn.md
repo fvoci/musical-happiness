@@ -11,7 +11,7 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | `/static/*`, 이름에 콘텐츠 해시가 있는 파일 | `Cache-Control: public, max-age=31536000, immutable` | 캐시한다. TTL은 오리진 헤더를 따른다. | 메서드 `GET`, `HEAD`. 헤더 `Accept-Encoding`. 쿼리 문자열과 쿠키는 필요 없다. |
 | `/static/*`, 그 밖의 파일 | `Cache-Control: no-cache`, `ETag`, `Last-Modified` | 저장하더라도 매번 오리진에 재검증한다. | 위와 같고, 조건부 요청 헤더(`If-None-Match`, `If-Modified-Since`). |
 | `/api/v1/*` | `Cache-Control: no-store` | 캐시하지 않는다. | 메서드 `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE`. 뷰어 헤더 전부(최소 `Cookie`, `Origin`, `X-Requested-With`, `Content-Type`, 그리고 브라우저가 아닌 클라이언트가 쓰는 `Authorization`). 쿼리 문자열 전부(공유 보드의 `readToken` 포함). 쿠키 `__Host-fvoci_session`(HTTP로 서비스하면 `fvoci_session`). 응답의 `Set-Cookie`와 `Retry-After`를 그대로 돌려준다. |
-| `/api/v1/boards/{board}/files/{file}` | `Cache-Control: private, no-cache`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; frame-ancestors 'none'`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
+| `/api/v1/w/{workspace}/boards/{board}/files/{file}`, `/api/v1/shared/{board}/files/{file}` | `Cache-Control: private, no-cache`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; frame-ancestors 'none'`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
 | `/ws` | WebSocket(`101 Switching Protocols`) | 캐시하지 않는다. | 메서드 `GET`. 헤더 `Upgrade`, `Connection`, `Sec-WebSocket-*`, 그리고 `Origin`과 `Cookie`. 인증은 핸드셰이크에서 세션 쿠키로 하고, `Origin`이 서버 자신의 것(`serverRoot`)이나 `allowed_origins`가 아니면 403으로 거절한다. CDN이 `Origin`을 고쳐 쓰거나 쿠키를 떼면 실시간 갱신이 되지 않는다. |
 | 그 밖의 모든 경로 | 웹 앱의 `index.html`, 상태 200, `Cache-Control: no-cache`. `/problems`와 그 아래는 오류의 종류를 설명하는 글(`text/plain`, `Cache-Control: public, max-age=3600`)이다 | 캐시하지 않거나 매번 재검증한다. `/problems`는 캐시해도 된다. | 메서드 `GET`, `HEAD`. 그 외에는 필요 없다. |
 
@@ -243,7 +243,7 @@ curl -si -b "$JAR" -X POST "$BASE/api/v1/logout"
 
 # 6. 파일의 Range 요청
 curl -s -o /dev/null -D - -b "$JAR" \
-  -H 'Range: bytes=0-99' "$BASE/api/v1/boards/<board>/files/<file>"
+  -H 'Range: bytes=0-99' "$BASE/api/v1/w/<workspace>/boards/<board>/files/<file>"
 #    206, Content-Range: bytes 0-99/<전체 크기>, Cache-Control: private, no-cache
 
 # 7. WebSocket 핸드셰이크. 101 뒤에는 연결이 열린 채로 있으므로 --max-time으로 끊는다.

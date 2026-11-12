@@ -5,6 +5,7 @@ use fvoci_model::BoardType;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Setup, TEST_WORKSPACE_ID};
 
 /// The entries of `errors` as `(place, reason)`, in their order.
@@ -241,7 +242,7 @@ async fn the_requests_of_a_user_list_everything_they_refuse() {
 async fn the_requests_of_cards_list_everything_they_refuse() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
-    let cards = format!("/boards/{}/cards", board.id);
+    let cards = format!("{TEST_WS}/boards/{}/cards", board.id);
 
     let response = th.client.get(&format!("{cards}?page=x&perPage=1.5")).await;
     response.check_error(
@@ -293,7 +294,7 @@ async fn the_requests_of_cards_list_everything_they_refuse() {
     let response = th
         .client
         .patch(
-            &format!("/cards/{card}"),
+            &format!("{TEST_WS}/cards/{card}"),
             &json!({
                 "icon": "ab", "body": {"type": "doc", "content": [{"type": "paragraph"}]},
                 "updatedProperties": values, "deletedProperties": ["flag"],
@@ -334,7 +335,7 @@ async fn the_requests_of_cards_list_everything_they_refuse() {
 async fn check_more(client: &crate::common::Client, card: &str) {
     client
         .patch(
-            &format!("/cards/{card}"),
+            &format!("{TEST_WS}/cards/{card}"),
             &json!({"updatedProperties": {"flag": true}, "deletedProperties": ["flag"]}),
         )
         .await
@@ -344,7 +345,7 @@ async fn check_more(client: &crate::common::Client, card: &str) {
         (0..150).map(|n| (format!("p{n:03}"), json!(n))).collect();
     let response = client
         .patch(
-            &format!("/cards/{card}"),
+            &format!("{TEST_WS}/cards/{card}"),
             &json!({"updatedProperties": many}),
         )
         .await;
@@ -368,7 +369,7 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let response = th
         .client
         .post(
-            &format!("/boards/{}/uploads", board.id),
+            &format!("{TEST_WS}/boards/{}/uploads", board.id),
             &json!({"name": "", "size": -1, "contentType": "a".repeat(256)}),
         )
         .await;
@@ -385,7 +386,7 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     let response = th
         .client
         .post(
-            &format!("/boards/{}/sharing", board.id),
+            &format!("{TEST_WS}/boards/{}/sharing", board.id),
             &json!({"token": "mine", "regenerate": "yes"}),
         )
         .await;

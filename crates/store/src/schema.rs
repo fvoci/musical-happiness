@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 20] = [
+const STEPS: [Step; 22] = [
     Step {
         version: 1,
         description: "baseline",
@@ -152,12 +152,24 @@ const STEPS: [Step; 20] = [
         sqlite: include_str!("../schema/sqlite/0019_audit_log.sql"),
         postgres: include_str!("../schema/postgres/0019_audit_log.sql"),
     },
-    // 20 and 21 are the migrations of work under way beside this one.
+    // 20 is other work's.
+    Step {
+        version: 21,
+        description: "body docs",
+        sqlite: include_str!("../schema/sqlite/0021_body_docs.sql"),
+        postgres: include_str!("../schema/postgres/0021_body_docs.sql"),
+    },
     Step {
         version: 22,
         description: "invitations",
         sqlite: include_str!("../schema/sqlite/0022_invitations.sql"),
         postgres: include_str!("../schema/postgres/0022_invitations.sql"),
+    },
+    Step {
+        version: 23,
+        description: "organization management",
+        sqlite: include_str!("../schema/sqlite/0023_org_management.sql"),
+        postgres: include_str!("../schema/postgres/0023_org_management.sql"),
     },
 ];
 
@@ -169,6 +181,11 @@ pub(crate) const ORGANIZATIONS_VERSION: i64 = 14;
 /// The migration that renames the table of the workspaces and the columns that name one.
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const WORKSPACES_VERSION: i64 = 17;
+
+/// The migration that makes a workspace's name its own in its organization, among much
+/// else of the organization's management.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
 
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
@@ -188,11 +205,13 @@ pub(crate) const GLOBAL_TABLES: [&str; 7] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 23] = [
+pub(crate) const ORG_TABLES: [&str; 25] = [
     "audit_log",
     "blocks",
     "board_members",
     "boards",
+    "body_docs",
+    "body_updates",
     "categories",
     "category_boards",
     "comment_versions",

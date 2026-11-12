@@ -1,5 +1,6 @@
 /** A small world and the stores over it, for the tests of the state. */
 import { loadTemplates, seedWorld, type SeedTemplate } from '$lib/state/memory/seed.ts';
+import { ServerBackend } from '$lib/api/backend.ts';
 import { MemoryBackend } from '$lib/state/memory/backend.ts';
 import type { World } from '$lib/state/memory/world.ts';
 import { Workspace, type BoardStore } from '$lib/state/index.ts';
@@ -112,3 +113,13 @@ export async function settle(): Promise<void> {
 }
 
 export { loadTemplates };
+
+/** The workspace a server backend of the tests is in: the paths of its boards are under it. */
+export const SERVER_WORKSPACE = 'w1';
+
+/** A server backend under `basePath` that has entered `SERVER_WORKSPACE`. */
+export function serverBackend(basePath: string): ServerBackend {
+  const backend = new ServerBackend(basePath);
+  backend.enter(SERVER_WORKSPACE);
+  return backend;
+}

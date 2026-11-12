@@ -38,10 +38,11 @@ pub(crate) mod tag {
     pub(crate) const FILES: &str = "files";
     pub(crate) const ARCHIVES: &str = "archives";
     pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
+    pub(crate) const ORGANIZATION: &str = "organization";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 13] = [
+const TAGS: [(&str, &str); 14] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -73,6 +74,11 @@ const TAGS: [(&str, &str); 13] = [
     (tag::FILES, "The files of a board."),
     (tag::ARCHIVES, "Exporting boards and importing them."),
     (tag::SUBSCRIPTIONS, "Subscriptions to blocks."),
+    (
+        tag::ORGANIZATION,
+        "What an organization's administrators manage: the organization, its members' \
+         roles, its workspaces and their trash, joining a workspace, and the audit logs.",
+    ),
 ];
 
 /// The name of the security scheme of the session cookie.
@@ -90,8 +96,8 @@ The API of an fvoci server.
 `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain \
 HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. \
 A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` \
-instead. A few operations that read a shared board need no session when the request has the \
-board's `readToken`.
+instead. The operations under `/shared/{boardId}` need no session: they read a shared board with its \
+`readToken`, and look at no session that comes along.
 
 ## Requests that change something
 
@@ -137,6 +143,17 @@ milliseconds since the Unix epoch.
 Every list comes in an order, and the description of each operation says which. Where it \
 says nothing else, the order is that of creation, oldest first, and by identifier among \
 what was created in the same millisecond.
+
+## Bodies edited together
+
+While people edit a card's body together the server holds it as a Y document. What it \
+refuses of an editor has the reason `update_refused`, `update_out_of_step`, \
+`update_too_large` or `document_too_large`; `too_many_documents` and \
+`document_unavailable` say that it cannot take the document for now. A write of a card's \
+whole body here (a patch of the card or of blocks, a card stored again) first writes to the \
+card what its editors typed: a `readAt` from before that is refused with 409, and if it \
+cannot be written the write is refused with `document_unavailable`. The page of each kind \
+says when it comes.
 
 ## Request bodies
 
@@ -214,6 +231,12 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
     ("Workspace", Members::All),
+    ("AuditAction", Members::AsWritten),
+    ("AuditPerson", Members::All),
+    ("AuditRecord", Members::All),
+    ("Organization", Members::All),
+    ("OrgMember", Members::All),
+    ("OrgWorkspace", Members::All),
     ("UploadOpened", Members::All),
     ("UploadState", Members::All),
     ("ReceivedPart", Members::All),
@@ -223,6 +246,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UserWorkspace", Members::All),
     ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),
+    ("OrgRole", Members::AsWritten),
     ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),
@@ -260,6 +284,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewMember", Members::AsWritten),
     ("NewSubscription", Members::AsWritten),
     ("NewUpload", Members::Only(&["name", "size"])),
+    ("OrganizationPatch", Members::Only(&[])),
+    ("OrgRoleChange", Members::AsWritten),
+    ("WorkspaceName", Members::AsWritten),
     (
         "OidcProviderSettings",
         Members::Only(&["issuer", "clientId"]),
@@ -274,6 +301,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     ("SettingsChange", Members::AsWritten),
     ("SharingRequest", Members::AsWritten),
+    ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
     ("BoardType", Members::AsWritten),
@@ -292,12 +320,12 @@ const SCHEMAS: &[(&str, Members)] = &[
 /// different things. The document names each as what it is.
 const RENAMED_PATHS: [(&str, &str); 2] = [
     (
-        "/api/v1/subscriptions/{blockOrSubscriberId}/{subscriberId}",
-        "/api/v1/subscriptions/{blockId}/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}",
     ),
     (
-        "/api/v1/subscriptions/{blockOrSubscriberId}",
-        "/api/v1/subscriptions/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{subscriberId}",
     ),
 ];
 
@@ -326,7 +354,8 @@ pub fn document() -> Result<String, ContractError> {
     let api = OpenApiRouter::<App>::new()
         .merge(routes.json)
         .merge(routes.unauthenticated)
-        .merge(routes.uploads);
+        .merge(routes.uploads)
+        .merge(routes.shared);
     let (_, openapi) = OpenApiRouter::<App>::new()
         .nest(super::PREFIX, api)
         .split_for_parts();

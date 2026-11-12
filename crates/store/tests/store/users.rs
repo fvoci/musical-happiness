@@ -544,6 +544,7 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
             Taken::Username => "the user name is taken",
             Taken::Email => "the email address is taken",
             Taken::Identity => "the identity at the provider is taken",
+            Taken::WorkspaceName => unreachable!("a user takes no workspace's name"),
         };
         assert_eq!(error.to_string(), said, "{username} <{email}>");
         assert!(
@@ -1613,7 +1614,7 @@ async fn set_user_admin_keeps_one_administrator() {
     };
 
     assert_eq!(
-        test.set_user_admin(&admin_id, InstanceRole::User)
+        test.set_user_admin(&admin_id, InstanceRole::User, &admin_id)
             .await
             .expect("no failure"),
         AdminChange::LastAdmin,
@@ -1622,7 +1623,7 @@ async fn set_user_admin_keeps_one_administrator() {
     assert!(is_admin(&admin_id).await, "nothing changed");
     for nobody in [new_id(), "no identifier".to_owned()] {
         assert_eq!(
-            test.set_user_admin(&nobody, InstanceRole::Administrator)
+            test.set_user_admin(&nobody, InstanceRole::Administrator, &nobody)
                 .await
                 .expect("no failure"),
             AdminChange::NoSuchUser,
@@ -1630,8 +1631,16 @@ async fn set_user_admin_keeps_one_administrator() {
         );
     }
 
+    assert_eq!(
+        test.set_user_admin(&other_id, InstanceRole::Administrator, &other_id)
+            .await
+            .expect("no failure"),
+        AdminChange::NotAnAdministrator,
+        "who is none makes nobody one"
+    );
+    assert!(!is_admin(&other_id).await, "nothing changed");
     let AdminChange::Done(made) = test
-        .set_user_admin(&other_id, InstanceRole::Administrator)
+        .set_user_admin(&other_id, InstanceRole::Administrator, &admin_id)
         .await
         .expect("no failure")
     else {
@@ -1640,7 +1649,7 @@ async fn set_user_admin_keeps_one_administrator() {
     assert_eq!(made.id, other_id, "the user is returned");
     assert!(made.is_admin, "as stored: an administrator");
     let AdminChange::Done(unmade) = test
-        .set_user_admin(&admin_id, InstanceRole::User)
+        .set_user_admin(&admin_id, InstanceRole::User, &admin_id)
         .await
         .expect("no failure")
     else {
@@ -1650,7 +1659,7 @@ async fn set_user_admin_keeps_one_administrator() {
 
     // The other one is the only administrator now. A deactivated administrator next to
     // them would not change that.
-    test.set_user_admin(&admin_id, InstanceRole::Administrator)
+    test.set_user_admin(&admin_id, InstanceRole::Administrator, &other_id)
         .await
         .expect("no failure");
     common::execute_raw(
@@ -1659,14 +1668,14 @@ async fn set_user_admin_keeps_one_administrator() {
     )
     .await;
     assert_eq!(
-        test.set_user_admin(&other_id, InstanceRole::User)
+        test.set_user_admin(&other_id, InstanceRole::User, &other_id)
             .await
             .expect("no failure"),
         AdminChange::LastAdmin,
         "a deactivated administrator is none to count on"
     );
     assert_eq!(
-        test.set_user_admin(&admin_id, InstanceRole::User)
+        test.set_user_admin(&admin_id, InstanceRole::User, &admin_id)
             .await
             .expect("no failure"),
         AdminChange::NoSuchUser,
@@ -1687,7 +1696,7 @@ async fn of_two_administrators_who_step_down_at_once_one_stays() {
 
     for round in 0..ROUNDS {
         for user_id in [&first_id, &second_id] {
-            test.set_user_admin(user_id, InstanceRole::Administrator)
+            test.make_admin_by_operator(user_id)
                 .await
                 .expect("both are administrators before the round");
         }
@@ -1696,7 +1705,11 @@ async fn of_two_administrators_who_step_down_at_once_one_stays() {
         for user_id in [&first_id, &second_id] {
             let store = test.store.clone();
             let user_id = user_id.clone();
-            racers.spawn(async move { store.set_user_admin(&user_id, InstanceRole::User).await });
+            racers.spawn(async move {
+                store
+                    .set_user_admin(&user_id, InstanceRole::User, &user_id)
+                    .await
+            });
         }
         let outcomes: Vec<AdminChange> = racers
             .join_all()

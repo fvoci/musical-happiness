@@ -425,7 +425,7 @@ async fn sidebar_ties_fall_back_to_age() {
 
 /// The subscribers of a block that were notified at the same time come by identifier,
 /// and the subscriptions of a subscriber made at the same time by the identifier of the
-/// block.
+/// block, also those of a workspace.
 #[tokio::test]
 async fn subscription_ties_fall_back_to_identifiers() {
     let test = common::setup().await;
@@ -502,6 +502,17 @@ async fn subscription_ties_fall_back_to_identifiers() {
         subscribed_blocks,
         [cards[0].id.as_str(), cards[1].id.as_str()]
     );
+    // Those of a workspace come in the same order, and another workspace has none.
+    let in_workspace = store
+        .get_subscriptions_in_workspace(&users[1], &workspace_id)
+        .await
+        .expect("the subscriptions of the workspace are read");
+    assert_eq!(in_workspace, subscriptions, "the board's workspace");
+    let elsewhere = store
+        .get_subscriptions_in_workspace(&users[1], &new_id())
+        .await
+        .expect("the subscriptions of another workspace are read");
+    assert!(elsewhere.is_empty(), "another workspace: {elsewhere:?}");
 
     test.teardown().await;
 }

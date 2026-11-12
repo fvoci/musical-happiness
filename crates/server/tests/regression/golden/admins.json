@@ -31,7 +31,7 @@
   },
   {
     "name": "the first user, seen by another",
-    "request": "GET /api/v1/users/<id:1> as admins-alice",
+    "request": "GET /api/v1/w/<id:3>/users/<id:1> as admins-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -467,19 +467,17 @@
     }
   },
   {
-    "name": "invite: the new administrator",
+    "name": "invite: an administrator of the instance alone",
     "request": "POST /api/v1/w/<id:3>/invitations as admins-bob",
-    "status": 201,
-    "content_type": "application/json",
+    "status": 403,
+    "content_type": "application/problem+json",
     "body": {
-      "createAt": "<ts>",
-      "createdBy": "<id:8>",
-      "expiresAt": "<ts>",
-      "id": "<id:9>",
-      "role": "member",
-      "token": "<secret>",
-      "uses": 0,
-      "workspaceId": "<id:3>"
+      "detail": "only the administrators of the workspace invite its members",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   }
 ]

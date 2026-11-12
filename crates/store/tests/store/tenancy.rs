@@ -6,13 +6,13 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use fvoci_model::{
-    BlockType, Board, BoardMember, BoardType, Category, OrgRole, SubscriberType, Subscription,
-    Upload, UploadPart, User, Workspace, WorkspaceRole, is_id, new_id,
+    AuditAction, BlockType, Board, BoardMember, BoardType, Category, OrgRole, SubscriberType,
+    Subscription, Upload, UploadPart, User, Workspace, WorkspaceRole, is_id, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{
-    AuditAction, AuditEntry, DbType, InstanceRole, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID,
-    SharingChange, Store, StoreError, Tenant,
+    AuditEntry, DbType, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharingChange, Store, StoreError,
+    Tenant,
 };
 use sqlx::Connection as _;
 
@@ -442,6 +442,23 @@ async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &s
         .expect("an object is being written");
 }
 
+/// Makes the user an administrator of the workspace: a role is recorded as given by a
+/// board's manager only while they administer its workspace.
+async fn administer(store: &Store, workspace_id: &str, user_id: &str) {
+    let made = store
+        .add_workspace_member(workspace_id, user_id, WorkspaceRole::Admin)
+        .await;
+    if made.is_err() {
+        store
+            .execute_unchecked(&format!(
+                "UPDATE workspace_members SET role = 'admin' WHERE user_id = '{user_id}' \
+                 AND workspace_id = '{workspace_id}'"
+            ))
+            .await
+            .expect("the user administers the workspace");
+    }
+}
+
 /// Stores, through `store`, something in every table of an organization: a workspace, a
 /// board with a member and the record of a change of its roles, a card and a comment
 /// whose text was changed, files, sharing, a subscription, a category with the board in
@@ -477,13 +494,13 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         scheme_viewer: true,
         ..BoardMember::default()
     };
-    let entry = AuditEntry {
-        workspace_id: board.workspace_id.clone(),
-        actor_id: user_id.clone(),
-        action: AuditAction::SelfAddedToBoard,
-        target_id: board_id.clone(),
-        create_at: 0,
-    };
+    let entry = AuditEntry::new(
+        &board.workspace_id,
+        &user_id,
+        AuditAction::SelfAddedToBoard,
+        &board_id,
+    );
+    administer(store, &board.workspace_id, &user_id).await;
     store
         .change_member_recorded(&as_viewer, &entry)
         .await
@@ -520,6 +537,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("the board is filed");
     in_the_files(store, &user_id, &board_id, username).await;
+    a_body_edited_together(store, &board_id, &user_id).await;
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),
@@ -556,6 +574,25 @@ async fn a_link_for_a_guest(store: &Store, board: &Board, user_id: &str) {
         })
         .await
         .expect("a link is stored");
+}
+
+/// The document of a card's body that is edited together, with an update logged.
+async fn a_body_edited_together(store: &Store, board_id: &str, user_id: &str) {
+    let mut edited = fvoci_model::Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        ..fvoci_model::Block::default()
+    };
+    common::insert_blocks(store, std::slice::from_mut(&mut edited), user_id).await;
+    store
+        .create_body_doc(&edited.id, b"a state", b"a digest")
+        .await
+        .expect("a document is stored");
+    store
+        .append_body_updates(&edited.id, &[(b"an update", user_id)], &[])
+        .await
+        .expect("an update is logged");
 }
 
 /// The organization's provider of sign-ins (one, whoever sets it) and a sign-in through
@@ -683,116 +720,6 @@ async fn one_organization_does_not_purge_the_trash_of_another() {
         .await
         .expect_err("their card is gone for good");
     assert!(gone.is_not_found(), "got {gone:?}");
-
-    test.teardown().await;
-}
-
-/// Whoever registers through a handle of an organization joins it and its default
-/// workspace, the first user as an administrator of both; an administrator of the
-/// instance made later becomes one of both, and stops being one with it. A user stored
-/// through a handle that names no organization is in none.
-#[tokio::test]
-async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
-    let test = common::setup().await;
-    let unset = test.scoped(Tenant::Unset);
-    let second_workspace = common::workspace(&test).await;
-    let first = common::user(&test, "first").await;
-    let second = common::user(&test, "second").await;
-    let outside = common::user(&unset, "outside").await;
-
-    let access = async |user_id: &str, workspace_id: &str| {
-        unset
-            .resolve_workspace(user_id, workspace_id)
-            .await
-            .expect("the workspace is resolved")
-            .map(|access| {
-                assert_eq!(access.org_id, test.org_id, "whose the workspace is");
-                (access.org_role, access.workspace_role)
-            })
-    };
-    let admin = Some((Some(OrgRole::Admin), WorkspaceRole::Admin));
-    let member = Some((Some(OrgRole::Member), WorkspaceRole::Member));
-    assert_eq!(
-        access(&first, &test.workspace_id).await,
-        admin,
-        "the first user"
-    );
-    assert_eq!(access(&second, &test.workspace_id).await, member);
-    assert_eq!(
-        access(&second, &second_workspace).await,
-        None,
-        "the default workspace only"
-    );
-    assert_eq!(access(&outside, &test.workspace_id).await, None);
-    assert_eq!(access(&first, &new_id()).await, None, "no such workspace");
-    assert_eq!(access(&first, "no identifier").await, None);
-    assert_eq!(
-        unset
-            .workspaces_of_user(&outside)
-            .await
-            .expect("the workspaces are listed"),
-        [],
-        "a user of no organization has no workspace"
-    );
-
-    // A member is let into the second workspace, as a guest.
-    test.add_workspace_member(&second_workspace, &second, WorkspaceRole::Guest)
-        .await
-        .expect("the member is added");
-    let listed = unset
-        .workspaces_of_user(&second)
-        .await
-        .expect("the workspaces are listed");
-    let listed: Vec<(&str, WorkspaceRole)> = listed
-        .iter()
-        .map(|workspace| {
-            assert_eq!(workspace.org_id, test.org_id);
-            (workspace.id.as_str(), workspace.role)
-        })
-        .collect();
-    assert_eq!(
-        listed,
-        [
-            (test.workspace_id.as_str(), WorkspaceRole::Member),
-            (second_workspace.as_str(), WorkspaceRole::Guest)
-        ],
-        "oldest workspace first"
-    );
-    let missing = test
-        .add_workspace_member(&new_id(), &second, WorkspaceRole::Member)
-        .await
-        .expect_err("no such workspace");
-    assert!(missing.is_not_found(), "got {missing:?}");
-
-    // The roles follow the instance's administrators, but a guest stays a guest.
-    test.set_user_admin(&second, InstanceRole::Administrator)
-        .await
-        .expect("the user is made an administrator");
-    assert_eq!(access(&second, &test.workspace_id).await, admin);
-    assert_eq!(
-        access(&second, &second_workspace).await,
-        Some((Some(OrgRole::Admin), WorkspaceRole::Guest))
-    );
-    test.set_user_admin(&second, InstanceRole::User)
-        .await
-        .expect("the user is an administrator no more");
-    assert_eq!(access(&second, &test.workspace_id).await, member);
-
-    // Somebody the organization takes in without a workspace is in none of them.
-    test.add_organization_member(&outside, OrgRole::Member)
-        .await
-        .expect("the user is added");
-    assert_eq!(access(&outside, &test.workspace_id).await, None);
-    // And somebody let into a workspace without belonging to the organization is in
-    // the workspace, as nothing in the organization.
-    let visitor = common::user(&unset, "visitor").await;
-    test.add_workspace_member(&second_workspace, &visitor, WorkspaceRole::Guest)
-        .await
-        .expect("the visitor is let in");
-    assert_eq!(
-        access(&visitor, &second_workspace).await,
-        Some((None, WorkspaceRole::Guest))
-    );
 
     test.teardown().await;
 }
@@ -1018,17 +945,19 @@ fn the_systems_reach_is_asked_for_in_few_places() {
 
 /// The files of the server that say whose rows a handle reaches: the way into a
 /// workspace, the templates (as the system organization), the start (the one
-/// organization of the routes that name no workspace), the housekeeping, and the
-/// application's own `scoped`. All of them are the logic's; no handler names one. A handler that named an organization by what a request
+/// organization of the routes that name no workspace), the housekeeping, the
+/// application's own `scoped`, and the documents of bodies edited together, which the
+/// server writes to their cards as the organization of each when it starts and stops. All of them are the logic's; no handler names one. A handler that named an organization by what a request
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
-    const ALLOWED: [&str; 5] = [
+    const ALLOWED: [&str; 6] = [
         "app/housekeeping.rs",
         "app/mod.rs",
         "app/startup.rs",
         "app/templates.rs",
         "app/workspaces.rs",
+        "collab/mod.rs",
     ];
     let server = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

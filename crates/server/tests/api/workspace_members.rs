@@ -1,10 +1,10 @@
 //! The members of a workspace: its administrators list them, change what one is, and
 //! take one out; a board that would be left without an admin passes to who did it.
 
+use fvoci_model::AuditAction;
 use fvoci_model::{
     Board, BoardMember, BoardRole, Invitation, UserWorkspace, WorkspaceMember, WorkspaceRole,
 };
-use fvoci_store::AuditAction;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -52,7 +52,7 @@ async fn role_of(client: &Client) -> Option<WorkspaceRole> {
 async fn private_board(client: &Client, title: &str) -> Board {
     client
         .post(
-            "/boards",
+            &format!("/w/{}/boards", ROOT_WORKSPACE_ID),
             &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
         )
         .await
@@ -66,7 +66,10 @@ async fn add_to_board(client: &Client, board: &Board, user_id: &str, role: Board
         ..BoardMember::default()
     }
     .with_role(Some(role));
-    client.add_member(&member).await.check_ok();
+    client
+        .add_member_in(&board.workspace_id, &member)
+        .await
+        .check_ok();
 }
 
 /// The roles on a board by the identifier of the user, as the store has them.
@@ -319,22 +322,22 @@ async fn a_member_made_a_guest_edits_their_boards_and_administers_none() {
 
     // The guest reads and edits, and manages nothing.
     th.client2
-        .get(&format!("/boards/{}", theirs.id))
+        .get(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
         .await
         .check_ok();
     th.client2
         .patch(
-            &format!("/boards/{}", theirs.id),
+            &format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id),
             &json!({"title": "Edited"}),
         )
         .await
         .check_ok();
     th.client2
-        .delete(&format!("/boards/{}", theirs.id))
+        .delete(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
         .await
         .check_status(StatusCode::FORBIDDEN);
     th.client
-        .get(&format!("/boards/{}", theirs.id))
+        .get(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
         .await
         .check_ok();
 
@@ -354,7 +357,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
     let card: Value = th
         .client2
         .post(
-            &format!("/boards/{}/cards", theirs.id),
+            &format!("/w/{}/boards/{}/cards", theirs.workspace_id, theirs.id),
             &json!({"title": "Written before leaving"}),
         )
         .await
@@ -394,7 +397,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
     }
     for board in [&theirs, &shared] {
         th.client2
-            .get(&format!("/boards/{}", board.id))
+            .get(&format!("/w/{}/boards/{}", board.workspace_id, board.id))
             .await
             .check_status(StatusCode::NOT_FOUND);
     }
@@ -414,7 +417,10 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
     // What they wrote is there, under their name.
     let cards: Vec<Value> = th
         .client
-        .get(&format!("/boards/{}/cards", theirs.id))
+        .get(&format!(
+            "/w/{}/boards/{}/cards",
+            theirs.workspace_id, theirs.id
+        ))
         .await
         .ok_json();
     assert_eq!(cards.len(), 1, "{cards:?}");
@@ -443,7 +449,7 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
         .check_ok();
     assert_eq!(role_of(&th.client2).await, Some(WorkspaceRole::Member));
     th.client2
-        .get(&format!("/boards/{}", theirs.id))
+        .get(&format!("/w/{}/boards/{}", theirs.workspace_id, theirs.id))
         .await
         .check_status(StatusCode::NOT_FOUND);
     assert_eq!(roles_on(&th, &theirs).await, admin_alone);
@@ -451,43 +457,43 @@ async fn a_member_taken_out_finds_no_workspace_and_their_boards_pass_on() {
     th.teardown().await;
 }
 
-/// Who stops being an administrator of the instance stays the administrator of a
-/// workspace that has no other: a workspace keeps one, by whatever route.
+/// Being, or no longer being, an administrator of the instance changes what nobody
+/// is in a workspace: that is changed by the route of its members alone, and there a
+/// workspace keeps its last administrator.
 #[tokio::test]
-async fn a_workspace_keeps_its_last_administrator_when_the_instance_role_goes() {
+async fn the_instance_role_changes_no_role_in_a_workspace_and_its_last_administrator_stays() {
     let th = Setup::native().start().await.init_basic().await;
     let (first_id, second_id) = (th.client.me().await.id, th.client2.me().await.id);
-    let instance_admin = |user_id: &str, is_admin: bool| {
+    let instance_admin = |client: &Client, user_id: &str, is_admin: bool| {
         let path = format!("/users/{user_id}/admin");
-        let client = &th.client2;
+        let client = client.clone();
         async move { client.put(&path, &json!({"isAdmin": is_admin})).await }
     };
-    // The second becomes an administrator of the instance, and with it of the
-    // workspace; then a member of the workspace again, by the route of its members.
-    th.client
-        .put(
-            &format!("/users/{second_id}/admin"),
-            &json!({"isAdmin": true}),
-        )
+    // The second becomes an administrator of the instance: a member of the workspace
+    // still, who does not manage its people.
+    instance_admin(&th.client, &second_id, true)
         .await
         .check_ok();
-    assert_eq!(role_of(&th.client2).await, Some(WorkspaceRole::Admin));
-    set_role(&th.client, &second_id, "member").await.check_ok();
+    assert_eq!(role_of(&th.client2).await, Some(WorkspaceRole::Member));
+    set_role(&th.client2, &first_id, "member")
+        .await
+        .check_status(StatusCode::FORBIDDEN);
 
     // The first, the only administrator of the workspace, stops being one of the
     // instance: the workspace still has them.
-    instance_admin(&first_id, false).await.check_ok();
+    instance_admin(&th.client2, &first_id, false)
+        .await
+        .check_ok();
     assert!(
         !th.client.me().await.is_admin,
         "no administrator of the instance"
     );
     assert_eq!(role_of(&th.client).await, Some(WorkspaceRole::Admin));
-    th.client.get(&members_path()).await.check_ok();
-    // With another administrator in the workspace, the role follows as it did.
-    set_role(&th.client, &second_id, "admin").await.check_ok();
-    instance_admin(&first_id, true).await.check_ok();
-    instance_admin(&first_id, false).await.check_ok();
-    assert_eq!(role_of(&th.client).await, Some(WorkspaceRole::Member));
+    // By the route of the workspace's members its last administrator stays one.
+    let refused = set_role(&th.client, &first_id, "member").await;
+    refused.check_status(StatusCode::CONFLICT);
+    assert_eq!(refused.error_reason(), "last_admin");
+    assert_eq!(role_of(&th.client).await, Some(WorkspaceRole::Admin));
 
     th.teardown().await;
 }
@@ -503,7 +509,7 @@ async fn the_sidebar_of_a_guest_has_the_boards_they_are_on_and_no_other() {
     let open: Board = th
         .client
         .post(
-            "/boards",
+            &format!("/w/{}/boards", ROOT_WORKSPACE_ID),
             &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": "Open, never joined"}),
         )
         .await

@@ -378,7 +378,13 @@ impl App {
         workspace_id: &str,
         board_id: &str,
     ) -> Result<(), AppError> {
-        let board = self.board(board_id).await?;
+        // The workspace named, which may be another than the handle's (a board filed
+        // back in its own): compared here, not by `App::board`.
+        let board = match self.store().get_board(board_id).await {
+            Ok(board) => board,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
+            Err(error) => return Err(error.into()),
+        };
         if category_of_workspace_takes(&board, workspace_id) {
             Ok(())
         } else {

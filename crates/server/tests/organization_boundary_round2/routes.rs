@@ -11,41 +11,113 @@ use fvoci_store::DbType;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use super::common::ROOT_WS;
 use super::common::{
     Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, UNKNOWN_ID,
 };
 use super::{answer, db_type_of_the_tests};
 
-// Method, path suffix, operation ID: also compared against the published contract.
+// Method, path suffix, operation ID: every operation under `/w/{workspaceId}`, also
+// compared against the published contract. A parameter of the path is filled in with an
+// identifier of nothing; `{partNumber}` with 1.
 const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "", "getWorkspace"),
     ("GET", "/archive/export", "exportWorkspaceArchive"),
     ("POST", "/archive/import", "importArchive"),
     ("POST", "/archive/uploads", "createImportUpload"),
+    ("GET", "/audit", "getWorkspaceAudit"),
+    ("POST", "/boards", "createBoard"),
     ("GET", "/boards", "getWorkspaceBoards"),
+    ("POST", "/boards-and-blocks", "createBoardsAndBlocks"),
+    ("DELETE", "/boards-and-blocks", "deleteBoardsAndBlocks"),
+    ("PATCH", "/boards-and-blocks", "patchBoardsAndBlocks"),
     ("GET", "/boards/search?q=secret", "searchWorkspaceBoards"),
-    ("GET", "/categories", "getCategories"),
-    ("POST", "/categories", "createCategory"),
-    ("DELETE", "/categories/{category}", "deleteCategory"),
-    ("PUT", "/categories/{category}", "updateCategory"),
+    ("DELETE", "/boards/{boardId}", "deleteBoard"),
+    ("GET", "/boards/{boardId}", "getBoard"),
+    ("PATCH", "/boards/{boardId}", "patchBoard"),
+    (
+        "GET",
+        "/boards/{boardId}/archive/export",
+        "exportBoardArchive",
+    ),
+    ("POST", "/boards/{boardId}/blocks", "createBlocks"),
+    ("GET", "/boards/{boardId}/blocks", "getBlocks"),
+    ("PATCH", "/boards/{boardId}/blocks", "patchBlocks"),
+    (
+        "DELETE",
+        "/boards/{boardId}/blocks/{blockId}",
+        "deleteBlock",
+    ),
+    ("PATCH", "/boards/{boardId}/blocks/{blockId}", "patchBlock"),
+    (
+        "POST",
+        "/boards/{boardId}/blocks/{blockId}/duplicate",
+        "duplicateBlock",
+    ),
+    (
+        "POST",
+        "/boards/{boardId}/blocks/{blockId}/undelete",
+        "undeleteBlock",
+    ),
+    (
+        "GET",
+        "/boards/{boardId}/blocks/{blockId}/versions",
+        "getCommentVersions",
+    ),
+    ("POST", "/boards/{boardId}/cards", "createCard"),
+    ("GET", "/boards/{boardId}/cards", "getCards"),
+    ("POST", "/boards/{boardId}/duplicate", "duplicateBoard"),
+    ("POST", "/boards/{boardId}/files", "uploadFile"),
+    ("GET", "/boards/{boardId}/files/{fileId}", "getFile"),
+    (
+        "GET",
+        "/boards/{boardId}/files/{fileId}/info",
+        "getFileInfo",
+    ),
+    ("POST", "/boards/{boardId}/join", "joinBoard"),
+    ("POST", "/boards/{boardId}/leave", "leaveBoard"),
+    ("POST", "/boards/{boardId}/members", "addMember"),
+    ("GET", "/boards/{boardId}/members", "getMembers"),
+    (
+        "DELETE",
+        "/boards/{boardId}/members/{userId}",
+        "removeMember",
+    ),
+    ("PUT", "/boards/{boardId}/members/{userId}", "updateMember"),
     (
         "PUT",
-        "/categories/{category}/board-order",
+        "/boards/{boardId}/property-order",
+        "reorderCardProperties",
+    ),
+    ("GET", "/boards/{boardId}/sharing", "getSharing"),
+    ("POST", "/boards/{boardId}/sharing", "setSharing"),
+    ("GET", "/boards/{boardId}/trash/cards", "getDeletedCards"),
+    ("POST", "/boards/{boardId}/undelete", "undeleteBoard"),
+    ("POST", "/boards/{boardId}/uploads", "createUpload"),
+    ("GET", "/cards/{cardId}", "getCard"),
+    ("PATCH", "/cards/{cardId}", "patchCard"),
+    ("POST", "/categories", "createCategory"),
+    ("GET", "/categories", "getCategories"),
+    ("DELETE", "/categories/{categoryId}", "deleteCategory"),
+    ("PUT", "/categories/{categoryId}", "updateCategory"),
+    (
+        "PUT",
+        "/categories/{categoryId}/board-order",
         "reorderCategoryBoards",
     ),
     (
         "POST",
-        "/categories/{category}/boards/{board}",
+        "/categories/{categoryId}/boards/{boardId}",
         "setBoardCategory",
     ),
     (
         "PUT",
-        "/categories/{category}/boards/{board}/hide",
+        "/categories/{categoryId}/boards/{boardId}/hide",
         "hideBoard",
     ),
     (
         "PUT",
-        "/categories/{category}/boards/{board}/unhide",
+        "/categories/{categoryId}/boards/{boardId}/unhide",
         "unhideBoard",
     ),
     ("PUT", "/category-order", "reorderCategories"),
@@ -57,10 +129,84 @@ const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/invitations", "getInvitations"),
     ("POST", "/invitations", "createInvitation"),
     ("DELETE", "/invitations/{invitation}", "revokeInvitation"),
+    ("POST", "/subscriptions", "createSubscription"),
+    (
+        "DELETE",
+        "/subscriptions/{blockId}/{subscriberId}",
+        "deleteSubscription",
+    ),
+    ("GET", "/subscriptions/{subscriberId}", "getSubscriptions"),
     ("GET", "/templates", "getTemplates"),
     ("GET", "/trash/boards", "getDeletedBoards"),
+    ("DELETE", "/uploads/{uploadId}", "deleteUpload"),
+    ("GET", "/uploads/{uploadId}", "getUpload"),
+    ("POST", "/uploads/{uploadId}/complete", "completeUpload"),
+    (
+        "PUT",
+        "/uploads/{uploadId}/parts/{partNumber}",
+        "putUploadPart",
+    ),
     ("GET", "/users", "getWorkspaceUsers"),
     ("POST", "/users", "getWorkspaceUsersById"),
+    ("GET", "/users/{userId}", "getWorkspaceUser"),
+];
+
+/// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
+/// nothing: the body is refused, the operation, or what the path names.
+const REFUSED_IN_REACH: [StatusCode; 3] = [
+    StatusCode::BAD_REQUEST,
+    StatusCode::FORBIDDEN,
+    StatusCode::NOT_FOUND,
+];
+
+/// The operations of `WORKSPACE_ROUTES` that a guest of the workspace reaches by what
+/// they name, as a member does: for the guest the workspace is there, and what is refused
+/// is what the path names (a board, a card, an upload, a user), or the operation.
+const REACHED_BY_ITEM: &[&str] = &[
+    "createBoard",
+    "createBoardsAndBlocks",
+    "deleteBoardsAndBlocks",
+    "patchBoardsAndBlocks",
+    "deleteBoard",
+    "getBoard",
+    "patchBoard",
+    "exportBoardArchive",
+    "createBlocks",
+    "getBlocks",
+    "patchBlocks",
+    "deleteBlock",
+    "patchBlock",
+    "duplicateBlock",
+    "undeleteBlock",
+    "getCommentVersions",
+    "createCard",
+    "getCards",
+    "duplicateBoard",
+    "uploadFile",
+    "getFile",
+    "getFileInfo",
+    "joinBoard",
+    "leaveBoard",
+    "addMember",
+    "getMembers",
+    "removeMember",
+    "updateMember",
+    "reorderCardProperties",
+    "getSharing",
+    "setSharing",
+    "getDeletedCards",
+    "undeleteBoard",
+    "createUpload",
+    "getCard",
+    "patchCard",
+    "createSubscription",
+    "deleteSubscription",
+    "getSubscriptions",
+    "deleteUpload",
+    "getUpload",
+    "completeUpload",
+    "putUploadPart",
+    "getWorkspaceUser",
 ];
 
 #[test]
@@ -86,6 +232,17 @@ fn the_workspace_route_inventory_covers_every_operation_in_the_contract() {
             .collect(),
         "every workspace route is exercised, not only its read routes"
     );
+}
+
+/// A suffix of `WORKSPACE_ROUTES` with every parameter filled in with an identifier of
+/// nothing, and a part number with 1.
+fn fill_with_nothing(suffix: &str) -> String {
+    let mut filled = suffix.replace("{partNumber}", "1");
+    while let Some(start) = filled.find('{') {
+        let end = filled[start..].find('}').expect("a parameter ends") + start;
+        filled.replace_range(start..=end, UNKNOWN_ID);
+    }
+    filled
 }
 
 fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
@@ -117,23 +274,54 @@ enum Asker {
     Guest,
 }
 
+/// The workspace is looked at before the body is read: a body that is no JSON changes
+/// nothing of the refusal of a workspace the asker is not in (a guest is in it, and is
+/// told). A body that is JSON but names nothing found answers 404 of its own, which hid
+/// a refusal made after the body was read (`importArchive` did so once).
+async fn compare_malformed_bodies(
+    client: &Client,
+    method: &str,
+    suffix: &str,
+    operation: &str,
+) -> Option<String> {
+    let malformed = async |workspace: &str| {
+        client
+            .send_raw_body(
+                method.parse().expect("an HTTP method"),
+                &format!("/w/{workspace}{suffix}"),
+                "{",
+            )
+            .await
+    };
+    let (hidden, absent) = (
+        malformed(HIDDEN_WORKSPACE_ID).await,
+        malformed(UNKNOWN_ID).await,
+    );
+    (hidden.status != StatusCode::NOT_FOUND || answer(&hidden) != answer(&absent)).then(|| {
+        format!(
+            "{method} {suffix} ({operation}) with a body that is no JSON: hidden={:?}, absent={:?}",
+            answer(&hidden),
+            answer(&absent)
+        )
+    })
+}
+
+/// The body an operation of the table is sent with: one it takes, naming nothing there.
+fn route_body(operation: &str, user_id: &str, workspace: &str) -> Value {
+    match operation {
+        "createCategory" => json!({"name": "mine", "userId": user_id, "workspaceId": workspace}),
+        "reorderCategories" | "reorderCategoryBoards" | "getWorkspaceUsersById" => json!([]),
+        "importArchive" => json!({"uploadId": "missing-upload"}),
+        "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
+        _ => json!({}),
+    }
+}
+
 async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) -> Vec<String> {
     let mut violations = Vec::new();
     for (method, suffix, operation) in WORKSPACE_ROUTES {
-        let suffix = suffix
-            .replace("{category}", UNKNOWN_ID)
-            .replace("{board}", UNKNOWN_ID)
-            .replace("{invitation}", UNKNOWN_ID)
-            .replace("{user}", UNKNOWN_ID);
-        let body = |workspace: &str| match *operation {
-            "createCategory" => {
-                json!({"name": "mine", "userId": user_id, "workspaceId": workspace})
-            }
-            "reorderCategories" | "reorderCategoryBoards" | "getWorkspaceUsersById" => json!([]),
-            "importArchive" => json!({"uploadId": "missing-upload"}),
-            "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
-            _ => json!({}),
-        };
+        let suffix = fill_with_nothing(suffix);
+        let body = |workspace: &str| route_body(operation, user_id, workspace);
         let send = async |workspace: &str| {
             Client::send(
                 client
@@ -166,6 +354,10 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         } else if *operation == "getWorkspaceUsersById" && asker == Asker::Guest {
             // The workspace is there for its guest, and the empty list is refused.
             hidden.status == StatusCode::BAD_REQUEST && absent.status == StatusCode::NOT_FOUND
+        } else if asker == Asker::Guest && REACHED_BY_ITEM.contains(operation) {
+            // The workspace is there for its guest: what is refused is what the path
+            // names, the operation, or the empty body; nothing is done.
+            REFUSED_IN_REACH.contains(&hidden.status) && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
             // The guest's archive has the boards the guest is on, none here.
             hidden.status == StatusCode::OK
@@ -174,6 +366,9 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         } else {
             answer(&hidden) == answer(&absent) && hidden.status == StatusCode::NOT_FOUND
         };
+        if *method != "GET" && asker != Asker::Guest {
+            violations.extend(compare_malformed_bodies(client, method, &suffix, operation).await);
+        }
         if !equal {
             violations.push(format!(
                 "{method} {suffix} ({operation}): hidden={:?}, absent={:?}",
@@ -189,17 +384,22 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
                 json!({"id": "board-ref", "workspaceId": workspace, "type": "P", "title": "new"});
             let (path, body) = if bulk {
                 (
-                    "/boards-and-blocks",
+                    &format!("{ROOT_WS}/boards-and-blocks"),
                     json!({"boards": [board], "blocks": [{"id": "card-ref", "boardId": "board-ref", "type": "card", "createAt": 1, "updateAt": 1}]}),
                 )
             } else {
-                ("/boards", board)
+                (&format!("{ROOT_WS}/boards"), board)
             };
             client.post(path, &body).await
         };
         let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
-        if hidden.status != StatusCode::BAD_REQUEST || answer(&hidden) != answer(&absent) {
+        // Refused for the path's workspace (400), or the path's workspace is not there.
+        let refused = matches!(
+            hidden.status,
+            StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND
+        );
+        if !refused || answer(&hidden) != answer(&absent) {
             violations.push(format!(
                 "workspace in body (bulk={bulk}): {:?} versus {:?}",
                 answer(&hidden),
@@ -286,33 +486,27 @@ async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let categories: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
+        .get(&format!("{ROOT_WS}/categories"))
         .await
         .ok_json();
     let category = &categories[0].category;
     let hidden = ts
         .client
         .post(
-            &format!(
-                "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards/{}",
-                category.id, board.id
-            ),
+            &format!("{ROOT_WS}/categories/{}/boards/{}", category.id, board.id),
             &json!({}),
         )
         .await;
     let absent = ts
         .client
         .post(
-            &format!(
-                "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards/{UNKNOWN_ID}",
-                category.id
-            ),
+            &format!("{ROOT_WS}/categories/{}/boards/{UNKNOWN_ID}", category.id),
             &json!({}),
         )
         .await;
     let after: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
+        .get(&format!("{ROOT_WS}/categories"))
         .await
         .ok_json();
     let filed = after
@@ -348,13 +542,10 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let categories: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
+        .get(&format!("{ROOT_WS}/categories"))
         .await
         .ok_json();
-    let category = format!(
-        "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards",
-        categories[0].category.id
-    );
+    let category = format!("{ROOT_WS}/categories/{}/boards", categories[0].category.id);
     let mut answers = Vec::new();
     for change in ["hide", "unhide"] {
         let hidden = ts
@@ -379,7 +570,7 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
         .status;
     let after: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
+        .get(&format!("{ROOT_WS}/categories"))
         .await
         .ok_json();
     let template_hidden = after
@@ -424,14 +615,15 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
         .expect("the user is on a board of a workspace they are not in");
     let categories: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
+        .get(&format!("{ROOT_WS}/categories"))
         .await
         .ok_json();
-    let category = format!(
-        "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards",
-        categories[0].category.id
-    );
-    let seen = ts.client.get(&format!("/boards/{}", board.id)).await.status;
+    let category = format!("{ROOT_WS}/categories/{}/boards", categories[0].category.id);
+    let seen = ts
+        .client
+        .get(&format!("{ROOT_WS}/boards/{}", board.id))
+        .await
+        .status;
     let filed = ts
         .client
         .post(&format!("{category}/{}", board.id), &json!({}))
@@ -484,10 +676,7 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
         .expect("both boards are filed as they could be before");
     let deleted = ts
         .client
-        .delete(&format!(
-            "/w/{ROOT_WORKSPACE_ID}/categories/{}",
-            category.id
-        ))
+        .delete(&format!("{ROOT_WS}/categories/{}", category.id))
         .await
         .status;
     let mut filed = Vec::new();
@@ -516,17 +705,61 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
     );
 }
 
-/// The ID-only inventory comes from the contract, so adding a resource operation
-/// automatically includes it in the comparisons. The workspace inventory above spells out
-/// the complete workspace list separately, and body/query targets are checked below.
+/// A live link that lets members into the workspace, made by `maker`: its identifier.
+async fn a_link_into(ts: &crate::common::TestServer, workspace_id: &str, maker: &str) -> String {
+    ts.app
+        .store()
+        .create_invitation(&fvoci_store::NewLink {
+            workspace_id,
+            guest_of: None,
+            token_hash: &format!("a link into {workspace_id}"),
+            created_by: maker,
+            now: 0,
+            expires_at: i64::MAX,
+            max_uses: None,
+        })
+        .await
+        .expect("a link into the workspace")
+        .id
+}
+
+/// What the routes of [`compare_resource_routes`] are asked about: the things of one
+/// workspace that the paths name, and who is named in them.
+struct Items<'a> {
+    board: &'a Board,
+    card: &'a Block,
+    file: &'a str,
+    upload_id: &'a str,
+    category: &'a str,
+    /// A user of the items' workspace.
+    user: &'a str,
+    /// A live link that lets members into the items' workspace.
+    invitation: &'a str,
+    /// The subscriber of the path, and the one of the same path for nothing: the asker
+    /// themselves for both when they are subscribed to the card.
+    subscriber: (&'a str, &'a str),
+}
+
+/// Asks every operation under `/w/{workspace}` whose path names something (and the
+/// subscriptions, whose body names a block) about `items`, and again about nothing:
+/// the answers must be the same, and none a success. Where both requests are the same
+/// (the asker's own subscriptions), the answer must not name the card. The operations
+/// come from the contract, so a new one is compared as it is added.
 async fn compare_resource_routes(
     client: &Client,
-    board: &Board,
-    card: &Block,
-    file: &str,
-    owner: &str,
-    upload_id: &str,
+    workspace: &str,
+    items: &Items<'_>,
 ) -> Vec<String> {
+    let Items {
+        board,
+        card,
+        file,
+        upload_id,
+        category,
+        user,
+        invitation,
+        subscriber,
+    } = items;
     let caller = client.me().await.id;
     let contract: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -535,62 +768,76 @@ async fn compare_resource_routes(
     .expect("the contract");
     let mut violations = Vec::new();
     for (template, methods) in contract["paths"].as_object().expect("paths") {
-        if !(template.starts_with("/api/v1/boards/{boardId}")
-            || template.starts_with("/api/v1/cards/{cardId}")
-            || template.starts_with("/api/v1/uploads/{uploadId}")
-            || template.starts_with("/api/v1/subscriptions"))
-        {
+        let Some(rest) = template.strip_prefix("/api/v1/w/{workspaceId}") else {
+            continue;
+        };
+        if !(rest.contains('{') || rest.starts_with("/subscriptions")) {
             continue;
         }
         for (method, operation) in methods.as_object().expect("operations") {
             let Some(operation) = operation["operationId"].as_str() else {
                 continue;
             };
+            // The contract writes methods in lower case, which HTTP does not.
+            let method: reqwest::Method = method.to_uppercase().parse().expect("an HTTP method");
+            let pick = |absent: bool, there: &str, nothing: &'static str| -> String {
+                if absent { nothing } else { there }.to_owned()
+            };
             let path = |absent: bool| {
                 template
                     .trim_start_matches("/api/v1")
-                    .replace("{boardId}", if absent { UNKNOWN_ID } else { &board.id })
-                    .replace("{cardId}", if absent { UNKNOWN_ID } else { &card.id })
-                    .replace("{blockId}", if absent { UNKNOWN_ID } else { &card.id })
-                    .replace("{fileId}", if absent { "missing-file" } else { file })
+                    .replace("{workspaceId}", workspace)
+                    .replace("{boardId}", &pick(absent, &board.id, UNKNOWN_ID))
+                    .replace("{cardId}", &pick(absent, &card.id, UNKNOWN_ID))
+                    .replace("{blockId}", &pick(absent, &card.id, UNKNOWN_ID))
+                    .replace("{fileId}", &pick(absent, file, "missing-file"))
+                    .replace("{uploadId}", &pick(absent, upload_id, "missing-upload"))
+                    .replace("{userId}", &pick(absent, user, UNKNOWN_ID))
+                    .replace("{invitationId}", &pick(absent, invitation, UNKNOWN_ID))
                     .replace(
-                        "{uploadId}",
-                        if absent { "missing-upload" } else { upload_id },
+                        "{subscriberId}",
+                        if absent { subscriber.1 } else { subscriber.0 },
                     )
-                    .replace("{userId}", if absent { UNKNOWN_ID } else { owner })
-                    .replace("{subscriberId}", if absent { UNKNOWN_ID } else { owner })
                     .replace("{partNumber}", "1")
+                    .replace("{categoryId}", &pick(absent, category, UNKNOWN_ID))
             };
+            let block = |absent: bool| pick(absent, &card.id, UNKNOWN_ID);
             let body = |absent: bool| match operation {
                 "patchBlocks" => {
-                    json!({"blockIds": [if absent {UNKNOWN_ID} else {&card.id}], "blockPatches": [{"title": "changed"}]})
+                    json!({"blockIds": [block(absent)], "blockPatches": [{"title": "changed"}]})
                 }
                 "reorderCardProperties" | "createBlocks" => json!([]),
                 "createCard" => json!({"title": "new card"}),
                 "patchCard" | "patchBoard" | "patchBlock" => json!({"title": "changed"}),
                 "createUpload" => json!({"name": "new.bin", "size": 0}),
-                "addMember" => json!({"userId": owner, "schemeViewer": true}),
+                "addMember" => json!({"userId": user, "schemeViewer": true}),
                 "setSharing" => json!({"enabled": true}),
                 "createSubscription" => {
-                    json!({"blockId": if absent {UNKNOWN_ID} else {&card.id}, "blockType": "card", "subscriberType": "user", "subscriberId": caller})
+                    json!({"blockId": block(absent), "blockType": "card", "subscriberType": "user", "subscriberId": caller})
                 }
                 _ => json!({}),
             };
-            let hidden_body = body(false);
-            let missing_body = body(true);
-            let hidden = Client::send(
-                client
-                    .request(method.parse().expect("method"), &path(false))
-                    .json(&hidden_body),
-            )
-            .await;
-            let absent = Client::send(
-                client
-                    .request(method.parse().expect("method"), &path(true))
-                    .json(&missing_body),
-            )
-            .await;
-            if hidden.status.is_success() || answer(&hidden) != answer(&absent) {
+            if path(false).contains('{') {
+                violations.push(format!(
+                    "{operation} ({method} {template}): a parameter is not filled in"
+                ));
+                continue;
+            }
+            let ask = async |absent: bool| {
+                Client::send(
+                    client
+                        .request(method.clone(), &path(absent))
+                        .json(&body(absent)),
+                )
+                .await
+            };
+            let (hidden, absent) = (ask(false).await, ask(true).await);
+            let refused = if path(false) == path(true) && body(false) == body(true) {
+                !hidden.text().contains(&card.id)
+            } else {
+                !hidden.status.is_success()
+            };
+            if !refused || answer(&hidden) != answer(&absent) {
                 violations.push(format!(
                     "{operation} ({method} {template}): hidden={:?}, absent={:?}",
                     answer(&hidden),
@@ -602,15 +849,82 @@ async fn compare_resource_routes(
     violations
 }
 
+/// Takes the second user out of the first organization and makes them a member of a
+/// workspace of a new one.
+async fn move_to_another_organization(ts: &super::common::TestServer) {
+    let user = ts.client2.me().await.id;
+    for table in ["workspace_members", "organization_members"] {
+        ts.app
+            .store()
+            .execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{user}'"))
+            .await
+            .expect("remove first-org admission");
+    }
+    let workspace = Workspace {
+        id: new_id(),
+        ..Workspace::default()
+    };
+    let org = ts
+        .app
+        .store()
+        .create_organization("ID inventory", &workspace)
+        .await
+        .expect("another organization");
+    ts.app
+        .store()
+        .for_org(&org)
+        .expect("org ID")
+        .add_workspace_member(&workspace.id, &user, WorkspaceRole::Member)
+        .await
+        .expect("admission elsewhere");
+}
+
+/// A new user who works in `workspace` and in no other: a user is stored in the
+/// default workspace of the organization, the root one, and is taken out of it.
+async fn user_of_only(ts: &super::common::TestServer, workspace: &str) -> String {
+    let mut user = fvoci_model::User {
+        id: new_id(),
+        username: format!("only-{workspace}"),
+        email: format!("only-{workspace}@sample.com"),
+        ..fvoci_model::User::default()
+    };
+    let store = ts.app.store();
+    store
+        .create_user(&mut user)
+        .await
+        .expect("the user is stored");
+    store
+        .execute_unchecked(&format!(
+            "DELETE FROM workspace_members WHERE user_id = '{}' AND workspace_id = '{ROOT_WORKSPACE_ID}'",
+            user.id
+        ))
+        .await
+        .expect("the user leaves the root workspace");
+    store
+        .add_workspace_member(workspace, &user.id, WorkspaceRole::Member)
+        .await
+        .expect("the user works in the workspace");
+    user.id
+}
+
+/// A category of the owner in the hidden workspace.
+async fn hidden_category(ts: &super::common::TestServer, owner: &str) -> String {
+    ts.app
+        .create_category(fvoci_model::Category {
+            name: "Hidden category".to_owned(),
+            user_id: owner.to_owned(),
+            workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
+            ..fvoci_model::Category::default()
+        })
+        .await
+        .expect("a category of the hidden workspace")
+        .id
+}
+
 #[tokio::test]
 async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
-    let owner = ts.stranger().await;
-    ts.app
-        .store()
-        .add_workspace_member(HIDDEN_WORKSPACE_ID, &owner, WorkspaceRole::Member)
-        .await
-        .expect("the resource owner works in the hidden workspace");
+    let owner = user_of_only(&ts, HIDDEN_WORKSPACE_ID).await;
     let mut board = Board {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
@@ -661,40 +975,24 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         .add_workspace_member(HIDDEN_WORKSPACE_ID, &guest_id, WorkspaceRole::Guest)
         .await
         .expect("a guest who has no board invitation");
-    let mut violations =
-        compare_resource_routes(&ts.client, &board, &card, &file, &owner, &upload.id).await;
-    violations
-        .extend(compare_resource_routes(&guest, &board, &card, &file, &owner, &upload.id).await);
+    let category = hidden_category(&ts, &owner).await;
+    let invitation = a_link_into(&ts, HIDDEN_WORKSPACE_ID, &owner).await;
+    let items = Items {
+        board: &board,
+        card: &card,
+        file: &file,
+        upload_id: &upload.id,
+        category: &category,
+        user: &owner,
+        invitation: &invitation,
+        subscriber: (&owner, UNKNOWN_ID),
+    };
+    let mut violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
+    violations.extend(compare_resource_routes(&guest, ROOT_WORKSPACE_ID, &items).await);
     // A role in another organization must not change the answer of any ID route.
     if db_type_of_the_tests() == DbType::Postgres {
-        let user = ts.client2.me().await.id;
-        for table in ["workspace_members", "organization_members"] {
-            ts.app
-                .store()
-                .execute_unchecked(&format!("DELETE FROM {table} WHERE user_id = '{user}'"))
-                .await
-                .expect("remove first-org admission");
-        }
-        let workspace = Workspace {
-            id: new_id(),
-            ..Workspace::default()
-        };
-        let org = ts
-            .app
-            .store()
-            .create_organization("ID inventory", &workspace)
-            .await
-            .expect("another organization");
-        ts.app
-            .store()
-            .for_org(&org)
-            .expect("org ID")
-            .add_workspace_member(&workspace.id, &user, WorkspaceRole::Member)
-            .await
-            .expect("admission elsewhere");
-        violations.extend(
-            compare_resource_routes(&ts.client2, &board, &card, &file, &owner, &upload.id).await,
-        );
+        move_to_another_organization(&ts).await;
+        violations.extend(compare_resource_routes(&ts.client2, ROOT_WORKSPACE_ID, &items).await);
     }
     ts.teardown().await;
     assert!(
@@ -708,14 +1006,23 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
     for (path, absent) in [
         (
             format!(
-                "/boards/{}/duplicate?toWorkspace={HIDDEN_WORKSPACE_ID}",
+                "{ROOT_WS}/boards/{}/duplicate?toWorkspace={HIDDEN_WORKSPACE_ID}",
                 own.id
             ),
-            format!("/boards/{}/duplicate?toWorkspace={UNKNOWN_ID}", own.id),
+            format!(
+                "{ROOT_WS}/boards/{}/duplicate?toWorkspace={UNKNOWN_ID}",
+                own.id
+            ),
         ),
         (
-            format!("/boards/{}/blocks?sourceBoardId={}", own.id, hidden.id),
-            format!("/boards/{}/blocks?sourceBoardId={UNKNOWN_ID}", own.id),
+            format!(
+                "{ROOT_WS}/boards/{}/blocks?sourceBoardId={}",
+                own.id, hidden.id
+            ),
+            format!(
+                "{ROOT_WS}/boards/{}/blocks?sourceBoardId={UNKNOWN_ID}",
+                own.id
+            ),
         ),
     ] {
         let body = if path.contains("/blocks?") {
@@ -738,13 +1045,13 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
         };
         let concealed = Client::send(
             client
-                .request(method.clone(), "/boards-and-blocks")
+                .request(method.clone(), &format!("{ROOT_WS}/boards-and-blocks"))
                 .json(&body(&hidden.id)),
         )
         .await;
         let missing = Client::send(
             client
-                .request(method.clone(), "/boards-and-blocks")
+                .request(method.clone(), &format!("{ROOT_WS}/boards-and-blocks"))
                 .json(&body(UNKNOWN_ID)),
         )
         .await;
@@ -755,14 +1062,17 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
         );
         concealed.check_not_found();
     }
-    let found: Vec<Board> = client
-        .get("/boards/search?q=Hidden%20query")
-        .await
-        .ok_json();
-    assert!(
-        found.is_empty(),
-        "global board search does not find hidden open boards"
-    );
+    // For somebody of another organization the root workspace is not there either.
+    let search = client
+        .get(&format!("{ROOT_WS}/boards/search?q=Hidden%20query"))
+        .await;
+    if search.status != StatusCode::NOT_FOUND {
+        let found: Vec<Board> = search.ok_json();
+        assert!(
+            found.is_empty(),
+            "the search does not find hidden open boards"
+        );
+    }
 }
 
 #[tokio::test]
@@ -848,7 +1158,7 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
         .await
         .expect("a hidden board");
     ts.client2
-        .get(&format!("/boards/{}", board.id))
+        .get(&format!("/w/{HIDDEN_WORKSPACE_ID}/boards/{}", board.id))
         .await
         .check_not_found();
     ts.app
@@ -863,7 +1173,10 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
         .expect("a viewer invitation");
     for suffix in ["", "/blocks", "/cards", "/members"] {
         ts.client2
-            .get(&format!("/boards/{}{suffix}", board.id))
+            .get(&format!(
+                "/w/{HIDDEN_WORKSPACE_ID}/boards/{}{suffix}",
+                board.id
+            ))
             .await
             .check_ok();
     }
@@ -882,14 +1195,170 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
     );
     ts.client2
         .patch(
-            &format!("/boards/{}", board.id),
+            &format!("/w/{HIDDEN_WORKSPACE_ID}/boards/{}", board.id),
             &json!({"title": "not permitted"}),
         )
         .await
         .check_forbidden();
     ts.client2
-        .post(&format!("/boards/{}/join", board.id), &json!({}))
+        .post(
+            &format!("/w/{HIDDEN_WORKSPACE_ID}/boards/{}/join", board.id),
+            &json!({}),
+        )
         .await
         .check_not_found();
     ts.teardown().await;
+}
+
+/// What was under `/api/v1` before it moved under `/w/{workspaceId}`, and what went
+/// with the move (the search of every workspace, the users by identifiers of every
+/// workspace): every one of them is a path that does not exist, whoever asks.
+#[tokio::test]
+async fn the_paths_from_before_the_workspace_are_not_there() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let gone = WORKSPACE_ROUTES
+        .iter()
+        .filter(|(_, _, operation)| REACHED_BY_ITEM.contains(operation))
+        .map(|(method, suffix, operation)| (*method, fill_with_nothing(suffix), *operation))
+        .chain([
+            ("POST", "/users".to_owned(), "getUsers"),
+            ("GET", "/boards/search?q=secret".to_owned(), "searchBoards"),
+        ]);
+    let mut violations = Vec::new();
+    let mut count = 0;
+    for (method, path, operation) in gone {
+        count += 1;
+        for client in [&ts.client, &ts.anonymous()] {
+            let response = Client::send(
+                client
+                    .request(method.parse().expect("an HTTP method"), &path)
+                    .json(&json!({})),
+            )
+            .await;
+            if response.status != StatusCode::NOT_FOUND
+                || response.error_message() != "route not found"
+            {
+                violations.push(format!(
+                    "{operation}: {method} {path}: {:?}",
+                    answer(&response)
+                ));
+            }
+        }
+    }
+    ts.teardown().await;
+    assert_eq!(
+        count, 46,
+        "the operations that moved, and the two that went"
+    );
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// What is of one workspace is not there under another, also for somebody who works in
+/// both and may do anything with it in its own: every operation that names something in
+/// its path answers about a board, card, file, upload, category and user of the test
+/// workspace under the root one as about nothing, and the asker's subscription to the
+/// card is not among theirs there; so does a body or a query that names the board.
+#[tokio::test]
+async fn what_is_of_one_workspace_is_not_there_under_another() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let me = ts.client.me().await.id;
+    let elsewhere = user_of_only(&ts, TEST_WORKSPACE_ID).await;
+    let mut board = Board {
+        id: new_id(),
+        workspace_id: TEST_WORKSPACE_ID.to_owned(),
+        board_type: BoardType::Open,
+        title: "Sibling board".to_owned(),
+        ..Board::default()
+    };
+    let store = ts.app.store();
+    store
+        .insert_board_with_admin(&mut board, &me)
+        .await
+        .expect("a board of the test workspace that the asker administers");
+    let mut card = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        title: "Sibling card".to_owned(),
+        ..Block::default()
+    };
+    store.insert_block(&mut card, &me).await.expect("its card");
+    let mut data = &b"sibling workspace file"[..];
+    let file = ts
+        .app
+        .save_file(&mut data, &board.id, "sibling.txt")
+        .await
+        .expect("its file");
+    let to_upload = fvoci_server::app::FileToUpload {
+        name: "sibling-upload.txt".to_owned(),
+        size: 0,
+        content_type: String::new(),
+    };
+    let upload = ts
+        .app
+        .create_upload(&me, &board.id, to_upload)
+        .await
+        .expect("the asker's upload to it");
+    let category = ts
+        .app
+        .create_category(fvoci_model::Category {
+            name: "Sibling category".to_owned(),
+            user_id: me.clone(),
+            workspace_id: TEST_WORKSPACE_ID.to_owned(),
+            ..fvoci_model::Category::default()
+        })
+        .await
+        .expect("the asker's category there")
+        .id;
+    store
+        .create_subscription(fvoci_model::Subscription {
+            block_type: BlockType::Card,
+            block_id: card.id.clone(),
+            subscriber_type: fvoci_model::SubscriberType::User,
+            subscriber_id: me.clone(),
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
+        })
+        .await
+        .expect("the asker follows the card");
+    // Under its own workspace each of them is there.
+    for path in [
+        format!("/w/{TEST_WORKSPACE_ID}/boards/{}", board.id),
+        format!("/w/{TEST_WORKSPACE_ID}/cards/{}", card.id),
+        format!("/w/{TEST_WORKSPACE_ID}/uploads/{}", upload.id),
+        format!("/w/{TEST_WORKSPACE_ID}/users/{elsewhere}"),
+    ] {
+        ts.client.get(&path).await.check_ok();
+    }
+    let subscriptions = ts
+        .client
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/subscriptions/{me}"))
+        .await;
+    assert!(
+        subscriptions.text().contains(&card.id),
+        "followed in its workspace"
+    );
+    let invitation = a_link_into(&ts, TEST_WORKSPACE_ID, &me).await;
+    let items = Items {
+        board: &board,
+        card: &card,
+        file: &file,
+        upload_id: &upload.id,
+        category: &category,
+        user: &elsewhere,
+        invitation: &invitation,
+        subscriber: (&me, &me),
+    };
+    let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
+    // Named in a body or a query (the boards of a combined request, the board files are
+    // copied from), the board is as one that does not exist too.
+    let own = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    compare_query_targets(&ts.client, &own, &board).await;
+    ts.teardown().await;
+    assert!(
+        violations.is_empty(),
+        "what is of the test workspace, asked for under the root one:\n{}",
+        violations.join("\n")
+    );
 }

@@ -4,7 +4,9 @@ use fvoci_model::{RegisterRequest, User};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, ORG_NAME, PASSWORD, Setup, TestServer, UNKNOWN_ID};
+use crate::common::{
+    ApiResponse, Client, ORG_NAME, PASSWORD, ROOT_WS, Setup, TestServer, UNKNOWN_ID,
+};
 
 const ADMINS_ONLY: &str = "only an administrator of the instance may do this";
 
@@ -57,7 +59,7 @@ async fn the_first_user_is_the_administrator_and_later_ones_are_not() {
     let first_id = first["id"].as_str().expect("the user has an identifier");
     let seen: User = th
         .client2
-        .get(&format!("/users/{first_id}"))
+        .get(&format!("{ROOT_WS}/users/{first_id}"))
         .await
         .ok_json();
     assert!(seen.is_admin, "who the administrator is, is no secret");

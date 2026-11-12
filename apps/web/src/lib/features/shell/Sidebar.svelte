@@ -1,7 +1,9 @@
 <!--
-  The sidebar: the name of the app, a field that narrows the boards down by
+  The sidebar: the name of the app (or, for who works in several workspaces, the
+  one shown, to switch to another: `WorkspaceSwitcher.svelte`), a field that narrows the boards down by
   title (and asks the backend for the boards it finds beyond them), the categories with their boards, and at the foot "Add board",
-  the trash of boards (`TrashDialog.svelte`) and the reader's account (which opens the settings).
+  the trash of boards (`TrashDialog.svelte`), the way to the organization's screen for
+  its administrators, and the reader's account (which opens the settings).
 
   This is the content only. Where it sits (beside the board, or over the page
   as a drawer) is the shell's business, and nothing in here is drawn anew
@@ -13,6 +15,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
 
+  import BuildingIcon from '@lucide/svelte/icons/building-2';
   import PanelLeftCloseIcon from '@lucide/svelte/icons/panel-left-close';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import SearchIcon from '@lucide/svelte/icons/search';
@@ -43,6 +46,7 @@
   import PeopleDialog from './PeopleDialog.svelte';
   import SidebarList from './SidebarList.svelte';
   import TrashDialog from './TrashDialog.svelte';
+  import WorkspaceSwitcher from './WorkspaceSwitcher.svelte';
 
   interface Props {
     workspace: Workspace;
@@ -55,6 +59,10 @@
     onClose: () => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
+    /** The address of the organization's screen, for whoever administers it. */
+    orgHref?: string | undefined;
+    /** Goes to another workspace; with more than one, the head of the sidebar chooses. */
+    onSwitchWorkspace?: ((workspaceId: string) => void) | undefined;
   }
 
   let {
@@ -66,6 +74,8 @@
     onClose,
     onAddBoard,
     onOpenSettings,
+    orgHref,
+    onSwitchWorkspace,
   }: Props = $props();
 
   let query = $state('');
@@ -165,9 +175,17 @@
 </script>
 
 <div class="flex shrink-0 items-center gap-1 px-2 pt-2 pb-1">
-  <span class="min-w-0 flex-1 truncate pl-2 text-lg font-semibold tracking-tight" translate="no">
-    {m.app_name()}
-  </span>
+  {#if onSwitchWorkspace && workspace.workspaces.length > 1}
+    <WorkspaceSwitcher
+      workspaces={workspace.workspaces}
+      current={workspace.info?.id}
+      onSwitch={onSwitchWorkspace}
+    />
+  {:else}
+    <span class="min-w-0 flex-1 truncate pl-2 text-lg font-semibold tracking-tight" translate="no">
+      {m.app_name()}
+    </span>
+  {/if}
   <IconButton
     label={beside ? m.shell_collapse_sidebar() : m.shell_close_sidebar()}
     data-testid="close-sidebar"
@@ -283,6 +301,16 @@
       <UsersIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
       <span class="min-w-0 flex-1 truncate">{m.people_title()}</span>
     </button>
+  {/if}
+  {#if orgHref}
+    <a
+      href={orgHref}
+      data-testid="open-organization"
+      class="flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
+    >
+      <BuildingIcon class="size-5 shrink-0 p-0.5" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">{m.shell_organization()}</span>
+    </a>
   {/if}
   <button
     type="button"

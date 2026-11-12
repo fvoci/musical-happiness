@@ -97,7 +97,7 @@ async fn check_path_rules(origin: &str, base: &str) {
     for (method, path, allowed) in [
         (Method::DELETE, "/api/v1/client-config", "GET"),
         (Method::GET, "/api/v1/login", "POST"),
-        (Method::PUT, "/api/v1/boards", "POST"),
+        (Method::PUT, "/api/v1/logout", "POST"),
     ] {
         let answer = ask_owned(origin, method.clone(), format!("{base}{path}")).await;
         assert_eq!(

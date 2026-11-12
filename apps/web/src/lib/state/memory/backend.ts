@@ -265,12 +265,9 @@ export class MemoryBackend implements Backend {
     });
   }
 
-  /** As strict as the server: no empty list, no identifier twice, every one a user's. */
+  /** As the server: whom the workspace does not have is left out, and each is there once. */
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
     const users = await this.users(workspaceId);
-    if (userIds.length === 0) fail(400, 'no users asked for');
-    if (new Set(userIds).size !== userIds.length) fail(404, 'a user asked for twice');
-    if (userIds.some((id) => !this.world.users.has(id))) fail(404, 'no such user');
     return users.filter((user) => userIds.includes(user.id));
   }
 
@@ -455,9 +452,8 @@ export class MemoryBackend implements Backend {
   }
 
   /**
-   * As the server matches: every word of the term in the title, whatever the
-   * case; oldest first. Among the boards this backend lists (`boards`: the
-   * reader's), not the workspace's open ones the server adds.
+   * As the server matches: every word of the term in the title, whatever the case; oldest
+   * first. Among the boards of the workspace this backend lists (`boards`: the reader's).
    */
   async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
     await this.#enterWorkspace('searchBoards', workspaceId);
@@ -470,6 +466,7 @@ export class MemoryBackend implements Backend {
       .filter(
         (board) =>
           !board.isTemplate &&
+          board.workspaceId === workspaceId &&
           this.#memberIds(board.id).includes(this.userId) &&
           words.every((word) => board.title.toLowerCase().includes(word)),
       )

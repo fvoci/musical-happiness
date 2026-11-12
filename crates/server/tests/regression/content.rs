@@ -14,15 +14,13 @@ use sha2::{Digest as _, Sha256};
 
 use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board};
+use crate::harness::ROOT_API;
 use crate::harness::{API, OCTET_STREAM, Payload, Session, multipart, string_member};
 
 pub(crate) async fn templates(s: &mut Session) {
     let [alice] = s.users("tpl", ["alice"]).await;
     let listing = s
-        .get(
-            "templates",
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}/templates"),
-        )
+        .get("templates", &format!("{ROOT_API}/templates"))
         .user(&alice)
         .unrecorded()
         .await;
@@ -52,7 +50,10 @@ pub(crate) async fn templates(s: &mut Session) {
         .map(id_of)
         .expect("the welcome template exists");
     let welcome_blocks = s
-        .get("welcome blocks", &format!("{API}/boards/{welcome}/blocks"))
+        .get(
+            "welcome blocks",
+            &format!("{ROOT_API}/boards/{welcome}/blocks"),
+        )
         .user(&alice)
         .unrecorded()
         .await;
@@ -65,50 +66,44 @@ pub(crate) async fn templates(s: &mut Session) {
         *counts.entry(string_member(item, "type")).or_default() += 1;
     }
     s.note("welcome template block counts", &json!(counts));
-    s.get(
-        "templates: anonymous",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/templates"),
-    )
-    .await;
+    s.get("templates: anonymous", &format!("{ROOT_API}/templates"))
+        .await;
     let custom = new_board(s, &alice, "My template", "P", json!({"isTemplate": true})).await;
-    s.get(
-        "templates include mine",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/templates"),
-    )
-    .user(&alice)
-    .unrecorded()
-    .await;
-    s.get("my template", &format!("{API}/boards/{custom}"))
+    s.get("templates include mine", &format!("{ROOT_API}/templates"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    s.get("my template", &format!("{ROOT_API}/boards/{custom}"))
         .user(&alice)
         .await;
     let onboard = s
-        .post("onboard", &format!("{API}/w/{ROOT_WORKSPACE_ID}/onboard"))
+        .post("onboard", &format!("{ROOT_API}/onboard"))
         .user(&alice)
         .await;
     let tour_board = onboard.string("boardId");
-    s.get("onboarding board", &format!("{API}/boards/{tour_board}"))
-        .user(&alice)
-        .await;
+    s.get(
+        "onboarding board",
+        &format!("{ROOT_API}/boards/{tour_board}"),
+    )
+    .user(&alice)
+    .await;
     let tour = s
         .get(
             "onboarding blocks",
-            &format!("{API}/boards/{tour_board}/blocks"),
+            &format!("{ROOT_API}/boards/{tour_board}/blocks"),
         )
         .user(&alice)
         .unrecorded()
         .await;
     let tour_blocks = tour.json().as_array().map_or(0, Vec::len);
     s.note("onboarding board block count", &json!(tour_blocks));
-    s.post(
-        "onboard again",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/onboard"),
-    )
-    .user(&alice)
-    .unrecorded()
-    .await;
+    s.post("onboard again", &format!("{ROOT_API}/onboard"))
+        .user(&alice)
+        .unrecorded()
+        .await;
     s.get(
         "categories after onboarding",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/categories"),
+        &format!("{ROOT_API}/categories"),
     )
     .user(&alice)
     .await;
@@ -133,7 +128,7 @@ pub(crate) async fn files(s: &mut Session) {
 
     let [alice, bob] = s.users("files", ["alice", "bob"]).await;
     let board = new_board(s, &alice, "Board with files", "P", json!({})).await;
-    let upload = format!("{API}/boards/{board}/files");
+    let upload = format!("{ROOT_API}/boards/{board}/files");
     let png = || multipart("file", "pixel.png", &PNG, "image/png");
 
     let uploaded = s.post("upload", &upload).payload(png()).user(&alice).await;
@@ -163,7 +158,7 @@ pub(crate) async fn files(s: &mut Session) {
     s.post("upload: anonymous", &upload).payload(png()).await;
     s.post(
         "upload: unknown board",
-        &format!("{API}/boards/unknown-board/files"),
+        &format!("{ROOT_API}/boards/unknown-board/files"),
     )
     .payload(png())
     .user(&alice)
@@ -173,7 +168,7 @@ pub(crate) async fn files(s: &mut Session) {
         .user(&alice)
         .await;
 
-    let files = format!("{API}/boards/{board}/files");
+    let files = format!("{ROOT_API}/boards/{board}/files");
     let download = format!("{files}/{file_id}");
     // The paths that named the workspace with the board are gone.
     let old_files = format!("{API}/files/teams/{ROOT_WORKSPACE_ID}/{board}/{file_id}");
@@ -235,20 +230,20 @@ pub(crate) async fn files(s: &mut Session) {
 
     // A shared board serves its files to holders of the read token.
     let read_token = s
-        .post("share", &format!("{API}/boards/{board}/sharing"))
+        .post("share", &format!("{ROOT_API}/boards/{board}/sharing"))
         .json(json!({"enabled": true}))
         .user(&alice)
         .await
         .string("token");
     s.get(
         "download with the read token",
-        &format!("{download}?readToken={read_token}"),
+        &format!("{API}/shared/{board}/files/{file_id}?readToken={read_token}"),
     )
     .keep_headers(&["Content-Type"])
     .await;
     s.get(
         "download with a wrong read token",
-        &format!("{download}?readToken=wrong"),
+        &format!("{API}/shared/{board}/files/{file_id}?readToken=wrong"),
     )
     .await;
 
@@ -280,19 +275,19 @@ pub(crate) async fn files(s: &mut Session) {
         .expect("the attachment block was created");
     s.delete(
         "delete the image block",
-        &format!("{API}/boards/{board}/blocks/{image}"),
+        &format!("{ROOT_API}/boards/{board}/blocks/{image}"),
     )
     .user(&alice)
     .await;
     s.get(
         "blocks after deleting the image",
-        &format!("{API}/boards/{board}/blocks"),
+        &format!("{ROOT_API}/boards/{board}/blocks"),
     )
     .user(&alice)
     .await;
     s.post(
         "duplicate the board with files",
-        &format!("{API}/boards/{board}/duplicate"),
+        &format!("{ROOT_API}/boards/{board}/duplicate"),
     )
     .user(&alice)
     .unrecorded()
@@ -358,7 +353,7 @@ pub(crate) async fn archive(s: &mut Session) {
     )
     .await;
     let file_id = s
-        .post("upload", &format!("{API}/boards/{board}/files"))
+        .post("upload", &format!("{ROOT_API}/boards/{board}/files"))
         .payload(multipart("file", "pixel.png", &PNG, "image/png"))
         .user(&alice)
         .unrecorded()
@@ -406,7 +401,7 @@ pub(crate) async fn archive(s: &mut Session) {
     )
     .await;
 
-    let export = format!("{API}/boards/{board}/archive/export");
+    let export = format!("{ROOT_API}/boards/{board}/archive/export");
     let exported = s.get("export", &export).user(&alice).unrecorded().await;
     s.note(
         "export status and type",
@@ -418,15 +413,12 @@ pub(crate) async fn archive(s: &mut Session) {
     s.get("export: anonymous", &export).await;
     s.get(
         "export: unknown board",
-        &format!("{API}/boards/unknown-board/archive/export"),
+        &format!("{ROOT_API}/boards/unknown-board/archive/export"),
     )
     .user(&alice)
     .await;
     let workspace_export = s
-        .get(
-            "workspace export",
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/export"),
-        )
+        .get("workspace export", &format!("{ROOT_API}/archive/export"))
         .user(&alice)
         .unrecorded()
         .await;
@@ -444,18 +436,15 @@ pub(crate) async fn archive(s: &mut Session) {
         s.note("workspace export entries", &json!(entries));
     }
 
-    let import = format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/import");
+    let import = format!("{ROOT_API}/archive/import");
     let upload = upload_archive(s, &bob, &exported).await;
     s.post("import", &import)
         .json(json!({"uploadId": upload}))
         .user(&bob)
         .await;
-    s.post(
-        "import: anonymous",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/uploads"),
-    )
-    .json(json!({"name": "export.boardarchive", "size": exported.len()}))
-    .await;
+    s.post("import: anonymous", &format!("{ROOT_API}/archive/uploads"))
+        .json(json!({"name": "export.boardarchive", "size": exported.len()}))
+        .await;
     let upload = upload_archive(s, &bob, b"this is not an archive").await;
     s.post("import: not an archive", &import)
         .json(json!({"uploadId": upload}))
@@ -466,10 +455,7 @@ pub(crate) async fn archive(s: &mut Session) {
         .user(&bob)
         .await;
     let imported = s
-        .get(
-            "boards after import",
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
-        )
+        .get("boards after import", &format!("{ROOT_API}/boards"))
         .user(&bob)
         .await;
     let copy = imported
@@ -480,16 +466,22 @@ pub(crate) async fn archive(s: &mut Session) {
         .find(|board| board["title"] == "Exported board")
         .map(id_of)
         .expect("the imported board is listed");
-    s.get("imported blocks", &format!("{API}/boards/{copy}/blocks"))
-        .user(&bob)
-        .await;
-    s.get("imported members", &format!("{API}/boards/{copy}/members"))
-        .user(&bob)
-        .await;
+    s.get(
+        "imported blocks",
+        &format!("{ROOT_API}/boards/{copy}/blocks"),
+    )
+    .user(&bob)
+    .await;
+    s.get(
+        "imported members",
+        &format!("{ROOT_API}/boards/{copy}/members"),
+    )
+    .user(&bob)
+    .await;
     let images = s
         .get(
             "imported attachment block",
-            &format!("{API}/boards/{copy}/blocks?type=attachment"),
+            &format!("{ROOT_API}/boards/{copy}/blocks?type=attachment"),
         )
         .user(&bob)
         .unrecorded()
@@ -497,7 +489,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let imported_file = string_member(&images.json()[0]["fields"], "fileId");
     s.get(
         "imported file",
-        &format!("{API}/boards/{copy}/files/{imported_file}"),
+        &format!("{ROOT_API}/boards/{copy}/files/{imported_file}"),
     )
     .user(&bob)
     .await;
@@ -527,10 +519,7 @@ pub(crate) async fn archive(s: &mut Session) {
         .user(&bob)
         .await;
     let boards = s
-        .get(
-            "boards after legacy import",
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
-        )
+        .get("boards after legacy import", &format!("{ROOT_API}/boards"))
         .user(&bob)
         .unrecorded()
         .await;
@@ -551,7 +540,7 @@ async fn upload_archive(s: &mut Session, user: &str, bytes: &[u8]) -> String {
     let opened = s
         .post(
             "open an upload of an archive",
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/uploads"),
+            &format!("{ROOT_API}/archive/uploads"),
         )
         .json(json!({"name": "export.boardarchive", "size": bytes.len()}))
         .user(user)
@@ -567,7 +556,7 @@ async fn upload_archive(s: &mut Session, user: &str, bytes: &[u8]) -> String {
         let sent = s
             .put(
                 "send a part of an archive",
-                &format!("{API}/uploads/{upload}/parts/{}", index + 1),
+                &format!("{ROOT_API}/uploads/{upload}/parts/{}", index + 1),
             )
             .payload(Payload::Raw {
                 bytes: part.to_vec(),

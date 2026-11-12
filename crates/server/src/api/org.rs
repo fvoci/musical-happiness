@@ -113,11 +113,14 @@ async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
 /// `clientSecret` left out keeps the stored secret while the issuer and the client stay
 /// the same; with another issuer or client it is required when a secret is stored (400,
 /// `required` at `/clientSecret`), as the secret is the old client's. The empty string
-/// stores none. The
-/// secret is stored sealed with the server's key and never answered: without the key
-/// the request is 409 with the reason `secret_key_required`. `autoJoin` and `enabled`
-/// are on if left out. The answer's `redirectUri` is the address to register with the
-/// provider.
+/// stores none. The secret is stored sealed with the server's key and never answered:
+/// without the key the request is 409 with the reason `secret_key_required`. `autoJoin`
+/// and `enabled` left out stay as they are, also for another issuer or client, and are
+/// on when the organization has no provider. A provider changed by another request
+/// since this one read it is 409, to be read and sent again. The answer's `redirectUri`
+/// is the address to register with the provider, exactly: the organization's own,
+/// `…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after
+/// it is changed.
 #[utoipa::path(
     put,
     path = "/org/{orgId}/oidc",

@@ -2,12 +2,13 @@
 //! changes their members, deletes and restores them) and reads what is on one only as
 //! its member: making themselves one is recorded.
 
+use fvoci_model::AuditAction;
 use fvoci_model::{Board, BoardMember, BoardType, WorkspaceRole};
-use fvoci_store::AuditAction;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::boards::{member, new_board};
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID};
 
 /// The problem of an answer without what identifies the request.
@@ -48,7 +49,7 @@ async fn private_board_with_a_card(th: &TestServer) -> (Board, String) {
     let card = th
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &json!({"title": "Secret"}),
         )
         .await;
@@ -62,31 +63,34 @@ fn content(board_id: &str, card_id: &str) -> Vec<(Method, String, String)> {
     let get = |hidden: String, absent: String| (Method::GET, hidden, absent);
     vec![
         get(
-            format!("/boards/{board_id}/blocks"),
-            format!("/boards/{UNKNOWN_ID}/blocks"),
+            format!("{TEST_WS}/boards/{board_id}/blocks"),
+            format!("{TEST_WS}/boards/{UNKNOWN_ID}/blocks"),
         ),
         get(
-            format!("/boards/{board_id}/cards"),
-            format!("/boards/{UNKNOWN_ID}/cards"),
-        ),
-        get(format!("/cards/{card_id}"), format!("/cards/{UNKNOWN_ID}")),
-        get(
-            format!("/boards/{board_id}/sharing"),
-            format!("/boards/{UNKNOWN_ID}/sharing"),
+            format!("{TEST_WS}/boards/{board_id}/cards"),
+            format!("{TEST_WS}/boards/{UNKNOWN_ID}/cards"),
         ),
         get(
-            format!("/boards/{board_id}/archive/export"),
-            format!("/boards/{UNKNOWN_ID}/archive/export"),
+            format!("{TEST_WS}/cards/{card_id}"),
+            format!("{TEST_WS}/cards/{UNKNOWN_ID}"),
+        ),
+        get(
+            format!("{TEST_WS}/boards/{board_id}/sharing"),
+            format!("{TEST_WS}/boards/{UNKNOWN_ID}/sharing"),
+        ),
+        get(
+            format!("{TEST_WS}/boards/{board_id}/archive/export"),
+            format!("{TEST_WS}/boards/{UNKNOWN_ID}/archive/export"),
         ),
         (
             Method::POST,
-            format!("/boards/{board_id}/duplicate"),
-            format!("/boards/{UNKNOWN_ID}/duplicate"),
+            format!("{TEST_WS}/boards/{board_id}/duplicate"),
+            format!("{TEST_WS}/boards/{UNKNOWN_ID}/duplicate"),
         ),
         (
             Method::POST,
-            format!("/boards/{board_id}/cards"),
-            format!("/boards/{UNKNOWN_ID}/cards"),
+            format!("{TEST_WS}/boards/{board_id}/cards"),
+            format!("{TEST_WS}/boards/{UNKNOWN_ID}/cards"),
         ),
     ]
 }
@@ -98,19 +102,18 @@ async fn send(client: &Client, method: &Method, path: &str) -> ApiResponse {
 #[tokio::test]
 async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_it() {
     let th = Setup::native().start().await.init_basic().await;
-    workspace_admin(&th).await;
+    let admin_id = workspace_admin(&th).await;
     let (board, card_id) = private_board_with_a_card(&th).await;
     let third = th.add_user("third").await.me().await.id;
 
-    let listed: Vec<Board> = th
+    let listed: Vec<Board> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
+    let seen = th
         .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
-    let seen = th.client2.get(&format!("/boards/{}", board.id)).await;
+        .get(&format!("{TEST_WS}/boards/{}", board.id))
+        .await;
     let members = th
         .client2
-        .get(&format!("/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
         .await;
     let mut hidden = Vec::new();
     for (method, path, absent) in content(&board.id, &card_id) {
@@ -127,15 +130,21 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
             ..member(&board.id, &third)
         })
         .await;
-    let deleted = th.client2.delete(&format!("/boards/{}", board.id)).await;
+    let deleted = th
+        .client2
+        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .await;
     let in_the_trash: Vec<Value> = th
         .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/trash/boards"))
+        .get(&format!("{TEST_WS}/trash/boards"))
         .await
         .ok_json();
     let restored = th
         .client2
-        .post(&format!("/boards/{}/undelete", board.id), &json!({}))
+        .post(
+            &format!("{TEST_WS}/boards/{}/undelete", board.id),
+            &json!({}),
+        )
         .await;
     let recorded = th
         .app
@@ -171,9 +180,28 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
     );
     restored.check_ok();
     assert_eq!(restored.value()["description"], json!(""));
-    assert!(
-        recorded.is_empty(),
-        "nothing the admin did is recorded: {recorded:?}"
+    // Who manages a board without reading it and gives somebody else a role on it is
+    // recorded: the other might be an account of their own. Nothing else is.
+    let recorded: Vec<_> = recorded
+        .iter()
+        .map(|entry| {
+            (
+                entry.action,
+                entry.actor_id.as_str(),
+                entry.target_id.as_str(),
+                entry.subject_id.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        recorded,
+        [(
+            AuditAction::AddedToBoard,
+            admin_id.as_str(),
+            board.id.as_str(),
+            third.as_str()
+        )],
+        "only the member the admin added is recorded"
     );
 }
 
@@ -188,7 +216,7 @@ async fn a_workspace_admin_who_makes_themselves_a_member_reads_the_board_and_is_
     };
 
     th.client2.add_member(&as_viewer).await.check_ok();
-    let card = th.client2.get(&format!("/cards/{card_id}")).await;
+    let card = th.client2.get(&format!("{TEST_WS}/cards/{card_id}")).await;
     // Adding themselves again changes nothing, and records nothing.
     th.client2.add_member(&as_viewer).await.check_ok();
     let recorded = th
@@ -225,19 +253,18 @@ async fn a_member_who_is_no_admin_neither_lists_nor_manages_a_private_board() {
     let (board, _) = private_board_with_a_card(&th).await;
     let missing = th
         .client2
-        .get(&format!("/boards/{UNKNOWN_ID}/members"))
+        .get(&format!("{TEST_WS}/boards/{UNKNOWN_ID}/members"))
         .await;
 
-    let listed: Vec<Board> = th
-        .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let listed: Vec<Board> = th.client2.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let members = th
         .client2
-        .get(&format!("/boards/{}/members", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/members", board.id))
         .await;
-    let deleted = th.client2.delete(&format!("/boards/{}", board.id)).await;
+    let deleted = th
+        .client2
+        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .await;
     th.teardown().await;
 
     assert!(
@@ -250,9 +277,7 @@ async fn a_member_who_is_no_admin_neither_lists_nor_manages_a_private_board() {
 
 /// The names of the entries of the workspace's archive as the client exports it.
 async fn exported(client: &Client) -> Vec<String> {
-    let archive = client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/archive/export"))
-        .await;
+    let archive = client.get(&format!("{TEST_WS}/archive/export")).await;
     archive.check_ok();
     let archive =
         zip::ZipArchive::new(std::io::Cursor::new(archive.body)).expect("the export is an archive");
@@ -275,17 +300,17 @@ async fn a_workspace_admin_who_gives_a_membership_without_a_role_a_role_is_recor
         .save_member(&member(&board.id, &admin))
         .await
         .expect("a membership without a role");
-    let before = th.client2.get(&format!("/cards/{card_id}")).await;
+    let before = th.client2.get(&format!("{TEST_WS}/cards/{card_id}")).await;
     let archived = exported(&th.client2).await;
 
     let raised = th
         .client2
         .put(
-            &format!("/boards/{}/members/{admin}", board.id),
+            &format!("{TEST_WS}/boards/{}/members/{admin}", board.id),
             &json!({"schemeViewer": true}),
         )
         .await;
-    let after = th.client2.get(&format!("/cards/{card_id}")).await;
+    let after = th.client2.get(&format!("{TEST_WS}/cards/{card_id}")).await;
     let recorded = th
         .app
         .store()
@@ -375,7 +400,7 @@ async fn a_workspace_admin_lists_a_template_they_only_manage_by_name_and_adding_
         .check_ok();
     let templates: Vec<Board> = th
         .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/templates"))
+        .get(&format!("{TEST_WS}/templates"))
         .await
         .ok_json();
     let recorded = th

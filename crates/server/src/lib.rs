@@ -7,6 +7,8 @@ pub mod api;
 pub mod app;
 pub mod auth;
 pub mod client_address;
+pub mod collab;
+pub mod collab_worker;
 pub mod config;
 pub mod error;
 pub mod metrics;
@@ -138,6 +140,13 @@ impl Server {
         let server_lock = app.hold_server_lock(server_lock);
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
+        // The bodies of documents that a run that ended did not write to their cards,
+        // in the background: each takes the worker's time, which a start does not wait
+        // for.
+        let everyone = app.housekeeping();
+        app.spawn_background(async move {
+            everyone.collab().recover(&everyone).await;
+        });
         match app.housekeeping().sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
@@ -431,6 +440,9 @@ impl Server {
         // Websocket connections are not part of the HTTP server's own connections once
         // they are upgraded; they end here.
         self.app.ws().close();
+        // The bodies of the documents being edited are written before the background
+        // work is waited for, which tells of them.
+        self.app.collab().end(&self.app).await;
         if !self
             .app
             .finish_background(BACKGROUND_SHUTDOWN_TIMEOUT)
@@ -527,7 +539,8 @@ async fn clean_up_sessions(app: &App) {
     }
 }
 
-/// Removes for good what has been in the trash for longer than `trash_retention_days`.
+/// Removes for good what has been in the trash for longer than `trash_retention_days`,
+/// boards and workspaces.
 /// The objects of the files of the boards that go are doomed with their records, and
 /// removed by [`remove_doomed_objects`].
 async fn purge_trash(app: &App) -> JobOutcome {
@@ -537,7 +550,7 @@ async fn purge_trash(app: &App) -> JobOutcome {
         return JobOutcome::Failed;
     }
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
-    match app.store().purge_trash(deleted_before).await {
+    let boards = match app.store().purge_trash(deleted_before).await {
         Ok(purged) => {
             if purged.records > 0 || !purged.files.is_empty() {
                 tracing::info!(
@@ -552,7 +565,26 @@ async fn purge_trash(app: &App) -> JobOutcome {
             tracing::error!(%error, "unable to purge the trash");
             JobOutcome::Failed
         }
-    }
+    };
+    // A workspace in the trash goes as its boards do: they go into the trash with it
+    // and from there for good, with their files doomed.
+    let workspaces = match app.purge_workspaces(deleted_before).await {
+        Ok(done) => {
+            if done.records > 0 || done.files > 0 {
+                tracing::info!(
+                    records = done.records,
+                    files = done.files,
+                    "removed old workspaces from the trash"
+                );
+            }
+            JobOutcome::from_left(done.failed)
+        }
+        Err(error) => {
+            tracing::error!(%error, "unable to purge the workspaces in the trash");
+            JobOutcome::Failed
+        }
+    };
+    boards.and(workspaces)
 }
 
 /// Removes the records of the files that no block, live or in the trash, has shown for

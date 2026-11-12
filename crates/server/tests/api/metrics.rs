@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use reqwest::{Method, StatusCode};
 
+use crate::common::TEST_WS;
 use crate::common::{Client, Setup, TestServer};
 
 /// A server that keeps metrics and serves them at a free local port.
@@ -224,12 +225,17 @@ async fn paths_with_identifiers_are_counted_under_their_template() {
     let server = server_with_metrics().await;
     let ids: Vec<String> = (0..3).map(|_| fvoci_model::new_id()).collect();
     for id in &ids {
-        let response = server.client.get(&format!("/boards/{id}")).await;
+        let response = server.client.get(&format!("{TEST_WS}/boards/{id}")).await;
         assert_eq!(response.status, StatusCode::UNAUTHORIZED, "no session");
     }
     let body = scrape(&server).await;
     assert_eq!(
-        requests(&body, "GET", "/api/v1/boards/{boardId}", "401"),
+        requests(
+            &body,
+            "GET",
+            "/api/v1/w/{workspaceId}/boards/{boardId}",
+            "401"
+        ),
         Some(3.0),
         "one series for the three boards: {body}"
     );
@@ -292,7 +298,7 @@ async fn paths_and_methods_that_are_no_route_do_not_make_labels() {
 #[tokio::test]
 async fn the_base_path_is_not_part_of_the_route() {
     let server = Setup::native()
-        .base_path("/boards")
+        .base_path(&format!("{TEST_WS}/boards"))
         .metrics_at("127.0.0.1:0")
         .start()
         .await;
@@ -471,7 +477,7 @@ async fn the_pool_and_the_open_uploads_are_measured() {
         let opened = server
             .client
             .post(
-                &format!("/boards/{}/uploads", board.id),
+                &format!("{TEST_WS}/boards/{}/uploads", board.id),
                 &serde_json::json!({"name": "a.txt", "size": size}),
             )
             .await;
@@ -501,7 +507,7 @@ async fn the_pool_and_the_open_uploads_are_measured() {
     open_uploads_become(&server, (2.0, 30.0)).await;
     server
         .client
-        .delete(&format!("/uploads/{}", uploads[0]))
+        .delete(&format!("{TEST_WS}/uploads/{}", uploads[0]))
         .await
         .check_no_content();
     open_uploads_become(&server, (1.0, 20.0)).await;
@@ -525,7 +531,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
         .await;
     let export = server
         .client
-        .get(&format!("/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
         .await;
     assert_eq!(export.status, StatusCode::OK);
     let imported = crate::export::import(
@@ -569,7 +575,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
         Some(0.0),
         "given back"
     );
-    let export_route = "/api/v1/boards/{boardId}/archive/export";
+    let export_route = "/api/v1/w/{workspaceId}/boards/{boardId}/archive/export";
     let import_route = "/api/v1/w/{workspaceId}/archive/import";
     assert_eq!(
         requests(&body, "GET", export_route, "200"),

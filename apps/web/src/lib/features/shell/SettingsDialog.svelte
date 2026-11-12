@@ -15,6 +15,8 @@
   - Archives: every board of the workspace exported, an archive imported; the
     progress shows at the foot of the page (`Transfers.svelte`). An import that
     left members out, who are not in the workspace, says how many in a line.
+  - The workspace's records, which its members read (`AuditDialog.svelte`): only
+    where the backend has them.
   - The display name (`DisplayNameField.svelte`).
   - Who is signed in, signing out and changing the password: only where the
     backend has accounts.
@@ -82,6 +84,8 @@
     onSignOut?: () => void;
     /** Changes the password. Without it there is no account (the backend in memory). */
     onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
+    /** Opens the workspace's records. Without it (no server) they are not offered. */
+    onOpenRecords?: (() => void) | undefined;
   }
 
   let {
@@ -93,6 +97,7 @@
     onChooseLanguage,
     onSignOut,
     onChangePassword,
+    onOpenRecords,
   }: Props = $props();
 
   closeOnBack(
@@ -372,6 +377,22 @@
           {#if leftOutHere > 0}{m.shell_import_left_out({ count: leftOutHere })}{/if}
         </p>
       </section>
+
+      {#if onOpenRecords}
+        <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-records">
+          <h3 id="{uid}-records" class="font-medium">{m.shell_settings_workspace()}</h3>
+          <div>
+            <Button
+              variant="outline"
+              class="roomy:min-h-touch"
+              aria-haspopup="dialog"
+              data-testid="open-records"
+              onclick={onOpenRecords}>{m.audit_title()}</Button
+            >
+          </div>
+          <p class="text-xs text-muted-foreground">{m.audit_description()}</p>
+        </section>
+      {/if}
 
       {#if workspace.me}
         <div class="border-t pt-4">

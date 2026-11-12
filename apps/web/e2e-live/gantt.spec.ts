@@ -57,10 +57,10 @@ async function start(
 /** Gives the board a property through the API. */
 async function define(
   api: APIRequestContext,
-  boardId: string,
+  board: { workspaceId: string; boardId: string },
   property: { id: string; name: string; type: string },
 ): Promise<void> {
-  const answer = await api.patch(`/api/v1/boards/${boardId}`, {
+  const answer = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
     data: { updatedCardProperties: [{ ...property, options: [] }] },
   });
   expect(answer.ok(), await answer.text()).toBe(true);
@@ -69,11 +69,13 @@ async function define(
 /** Makes a card through the API and answers its identifier. */
 async function card(
   api: APIRequestContext,
-  boardId: string,
+  board: { workspaceId: string; boardId: string },
   title: string,
   properties: Record<string, unknown>,
 ): Promise<string> {
-  const answer = await api.post(`/api/v1/boards/${boardId}/cards`, { data: { title, properties } });
+  const answer = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
+    data: { title, properties },
+  });
   expect(answer.ok(), await answer.text()).toBe(true);
   return ((await answer.json()) as Schemas['Card']).id;
 }
@@ -81,18 +83,23 @@ async function card(
 /** The fields of a view as the server keeps them; the view has to be there. */
 async function storedFields(
   api: APIRequestContext,
-  boardId: string,
+  board: { workspaceId: string; boardId: string },
   viewId: string,
 ): Promise<Record<string, unknown>> {
-  const view = (await ganttViews(api, boardId)).find((each) => each.id === viewId);
+  const view = (await ganttViews(api, board)).find((each) => each.id === viewId);
   if (!view) throw new Error(`the server has no Gantt view ${viewId}`);
   return view.fields;
 }
 
 /** The Gantt views of a board as the server keeps them. */
-async function ganttViews(api: APIRequestContext, boardId: string): Promise<Schemas['Block'][]> {
+async function ganttViews(
+  api: APIRequestContext,
+  board: { workspaceId: string; boardId: string },
+): Promise<Schemas['Block'][]> {
   const views = (await (
-    await api.get(`/api/v1/boards/${boardId}/blocks`, { params: { type: 'view' } })
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
+      params: { type: 'view' },
+    })
   ).json()) as Schemas['Block'][];
   return views.filter((view) => view.fields.viewType === 'gantt');
 }
@@ -110,8 +117,8 @@ async function addGantt(
   await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
   await page.getByRole('menuitem', { name: 'Gantt', exact: true }).click();
   await expect(page.getByTestId('gantt')).toBeVisible();
-  await expect.poll(async () => (await ganttViews(api, board.boardId)).length).toBe(1);
-  const viewId = (await ganttViews(api, board.boardId))[0]?.id ?? '';
+  await expect.poll(async () => (await ganttViews(api, board)).length).toBe(1);
+  const viewId = (await ganttViews(api, board))[0]?.id ?? '';
   await expect(page).toHaveURL(new RegExp(`${boardPath(board, viewId)}$`));
   return viewId;
 }
@@ -122,16 +129,16 @@ test('a Gantt view made on the page draws dated cards as bars, and the server ke
 }) => {
   const { owner, api, board } = await start(baseURL, 'gantt', 'Harvest plan');
   // A second date, after "Due": the one the page will choose.
-  await define(api, board.boardId, { id: 'start', name: 'Start', type: 'date' });
+  await define(api, board, { id: 'start', name: 'Start', type: 'date' });
   const days = { due: { from: '2026-11-12' }, start: { from: '2026-11-03' } };
-  await card(api, board.boardId, 'Pick apples', days);
-  await card(api, board.boardId, 'Press cider', {
+  await card(api, board, 'Pick apples', days);
+  await card(api, board, 'Press cider', {
     due: { from: '2026-11-12', to: '2026-11-17' },
     start: { from: '2026-11-04' },
   });
   const errors = watchErrors(page);
   const viewId = await addGantt(page, owner, api, board);
-  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board.boardId, viewId);
+  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board, viewId);
 
   // Made as the page makes one: placed by the first date, zoomed to weeks, no relation to read.
   expect(await fields()).toMatchObject({ dateDisplayPropertyId: 'due', ganttZoom: 'week' });
@@ -175,29 +182,31 @@ test('the dependencies and the zoom chosen on the page are kept by the server, a
   baseURL,
 }) => {
   const { owner, api, board } = await start(baseURL, 'gantt-deps', 'Building plan');
-  const foundation = await card(api, board.boardId, 'Pour the foundation', {
+  const foundation = await card(api, board, 'Pour the foundation', {
     due: { from: '2026-11-03', to: '2026-11-06' },
   });
   const errors = watchErrors(page);
   // Made before the board has a relation: the view names none.
   const viewId = await addGantt(page, owner, api, board);
-  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board.boardId, viewId);
+  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board, viewId);
   expect('dependencyPropertyId' in (await fields())).toBe(false);
 
-  await define(api, board.boardId, { id: 'after', name: 'After', type: 'relation' });
+  await define(api, board, { id: 'after', name: 'After', type: 'relation' });
   // Starts on the day the foundation ends: in order.
-  const walls = await card(api, board.boardId, 'Build the walls', {
+  const walls = await card(api, board, 'Build the walls', {
     due: { from: '2026-11-06', to: '2026-11-13' },
     after: [foundation],
   });
   // Starts before the walls end: out of order. And names a card that is not there: one
   // deleted since (the server takes only cards of the board, in the trash too).
-  const scrapped = await card(api, board.boardId, 'Scrapped', {});
-  await card(api, board.boardId, 'Raise the roof', {
+  const scrapped = await card(api, board, 'Scrapped', {});
+  await card(api, board, 'Raise the roof', {
     due: { from: '2026-11-11', to: '2026-11-14' },
     after: [walls, scrapped],
   });
-  const deleted = await api.delete(`/api/v1/boards/${board.boardId}/blocks/${scrapped}`);
+  const deleted = await api.delete(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${scrapped}`,
+  );
   expect(deleted.ok(), await deleted.text()).toBe(true);
   await page.reload();
   const gantt = page.getByTestId('gantt');
@@ -260,13 +269,13 @@ test('"display by" chosen for a view that named no date can be taken back on the
   baseURL,
 }) => {
   const { owner, api, board } = await start(baseURL, 'gantt-undo', 'Sowing plan');
-  await define(api, board.boardId, { id: 'start', name: 'Start', type: 'date' });
-  await card(api, board.boardId, 'Sow the beans', {
+  await define(api, board, { id: 'start', name: 'Start', type: 'date' });
+  await card(api, board, 'Sow the beans', {
     due: { from: '2026-11-12' },
     start: { from: '2026-11-03' },
   });
   // A view as another client may have stored it: a Gantt chart that names no date.
-  const made = await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
+  const made = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
         boardId: board.boardId,
@@ -289,7 +298,7 @@ test('"display by" chosen for a view that named no date can be taken back on the
   });
   expect(made.ok(), await made.text()).toBe(true);
   const viewId = ((await made.json()) as Schemas['Block'][])[0]?.id ?? '';
-  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board.boardId, viewId);
+  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board, viewId);
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);
@@ -318,15 +327,19 @@ test('a bar dragged on the page, and an end of it, change the card on the server
   baseURL,
 }) => {
   const { owner, api, board } = await start(baseURL, 'gantt-drag', 'Moving plan');
-  const cider = await card(api, board.boardId, 'Press cider', {
+  const cider = await card(api, board, 'Press cider', {
     due: { from: '2026-11-12', to: '2026-11-17' },
   });
   // 08:00 on the 10th in Seoul.
-  const call = await card(api, board.boardId, 'Morning call', {
+  const call = await card(api, board, 'Morning call', {
     due: { from: Date.parse('2026-11-09T23:00:00Z') },
   });
   const dueOf = async (cardId: string): Promise<unknown> =>
-    ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card']).properties.due;
+    (
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+      ).json()) as Schemas['Card']
+    ).properties.due;
   const errors = watchErrors(page);
   await addGantt(page, owner, api, board);
   const gantt = page.getByTestId('gantt');
@@ -343,7 +356,7 @@ test('a bar dragged on the page, and an end of it, change the card on the server
     page.waitForResponse(
       (response) =>
         response.request().method() === 'PATCH' &&
-        new URL(response.url()).pathname.endsWith(`/api/v1/cards/${cardId}`),
+        new URL(response.url()).pathname.endsWith(`/cards/${cardId}`),
     );
   /** Answers once the server has answered the page's change of `cardId`, which went well. */
   const answered = async (cardId: string, change: () => Promise<void>): Promise<void> => {

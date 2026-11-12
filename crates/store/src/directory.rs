@@ -19,13 +19,13 @@ use fvoci_model::{
 };
 use subtle::ConstantTimeEq as _;
 
-use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
+use crate::{Store, Tenant};
 use crate::{invitations, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
@@ -260,13 +260,13 @@ impl Store {
             .await
     }
 
-    /// The users with the given identifiers, each one that `sight` takes in, oldest
-    /// first. A user it does not take in is as one that does not exist.
+    /// The users with the given identifiers that `sight` takes in, oldest first, each
+    /// once. A user it does not take in is left out, as one that does not exist: the
+    /// answer does not say which identifiers found nobody, nor why.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if none is found and [`StoreError::NotAllFound`]
-    /// unless exactly one is found per identifier.
+    /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_users_in_sight(
         &self,
         sight: Sight<'_>,
@@ -274,7 +274,7 @@ impl Store {
     ) -> Result<Vec<User>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                users::users_by_ids(scope, user_ids, |sql, scope| {
+                users::found_users_by_ids(scope, user_ids, |sql, scope| {
                     push_seen(sql, scope, sight);
                 })
                 .await
@@ -575,8 +575,9 @@ impl Store {
 
     /// The organization of a board that is shared, for whoever holds its read token;
     /// `None` if the board is not shared, is not there, or the token is not its own.
-    /// Nothing of the system organization is shared, and nothing of a workspace or an
-    /// organization that was deleted.
+    /// Nothing of the system organization is shared, nothing of a workspace or an
+    /// organization that was deleted, and nothing of an organization that turned its
+    /// public links off.
     ///
     /// The tokens are compared without showing through timing where they differ.
     ///
@@ -598,6 +599,7 @@ impl Store {
                 );
                 sql.bind(Id(board_id))
                     .push_bind(" AND s.enabled = ", true)
+                    .push_bind(" AND o.public_links = ", true)
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
@@ -649,10 +651,38 @@ impl Store {
             .await
     }
 
-    /// Takes the sign-in under way whose `state` has the digest `state_hash`: it is
-    /// removed, whatever it is, so that it comes back once. `None` if there is none, or
-    /// it ended before `now`. The sign-in names its organization: the request that
-    /// comes back from the provider does not.
+    /// The workspaces of every organization that were put in the trash before
+    /// `deleted_before`, by organization and identifier: what the housekeeping removes
+    /// for good, each in its organization ([`Store::purge_workspace`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn workspaces_to_purge(
+        &self,
+        deleted_before: i64,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql =
+                    scope.sql("SELECT org_id, id FROM workspaces WHERE is_system = false AND delete_at > 0 AND delete_at < ");
+                sql.bind(deleted_before).push(" ORDER BY org_id, id");
+                scope
+                    .fetch_all(sql)
+                    .await?
+                    .iter()
+                    .map(|row| Ok((row.id(0)?, row.id(1)?)))
+                    .collect()
+            })
+            .await
+    }
+
+    /// Takes the sign-in under way whose `state` has the digest `state_hash`, if the
+    /// browser that comes back with it has the digest `browser_hash` of the one that
+    /// started it: it is removed, ended or not, so that it comes back once; whether it
+    /// ended (`expires_at`) is the caller's to see. `None` if there is none of that
+    /// browser; one of another browser stays. The sign-in names its organization: the
+    /// request that comes back from the provider does not.
     ///
     /// # Errors
     ///
@@ -660,20 +690,44 @@ impl Store {
     pub async fn take_oidc_login_flow(
         &self,
         state_hash: &str,
-        now: i64,
+        browser_hash: &str,
     ) -> Result<Option<LoginFlow>, StoreError> {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE state_hash = ");
-                sql.bind(state_hash).push(
-                    " RETURNING state_hash, browser_hash, nonce, pkce_verifier, org_id, \
+                sql.bind(state_hash)
+                    .push_bind(" AND browser_hash = ", browser_hash)
+                    .push(
+                        " RETURNING state_hash, browser_hash, nonce, pkce_verifier, org_id, \
                      provider_id, create_at, expires_at",
-                );
+                    );
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };
-                let flow = flow_from_row(&row)?;
-                Ok((flow.expires_at > now).then_some(flow))
+                flow_from_row(&row).map(Some)
+            })
+            .await
+    }
+
+    /// The organization of the sign-in under way whose `state` has the digest
+    /// `state_hash`, if there is one: for the login page a refused return goes back to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn oidc_login_flow_org(
+        &self,
+        state_hash: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT org_id FROM oidc_login_flows WHERE state_hash = ");
+                sql.bind(state_hash);
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
             })
             .await
     }
@@ -720,6 +774,26 @@ impl Store {
                     Some(row) => role(&row, 0).map(Some),
                     None => Ok(None),
                 }
+            })
+            .await
+    }
+
+    /// Whether the handle's organization is the instance's own: the oldest one in use,
+    /// which the routes that name no workspace work in ([`Store::only_organization`]) and
+    /// whose administrators are the instance's (`members::follow_instance_role`). Asked
+    /// with the system's reach, as the organization's wall hides the others.
+    pub(crate) async fn is_the_instances_organization(&self) -> Result<bool, StoreError> {
+        let Tenant::Org(org) = self.tenant() else {
+            return Ok(false);
+        };
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+                sql.bind(false)
+                    .push_bind(" AND delete_at = ", 0_i64)
+                    .push(" ORDER BY create_at, id LIMIT 1");
+                let oldest = scope.fetch_optional(sql).await?.map(|row| row.id(0));
+                Ok(oldest.transpose()?.is_some_and(|id| id == org.to_string()))
             })
             .await
     }

@@ -9,6 +9,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
+use super::common::ROOT_WS;
 use super::common::{Client, ROOT_WORKSPACE_ID, Setup};
 use super::{answer, db_type_of_the_tests, open};
 
@@ -157,13 +158,19 @@ impl Scene {
             };
             let hidden = Client::send(
                 ts.client
-                    .request(method.clone(), &format!("/uploads/{}{suffix}", ub.id))
+                    .request(
+                        method.clone(),
+                        &format!("{ROOT_WS}/uploads/{}{suffix}", ub.id),
+                    )
                     .body("x"),
             )
             .await;
             let absent = Client::send(
                 ts.client
-                    .request(method.clone(), &format!("/uploads/missing-upload{suffix}"))
+                    .request(
+                        method.clone(),
+                        &format!("{ROOT_WS}/uploads/missing-upload{suffix}"),
+                    )
                     .body("x"),
             )
             .await;
@@ -207,7 +214,7 @@ impl Scene {
 
         for client in [ts.anonymous(), ts.client2.clone()] {
             let public = client
-                .get(&format!("/boards/{}?readToken={token_b}", b.id))
+                .get(&format!("/shared/{}?readToken={token_b}", b.id))
                 .await;
             public.check_ok();
             assert_eq!(
@@ -217,7 +224,7 @@ impl Scene {
             );
             for part in ["blocks", "cards"] {
                 let listed = client
-                    .get(&format!("/boards/{}/{part}?readToken={token_b}", b.id))
+                    .get(&format!("/shared/{}/{part}?readToken={token_b}", b.id))
                     .await
                     .ok_json::<Vec<serde_json::Value>>();
                 assert!(
@@ -225,7 +232,7 @@ impl Scene {
                     "B's real card is read through {part}"
                 );
             }
-            let path = format!("/boards/{}/files/{name_b}?readToken={token_b}", b.id);
+            let path = format!("/shared/{}/files/{name_b}?readToken={token_b}", b.id);
             let file = client.get(&path).await;
             file.check_ok();
             assert_eq!(file.body, bytes_b, "the public link reads B's actual bytes");
@@ -243,7 +250,7 @@ impl Scene {
             assert_eq!(range.body, &bytes_b[2..6], "the range is B's");
             let info = client
                 .get(&format!(
-                    "/boards/{}/files/{name_b}/info?readToken={token_b}",
+                    "/shared/{}/files/{name_b}/info?readToken={token_b}",
                     b.id
                 ))
                 .await;
@@ -254,10 +261,10 @@ impl Scene {
             );
             // Wrong board in B, a board in A, and a valid token with another file name.
             for forbidden in [
-                format!("/boards/{}/files/{name_b}?readToken={token_b}", other.id),
-                format!("/boards/{}/files/{name_a}?readToken={token_b}", a.id),
-                format!("/boards/{}/files/{name_a}?readToken={token_b}", b.id),
-                format!("/boards/{}/files/{name_b}/info?readToken={token_a}", b.id),
+                format!("/shared/{}/files/{name_b}?readToken={token_b}", other.id),
+                format!("/shared/{}/files/{name_a}?readToken={token_b}", a.id),
+                format!("/shared/{}/files/{name_a}?readToken={token_b}", b.id),
+                format!("/shared/{}/files/{name_b}/info?readToken={token_a}", b.id),
             ] {
                 let denied = client.get(&forbidden).await;
                 assert!(
@@ -268,7 +275,7 @@ impl Scene {
             for card in [&self.card_a, &self.card_other] {
                 client
                     .get(&format!(
-                        "/boards/{}/blocks?blockId={}&readToken={token_b}",
+                        "/shared/{}/blocks?blockId={}&readToken={token_b}",
                         b.id, card.id
                     ))
                     .await
@@ -452,7 +459,7 @@ async fn cancelling_a_misbound_upload_does_not_delete_another_orgs_recorded_file
     let cancelled = scene
         .ts
         .client2
-        .delete(&format!("/uploads/{}", forged.id))
+        .delete(&format!("{ROOT_WS}/uploads/{}", forged.id))
         .await;
     let exists = scene
         .b_app

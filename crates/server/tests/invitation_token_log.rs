@@ -145,7 +145,7 @@ async fn use_the_links(api: &Api) -> (Vec<String>, Vec<String>) {
     let board: Board = parsed(
         admin
             .post(
-                "/api/v1/boards",
+                &format!("/api/v1/w/{workspace}/boards"),
                 &json!({"workspaceId": workspace, "type": "P", "title": "Plans"}),
             )
             .await,
