@@ -150,6 +150,19 @@ pub(crate) async fn follow_instance_role(
     instance_role: InstanceRole,
 ) -> Result<(), StoreError> {
     let (org_role, workspace_role) = roles_of(instance_role);
+    // The workspaces first, in the order of their identifiers, as every change of who
+    // is in one has them: of two changes that would each leave the other's member as
+    // the last administrator, the second sees what the first did.
+    let mut sql = scope.sql(
+        "SELECT wm.workspace_id FROM workspace_members AS wm \
+         JOIN workspaces AS t ON t.id = wm.workspace_id WHERE wm.user_id = ",
+    );
+    sql.bind(Id(user_id))
+        .push_bind(" AND t.org_id = ", scope.org()?)
+        .push(" ORDER BY wm.workspace_id");
+    for row in scope.fetch_all(sql).await? {
+        crate::workspace_membership::hold_workspace(scope, &row.id(0)?).await?;
+    }
     let mut sql = scope.sql("UPDATE organization_members SET role = ");
     sql.bind(org_role.as_str())
         .push_bind(" WHERE user_id = ", Id(user_id))

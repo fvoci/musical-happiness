@@ -91,6 +91,8 @@ test('a guest comes in by a link from the share dialog, and opens and edits that
     .click();
   await expect(guestPage.getByRole('menuitem')).toHaveText(['Export the board']);
   await guestPage.keyboard.press('Escape');
+  // The sidebar is not a guest's to arrange: its categories stay as they are.
+  await expect(sidebar(guestPage).locator('[data-category-toggle]').first()).toBeDisabled();
   // The settings bring no boards in.
   await guestPage.getByTestId('open-settings').click();
   await expect(guestPage.getByTestId('export-workspace')).toBeVisible();

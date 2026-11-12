@@ -47,15 +47,8 @@ impl Store {
     ) -> Result<Workspace, StoreError> {
         self.transaction(async |scope| {
             let now = now_millis();
-            if !change.enabled {
-                let mut sql = scope.sql("UPDATE invitations SET revoked_at = ");
-                sql.bind(now.max(1))
-                    .push_bind(" WHERE workspace_id = ", Id(workspace_id))
-                    .push_bind(" AND org_id = ", scope.org()?)
-                    .push_bind(" AND role = ", WorkspaceRole::Guest.as_str())
-                    .push_bind(" AND revoked_at = ", 0_i64);
-                scope.execute(sql).await?;
-            }
+            // The workspace before its links, as whoever takes somebody out of it has
+            // them, and so that a link made meanwhile waits and finds it turned off.
             let mut sql = scope.sql("UPDATE workspaces SET guest_invitations = ");
             sql.bind(change.enabled)
                 .push_bind(", modified_by = ", OptId(modified_by))
@@ -68,6 +61,15 @@ impl Store {
                 .fetch_optional(sql)
                 .await?
                 .ok_or_else(workspace_not_found)?;
+            if !change.enabled {
+                let mut sql = scope.sql("UPDATE invitations SET revoked_at = ");
+                sql.bind(now.max(1))
+                    .push_bind(" WHERE workspace_id = ", Id(workspace_id))
+                    .push_bind(" AND org_id = ", scope.org()?)
+                    .push_bind(" AND role = ", WorkspaceRole::Guest.as_str())
+                    .push_bind(" AND revoked_at = ", 0_i64);
+                scope.execute(sql).await?;
+            }
             workspace_from_row(&row)
         })
         .await

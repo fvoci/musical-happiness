@@ -14,6 +14,8 @@ use crate::permissions;
 /// How often a change of role is tried against a role that others change meanwhile.
 const ATTEMPTS: usize = 3;
 
+const CHANGED_MEANWHILE: &str = "what the member is in the workspace was changed meanwhile";
+
 /// What a change is refused with that would leave a workspace without an administrator.
 const LAST_ADMIN: &str = "the workspace must keep an administrator";
 
@@ -77,16 +79,17 @@ impl App {
                 continue;
             }
             self.settle(workspace_id, by, change)?;
-            break;
+            tracing::info!(
+                workspace_id,
+                user_id,
+                by,
+                role = role.as_str(),
+                "what a member is in a workspace was changed"
+            );
+            return self.workspace_member(workspace_id, user_id).await;
         }
-        tracing::info!(
-            workspace_id,
-            user_id,
-            by,
-            role = role.as_str(),
-            "what a member is in a workspace was changed"
-        );
-        self.workspace_member(workspace_id, user_id).await
+        // Changed by somebody else every time it was tried.
+        Err(AppError::conflict(CHANGED_MEANWHILE))
     }
 
     /// Takes a member out of the workspace, on behalf of `by`: its workspace is not
@@ -168,9 +171,7 @@ impl App {
                 Ok(())
             }
             MembershipChange::NotAMember => Err(no_such_member()),
-            MembershipChange::RoleIs(_) => Err(AppError::conflict(
-                "what the member is in the workspace was changed meanwhile",
-            )),
+            MembershipChange::RoleIs(_) => Err(AppError::conflict(CHANGED_MEANWHILE)),
             MembershipChange::LastAdmin => {
                 Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin))
             }

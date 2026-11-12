@@ -46,7 +46,11 @@ test('an administrator makes and revokes the link for members, changes what one 
   const look = () => anonymous.post('/api/v1/invitations/preview', { data: { token } });
   expect((await look()).status()).toBe(200);
   // Revoked, it lets nobody in. The newest link is the first of the list.
-  await dialog.getByTestId('people-links').getByRole('button', { name: 'Revoke' }).first().click();
+  await dialog
+    .getByTestId('people-links')
+    .getByRole('button', { name: 'Revoke link' })
+    .first()
+    .click();
   await expect.poll(async () => (await look()).status()).toBe(404);
   await expect(field).toHaveCount(0);
 

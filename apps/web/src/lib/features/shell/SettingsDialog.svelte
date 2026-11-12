@@ -49,7 +49,7 @@
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
   import { saveBlob } from '$lib/save.ts';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { isGuest, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
@@ -327,7 +327,7 @@
             {m.shell_export_workspace()}
           </Button>
           <!-- A guest brings no boards in: importing makes boards. -->
-          {#if workspace.info?.role !== 'guest'}
+          {#if !isGuest(workspace)}
             <Button
               variant="outline"
               class="roomy:min-h-touch"
@@ -358,7 +358,7 @@
             />
           {/if}
         </div>
-        {#if workspace.info?.role !== 'guest'}
+        {#if !isGuest(workspace)}
           <p id="{uid}-import-hint" class="text-xs text-muted-foreground">
             {m.shell_import_hint()}
           </p>

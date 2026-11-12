@@ -400,7 +400,6 @@ fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
     Ok(block)
 }
 
-/// Reads a JSON column of the trash into the type it was written from.
 /// What becomes of a user's memberships of the boards of a workspace that are in the
 /// trash, when the user stops being what they were in the workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -412,14 +411,32 @@ pub(crate) enum TrashedRoles {
     NoMoreThanEditor,
 }
 
+/// Holds the boards of a workspace that are in the trash, in the order of their
+/// identifiers, against whoever restores one or changes who it comes back with. Who
+/// also holds a membership of the workspace takes these first, as a restore does.
+pub(crate) async fn hold_deleted_boards(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+) -> Result<(), StoreError> {
+    if scope.dialect() != Dialect::Postgres {
+        return Ok(());
+    }
+    let mut sql = scope.sql("SELECT id FROM deleted_boards WHERE workspace_id = ");
+    sql.bind(Id(workspace_id)).push(" ORDER BY id FOR UPDATE");
+    scope.fetch_all(sql).await?;
+    Ok(())
+}
+
 /// Changes the memberships of a user that the boards of a workspace in the trash would
-/// come back with, as `roles` says.
+/// come back with, as `roles` says. The boards are held ([`hold_deleted_boards`]) from
+/// before they are read: what is written back is the whole list of a board's members.
 pub(crate) async fn change_member_of_deleted_boards(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,
     roles: TrashedRoles,
 ) -> Result<(), StoreError> {
+    hold_deleted_boards(scope, workspace_id).await?;
     let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
     sql.bind(Id(workspace_id));
     for row in scope.fetch_all(sql).await? {
@@ -448,6 +465,7 @@ pub(crate) async fn change_member_of_deleted_boards(
     Ok(())
 }
 
+/// Reads a JSON column of the trash into the type it was written from.
 fn from_json<T: DeserializeOwned>(
     row: &Row,
     index: usize,

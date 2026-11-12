@@ -105,12 +105,19 @@ impl Store {
                 .push_bind(" AND t.org_id = ", scope.org()?)
                 .push_bind(" AND t.delete_at = ", 0_i64);
             if link.guest_of.is_some() {
-                sql.push_bind(
-                    " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = ",
-                    Id(board_id),
-                )
-                .push_bind(" AND b.workspace_id = t.id AND b.is_template = ", false)
-                .push(")");
+                sql.push_bind(" AND t.guest_invitations = ", true)
+                    .push_bind(
+                        " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = ",
+                        Id(board_id),
+                    )
+                    .push_bind(" AND b.workspace_id = t.id AND b.is_template = ", false)
+                    .push(")");
+                // Whoever turns the invitations of guests off holds the workspace
+                // first and revokes its links then: a link is made before that, and
+                // revoked with the others, or after it, and then not at all.
+                if scope.dialect() == Dialect::Postgres {
+                    sql.push(" FOR SHARE OF t");
+                }
             }
             sql.push(&format!(" RETURNING {COLUMNS}"));
             match scope.fetch_optional(sql).await? {

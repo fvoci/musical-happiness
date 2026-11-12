@@ -70,14 +70,17 @@
 
   let query = $state('');
   /**
-   * What the backend finds for the query beyond what the sidebar shows. The
-   * server searches every workspace the reader is in, those they are a guest
-   * of too; only boards of one they can be taken to are offered.
+   * What the backend finds for the query beyond what the sidebar shows; only
+   * boards of a workspace the reader can be taken to are offered. A guest has
+   * the boards they are on in the sidebar already, and the server searches
+   * for those who work in the workspace: nothing is asked for them.
    */
   const boardSearch = new BoardSearch(async (text) =>
-    (await workspace.searchBoards(text)).filter((board) =>
-      workspace.workspaces.some((one) => one.id === board.workspaceId),
-    ),
+    isGuest(workspace)
+      ? []
+      : (await workspace.searchBoards(text)).filter((board) =>
+          workspace.workspaces.some((one) => one.id === board.workspaceId),
+        ),
   );
   onDestroy(() => {
     boardSearch.stop();

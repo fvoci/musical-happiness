@@ -97,7 +97,7 @@ describe('the people of a workspace', () => {
     expect(people.inviteMembers).toHaveBeenCalledExactlyOnceWith('w1');
     // The lists are read again after the link is made; then the row can be used.
     const revoke = within(screen.getByTestId('people-links')).getByRole('button', {
-      name: 'Revoke',
+      name: 'Revoke link',
     });
     await waitFor(() => {
       expect(revoke).toBeEnabled();

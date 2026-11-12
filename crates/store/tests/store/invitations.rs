@@ -484,3 +484,50 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
 
     test.teardown().await;
 }
+
+/// While the invitations of guests are turned off no link for a guest is stored, and
+/// those there were stay revoked when they are turned on again; a link for members is
+/// made either way.
+#[tokio::test]
+async fn no_link_for_a_guest_is_made_while_guests_are_not_invited() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 1).await;
+    let guest_of = Some((boards[0].id.as_str(), BoardRole::Editor));
+    link(&test, &admin, "before", guest_of, Some(1)).await;
+    let switch = async |enabled: bool| {
+        test.set_guest_invitations(
+            &test.workspace_id,
+            fvoci_model::GuestInvitationsChange { enabled },
+            &admin,
+        )
+        .await
+        .expect("the switch is stored");
+    };
+
+    switch(false).await;
+    let refused = test
+        .create_invitation(&NewLink {
+            workspace_id: &test.workspace_id,
+            guest_of,
+            token_hash: "while-off",
+            created_by: &admin,
+            now: NOW,
+            expires_at: LATER,
+            max_uses: Some(1),
+        })
+        .await;
+    assert!(
+        matches!(refused, Err(StoreError::NotFound(_))),
+        "{refused:?}"
+    );
+    link(&test, &admin, "members", None, None).await;
+
+    switch(true).await;
+    assert_eq!(uses_of(&test, "before").await, None, "revoked for good");
+    assert_eq!(uses_of(&test, "while-off").await, None);
+    link(&test, &admin, "after", guest_of, Some(1)).await;
+    assert_eq!(uses_of(&test, "after").await, Some(0));
+
+    test.teardown().await;
+}

@@ -297,7 +297,7 @@
           type="button"
           data-category-toggle
           aria-expanded={open}
-          disabled={filtering}
+          disabled={filtering || guest}
           class="flex min-h-8 w-full items-center gap-1 rounded-md py-1 pr-9 pl-1 text-left text-xs font-medium text-muted-foreground hover:bg-sidebar-accent disabled:hover:bg-transparent roomy:min-h-touch roomy:pr-12"
           onclick={() => void workspace.setCategoryCollapsed(category.id, !category.collapsed)}
         >

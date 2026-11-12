@@ -19,7 +19,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { isGuest, type Workspace } from '$lib/state/index.ts';
 
   import BoardIcon from './BoardIcon.svelte';
 
@@ -101,7 +101,7 @@
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
   <!-- A guest is on the boards they were invited to, and makes none. -->
-  {#if workspace.info?.role !== 'guest'}
+  {#if !isGuest(workspace)}
     <IconButton label={m.shell_add_board()} data-testid="strip-add-board" onclick={onAddBoard}>
       <PlusIcon />
     </IconButton>

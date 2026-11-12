@@ -118,9 +118,11 @@ impl Store {
                 return Ok(MembershipChange::NotAMember);
             }
             // The boards before the membership, as every write of a board's members
-            // has them.
+            // has them; those in the trash too, as a restore has them.
             let boards = if to == WorkspaceRole::Guest {
-                hold_boards_of(scope, workspace_id, user_id).await?
+                let boards = hold_boards_of(scope, workspace_id, user_id).await?;
+                trash::hold_deleted_boards(scope, workspace_id).await?;
+                boards
             } else {
                 Vec::new()
             };
@@ -192,6 +194,7 @@ impl Store {
                 return Ok(MembershipChange::NotAMember);
             }
             let boards = hold_boards_of(scope, workspace_id, user_id).await?;
+            trash::hold_deleted_boards(scope, workspace_id).await?;
             let Some(current) = held_role(scope, workspace_id, user_id).await? else {
                 return Ok(MembershipChange::NotAMember);
             };
@@ -260,7 +263,10 @@ fn role_from(text: &str) -> Result<WorkspaceRole, StoreError> {
 /// is in it; says whether there is such a workspace. The lock leaves alone whoever
 /// stores a row that refers to the workspace (a board, a membership, a record of the
 /// audit log), as the lock of a board does for the board.
-async fn hold_workspace(scope: &mut Scope<'_>, workspace_id: &str) -> Result<bool, StoreError> {
+pub(crate) async fn hold_workspace(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND org_id = ", scope.org()?)
