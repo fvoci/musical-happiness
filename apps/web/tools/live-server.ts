@@ -10,6 +10,11 @@
  * 127.0.0.1 only, and serves this app's build (`dist/`), so that the page and
  * the API have one origin. It prints `live: <address>` once it answers.
  *
+ * Beside it runs the fake OpenID Connect provider of the server's tests
+ * (`cargo build -p fvoci-server --bins --examples`), on the next port, and
+ * the server is started to reach it: with a key to seal its client secret,
+ * private addresses allowed, and its certificate as the one it trusts.
+ *
  * When this process is asked to stop, or ends, the server is stopped too.
  * The data folder stays, with the server's log (`server.log`), for looking
  * into after a failure; each run makes a new one. A server that ends
@@ -26,6 +31,12 @@ const REPO_ROOT = path.resolve(WEB_ROOT, '../..');
 const port = Number(process.argv[2] ?? 18510);
 const binary = process.env.FVOCI_SERVER_BIN ?? path.join(REPO_ROOT, 'target/debug/fvoci-server');
 const dist = path.join(WEB_ROOT, 'dist');
+const fakeOidc =
+  process.env.FVOCI_FAKE_OIDC_BIN ?? path.join(REPO_ROOT, 'target/debug/examples/fake_oidc');
+/** The fake provider listens on the port after the server's (`e2e-live/oidc.spec.ts`). */
+const oidcPort = port + 1;
+/** The key the server seals client secrets with: a test's, kept nowhere else. */
+const SECRET_KEY = Buffer.alloc(32, 7).toString('base64');
 
 /** Ends with a message where the test runner shows it (stdout, and stderr). */
 function stop(message: string): never {
@@ -36,6 +47,9 @@ function stop(message: string): never {
 
 if (!existsSync(binary)) stop(`no server at ${binary}: run \`cargo build -p fvoci-server\``);
 if (!existsSync(path.join(dist, 'index.html'))) stop('no build in dist/: run `pnpm run build`');
+if (!existsSync(fakeOidc)) {
+  stop(`no fake provider at ${fakeOidc}: run \`cargo build -p fvoci-server --bins --examples\``);
+}
 
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const data = path.join(REPO_ROOT, 'target/web-live', `${stamp}-${port}`);
@@ -72,14 +86,40 @@ const environment = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => !name.startsWith('FVOCI_')),
 );
 const log = createWriteStream(path.join(data, 'server.log'));
+
+/** Whether this process is stopping, and its server and provider with it. */
+let stopping = false;
+const certificate = path.join(data, 'fake-oidc.pem');
+const provider = spawn(fakeOidc, [String(oidcPort), certificate], {
+  cwd: data,
+  stdio: ['ignore', 'pipe', 'inherit'],
+});
+await new Promise<void>((started) => {
+  const said = createInterface({ input: provider.stdout });
+  said.on('line', (line) => {
+    log.write(`${line}\n`);
+    if (line.startsWith('fake-oidc:')) started();
+  });
+  provider.on('exit', (code) => {
+    if (!stopping) stop(`the fake provider ended (${code})`);
+  });
+});
+
 const server = spawn(binary, ['--config', path.join(data, 'config.json')], {
   cwd: data,
   stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...environment, FVOCI_LOG_FORMAT: 'json', NO_COLOR: '1' },
+  env: {
+    ...environment,
+    FVOCI_LOG_FORMAT: 'json',
+    NO_COLOR: '1',
+    FVOCI_SECRET_KEY: SECRET_KEY,
+    FVOCI_OIDC_ALLOW_PRIVATE_ADDRESSES: 'true',
+    // The fake provider's certificate is the one the server trusts.
+    SSL_CERT_FILE: certificate,
+  },
 });
 
 let ready = false;
-let stopping = false;
 const lines = createInterface({ input: server.stdout });
 const errorLines = createInterface({ input: server.stderr });
 const watch = (line: string): void => {
@@ -102,10 +142,14 @@ server.on('exit', (code, signal) => {
 
 const end = (): void => {
   stopping = true;
+  provider.kill('SIGTERM');
   server.kill('SIGTERM');
   // A server that does not stop within the time it gives its own requests is ended.
   setTimeout(() => server.kill('SIGKILL'), 12_000).unref();
 };
 process.on('SIGTERM', end);
 process.on('SIGINT', end);
-process.on('exit', () => server.kill('SIGKILL'));
+process.on('exit', () => {
+  server.kill('SIGKILL');
+  provider.kill('SIGKILL');
+});

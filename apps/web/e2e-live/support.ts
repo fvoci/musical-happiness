@@ -48,7 +48,7 @@ async function ok(response: Awaited<ReturnType<APIRequestContext['get']>>, what:
   }
 }
 
-const ADMIN: Person = { username: 'admin', email: 'admin@example.test', password: PASSWORD };
+export const ADMIN: Person = { username: 'admin', email: 'admin@example.test', password: PASSWORD };
 let token: string | undefined;
 
 /** The workspace's invitation. Makes the administrator first if the server has nobody yet. */

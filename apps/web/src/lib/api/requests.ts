@@ -1,11 +1,12 @@
 /**
  * The requests of the server backend that take nothing but HTTP: making an
- * account, changing the reader's own and reading their workspaces, and reading
+ * account, what the login page shows of an organization, changing the reader's own and reading their workspaces, and reading
  * the trash. `ServerBackend`
  * is made of these and the rest (`backend.ts`).
  */
 import type {
   DeletedItem,
+  LoginOrganization,
   Paging,
   Registration,
   WorkspaceInfo,
@@ -32,6 +33,20 @@ export class ServerRequests implements TrashReads {
       ...(registration.token ? { token: registration.token } : {}),
     };
     await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
+  }
+
+  async loginOrganization(orgId: string | undefined): Promise<LoginOrganization | undefined> {
+    const options = await this.#http.request<Schemas['LoginOptions']>(
+      '/api/v1/login-options',
+      {},
+      { query: { org: orgId } },
+    );
+    return options.organization ?? undefined;
+  }
+
+  /** A page of the server's, not a request: the browser goes there. */
+  oidcStartUrl(orgId: string): string {
+    return this.#http.url('/api/v1/auth/oidc/start', {}, { org: orgId });
   }
 
   async patchMe(patch: { displayName: string | null }): Promise<User> {

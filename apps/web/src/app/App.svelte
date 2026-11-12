@@ -160,6 +160,9 @@
       await account?.register(registration);
       registered = { username: registration.username, email: registration.email };
     }}
+    organizationOf={(orgId: string | undefined) =>
+      account?.loginOrganization(orgId) ?? Promise.resolve(undefined)}
+    oidcStartUrl={(orgId: string) => account?.oidcStartUrl(orgId) ?? ''}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}
   <main class="grid min-h-dvh place-items-center p-4">
