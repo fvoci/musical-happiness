@@ -72,13 +72,17 @@ test('an image pasted into the body is a file of the board, and is drawn from th
   const cardId = board.cards['The view from the hill'] ?? '';
   const path = boardPath(board, board.viewId, cardId);
   const stored = async (): Promise<Schemas['Card']> =>
-    (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
+    (await (
+      await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+    ).json()) as Schemas['Card'];
 
   const errors = watchErrors(page);
   // Every reading of a file answers with it.
   const files: number[] = [];
   page.on('response', (response) => {
-    if (/\/api\/v1\/boards\/[^/]+\/files\//.test(response.url())) files.push(response.status());
+    if (/\/api\/v1\/w\/[^/]+\/boards\/[^/]+\/files\//.test(response.url())) {
+      files.push(response.status());
+    }
   });
   await openCard(page, path, owner);
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
@@ -100,7 +104,9 @@ test('an image pasted into the body is a file of the board, and is drawn from th
     .toHaveLength(1);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   const [fileId] = imagesIn((await stored()).body as unknown as Node);
-  const file = await api.get(`/api/v1/boards/${board.boardId}/files/${fileId ?? ''}`);
+  const file = await api.get(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/files/${fileId ?? ''}`,
+  );
   expect(file.status()).toBe(200);
   expect(Buffer.from(await file.body()).equals(Buffer.from(PNG, 'base64'))).toBe(true);
   await expect.poll(() => drawn(editor)).toEqual([3]);
@@ -170,8 +176,11 @@ test('a card does not close at once while an image is still going up for its bod
     .poll(
       async () =>
         imagesIn(
-          ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'])
-            .body as unknown as Node,
+          (
+            (await (
+              await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+            ).json()) as Schemas['Card']
+          ).body as unknown as Node,
         ),
       { timeout: 15_000 },
     )

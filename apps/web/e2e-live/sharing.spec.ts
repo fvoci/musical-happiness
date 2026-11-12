@@ -2,7 +2,8 @@
  * Sharing a board on the real server, from its share dialog: people of the
  * workspace found by name and added, a member's role changed and the member
  * taken off, the board opened to the workspace with a minimum role, and the
- * public link turned on, made anew and off. Each is checked on the server;
+ * public link turned on (the reader's address, `/shared/<board>?r=<token>`),
+ * made anew and off. Each is checked on the server;
  * the person added sees the board without a reload.
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -22,14 +23,16 @@ import {
 
 test.use({ locale: 'en-US' });
 
-async function members(api: APIRequestContext, boardId: string) {
+async function members(api: APIRequestContext, board: { workspaceId: string; boardId: string }) {
   return (await (
-    await api.get(`/api/v1/boards/${boardId}/members`)
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/members`)
   ).json()) as Schemas['BoardMember'][];
 }
 
-async function sharing(api: APIRequestContext, boardId: string) {
-  return (await (await api.get(`/api/v1/boards/${boardId}/sharing`)).json()) as Schemas['Sharing'];
+async function sharing(api: APIRequestContext, board: { workspaceId: string; boardId: string }) {
+  return (await (
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`)
+  ).json()) as Schemas['Sharing'];
 }
 
 test('a board is shared from its dialog, and every change is kept on the server', async ({
@@ -71,7 +74,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(2);
   await expect(dialog.getByTestId('share-search')).toBeFocused();
   await expect
-    .poll(async () => (await members(api, board.boardId)).find((one) => one.userId === guestId))
+    .poll(async () => (await members(api, board)).find((one) => one.userId === guestId))
     .toMatchObject({ schemeEditor: true, schemeAdmin: false });
   // The guest's sidebar gets it without a reload.
   await expect(boardLink(guestPage, 'Garden share')).toBeVisible();
@@ -79,7 +82,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   // Another role.
   await dialog.getByLabel(`Role of ${guest.username}`).selectOption('viewer');
   await expect
-    .poll(async () => (await members(api, board.boardId)).find((one) => one.userId === guestId))
+    .poll(async () => (await members(api, board)).find((one) => one.userId === guestId))
     .toMatchObject({ schemeViewer: true, schemeEditor: false });
 
   // The reader's own role is another admin's to change.
@@ -90,7 +93,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   await dialog.getByRole('button', { name: `Remove ${guest.username}` }).click();
   await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(1);
   await expect
-    .poll(async () => (await members(api, board.boardId)).map((one) => one.userId))
+    .poll(async () => (await members(api, board)).map((one) => one.userId))
     .not.toContain(guestId);
   await expect(boardLink(guestPage, 'Garden share')).toHaveCount(0);
 
@@ -100,7 +103,7 @@ test('a board is shared from its dialog, and every change is kept on the server'
   await expect
     .poll(async () => {
       const read = (await (
-        await api.get(`/api/v1/boards/${board.boardId}`)
+        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)
       ).json()) as Schemas['Board'];
       return [read.type, read.minimumRole];
     })
@@ -109,22 +112,26 @@ test('a board is shared from its dialog, and every change is kept on the server'
   // The public link: on, made anew (the old token is gone), off.
   await dialog.getByTestId('share-public').click();
   const link = dialog.getByTestId('share-link');
-  await expect(link).toHaveValue(/readToken=/);
-  const first = await sharing(api, board.boardId);
+  await expect(link).toHaveValue(/[?]r=/);
+  const first = await sharing(api, board);
   expect(first.enabled).toBe(true);
-  expect(await link.inputValue()).toContain(boardPath(board));
-  expect(new URL(await link.inputValue()).searchParams.get('readToken')).toBe(first.token);
+  // The reader's address of the board (`shared.spec.ts`), which names no workspace.
+  const address = new URL(await link.inputValue());
+  expect(address.pathname).toBe(`/shared/${board.boardId}`);
+  expect(address.searchParams.get('r')).toBe(first.token);
   await dialog.getByTestId('share-regenerate').click();
   await ownerPage
     .getByRole('alertdialog')
     .getByRole('button', { name: 'Regenerate token' })
     .click();
-  await expect.poll(async () => (await sharing(api, board.boardId)).token).not.toBe(first.token);
-  const second = await sharing(api, board.boardId);
-  await expect(link).toHaveValue(new RegExp(`readToken=${second.token}`));
+  await expect.poll(async () => (await sharing(api, board)).token).not.toBe(first.token);
+  const second = await sharing(api, board);
+  await expect
+    .poll(async () => new URL(await link.inputValue()).searchParams.get('r'))
+    .toBe(second.token);
   await dialog.getByTestId('share-public').click();
   await expect(link).toHaveCount(0);
-  await expect.poll(async () => (await sharing(api, board.boardId)).enabled).toBe(false);
+  await expect.poll(async () => (await sharing(api, board)).enabled).toBe(false);
 
   await expect(ownerPage.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();

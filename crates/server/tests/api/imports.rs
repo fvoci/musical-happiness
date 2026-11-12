@@ -9,6 +9,7 @@ use fvoci_model::{Block, BlockType, BoardType, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
+use crate::common::TEST_WS;
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::export::{boards_of, import, import_upload, put_part};
 
@@ -143,7 +144,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
         .check_created();
     let archive = ts
         .client
-        .get(&format!("/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
         .await
         .body;
     assert!(archive.len() > PART, "the archive comes in two parts");
@@ -227,7 +228,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
 
     let archive = archive_with(&[], zip::CompressionMethod::Stored);
     let id = upload_id(&open_import(&ts.client, TEST_WORKSPACE_ID, archive.len()).await);
-    let state = ts.client.get(&format!("/uploads/{id}")).await;
+    let state = ts.client.get(&format!("{TEST_WS}/uploads/{id}")).await;
     assert_eq!(state.value()["purpose"], json!("import"));
     assert_eq!(state.value()["workspaceId"], json!(TEST_WORKSPACE_ID));
     assert_eq!(state.value()["boardId"], json!(""));
@@ -235,18 +236,19 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
     // A part missing: refused, and the upload stays open for it.
     let response = import_upload(&ts.client, TEST_WORKSPACE_ID, &id).await;
     response.check_bad_request();
-    put_part(&ts.client, &id, 1, &archive)
+    put_part(&ts.client, TEST_WORKSPACE_ID, &id, 1, &archive)
         .await
         .check_status(StatusCode::NO_CONTENT);
     let response = ts
         .client
-        .post(&format!("/uploads/{id}/complete"), &json!({}))
+        .post(&format!("{TEST_WS}/uploads/{id}/complete"), &json!({}))
         .await;
     response.check_bad_request();
     assert_eq!(response.refused_at(), "parameter uploadId", "of the path");
+    // Under another workspace the upload is not there, as one that does not exist.
     let response = import_upload(&ts.client, ROOT_WORKSPACE_ID, &id).await;
-    response.check_bad_request();
-    assert_eq!(response.refused_at(), "/uploadId");
+    response.check_not_found();
+    assert_eq!(response.error_message(), "upload not found");
     import_upload(&ts.client2, TEST_WORKSPACE_ID, &id)
         .await
         .check_status(StatusCode::NOT_FOUND);
@@ -263,7 +265,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
     let response = ts
         .client
         .post(
-            &format!("/boards/{}/uploads", board.id),
+            &format!("{TEST_WS}/boards/{}/uploads", board.id),
             &json!({"name": "a.bin", "size": 3}),
         )
         .await;
@@ -355,7 +357,7 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
         .await;
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let open_file = |size: usize| {
-        let path = format!("/boards/{}/uploads", board.id);
+        let path = format!("{TEST_WS}/boards/{}/uploads", board.id);
         let client = &ts.client;
         async move {
             client
@@ -406,7 +408,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
         .check_created();
     let archive = ts
         .client
-        .get(&format!("/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
         .await
         .body;
 
@@ -421,7 +423,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
         .find(|upload| upload.id == id)
         .expect("the upload is open");
     assert_eq!(opened.multipart_id, "", "no multipart upload in the bucket");
-    put_part(&ts.client, &id, 1, &archive)
+    put_part(&ts.client, TEST_WORKSPACE_ID, &id, 1, &archive)
         .await
         .check_status(StatusCode::NO_CONTENT);
     assert_eq!(
@@ -479,12 +481,12 @@ async fn imports_run_one_per_user_and_two_on_the_server() {
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let archive = ts
         .client
-        .get(&format!("/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let me = ts.client.me().await;
     let opened = upload_id(&open_import(&ts.client, ROOT_WORKSPACE_ID, archive.body.len()).await);
-    put_part(&ts.client, &opened, 1, &archive.body)
+    put_part(&ts.client, ROOT_WORKSPACE_ID, &opened, 1, &archive.body)
         .await
         .check_no_content();
 

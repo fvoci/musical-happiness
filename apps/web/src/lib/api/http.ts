@@ -107,9 +107,12 @@ export interface RequestOptions {
 export class Http {
   /** The path the app is served under, without a trailing slash: `''` at the root. */
   readonly basePath: string;
+  /** Whether the session's cookie goes along: not for a reader by a board's link. */
+  readonly #credentials: RequestCredentials;
 
-  constructor(basePath: string) {
+  constructor(basePath: string, credentials: RequestCredentials = 'same-origin') {
     this.basePath = basePath.replace(/\/$/, '');
+    this.#credentials = credentials;
   }
 
   /** The address of an API path, its `{name}` parts filled in from `params`. */
@@ -128,10 +131,14 @@ export class Http {
   }
 
   /** Reads the bytes at a path (a file). Rejects as `request` does. */
-  async bytes(path: ApiPath, params: Record<string, string> = {}): Promise<Blob> {
+  async bytes(
+    path: ApiPath,
+    params: Record<string, string> = {},
+    query: RequestOptions['query'] = {},
+  ): Promise<Blob> {
     let response: Response;
     try {
-      response = await fetch(this.url(path, params), { credentials: 'same-origin' });
+      response = await fetch(this.url(path, params, query), { credentials: this.#credentials });
     } catch {
       throw new BackendError(0, { detail: `GET ${path}: no answer` });
     }
@@ -169,7 +176,7 @@ export class Http {
         method,
         headers,
         body,
-        credentials: 'same-origin',
+        credentials: this.#credentials,
         signal: options.signal,
       });
     } catch (error) {

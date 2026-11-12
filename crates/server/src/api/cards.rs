@@ -3,22 +3,21 @@
 use std::num::IntErrorKind;
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, RawQuery};
 use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, RefusalReason, Refusals};
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewCard;
-use super::contract::params::{BoardId, CardId, DisableNotify, Page, PerPage, Preview, ReadToken};
+use super::contract::params::MemberWorkspaceId;
+use super::contract::params::{BoardId, CardId, DisableNotify, Page, PerPage, Preview};
 use super::contract::tag;
+use super::workspace::Ws;
 
 use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
-use super::{
-    ApiResult, OptionalSession, RequiredSession, TRUE, created, json_response, query_param,
-    reader_by_read_token,
-};
+use super::{ApiResult, TRUE, created, json_response, query_param};
 use super::{decode_with_document, require_board_permission, require_permission_through};
 use crate::app::{App, CardPreviews};
 use crate::auth::now_millis;
@@ -109,24 +108,23 @@ async fn card_with_permission(
 /// changes, and does not ask again for a card that a value named before.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/cards",
+    path = "/w/{workspaceId}/boards/{boardId}/cards",
     operation_id = "createCard",
     tag = tag::CARDS,
-    params(BoardId, DisableNotify),
+    params(MemberWorkspaceId, BoardId, DisableNotify),
     request_body = NewCard,
     responses((status = 201, description = "The card that was made.", body = Card)),
 )]
 async fn handle_create_card(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
@@ -145,13 +143,16 @@ async fn handle_create_card(
     }
     refused.into_result()?;
     card.body = document.into_body();
-    app.check_body_files(&board_id, card.body.as_ref()).await?;
+    ws.app
+        .check_body_files(&board_id, card.body.as_ref())
+        .await?;
     card.board_id.clone_from(&board_id);
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
 
     // What the store refuses of the card's values it names as the block's `fields`.
-    let card = app
+    let card = ws
+        .app
         .create_card(card, &board_id, user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/properties"))?;
@@ -161,82 +162,52 @@ async fn handle_create_card(
 
 /// The cards of a board
 ///
-/// One page of the board's cards, for the board's members, and with the board's read
-/// token for whoever has it. Oldest first; the pages cut that order. A `page` or
-/// `perPage` that is no whole number is 400. With `preview=true` each card has its
-/// `preview` (the first image and the beginning of the text of its body), which a
-/// list without it leaves out.
-///
-/// To a reader with the read token alone (no session, or a user who is no member of
-/// the board) the cards name no users, as `getBlocks` gives them: `createdBy` and
-/// `modifiedBy` are empty, the values of person properties are emptied, and values of
-/// properties the board does not define are left out. The preview's text has no
-/// mentions in it, and its image `getFile` gives with the same token.
+/// One page of the board's cards, for the board's members. Oldest first; the pages cut
+/// that order. A `page` or `perPage` that is no whole number is 400. With
+/// `preview=true` each card has its `preview` (the first image and the beginning of the
+/// text of its body), which a list without it leaves out.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/cards",
+    path = "/w/{workspaceId}/boards/{boardId}/cards",
     operation_id = "getCards",
     tag = tag::CARDS,
-    params(BoardId, Page, PerPage, Preview, ReadToken),
-    // With a read token no session is needed.
-    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    params(MemberWorkspaceId, BoardId, Page, PerPage, Preview),
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
 async fn handle_get_cards(
-    State(app): State<App>,
-    session: OptionalSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let query = query.as_deref();
-    let (shared, session) = reader_by_read_token(&app, session, query, &board_id).await?;
-    let user_id = session.user_id();
-    let has_read_token = shared.is_some();
-    if user_id.is_empty() && !has_read_token {
-        return Err(AppError::unauthorized("access denied to fetch cards"));
-    }
-    let app = shared.unwrap_or(app);
-    // The board's person properties, for a reader with the token alone.
-    let hidden_people = if has_read_token {
-        // A board that is shared exists; one that went since is not there.
-        let board = app.board(&board_id).await?;
-        (!app.is_board_reader(user_id, &board_id).await?).then(|| board.person_properties())
-    } else {
-        require_board_permission(
-            &app,
-            user_id,
-            &board_id,
-            BoardPermission::ViewBoard,
-            "access denied to fetch cards",
-        )
-        .await?;
-        None
-    };
+    let user_id = &ws.session.user_id;
+    require_board_permission(
+        &ws.app,
+        user_id,
+        &board_id,
+        BoardPermission::ViewBoard,
+        "access denied to fetch cards",
+    )
+    .await?;
+    let cards = cards_page(&ws.app, &board_id, query.as_deref()).await?;
+    tracing::debug!(board_id, user_id, count = cards.len(), "GetCards");
+    Ok(json_response(&cards))
+}
 
+/// The page of the board's cards that the query of a request asks for, as `getCards`
+/// describes it; for whoever may read the board.
+pub(super) async fn cards_page(
+    app: &App,
+    board_id: &str,
+    query: Option<&str>,
+) -> Result<Vec<Card>, AppError> {
     let (page, per_page) = page_params(query)?;
     let previews = if query_param(query, "preview") == TRUE {
         CardPreviews::With
     } else {
         CardPreviews::Without
     };
-
-    let mut cards = app
-        .cards_for_board(&board_id, page, per_page, previews)
-        .await?;
-    if let Some(people) = &hidden_people {
-        for card in &mut cards {
-            card.hide_people(people);
-        }
-    }
-    tracing::debug!(
-        board_id,
-        user_id,
-        page,
-        per_page,
-        count = cards.len(),
-        "GetCards"
-    );
-    Ok(json_response(&cards))
+    app.cards_for_board(board_id, page, per_page, previews)
+        .await
 }
 
 /// Change a card
@@ -245,25 +216,24 @@ async fn handle_get_cards(
 /// no such card. The relation values it changes are checked as `createCard` says.
 #[utoipa::path(
     patch,
-    path = "/cards/{cardId}",
+    path = "/w/{workspaceId}/cards/{cardId}",
     operation_id = "patchCard",
     tag = tag::CARDS,
-    params(CardId, DisableNotify),
+    params(MemberWorkspaceId, CardId, DisableNotify),
     request_body = CardPatch,
     responses((status = 200, description = "The card as it is now.", body = Card)),
 )]
 async fn handle_patch_card(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(card_id): Path<String>,
+    ws: Ws,
+    Path((_, card_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
+    let user_id = ws.session.user_id.as_str();
     let notification = change_notification(query.as_deref());
 
     let card = card_with_permission(
-        &app,
+        &ws.app,
         user_id,
         &card_id,
         BoardPermission::ManageBoardCards,
@@ -275,10 +245,12 @@ async fn handle_patch_card(
     patch.body = document;
     // Everything of the request's shape that is refused, before the store is asked.
     patch.check_request()?;
-    app.check_body_files(&card.board_id, patch.body.new_body())
+    ws.app
+        .check_body_files(&card.board_id, patch.body.new_body())
         .await?;
 
-    let patched = app
+    let patched = ws
+        .app
         .patch_card(&patch, &card.id, user_id, notification)
         .await
         .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
@@ -292,27 +264,23 @@ async fn handle_patch_card(
 /// such card.
 #[utoipa::path(
     get,
-    path = "/cards/{cardId}",
+    path = "/w/{workspaceId}/cards/{cardId}",
     operation_id = "getCard",
     tag = tag::CARDS,
-    params(CardId),
+    params(MemberWorkspaceId, CardId),
     responses((status = 200, description = "The card.", body = Card)),
 )]
-async fn handle_get_card(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(card_id): Path<String>,
-) -> ApiResult {
-    let user_id = session.user_id.as_str();
+async fn handle_get_card(ws: Ws, Path((_, card_id)): Path<(String, String)>) -> ApiResult {
+    let user_id = ws.session.user_id.as_str();
     let block = card_with_permission(
-        &app,
+        &ws.app,
         user_id,
         &card_id,
         BoardPermission::ViewBoard,
         "access denied to fetch card",
     )
     .await?;
-    let card = app.card_of_block(&block).await?;
+    let card = ws.app.card_of_block(&block).await?;
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))
 }

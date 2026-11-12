@@ -1,7 +1,7 @@
 [
   {
     "name": "create board Exported board",
-    "request": "POST /api/v1/boards as arch-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as arch-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -14,41 +14,41 @@
         }
       ],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "to export",
       "icon": "",
-      "id": "<id:2>",
+      "id": "<id:3>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Exported board",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "insert content",
-    "request": "POST /api/v1/boards/<id:2>/blocks as arch-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/blocks as arch-alice",
     "status": 201,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "body": null,
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {
           "icon": "x"
         },
         "id": "<id:4>",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
         "title": "Exported card",
@@ -56,14 +56,14 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "body": null,
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {},
         "id": "<id:5>",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "parentId": "<id:4>",
         "schema": 1,
         "title": "Exported text",
@@ -71,16 +71,16 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "body": null,
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {
           "fileId": "<secret:1>.png"
         },
         "id": "<id:6>",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "parentId": "<id:4>",
         "schema": 1,
         "title": "",
@@ -88,16 +88,16 @@
         "updateAt": "<ts>"
       },
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "body": null,
         "createAt": "<ts>",
-        "createdBy": "<id:1>",
+        "createdBy": "<id:2>",
         "deleteAt": 0,
         "fields": {
           "viewType": "table"
         },
         "id": "<id:7>",
-        "modifiedBy": "<id:1>",
+        "modifiedBy": "<id:2>",
         "parentId": "",
         "schema": 1,
         "title": "Exported view",
@@ -132,37 +132,37 @@
               }
             ],
             "createAt": "<ts>",
-            "createdBy": "<id:1>",
+            "createdBy": "<id:2>",
             "deleteAt": 0,
             "description": "to export",
             "icon": "",
-            "id": "<id:2>",
+            "id": "<id:3>",
             "isBuiltin": false,
             "isTemplate": false,
             "minimumRole": "editor",
-            "modifiedBy": "<id:1>",
+            "modifiedBy": "<id:2>",
             "properties": {},
             "showDescription": false,
             "templateVersion": 0,
             "title": "Exported board",
             "type": "P",
             "updateAt": "<ts>",
-            "workspaceId": "<id:3>"
+            "workspaceId": "<id:1>"
           },
           "type": "board"
         },
         {
           "data": {
-            "boardId": "<id:2>",
+            "boardId": "<id:3>",
             "body": null,
             "createAt": "<ts>",
-            "createdBy": "<id:1>",
+            "createdBy": "<id:2>",
             "deleteAt": 0,
             "fields": {
               "icon": "x"
             },
             "id": "<id:4>",
-            "modifiedBy": "<id:1>",
+            "modifiedBy": "<id:2>",
             "parentId": "",
             "schema": 1,
             "title": "Exported card",
@@ -173,14 +173,14 @@
         },
         {
           "data": {
-            "boardId": "<id:2>",
+            "boardId": "<id:3>",
             "body": null,
             "createAt": "<ts>",
-            "createdBy": "<id:1>",
+            "createdBy": "<id:2>",
             "deleteAt": 0,
             "fields": {},
             "id": "<id:5>",
-            "modifiedBy": "<id:1>",
+            "modifiedBy": "<id:2>",
             "parentId": "<id:4>",
             "schema": 1,
             "title": "Exported text",
@@ -191,16 +191,16 @@
         },
         {
           "data": {
-            "boardId": "<id:2>",
+            "boardId": "<id:3>",
             "body": null,
             "createAt": "<ts>",
-            "createdBy": "<id:1>",
+            "createdBy": "<id:2>",
             "deleteAt": 0,
             "fields": {
               "fileId": "<secret:1>.png"
             },
             "id": "<id:6>",
-            "modifiedBy": "<id:1>",
+            "modifiedBy": "<id:2>",
             "parentId": "<id:4>",
             "schema": 1,
             "title": "",
@@ -211,16 +211,16 @@
         },
         {
           "data": {
-            "boardId": "<id:2>",
+            "boardId": "<id:3>",
             "body": null,
             "createAt": "<ts>",
-            "createdBy": "<id:1>",
+            "createdBy": "<id:2>",
             "deleteAt": 0,
             "fields": {
               "viewType": "table"
             },
             "id": "<id:7>",
-            "modifiedBy": "<id:1>",
+            "modifiedBy": "<id:2>",
             "parentId": "",
             "schema": 1,
             "title": "Exported view",
@@ -231,19 +231,19 @@
         },
         {
           "data": {
-            "boardId": "<id:2>",
+            "boardId": "<id:3>",
             "schemeAdmin": true,
             "schemeCommenter": false,
             "schemeEditor": true,
             "schemeViewer": false,
-            "userId": "<id:1>"
+            "userId": "<id:2>"
           },
           "type": "boardMember"
         }
       ],
       "names": [
-        "<id:2>/<secret:1>.png",
-        "<id:2>/board.jsonl",
+        "<id:3>/<secret:1>.png",
+        "<id:3>/board.jsonl",
         "version.json"
       ],
       "version": {
@@ -254,7 +254,7 @@
   },
   {
     "name": "export: non-member",
-    "request": "GET /api/v1/boards/<id:2>/archive/export as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/archive/export as arch-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -268,7 +268,7 @@
   },
   {
     "name": "export: anonymous",
-    "request": "GET /api/v1/boards/<id:2>/archive/export as anonymous",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/archive/export as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -282,7 +282,7 @@
   },
   {
     "name": "export: unknown board",
-    "request": "GET /api/v1/boards/unknown-board/archive/export as arch-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/unknown-board/archive/export as arch-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -311,7 +311,7 @@
   },
   {
     "name": "import",
-    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:1>/archive/import as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -320,7 +320,7 @@
   },
   {
     "name": "import: anonymous",
-    "request": "POST /api/v1/w/<id:3>/archive/uploads as anonymous",
+    "request": "POST /api/v1/w/<id:1>/archive/uploads as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -334,7 +334,7 @@
   },
   {
     "name": "import: not an archive",
-    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:1>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -348,7 +348,7 @@
   },
   {
     "name": "import: no such upload",
-    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:1>/archive/import as arch-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -362,7 +362,7 @@
   },
   {
     "name": "boards after import",
-    "request": "GET /api/v1/w/<id:3>/boards as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/boards as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -391,13 +391,13 @@
         "title": "Exported board",
         "type": "P",
         "updateAt": "<ts>",
-        "workspaceId": "<id:3>"
+        "workspaceId": "<id:1>"
       }
     ]
   },
   {
     "name": "imported blocks",
-    "request": "GET /api/v1/boards/<id:9>/blocks as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:9>/blocks as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -471,7 +471,7 @@
   },
   {
     "name": "imported members",
-    "request": "GET /api/v1/boards/<id:9>/members as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:9>/members as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -481,7 +481,7 @@
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:1>"
+        "userId": "<id:2>"
       },
       {
         "boardId": "<id:9>",
@@ -495,14 +495,14 @@
   },
   {
     "name": "imported file",
-    "request": "GET /api/v1/boards/<id:9>/files/<secret:2>.png as arch-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:9>/files/<secret:2>.png as arch-bob",
     "status": 200,
     "content_type": "application/octet-stream",
     "body": "<67 bytes>"
   },
   {
     "name": "import: legacy format",
-    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:1>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {

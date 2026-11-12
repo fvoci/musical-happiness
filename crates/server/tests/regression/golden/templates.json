@@ -77,7 +77,7 @@
   },
   {
     "name": "create board My template",
-    "request": "POST /api/v1/boards as tpl-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as tpl-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -103,7 +103,7 @@
   },
   {
     "name": "my template",
-    "request": "GET /api/v1/boards/<id:3> as tpl-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -139,7 +139,7 @@
   },
   {
     "name": "onboarding board",
-    "request": "GET /api/v1/boards/<id:4> as tpl-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:4> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {

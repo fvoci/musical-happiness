@@ -15,12 +15,13 @@ use serde_json::{Value, json};
 
 use crate::board_broadcasts::WorkspaceSocket;
 use crate::cards::{Roles, board_with_roles, check_error, insert_block, new_block};
-use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, UNKNOWN_ID};
+use crate::common::TEST_WS;
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, UNKNOWN_ID};
 
 /// How long background notifications may take to finish.
 const BACKGROUND: Duration = Duration::from_secs(10);
 
-const PATH: &str = "/subscriptions";
+const PATH: &str = "/w/00000000-0000-7000-8000-000000000001/subscriptions";
 
 /// What a block the user cannot read answers, as one that does not exist.
 const NO_BLOCK: &str = "block not found";
@@ -88,7 +89,7 @@ async fn insert_card(client: &Client, board_id: &str) -> Block {
 async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscription>, String) {
     let user = client.me().await;
     let board = Board {
-        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
+        workspace_id: TEST_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Open,
         create_at: 1,
         update_at: 1,
@@ -509,7 +510,7 @@ async fn a_subscription_ends_with_its_block() {
     let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
     subscribe(&th.client, &card.id, &me).await;
-    let block_path = format!("/boards/{}/blocks/{}", board.id, card.id);
+    let block_path = format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id);
     th.client.delete(&block_path).await.check_no_content();
 
     assert_eq!(
@@ -597,7 +598,7 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     // Once they have joined the open board, they can subscribe to its cards.
     let card = insert_card(&th.client, &open_board.id).await;
     th.client2
-        .post_empty(&format!("/boards/{}/join", open_board.id))
+        .post_empty(&format!("{TEST_WS}/boards/{}/join", open_board.id))
         .await
         .check_ok();
     let subscription = subscribe(&th.client2, &card.id, &outsider).await;
@@ -640,7 +641,10 @@ async fn subscription_by_every_member_of_the_board_still_works() {
 
     let viewer_id = viewer.me().await.id;
     th.client
-        .delete(&format!("/boards/{}/members/{viewer_id}", board.id))
+        .delete(&format!(
+            "{TEST_WS}/boards/{}/members/{viewer_id}",
+            board.id
+        ))
         .await
         .check_no_content();
     let response = viewer.post(PATH, &request(&card.id, &viewer_id)).await;
@@ -670,7 +674,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     let mut cards = Vec::new();
     let mut boards = Vec::new();
     for _ in 0..2 {
-        let board = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+        let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
         let member = BoardMember {
             board_id: board.id.clone(),
             user_id: user2_id.clone(),
@@ -687,7 +691,10 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
 
     // A removal that is refused ends nothing: an editor may not remove a member.
     th.client2
-        .delete(&format!("/boards/{}/members/{admin_id}", boards[0].id))
+        .delete(&format!(
+            "{TEST_WS}/boards/{}/members/{admin_id}",
+            boards[0].id
+        ))
         .await
         .check_forbidden();
     assert_eq!(
@@ -698,7 +705,10 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
 
     // Removed by the admin.
     th.client
-        .delete(&format!("/boards/{}/members/{user2_id}", boards[0].id))
+        .delete(&format!(
+            "{TEST_WS}/boards/{}/members/{user2_id}",
+            boards[0].id
+        ))
         .await
         .check_no_content();
     assert_eq!(
@@ -715,7 +725,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
 
     // Leaving by oneself.
     th.client2
-        .post_empty(&format!("/boards/{}/leave", boards[1].id))
+        .post_empty(&format!("{TEST_WS}/boards/{}/leave", boards[1].id))
         .await
         .check_no_content();
     assert_eq!(

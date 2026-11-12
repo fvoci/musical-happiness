@@ -8,6 +8,7 @@ import { insets, page } from '$lib/layout/room.svelte.ts';
 import { watchSystemTheme } from '$lib/theme.svelte.js';
 
 import App from './App.svelte';
+import SharedApp from './SharedApp.svelte';
 import { startLocale } from './locale.ts';
 import { readBasePath, Router } from './router.svelte.ts';
 
@@ -28,4 +29,8 @@ loadFontFaces(locale);
 const router = new Router(readBasePath(document));
 router.listen();
 
-export default mount(App, { target, props: { router } });
+// A board's public link is read without the app around it, signed in or not;
+// so is an address under `/shared` that is no whole link (not found there).
+export default router.route.shared
+  ? mount(SharedApp, { target, props: { router } })
+  : mount(App, { target, props: { router } });

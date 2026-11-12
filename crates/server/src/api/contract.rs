@@ -96,8 +96,8 @@ The API of an fvoci server.
 `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain \
 HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. \
 A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` \
-instead. A few operations that read a shared board need no session when the request has the \
-board's `readToken`.
+instead. The operations under `/shared/{boardId}` need no session: they read a shared board with its \
+`readToken`, and look at no session that comes along.
 
 ## Requests that change something
 
@@ -291,6 +291,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         "UnlinkRequest",
         Members::Only(&["issuer", "subject", "password"]),
     ),
+    ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
     ("BoardType", Members::AsWritten),
@@ -309,12 +310,12 @@ const SCHEMAS: &[(&str, Members)] = &[
 /// different things. The document names each as what it is.
 const RENAMED_PATHS: [(&str, &str); 2] = [
     (
-        "/api/v1/subscriptions/{blockOrSubscriberId}/{subscriberId}",
-        "/api/v1/subscriptions/{blockId}/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}",
     ),
     (
-        "/api/v1/subscriptions/{blockOrSubscriberId}",
-        "/api/v1/subscriptions/{subscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{blockOrSubscriberId}",
+        "/api/v1/w/{workspaceId}/subscriptions/{subscriberId}",
     ),
 ];
 
@@ -343,7 +344,8 @@ pub fn document() -> Result<String, ContractError> {
     let api = OpenApiRouter::<App>::new()
         .merge(routes.json)
         .merge(routes.unauthenticated)
-        .merge(routes.uploads);
+        .merge(routes.uploads)
+        .merge(routes.shared);
     let (_, openapi) = OpenApiRouter::<App>::new()
         .nest(super::PREFIX, api)
         .split_for_parts();

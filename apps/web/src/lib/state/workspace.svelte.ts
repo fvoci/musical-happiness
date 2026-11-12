@@ -478,19 +478,19 @@ export class Workspace {
   }
 
   /**
-   * The boards the reader may find by `query` (every word in the title).
-   * A failure finds nothing; a session that is over signs out.
+   * The boards the reader may find by `query` (every word of the title) in each of their
+   * workspaces, oldest first. A failure finds nothing there; a session over signs out.
    */
   async searchBoards(query: string): Promise<Board[]> {
-    const workspace = this.info;
-    if (!workspace || query.trim() === '') return [];
-    try {
-      return await this.backend.searchBoards(workspace.id, query.trim());
-    } catch (error) {
-      if (isBackendError(error) && error.status === 401) this.report('load', error);
-      else if (!isBackendError(error)) console.error(error);
-      return [];
-    }
+    if (!this.info || query.trim() === '') return [];
+    const found = this.workspaces.map((workspace) =>
+      this.backend.searchBoards(workspace.id, query.trim()).catch((error: unknown) => {
+        if (isBackendError(error) && error.status === 401) this.report('load', error);
+        else if (!isBackendError(error)) console.error(error);
+        return [];
+      }),
+    );
+    return (await Promise.all(found)).flat().sort((one, other) => one.createAt - other.createAt);
   }
 
   /** The templates a board can be made from; none when they cannot be read (told). */

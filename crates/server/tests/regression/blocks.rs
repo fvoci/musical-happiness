@@ -7,13 +7,14 @@
 use serde_json::{Value, json};
 
 use crate::fixtures::{add_member, block, new_blocks, new_board};
+use crate::harness::ROOT_API;
 use crate::harness::{API, Body, Session, id_by_title};
 
 pub(crate) async fn blocks(s: &mut Session) {
     let [alice, bob, carol] = s.users("blocks", ["alice", "bob", "carol"]).await;
     let board = new_board(s, &alice, "Blocks", "P", json!({})).await;
     add_member(s, &alice, &board, &bob, "commenter").await;
-    let path = format!("{API}/boards/{board}/blocks");
+    let path = format!("{ROOT_API}/boards/{board}/blocks");
 
     s.get("list: empty", &path).user(&alice).await;
     let created = new_blocks(
@@ -96,7 +97,7 @@ pub(crate) async fn blocks(s: &mut Session) {
     s.get("list: anonymous", &path).await;
     s.get(
         "list: unknown board",
-        &format!("{API}/boards/unknown-board/blocks"),
+        &format!("{ROOT_API}/boards/unknown-board/blocks"),
     )
     .user(&alice)
     .await;
@@ -292,7 +293,7 @@ pub(crate) async fn blocks(s: &mut Session) {
     // parents: each block gets an identifier of its own, and the list has the blocks
     // of a request in the order the request had them in.
     let second = new_board(s, &alice, "Order of a request", "P", json!({})).await;
-    let second_path = format!("{API}/boards/{second}/blocks");
+    let second_path = format!("{ROOT_API}/boards/{second}/blocks");
     s.post("insert without identifiers", &second_path)
         .json(json!([
             {"boardId": second, "type": "card", "title": "Nameless one", "createAt": 1, "updateAt": 1},
@@ -336,7 +337,7 @@ pub(crate) async fn cards(s: &mut Session) {
     let [alice, bob] = s.users("cards", ["alice", "bob"]).await;
     let board = new_board(s, &alice, "Cards", "P", json!({})).await;
     add_member(s, &alice, &board, &bob, "viewer").await;
-    let path = format!("{API}/boards/{board}/cards");
+    let path = format!("{ROOT_API}/boards/{board}/cards");
 
     let first = s
         .post("create", &path)
@@ -359,7 +360,7 @@ pub(crate) async fn cards(s: &mut Session) {
         .await;
     s.post(
         "create: unknown board",
-        &format!("{API}/boards/unknown-board/cards"),
+        &format!("{ROOT_API}/boards/unknown-board/cards"),
     )
     .json(json!({"title": "x"}))
     .user(&alice)
@@ -401,17 +402,20 @@ pub(crate) async fn cards(s: &mut Session) {
     );
     s.get(
         "list: unknown board",
-        &format!("{API}/boards/unknown-board/cards"),
+        &format!("{ROOT_API}/boards/unknown-board/cards"),
     )
     .user(&alice)
     .await;
     let card = first.string("id");
-    let card_path = format!("{API}/cards/{card}");
+    let card_path = format!("{ROOT_API}/cards/{card}");
     s.get("get", &card_path).user(&alice).await;
     s.get("get: viewer", &card_path).user(&bob).await;
-    s.get("get: unknown card", &format!("{API}/cards/unknown-card"))
-        .user(&alice)
-        .await;
+    s.get(
+        "get: unknown card",
+        &format!("{ROOT_API}/cards/unknown-card"),
+    )
+    .user(&alice)
+    .await;
     s.patch("patch", &card_path)
         .json(json!({
             "title": "Card one, renamed", "icon": "🂡", "contentOrder": ["b", "a"],
@@ -423,10 +427,13 @@ pub(crate) async fn cards(s: &mut Session) {
         .json(json!({"title": "hijack"}))
         .user(&bob)
         .await;
-    s.patch("patch: unknown card", &format!("{API}/cards/unknown-card"))
-        .json(json!({"title": "x"}))
-        .user(&alice)
-        .await;
+    s.patch(
+        "patch: unknown card",
+        &format!("{ROOT_API}/cards/unknown-card"),
+    )
+    .json(json!({"title": "x"}))
+    .user(&alice)
+    .await;
     s.patch("patch: malformed body", &card_path)
         .raw(b"{")
         .user(&alice)

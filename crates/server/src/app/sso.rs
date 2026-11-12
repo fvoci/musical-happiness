@@ -3,7 +3,7 @@
 //!
 //! The check is [`require_session_opens`]. A workspace is entered through it
 //! (`App::enter_workspace`), an organization (`App::enter_org_as_admin`), and the
-//! organization the routes that name no workspace work in
+//! organization the two routes that name neither work in
 //! (`App::require_session_opens_here`). It is asked of every request: the sessions
 //! stay, and one that does not open an organization still opens the others.
 
@@ -218,12 +218,13 @@ impl App {
     }
 
     /// Refuses a session that does not open what is the organization this handle
-    /// stands in: the one of the routes that name no workspace, or the one of a board a
-    /// read token opened. `Ok` for a session that opens it, and for a user who has no
-    /// place in that organization, who finds nothing of it anyway.
+    /// stands in: the one of the routes that name no workspace and no organization and
+    /// still read or change an organization's (`getMyMemberships`, `setUserAdmin`).
+    /// `Ok` for a session that opens it, and for a user who has no place in that
+    /// organization, who finds nothing of it anyway.
     ///
-    /// TEMPORARY, with `only_organization_scope`: a route that names its workspace is
-    /// asked where the workspace is entered.
+    /// TEMPORARY, with `only_organization_scope`: a route that names its workspace or
+    /// its organization is asked where that is entered.
     ///
     /// # Errors
     ///

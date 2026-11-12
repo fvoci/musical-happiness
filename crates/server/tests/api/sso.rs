@@ -132,7 +132,7 @@ async fn an_organization_that_takes_no_password_opens_for_its_providers_sessions
     let admin = admin_through_provider(&ts, &fake, &org_id).await;
     let boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
     let provider = format!("/org/{org_id}/oidc");
-    let by_id = format!("/boards/{}", board.id);
+    let by_id = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
     ts.client.get(&boards).await.check_ok();
     let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
     assert!(closed(&listed).iter().all(|closed| !closed), "{listed:?}");
@@ -425,8 +425,9 @@ async fn the_administration_socket_releases_an_organization() {
     fake.stop();
 }
 
-/// The operations of the contract that are the account's own, or come before there is
-/// a session: what a session that does not open the organization still does.
+/// The operations of the contract that are the account's own, come before there is a
+/// session, or read a board by its public link, which asks for none: what a session
+/// that does not open the organization still does.
 const OPEN_TO_ANY_SESSION: &[&str] = &[
     "changePassword",
     "finishOidcLogin",
@@ -436,6 +437,11 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getMe",
     "getMyIdentities",
     "getMyWorkspaces",
+    "getSharedBlocks",
+    "getSharedBoard",
+    "getSharedCards",
+    "getSharedFile",
+    "getSharedFileInfo",
     "getUserSettings",
     "hello",
     "login",
@@ -495,7 +501,7 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     let card: Value = ts
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/cards", board.id),
             &json!({ "title": "A card of the organization" }),
         )
         .await
@@ -504,7 +510,10 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     let file = reqwest::multipart::Part::bytes(b"of the organization".to_vec()).file_name("a.txt");
     let uploaded = Client::send(
         ts.client
-            .request(Method::POST, &format!("/boards/{}/files", board.id))
+            .request(
+                Method::POST,
+                &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/files", board.id),
+            )
             .multipart(reqwest::multipart::Form::new().part("file", file)),
     )
     .await
@@ -513,7 +522,7 @@ async fn named(ts: &TestServer, org_id: &str) -> Named {
     let upload = ts
         .client
         .post(
-            &format!("/boards/{}/uploads", board.id),
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/uploads", board.id),
             &json!({ "name": "later.bin", "size": 1 }),
         )
         .await
@@ -645,12 +654,15 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
     );
     // Nothing was changed on the way.
     let board: Board = admin
-        .get(&format!("/boards/{}", named.board.id))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", named.board.id))
         .await
         .ok_json();
     assert_eq!(board.title, named.board.title);
     let cards: Vec<Block> = admin
-        .get(&format!("/boards/{}/blocks", named.board.id))
+        .get(&format!(
+            "/w/{ROOT_WORKSPACE_ID}/boards/{}/blocks",
+            named.board.id
+        ))
         .await
         .ok_json();
     assert_eq!(cards.len(), 1, "{cards:?}");
@@ -672,9 +684,9 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
     fake.stop();
 }
 
-/// An import that names a workspace that is not there looks for its upload in the
-/// organization the server stands in: not for a session that does not open that one,
-/// which is told so, and whose upload stays.
+/// An import looks at no upload for a session that does not open the workspace's
+/// organization: it is told so before the body is read, whatever upload it names, and
+/// the upload stays. A workspace that is not there is not there, as for anybody.
 #[tokio::test]
 async fn an_import_looks_at_no_upload_for_a_session_that_opens_nothing() {
     let fake = FakeProvider::start().await;
@@ -698,68 +710,65 @@ async fn an_import_looks_at_no_upload_for_a_session_that_opens_nothing() {
         .await
         .check_ok();
 
-    for (workspace, upload) in [
-        (new_id(), upload_id.clone()),
-        (new_id(), new_id()),
-        (ROOT_WORKSPACE_ID.to_owned(), upload_id.clone()),
-    ] {
-        let response = ts
-            .client
+    let import = async |workspace: &str, upload: &str| {
+        ts.client
             .post(
                 &format!("/w/{workspace}/archive/import"),
                 &json!({ "uploadId": upload }),
             )
-            .await;
-        check_sso_required(&response, &org_id);
+            .await
+    };
+    for upload in [upload_id.clone(), new_id()] {
+        check_sso_required(&import(ROOT_WORKSPACE_ID, &upload).await, &org_id);
     }
+    import(&new_id(), &upload_id).await.check_not_found();
     // The upload is there as it was: its owner finds it open.
-    admin.get(&format!("/uploads/{upload_id}")).await.check_ok();
+    admin
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/uploads/{upload_id}"))
+        .await
+        .check_ok();
     ts.teardown().await;
     fake.stop();
 }
 
-/// The public link of a board stays open when its organization takes no password: no
-/// session is asked for, and one that does not open the organization adds nothing to
-/// the token. Without the token that opens the board, such a session is told what it
-/// is told elsewhere.
+/// The public link of a board stays open when its organization takes no password: it
+/// asks for no session, and reads the same for a session that does not open the
+/// organization, for the one that does, and for nobody. The same board by its
+/// workspace is closed to the session that does not open the organization.
 #[tokio::test]
 async fn a_public_link_stays_open_and_reads_the_same_for_a_session_that_opens_nothing() {
     let fake = FakeProvider::start().await;
     let (ts, named, admin) = walled(&fake).await;
     let read_token = ts.share(&named.board.id).await;
     let anonymous = ts.anonymous();
-    let blocks = format!("/boards/{}/blocks", named.board.id);
+    let board = &named.board.id;
     for path in [
-        format!("/boards/{}", named.board.id),
-        blocks.clone(),
-        format!("/boards/{}/cards", named.board.id),
-        format!("/boards/{}/files/{}/info", named.board.id, named.file_id),
+        format!("/boards/{board}"),
+        format!("/boards/{board}/blocks"),
+        format!("/boards/{board}/cards"),
+        format!("/boards/{board}/files/{}/info", named.file_id),
     ] {
-        let shared = format!("{path}?readToken={read_token}");
+        let shared = format!("/shared{}?readToken={read_token}", &path["/boards".len()..]);
         let as_anybody = anonymous.get(&shared).await;
         as_anybody.check_ok();
-        let signed_in = ts.client.get(&shared).await;
-        signed_in.check_ok();
-        assert_eq!(signed_in.value(), as_anybody.value(), "{path}");
-        check_sso_required(&ts.client.get(&path).await, &named.org_id);
-        check_sso_required(
-            &ts.client
-                .get(&format!("{path}?readToken=not-the-token"))
-                .await,
-            &named.org_id,
+        for signed_in in [&ts.client, &admin] {
+            let response = signed_in.get(&shared).await;
+            response.check_ok();
+            assert_eq!(response.value(), as_anybody.value(), "{path}");
+        }
+        let wrong = format!(
+            "/shared{}?readToken=not-the-token",
+            &path["/boards".len()..]
         );
+        assert_eq!(
+            ts.client.get(&wrong).await.status,
+            anonymous.get(&wrong).await.status,
+            "{path}: a wrong token is told what anybody's is"
+        );
+        let by_workspace = format!("/w/{ROOT_WORKSPACE_ID}{path}");
+        check_sso_required(&ts.client.get(&by_workspace).await, &named.org_id);
+        admin.get(&by_workspace).await.check_ok();
     }
-    let shared = format!("{blocks}?readToken={read_token}");
-    assert_ne!(
-        admin.get(&shared).await.value()[0]["createdBy"],
-        "",
-        "the session of the provider reads as the member it is"
-    );
-    assert_eq!(
-        anonymous.get(&shared).await.value()[0]["createdBy"],
-        "",
-        "and a reader is told nobody's identifier"
-    );
     ts.teardown().await;
     fake.stop();
 }
@@ -853,7 +862,7 @@ async fn one_organizations_wall_is_not_anothers() {
     let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
     let our_boards = format!("/w/{ROOT_WORKSPACE_ID}/boards");
     let their_boards = format!("/w/{their_workspace}/boards");
-    let by_id = format!("/boards/{}", board.id);
+    let by_id = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
     tie(&ts, &ts.client, &fake, ADMIN_SUBJECT).await;
     let through_ours = through_provider(&ts, &fake, &ours, ADMIN_SUBJECT).await;
     let through_theirs = through_provider(&ts, &fake, &theirs, ADMIN_SUBJECT).await;
@@ -934,7 +943,9 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
             .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
             .await,
         outsider.get(&format!("/org/{ours}/oidc")).await,
-        outsider.get(&format!("/boards/{}", board.id)).await,
+        outsider
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id))
+            .await,
     ]
     .map(|response| (response.status, response.error_message()));
 
@@ -947,7 +958,9 @@ async fn who_has_no_place_in_the_organization_learns_nothing_of_its_wall() {
             .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
             .await,
         outsider.get(&format!("/org/{ours}/oidc")).await,
-        outsider.get(&format!("/boards/{}", board.id)).await,
+        outsider
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id))
+            .await,
     ]
     .map(|response| (response.status, response.error_message()));
     assert_eq!(after, before, "the same answers as before");

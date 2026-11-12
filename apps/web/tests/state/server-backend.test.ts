@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ServerBackend } from '$lib/api/backend.ts';
+import { serverBackend } from './support.ts';
 import { cardOfBlock } from '$lib/api/convert.ts';
 import { isBackendError } from '$lib/state/index.ts';
 
@@ -59,7 +59,7 @@ const BLOCK = {
 describe('the server backend', () => {
   it('signs in with the text as the name and as the email address, and says it is a script', async () => {
     const sent = serve(undefined, 204);
-    await new ServerBackend('/base').signIn('ann@home', 'secret pass');
+    await serverBackend('/base').signIn('ann@home', 'secret pass');
     expect(sent).toHaveLength(1);
     expect(sent[0]?.url).toBe('/base/api/v1/login');
     expect(sent[0]?.body).toEqual({
@@ -68,6 +68,41 @@ describe('the server backend', () => {
       password: 'secret pass',
     });
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
+  });
+
+  it('asks for a board read before under its own workspace, also after entering another', async () => {
+    const sent = serve({ ...BLOCK, id: 'b9', workspaceId: 'w2', title: 'Elsewhere', type: 'O' });
+    const backend = serverBackend('');
+    await backend.board('b9');
+    backend.enter('w3');
+    await backend.views('b9').catch(() => undefined);
+    await backend.patchCard('b9', 'c9', { title: 'x' }).catch(() => undefined);
+    expect(sent.map((one) => one.url)).toEqual([
+      '/api/v1/w/w1/boards/b9',
+      '/api/v1/w/w2/boards/b9/blocks?type=view',
+      '/api/v1/w/w2/cards/c9',
+    ]);
+  });
+
+  it('asks once for the people by their identifiers, each once, and not for none', async () => {
+    const sent = serve([
+      { id: 'u1', username: 'ann', email: '', createAt: 1, updateAt: 1, deleteAt: 0 },
+    ]);
+    const backend = serverBackend('');
+    expect(await backend.usersById('w1', [])).toEqual([]);
+    const found = await backend.usersById('w1', ['u1', 'u2', 'u1']);
+    expect(found.map((user) => user.id)).toEqual(['u1']);
+    expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
+      ['POST', '/api/v1/w/w1/users', ['u1', 'u2']],
+    ]);
+  });
+
+  it('asks for a long list of people in parts the server takes', async () => {
+    const sent = serve([]);
+    const ids = Array.from({ length: 450 }, (_, at) => `u${at}`);
+    await serverBackend('').usersById('w1', [...ids, ...ids]);
+    expect(sent.map((one) => (one.body as string[]).length)).toEqual([200, 200, 50]);
+    expect(sent.flatMap((one) => one.body as string[])).toEqual(ids);
   });
 
   it('makes a card from a draft, its body along', async () => {
@@ -82,10 +117,10 @@ describe('the server backend', () => {
       tasksTotal: 0,
       tasksDone: 0,
     });
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     const card = await backend.createCard('b', { properties: { status: 'todo' } });
     expect(sent[0]).toMatchObject({
-      url: '/api/v1/boards/b/cards',
+      url: '/api/v1/w/w1/boards/b/cards',
       method: 'POST',
       body: { title: '', icon: '', isTemplate: false, properties: { status: 'todo' } },
     });
@@ -109,9 +144,9 @@ describe('the server backend', () => {
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }],
     };
     const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: '', body }], 201);
-    const comment = await new ServerBackend('').createComment('b', 'c', body);
+    const comment = await serverBackend('').createComment('b', 'c', body);
     expect(sent[0]).toMatchObject({
-      url: '/api/v1/boards/b/blocks',
+      url: '/api/v1/w/w1/boards/b/blocks',
       method: 'POST',
       body: [{ boardId: 'b', parentId: 'c', type: 'comment', body }],
     });
@@ -138,18 +173,18 @@ describe('the server backend', () => {
           : new Response(JSON.stringify([comment]), { status: 200 }),
       );
     });
-    const changed = await new ServerBackend('').patchComment('b', 'm', { body, readAt: 7 });
+    const changed = await serverBackend('').patchComment('b', 'm', { body, readAt: 7 });
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'GET /api/v1/boards/b/blocks?blockId=m',
-      'PATCH /api/v1/boards/b/blocks/m',
-      'GET /api/v1/boards/b/blocks?blockId=m',
+      'GET /api/v1/w/w1/boards/b/blocks?blockId=m',
+      'PATCH /api/v1/w/w1/boards/b/blocks/m',
+      'GET /api/v1/w/w1/boards/b/blocks?blockId=m',
     ]);
     expect(sent[1]?.body).toEqual({ body, readAt: 7 });
     expect(changed).toMatchObject({ id: 'm', body, updateAt: 9 });
 
     // No text is no comment: refused before anything is sent.
     const none = serve([]);
-    const empty = await new ServerBackend('')
+    const empty = await serverBackend('')
       .patchComment('b', 'm', { body: null, readAt: 1 })
       .catch((error: unknown) => error);
     expect(isBackendError(empty) && empty.status).toBe(400);
@@ -157,7 +192,7 @@ describe('the server backend', () => {
 
     // A block that is not a comment is not changed.
     const other = serve([{ ...BLOCK, id: 'c', type: 'card', title: 'x' }]);
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .patchComment('b', 'c', { body, readAt: 1 })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(404);
@@ -173,16 +208,16 @@ describe('the server backend', () => {
       { version: 1, body, writtenBy: 'u1', writtenAt: 5 },
       { version: 3, body: null, writtenBy: 'u2', writtenAt: 8 },
     ]);
-    expect(await new ServerBackend('').commentVersions('b', 'm')).toEqual([
+    expect(await serverBackend('').commentVersions('b', 'm')).toEqual([
       { version: 1, body, writtenBy: 'u1', writtenAt: 5 },
       { version: 3, body: null, writtenBy: 'u2', writtenAt: 8 },
     ]);
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'GET /api/v1/boards/b/blocks/m/versions',
+      'GET /api/v1/w/w1/boards/b/blocks/m/versions',
     ]);
 
     serve([{ ...BLOCK, id: 'n', type: 'comment', title: '', body, editedAt: 9, modifiedBy: 'u2' }]);
-    const [comment] = await new ServerBackend('').comments('b', 'c');
+    const [comment] = await serverBackend('').comments('b', 'c');
     expect(comment).toMatchObject({ editedAt: 9, modifiedBy: 'u2' });
   });
 
@@ -192,12 +227,12 @@ describe('the server backend', () => {
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body' }] }],
     };
     serve([{ ...BLOCK, id: 'n', type: 'comment', title: '', body }]);
-    expect((await new ServerBackend('').comments('b', 'c'))[0]?.body).toEqual(body);
+    expect((await serverBackend('').comments('b', 'c'))[0]?.body).toEqual(body);
     // One stored before comments had bodies: its title, a paragraph a line.
     const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: 'Looks good\nShip it' }]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     const [comment] = await backend.comments('b', 'c');
-    expect(sent[0]?.url).toBe('/api/v1/boards/b/blocks?parentId=c&type=comment');
+    expect(sent[0]?.url).toBe('/api/v1/w/w1/boards/b/blocks?parentId=c&type=comment');
     expect(comment?.body).toEqual({
       type: 'doc',
       content: [
@@ -286,18 +321,18 @@ describe('changing a card on the server', () => {
 
   it('sends only the title when no value changes', async () => {
     const { sent } = oneCard({ a: '1' });
-    await new ServerBackend('').patchCard('b', 'c1', { title: 'New' });
-    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['PATCH /api/v1/cards/c1']);
+    await serverBackend('').patchCard('b', 'c1', { title: 'New' });
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['PATCH /api/v1/w/w1/cards/c1']);
     expect(sent[0]?.body).toEqual({ title: 'New' });
   });
 
   it('sends the values it sets and the ones it clears, and nothing else, without reading the card', async () => {
     const { sent, card } = oneCard({ a: '1', b: '2', c: '3' });
-    const answer = await new ServerBackend('').patchCard('b', 'c1', {
+    const answer = await serverBackend('').patchCard('b', 'c1', {
       updatedProperties: { b: '4' },
       deletedProperties: ['a'],
     });
-    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['PATCH /api/v1/cards/c1']);
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['PATCH /api/v1/w/w1/cards/c1']);
     expect(sent[0]?.body).toEqual({ updatedProperties: { b: '4' }, deletedProperties: ['a'] });
     expect(card().properties).toEqual({ b: '4', c: '3' });
     expect(answer.fields.properties).toEqual({ b: '4', c: '3' });
@@ -305,16 +340,16 @@ describe('changing a card on the server', () => {
 
   it('takes away the last value by the card patch, with a new title', async () => {
     const { sent, card } = oneCard({ a: '1' });
-    await new ServerBackend('').patchCard('b', 'c1', { title: 'T', deletedProperties: ['a'] });
+    await serverBackend('').patchCard('b', 'c1', { title: 'T', deletedProperties: ['a'] });
     expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
-      ['PATCH', '/api/v1/cards/c1', { title: 'T', deletedProperties: ['a'] }],
+      ['PATCH', '/api/v1/w/w1/cards/c1', { title: 'T', deletedProperties: ['a'] }],
     ]);
     expect(card()).toMatchObject({ title: 'T', properties: {} });
   });
 
   it('sends two quick changes of one card one after the other, in the order they were made', async () => {
     const { sent, card } = oneCard({});
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     await Promise.all([
       backend.patchCard('b', 'c1', { updatedProperties: { a: '1' } }),
       backend.patchCard('b', 'c1', { updatedProperties: { a: '2' } }),
@@ -335,7 +370,7 @@ describe('changing a card on the server', () => {
       tasksDone: 1,
       lastCommentAt: 44,
     });
-    const answer = await new ServerBackend('').patchCard('b', 'c1', { title: 'x' });
+    const answer = await serverBackend('').patchCard('b', 'c1', { title: 'x' });
     expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1, lastCommentAt: 44 });
     expect(answer).not.toHaveProperty('body');
     const block = cardOfBlock({
@@ -375,8 +410,10 @@ describe('joining an open board on the server', () => {
       schemeCommenter: true,
       schemeViewer: true,
     });
-    const member = await new ServerBackend('').joinBoard('b');
-    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['POST /api/v1/boards/b/join']);
+    const member = await serverBackend('').joinBoard('b');
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'POST /api/v1/w/w1/boards/b/join',
+    ]);
     expect(member).toMatchObject({ boardId: 'b', userId: 'u', schemeEditor: true });
   });
 });
@@ -400,9 +437,9 @@ describe('writing a card’s body on the server', () => {
 
   it('sends the body with the version it was read at, and gives the stored card', async () => {
     const sent = serve({ ...CARD, body, updateAt: 8 });
-    const stored = await new ServerBackend('').writeCardBody('b', 'c1', { body, readAt: 5 });
+    const stored = await serverBackend('').writeCardBody('b', 'c1', { body, readAt: 5 });
     expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
-      ['PATCH', '/api/v1/cards/c1', { body, readAt: 5 }],
+      ['PATCH', '/api/v1/w/w1/cards/c1', { body, readAt: 5 }],
     ]);
     expect(stored).toMatchObject({ id: 'c1', body, updateAt: 8, hasBody: true });
   });
@@ -412,7 +449,7 @@ describe('writing a card’s body on the server', () => {
       { type: '/problems/conflict', title: 'Conflict', status: 409, detail: 'stale' },
       409,
     );
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .writeCardBody('b', 'c1', { body: null, readAt: 5 })
       .catch((error: unknown) => error);
     expect(sent[0]?.body).toEqual({ body: null, readAt: 5 });
@@ -440,7 +477,9 @@ describe('writing a card’s body on the server', () => {
       },
       409,
     );
-    const refused = await new ServerBackend('').me().catch((error: unknown) => error);
+    const refused = await serverBackend('')
+      .me()
+      .catch((error: unknown) => error);
     if (!isBackendError(refused)) throw new Error('not refused');
     expect(refused).toMatchObject({
       status: 409,
@@ -470,7 +509,9 @@ describe('writing a card’s body on the server', () => {
         }),
       ),
     );
-    const refused = await new ServerBackend('').me().catch((error: unknown) => error);
+    const refused = await serverBackend('')
+      .me()
+      .catch((error: unknown) => error);
     if (!isBackendError(refused)) throw new Error('not refused');
     expect(refused).toMatchObject({ status: 500, type: 'about:blank', reason: undefined });
     expect(refused.errors).toEqual([]);
@@ -489,14 +530,14 @@ describe('changing a view on the server', () => {
         fields: { cardOrder: ['c2', 'c1'] },
       },
     ]);
-    const view = await new ServerBackend('').patchView('b', 'v', {
+    const view = await serverBackend('').patchView('b', 'v', {
       updatedFields: { cardOrder: ['c2', 'c1'] },
       deleteAt: 0,
     });
     expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
-      ['GET', '/api/v1/boards/b/blocks?blockId=v', undefined],
-      ['PATCH', '/api/v1/boards/b/blocks/v', { updatedFields: { cardOrder: ['c2', 'c1'] } }],
-      ['GET', '/api/v1/boards/b/blocks?blockId=v', undefined],
+      ['GET', '/api/v1/w/w1/boards/b/blocks?blockId=v', undefined],
+      ['PATCH', '/api/v1/w/w1/boards/b/blocks/v', { updatedFields: { cardOrder: ['c2', 'c1'] } }],
+      ['GET', '/api/v1/w/w1/boards/b/blocks?blockId=v', undefined],
     ]);
     expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
   });
@@ -512,7 +553,7 @@ describe('changing a view on the server', () => {
 
   it('changes no block that is not a view', async () => {
     const sent = serve([{ ...VIEW, type: 'card' }]);
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .patchView('b', 'v', { updatedFields: { cardOrder: [] } })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(404);
@@ -527,7 +568,7 @@ describe('changing a view on the server', () => {
       if (init.method === 'PATCH') return Promise.resolve(new Response(null, { status: 204 }));
       return Promise.resolve(new Response(JSON.stringify([VIEW]), { status: 200 }));
     });
-    const view = await new ServerBackend('').patchView('b', 'v', {
+    const view = await serverBackend('').patchView('b', 'v', {
       updatedFields: { cardOrder: ['c2', 'c1'] },
     });
     expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
@@ -535,11 +576,13 @@ describe('changing a view on the server', () => {
 
   it('makes a view as a block of the board, and refuses an answer without one', async () => {
     const sent = serve([{ ...VIEW, fields: { viewType: 'calendar' } }], 201);
-    const view = await new ServerBackend('').createView('b', {
+    const view = await serverBackend('').createView('b', {
       title: 'Calendar view',
       fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' } as never,
     });
-    expect(sent.map((one) => [one.method, one.url])).toEqual([['POST', '/api/v1/boards/b/blocks']]);
+    expect(sent.map((one) => [one.method, one.url])).toEqual([
+      ['POST', '/api/v1/w/w1/boards/b/blocks'],
+    ]);
     expect(sent[0]?.body).toEqual([
       {
         boardId: 'b',
@@ -553,7 +596,7 @@ describe('changing a view on the server', () => {
     expect(view.id).toBe('v');
     expect(view.fields.viewType).toBe('calendar');
     serve([], 201);
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .createView('b', { title: 'Calendar view', fields: { viewType: 'calendar' } as never })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(500);
@@ -568,7 +611,7 @@ describe('changing a view on the server', () => {
       if (init.method === 'PATCH') return new Response(null, { status: 204 });
       return new Response(JSON.stringify([VIEW]), { status: 200 });
     });
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     await Promise.all([
       backend.patchView('b', 'v', { updatedFields: { cardOrder: ['a'] } }),
       backend.patchView('b', 'v', { updatedFields: { cardOrder: ['b'] } }),
@@ -585,15 +628,15 @@ describe('changing a view on the server', () => {
 describe('the trash on the server', () => {
   it('deletes a block and takes it back out by its own routes', async () => {
     const sent = serve(undefined, 204);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     await backend.deleteBlock('b', 'c1');
     const restoring = serve({ ...BLOCK, id: 'c1', type: 'card', title: 'Back' });
     await backend.restoreBlock('b', 'c1');
     expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'DELETE /api/v1/boards/b/blocks/c1',
+      'DELETE /api/v1/w/w1/boards/b/blocks/c1',
     ]);
     expect(restoring.map((one) => `${one.method} ${one.url}`)).toEqual([
-      'POST /api/v1/boards/b/blocks/c1/undelete',
+      'POST /api/v1/w/w1/boards/b/blocks/c1/undelete',
     ]);
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
@@ -611,7 +654,7 @@ describe('the settings on the server', () => {
       hourCycle: 'h23',
     };
     serve(stored);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     expect(await backend.settings()).toMatchObject({ theme: 'dark', haptics: false });
     const sent = serve({ ...stored, theme: 'light' });
     await backend.patchSettings({ theme: 'light', haptics: true });
@@ -675,7 +718,7 @@ describe('the sidebar on the server', () => {
       ['GET /api/v1/users/me', { id: 'me', username: 'me', createAt: 1, updateAt: 1, deleteAt: 0 }],
       ['POST /api/v1/w/t/categories', CATEGORY, 201],
     ]);
-    const made = await new ServerBackend('').createCategory('t', { name: 'Work' });
+    const made = await serverBackend('').createCategory('t', { name: 'Work' });
     expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/w/t/categories']);
     expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', workspaceId: 't' });
     expect(made).toMatchObject({ id: 'k1', boardIds: [], hiddenBoardIds: [] });
@@ -686,7 +729,7 @@ describe('the sidebar on the server', () => {
       ['GET /api/v1/w/t/categories', CATEGORIES],
       ['PUT /api/v1/w/t/categories/k1', { ...CATEGORY, name: 'Home' }],
     ]);
-    const renamed = await new ServerBackend('').patchCategory('t', 'k1', { name: 'Home' });
+    const renamed = await serverBackend('').patchCategory('t', 'k1', { name: 'Home' });
     expect(sentLines(sent)).toEqual([
       'GET /api/v1/w/t/categories',
       'PUT /api/v1/w/t/categories/k1',
@@ -707,13 +750,13 @@ describe('the sidebar on the server', () => {
       ['GET /api/v1/w/t/categories', CATEGORIES],
       ['PUT /api/v1/w/t/categories/k1', { ...CATEGORY, collapsed: false }],
     ]);
-    await new ServerBackend('').patchCategory('t', 'k1', { collapsed: false });
+    await serverBackend('').patchCategory('t', 'k1', { collapsed: false });
     expect(sent[1]?.body).toMatchObject({ name: 'Work', collapsed: false });
   });
 
   it('says 404 for a category the reader does not have, and sends no change', async () => {
     const sent = serveRoutes([['GET /api/v1/w/t/categories', CATEGORIES]]);
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .patchCategory('t', 'k9', { name: 'X' })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(404);
@@ -725,7 +768,7 @@ describe('the sidebar on the server', () => {
       ['DELETE /api/v1/w/t/categories/k1', undefined, 204],
       ['PUT /api/v1/w/t/category-order', ['k2', 'k1']],
     ]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     await backend.deleteCategory('t', 'k1');
     await backend.reorderCategories('t', ['k2', 'k1']);
     expect(sentLines(sent)).toEqual([
@@ -744,7 +787,7 @@ describe('the sidebar on the server', () => {
       ],
       ['PUT /api/v1/w/t/categories/k1/board-order', ['b1', 'b9', 'b2', 'b3']],
     ]);
-    await new ServerBackend('').moveBoardToCategory('t', 'b9', 'k1', 1);
+    await serverBackend('').moveBoardToCategory('t', 'b9', 'k1', 1);
     expect(sentLines(sent)).toEqual([
       'POST /api/v1/w/t/categories/k1/boards/b9',
       'GET /api/v1/w/t/categories',
@@ -759,7 +802,7 @@ describe('the sidebar on the server', () => {
       ['GET /api/v1/w/t/categories', CATEGORIES],
       ['PUT /api/v1/w/t/categories/k1', CATEGORY],
     ]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     await Promise.all([
       backend.moveBoardToCategory('t', 'b3', 'k1', 0),
       backend.patchCategory('t', 'k1', { collapsed: false }),
@@ -779,7 +822,7 @@ describe('the sidebar on the server', () => {
 
   it('hides a board and shows it again by its routes', async () => {
     const sent = serveRoutes([['PUT /api/v1/w/t/categories/k1/boards/b1/', undefined, 204]]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     await backend.setBoardHidden('t', 'k1', 'b1', true);
     await backend.setBoardHidden('t', 'k1', 'b1', false);
     expect(sentLines(sent)).toEqual([
@@ -820,19 +863,18 @@ describe('boards on the server', () => {
 
   it('makes a board and its first view in one request, the view tied to the board', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/boards-and-blocks', { boards: [BOARD], blocks: [VIEW] }, 201],
+      ['POST /api/v1/w/t/boards-and-blocks', { boards: [BOARD], blocks: [VIEW] }, 201],
     ]);
-    const made = await new ServerBackend('').createBoard(
+    const made = await serverBackend('').createBoard(
       't',
       { title: 'Plan', cardProperties: [{ id: 's', name: 'Status', type: 'select', options: [] }] },
       { title: 'Board view', fields: { viewType: 'board' } as never },
     );
-    expect(sentLines(sent)).toEqual(['POST /api/v1/boards-and-blocks']);
+    expect(sentLines(sent)).toEqual(['POST /api/v1/w/t/boards-and-blocks']);
     const body = sent[0]?.body as { boards: { id: string }[]; blocks: { boardId: string }[] };
     expect(body.boards).toEqual([
       {
         id: body.blocks[0]?.boardId,
-        workspaceId: 't',
         type: 'P',
         title: 'Plan',
         description: '',
@@ -848,27 +890,27 @@ describe('boards on the server', () => {
 
   it('changes, deletes and brings back a board by its routes', async () => {
     const sent = serveRoutes([
-      ['PATCH /api/v1/boards/b1', { ...BOARD, title: 'New' }],
-      ['DELETE /api/v1/boards/b1', undefined, 204],
-      ['POST /api/v1/boards/b1/undelete', BOARD],
+      ['PATCH /api/v1/w/w1/boards/b1', { ...BOARD, title: 'New' }],
+      ['DELETE /api/v1/w/w1/boards/b1', undefined, 204],
+      ['POST /api/v1/w/w1/boards/b1/undelete', BOARD],
     ]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     expect((await backend.patchBoard('b1', { title: 'New', minimumRole: 'viewer' })).title).toBe(
       'New',
     );
     await backend.deleteBoard('b1');
     expect((await backend.restoreBoard('b1')).id).toBe('b1');
     expect(sentLines(sent)).toEqual([
-      'PATCH /api/v1/boards/b1',
-      'DELETE /api/v1/boards/b1',
-      'POST /api/v1/boards/b1/undelete',
+      'PATCH /api/v1/w/w1/boards/b1',
+      'DELETE /api/v1/w/w1/boards/b1',
+      'POST /api/v1/w/w1/boards/b1/undelete',
     ]);
     expect(sent[0]?.body).toEqual({ title: 'New', minimumRole: 'viewer' });
   });
 
   it('refuses a minimum role the contract does not have, sending nothing', async () => {
     const sent = serveRoutes([]);
-    const refused = await new ServerBackend('')
+    const refused = await serverBackend('')
       .patchBoard('b1', { minimumRole: 'admin' })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(400);
@@ -876,8 +918,8 @@ describe('boards on the server', () => {
   });
 
   it('makes a view as a block of the board', async () => {
-    const sent = serveRoutes([['POST /api/v1/boards/b1/blocks', [VIEW], 201]]);
-    const view = await new ServerBackend('').createView('b1', {
+    const sent = serveRoutes([['POST /api/v1/w/w1/boards/b1/blocks', [VIEW], 201]]);
+    const view = await serverBackend('').createView('b1', {
       title: 'Table view',
       fields: { viewType: 'table' } as never,
     });
@@ -898,7 +940,7 @@ describe('boards on the server', () => {
 describe('the password on the server', () => {
   it('is changed with the old one, and a wrong old one is let through with its reason', async () => {
     const sent = serveRoutes([['POST /api/v1/users/me/password', undefined, 204]]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     await backend.changePassword('old secret', 'new secret');
     expect(sentLines(sent)).toEqual(['POST /api/v1/users/me/password']);
     expect(sent[0]?.body).toEqual({ oldPassword: 'old secret', newPassword: 'new secret' });
@@ -938,21 +980,21 @@ describe('sharing a board on the server', () => {
 
   it('adds, changes and removes a member with exactly the one role', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/boards/b1/members', MEMBER],
+      ['POST /api/v1/w/w1/boards/b1/members', MEMBER],
       [
-        'PUT /api/v1/boards/b1/members/u2',
+        'PUT /api/v1/w/w1/boards/b1/members/u2',
         { ...MEMBER, schemeCommenter: false, schemeViewer: true },
       ],
-      ['DELETE /api/v1/boards/b1/members/u2', undefined, 204],
+      ['DELETE /api/v1/w/w1/boards/b1/members/u2', undefined, 204],
     ]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     expect((await backend.addMember('b1', 'u2', 'commenter')).schemeCommenter).toBe(true);
     expect((await backend.setMemberRole('b1', 'u2', 'viewer')).schemeViewer).toBe(true);
     await backend.removeMember('b1', 'u2');
     expect(sentLines(sent)).toEqual([
-      'POST /api/v1/boards/b1/members',
-      'PUT /api/v1/boards/b1/members/u2',
-      'DELETE /api/v1/boards/b1/members/u2',
+      'POST /api/v1/w/w1/boards/b1/members',
+      'PUT /api/v1/w/w1/boards/b1/members/u2',
+      'DELETE /api/v1/w/w1/boards/b1/members/u2',
     ]);
     expect(sent[0]?.body).toEqual({
       userId: 'u2',
@@ -971,10 +1013,10 @@ describe('sharing a board on the server', () => {
 
   it('reads and sets the public link, asking for a new token only when told', async () => {
     const sent = serveRoutes([
-      ['GET /api/v1/boards/b1/sharing', { enabled: false }],
-      ['POST /api/v1/boards/b1/sharing', { enabled: true, token: 'tok', updateAt: 3 }],
+      ['GET /api/v1/w/w1/boards/b1/sharing', { enabled: false }],
+      ['POST /api/v1/w/w1/boards/b1/sharing', { enabled: true, token: 'tok', updateAt: 3 }],
     ]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     expect(await backend.sharing('b1')).toEqual({ enabled: false, token: '' });
     expect(await backend.setSharing('b1', { enabled: true })).toEqual({
       enabled: true,
@@ -989,7 +1031,7 @@ describe('sharing a board on the server', () => {
 
   it('finds people of the workspace by the search of their list', async () => {
     const sent = serveRoutes([['GET /api/v1/w/t/users', []]]);
-    await new ServerBackend('').searchUsers('t', 'ann lee');
+    await serverBackend('').searchUsers('t', 'ann lee');
     expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/users?search=ann+lee']);
   });
 
@@ -1007,7 +1049,7 @@ describe('sharing a board on the server', () => {
         [workspace('w1', 'guest'), workspace('w2', 'member'), workspace('w3', 'admin')],
       ],
     ]);
-    expect(await new ServerBackend('').workspaces()).toEqual([
+    expect(await serverBackend('').workspaces()).toEqual([
       { id: 'w2', title: 'n-w2', orgId: 'o', ssoRequired: false },
       { id: 'w3', title: 'n-w3', orgId: 'o', ssoRequired: false },
     ]);
@@ -1040,10 +1082,10 @@ describe('templates on the server', () => {
   it('reads the templates, copies a board either way, and starts the welcome board', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/w/t/templates', [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }]],
-      ['POST /api/v1/boards/', { boards: [BOARD], blocks: [] }, 201],
+      ['POST /api/v1/w/w1/boards/', { boards: [BOARD], blocks: [] }, 201],
       ['POST /api/v1/w/t/onboard', { workspaceId: 't', boardId: 'w1' }],
     ]);
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     const [template] = await backend.templates('t');
     expect(template).toMatchObject({ id: 'tp', isTemplate: true, isBuiltin: true });
     expect((await backend.duplicateBoard('tp', false, 't')).id).toBe('b2');
@@ -1051,8 +1093,8 @@ describe('templates on the server', () => {
     expect(await backend.onboard('t')).toBe('w1');
     expect(sentLines(sent)).toEqual([
       'GET /api/v1/w/t/templates',
-      'POST /api/v1/boards/tp/duplicate?asTemplate=false&toWorkspace=t',
-      'POST /api/v1/boards/b2/duplicate?asTemplate=true&toWorkspace=t',
+      'POST /api/v1/w/w1/boards/tp/duplicate?asTemplate=false&toWorkspace=t',
+      'POST /api/v1/w/w1/boards/b2/duplicate?asTemplate=true&toWorkspace=t',
       'POST /api/v1/w/t/onboard',
     ]);
   });
@@ -1061,7 +1103,7 @@ describe('templates on the server', () => {
 describe('searching boards on the server', () => {
   it('asks the workspace’s search by title', async () => {
     const sent = serveRoutes([['GET /api/v1/w/t/boards/search', []]]);
-    expect(await new ServerBackend('').searchBoards('t', 'garden plan')).toEqual([]);
+    expect(await serverBackend('').searchBoards('t', 'garden plan')).toEqual([]);
     expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/boards/search?q=garden+plan']);
   });
 });

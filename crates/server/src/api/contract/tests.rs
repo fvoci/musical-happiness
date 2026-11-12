@@ -108,13 +108,13 @@ const NO_SESSION: [&str; 9] = [
     "register",
     "startOidcLogin",
 ];
-/// The operations that are read with a session or with the read token of a board.
+/// The operations that read a shared board with its read token, and look at no session.
 const READ_TOKEN: [&str; 5] = [
-    "getBlocks",
-    "getBoard",
-    "getCards",
-    "getFile",
-    "getFileInfo",
+    "getSharedBlocks",
+    "getSharedBoard",
+    "getSharedCards",
+    "getSharedFile",
+    "getSharedFileInfo",
 ];
 
 #[test]
@@ -123,14 +123,16 @@ fn what_needs_no_session_says_so() {
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let mut no_session = Vec::new();
     let mut read_token = Vec::new();
-    for item in document["paths"].as_object().expect("paths").values() {
+    for (path, item) in document["paths"].as_object().expect("paths") {
         for operation in item.as_object().expect("a path item").values() {
             let name = operation["operationId"].as_str().expect("a name");
             let security = &operation["security"];
             if *security == json!([{}]) {
-                no_session.push(name);
-            } else if *security == json!([{}, { "sessionCookie": [] }, { "bearerToken": [] }]) {
-                read_token.push(name);
+                if path.starts_with("/api/v1/shared/") {
+                    read_token.push(name);
+                } else {
+                    no_session.push(name);
+                }
             } else {
                 assert_eq!(
                     *security,
@@ -148,7 +150,7 @@ fn what_needs_no_session_says_so() {
     );
     assert_eq!(
         read_token, READ_TOKEN,
-        "these are read with a session or a read token, and no others"
+        "these read a shared board with its token, and are all under /shared"
     );
     assert_eq!(
         document["security"],
@@ -504,14 +506,15 @@ const ORDERS: &[(&str, &str)] = &[
     ("getOrgMembers", "the oldest member first"),
     ("getOrgWorkspaces", "the oldest first"),
     (
+        "getSharedBlocks",
+        "Oldest first; the blocks that one request made come in the order that request had them in",
+    ),
+    ("getSharedCards", "Oldest first; the pages cut that order"),
+    (
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
     ),
     ("getTemplates", "Each of the two oldest first"),
-    (
-        "getUsers",
-        "Oldest account first, not in the order of the request",
-    ),
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
     ("getWorkspaceUsers", "Oldest account first"),
@@ -523,7 +526,6 @@ const ORDERS: &[(&str, &str)] = &[
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
-    ("searchBoards", "Oldest first"),
     ("searchWorkspaceBoards", "Oldest first"),
 ];
 
@@ -589,11 +591,11 @@ fn the_routes_that_share_a_position_are_named_apart() {
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let paths = document["paths"].as_object().expect("paths");
     assert!(
-        paths.contains_key("/api/v1/subscriptions/{blockId}/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{blockId}/{subscriberId}"),
         "the path that ends a subscription"
     );
     assert!(
-        paths.contains_key("/api/v1/subscriptions/{subscriberId}"),
+        paths.contains_key("/api/v1/w/{workspaceId}/subscriptions/{subscriberId}"),
         "the path that lists subscriptions"
     );
     assert!(

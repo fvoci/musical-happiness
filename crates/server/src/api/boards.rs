@@ -1,7 +1,7 @@
 //! Boards: listing, creating, reading, patching, deleting, duplicating and undeleting.
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, RawQuery};
 use fvoci_model::{Board, BoardPatch, BoardType, BoardsAndBlocks, JsonMap, MinimumRole};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -9,16 +9,15 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewBoard;
-use super::contract::params::{AsTemplate, BoardId, ReadToken, ToWorkspace};
+use super::contract::params::MemberWorkspaceId;
+use super::contract::params::{AsTemplate, BoardId, ToWorkspace};
 use super::contract::tag;
+use super::workspace::Ws;
 
-use super::{
-    ApiResult, OptionalSession, RequiredSession, created, decode_json, json_response, no_content,
-    query_param, reader_by_read_token,
-};
+use super::{ApiResult, created, decode_json, json_response, no_content, query_param};
 use super::{
     duplicate_as, json_object, require_board_permission, require_granted, require_workspace_access,
-    require_workspace_in_body, user_is_guest,
+    user_is_guest,
 };
 use crate::app::{App, as_managed};
 use crate::error::AppError;
@@ -117,84 +116,59 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
 /// category, unless it is a template.
 #[utoipa::path(
     post,
-    path = "/boards",
+    path = "/w/{workspaceId}/boards",
+    params(MemberWorkspaceId),
     operation_id = "createBoard",
     tag = tag::BOARDS,
     request_body = NewBoard,
     responses((status = 201, description = "The board that was made.", body = Board)),
 )]
-async fn handle_create_board(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    body: Bytes,
-) -> ApiResult {
-    let user_id = &session.user_id;
+async fn handle_create_board(ws: Ws, body: Bytes) -> ApiResult {
+    let user_id = &ws.session.user_id;
+    // Whoever works in the workspace makes boards in it, open ones and private ones.
+    ws.require_board_maker("access denied to create board")
+        .await?;
     let mut requested = json_object(decode_json(&body)?)?;
     let invalid = take_invalid_board_members(&mut requested);
-    let board: Board =
+    let mut board: Board =
         serde_json::from_value(Value::Object(requested)).map_err(AppError::bad_request)?;
-
-    // Whoever works in the workspace makes boards in it, open ones and private ones.
-    require_workspace_in_body(&app, user_id, &board.workspace_id, "workspaceId").await?;
-    if user_is_guest(&app, user_id).await? {
-        return Err(AppError::forbidden("access denied to create board"));
-    }
+    ws.place_board(&mut board, "workspaceId")?;
 
     board.validate().map_err(AppError::bad_request)?;
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
     }
 
-    let board = app.create_board_with_admin(board, user_id).await?;
+    let board = ws.app.create_board_with_admin(board, user_id).await?;
     Ok(created(&board))
 }
 
 /// A board
 ///
 /// For a user who may see the board: a member of it, or for an open board anyone in
-/// its workspace. With the board's read token no session is needed. Who reads with the token
-/// and is no member of the board, without a session or signed in, is not told who made
-/// the board or changed it last (`createdBy` and `modifiedBy` are empty).
+/// its workspace.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}",
+    path = "/w/{workspaceId}/boards/{boardId}",
     operation_id = "getBoard",
     tag = tag::BOARDS,
-    params(BoardId, ReadToken),
-    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    params(MemberWorkspaceId, BoardId),
     responses((status = 200, description = "The board.", body = Board)),
 )]
-async fn handle_get_board(
-    State(app): State<App>,
-    session: OptionalSession,
-    Path(board_id): Path<String>,
-    RawQuery(query): RawQuery,
-) -> ApiResult {
-    let (shared, session) =
-        reader_by_read_token(&app, session, query.as_deref(), &board_id).await?;
-    let user_id = session.user_id();
-    let has_valid_read_token = shared.is_some();
-    if user_id.is_empty() && !has_valid_read_token {
-        return Err(AppError::unauthorized("access denied to board"));
-    }
-    let app = shared.unwrap_or(app);
-
-    let mut board = app.board(&board_id).await?;
-    if has_valid_read_token {
-        if !app.is_board_reader(user_id, &board_id).await? {
-            board.hide_people();
-        }
+async fn handle_get_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+    // An open board is for whoever works in its workspace, a private one for its
+    // members, and its name for the workspace's administrators.
+    let access = ws
+        .app
+        .board_access(&ws.session.user_id, &board_id)
+        .await?
+        .filter(|access| access.grant.sees())
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let board = if access.grant.manages_only() {
+        as_managed(access.board)
     } else {
-        // Without the token, an open board is for whoever works in its workspace, a
-        // private one for its members, and its name for the workspace's administrators.
-        let grant = app.board_grant(user_id, &board_id).await?;
-        if !grant.sees() {
-            return Err(AppError::not_found("board"));
-        }
-        if grant.manages_only() {
-            board = as_managed(board);
-        }
-    }
+        access.board
+    };
     Ok(json_response(&board))
 }
 
@@ -204,22 +178,21 @@ async fn handle_get_board(
 /// the board's admins.
 #[utoipa::path(
     patch,
-    path = "/boards/{boardId}",
+    path = "/w/{workspaceId}/boards/{boardId}",
     operation_id = "patchBoard",
     tag = tag::BOARDS,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     request_body = BoardPatch,
     responses((status = 200, description = "The board as it is now.", body = Board)),
 )]
 async fn handle_patch_board(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = &session.user_id;
+    let user_id = &ws.session.user_id;
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ManageBoardProperties,
@@ -229,7 +202,7 @@ async fn handle_patch_board(
     let patch = decode_board_patch(&body)?;
     if patch.board_type.is_some() || patch.minimum_role.is_some() {
         require_board_permission(
-            &app,
+            &ws.app,
             user_id,
             &board_id,
             BoardPermission::ManageBoardType,
@@ -240,7 +213,8 @@ async fn handle_patch_board(
 
     // The store names what it refuses as a board has it; the patch has two of those
     // members under other names.
-    let board = app
+    let board = ws
+        .app
         .patch_board(&patch, &board_id, user_id)
         .await
         .map_err(|error| {
@@ -260,10 +234,10 @@ async fn handle_patch_board(
 /// for any change of the board.
 #[utoipa::path(
     put,
-    path = "/boards/{boardId}/property-order",
+    path = "/w/{workspaceId}/boards/{boardId}/property-order",
     operation_id = "reorderCardProperties",
     tag = tag::BOARDS,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     request_body = Vec<String>,
     responses((
         status = 200,
@@ -272,14 +246,13 @@ async fn handle_patch_board(
     )),
 )]
 async fn handle_reorder_card_properties(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = &session.user_id;
+    let user_id = &ws.session.user_id;
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ManageBoardProperties,
@@ -287,7 +260,8 @@ async fn handle_reorder_card_properties(
     )
     .await?;
     let order: Vec<String> = decode_json(&body)?;
-    let order = app
+    let order = ws
+        .app
         .reorder_card_properties(&board_id, &order, user_id)
         .await?;
     Ok(json_response(&order))
@@ -301,29 +275,25 @@ async fn handle_reorder_card_properties(
 /// blocks; those do not come back with the board. For the board's admins.
 #[utoipa::path(
     delete,
-    path = "/boards/{boardId}",
+    path = "/w/{workspaceId}/boards/{boardId}",
     operation_id = "deleteBoard",
     tag = tag::BOARDS,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     responses((status = 204, description = "The board is deleted.")),
 )]
-async fn handle_delete_board(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
-) -> ApiResult {
+async fn handle_delete_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
     require_board_permission(
-        &app,
-        &session.user_id,
+        &ws.app,
+        &ws.session.user_id,
         &board_id,
         BoardPermission::DeleteBoard,
         "access denied to delete board",
     )
     .await?;
     // The board may be deleted between the two lookups; then it is gone for everybody.
-    app.board(&board_id).await?;
+    ws.app.board(&board_id).await?;
 
-    app.delete_board(&board_id, &session.user_id).await?;
+    ws.app.delete_board(&board_id, &ws.session.user_id).await?;
     Ok(no_content())
 }
 
@@ -337,10 +307,10 @@ async fn handle_delete_board(
 /// built-in template for everyone.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/duplicate",
+    path = "/w/{workspaceId}/boards/{boardId}/duplicate",
     operation_id = "duplicateBoard",
     tag = tag::BOARDS,
-    params(BoardId, AsTemplate, ToWorkspace),
+    params(MemberWorkspaceId, BoardId, AsTemplate, ToWorkspace),
     responses((
         status = 201,
         description = "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first.",
@@ -348,12 +318,11 @@ async fn handle_delete_board(
     )),
 )]
 async fn handle_duplicate_board(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let user_id = &session.user_id;
+    let user_id = &ws.session.user_id;
     let duplicate_as = duplicate_as(query.as_deref());
     let mut to_workspace = query_param(query.as_deref(), "toWorkspace");
 
@@ -361,7 +330,8 @@ async fn handle_duplicate_board(
     // answers as one that does not exist, whatever else the request says.
     // Copying is reading: an open template is for everybody who works in its workspace
     // and for its members, a built-in one for everybody, any other board for its members.
-    let access = app
+    let access = ws
+        .app
         .board_access(user_id, &board_id)
         .await?
         .ok_or_else(|| AppError::not_found("board"))?;
@@ -370,24 +340,18 @@ async fn handle_duplicate_board(
         BoardPermission::ViewBoard,
         "access denied to board",
     )?;
-    let board = access.board;
     if to_workspace.is_empty() {
-        // A copy stays in the board's workspace. A built-in template is in no workspace of the
-        // user's organization: its copy goes to the root workspace (TEMPORARY, with
-        // `only_organization_scope`: to the workspace the route will name).
-        to_workspace = if board.is_builtin {
-            app.root_workspace().await?.id
-        } else {
-            board.workspace_id.clone()
-        };
+        // A copy stays in the workspace of the path: the board's, or for a built-in
+        // template, which is every workspace's, the one it is copied from.
+        to_workspace.clone_from(&ws.workspace_id);
     }
-    // A board without a workspace, copied to no workspace, fails here too.
-    require_workspace_access(&app, user_id, &to_workspace).await?;
-    if user_is_guest(&app, user_id).await? {
+    require_workspace_access(&ws.app, user_id, &to_workspace).await?;
+    if user_is_guest(&ws.app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }
 
-    let (boards_and_blocks, _members) = app
+    let (boards_and_blocks, _members) = ws
+        .app
         .duplicate_board(&board_id, user_id, &to_workspace, duplicate_as)
         .await?;
     Ok(created(&boards_and_blocks))
@@ -405,22 +369,19 @@ async fn handle_duplicate_board(
 /// its description and properties); to anybody else there is no such board.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/undelete",
+    path = "/w/{workspaceId}/boards/{boardId}/undelete",
     operation_id = "undeleteBoard",
     tag = tag::BOARDS,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     responses((status = 200, description = "The board as it is again.", body = Board)),
 )]
-async fn handle_undelete_board(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
-) -> ApiResult {
+async fn handle_undelete_board(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
     // The trash keeps the memberships a board had, which is how it is known who may
     // bring it back, as what they are in its workspace now. To anybody else, and for a
     // board that is not in the trash, there is no such board.
-    let grant = app
-        .deleted_board_access(&session.user_id, &board_id)
+    let grant = ws
+        .app
+        .deleted_board_access(&ws.session.user_id, &board_id)
         .await?
         .map_or(Grant::NONE, |access| access.grant);
     require_granted(
@@ -429,7 +390,10 @@ async fn handle_undelete_board(
         "access denied to undelete board",
     )?;
 
-    let board = app.undelete_board(&board_id, &session.user_id).await?;
+    let board = ws
+        .app
+        .undelete_board(&board_id, &ws.session.user_id)
+        .await?;
     if grant.manages_only() {
         return Ok(json_response(&as_managed(board)));
     }

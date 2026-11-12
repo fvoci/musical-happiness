@@ -6,6 +6,7 @@ use fvoci_model::BoardType;
 use reqwest::{Method, StatusCode};
 use sha2::Digest as _;
 
+use crate::common::TEST_WS;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::metrics::{sample, scrape};
 
@@ -59,7 +60,7 @@ async fn refusals_are_counted_by_the_name_of_their_problem() {
     let response = server.client.get("/no-such-route").await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
     // Refused by the framework, and made a problem.
-    let response = server.client.get("/boards/%FF").await;
+    let response = server.client.get(&format!("{TEST_WS}/boards/%FF")).await;
     assert_eq!(response.status, StatusCode::BAD_REQUEST);
     let response = server.client.get("/hello").await;
     assert_eq!(response.status, StatusCode::OK);
@@ -218,13 +219,13 @@ async fn the_operations_on_the_local_disk_are_measured() {
     let file_id = crate::files::uploaded_id(&response);
     let download = server
         .client
-        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
         .await;
     download.check_ok();
     let missing = server
         .client
         .get(&format!(
-            "/boards/{}/files/7{}.txt",
+            "{TEST_WS}/boards/{}/files/7{}.txt",
             board.id,
             fvoci_model::new_id()
         ))
@@ -298,7 +299,7 @@ async fn with_s3_the_steps_of_an_upload_in_parts_are_measured() {
         async move {
             let response = client
                 .post(
-                    &format!("/boards/{board_id}/uploads"),
+                    &format!("{TEST_WS}/boards/{board_id}/uploads"),
                     &serde_json::json!({"name": name, "size": 3}),
                 )
                 .await;
@@ -317,7 +318,10 @@ async fn with_s3_the_steps_of_an_upload_in_parts_are_measured() {
         );
         let request = server
             .client
-            .request(Method::PUT, &format!("/uploads/{upload_id}/parts/1"))
+            .request(
+                Method::PUT,
+                &format!("{TEST_WS}/uploads/{upload_id}/parts/1"),
+            )
             .header("Content-Type", "application/octet-stream")
             .header("Content-Digest", digest)
             .body(bytes.to_vec());
@@ -327,14 +331,14 @@ async fn with_s3_the_steps_of_an_upload_in_parts_are_measured() {
     send_part(&completed).await;
     server
         .client
-        .post_empty(&format!("/uploads/{completed}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{completed}/complete"))
         .await
         .check_created();
     let abandoned = open("b.txt").await;
     send_part(&abandoned).await;
     server
         .client
-        .delete(&format!("/uploads/{abandoned}"))
+        .delete(&format!("{TEST_WS}/uploads/{abandoned}"))
         .await
         .check_no_content();
     let body = scrape(&server).await;

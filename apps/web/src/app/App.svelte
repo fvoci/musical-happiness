@@ -398,6 +398,7 @@
     boardId={router.route.boardId}
     boardHref={(board: BoardPlace) =>
       router.href({ workspaceId: board.workspaceId, boardId: board.id })}
+    sharedHref={(boardId: string, readToken: string) => router.href({ boardId, readToken })}
     onOpenBoard={openBoard}
     {locales}
     language={shownLanguage(workspace.settings.language)}

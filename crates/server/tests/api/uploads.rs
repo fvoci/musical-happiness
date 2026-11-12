@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::common::{ROOT_WS, TEST_WS};
 
 /// The smallest part size, which the tests use so that a file of two parts stays small.
 const PART: usize = 5 * 1024 * 1024;
@@ -46,7 +47,7 @@ fn digest(bytes: &[u8]) -> String {
 async fn open(client: &Client, board_id: &str, name: &str, size: usize) -> ApiResponse {
     client
         .post(
-            &format!("/boards/{board_id}/uploads"),
+            &format!("{TEST_WS}/boards/{board_id}/uploads"),
             &json!({"name": name, "size": size}),
         )
         .await
@@ -71,7 +72,10 @@ async fn put_part_with(
     digest: &str,
 ) -> ApiResponse {
     let request = client
-        .request(Method::PUT, &format!("/uploads/{upload_id}/parts/{number}"))
+        .request(
+            Method::PUT,
+            &format!("{TEST_WS}/uploads/{upload_id}/parts/{number}"),
+        )
         .header("Content-Type", "application/octet-stream")
         .header("Content-Digest", digest)
         .body(bytes.to_vec());
@@ -158,7 +162,10 @@ async fn a_file_sent_in_parts_is_stored_whole() {
         .await
         .check_no_content();
     // What a client that lost its place sees.
-    let state = ts.client.get(&format!("/uploads/{upload_id}")).await;
+    let state = ts
+        .client
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
+        .await;
     state.check_ok();
     let state = state.value();
     assert_eq!(state["boardId"], board.id.as_str());
@@ -183,7 +190,7 @@ async fn a_file_sent_in_parts_is_stored_whole() {
 
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     response.check_created();
     let file_id = response.value()["fileId"]
@@ -197,7 +204,7 @@ async fn a_file_sent_in_parts_is_stored_whole() {
     );
     let download = ts
         .client
-        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
         .await;
     download.check_ok();
     assert!(download.body == data, "the file is the parts in order");
@@ -207,11 +214,11 @@ async fn a_file_sent_in_parts_is_stored_whole() {
         "the parts are gone once the file is made"
     );
     ts.client
-        .get(&format!("/uploads/{upload_id}"))
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_not_found();
     ts.client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await
         .check_not_found();
 }
@@ -233,7 +240,7 @@ async fn an_empty_file_has_no_part() {
         .check_bad_request();
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     response.check_created();
     let file_id = response.value()["fileId"]
@@ -242,7 +249,7 @@ async fn an_empty_file_has_no_part() {
         .to_owned();
     let download = ts
         .client
-        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
         .await;
     download.check_ok();
     assert_eq!(download.body, b"");
@@ -275,13 +282,19 @@ async fn a_part_that_fails_a_check_is_not_kept() {
             "nothing is kept of a part that is {why}"
         );
     }
-    let state = ts.client.get(&format!("/uploads/{upload_id}")).await;
+    let state = ts
+        .client
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
+        .await;
     assert_eq!(state.value()["parts"], json!([]), "no part is recorded");
 
     // A part without a digest header at all.
     let request = ts
         .client
-        .request(Method::PUT, &format!("/uploads/{upload_id}/parts/2"))
+        .request(
+            Method::PUT,
+            &format!("{TEST_WS}/uploads/{upload_id}/parts/2"),
+        )
         .body(last.to_vec());
     let response = Client::send(request).await;
     response.check_bad_request();
@@ -293,7 +306,7 @@ async fn a_part_that_fails_a_check_is_not_kept() {
         .check_no_content();
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     response.check_bad_request();
     assert_eq!(response.error_message(), "parts missing: 1");
@@ -301,7 +314,7 @@ async fn a_part_that_fails_a_check_is_not_kept() {
         .await
         .check_no_content();
     ts.client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await
         .check_created();
 }
@@ -315,22 +328,47 @@ async fn another_users_upload_is_not_found() {
 
     for id in [upload_id.as_str(), "no-such-upload"] {
         let other = &ts.client2;
-        other.get(&format!("/uploads/{id}")).await.check_not_found();
+        other
+            .get(&format!("{TEST_WS}/uploads/{id}"))
+            .await
+            .check_not_found();
         put_part(other, id, 1, b"abc").await.check_not_found();
         other
-            .post_empty(&format!("/uploads/{id}/complete"))
+            .post_empty(&format!("{TEST_WS}/uploads/{id}/complete"))
             .await
             .check_not_found();
         other
-            .delete(&format!("/uploads/{id}"))
+            .delete(&format!("{TEST_WS}/uploads/{id}"))
             .await
             .check_not_found();
     }
     // Still there for its user.
     ts.client
-        .get(&format!("/uploads/{upload_id}"))
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_ok();
+}
+
+/// An upload for a board that went to the trash is of the board's workspace still: its
+/// user ends it there, and under another workspace it is not there.
+#[tokio::test]
+async fn an_upload_for_a_board_in_the_trash_is_ended_in_its_workspace() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
+    let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
+    ts.client
+        .delete(&format!("{TEST_WS}/boards/{}", board.id))
+        .await
+        .check_no_content();
+
+    ts.client
+        .delete(&format!("{ROOT_WS}/uploads/{upload_id}"))
+        .await
+        .check_not_found();
+    ts.client
+        .delete(&format!("{TEST_WS}/uploads/{upload_id}"))
+        .await
+        .check_no_content();
 }
 
 /// An abandoned upload is gone, its parts with it.
@@ -345,16 +383,16 @@ async fn an_abandoned_upload_leaves_nothing() {
     assert_eq!(part_numbers(&parts_dir(&ts, &upload_id)), ["1"]);
 
     ts.client
-        .delete(&format!("/uploads/{upload_id}"))
+        .delete(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_no_content();
     assert!(!parts_dir(&ts, &upload_id).exists(), "the parts are gone");
     ts.client
-        .get(&format!("/uploads/{upload_id}"))
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_not_found();
     ts.client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await
         .check_not_found();
 }
@@ -390,7 +428,7 @@ async fn opening_an_upload_is_checked() {
     for (body, field) in refusals {
         let response = ts
             .client
-            .post(&format!("/boards/{}/uploads", board.id), &body)
+            .post(&format!("{TEST_WS}/boards/{}/uploads", board.id), &body)
             .await;
         response.check_bad_request();
         if !field.is_empty() {
@@ -432,18 +470,21 @@ async fn a_completion_without_the_permission_throws_the_upload_away() {
         .check_no_content();
 
     ts.client
-        .delete(&format!("/boards/{}/members/{}", board.id, editor.id))
+        .delete(&format!(
+            "{TEST_WS}/boards/{}/members/{}",
+            board.id, editor.id
+        ))
         .await
         .check_no_content();
     let response = ts
         .client2
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     // The board is private, and the user no member of it any more.
     response.check_not_found();
     assert!(!parts_dir(&ts, &upload_id).exists(), "the parts are gone");
     ts.client2
-        .get(&format!("/uploads/{upload_id}"))
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_not_found();
 }
@@ -468,9 +509,11 @@ async fn a_closed_upload_is_left_to_whoever_closed_it() {
 
     let conflicts = [
         put_part(&ts.client, &upload_id, 1, b"abc").await,
-        ts.client.delete(&format!("/uploads/{upload_id}")).await,
         ts.client
-            .post_empty(&format!("/uploads/{upload_id}/complete"))
+            .delete(&format!("{TEST_WS}/uploads/{upload_id}"))
+            .await,
+        ts.client
+            .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
             .await,
     ];
     for response in conflicts {
@@ -586,7 +629,7 @@ async fn a_user_has_at_most_eight_uploads_open() {
         .check_created();
 
     ts.client
-        .delete(&format!("/uploads/{}", open_ones[0]))
+        .delete(&format!("{TEST_WS}/uploads/{}", open_ones[0]))
         .await
         .check_no_content();
     open(&ts.client, &board.id, "a.txt", 1)
@@ -665,7 +708,7 @@ async fn ended_uploads_are_thrown_away_with_their_parts() {
     );
     assert!(!parts_dir(&ts, &ending).exists(), "the parts are gone");
     ts.client
-        .get(&format!("/uploads/{ending}"))
+        .get(&format!("{TEST_WS}/uploads/{ending}"))
         .await
         .check_not_found();
 
@@ -862,7 +905,7 @@ async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let address = ts.base_url.trim_start_matches("http://").to_owned();
     let request = format!(
-        "POST /api/v1/boards/{}/files HTTP/1.1\r\nHost: {address}\r\n\
+        "POST /api/v1/w/{TEST_WORKSPACE_ID}/boards/{}/files HTTP/1.1\r\nHost: {address}\r\n\
          Authorization: Bearer {}\r\nX-Requested-With: XMLHttpRequest\r\n\
          Content-Type: multipart/form-data; boundary=edge\r\n\
          Content-Length: {}\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n",
@@ -971,7 +1014,10 @@ async fn with_s3_the_parts_go_to_the_bucket() {
         Vec::<String>::new(),
         "nothing of the parts is left on the disk once sent"
     );
-    let state = ts.client.get(&format!("/uploads/{upload_id}")).await;
+    let state = ts
+        .client
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
+        .await;
     state.check_ok();
     assert_eq!(
         state.value()["parts"],
@@ -983,7 +1029,7 @@ async fn with_s3_the_parts_go_to_the_bucket() {
 
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     response.check_created();
     let file_id = response.value()["fileId"]
@@ -993,12 +1039,12 @@ async fn with_s3_the_parts_go_to_the_bucket() {
     assert_eq!(Path::new(&file_id).extension(), Some("pdf".as_ref()));
     let download = ts
         .client
-        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
         .await;
     download.check_ok();
     assert!(download.body == data, "the file is the parts in order");
     ts.client
-        .get(&format!("/uploads/{upload_id}"))
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_not_found();
 
@@ -1006,7 +1052,7 @@ async fn with_s3_the_parts_go_to_the_bucket() {
     let empty = opened(&ts.client, &board.id, "empty.txt", 0).await;
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{empty}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{empty}/complete"))
         .await;
     response.check_created();
     let file_id = response.value()["fileId"]
@@ -1015,7 +1061,7 @@ async fn with_s3_the_parts_go_to_the_bucket() {
         .to_owned();
     let download = ts
         .client
-        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
         .await;
     download.check_ok();
     assert_eq!(download.body.len(), 0, "an empty file");
@@ -1026,14 +1072,14 @@ async fn with_s3_the_parts_go_to_the_bucket() {
         .await
         .check_no_content();
     ts.client
-        .delete(&format!("/uploads/{abandoned}"))
+        .delete(&format!("{TEST_WS}/uploads/{abandoned}"))
         .await
         .check_no_content();
     put_part(&ts.client, &abandoned, 1, b"abc")
         .await
         .check_not_found();
     ts.client
-        .post_empty(&format!("/uploads/{abandoned}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{abandoned}/complete"))
         .await
         .check_not_found();
 }
@@ -1084,11 +1130,11 @@ async fn with_s3_what_fails_leaves_nothing() {
         .expect("the part is recorded");
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
     ts.client
-        .get(&format!("/uploads/{upload_id}"))
+        .get(&format!("{TEST_WS}/uploads/{upload_id}"))
         .await
         .check_not_found();
     assert_eq!(
@@ -1177,7 +1223,7 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
     // file is either made and recorded, or not left at all.
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     if response.status == StatusCode::CREATED {
         let file_id = response.value()["fileId"]
@@ -1187,7 +1233,7 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
         assert!(path.ends_with(&file_id), "the object is the file");
         let download = ts
             .client
-            .get(&format!("/boards/{}/files/{file_id}", board.id))
+            .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
             .await;
         download.check_ok();
         assert!(download.body == b"abc".as_slice(), "the file is recorded");
@@ -1247,7 +1293,7 @@ async fn with_s3_parts_sent_at_once_are_all_taken() {
 
     let response = ts
         .client
-        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .post_empty(&format!("{TEST_WS}/uploads/{upload_id}/complete"))
         .await;
     response.check_created();
     let file_id = response.value()["fileId"]
@@ -1256,7 +1302,7 @@ async fn with_s3_parts_sent_at_once_are_all_taken() {
         .to_owned();
     let download = ts
         .client
-        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/files/{file_id}", board.id))
         .await;
     download.check_ok();
     assert!(download.body == data, "the file is the parts in order");

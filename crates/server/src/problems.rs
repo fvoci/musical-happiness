@@ -111,9 +111,9 @@ fn describe_kind(kind: ErrorKind) -> &'static str {
         }
         ErrorKind::Unauthorized => {
             "The request has no session, or its session is over: sign in and send the request \
-             again. What a shared board lets be read without a session answers so to a \
-             request without the board's read token, and the websocket endpoint to a \
-             handshake that has no `Origin` header and no bearer token."
+             again. The websocket endpoint answers so to a handshake that has no `Origin` \
+             header and no bearer token. A shared board's link needs no session: what it does \
+             not open is not found."
         }
         ErrorKind::Forbidden => {
             "The user can see what the request is about, but may not do this with it."
@@ -478,8 +478,9 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
             "Status 401, with a session that is good: the organization takes no password \
              (`ssoRequired` of its provider), and the session was not made through its \
              provider. Everything of the organization answers so (the routes under \
-             `/w/{workspaceId}` and `/org/{orgId}`, and those that name a board, a card or \
-             another thing of it), from the request after it was switched on; the session \
+             `/w/{workspaceId}` and `/org/{orgId}`, and `getMyMemberships` and \
+             `setUserAdmin`, which name neither and are of the organization the server \
+             stands in), from the request after it was switched on; the session \
              stays, and opens what is of other organizations. `orgId` names the \
              organization: start a sign-in through its provider (`startOidcLogin`) and the \
              session it ends in opens it. `getMyWorkspaces` says beforehand which \

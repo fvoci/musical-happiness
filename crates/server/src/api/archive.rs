@@ -18,11 +18,11 @@ use super::contract::bodies::Binary;
 use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::workspace::Ws;
-use super::{AccountSession, ApiResult, RequiredSession, json_response};
+use super::{ApiResult, RequiredSession, json_response};
 use super::{require_board_permission, user_is_guest};
 use crate::app::{App, ExportedArchive, Slot, download};
 use crate::connection::{Breaker, Connection};
-use crate::error::{AppError, Reason};
+use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
 /// What is refused to a user who may not import into the workspace.
@@ -69,6 +69,12 @@ pub(super) async fn require_import_access(
     let ws = Ws::enter(app, session, workspace_id)
         .await?
         .require_works_there()?;
+    admit_import(ws).await
+}
+
+/// The workspace entered, if the user may import into it: who is no guest of the
+/// instance (who works there is asked before, `Ws::require_works_there`).
+async fn admit_import(ws: Ws) -> Result<Ws, AppError> {
     if user_is_guest(&ws.app, &ws.session.user_id).await? {
         return Err(AppError::forbidden(IMPORT_DENIAL));
     }
@@ -91,10 +97,10 @@ pub(super) async fn require_import_access(
 /// broken before the archive's end.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/archive/export",
+    path = "/w/{workspaceId}/boards/{boardId}/archive/export",
     operation_id = "exportBoardArchive",
     tag = tag::ARCHIVES,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     responses((
         status = 200,
         description = "The archive.",
@@ -107,29 +113,29 @@ pub(super) async fn require_import_access(
     )),
 )]
 async fn handle_export_board(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    ws: Ws,
     connection: Option<Extension<ConnectInfo<Connection>>>,
-    Path(board_id): Path<String>,
+    Path((_, board_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let user_id = &session.user_id;
+    let user_id = &ws.session.user_id;
     // The original also lets a system admin with a compliance license through; a
     // standalone server has neither, so a non-member is refused.
     require_board_permission(
-        &app,
+        &ws.app,
         user_id,
         &board_id,
         BoardPermission::ViewBoard,
         "access denied to board",
     )
     .await?;
-    let board = app.board(&board_id).await?;
-    let slot = app.start_export(user_id)?;
-    let archive = app
+    let board = ws.app.board(&board_id).await?;
+    let slot = ws.app.start_export(user_id)?;
+    let archive = ws
+        .app
         .export_archive(&board.workspace_id, std::slice::from_ref(&board.id))
         .await?;
     Ok(archive_response(
-        &app,
+        &ws.app,
         archive,
         slot,
         breaker_of(connection),
@@ -162,7 +168,7 @@ async fn handle_export_board(
 )]
 async fn handle_export_workspace(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
@@ -185,10 +191,11 @@ async fn handle_export_workspace(
 /// upload with `createImportUpload`, send its parts with `putUploadPart`, then name
 /// the upload here, in place of `completeUpload`. A part missing is 400 and the upload
 /// stays open for it; otherwise the upload ends with the import, whether it succeeds or
-/// not. Another user's upload, or one that has ended, is 404; an upload of a file, or
-/// one for another workspace, is 400. For users of the workspace who are not guests, at the
-/// import as when the upload was opened: a user who may not import any more is
-/// refused, and the upload is thrown away.
+/// not. Another user's upload, one that has ended, and one for another workspace are
+/// 404; an upload of a file is 400. A workspace the user is not in is 404 before the
+/// body is read. For users of the workspace who are not guests, at the import as when
+/// the upload was opened: a user who may not import any more is refused, and the upload
+/// is thrown away.
 ///
 /// The archive is of version 3, as the export routes write it. The formats of the
 /// original (the line-based version 1 and the ZIP of version 2) and a ZIP without
@@ -220,47 +227,22 @@ async fn handle_export_workspace(
         body = ImportResult,
     )),
 )]
-async fn handle_import(
-    State(app): State<App>,
-    AccountSession(session): AccountSession,
-    Path(workspace_id): Path<String>,
-    body: Bytes,
-) -> ApiResult {
-    let user_id = session.user_id.clone();
-    let asker = session.clone();
-    // The workspace is entered first, for the organization its upload is read in, and
-    // refused where it always was: after the body and the upload are looked at, with
-    // the upload thrown away.
-    let (entered, reach) = match require_import_access(&app, session, workspace_id.clone()).await {
-        Ok(ws) => {
-            let reach = ws.app.clone();
-            (Ok(ws), reach)
-        }
-        // A session that does not open the organization looks at nothing of it, its
-        // uploads included, and throws none away: not of the workspace's
-        // organization, and, where no workspace was entered, not of the one the
-        // server stands in, where the upload is then looked for.
-        Err(refusal) if refusal.reason() == Some(Reason::SsoRequired) => return Err(refusal),
-        Err(refusal) => {
-            app.require_session_opens_here(&asker).await?;
-            (Err(refusal), app.clone())
-        }
-    };
+async fn handle_import(ws: Ws, body: Bytes) -> ApiResult {
+    let ws = ws.require_works_there()?;
+    let user_id = ws.session.user_id.clone();
+    // The workspace is entered, and the user works there, before the body is read; the
+    // upload is one of the workspace (`App::workspace_upload`), and a guest of the
+    // instance is refused after the upload is looked at, with the upload thrown away.
+    let reach = ws.app.clone();
     let ImportRequest { upload_id } = decode_object(&body)?;
-    let (upload, _) = reach.upload(&upload_id, &user_id).await?;
+    let (upload, _) = reach.workspace_upload(&upload_id, &user_id).await?;
     if upload.purpose != UploadPurpose::Import {
         return Err(AppError::bad_request(
             "the upload is of a file; complete it with completeUpload",
         )
         .with_field("uploadId"));
     }
-    if upload.workspace_id != workspace_id {
-        return Err(
-            AppError::bad_request("the upload is of an archive for another workspace")
-                .with_field("uploadId"),
-        );
-    }
-    let ws = match entered {
+    let ws = match admit_import(ws).await {
         Ok(ws) => ws,
         Err(refusal) => {
             // As for a completion (design 5.6, 2): the upload cannot be imported any

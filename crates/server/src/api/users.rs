@@ -19,8 +19,8 @@ use super::contract::tag;
 
 use super::auth::address_of;
 use super::{
-    AccountSession, ApiResult, RequiredSession, decode_json, decode_object, json_object,
-    json_response, no_content, require_admin,
+    ApiResult, RequiredSession, decode_json, decode_object, json_object, json_response, no_content,
+    require_admin,
 };
 use crate::app::App;
 use crate::client_address::ClientAddress;
@@ -28,7 +28,6 @@ use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_get_users_list))
         .routes(routes!(handle_get_me, handle_patch_me))
         .routes(routes!(handle_get_my_memberships))
         .routes(routes!(handle_get_client_state, handle_patch_client_state))
@@ -37,7 +36,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_patch_user_settings
         ))
         .routes(routes!(handle_get_my_identities, handle_unlink_identity))
-        .routes(routes!(handle_get_user))
         .routes(routes!(handle_set_user_admin))
 }
 
@@ -53,45 +51,6 @@ fn user_not_found(error: AppError) -> AppError {
     }
 }
 
-/// Users by their identifiers
-///
-/// The users with the identifiers of the body, which must name at least one: an empty
-/// list is 400. Every identifier must be of a user the user sees and none may be there
-/// twice; otherwise the request is 404. A user sees who shares with them a workspace
-/// they work in (are no guest of), who holds a role with them on a board of a workspace
-/// both are in, who created or last changed a card, block or comment of a board they
-/// read (also after leaving its workspace), and themselves. Oldest account first, not in
-/// the order of the request.
-#[utoipa::path(
-    post,
-    path = "/users",
-    operation_id = "getUsers",
-    tag = tag::USERS,
-    request_body = Vec<String>,
-    responses((status = 200, description = "The users.", body = Vec<User>)),
-)]
-async fn handle_get_users_list(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    body: Bytes,
-) -> ApiResult {
-    let user_ids: Vec<String> = decode_json(&body)?;
-    if user_ids.is_empty() {
-        return Err(AppError::bad_request("the list of user IDs is empty"));
-    }
-    let users = app.users_seen_by(&session.user_id, &user_ids).await?;
-    let mut sanitized = Vec::with_capacity(users.len());
-    for mut user in users {
-        if user.id == session.user_id {
-            crate::app::sanitize(&mut user);
-        } else {
-            app.sanitize_profile(&mut user);
-        }
-        sanitized.push(user);
-    }
-    Ok(json_response(&sanitized))
-}
-
 /// The user of the session
 #[utoipa::path(
     get,
@@ -102,7 +61,7 @@ async fn handle_get_users_list(
 )]
 async fn handle_get_me(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
 ) -> ApiResult {
     let mut user = app.user(&session.user_id).await.map_err(user_not_found)?;
 
@@ -129,7 +88,7 @@ async fn handle_get_me(
 )]
 async fn handle_patch_me(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
@@ -179,6 +138,8 @@ async fn handle_get_my_memberships(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
+    // The boards are of the organization the server stands in, and name no workspace.
+    app.require_session_opens_here(&session).await?;
     let members = app.store().get_members_for_user(&session.user_id).await?;
     Ok(json_response(&members))
 }
@@ -197,7 +158,7 @@ async fn handle_get_my_memberships(
 )]
 async fn handle_get_my_identities(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
 ) -> ApiResult {
     Ok(json_response(&app.identities(&session.user_id).await?))
 }
@@ -231,7 +192,7 @@ async fn handle_get_my_identities(
 )]
 async fn handle_unlink_identity(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
     client: Option<Extension<ClientAddress>>,
     body: Bytes,
 ) -> ApiResult {
@@ -244,36 +205,6 @@ async fn handle_unlink_identity(
 
 /// A user
 ///
-/// A user the user sees, as `getUsers` has it; anybody else is 404, as one who does not
-/// exist.
-#[utoipa::path(
-    get,
-    path = "/users/{userId}",
-    operation_id = "getUser",
-    tag = tag::USERS,
-    params(UserId),
-    responses((status = 200, description = "The user.", body = User)),
-)]
-async fn handle_get_user(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(user_id): Path<String>,
-) -> ApiResult {
-    // Somebody the user does not see is as one who does not exist.
-    let mut user = app
-        .users_seen_by(&session.user_id, std::slice::from_ref(&user_id))
-        .await
-        .map_err(user_not_found)?
-        .pop()
-        .ok_or_else(|| AppError::not_found(USER))?;
-    if user_id == session.user_id {
-        crate::app::sanitize(&mut user);
-    } else {
-        app.sanitize_profile(&mut user);
-    }
-    Ok(json_response(&user))
-}
-
 /// The body of `PUT /users/{userId}/admin`.
 #[derive(Deserialize)]
 struct AdminFlag {
@@ -303,6 +234,8 @@ async fn handle_set_user_admin(
     Path(user_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
+    // What is changed is the organization's the server stands in, which no path names.
+    app.require_session_opens_here(&session).await?;
     require_admin(&app, &session.user_id).await?;
     let flag: AdminFlag = decode_object(&body)?;
     let role = match flag.is_admin {
@@ -351,7 +284,7 @@ fn client_state(entries: Vec<Preference>) -> BTreeMap<String, String> {
 )]
 async fn handle_patch_client_state(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
     body: Bytes,
 ) -> ApiResult {
     let patch: UserPreferencesPatch = decode_object(&body)?;
@@ -373,7 +306,7 @@ async fn handle_patch_client_state(
 )]
 async fn handle_get_user_settings(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
 ) -> ApiResult {
     Ok(json_response(&app.user_settings(&session.user_id).await?))
 }
@@ -393,7 +326,7 @@ async fn handle_get_user_settings(
 )]
 async fn handle_patch_user_settings(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
@@ -419,7 +352,7 @@ async fn handle_patch_user_settings(
 )]
 async fn handle_get_client_state(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
 ) -> ApiResult {
     let entries = app.user_preferences(&session.user_id).await?;
     Ok(json_response(&client_state(entries)))

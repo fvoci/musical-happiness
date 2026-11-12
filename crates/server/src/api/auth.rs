@@ -16,7 +16,7 @@ use super::contract::tag;
 use super::contract::params::WorkspaceId;
 use super::workspace::WorksIn;
 use super::{
-    AccountSession, ApiResult, created, decode_object, json_response, no_content, require_admin,
+    ApiResult, RequiredSession, created, decode_object, json_response, no_content, require_admin,
 };
 use crate::app::{Admission, App};
 use crate::auth::tokens_match;
@@ -133,7 +133,7 @@ fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Respon
 )]
 async fn handle_logout(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
 ) -> ApiResult {
     app.logout(&session.id).await?;
     let mut response = no_content();
@@ -280,7 +280,7 @@ async fn handle_regenerate_signup_token(WorksIn(ws): WorksIn) -> ApiResult {
 )]
 async fn handle_change_password(
     State(app): State<App>,
-    AccountSession(session): AccountSession,
+    RequiredSession(session): RequiredSession,
     client: Option<Extension<ClientAddress>>,
     body: Bytes,
 ) -> ApiResult {

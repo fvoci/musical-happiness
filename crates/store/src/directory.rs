@@ -262,13 +262,13 @@ impl Store {
             .await
     }
 
-    /// The users with the given identifiers, each one that `sight` takes in, oldest
-    /// first. A user it does not take in is as one that does not exist.
+    /// The users with the given identifiers that `sight` takes in, oldest first, each
+    /// once. A user it does not take in is left out, as one that does not exist: the
+    /// answer does not say which identifiers found nobody, nor why.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if none is found and [`StoreError::NotAllFound`]
-    /// unless exactly one is found per identifier.
+    /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_users_in_sight(
         &self,
         sight: Sight<'_>,
@@ -276,7 +276,7 @@ impl Store {
     ) -> Result<Vec<User>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                users::users_by_ids(scope, user_ids, |sql, scope| {
+                users::found_users_by_ids(scope, user_ids, |sql, scope| {
                     push_seen(sql, scope, sight);
                 })
                 .await

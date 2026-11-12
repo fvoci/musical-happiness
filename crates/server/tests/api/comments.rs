@@ -11,6 +11,7 @@ use crate::blocks::{
     card_with_content, child_of, delete, find, insert_one, new_block, title_patch, titles,
     undelete_path,
 };
+use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 
 /// Not in the original, where every editor can delete anyone's comment
@@ -193,7 +194,7 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
     let response = th
         .client
         .patch(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boardIds": [board_id], "boardPatches": [{}],
                 "blockIds": [attachment.id], "blockPatches": [under_comment],
@@ -434,7 +435,7 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     let admin = th.client.me().await;
     let comment = &content.comment;
     let path = block_path(board_id, &comment.id);
-    let many = format!("/boards/{board_id}/blocks");
+    let many = format!("{TEST_WS}/boards/{board_id}/blocks");
     let together = |patch: Value| {
         json!({
             "boardIds": [board_id], "boardPatches": [{}],
@@ -498,7 +499,7 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     let response = boards
         .editor
         .patch(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &together(json!({"title": "by an editor"})),
         )
         .await;
@@ -520,7 +521,7 @@ async fn a_comment_is_changed_by_its_author_or_an_admin() {
     assert_eq!(told["modifiedBy"], json!(admin.id), "{told}");
     th.client
         .patch(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &together(json!({"title": "by the admin again"})),
         )
         .await
@@ -539,7 +540,7 @@ async fn a_commenter_changes_no_card_and_makes_none() {
     let content = card_with_content(&th, &boards).await;
     let board_id = &boards.board.id;
     let path = block_path(board_id, &content.comment.id);
-    let many = format!("/boards/{board_id}/blocks");
+    let many = format!("{TEST_WS}/boards/{board_id}/blocks");
 
     boards
         .commenter
@@ -638,7 +639,7 @@ async fn a_commenter_changes_the_text_of_their_comment_but_does_not_move_it() {
     });
     boards
         .commenter
-        .patch("/boards-and-blocks", &moved_together)
+        .patch(&format!("{TEST_WS}/boards-and-blocks"), &moved_together)
         .await
         .check_error(
             StatusCode::FORBIDDEN,
@@ -684,7 +685,7 @@ async fn an_editor_moves_their_own_comment_and_an_admin_anybodys() {
     boards
         .editor
         .patch(
-            "/boards-and-blocks",
+            &format!("{TEST_WS}/boards-and-blocks"),
             &json!({
                 "boardIds": [board_id], "boardPatches": [{}],
                 "blockIds": [editors.id], "blockPatches": [{"parentId": content.card.id}],
@@ -744,7 +745,7 @@ async fn a_block_of_somebody_else_is_made_a_comment_by_an_admin() {
     boards
         .editor
         .patch(
-            &format!("/boards/{board_id}/blocks"),
+            &format!("{TEST_WS}/boards/{board_id}/blocks"),
             &json!({"blockIds": [content.text.id], "blockPatches": [into_comment]}),
         )
         .await

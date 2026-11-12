@@ -303,7 +303,7 @@ pub struct Block {
     pub fields: JsonMap,
     /// The body of a card or a comment; `null` for a block without one. Only those two
     /// have one: a body on another block is refused (400 naming `body`). Every image of
-    /// it shows a file of the block's board. Whoever reads with a read token alone gets
+    /// it shows a file of the block's board. Whoever reads it by the board's link gets
     /// every mention with an empty `userId`: a shape that is only sent, which a write
     /// would have refused.
     pub body: Option<Body>,
@@ -404,8 +404,8 @@ impl Block {
         malformed
     }
 
-    /// The block as it goes to whoever reads by a read token alone without being a
-    /// member of the board, who is nobody the server knows (`docs/s6-design.md`,
+    /// The block as it goes to whoever reads it by the board's link, signed in or not,
+    /// who is nobody the server knows (`docs/s6-design.md`,
     /// decision 7): no `createdBy` or `modifiedBy`, no user in the mentions of the body,
     /// and in `fields` none that the board's person properties name (`people`): in a
     /// card's `properties` ([`PersonProperties::hide_values`]) and in a view's filter and

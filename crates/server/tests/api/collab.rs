@@ -9,6 +9,7 @@ use fvoci_server::app::App;
 use fvoci_server::collab::{Collab, DocChange};
 use serde_json::{Value, json};
 
+use crate::common::TEST_WS;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 fn paragraphs(texts: &[&str]) -> Value {
@@ -33,7 +34,7 @@ pub(crate) async fn editing(th: &TestServer, body: &Value) -> Editing {
     let card: Card = th
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &json!({"title": "Edited together", "body": body}),
         )
         .await
@@ -72,7 +73,10 @@ pub(crate) async fn joined(
 }
 
 pub(crate) async fn card(client: &Client, card_id: &str) -> Card {
-    client.get(&format!("/cards/{card_id}")).await.ok_json()
+    client
+        .get(&format!("{TEST_WS}/cards/{card_id}"))
+        .await
+        .ok_json()
 }
 
 pub(crate) fn body_of(card: &Card) -> Option<Value> {
@@ -256,7 +260,7 @@ async fn a_body_written_past_a_closed_document_makes_it_again() {
     let read = card(&th.client, &e.card_id).await;
     th.client
         .patch(
-            &format!("/cards/{}", e.card_id),
+            &format!("{TEST_WS}/cards/{}", e.card_id),
             &json!({"body": paragraphs(&["written whole"]), "readAt": read.update_at}),
         )
         .await
@@ -365,7 +369,7 @@ async fn a_body_written_whole_makes_the_open_document_that_body() {
         .await
         .expect("taken");
     let whole = paragraphs(&["written whole"]);
-    let path = format!("/cards/{}", e.card_id);
+    let path = format!("{TEST_WS}/cards/{}", e.card_id);
     th.client
         .patch(
             &path,

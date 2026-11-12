@@ -25,7 +25,6 @@
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardPlace } from '$lib/logic/urls.ts';
   import { cardTrash, type Trash, type Workspace } from '$lib/state/index.ts';
 
   import { Button } from '$lib/ui/button/index.js';
@@ -39,14 +38,14 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    /** The address of a board's page. */
-    boardHref: (board: BoardPlace) => string;
+    /** The address of a board's public link with its read token. */
+    sharedHref: (boardId: string, readToken: string) => string;
     /** Show the button that opens the drawer. */
     menuButton: boolean;
     onOpenSidebar: () => void;
   }
 
-  let { workspace, boardId, boardHref, menuButton, onOpenSidebar }: Props = $props();
+  let { workspace, boardId, sharedHref, menuButton, onOpenSidebar }: Props = $props();
 
   let sharing = $state(false);
   let trashOpen = $state(false);
@@ -228,6 +227,7 @@
     bind:open={sharing}
     {workspace}
     board={store}
-    boardAddress={new URL(boardHref(store.board), location.href).href}
+    linkOf={(readToken: string) =>
+      new URL(sharedHref(store.boardId, readToken), location.href).href}
   />
 {/if}

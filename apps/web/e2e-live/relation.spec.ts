@@ -52,7 +52,7 @@ test('cards picked into a relation are stored as a list of identifiers and stay 
       { title: 'Build the walls', status: 'To do' },
     ],
   });
-  const defined = await api.patch(`/api/v1/boards/${board.boardId}`, {
+  const defined = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
     data: {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     },
@@ -63,7 +63,11 @@ test('cards picked into a relation are stored as a list of identifiers and stay 
   const foundation = board.cards['Pour the foundation'] ?? '';
   const bricks = board.cards['Order the bricks'] ?? '';
   const values = async (): Promise<Schemas['Card']['properties']> =>
-    ((await (await api.get(`/api/v1/cards/${walls}`)).json()) as Schemas['Card']).properties;
+    (
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/cards/${walls}`)
+      ).json()) as Schemas['Card']
+    ).properties;
 
   const errors = watchErrors(page);
   await page.goto(boardPath(board, board.viewId, walls));
@@ -112,7 +116,7 @@ test('a relation made on the page from a card, and the cards picked into it, sta
   const fill = board.cards['Fill the trench'] ?? '';
   /** The definition of "After" as the server keeps it, once the page has made it. */
   const defined = async (): Promise<{ id: string; type: string } | undefined> => {
-    const answer = await api.get(`/api/v1/boards/${board.boardId}`);
+    const answer = await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`);
     const properties = ((await answer.json()) as Schemas['Board']).cardProperties as {
       id: string;
       name: string;
@@ -150,9 +154,11 @@ test('a relation made on the page from a card, and the cards picked into it, sta
     await closePicker(page);
   }
   const value = async (): Promise<unknown> =>
-    ((await (await api.get(`/api/v1/cards/${fill}`)).json()) as Schemas['Card']).properties[
-      propertyId
-    ];
+    (
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/cards/${fill}`)
+      ).json()) as Schemas['Card']
+    ).properties[propertyId];
   await expect.poll(value).toEqual([board.cards['Dig the trench'], board.cards['Lay the pipe']]);
 
   // After a reload the property and what was picked are there, as the server keeps them.
@@ -180,7 +186,7 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
     title: 'Copied relations',
     cards: [{ title: 'Lay the floor' }, { title: 'Paint the walls' }],
   });
-  const defined = await api.patch(`/api/v1/boards/${board.boardId}`, {
+  const defined = await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
     data: {
       updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
     },
@@ -188,11 +194,11 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   expect(defined.ok(), await defined.text()).toBe(true);
   const floor = board.cards['Lay the floor'] ?? '';
   const paint = board.cards['Paint the walls'] ?? '';
-  const named = await api.patch(`/api/v1/cards/${paint}`, {
+  const named = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${paint}`, {
     data: { updatedProperties: { after: [floor] } },
   });
   expect(named.ok(), await named.text()).toBe(true);
-  const gantt = await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
+  const gantt = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
     data: [
       {
         boardId: board.boardId,
@@ -206,12 +212,12 @@ test('a copy of a board names its own cards in the relation its Gantt chart read
   });
   expect(gantt.ok(), await gantt.text()).toBe(true);
 
-  const copied = await api.post(`/api/v1/boards/${board.boardId}/duplicate`);
+  const copied = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/duplicate`);
   expect(copied.ok(), await copied.text()).toBe(true);
   const copy = (await copied.json()) as Schemas['BoardsAndBlocks'];
   const copyId = copy.boards[0]?.id ?? '';
   const blocks = (await (
-    await api.get(`/api/v1/boards/${copyId}/blocks`)
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${copyId}/blocks`)
   ).json()) as Schemas['Block'][];
   const byTitle = (title: string) => blocks.find((block) => block.title === title);
   const copiedFloor = byTitle('Lay the floor')?.id ?? '';

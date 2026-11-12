@@ -96,6 +96,31 @@ impl Store {
         .await
     }
 
+    /// Returns the subscriptions of a subscriber to blocks of the boards of a workspace,
+    /// oldest first, as [`Store::get_subscriptions`] orders them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_subscriptions_in_workspace(
+        &self,
+        subscriber_id: &str,
+        workspace_id: &str,
+    ) -> Result<Vec<Subscription>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = select_subscriptions(scope);
+            sql.push_bind(" AND subscriber_id = ", Id(subscriber_id))
+                .push(
+                    " AND block_id IN (SELECT bl.id FROM blocks AS bl \
+                     JOIN boards AS bo ON bo.id = bl.board_id WHERE bo.workspace_id = ",
+                )
+                .bind(Id(workspace_id))
+                .push(") ORDER BY create_at, block_id");
+            fetch_subscriptions(scope, sql).await
+        })
+        .await
+    }
+
     /// Returns the subscribers of a block, the one notified longest ago first; those
     /// notified at the same time come by identifier.
     ///

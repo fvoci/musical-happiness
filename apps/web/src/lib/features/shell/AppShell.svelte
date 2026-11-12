@@ -57,6 +57,8 @@
     boardId: string | undefined;
     /** The address of a board, for a link to it. */
     boardHref: (board: BoardPlace) => string;
+    /** The address of a board's public link with its read token. */
+    sharedHref: (boardId: string, readToken: string) => string;
     onOpenBoard: (board: BoardPlace) => void;
     /** The languages the app has, as tags, for the settings. */
     locales?: readonly string[];
@@ -88,6 +90,7 @@
     workspace,
     boardId,
     boardHref,
+    sharedHref,
     onOpenBoard,
     locales,
     language,
@@ -332,7 +335,7 @@
     <TopBar
       {workspace}
       {boardId}
-      {boardHref}
+      {sharedHref}
       menuButton={layout.menuButton}
       onOpenSidebar={openDrawer}
     />
