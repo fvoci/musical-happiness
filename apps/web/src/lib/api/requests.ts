@@ -35,6 +35,9 @@ export function underWorkspace<P extends WorkspacePath>(path: P): `/api/v1/w/{wo
   return `/api/v1/w/{workspaceId}${path}`;
 }
 
+/** How many identifiers `getWorkspaceUsersById` takes at once (its `maxItems`). */
+export const USERS_AT_ONCE = 200;
+
 export class ServerRequests implements TrashReads {
   readonly #http: Http;
   /** The workspace the reader is in (`enter`): the paths of its boards are under it. */
@@ -123,6 +126,30 @@ export class ServerRequests implements TrashReads {
     );
     this.learnPlaces([board]);
     return board;
+  }
+
+  /**
+   * The people of a workspace by their identifiers, each asked for once. The
+   * server leaves out whom the reader does not see, and takes at most
+   * `USERS_AT_ONCE` identifiers in a request (none is refused): a longer list
+   * is asked for in parts.
+   */
+  async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
+    const ids = [...new Set(userIds)];
+    const parts: string[][] = [];
+    for (let at = 0; at < ids.length; at += USERS_AT_ONCE) {
+      parts.push(ids.slice(at, at + USERS_AT_ONCE));
+    }
+    const found = await Promise.all(
+      parts.map((json) =>
+        this.#http.request<Schemas['User'][]>(
+          underWorkspace('/users'),
+          { workspaceId },
+          { method: 'POST', json },
+        ),
+      ),
+    );
+    return found.flat().map(userOf);
   }
 
   async register(registration: Registration): Promise<void> {

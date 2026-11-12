@@ -14,12 +14,13 @@ use fvoci_model::{Board, Session, User, UserWorkspace, Workspace, WorkspaceRole}
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::contract::bodies::UserIds;
 use super::contract::params::{
     HomeMemberWorkspaceId, MemberWorkspaceId, UserId, UserSearch, WorkspaceId,
 };
 use super::contract::tag;
 use super::session::session_of;
-use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
+use super::{ApiResult, MAX_USER_IDS, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -326,7 +327,8 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
 /// Users of a workspace by their identifiers
 ///
 /// The users with the identifiers of the body that the user sees in the workspace, each
-/// once; the body must name at least one: an empty list is 400. An identifier of
+/// once; the body names at least one and at most 200: an empty list, or a longer one,
+/// is 400. An identifier of
 /// somebody the user does not see finds nothing, as one of nobody: the answer does not
 /// tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
 /// last changed a card, block or comment of a board of the workspace they read, also
@@ -337,7 +339,7 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
     operation_id = "getWorkspaceUsersById",
     tag = tag::WORKSPACES,
     params(HomeMemberWorkspaceId),
-    request_body = Vec<String>,
+    request_body = UserIds,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
 async fn handle_get_workspace_users_by_id(ws: Ws, body: Bytes) -> ApiResult {
@@ -345,6 +347,11 @@ async fn handle_get_workspace_users_by_id(ws: Ws, body: Bytes) -> ApiResult {
     let user_ids: Vec<String> = decode_json(&body)?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
+    }
+    if user_ids.len() > MAX_USER_IDS {
+        return Err(AppError::bad_request(format_args!(
+            "at most {MAX_USER_IDS} user IDs are asked for at once"
+        )));
     }
     let users = ws
         .app

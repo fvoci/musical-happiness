@@ -17,6 +17,26 @@ use fvoci_model::{
 };
 use utoipa::ToSchema;
 
+/// The identifiers of the users asked for: at least one, at most
+/// [`MAX_USER_IDS`](crate::api::MAX_USER_IDS).
+#[derive(Debug)]
+pub(crate) struct UserIds;
+
+impl utoipa::PartialSchema for UserIds {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::schema::ArrayBuilder::new()
+            .items(String::schema())
+            .min_items(Some(1))
+            .max_items(Some(crate::api::MAX_USER_IDS))
+            .description(Some(
+                "The identifiers of the users asked for: at least one, at most 200.",
+            ))
+            .into()
+    }
+}
+
+impl ToSchema for UserIds {}
+
 /// A board to make.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]

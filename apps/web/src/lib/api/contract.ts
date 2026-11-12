@@ -1870,7 +1870,8 @@ export interface paths {
         /**
          * Users of a workspace by their identifiers
          * @description The users with the identifiers of the body that the user sees in the workspace, each
-         *     once; the body must name at least one: an empty list is 400. An identifier of
+         *     once; the body names at least one and at most 200: an empty list, or a longer one,
+         *     is 400. An identifier of
          *     somebody the user does not see finds nothing, as one of nobody: the answer does not
          *     tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
          *     last changed a card, block or comment of a board of the workspace they read, also
@@ -3131,6 +3132,8 @@ export interface components {
             /** @description The login name. */
             username: string;
         };
+        /** @description The identifiers of the users asked for: at least one, at most 200. */
+        UserIds: string[];
         /**
          * @description A change to the bag of state a client keeps with the account: entries the server
          *     stores without knowing what they mean.
@@ -6550,7 +6553,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": string[];
+                "application/json": components["schemas"]["UserIds"];
             };
         };
         responses: {

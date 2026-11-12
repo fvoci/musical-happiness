@@ -145,17 +145,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return users.map(userOf);
   }
 
-  /** The server leaves out whom the reader does not see; it refuses an empty list. */
-  async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
-    if (userIds.length === 0) return [];
-    const users = await this.#http.request<Schemas['User'][]>(
-      underWorkspace('/users'),
-      { workspaceId },
-      { method: 'POST', json: [...new Set(userIds)] },
-    );
-    return users.map(userOf);
-  }
-
   async settings(): Promise<AccountSettings> {
     return settingsOf(
       await this.#http.request<Schemas['UserSettings']>('/api/v1/users/me/settings'),

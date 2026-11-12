@@ -97,6 +97,14 @@ describe('the server backend', () => {
     ]);
   });
 
+  it('asks for a long list of people in parts the server takes', async () => {
+    const sent = serve([]);
+    const ids = Array.from({ length: 450 }, (_, at) => `u${at}`);
+    await serverBackend('').usersById('w1', [...ids, ...ids]);
+    expect(sent.map((one) => (one.body as string[]).length)).toEqual([200, 200, 50]);
+    expect(sent.flatMap((one) => one.body as string[])).toEqual(ids);
+  });
+
   it('makes a card from a draft, its body along', async () => {
     const sent = serve({
       ...BLOCK,

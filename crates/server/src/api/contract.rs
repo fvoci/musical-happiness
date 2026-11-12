@@ -269,6 +269,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     ("SettingsChange", Members::AsWritten),
     ("SharingRequest", Members::AsWritten),
+    ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.
     ("BoardType", Members::AsWritten),

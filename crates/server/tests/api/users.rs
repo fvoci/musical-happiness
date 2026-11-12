@@ -508,6 +508,22 @@ async fn users_list_and_profiles() {
         "an empty list is refused"
     );
 
+    // At most 200 identifiers at once: more is a bad request, as an empty list is.
+    let many = |n: usize| (0..n).map(|_| UNKNOWN_ID.to_owned()).collect::<Vec<_>>();
+    let at_most: Vec<User> = th
+        .client
+        .post(&format!("{ROOT_WS}/users"), &many(200))
+        .await
+        .ok_json();
+    assert!(at_most.is_empty(), "{at_most:?}");
+    th.client
+        .post(&format!("{ROOT_WS}/users"), &many(201))
+        .await
+        .check_error(
+            StatusCode::BAD_REQUEST,
+            "at most 200 user IDs are asked for at once",
+        );
+
     // An identifier of nobody finds nothing; the list is not refused.
     let nobody: Vec<User> = th
         .client

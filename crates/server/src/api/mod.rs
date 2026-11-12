@@ -79,6 +79,10 @@ pub(crate) type ApiResult = Result<Response, AppError>;
 /// Where the API is: the prefix of every path of it.
 pub const PREFIX: &str = "/api/v1";
 
+/// How many users `getWorkspaceUsersById` is asked for at once at most (the contract's
+/// `maxItems` of `UserIds` says the same).
+pub const MAX_USER_IDS: usize = 200;
+
 /// The routes under [`PREFIX`], with what the contract says of them, apart by the limit
 /// on the bodies of their requests.
 struct Routes {
