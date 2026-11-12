@@ -9,6 +9,7 @@ use fvoci_model::FileInfo;
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
+use crate::loose_objects::check_path;
 
 pub(crate) const FILE_INFO_COLUMNS: &str =
     "id, board_id, name, original_name, extension, size, path, create_at";
@@ -48,7 +49,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidId`] if the record's or the board's identifier is not
-    /// one, [`StoreError::NotFound`] if the board does not exist, and
+    /// one, [`StoreError::InvalidPath`] for a place spelled otherwise than the one way,
+    /// [`StoreError::NotFound`] if the board does not exist, and
     /// [`StoreError::Database`] if the board has a file of that stored name already.
     pub async fn save_file_info(&self, file_info: &FileInfo) -> Result<(), StoreError> {
         self.with_conn(async |scope| save_file_info(scope, file_info).await)
@@ -105,6 +107,10 @@ pub(crate) async fn save_file_info(
     scope: &mut Scope<'_>,
     file_info: &FileInfo,
 ) -> Result<(), StoreError> {
+    // A record of the original's may name no place; one that does names it one way.
+    if !file_info.path.is_empty() {
+        check_path(&file_info.path)?;
+    }
     // A new file is shown by no block until one is written that shows it.
     let mut sql = scope.sql(&format!(
         "INSERT INTO file_info ({FILE_INFO_COLUMNS}, unreferenced_at) VALUES ("

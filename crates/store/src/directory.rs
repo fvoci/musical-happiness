@@ -258,6 +258,10 @@ impl Store {
     /// removed under it: whether one may go is asked here, of every organization,
     /// before it is removed.
     ///
+    /// A place is compared as it is spelled, which is the one way the storage takes
+    /// ([`fvoci_model::is_storage_path`]). One among `paths` spelled otherwise is held:
+    /// what another spelling would name is not known, and nothing is removed under it.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a query fails.
@@ -266,8 +270,12 @@ impl Store {
         paths: &[&str],
         except_upload: Option<&str>,
     ) -> Result<BTreeSet<String>, StoreError> {
+        let (paths, unknown): (Vec<&str>, Vec<&str>) = paths
+            .iter()
+            .partition(|path| fvoci_model::is_storage_path(path));
+        let mut held: BTreeSet<String> = unknown.into_iter().map(str::to_owned).collect();
         if paths.is_empty() {
-            return Ok(BTreeSet::new());
+            return Ok(held);
         }
         self.system()
             .with_conn(async |scope| {
@@ -296,12 +304,10 @@ impl Store {
                 if let Some(upload_id) = except_upload {
                     sql.push_bind(" AND id <> ", upload_id);
                 }
-                scope
-                    .fetch_all(sql)
-                    .await?
-                    .iter()
-                    .map(|row| row.text(0))
-                    .collect()
+                for row in scope.fetch_all(sql).await? {
+                    held.insert(row.text(0)?);
+                }
+                Ok(held)
             })
             .await
     }

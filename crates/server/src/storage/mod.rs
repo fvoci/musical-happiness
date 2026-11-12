@@ -35,7 +35,8 @@ pub enum StorageError {
     /// No file exists at the path.
     #[error("file not found: {0}")]
     NotFound(String),
-    /// The path is absolute or has a `..` component, and so could leave the storage root.
+    /// The path is not a place spelled the one way ([`fvoci_model::is_storage_path`]):
+    /// one that could leave the storage root, or another spelling of a place.
     #[error("invalid file path: {0}")]
     InvalidPath(String),
     /// The backend cannot be set up from the configuration.
@@ -158,8 +159,8 @@ impl FileBackend {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
-    /// root, or the backend's error if reading or writing fails.
+    /// Returns [`StorageError::InvalidPath`] for a path that is no place of the
+    /// storage, or the backend's error if reading or writing fails.
     pub async fn write(
         &self,
         path: &str,
@@ -199,8 +200,8 @@ impl FileBackend {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
-    /// root, or the backend's error if the lookup fails.
+    /// Returns [`StorageError::InvalidPath`] for a path that is no place of the
+    /// storage, or the backend's error if the lookup fails.
     pub async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {
         self.measure(FilesOperation::Head, async {
             match self {
@@ -231,7 +232,7 @@ impl FileBackend {
     /// # Errors
     ///
     /// Returns [`StorageError::NotFound`] if there is no file at `path`,
-    /// [`StorageError::InvalidPath`] for a path that could leave the storage root, or the
+    /// [`StorageError::InvalidPath`] for a path that is no place of the storage, or the
     /// backend's error if the file cannot be opened.
     pub async fn read(
         &self,
@@ -279,8 +280,8 @@ impl FileBackend {
     ///
     /// # Errors
     ///
-    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
-    /// root, and the backend's error if the file cannot be removed.
+    /// Returns [`StorageError::InvalidPath`] for a path that is no place of the
+    /// storage, and the backend's error if the file cannot be removed.
     pub async fn delete(&self, path: &str) -> Result<(), StorageError> {
         self.measure(FilesOperation::Delete, async {
             match self {

@@ -92,6 +92,7 @@ impl Outcome {
             | StoreError::Corrupt { .. }
             | StoreError::Schema(_)
             | StoreError::Config(_)
+            | StoreError::InvalidPath(_)
             | StoreError::NoOrganization => Self::Failed,
             StoreError::NotFound(_)
             | StoreError::TooManyPreferences { .. }

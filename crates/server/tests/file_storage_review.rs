@@ -3,9 +3,12 @@
 #[path = "api/common.rs"]
 mod common;
 
-use fvoci_model::{BoardType, Body, Card, FileInfo};
+use fvoci_model::{BoardType, Body, Card, FileInfo, Upload, UploadPurpose};
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::auth::now_millis;
+use fvoci_server::auth::secret::new_secret;
+use fvoci_server::storage::StorageError;
+use fvoci_store::StoreError;
 
 use common::{Setup, TEST_WORKSPACE_ID, TestServer};
 
@@ -21,6 +24,76 @@ async fn recorded(ts: &TestServer) -> FileInfo {
         .get_file_info(&board.id, &name)
         .await
         .expect("the file is recorded")
+}
+
+/// This is the same malformed-session case as the existing misbound-upload tests,
+/// except that its path has an empty segment. Both storage backends accepted this
+/// spelling of the recorded object's place, while `held_objects` compares raw text.
+#[tokio::test]
+async fn abandoning_an_upload_with_a_path_alias_preserves_the_recorded_object() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let file = recorded(&ts).await;
+    let upload = Upload {
+        id: new_secret(),
+        user_id: ts.client.me().await.id,
+        purpose: UploadPurpose::File,
+        board_id: file.board_id.clone(),
+        name: "misbound.txt".to_owned(),
+        size: 16,
+        part_size: 16,
+        create_at: now_millis(),
+        expires_at: now_millis() + 60_000,
+        multipart_id: "left-over-multipart".to_owned(),
+        path: file.path.replacen('/', "//", 1),
+        ..Upload::default()
+    };
+    // The store takes a place spelled the one way only; the session is stored at the
+    // record's place and given the other spelling past the store, as a row stored
+    // before that check would have it.
+    let refused = ts
+        .app
+        .store()
+        .create_upload(&upload)
+        .await
+        .expect_err("another spelling of a place");
+    assert!(matches!(refused, StoreError::InvalidPath(_)), "{refused:?}");
+    ts.app
+        .store()
+        .create_upload(&Upload {
+            path: file.path.clone(),
+            ..upload.clone()
+        })
+        .await
+        .expect("the misbound session is stored");
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE uploads SET path = '{}' WHERE id = '{}'",
+            upload.path, upload.id
+        ))
+        .await
+        .expect("the session names the place the other way");
+    assert!(
+        matches!(
+            ts.app.files().exists(&upload.path).await,
+            Err(StorageError::InvalidPath(_))
+        ),
+        "the storage takes no other spelling of a place"
+    );
+    ts.app.abandon_upload(&upload).await.expect("abandoned");
+    let still_recorded = ts
+        .app
+        .store()
+        .get_file_info(&file.board_id, &file.stored_name)
+        .await
+        .is_ok();
+    let still_present = ts.app.files().exists(&file.path).await.expect("read");
+    ts.teardown().await;
+    assert!(still_recorded, "the live record remains");
+    assert!(
+        still_present,
+        "abandonment must preserve its live object's bytes"
+    );
 }
 
 /// The HTTP handlers `check_body_files` before `create_card` starts its transaction.

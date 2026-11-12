@@ -88,10 +88,12 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the statement fails, as it does when the
+    /// Returns [`StoreError::InvalidPath`] for a place spelled otherwise than the one way,
+    /// and [`StoreError::Database`] if the statement fails, as it does when the
     /// organization lists the path already. Another organization's row of the same path
     /// is no hindrance (PostgreSQL; SQLite holds one organization).
     pub async fn mark_writing(&self, path: &str, doom_at: i64) -> Result<(), StoreError> {
+        check_path(path)?;
         self.with_conn(async |scope| {
             let mut sql =
                 scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at) VALUES (");
@@ -332,6 +334,15 @@ impl Store {
             Ok(counts)
         })
         .await
+    }
+}
+
+/// Refuses a place of the file storage that is not spelled the one way.
+pub(crate) fn check_path(path: &str) -> Result<(), StoreError> {
+    if fvoci_model::is_storage_path(path) {
+        Ok(())
+    } else {
+        Err(StoreError::InvalidPath(path.to_owned()))
     }
 }
 

@@ -2,7 +2,7 @@
 //! written, doomed with the record that goes, and kept apart by organization.
 
 use fvoci_model::{FileInfo, Upload, new_id};
-use fvoci_store::{DbType, LooseObject, LooseState, SYSTEM_ORG_ID, Store, Tenant};
+use fvoci_store::{DbType, LooseObject, LooseState, SYSTEM_ORG_ID, Store, StoreError, Tenant};
 
 use crate::common;
 
@@ -521,5 +521,57 @@ async fn the_recorded_places_are_read_a_page_at_a_time() {
         read.extend(page);
     }
     assert_eq!(read, expected);
+    test.teardown().await;
+}
+
+/// A place is spelled one way ([`fvoci_model::is_storage_path`]): a record, a mark of
+/// writing and an upload session take no other spelling, and a place asked for in
+/// another is held, whatever names it, so that nothing is removed under it.
+#[tokio::test]
+async fn a_place_is_taken_and_compared_in_one_spelling() {
+    let test = common::setup().await;
+    let (board_id, user_id) = board(&test).await;
+    let alias = format!("boards//20261112/{board_id}/x.png");
+    let is_invalid_path = |error: &StoreError| matches!(error, StoreError::InvalidPath(_));
+    let error = test
+        .save_file_info(&file_at(&board_id, &alias))
+        .await
+        .expect_err("a record of another spelling");
+    assert!(is_invalid_path(&error), "{error:?}");
+    let error = test
+        .mark_writing(&alias, i64::MAX)
+        .await
+        .expect_err("a mark of another spelling");
+    assert!(is_invalid_path(&error), "{error:?}");
+    let upload = Upload {
+        id: new_id(),
+        user_id,
+        board_id: board_id.clone(),
+        name: "x.png".to_owned(),
+        size: 3,
+        part_size: 3,
+        expires_at: i64::MAX,
+        multipart_id: "multipart".to_owned(),
+        path: alias.clone(),
+        ..Upload::default()
+    };
+    let error = test
+        .create_upload(&upload)
+        .await
+        .expect_err("a session of another spelling");
+    assert!(is_invalid_path(&error), "{error:?}");
+
+    let place = format!("boards/20261112/{board_id}/x.png");
+    let held = test
+        .held_objects(&[&place, &alias, "./x.png"], None)
+        .await
+        .expect("read");
+    let mut expected = vec![alias.clone(), "./x.png".to_owned()];
+    expected.sort_unstable();
+    assert_eq!(
+        held.into_iter().collect::<Vec<_>>(),
+        expected,
+        "nothing holds the place; the other spellings are held"
+    );
     test.teardown().await;
 }

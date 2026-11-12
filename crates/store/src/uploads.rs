@@ -8,6 +8,7 @@ use fvoci_model::{Upload, UploadPart, UploadPurpose};
 use crate::Store;
 use crate::db::{Id, Row};
 use crate::error::StoreError;
+use crate::loose_objects::check_path;
 
 /// What became of a part that was to be recorded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,10 +103,15 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidId`] if the user or the board is named by text that
-    /// is no identifier, and [`StoreError::Database`] if the statement fails, also for a
+    /// is no identifier, [`StoreError::InvalidPath`] for a place of the file storage
+    /// that is spelled otherwise than the one way (a session that keeps its parts on the
+    /// disk names none), and [`StoreError::Database`] if the statement fails, also for a
     /// user that does not exist and, on PostgreSQL, for a board or a workspace that is not
     /// one of the organization's.
     pub async fn create_upload(&self, upload: &Upload) -> Result<(), StoreError> {
+        if !upload.path.is_empty() {
+            check_path(&upload.path)?;
+        }
         self.with_conn(async |scope| {
             // An upload goes to a board or a workspace, which `board_id` names.
             let target = match upload.purpose {
