@@ -1,5 +1,6 @@
 //! A real multipart completion overlapped with another process's upload cleaner: the
-//! second process does not hold the lock of the server, and its cleaner does not run.
+//! second process does not hold the lock of the server, and its cleaner does not run;
+//! the server's own cleaner waits for the session's turn.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -134,8 +135,20 @@ async fn with_s3_a_completion_cannot_record_an_object_another_cleaner_removed() 
         .expect_err("the second application's cleaner does not run");
     assert_eq!(refused.status(), 503, "{refused:?}");
     assert!(ts.app.files().exists(&upload.path).await.expect("S3 read"));
+    // The server's own cleaner, at the same moment, takes the session's turn after the
+    // completion, however the two meet.
+    let cleaner = ts.app.housekeeping();
+    let cleaning = tokio::spawn(async move {
+        cleaner
+            .clean_up_uploads(now_millis() + CLOSED_UPLOAD_GRACE_MILLIS + 1_000)
+            .await
+    });
     resume.send(()).expect("the record may proceed");
     let completed = completion.await.expect("completion returns");
+    cleaning
+        .await
+        .expect("the cleaner returns")
+        .expect("the server's cleaner runs");
     let still_present = ts.app.files().exists(&upload.path).await.expect("S3 read");
     independent.close().await;
     ts.teardown().await;

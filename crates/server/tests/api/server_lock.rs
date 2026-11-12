@@ -12,7 +12,7 @@ use fvoci_store::DbType;
 use crate::common::Setup;
 
 /// A second start waits as long as it is told to, and is refused with who holds the
-/// lock; once the first server let it go, a start takes it at once.
+/// lock; once the first server let it go, a start that does not wait takes it.
 #[tokio::test]
 async fn a_second_server_waits_for_the_lock_and_is_refused() {
     let ts = Setup::native().start().await;
@@ -28,14 +28,10 @@ async fn a_second_server_waits_for_the_lock_and_is_refused() {
     assert!(refusal.contains("fvoci-server process"), "{refusal}");
     assert!(refusal.contains("server_lock_wait_seconds"), "{refusal}");
 
+    // Without any wait: a lock still held would refuse it at once.
     let kept = ts.stop_keeping_data().await;
-    let started = Instant::now();
+    config.server_lock_wait_seconds = 0;
     let restarted = Server::new(config, "").await.expect("the lock was let go");
-    assert!(
-        started.elapsed() < Duration::from_secs(1),
-        "no waiting: {:?}",
-        started.elapsed()
-    );
     assert!(restarted.app().holds_server_lock());
     restarted.shutdown().await;
     kept.remove().await;

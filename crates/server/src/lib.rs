@@ -422,8 +422,8 @@ impl Server {
             .map(Some)
     }
 
-    /// Waits for notifications in flight, lets the lock of the server go, and closes
-    /// the database.
+    /// Waits for notifications in flight, closes the database, and lets the lock of the
+    /// server go.
     pub async fn shutdown(mut self) {
         // Websocket connections are not part of the HTTP server's own connections once
         // they are upgraded; they end here.
@@ -435,10 +435,12 @@ impl Server {
         {
             tracing::warn!("background notifications did not finish before shutdown");
         }
-        if let Some(server_lock) = self.lock.take() {
-            self.app.release_server_lock(server_lock).await;
-        }
         self.app.store().close().await;
+        // Last: a request still under way after the drain writes nothing once the
+        // store is closed, and the next server may then clean up.
+        if let Some(server_lock) = self.lock.take() {
+            server_lock.release().await;
+        }
         tracing::info!("server shut down");
     }
 }
