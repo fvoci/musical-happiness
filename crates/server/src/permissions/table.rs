@@ -395,6 +395,25 @@ fn who_sees_is_who_is_refused_and_who_reads_is_who_sees() {
 
 #[test]
 fn a_guest_is_given_no_more_than_editor() {
+    use super::may_hold;
+    for role in [BoardRole::Viewer, BoardRole::Commenter, BoardRole::Editor] {
+        assert!(
+            may_hold(WorkspaceRole::Guest, role),
+            "a guest may be {role:?}"
+        );
+    }
+    assert!(
+        !may_hold(WorkspaceRole::Guest, BoardRole::Admin),
+        "no guest is a board admin"
+    );
+    assert!(
+        may_hold(WorkspaceRole::Member, BoardRole::Admin),
+        "a member may be"
+    );
+    assert!(
+        may_hold(WorkspaceRole::Admin, BoardRole::Admin),
+        "a workspace admin may be"
+    );
     assert_eq!(highest_board_role(WorkspaceRole::Guest), BoardRole::Editor);
     assert_eq!(highest_board_role(WorkspaceRole::Member), BoardRole::Admin);
     assert_eq!(highest_board_role(WorkspaceRole::Admin), BoardRole::Admin);

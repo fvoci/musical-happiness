@@ -147,11 +147,11 @@ async fn category_messages_reach_every_tab_of_the_user() {
     th.teardown().await;
 }
 
-/// A connection follows the workspaces its user works in. The subscription to a workspace the
-/// user is not in is ignored, as is that of a guest of the workspace: neither is told
-/// what goes to who follows the workspace.
+/// A connection follows the workspaces its user is a member of, a guest too: what is
+/// told of a board goes to its members only, so a guest hears the boards they were
+/// invited to. The subscription to a workspace the user is not in is ignored.
 #[tokio::test]
-async fn a_workspace_is_followed_by_who_works_in_it() {
+async fn a_workspace_is_followed_by_its_members_and_guests() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -189,10 +189,10 @@ async fn a_workspace_is_followed_by_who_works_in_it() {
         Event::Nothing,
         "not in the workspace"
     );
-    assert_eq!(
+    assert_ne!(
         guest.next(QUIET).await,
         Event::Nothing,
-        "a guest of the workspace"
+        "a guest of the workspace is told its own"
     );
     th.teardown().await;
 }

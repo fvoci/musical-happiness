@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardsAndBlocks,
-    BoardsAndBlocksError, JsonMap, renew_boards_and_blocks_ids,
+    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardRole, BoardsAndBlocks,
+    BoardsAndBlocksError, JsonMap, WorkspaceRole, renew_boards_and_blocks_ids,
 };
 use serde_json::Value;
 use tokio::fs;
@@ -23,6 +23,7 @@ use super::App;
 use super::export::ARCHIVE_VERSION;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
+use crate::permissions;
 use fvoci_store::StoreError;
 
 /// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
@@ -317,14 +318,13 @@ impl App {
             boards_and_blocks,
             members,
         } = board;
-        // Keep only members who are in the workspace: a board takes no others (`is_in_workspace`).
+        // Keep only members who are in the workspace: a board takes no others. A guest of
+        // the workspace keeps a role no higher than editor.
         let mut kept_members = Vec::with_capacity(members.len());
         for member in members {
-            if self
-                .is_in_workspace(&member.user_id, &options.workspace_id)
-                .await?
-            {
-                kept_members.push(member);
+            let actor = self.actor(&member.user_id, &options.workspace_id).await?;
+            if let Some(workspace_role) = actor.workspace {
+                kept_members.push(no_more_than_holdable(member, workspace_role));
             }
         }
 
@@ -355,6 +355,22 @@ impl App {
             .into_iter()
             .next()
             .ok_or_else(|| AppError::bad_request("missing board in archive"))
+    }
+}
+
+/// The membership with its role lowered to the highest the user may hold in the
+/// workspace (`permissions::highest_board_role`), and left as it is if it is not higher.
+fn no_more_than_holdable(member: BoardMember, workspace_role: WorkspaceRole) -> BoardMember {
+    let highest = permissions::highest_board_role(workspace_role);
+    match permissions::role_of(&member) {
+        Some(role) if role > highest => BoardMember {
+            scheme_admin: highest == BoardRole::Admin,
+            scheme_editor: highest == BoardRole::Editor,
+            scheme_commenter: highest == BoardRole::Commenter,
+            scheme_viewer: highest == BoardRole::Viewer,
+            ..member
+        },
+        _ => member,
     }
 }
 

@@ -115,20 +115,6 @@ impl App {
         Ok(self.actor(user_id, workspace_id).await?.works_there())
     }
 
-    /// Whether the user is in the workspace at all, as a guest too: who may be put on a
-    /// board of the workspace. Anybody else is, for the workspace, a user who does not exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the membership cannot be read: that is no "no".
-    pub async fn is_in_workspace(
-        &self,
-        user_id: &str,
-        workspace_id: &str,
-    ) -> Result<bool, AppError> {
-        Ok(self.actor(user_id, workspace_id).await?.workspace.is_some())
-    }
-
     /// The workspaces the user is a member of, in every organization: by organization,
     /// the oldest first, and in each the oldest workspace first.
     ///

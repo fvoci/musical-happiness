@@ -527,7 +527,7 @@ impl Hub {
         match command.action.as_str() {
             "SUBSCRIBE_WORKSPACE" => {
                 let workspace = &command.workspace_id;
-                if self.audience.works_in_workspace(&user_id, workspace).await {
+                if self.audience.is_in_workspace(&user_id, workspace).await {
                     subscribe_to_workspace(&mut self.listeners(), id, &command.workspace_id);
                 } else {
                     tracing::error!(workspace_id = %command.workspace_id, user_id, "websocket: no workspace access");

@@ -1742,6 +1742,11 @@
             "type": "/problems/admin-required"
           },
           {
+            "reason": "guest_role_limit",
+            "title": "A guest is no more than an editor",
+            "type": "/problems/guest-role-limit"
+          },
+          {
             "reason": "sharing_disabled",
             "title": "Public sharing turned off",
             "type": "/problems/sharing-disabled"
@@ -3956,7 +3961,7 @@
         ]
       },
       "post": {
-        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors add members too, with the board's minimum role, whatever else the request\nnames; a request of theirs that asks for `schemeAdmin` is 403. A user who is a\nmember already stays as they are.",
+        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors add members too, with the board's minimum role, whatever else the request\nnames; a request of theirs that asks for `schemeAdmin` is 403. A guest of the\nworkspace is given no role above editor: asking for `schemeAdmin` for one is 403\nwith the reason `guest_role_limit`. A user who is a member already stays as they\nare.",
         "operationId": "addMember",
         "parameters": [
           {
@@ -4052,7 +4057,7 @@
         ]
       },
       "put": {
-        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A user who is\nno member of the board is 404.",
+        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A guest of the\nworkspace is made no more than an editor: `schemeAdmin` for one is 403 with the\nreason `guest_role_limit`. A user who is no member of the board is 404.",
         "operationId": "updateMember",
         "parameters": [
           {

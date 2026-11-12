@@ -29,12 +29,14 @@ impl Audience {
         Ok(self.store.get_block(block_id).await?.board_id)
     }
 
-    /// Whether the user works in the workspace: a member of it who is no guest, as the
-    /// routes of a workspace ask it (`App::works_in_workspace`). A membership that
-    /// cannot be read is no membership here: the connection is not subscribed.
-    pub async fn works_in_workspace(&self, user_id: &str, workspace_id: &str) -> bool {
+    /// Whether the user is a member of the workspace, a guest too (`App::actor`). What
+    /// a subscription of the workspace is told of a board goes to the board's members
+    /// only, so a guest hears the boards they were invited to and no other. A
+    /// membership that cannot be read is no membership here: the connection is not
+    /// subscribed.
+    pub async fn is_in_workspace(&self, user_id: &str, workspace_id: &str) -> bool {
         match self.store.resolve_workspace(user_id, workspace_id).await {
-            Ok(access) => access.is_some_and(|access| access.works_there()),
+            Ok(access) => access.is_some(),
             Err(error) => {
                 tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
                 false

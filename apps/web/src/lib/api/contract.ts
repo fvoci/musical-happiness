@@ -519,8 +519,10 @@ export interface paths {
          * @description The board's admins add members with the roles the request names; with no role at
          *     all the member may do nothing on the board, not even view it. On an open board
          *     editors add members too, with the board's minimum role, whatever else the request
-         *     names; a request of theirs that asks for `schemeAdmin` is 403. A user who is a
-         *     member already stays as they are.
+         *     names; a request of theirs that asks for `schemeAdmin` is 403. A guest of the
+         *     workspace is given no role above editor: asking for `schemeAdmin` for one is 403
+         *     with the reason `guest_role_limit`. A user who is a member already stays as they
+         *     are.
          */
         post: operations["addMember"];
         delete?: never;
@@ -541,8 +543,9 @@ export interface paths {
          * Change the roles of a member
          * @description Replaces the roles of a member of the board; with no role at all the member may do
          *     nothing on the board, not even view it. For the board's admins. The last admin of a
-         *     board cannot be made less: that is 409 with the reason `last_admin`. A user who is
-         *     no member of the board is 404.
+         *     board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
+         *     workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
+         *     reason `guest_role_limit`. A user who is no member of the board is 404.
          */
         put: operations["updateMember"];
         post?: never;

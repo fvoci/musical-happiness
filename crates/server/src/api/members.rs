@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use fvoci_model::{BoardMember, BoardRole, BoardType};
+use fvoci_model::{BoardMember, BoardRole, BoardType, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -13,8 +13,8 @@ use super::contract::tag;
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, refusal, require_board_permission, user_is_guest};
 use crate::app::App;
-use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::error::{AppError, Reason};
+use crate::permissions::{self, BoardPermission};
 
 /// The refusal to add, change or remove a member.
 const MODIFY_MEMBERS_DENIED: &str = "access denied to modify board members";
@@ -54,6 +54,18 @@ fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> Board
     }
 }
 
+/// Refuses a membership whose role the user's place in the workspace does not let
+/// them hold: a guest is no more than an editor (403, reason `guest_role_limit`).
+fn require_holdable(workspace_role: WorkspaceRole, member: &BoardMember) -> Result<(), AppError> {
+    match permissions::role_of(member) {
+        Some(role) if !permissions::may_hold(workspace_role, role) => Err(AppError::forbidden(
+            "a guest of the workspace is given no role above editor",
+        )
+        .with_reason(Reason::GuestRoleLimit)),
+        _ => Ok(()),
+    }
+}
+
 /// The members of a board
 ///
 /// For the board's members. By the identifier of the user: a membership has no time of
@@ -88,8 +100,10 @@ async fn handle_get_members_for_board(
 /// The board's admins add members with the roles the request names; with no role at
 /// all the member may do nothing on the board, not even view it. On an open board
 /// editors add members too, with the board's minimum role, whatever else the request
-/// names; a request of theirs that asks for `schemeAdmin` is 403. A user who is a
-/// member already stays as they are.
+/// names; a request of theirs that asks for `schemeAdmin` is 403. A guest of the
+/// workspace is given no role above editor: asking for `schemeAdmin` for one is 403
+/// with the reason `guest_role_limit`. A user who is a member already stays as they
+/// are.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/members",
@@ -134,12 +148,13 @@ async fn handle_add_member(
     // A board takes the people of its workspace, its guests too. Anybody else is, to who
     // adds members, a user who does not exist: the answer is the same, so that it
     // tells nothing of who has an account elsewhere on the server.
-    if !app
-        .is_in_workspace(&request.user_id, &board.workspace_id)
+    let Some(target_role) = app
+        .actor(&request.user_id, &board.workspace_id)
         .await?
-    {
+        .workspace
+    else {
         return Err(AppError::bad_request("no such user").with_field("userId"));
-    }
+    };
 
     // Not in the original, which lets an editor of an open board add members with any
     // role (`server/api/members.go:164-168`). Anyone can join an open board as an editor
@@ -163,6 +178,7 @@ async fn handle_add_member(
             BoardRole::from(board.minimum_role),
         )
     };
+    require_holdable(target_role, &member)?;
     // The board was there a moment ago; if it is not any more, there is nothing to be a
     // member of.
     let added = app
@@ -266,8 +282,9 @@ async fn handle_leave_board(
 ///
 /// Replaces the roles of a member of the board; with no role at all the member may do
 /// nothing on the board, not even view it. For the board's admins. The last admin of a
-/// board cannot be made less: that is 409 with the reason `last_admin`. A user who is
-/// no member of the board is 404.
+/// board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
+/// workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
+/// reason `guest_role_limit`. A user who is no member of the board is 404.
 #[utoipa::path(
     put,
     path = "/boards/{boardId}/members/{userId}",
@@ -292,9 +309,17 @@ async fn handle_update_member(
     )
     .await?;
     // The board may be deleted between the two lookups; then it is gone for everybody.
-    app.board(&board_id).await?;
+    let board = app.board(&board_id).await?;
     let request: BoardMember = decode_object(&body)?;
     let member = requested_member(board_id, member_user_id, &request);
+    // Who has left the workspace keeps a role that opens nothing, and may be lowered.
+    if let Some(role) = app
+        .actor(&member.user_id, &board.workspace_id)
+        .await?
+        .workspace
+    {
+        require_holdable(role, &member)?;
+    }
 
     match app.update_board_member(&member).await? {
         Some(updated) => Ok(json_response(&updated)),

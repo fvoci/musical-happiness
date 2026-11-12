@@ -247,6 +247,13 @@ pub const fn highest_board_role(workspace_role: WorkspaceRole) -> BoardRole {
     }
 }
 
+/// Whether a member of a workspace in `workspace_role` may be given `role` on one of
+/// its boards: a guest no role above editor.
+#[must_use]
+pub fn may_hold(workspace_role: WorkspaceRole, role: BoardRole) -> bool {
+    role <= highest_board_role(workspace_role)
+}
+
 /// What the user may do on the board.
 ///
 /// - A user who is in no role in the board's workspace may do nothing: a role left on

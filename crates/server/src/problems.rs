@@ -196,6 +196,10 @@ fn describe_reason(reason: Reason) -> &'static str {
              administrator. Make somebody else one first."
         }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
+        Reason::GuestRoleLimit => {
+            "Status 403. The user is a guest of the board's workspace, and a guest is given no \
+             role on a board above editor. Ask for the editor's role or a lower one."
+        }
         Reason::SharingDisabled => {
             "Status 403. Sharing a board with whoever has its link is turned off in the \
              configuration of this server."

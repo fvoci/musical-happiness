@@ -22,6 +22,7 @@ mod cookies;
 mod deleted_cards;
 mod export;
 mod files;
+mod guests;
 mod imports;
 mod limits;
 mod login_limits;
