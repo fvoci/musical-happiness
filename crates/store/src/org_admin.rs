@@ -183,20 +183,7 @@ impl Store {
             if the_instances && !users::follow_org_role(scope, user_id, role).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
-            let mut sql = scope.sql("UPDATE organization_members SET role = ");
-            sql.bind(role.as_str())
-                .push_bind(" WHERE org_id = ", scope.org()?)
-                .push_bind(" AND user_id = ", Id(user_id));
-            scope.execute(sql).await?;
-            let action = match role {
-                OrgRole::Admin => AuditAction::OrgAdminGranted,
-                OrgRole::Member => AuditAction::OrgAdminRemoved,
-            };
-            let entry = AuditEntry::new("", actor_id, action, &org.id).with_subject(user_id);
-            audit::record_entry(scope, &entry).await?;
-            if role != OrgRole::Admin {
-                revoke_joinings(scope, user_id, actor_id).await?;
-            }
+            change_org_role(scope, &org.id, user_id, role, actor_id).await?;
             Ok(OrgRoleChange::Done)
         })
         .await
@@ -546,6 +533,36 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
         public_links: row.bool(2)?,
         default_workspace_id: row.id(3)?,
     })
+}
+
+/// Gives a member of the handle's organization (`org_id`) a role in it on behalf of
+/// `actor_id`, and records it; who stops administering it is taken out of what they
+/// joined as its administrator, each joining recorded (`revoke_joinings`). The one way
+/// a role in the organization changes, through its route or the instance's
+/// (`members::follow_instance_role`): no role in a workspace changes with it, as an
+/// administrator of the organization enters a workspace only by a joining on the record.
+pub(crate) async fn change_org_role(
+    scope: &mut Scope<'_>,
+    org_id: &str,
+    user_id: &str,
+    role: OrgRole,
+    actor_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE organization_members SET role = ");
+    sql.bind(role.as_str())
+        .push_bind(" WHERE org_id = ", scope.org()?)
+        .push_bind(" AND user_id = ", Id(user_id));
+    scope.execute(sql).await?;
+    let action = match role {
+        OrgRole::Admin => AuditAction::OrgAdminGranted,
+        OrgRole::Member => AuditAction::OrgAdminRemoved,
+    };
+    let entry = AuditEntry::new("", actor_id, action, org_id).with_subject(user_id);
+    audit::record_entry(scope, &entry).await?;
+    if role != OrgRole::Admin {
+        revoke_joinings(scope, user_id, actor_id).await?;
+    }
+    Ok(())
 }
 
 /// Holds the handle's organization's row ([`hold_organization_row`]) and reads it:

@@ -709,7 +709,9 @@ async fn one_organization_does_not_purge_the_trash_of_another() {
 
 /// Whoever registers through a handle of an organization joins it and its default
 /// workspace, the first user as an administrator of both; an administrator of the
-/// instance made later becomes one of both, and stops being one with it. A user stored
+/// instance made later becomes the organization's, and stops being one with it, while
+/// their roles in its workspaces stay what they were: a workspace is entered by a
+/// joining on the record. A user stored
 /// through a handle that names no organization is in none.
 #[tokio::test]
 async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
@@ -784,11 +786,15 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
         .expect_err("no such workspace");
     assert!(missing.is_not_found(), "got {missing:?}");
 
-    // The roles follow the instance's administrators, but a guest stays a guest.
+    // The role in the organization follows the instance's administrators; the roles in
+    // its workspaces, a member's as a guest's, do not.
     test.set_user_admin(&second, InstanceRole::Administrator, &second)
         .await
         .expect("the user is made an administrator");
-    assert_eq!(access(&second, &test.workspace_id).await, admin);
+    assert_eq!(
+        access(&second, &test.workspace_id).await,
+        Some((Some(OrgRole::Admin), WorkspaceRole::Member))
+    );
     assert_eq!(
         access(&second, &second_workspace).await,
         Some((Some(OrgRole::Admin), WorkspaceRole::Guest))
@@ -797,6 +803,10 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
         .await
         .expect("the user is an administrator no more");
     assert_eq!(access(&second, &test.workspace_id).await, member);
+    assert_eq!(
+        access(&second, &second_workspace).await,
+        Some((Some(OrgRole::Member), WorkspaceRole::Guest))
+    );
 
     // Somebody the organization takes in without a workspace is in none of them.
     test.add_organization_member(&outside, OrgRole::Member)

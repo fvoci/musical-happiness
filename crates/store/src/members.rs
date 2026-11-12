@@ -3,9 +3,8 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{AuditAction, BoardType, OrgRole, WorkspaceRole};
+use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
-use crate::audit::{self, AuditEntry};
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
@@ -235,12 +234,11 @@ pub(crate) async fn join_organization_unless_member(
     Ok(true)
 }
 
-/// Gives a member of the organization the role that goes with being, or no longer
-/// being, an administrator of the instance: in the organization, and in its workspaces
-/// where the user is no guest. Somebody who is no member stays none. Who stops being an
-/// administrator is taken out of the workspaces they joined as the organization's
-/// administrator, on behalf of `actor_id` (`org_admin::revoke_joinings`). A change of
-/// their role in the organization is recorded in its audit log.
+/// Gives a member of the organization the role in it that goes with being, or no
+/// longer being, an administrator of the instance, as the organization's route does
+/// (`org_admin::change_org_role`): recorded, and who stops being one is taken out of
+/// what they joined as its administrator, on behalf of `actor_id`. No role in a
+/// workspace changes. Somebody who is no member stays none.
 ///
 /// TEMPORARY, as [`join_organization`] is: while the instance's administrators are the
 /// organization's.
@@ -250,38 +248,18 @@ pub(crate) async fn follow_instance_role(
     instance_role: InstanceRole,
     actor_id: &str,
 ) -> Result<(), StoreError> {
-    let (org_role, workspace_role) = roles_of(instance_role);
+    let (org_role, _) = roles_of(instance_role);
     let org = org_admin::lock_organization(scope).await?;
-    let before = org_admin::org_role_of(scope, user_id).await?;
-    if org_role != OrgRole::Admin {
-        // What they joined as the organization's administrator is theirs no more.
-        org_admin::revoke_joinings(scope, user_id, actor_id).await?;
+    match org_admin::org_role_of(scope, user_id).await? {
+        Some(before) if before != org_role => {
+            org_admin::change_org_role(scope, &org.id, user_id, org_role, actor_id).await?;
+        }
+        // Already of that role; one who is no administrator has joined nothing to keep.
+        _ if org_role != OrgRole::Admin => {
+            org_admin::revoke_joinings(scope, user_id, actor_id).await?;
+        }
+        _ => {}
     }
-    // A member who becomes, or stops being, the organization's administrator is
-    // recorded as one made so through the organization's route is.
-    if before.is_some_and(|before| before != org_role) {
-        let action = match org_role {
-            OrgRole::Admin => AuditAction::OrgAdminGranted,
-            OrgRole::Member => AuditAction::OrgAdminRemoved,
-        };
-        let entry = AuditEntry::new("", actor_id, action, &org.id).with_subject(user_id);
-        audit::record_entry(scope, &entry).await?;
-    }
-    let mut sql = scope.sql("UPDATE organization_members SET role = ");
-    sql.bind(org_role.as_str())
-        .push_bind(" WHERE user_id = ", Id(user_id))
-        .push_bind(" AND org_id = ", scope.org()?);
-    scope.execute(sql).await?;
-    let mut sql = scope.sql("UPDATE workspace_members SET role = ");
-    sql.bind(workspace_role.as_str())
-        .push_bind(" WHERE user_id = ", Id(user_id))
-        .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str())
-        .push_bind(
-            " AND workspace_id IN (SELECT id FROM workspaces WHERE org_id = ",
-            scope.org()?,
-        )
-        .push(")");
-    scope.execute(sql).await?;
     Ok(())
 }
 
