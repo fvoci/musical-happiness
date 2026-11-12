@@ -31,6 +31,8 @@
   import { Input } from '$lib/ui/input/index.js';
   import { Label } from '$lib/ui/label/index.js';
 
+  import { oidcProblemOf } from './oidc-problems.ts';
+
   interface Props {
     onSignIn: (login: string, password: string) => Promise<void>;
     onRegister: (registration: Registration) => Promise<void>;
@@ -58,25 +60,6 @@
     ),
   );
 
-  /** The words for what went wrong with a sign-in through a provider. */
-  function oidcProblemOf(name: string): string {
-    switch (name) {
-      case 'oidc-state-invalid':
-        return m.account_oidc_state_invalid();
-      case 'oidc-denied':
-        return m.account_oidc_denied();
-      case 'oidc-email-missing':
-        return m.account_oidc_email_missing();
-      case 'oidc-email-unverified':
-        return m.account_oidc_email_unverified();
-      case 'oidc-email-taken':
-        return m.account_oidc_email_taken();
-      case 'oidc-join-closed':
-        return m.account_oidc_join_closed();
-      default:
-        return m.account_oidc_failed();
-    }
-  }
   const oidcError = address.get('oidc_error');
 
   let mode = $state<'signIn' | 'register'>('signIn');

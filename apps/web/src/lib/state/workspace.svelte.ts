@@ -22,6 +22,7 @@ import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
 import {
   isBackendError,
+  isSignedOut,
   type AccountSettings,
   type AccountSettingsPatch,
   type Backend,
@@ -35,10 +36,10 @@ import {
   type User,
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
-import { hiddenBoardsOf, sidebarOf, type SidebarCategory } from './order.ts';
+import { hiddenBoardsOf, sidebarOf, withoutBoard, type SidebarCategory } from './order.ts';
 import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
-import { firstChoiceOf, readWorkspace, type EnterStatus } from './workspace-entry.ts';
+import { closedBySso, enterWorkspace, firstChoiceOf, type EnterStatus } from './workspace-entry.ts';
 import { reread } from './write.ts';
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
@@ -171,7 +172,7 @@ export class Workspace {
       else await this.#enter(chosen);
       this.status = 'ready';
     } catch (error) {
-      if (isBackendError(error) && error.status === 401) {
+      if (isSignedOut(error)) {
         this.#signedOut();
         return;
       }
@@ -217,17 +218,13 @@ export class Workspace {
     }
     this.info = { ...workspace }; // Each entry its own: a way back is not "still there".
     this.entered = 'loading';
-    this.backend.enter?.(workspace.id);
-    const read = await readWorkspace(this.backend, workspace.id);
+    const read = await enterWorkspace(this.backend, workspace);
     if (turn !== this.#entering) return;
-    if (!read) {
-      this.info = undefined;
-      this.entered = 'missing';
-      return;
+    [this.entered, this.info] = [read.status, read.info];
+    if (read.status === 'ready') {
+      ({ users: this.users, boards: this.boards, categories: this.categories } = read);
+      this.workspaceUsers = read.users;
     }
-    ({ users: this.users, boards: this.boards, categories: this.categories } = read);
-    this.workspaceUsers = read.users;
-    this.entered = 'ready';
   }
 
   /** Lets go of everything of the workspace shown: nothing of it stays for the next. */
@@ -284,11 +281,7 @@ export class Workspace {
         this.boards = this.boards.filter((board) => board.id !== change.boardId);
         // A deleted board leaves every category (no message says so). Brought
         // back, it is filed again where it was, and the sidebar is told.
-        this.categories = this.categories.map((category) => ({
-          ...category,
-          boardIds: category.boardIds.filter((id) => id !== change.boardId),
-          hiddenBoardIds: category.hiddenBoardIds.filter((id) => id !== change.boardId),
-        }));
+        this.categories = withoutBoard(this.categories, change.boardId);
         break;
       case 'categories':
         // Of the workspace shown, or none: no sidebar of another replaces it.
@@ -343,11 +336,18 @@ export class Workspace {
   /**
    * Puts a failure where the shell shows it. Anything that is not a backend
    * error is a bug and is logged. A 401 is no failure to show: the session
-   * is over, and the status turns to `signedOut`.
+   * is over (`signedOut`), or the workspace shown is closed to it (`sso`).
    */
   report(action: ProblemAction, error: unknown): void {
+    // The organization of the one shown began to take no password: closed, and the session goes on.
+    const closed = closedBySso(this.workspaces, this.info, error);
+    if (closed) {
+      this.#leave(this.asked);
+      [this.workspaces, this.info, this.entered] = [closed.workspaces, closed.info, 'sso'];
+      return;
+    }
     // The session is over (it went idle, or past its end): sign in again.
-    if (isBackendError(error) && error.status === 401) {
+    if (isSignedOut(error)) {
       this.#signedOut();
       return;
     }

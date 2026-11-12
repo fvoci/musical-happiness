@@ -42,6 +42,8 @@ export interface Problem {
   requestId?: string;
   /** Seconds, with 429. */
   retryAfter?: number;
+  /** The organization to sign in to through its provider, with the reason `sso_required`. */
+  orgId?: string;
 }
 
 /** The problems of the statuses as the server names them: the last part of `type`, and the title. */
@@ -84,6 +86,8 @@ export class BackendError extends Error {
   readonly retryAfter: number | undefined;
   /** The server's name for the request, to report a failure by. */
   readonly requestId: string | undefined;
+  /** The organization to sign in to through its provider, with the reason `sso_required`. */
+  readonly orgId: string | undefined;
 
   constructor(status: ErrorStatus | 0, problem?: Partial<Problem>) {
     super(problem?.detail ?? problem?.title ?? (status === 0 ? 'no answer' : `status ${status}`));
@@ -95,6 +99,7 @@ export class BackendError extends Error {
     this.limit = problem?.limit;
     this.retryAfter = problem?.retryAfter;
     this.requestId = problem?.requestId;
+    this.orgId = problem?.orgId;
   }
 
   /** The entry of `errors` about the member of the request body at this JSON Pointer, if there is one. */
@@ -105,6 +110,22 @@ export class BackendError extends Error {
 
 export function isBackendError(error: unknown): error is BackendError {
   return error instanceof BackendError;
+}
+
+/**
+ * The organization that takes no password, when that is what a refusal
+ * says: the session is good, and what is the organization's opens for one
+ * made through its single sign-on (401, `sso_required`).
+ */
+export function ssoOrgOf(error: unknown): string | undefined {
+  return isBackendError(error) && error.status === 401 && error.reason === 'sso_required'
+    ? error.orgId
+    : undefined;
+}
+
+/** The session is over (401), which an organization asking for its single sign-on is not. */
+export function isSignedOut(error: unknown): error is BackendError {
+  return isBackendError(error) && error.status === 401 && error.reason !== 'sso_required';
 }
 
 /** The stored version differs from the one the write was based on. */

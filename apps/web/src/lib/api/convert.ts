@@ -67,7 +67,12 @@ export function userOf(user: Schemas['User']): User {
 export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceInfo[] {
   return workspaces
     .filter((workspace) => workspace.role !== 'guest')
-    .map((workspace) => ({ id: workspace.id, title: workspace.name }));
+    .map((workspace) => ({
+      id: workspace.id,
+      title: workspace.name,
+      orgId: workspace.orgId,
+      ssoRequired: workspace.ssoRequired,
+    }));
 }
 
 export function boardOf(board: Schemas['Board']): Board {

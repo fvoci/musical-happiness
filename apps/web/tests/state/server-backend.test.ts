@@ -994,7 +994,13 @@ describe('sharing a board on the server', () => {
   });
 
   it("takes the reader's workspaces from their workspaces, leaving out those they are a guest of", async () => {
-    const workspace = (id: string, role: string) => ({ id, orgId: 'o', name: `n-${id}`, role });
+    const workspace = (id: string, role: string) => ({
+      id,
+      orgId: 'o',
+      name: `n-${id}`,
+      role,
+      ssoRequired: false,
+    });
     const sent = serveRoutes([
       [
         'GET /api/v1/users/me/workspaces',
@@ -1002,8 +1008,8 @@ describe('sharing a board on the server', () => {
       ],
     ]);
     expect(await new ServerBackend('').workspaces()).toEqual([
-      { id: 'w2', title: 'n-w2' },
-      { id: 'w3', title: 'n-w3' },
+      { id: 'w2', title: 'n-w2', orgId: 'o', ssoRequired: false },
+      { id: 'w3', title: 'n-w3', orgId: 'o', ssoRequired: false },
     ]);
     expect(sentLines(sent)).toEqual(['GET /api/v1/users/me/workspaces']);
   });

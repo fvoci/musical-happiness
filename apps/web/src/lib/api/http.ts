@@ -65,10 +65,8 @@ async function problemOf(response: Response): Promise<Partial<Problem> | undefin
     return undefined;
   }
   if (typeof body !== 'object' || body === null) return undefined;
-  const { type, title, detail, reason, errors, limit, retryAfter, requestId } = body as Record<
-    string,
-    unknown
-  >;
+  const { type, title, detail, reason, errors, limit, retryAfter, requestId, orgId } =
+    body as Record<string, unknown>;
   return {
     ...(isText(type) ? { type } : {}),
     ...(isText(title) ? { title } : {}),
@@ -78,6 +76,7 @@ async function problemOf(response: Response): Promise<Partial<Problem> | undefin
     ...(isCount(limit) ? { limit } : {}),
     ...(isCount(retryAfter) ? { retryAfter } : {}),
     ...(isText(requestId) ? { requestId } : {}),
+    ...(isText(orgId) ? { orgId } : {}),
   };
 }
 

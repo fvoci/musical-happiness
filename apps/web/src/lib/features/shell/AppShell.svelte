@@ -68,6 +68,10 @@
     onSignOut?: () => void;
     /** Changes the reader's password. Without it (no accounts) it is not offered. */
     onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
+    /** What the app adds to the account's part of the settings: where features meet. */
+    accountSettings?: Snippet;
+    /** Whether the settings are open: the app opens them for what it has to show there. */
+    settingsOpen?: boolean;
     /** The page: what is shown beside the sidebar. */
     children: Snippet;
   }
@@ -83,6 +87,8 @@
     onChooseLanguage,
     onSignOut,
     onChangePassword,
+    accountSettings,
+    settingsOpen = $bindable(false),
     children,
   }: Props = $props();
 
@@ -96,7 +102,6 @@
 
   let shell = $state<HTMLElement | null>(null);
   let panel = $state<HTMLElement | null>(null);
-  let settingsOpen = $state(false);
 
   // Where the page has no drawer (the sidebar is fixed, or folded on an
   // expanded page) an open one is over, and stays so.
@@ -342,6 +347,7 @@
   {onChooseLanguage}
   {onSignOut}
   {onChangePassword}
+  account={accountSettings}
 />
 
 {#if devReadout.shown}

@@ -12,15 +12,20 @@
   import { onMount } from 'svelte';
 
   import { setFileUrlResolver } from '$lib/editor/files.ts';
+  import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
+  import SignInNotice from '$lib/features/account/SignInNotice.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
+  import SsoRequired from '$lib/features/account/SsoRequired.svelte';
   import AppShell from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
     BackendError,
     isBackendError,
+    isSignedOut,
     whileHere,
     Workspace,
     type Account,
+    type LinkedIdentity,
     type Registration,
   } from '$lib/state/index.ts';
   import type { BoardPlace } from '$lib/logic/urls.ts';
@@ -38,7 +43,9 @@
   } from './locale.ts';
   import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
-  import type { Router } from './router.svelte.ts';
+  import { keepReturn, takeReturn } from './return-to.ts';
+  import { parseRoute, type Router } from './router.svelte.ts';
+  import { signInOrganizations } from './sign-in-organizations.ts';
 
   let { router }: { router: Router } = $props();
 
@@ -50,7 +57,50 @@
    */
   let registered: { username: string; email: string } | undefined;
 
+  /** What the address says of a sign-in through a provider that just came back. */
+  const cameBack = new URLSearchParams(location.search);
+  /** A provider was connected to the account just now: the settings say so. */
+  const justLinked = cameBack.has('oidc_linked');
+  let settingsOpen = $state(justLinked);
+  /**
+   * A sign-in through a provider came back refused (`/login?oidc_error=…`)
+   * while the reader is signed in: told in the page, until they go on.
+   */
+  const refused = $derived(router.route.unknown ? cameBack.get('oidc_error') : null);
+
+  /**
+   * Back from a provider, the browser is at the root: the reader goes on to
+   * where they were when they left for it, if that is a page of the app.
+   */
+  function resume(): void {
+    const kept = takeReturn();
+    if (justLinked) history.replaceState(null, '', location.pathname);
+    if (kept === undefined || router.route.unknown || router.route.workspaceId) return;
+    const route = parseRoute(kept, router.basePath);
+    if (!route.unknown) router.go(route, { replace: true });
+  }
+
+  /** Sends the browser to the provider of an organization, to come back to this address. */
+  async function toProvider(orgId: string, linkPassword?: string): Promise<void> {
+    if (!account) return;
+    // Started by this page's own request; the browser then goes to the provider.
+    const address = await account.startOidc(orgId, linkPassword);
+    keepReturn(location.pathname);
+    location.assign(address);
+  }
+
+  /** Disconnects a sign-in; a session that is over is signing out, not a wrong password. */
+  async function unlink(identity: LinkedIdentity, password: string): Promise<void> {
+    try {
+      await account?.unlinkIdentity(identity, password);
+    } catch (error) {
+      if (isSignedOut(error)) workspace?.report('save', error);
+      throw error;
+    }
+  }
+
   onMount(() => {
+    resume();
     void startBackend().then(async (started) => {
       const { backend } = started;
       account = started.account;
@@ -158,6 +208,20 @@
   };
 </script>
 
+{#snippet accountSettings()}
+  {#if account && workspace}
+    {@const signedIn = account}
+    {@const mine = workspace.workspaces}
+    <LinkedSignIns
+      read={() => signedIn.identities()}
+      organizations={() => signInOrganizations(mine, (orgId) => signedIn.loginOrganization(orgId))}
+      onLink={(orgId: string, password: string) => toProvider(orgId, password)}
+      onUnlink={unlink}
+      {justLinked}
+    />
+  {/if}
+{/snippet}
+
 {#if !workspace || workspace.status === 'idle' || workspace.status === 'loading'}
   <main class="grid min-h-dvh place-items-center p-4">
     <div class="text-center">
@@ -248,15 +312,36 @@
             await account?.changePassword(oldPassword, newPassword);
           } catch (error) {
             // The session was over: that is signing out, not a wrong password.
-            if (isBackendError(error) && error.status === 401) workspace?.report('save', error);
+            if (isSignedOut(error)) workspace?.report('save', error);
             throw error;
           }
         }
       : undefined}
+    accountSettings={account ? accountSettings : undefined}
+    bind:settingsOpen
   >
     {@const here = workspace.asked === router.route.workspaceId}
-    {#if router.route.unknown || (here && workspace.entered === 'missing')}
+    {#if refused}
+      <SignInNotice
+        problem={refused}
+        onGoOn={() => {
+          router.go({}, { replace: true });
+        }}
+        onOpenLinked={() => {
+          settingsOpen = true;
+        }}
+      />
+    {:else if router.route.unknown || (here && workspace.entered === 'missing')}
       <NotFound {router} />
+    {:else if here && workspace.entered === 'sso' && workspace.info?.orgId}
+      {@const orgId = workspace.info.orgId}
+      <SsoRequired
+        name={workspace.info.title}
+        onContinue={() => toProvider(orgId)}
+        onOpenLinked={() => {
+          settingsOpen = true;
+        }}
+      />
     {:else if !router.route.workspaceId && workspace.workspaces.length === 0}
       <div class="grid h-full place-items-center p-6 text-center">
         <p class="text-muted-foreground">{m.app_no_boards()}</p>

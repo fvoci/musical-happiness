@@ -1,11 +1,13 @@
 /**
  * The requests of the server backend that take nothing but HTTP: making an
- * account, what the login page shows of an organization, changing the
+ * account, what the login page shows of an organization, signing in
+ * through its provider and what is connected to the account, changing the
  * reader's own and reading their workspaces, and reading the trash.
  * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
 import type {
   DeletedItem,
+  LinkedIdentity,
   LoginOrganization,
   Paging,
   Registration,
@@ -48,14 +50,34 @@ export class ServerRequests implements TrashReads {
    * Starts a sign-in through the organization's provider, as a request of this
    * page (which another site's page cannot send): the address to send the
    * browser to. The cookie that ties the sign-in to this browser comes with it.
+   * With `linkPassword` it connects the provider to the reader's account.
    */
-  async startOidc(orgId: string): Promise<string> {
+  async startOidc(orgId: string, linkPassword?: string): Promise<string> {
+    const body: Schemas['OidcStartRequest'] | undefined =
+      linkPassword === undefined ? undefined : { linkPassword };
     const started = await this.#http.request<Schemas['OidcStart']>(
       '/api/v1/auth/oidc/start',
       {},
-      { method: 'POST', query: { org: orgId } },
+      { method: 'POST', query: { org: orgId }, json: body },
     );
     return started.authorizationUrl;
+  }
+
+  async identities(): Promise<LinkedIdentity[]> {
+    return this.#http.request<Schemas['LinkedIdentity'][]>('/api/v1/users/me/identities');
+  }
+
+  async unlinkIdentity(identity: LinkedIdentity, password: string): Promise<void> {
+    const request: Schemas['UnlinkRequest'] = {
+      issuer: identity.issuer,
+      subject: identity.subject,
+      password,
+    };
+    await this.#http.request(
+      '/api/v1/users/me/identities',
+      {},
+      { method: 'DELETE', json: request },
+    );
   }
 
   async patchMe(patch: { displayName: string | null }): Promise<User> {

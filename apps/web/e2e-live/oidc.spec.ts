@@ -81,7 +81,7 @@ test('a sign-in through the provider that went wrong says why, and a password st
   );
   await page.goto('/login?oidc_error=oidc-email-taken');
   await expect(page.getByTestId('sign-in-form').getByRole('alert')).toHaveText(
-    'An account with your email address exists already. Sign in to it with its password.',
+    'An account with your email address exists already. Sign in to it with its password, then connect single sign-on to it in the settings, under Connected sign-ins.',
   );
   // Signed in with the password from there, the app opens, not "page not found".
   await signInOnPage(page, ADMIN);

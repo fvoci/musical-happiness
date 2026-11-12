@@ -34,7 +34,13 @@ import type {
 
 import type { TrashReads } from './trash-reads.ts';
 
-export type { Account, LoginOrganization, Registration } from './account-types.ts';
+export type {
+  Account,
+  LinkedIdentity,
+  LoginOrganization,
+  Registration,
+  SignInOrganization,
+} from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 
 /** What an import did beyond making the archive's boards. */
@@ -50,8 +56,10 @@ export {
   ERROR_STATUSES,
   isBackendError,
   isConflict,
+  isSignedOut,
   problemOf,
   refusedMember,
+  ssoOrgOf,
   type ErrorStatus,
   type InvalidInput,
   type Problem,
@@ -73,6 +81,13 @@ export interface User extends UserNames {
 export interface WorkspaceInfo {
   id: string;
   title: string;
+  /** The organization the workspace belongs to, where the backend has organizations (the server). */
+  orgId?: string;
+  /**
+   * The workspace is closed to this session: its organization takes no
+   * password, and it opens for a session made through the provider of `orgId`.
+   */
+  ssoRequired?: boolean;
 }
 
 /**

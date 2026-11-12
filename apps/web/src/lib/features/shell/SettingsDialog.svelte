@@ -26,6 +26,7 @@
   import DownloadIcon from '@lucide/svelte/icons/download';
   import UploadIcon from '@lucide/svelte/icons/upload';
   import XIcon from '@lucide/svelte/icons/x';
+  import type { Snippet } from 'svelte';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -81,6 +82,8 @@
     onSignOut?: () => void;
     /** Changes the password. Without it there is no account (the backend in memory). */
     onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
+    /** What else is the account's, below the password: the app's to fill. */
+    account?: Snippet;
   }
 
   let {
@@ -92,6 +95,7 @@
     onChooseLanguage,
     onSignOut,
     onChangePassword,
+    account,
   }: Props = $props();
 
   closeOnBack(
@@ -374,6 +378,8 @@
       {#if onChangePassword}
         <PasswordChange onChange={onChangePassword} />
       {/if}
+
+      {@render account?.()}
 
       {#if onSignOut}
         <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
