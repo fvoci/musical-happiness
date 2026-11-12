@@ -1,8 +1,9 @@
 <!--
   What a workspace of an organization that takes no password shows to
-  somebody signed in with one: that it is opened by signing in through the
-  organization's single sign-on, and the button that goes there. The session
-  stays as it is: the reader's other workspaces are a click away.
+  somebody whose session was made another way: that it is opened by signing
+  in through the organization's single sign-on, and the button that goes
+  there. The session stays as it is, and the reader's workspaces that it
+  opens are listed below: the shell has no other way from here to them.
 
   Whoever has not connected single sign-on to their account yet is told
   where that is done: the provider would otherwise refuse them for their
@@ -15,13 +16,17 @@
   interface Props {
     /** The workspace's name; empty if it has none. */
     name: string;
+    /** The reader's workspaces that are open to this session: where else they can go. */
+    others: readonly { id: string; title: string; href: string }[];
     /** Starts the sign-in and sends the browser to the provider; a refusal rejects. */
     onContinue: () => Promise<void>;
     /** Opens the connected sign-ins of the settings. */
     onOpenLinked: () => void;
+    /** Goes to another of the reader's workspaces. */
+    onGo: (workspaceId: string) => void;
   }
 
-  let { name, onContinue, onOpenLinked }: Props = $props();
+  let { name, others, onContinue, onOpenLinked, onGo }: Props = $props();
 
   let working = $state(false);
   let failed = $state(false);
@@ -31,13 +36,30 @@
     working = true;
     failed = false;
     try {
+      // The browser leaves for the provider: the button stays as it is.
       await onContinue();
     } catch {
       failed = true;
       working = false;
     }
   }
+
+  /** A plain click goes there in the page; any other is the browser's (a new tab). */
+  function follow(event: MouseEvent, workspaceId: string): void {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    onGo(workspaceId);
+  }
 </script>
+
+<!-- Back from the provider by the browser's "back", the page is as it was left: not on its way any more. -->
+<svelte:window
+  onpageshow={(event: PageTransitionEvent) => {
+    if (event.persisted) working = false;
+  }}
+/>
 
 <div class="grid h-full place-items-center p-6 text-center" data-testid="sso-required">
   <div class="grid max-w-md justify-items-center gap-3">
@@ -66,5 +88,23 @@
         onclick={onOpenLinked}>{m.account_linked_open()}</button
       >
     </p>
+    {#if others.length > 0}
+      <nav class="grid gap-1 border-t pt-3 text-sm" aria-labelledby="sso-others">
+        <p id="sso-others" class="text-muted-foreground">{m.account_sso_others()}</p>
+        <ul class="grid gap-1">
+          {#each others as other (other.id)}
+            <li>
+              <a
+                class="underline underline-offset-4 roomy:inline-block roomy:py-3"
+                href={other.href}
+                onclick={(event) => {
+                  follow(event, other.id);
+                }}>{other.title || m.account_sso_other_unnamed()}</a
+              >
+            </li>
+          {/each}
+        </ul>
+      </nav>
+    {/if}
   </div>
 </div>

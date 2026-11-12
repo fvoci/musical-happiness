@@ -69,16 +69,36 @@ describe('the workspaces as the server lists them', () => {
 });
 
 describe('a workspace closed to the session', () => {
-  it('is entered as closed, by its name, and nothing of it is read', async () => {
+  it('is not entered: it is known by its name, and nothing of it is read or followed', async () => {
     const made = setup();
     const closed = listed(made, true);
     const boards = vi.spyOn(made.backend, 'boards');
+    // The backend in memory follows nothing; the server's does, by `enter`.
+    const follow = vi.fn();
+    Object.assign(made.backend, { enter: follow });
     await made.workspace.load();
     expect(made.workspace.status).toBe('ready');
     expect(made.workspace.entered).toBe('sso');
-    expect(made.workspace.info).toEqual(closed);
+    expect(made.workspace.closed).toEqual(closed);
+    expect(made.workspace.info).toBeUndefined();
     expect(made.workspace.boards).toEqual([]);
     expect(boards).not.toHaveBeenCalled();
+    expect(follow).not.toHaveBeenCalled();
+    // Nothing is asked of a workspace that is not entered.
+    expect(await made.workspace.searchBoards('anything')).toEqual([]);
+    expect(await made.workspace.createBoard({ title: 'New' })).toBeUndefined();
+    expect(boards).not.toHaveBeenCalled();
+  });
+
+  it('is not where the reader starts while another of theirs is open', async () => {
+    const made = setup();
+    const closed = { ...made.world.workspace, id: 'closed', orgId: ORG, ssoRequired: true };
+    const open = { ...made.world.workspace, orgId: 'another', ssoRequired: false };
+    vi.spyOn(made.backend, 'workspaces').mockResolvedValue([closed, open]);
+    await made.workspace.load();
+    expect(made.workspace.firstChoice()).toBe(open.id);
+    expect(made.workspace.entered).toBe('ready');
+    expect(made.workspace.info?.id).toBe(open.id);
   });
 
   it('is closed when reading it says so, though the list did not', async () => {
@@ -88,7 +108,8 @@ describe('a workspace closed to the session', () => {
     await made.workspace.load();
     expect(made.workspace.status).toBe('ready');
     expect(made.workspace.entered).toBe('sso');
-    expect(made.workspace.info).toEqual({ ...open, ssoRequired: true });
+    expect(made.workspace.closed).toEqual({ ...open, ssoRequired: true });
+    expect(made.workspace.info).toBeUndefined();
   });
 
   it('closes under the reader when a later request says so, and the session goes on', async () => {
@@ -98,10 +119,20 @@ describe('a workspace closed to the session', () => {
     expect(made.workspace.entered).toBe('ready');
     expect(made.workspace.boards.length).toBeGreaterThan(0);
 
+    // A refusal of something of another organization, still on its way when the
+    // reader came here, closes nothing on the page, and is no failure to show.
+    made.workspace.report(
+      'save',
+      new BackendError(401, { reason: 'sso_required', orgId: 'another-organization' }),
+    );
+    expect(made.workspace.entered).toBe('ready');
+    expect(made.workspace.problems).toEqual([]);
+
     made.workspace.report('save', ssoRequired());
     expect(made.workspace.status).toBe('ready');
     expect(made.workspace.entered).toBe('sso');
-    expect(made.workspace.info?.orgId).toBe(ORG);
+    expect(made.workspace.closed?.orgId).toBe(ORG);
+    expect(made.workspace.info).toBeUndefined();
     expect(made.workspace.boards).toEqual([]);
     expect(made.workspace.problems).toEqual([]);
     expect(made.workspace.workspaces.map((one) => one.ssoRequired)).toEqual([true]);

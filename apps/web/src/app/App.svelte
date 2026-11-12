@@ -59,14 +59,22 @@
 
   /** What the address says of a sign-in through a provider that just came back. */
   const cameBack = new URLSearchParams(location.search);
-  /** A provider was connected to the account just now: the settings say so. */
-  const justLinked = cameBack.has('oidc_linked');
-  let settingsOpen = $state(justLinked);
+  /** A provider was connected to the account just now: the settings say so, until they close. */
+  let justLinked = $state(cameBack.has('oidc_linked'));
+  let settingsOpen = $state(cameBack.has('oidc_linked'));
+  /** The settings were opened for the connected sign-ins: that part comes into view. */
+  let linkedAsked = $state(cameBack.has('oidc_linked'));
   /**
    * A sign-in through a provider came back refused (`/login?oidc_error=…`)
    * while the reader is signed in: told in the page, until they go on.
    */
-  const refused = $derived(router.route.unknown ? cameBack.get('oidc_error') : null);
+  let refusal = $state(cameBack.get('oidc_error'));
+  const refused = $derived(router.route.unknown ? refusal : null);
+
+  function openLinked(): void {
+    linkedAsked = true;
+    settingsOpen = true;
+  }
 
   /**
    * Back from a provider, the browser is at the root: the reader goes on to
@@ -74,10 +82,20 @@
    */
   function resume(): void {
     const kept = takeReturn();
-    if (justLinked) history.replaceState(null, '', location.pathname);
+    if (cameBack.has('oidc_linked')) history.replaceState(null, '', location.pathname);
     if (kept === undefined || router.route.unknown || router.route.workspaceId) return;
     const route = parseRoute(kept, router.basePath);
     if (!route.unknown) router.go(route, { replace: true });
+  }
+
+  /** A session that is over is signing out, whatever was being asked: told, and passed on. */
+  async function signedIn<T>(doing: () => Promise<T>): Promise<T> {
+    try {
+      return await doing();
+    } catch (error) {
+      if (isSignedOut(error)) workspace?.report('save', error);
+      throw error;
+    }
   }
 
   /** Sends the browser to the provider of an organization, to come back to this address. */
@@ -89,15 +107,8 @@
     location.assign(address);
   }
 
-  /** Disconnects a sign-in; a session that is over is signing out, not a wrong password. */
-  async function unlink(identity: LinkedIdentity, password: string): Promise<void> {
-    try {
-      await account?.unlinkIdentity(identity, password);
-    } catch (error) {
-      if (isSignedOut(error)) workspace?.report('save', error);
-      throw error;
-    }
-  }
+  const unlink = (identity: LinkedIdentity, password: string): Promise<void> =>
+    signedIn(() => account?.unlinkIdentity(identity, password) ?? Promise.resolve());
 
   onMount(() => {
     resume();
@@ -164,6 +175,8 @@
       }
     }
     workspace?.close();
+    // Where this account was going is not where the next one starts.
+    takeReturn();
     router.restart({});
   }
 
@@ -210,17 +223,25 @@
 
 {#snippet accountSettings()}
   {#if account && workspace}
-    {@const signedIn = account}
+    {@const of = account}
     {@const mine = workspace.workspaces}
     <LinkedSignIns
-      read={() => signedIn.identities()}
-      organizations={() => signInOrganizations(mine, (orgId) => signedIn.loginOrganization(orgId))}
-      onLink={(orgId: string, password: string) => toProvider(orgId, password)}
+      read={() => signedIn(() => of.identities())}
+      organizations={() => signInOrganizations(mine, (orgId) => of.loginOrganization(orgId))}
+      onLink={(orgId: string, password: string) => signedIn(() => toProvider(orgId, password))}
       onUnlink={unlink}
       {justLinked}
+      reveal={linkedAsked}
     />
   {/if}
 {/snippet}
+
+<!-- Back by the browser's "back" from a provider the reader left for: nothing is on its way any more. -->
+<svelte:window
+  onpageshow={(event: PageTransitionEvent) => {
+    if (event.persisted) takeReturn();
+  }}
+/>
 
 {#if !workspace || workspace.status === 'idle' || workspace.status === 'loading'}
   <main class="grid min-h-dvh place-items-center p-4">
@@ -279,11 +300,7 @@
     }}
     organizationOf={(orgId: string | undefined) =>
       account?.loginOrganization(orgId) ?? Promise.resolve(undefined)}
-    onOidcStart={async (orgId: string) => {
-      if (!account) return;
-      // Started by this page's own request; the browser then goes to the provider.
-      location.assign(await account.startOidc(orgId));
-    }}
+    onOidcStart={(orgId: string) => toProvider(orgId)}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}
   <main class="grid min-h-dvh place-items-center p-4">
@@ -318,30 +335,42 @@
         }
       : undefined}
     accountSettings={account ? accountSettings : undefined}
-    bind:settingsOpen
+    bind:settingsOpen={
+      () => settingsOpen,
+      (open: boolean) => {
+        settingsOpen = open;
+        // Said once, and asked for once: the next opening is the reader's own.
+        if (!open) [justLinked, linkedAsked] = [false, false];
+      }
+    }
   >
     {@const here = workspace.asked === router.route.workspaceId}
     {#if refused}
       <SignInNotice
         problem={refused}
         onGoOn={() => {
+          refusal = null;
           router.go({}, { replace: true });
         }}
-        onOpenLinked={() => {
-          settingsOpen = true;
-        }}
+        onOpenLinked={openLinked}
       />
     {:else if router.route.unknown || (here && workspace.entered === 'missing')}
       <NotFound {router} />
-    {:else if here && workspace.entered === 'sso' && workspace.info?.orgId}
-      {@const orgId = workspace.info.orgId}
-      <SsoRequired
-        name={workspace.info.title}
-        onContinue={() => toProvider(orgId)}
-        onOpenLinked={() => {
-          settingsOpen = true;
-        }}
-      />
+    {:else if here && workspace.entered === 'sso' && workspace.closed?.orgId}
+      {@const orgId = workspace.closed.orgId}
+      {#key orgId}
+        <SsoRequired
+          name={workspace.closed.title}
+          others={workspace.workspaces
+            .filter((one) => !one.ssoRequired)
+            .map((one) => ({ ...one, href: router.href({ workspaceId: one.id }) }))}
+          onContinue={() => toProvider(orgId)}
+          onOpenLinked={openLinked}
+          onGo={(workspaceId: string) => {
+            router.go({ workspaceId });
+          }}
+        />
+      {/key}
     {:else if !router.route.workspaceId && workspace.workspaces.length === 0}
       <div class="grid h-full place-items-center p-6 text-center">
         <p class="text-muted-foreground">{m.app_no_boards()}</p>

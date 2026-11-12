@@ -10,18 +10,20 @@ export async function signInOrganizations(
   workspaces: readonly WorkspaceInfo[],
   loginOrganization: (orgId: string) => Promise<LoginOrganization | undefined>,
 ): Promise<SignInOrganization[]> {
-  // An organization once, under the name of its first workspace if it has none of its own.
-  const titles = new Map<string, string>();
+  // An organization once, by the workspaces of it the reader is in: those are the
+  // names they know it by. Its own name stands in where none of them has one.
+  const titles = new Map<string, string[]>();
   for (const workspace of workspaces) {
-    if (workspace.orgId !== undefined && !titles.has(workspace.orgId)) {
-      titles.set(workspace.orgId, workspace.title);
-    }
+    if (workspace.orgId === undefined) continue;
+    const known = titles.get(workspace.orgId) ?? [];
+    titles.set(workspace.orgId, workspace.title ? [...known, workspace.title] : known);
   }
   const found = await Promise.all(
-    [...titles].map(async ([orgId, title]) => {
+    [...titles].map(async ([orgId, known]) => {
       // One that cannot be read is not offered; the others still are.
       const organization = await loginOrganization(orgId).catch(() => undefined);
-      return organization?.oidc ? { orgId, name: organization.name || title } : undefined;
+      if (!organization?.oidc) return undefined;
+      return { orgId, name: known.join(', ') || organization.name || orgId };
     }),
   );
   return found.filter((one) => one !== undefined);

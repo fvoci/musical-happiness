@@ -11,7 +11,8 @@
 //! `https://127.0.0.1:<port>`, its client `fvoci-test-client` with the secret in
 //! `tests/api/fake_oidc.rs`. Everybody who asks is signed in as one person,
 //! `oidc-person` (`oidc-person@example.test`), until a test names another
-//! (`POST /person` with `subject`, `email` and, if it has one, `preferredUsername`).
+//! (`POST /person` with `subject`, `email` and, if it has them, `preferredUsername` and
+//! `name`).
 //! It prints `fake-oidc: <issuer>` once it
 //! listens, and runs until it is stopped.
 

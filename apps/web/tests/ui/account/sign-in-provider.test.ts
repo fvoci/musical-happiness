@@ -9,6 +9,7 @@ import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import SignInPage from '$lib/features/account/SignInPage.svelte';
+import { m } from '$lib/i18n/paraglide/messages.js';
 import { BackendError, type LoginOrganization } from '$lib/state/index.ts';
 
 afterEach(() => {
@@ -54,9 +55,7 @@ describe('the provider of the organization on the sign-in page', () => {
       Promise.reject(new BackendError(409, { detail: 'no', reason: 'oidc_unavailable' })),
     );
     await fireEvent.click(await screen.findByRole('button', { name: 'Continue with Acme' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      "Signing in through the provider did not work. Try again, or ask the organization's administrator.",
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(m.account_oidc_failed());
   });
 
   it('asks for the server’s only organization when the address names none, or an empty one', async () => {
@@ -86,13 +85,9 @@ describe('the provider of the organization on the sign-in page', () => {
 
   it('tells a refusal by its name, and one it does not know in general words', () => {
     mount('/login?oidc_error=oidc-join-closed', undefined);
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'This organization does not let new people in through its provider. Ask its administrator for an invitation.',
-    );
+    expect(screen.getByRole('alert')).toHaveTextContent(m.account_oidc_join_closed());
     cleanup();
     mount('/login?oidc_error=<b>made-up</b>', undefined);
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      "Signing in through the provider did not work. Try again, or ask the organization's administrator.",
-    );
+    expect(screen.getByRole('alert')).toHaveTextContent(m.account_oidc_failed());
   });
 });

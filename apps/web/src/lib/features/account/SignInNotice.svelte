@@ -23,7 +23,12 @@
 
 <div class="grid h-full place-items-center p-6 text-center" data-testid="sign-in-notice">
   <div class="grid max-w-md justify-items-center gap-3">
-    <p class="text-lg font-medium" role="alert">{oidcProblemOf(problem)}</p>
+    <p class="text-lg font-medium" role="alert">
+      <!-- Signed in already, "sign in with its password" is not what there is to do. -->
+      {problem === 'oidc-email-taken'
+        ? m.account_oidc_email_taken_signed_in()
+        : oidcProblemOf(problem)}
+    </p>
     <div class="flex flex-wrap justify-center gap-2">
       <Button variant="outline" class="roomy:min-h-touch" onclick={onOpenLinked}>
         {m.account_linked_open()}

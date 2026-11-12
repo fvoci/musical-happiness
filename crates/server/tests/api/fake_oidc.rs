@@ -301,16 +301,31 @@ async fn discovery(State(shared): State<Arc<Shared>>) -> Response {
     .into_response()
 }
 
-/// The value of a query parameter, percent-decoded.
-/// Signs in the person of the body from now on (`subject`, `email`, and
-/// `preferredUsername` if it has one): for the tests that reach the provider as a
-/// program (`examples/fake_oidc.rs`), which cannot call [`FakeProvider::sign_in_as`].
-async fn set_person(State(shared): State<Arc<Shared>>, Json(body): Json<Value>) -> StatusCode {
-    let (Some(subject), Some(email)) = (body["subject"].as_str(), body["email"].as_str()) else {
-        return StatusCode::BAD_REQUEST;
-    };
-    let mut person = Person::new(subject, email);
-    person.preferred_username = body["preferredUsername"].as_str().map(str::to_owned);
+/// Who the provider is to sign in, as a test that reaches it as a program names them.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NamedPerson {
+    subject: String,
+    email: String,
+    #[serde(default)]
+    preferred_username: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// Signs in the person of the body from now on: for the tests that reach the provider
+/// as a program (`examples/fake_oidc.rs`), which cannot call
+/// [`FakeProvider::sign_in_as`]. Without a `name` the person has the one
+/// [`Person::new`] gives.
+async fn set_person(
+    State(shared): State<Arc<Shared>>,
+    Json(named): Json<NamedPerson>,
+) -> StatusCode {
+    let mut person = Person::new(&named.subject, &named.email);
+    person.preferred_username = named.preferred_username;
+    if named.name.is_some() {
+        person.name = named.name;
+    }
     shared
         .state
         .lock()
@@ -319,6 +334,7 @@ async fn set_person(State(shared): State<Arc<Shared>>, Json(body): Json<Value>) 
     StatusCode::NO_CONTENT
 }
 
+/// The value of a query parameter, percent-decoded.
 fn query_value(query: &str, name: &str) -> Option<String> {
     query
         .split('&')

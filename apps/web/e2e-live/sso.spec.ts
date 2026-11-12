@@ -49,6 +49,7 @@ async function providerSignsIn(who: {
   subject: string;
   email: string;
   preferredUsername?: string;
+  name?: string;
 }): Promise<void> {
   const provider = await request.newContext({ ignoreHTTPSErrors: true });
   expect((await provider.post(`${ISSUER}/person`, { data: who })).status()).toBe(204);
@@ -154,17 +155,22 @@ test('what takes no password is opened through its single sign-on, back on the b
     await expect(page.getByTestId('signed-in-as')).toContainText(member.username);
     expect(errors).toEqual([]);
   } finally {
-    // The other tests' people sign in with passwords, and to pages without a provider.
+    // The other tests' people sign in with passwords, and to pages without a
+    // provider: each step is taken whatever came of the one before, and one
+    // that failed is told, as the files after this one would fail for it.
     if (adminThrough) {
-      await adminThrough.put(oidc, { data: { ...PROVIDER, ssoRequired: false } });
+      const released = await adminThrough.put(oidc, { data: { ...PROVIDER, ssoRequired: false } });
+      expect.soft(released.ok(), `passwords are taken again: ${released.status()}`).toBe(true);
       await adminThrough.dispose();
     }
-    await admin.delete(oidc);
+    const removed = await admin.delete(oidc);
+    expect.soft(removed.status(), 'the provider is removed').toBe(204);
     await admin.dispose();
     await providerSignsIn({
       subject: 'oidc-person',
       email: 'oidc-person@example.test',
       preferredUsername: 'oidc-person',
+      name: 'OIDC Person',
     });
   }
 });

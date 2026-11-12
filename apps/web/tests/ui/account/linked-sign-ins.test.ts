@@ -7,9 +7,9 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import LinkedSignIns from '$lib/features/account/LinkedSignIns.svelte';
-import { m } from '$lib/i18n/paraglide/messages.js';
 import SignInNotice from '$lib/features/account/SignInNotice.svelte';
 import SsoRequired from '$lib/features/account/SsoRequired.svelte';
+import { m } from '$lib/i18n/paraglide/messages.js';
 import { BackendError, type LinkedIdentity } from '$lib/state/index.ts';
 
 afterEach(() => {
@@ -41,6 +41,8 @@ function mount(
   return { read, onLink, onUnlink };
 }
 
+const password = (): HTMLElement => screen.getByLabelText('Current password');
+
 describe('the connected sign-ins', () => {
   it('lists what is connected by the host of its provider and the address it gave', async () => {
     mount([IDENTITY]);
@@ -50,16 +52,34 @@ describe('the connected sign-ins', () => {
     expect(within(row).getByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
   });
 
-  it('connects through the organization chosen, with the password', async () => {
+  it('connects through the one chosen, with the password, and stays busy as the browser leaves', async () => {
     const { onLink } = mount([]);
     expect(await screen.findByText('Nothing is connected yet.')).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Connect single sign-on' }));
+    const opener = screen.getByRole('button', { name: 'Connect single sign-on' });
+    await fireEvent.click(opener);
+    expect(password()).toHaveFocus();
     await fireEvent.change(screen.getByRole('combobox'), { target: { value: 'org-b' } });
-    await fireEvent.input(screen.getByLabelText('Current password'), {
-      target: { value: 'the password' },
-    });
-    await fireEvent.click(screen.getByRole('button', { name: 'Continue to single sign-on' }));
+    await fireEvent.input(password(), { target: { value: 'the password' } });
+    const go = screen.getByRole('button', { name: 'Continue to single sign-on' });
+    await fireEvent.click(go);
     expect(onLink).toHaveBeenCalledExactlyOnceWith('org-b', 'the password');
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: 'One moment…' })).toBeDisabled();
+    });
+  });
+
+  it('closes the form with the button that opened it, and the focus goes back there', async () => {
+    mount([]);
+    const opener = await screen.findByRole('button', { name: 'Connect single sign-on' });
+    await fireEvent.click(opener);
+    await fireEvent.input(password(), { target: { value: 'typed' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Current password')).toBeNull();
+    const again = screen.getByRole('button', { name: 'Connect single sign-on' });
+    expect(again).toHaveFocus();
+    // Opened again, nothing of what was typed is there.
+    await fireEvent.click(again);
+    expect(password()).toHaveValue('');
   });
 
   it('offers nothing to connect when no organization of the reader has a provider', async () => {
@@ -72,14 +92,16 @@ describe('the connected sign-ins', () => {
     const { read, onUnlink } = mount([IDENTITY]);
     const row = await screen.findByTestId('linked-sign-in');
     await fireEvent.click(within(row).getByRole('button', { name: 'Disconnect' }));
-    await fireEvent.input(screen.getByLabelText('Current password'), {
-      target: { value: 'the password' },
-    });
+    expect(password()).toHaveFocus();
+    await fireEvent.input(password(), { target: { value: 'the password' } });
     read.mockResolvedValue([]);
-    await fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Disconnect it' }));
     expect(onUnlink).toHaveBeenCalledExactlyOnceWith(IDENTITY, 'the password');
     expect(await screen.findByText('Disconnected.')).toBeInTheDocument();
     expect(await screen.findByText('Nothing is connected yet.')).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('linked-sign-ins')).toHaveFocus();
+    });
   });
 
   it.each([
@@ -90,34 +112,92 @@ describe('the connected sign-ins', () => {
     mount([IDENTITY], new BackendError(status, { reason }));
     const row = await screen.findByTestId('linked-sign-in');
     await fireEvent.click(within(row).getByRole('button', { name: 'Disconnect' }));
-    await fireEvent.input(screen.getByLabelText('Current password'), { target: { value: 'x' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(words);
+    await fireEvent.input(password(), { target: { value: 'x' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Disconnect it' }));
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(words);
+    });
     expect(screen.getByTestId('linked-sign-in')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disconnect it' })).toBeEnabled();
+  });
+
+  it('says that it could not be read, and reads again when asked', async () => {
+    const read = vi
+      .fn<() => Promise<LinkedIdentity[]>>()
+      .mockRejectedValueOnce(new BackendError(500))
+      .mockResolvedValue([IDENTITY]);
+    render(LinkedSignIns, {
+      props: {
+        read,
+        organizations: () => Promise.resolve([]),
+        onLink: vi.fn(() => Promise.resolve()),
+        onUnlink: vi.fn(() => Promise.resolve()),
+      },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(m.app_problem_load());
+    expect(screen.queryByText('Nothing is connected yet.')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: m.app_retry() }));
+    expect(await screen.findByTestId('linked-sign-in')).toBeInTheDocument();
   });
 });
 
 describe('a workspace that asks for single sign-on', () => {
-  it('says so by its name, and goes to the provider', async () => {
-    const onContinue = vi.fn(() => Promise.resolve());
+  const OTHERS = [
+    { id: 'w-open', title: 'Design', href: '/w/w-open' },
+    { id: 'w-unnamed', title: '', href: '/w/w-unnamed' },
+  ];
+
+  function mount(start: () => Promise<void>, name = 'Marketing', others = OTHERS) {
+    const onContinue = vi.fn(start);
     const onOpenLinked = vi.fn();
-    render(SsoRequired, { props: { name: 'Design', onContinue, onOpenLinked } });
-    expect(screen.getByRole('heading')).toHaveTextContent('Design signs in with single sign-on');
-    await fireEvent.click(screen.getByRole('button', { name: 'Continue with single sign-on' }));
-    expect(onContinue).toHaveBeenCalledOnce();
+    const onGo = vi.fn();
+    render(SsoRequired, { props: { name, others, onContinue, onOpenLinked, onGo } });
+    return { onContinue, onOpenLinked, onGo };
+  }
+
+  it('says so by its name, goes to the provider, and stays busy as the browser leaves', async () => {
+    const { onContinue, onOpenLinked } = mount(() => Promise.resolve());
+    expect(screen.getByRole('heading')).toHaveTextContent('Marketing signs in with single sign-on');
     await fireEvent.click(screen.getByRole('button', { name: 'Connected sign-ins' }));
     expect(onOpenLinked).toHaveBeenCalledOnce();
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue with single sign-on' }));
+    expect(onContinue).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: 'One moment…' })).toBeDisabled();
+    });
+  });
+
+  it('is not on its way any more when the browser comes back to the page as it was left', async () => {
+    mount(() => Promise.resolve());
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue with single sign-on' }));
+    const shown = new Event('pageshow');
+    Object.defineProperty(shown, 'persisted', { value: true });
+    await fireEvent(window, shown);
+    expect(screen.getByRole('button', { name: 'Continue with single sign-on' })).toBeEnabled();
+  });
+
+  it('lists the reader’s other workspaces, which is the way out', async () => {
+    const { onGo } = mount(() => Promise.resolve());
+    const links = within(screen.getByRole('navigation')).getAllByRole('link');
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/w/w-open', '/w/w-unnamed']);
+    expect(links[0]).toHaveTextContent('Design');
+    expect(links[1]).toHaveTextContent(m.account_sso_other_unnamed());
+    const first = links[0];
+    if (first) await fireEvent.click(first);
+    expect(onGo).toHaveBeenCalledExactlyOnceWith('w-open');
+  });
+
+  it('has no list when no other is open', () => {
+    mount(() => Promise.resolve(), '', []);
+    expect(screen.getByRole('heading')).toHaveTextContent(m.account_sso_required_title());
+    expect(screen.queryByRole('navigation')).toBeNull();
   });
 
   it('says that the start did not work, and can be tried again', async () => {
-    const onContinue = vi.fn(() => Promise.reject(new BackendError(409)));
-    render(SsoRequired, { props: { name: '', onContinue, onOpenLinked: vi.fn() } });
-    expect(screen.getByRole('heading')).toHaveTextContent(m.account_sso_required_title());
+    mount(() => Promise.reject(new BackendError(409)));
     const button = screen.getByRole('button', { name: 'Continue with single sign-on' });
     await fireEvent.click(button);
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Signing in through the provider did not work.',
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(m.account_oidc_failed());
     expect(button).toBeEnabled();
   });
 });
@@ -134,5 +214,12 @@ describe('a sign-in that came back refused to somebody who is signed in', () => 
     await fireEvent.click(screen.getByRole('button', { name: 'Go on' }));
     expect(onOpenLinked).toHaveBeenCalledOnce();
     expect(onGoOn).toHaveBeenCalledOnce();
+  });
+
+  it('does not tell somebody who is signed in to sign in with a password', () => {
+    render(SignInNotice, {
+      props: { problem: 'oidc-email-taken', onGoOn: vi.fn(), onOpenLinked: vi.fn() },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(m.account_oidc_email_taken_signed_in());
   });
 });

@@ -2,7 +2,7 @@
  * Entering a workspace (`Workspace.enter`): which one to start in, and what
  * is read of it.
  */
-import type { Board } from '../logic/wire.ts';
+import { createBoardView, type Board } from '../logic/wire.ts';
 
 import {
   isBackendError,
@@ -24,13 +24,20 @@ export type EnterStatus = 'none' | 'loading' | 'ready' | 'missing' | 'failed' | 
 
 /**
  * The workspace to start in when the address names none: `last`, the one
- * the reader was last in on this device, if it is still theirs, else their first.
+ * the reader was last in on this device, if it is still theirs, else their
+ * first that is open to this session, else their first.
  */
 export function firstChoiceOf(
   workspaces: readonly WorkspaceInfo[],
   last: string | undefined,
 ): string | undefined {
-  return (workspaces.find((workspace) => workspace.id === last) ?? workspaces[0])?.id;
+  const chosen =
+    workspaces.find((workspace) => workspace.id === last) ??
+    // Not one that is closed to this session while another is open: from a
+    // closed one the reader has only the way through its single sign-on.
+    workspaces.find((workspace) => !workspace.ssoRequired) ??
+    workspaces[0];
+  return chosen?.id;
 }
 
 /**
@@ -55,51 +62,82 @@ export async function readWorkspace(
   }
 }
 
-/** What came of entering a workspace of the reader's, and the workspace as it is shown then. */
+/**
+ * What came of entering a workspace of the reader's: `info` is the workspace
+ * entered, and `closed` the one that is theirs and closed to this session.
+ */
 export type Entered =
-  | { status: 'ready'; info: WorkspaceInfo; users: User[]; boards: Board[]; categories: Category[] }
-  | { status: 'missing'; info: undefined }
-  | { status: 'sso'; info: WorkspaceInfo };
+  | {
+      status: 'ready';
+      info: WorkspaceInfo;
+      closed: undefined;
+      users: User[];
+      boards: Board[];
+      categories: Category[];
+    }
+  | { status: 'missing'; info: undefined; closed: undefined }
+  | { status: 'sso'; info: undefined; closed: WorkspaceInfo };
 
 /**
  * Enters a workspace of the reader's: follows it and reads it. One that the
  * list says is closed to this session is not read, and one that turns out
  * closed while it is read (its organization began to take no password since
- * the list was read) is told the same: it is still theirs, shown by its name,
+ * the list was read) is told the same: it is still theirs, known by its name,
  * with the organization to sign in to.
  */
 export async function enterWorkspace(backend: Backend, workspace: WorkspaceInfo): Promise<Entered> {
-  if (workspace.ssoRequired && workspace.orgId) return { status: 'sso', info: workspace };
+  const none = { info: undefined, closed: undefined };
+  if (workspace.ssoRequired && workspace.orgId)
+    return { ...none, status: 'sso', closed: workspace };
   backend.enter?.(workspace.id);
   try {
     const read = await readWorkspace(backend, workspace.id);
     return read
-      ? { status: 'ready', info: workspace, ...read }
-      : { status: 'missing', info: undefined };
+      ? { status: 'ready', info: workspace, closed: undefined, ...read }
+      : { ...none, status: 'missing' };
   } catch (error) {
     const orgId = ssoOrgOf(error);
     if (orgId === undefined) throw error;
-    return { status: 'sso', info: { ...workspace, orgId, ssoRequired: true } };
+    return { ...none, status: 'sso', closed: { ...workspace, orgId, ssoRequired: true } };
   }
 }
 
 /**
- * What a refusal that says an organization takes no password (401, `sso_required`)
- * makes of the reader's workspaces and of the one shown, `shown`: those of
- * that organization are closed to this session. Undefined for any other
- * error, and when no workspace is shown.
+ * What a refusal that says an organization takes no password (401,
+ * `sso_required`) makes of the reader's workspaces: those of that
+ * organization are closed to this session, and `closed` is the one shown,
+ * `shown`, if it is one of them (a refusal of something of another
+ * organization, still on its way when the reader moved on, closes nothing on
+ * the page). Undefined for any other error.
  */
 export function closedBySso(
   workspaces: readonly WorkspaceInfo[],
   shown: WorkspaceInfo | undefined,
   error: unknown,
-): { workspaces: WorkspaceInfo[]; info: WorkspaceInfo } | undefined {
+): { workspaces: WorkspaceInfo[]; closed: WorkspaceInfo | undefined } | undefined {
   const orgId = ssoOrgOf(error);
-  if (orgId === undefined || !shown) return undefined;
+  if (orgId === undefined) return undefined;
+  const ofIt = shown !== undefined && (shown.orgId === undefined || shown.orgId === orgId);
   return {
     workspaces: workspaces.map((workspace) =>
       workspace.orgId === orgId ? { ...workspace, ssoRequired: true } : workspace,
     ),
-    info: { ...shown, orgId, ssoRequired: true },
+    closed: ofIt ? { ...shown, orgId, ssoRequired: true } : undefined,
   };
+}
+
+/**
+ * The first view of a board that is made: a kanban grouped by the first
+ * select property among `cardProperties`, showing all its options.
+ */
+export function firstKanban(
+  cardProperties: Board['cardProperties'],
+  title: string,
+): { title: string; fields: ReturnType<typeof createBoardView>['fields'] } {
+  const groupBy = cardProperties.find((template) => template.type === 'select');
+  const fields = createBoardView().fields;
+  fields.viewType = 'board';
+  fields.groupById = groupBy?.id;
+  fields.visibleOptionIds = [...(groupBy?.options.map((option) => option.id) ?? []), ''];
+  return { title, fields };
 }

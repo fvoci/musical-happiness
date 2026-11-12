@@ -11,9 +11,9 @@ const KEY = 'fvoci:return-to';
 /** How long a sign-in may take to come back: longer than the server lets it (ten minutes). */
 const KEPT_FOR = 15 * 60 * 1000;
 
-/** A path of this site with its query: not another site's address, however written. */
+/** A path of this site: not another site's address, however written. */
 function isOwnPath(path: unknown): path is string {
-  return typeof path === 'string' && path.startsWith('/') && !path.startsWith('//');
+  return typeof path === 'string' && /^\/(?![/\\])/.test(path) && !path.includes('\\');
 }
 
 export function keepReturn(path: string, now: number = Date.now()): void {

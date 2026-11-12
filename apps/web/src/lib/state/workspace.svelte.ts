@@ -17,7 +17,7 @@ import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
 import { resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
 import { userDisplayName } from '../logic/users.ts';
-import { createBoard as createEmptyBoard, createBoardView, type Board } from '../logic/wire.ts';
+import { createBoard as createEmptyBoard, type Board } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
 import {
@@ -39,7 +39,7 @@ import { BoardStore } from './board.svelte.ts';
 import { hiddenBoardsOf, sidebarOf, withoutBoard, type SidebarCategory } from './order.ts';
 import { SidebarWrites } from './sidebar-writes.ts';
 import { Transfers } from './transfers.svelte.ts';
-import { closedBySso, enterWorkspace, firstChoiceOf, type EnterStatus } from './workspace-entry.ts';
+import * as entry from './workspace-entry.ts';
 import { reread } from './write.ts';
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
@@ -77,10 +77,12 @@ export class Workspace {
   me = $state.raw<User | undefined>(undefined);
   /** The workspaces the reader works in (not those they are a guest of), in the backend's order. */
   workspaces = $state.raw<WorkspaceInfo[]>([]);
-  /** The workspace entered; undefined while none is, or the one asked for is missing. */
+  /** The workspace entered; undefined while none is, or the one asked for is missing or closed. */
   info = $state.raw<WorkspaceInfo | undefined>(undefined);
+  /** The workspace asked for, when it is theirs and closed to this session (`entered` is `sso`). */
+  closed = $state.raw<WorkspaceInfo | undefined>(undefined);
   /** How the workspace last asked for (`asked`) stands. */
-  entered = $state<EnterStatus>('none');
+  entered = $state<entry.EnterStatus>('none');
   /** The identifier of the workspace last asked for, whether or not it was found. */
   asked = $state<string | undefined>(undefined);
   users = $state.raw<User[]>([]);
@@ -183,7 +185,7 @@ export class Workspace {
 
   /** The workspace to start in when the address names none (`firstChoiceOf`). */
   firstChoice(): string | undefined {
-    return firstChoiceOf(this.workspaces, this.me && this.#lastWorkspace?.(this.me.id));
+    return entry.firstChoiceOf(this.workspaces, this.me && this.#lastWorkspace?.(this.me.id));
   }
 
   /**
@@ -218,9 +220,9 @@ export class Workspace {
     }
     this.info = { ...workspace }; // Each entry its own: a way back is not "still there".
     this.entered = 'loading';
-    const read = await enterWorkspace(this.backend, workspace);
+    const read = await entry.enterWorkspace(this.backend, workspace);
     if (turn !== this.#entering) return;
-    [this.entered, this.info] = [read.status, read.info];
+    [this.entered, this.info, this.closed] = [read.status, read.info, read.closed];
     if (read.status === 'ready') {
       ({ users: this.users, boards: this.boards, categories: this.categories } = read);
       this.workspaceUsers = read.users;
@@ -233,7 +235,7 @@ export class Workspace {
     this.board = undefined;
     this.undo.clear();
     this.asked = asked;
-    this.info = undefined;
+    [this.info, this.closed] = [undefined, undefined];
     this.entered = 'none';
     this.users = [];
     this.workspaceUsers = [];
@@ -339,11 +341,14 @@ export class Workspace {
    * is over (`signedOut`), or the workspace shown is closed to it (`sso`).
    */
   report(action: ProblemAction, error: unknown): void {
-    // The organization of the one shown began to take no password: closed, and the session goes on.
-    const closed = closedBySso(this.workspaces, this.info, error);
-    if (closed) {
+    // An organization began to take no password: what is shown of it closes, the session goes on.
+    const closing = entry.closedBySso(this.workspaces, this.info, error);
+    if (closing) {
+      this.workspaces = closing.workspaces;
+      if (!closing.closed) return;
+      this.#entering += 1; // What is still being read of it does not open it again.
       this.#leave(this.asked);
-      [this.workspaces, this.info, this.entered] = [closed.workspaces, closed.info, 'sso'];
+      [this.closed, this.entered] = [closing.closed, 'sso'];
       return;
     }
     // The session is over (it went idle, or past its end): sign in again.
@@ -459,15 +464,10 @@ export class Workspace {
     try {
       const cardProperties =
         draft.cardProperties ?? createEmptyBoard(undefined, statusName).cardProperties;
-      const groupBy = cardProperties.find((template) => template.type === 'select');
-      const fields = createBoardView().fields;
-      fields.viewType = 'board';
-      fields.groupById = groupBy?.id;
-      fields.visibleOptionIds = [...(groupBy?.options.map((option) => option.id) ?? []), ''];
       const { board } = await this.backend.createBoard(
         this.info.id,
         { ...draft, cardProperties },
-        { title: viewTitle, fields },
+        entry.firstKanban(cardProperties, viewTitle),
       );
       this.#apply({ kind: 'board', board });
       return board;
