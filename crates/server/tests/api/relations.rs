@@ -477,11 +477,20 @@ async fn a_value_stored_before_the_rules_does_not_stop_other_changes() {
         "relation_repeated",
         "/updatedProperties",
     );
+    // Over the limit it may lose cards, one at a time, and not take in another.
     check_refused(
-        &patch_relation(&th.client, card, json!(stale[2..])).await,
+        &patch_relation(
+            &th.client,
+            card,
+            json!([&stale[3..], &[json!(other)]].concat()),
+        )
+        .await,
         "relation_too_many",
         "/updatedProperties",
     );
+    patch_relation(&th.client, card, json!(stale[2..]))
+        .await
+        .check_ok();
     patch_relation(&th.client, card, json!([missing, other]))
         .await
         .check_ok();

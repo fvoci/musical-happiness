@@ -1,7 +1,7 @@
 /**
  * The value of a card relation property: other cards of the board, picked by
  * title, shown as chips that open the card. A card that is not there (deleted)
- * is not shown and is left out of the next value written.
+ * is not shown, and stays in the next value written.
  */
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -152,11 +152,27 @@ describe('a relation property, opened', () => {
     expect(onChange).toHaveBeenLastCalledWith(['card-2']);
   });
 
-  it('leaves the cards that are not there out of the value it writes', async () => {
+  it('keeps the cards that are not there in the value it writes, where they were', async () => {
     const { onChange } = mount('relation', ['card-gone', 'card-2'], { cards: CARDS });
     await fireEvent.click(button());
     await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
-    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2', 'card-3']);
+    expect(onChange).toHaveBeenLastCalledWith(['card-gone', 'card-2', 'card-3']);
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove Design the form' }));
+    expect(onChange).toHaveBeenLastCalledWith(['card-gone']);
+  });
+
+  it(`counts the cards that are not there toward the ${String(RELATION_LIMIT)}`, async () => {
+    const many = cardsOf(
+      Object.fromEntries(
+        Array.from({ length: RELATION_LIMIT }, (_, at) => [`c${String(at)}`, `Card ${String(at)}`]),
+      ),
+    );
+    const named = ['gone', ...[...many.keys()].slice(0, RELATION_LIMIT - 1)];
+    const { onChange } = mount('relation', named, { cards: many });
+    await fireEvent.click(button());
+    await type(search(), `Card ${String(RELATION_LIMIT - 1)}`);
+    expect(rows()).toEqual([]);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it(`picks no more than ${String(RELATION_LIMIT)} cards, and says so`, async () => {

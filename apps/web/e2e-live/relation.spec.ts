@@ -4,7 +4,8 @@
  * value picked in the card is there after the page is loaded again.
  *
  * The first test makes the definition through the API; the second makes it
- * on the page, from the card, as a reader does.
+ * on the page, from the card, as a reader does. The third copies a board: the
+ * copy's relation names the copy's cards.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -161,6 +162,75 @@ test('a relation made on the page from a card, and the cards picked into it, sta
     'Dig the trench',
     'Lay the pipe',
   ]);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
+
+test('a copy of a board names its own cards in the relation its Gantt chart reads', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('relation-copier');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Copied relations',
+    cards: [{ title: 'Lay the floor' }, { title: 'Paint the walls' }],
+  });
+  const defined = await api.patch(`/api/v1/boards/${board.boardId}`, {
+    data: {
+      updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
+    },
+  });
+  expect(defined.ok(), await defined.text()).toBe(true);
+  const floor = board.cards['Lay the floor'] ?? '';
+  const paint = board.cards['Paint the walls'] ?? '';
+  const named = await api.patch(`/api/v1/cards/${paint}`, {
+    data: { updatedProperties: { after: [floor] } },
+  });
+  expect(named.ok(), await named.text()).toBe(true);
+  const gantt = await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
+    data: [
+      {
+        boardId: board.boardId,
+        type: 'view',
+        title: 'Plan',
+        createAt: 1,
+        updateAt: 1,
+        fields: { viewType: 'gantt', dateDisplayPropertyId: 'due', dependencyPropertyId: 'after' },
+      },
+    ],
+  });
+  expect(gantt.ok(), await gantt.text()).toBe(true);
+
+  const copied = await api.post(`/api/v1/boards/${board.boardId}/duplicate`);
+  expect(copied.ok(), await copied.text()).toBe(true);
+  const copy = (await copied.json()) as Schemas['BoardsAndBlocks'];
+  const copyId = copy.boards[0]?.id ?? '';
+  const blocks = (await (
+    await api.get(`/api/v1/boards/${copyId}/blocks`)
+  ).json()) as Schemas['Block'][];
+  const byTitle = (title: string) => blocks.find((block) => block.title === title);
+  const copiedFloor = byTitle('Lay the floor')?.id ?? '';
+  const copiedPaint = byTitle('Paint the walls')?.id ?? '';
+  expect(copiedFloor).not.toBe('');
+  expect(copiedFloor).not.toBe(floor);
+  expect((byTitle('Paint the walls')?.fields.properties as Record<string, unknown>).after).toEqual([
+    copiedFloor,
+  ]);
+  const plan = byTitle('Plan');
+  expect(plan?.fields.dependencyPropertyId).toBe('after');
+
+  // On the page, the copy's card names the copy's card, and opens it.
+  const errors = watchErrors(page);
+  await page.goto(`/board/${copyId}/${plan?.id ?? ''}/${copiedPaint}`);
+  await signInOnPage(page, owner);
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
+  const chip = property(page, 'After').locator('[data-slot="relation-chip"]');
+  await expect(chip).toHaveText(['Lay the floor']);
+  await expect(chip).toHaveAttribute('data-card-id', copiedFloor);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();
   expect(errors).toEqual([]);

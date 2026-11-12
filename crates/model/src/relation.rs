@@ -90,7 +90,9 @@ pub fn relation_property_ids(definitions: &[JsonMap]) -> HashSet<&str> {
 }
 
 /// Checks a relation value of the card `card_id` that a write gives it, and returns the
-/// identifiers it names (none for `null`).
+/// identifiers it names (none for `null`). `had` is what the value it replaces named: a
+/// value stored before the rules that names more than [`RELATION_LIMIT`] may lose cards
+/// one at a time, and is refused once it names one it did not.
 ///
 /// # Errors
 ///
@@ -100,6 +102,7 @@ pub fn check_relation_value<'v>(
     card_id: &str,
     property: &str,
     value: &'v Value,
+    had: &HashSet<&str>,
 ) -> Result<Vec<&'v str>, RelationError> {
     let refuse = |problem| Err(RelationError::new(property, problem));
     let items = match value {
@@ -112,7 +115,7 @@ pub fn check_relation_value<'v>(
     let Some(ids) = items.iter().map(Value::as_str).collect::<Option<Vec<_>>>() else {
         return refuse(RelationProblem::NotAList);
     };
-    if ids.len() > RELATION_LIMIT {
+    if ids.len() > RELATION_LIMIT && ids.iter().any(|id| !had.contains(id)) {
         return refuse(RelationProblem::TooMany);
     }
     if ids.contains(&card_id) {
@@ -204,7 +207,7 @@ mod tests {
     }
 
     fn problem_of(value: &Value) -> Option<RelationProblem> {
-        check_relation_value("me", "rel", value)
+        check_relation_value("me", "rel", value, &HashSet::new())
             .err()
             .map(|error| error.problem)
     }
@@ -212,11 +215,11 @@ mod tests {
     #[test]
     fn a_value_is_null_or_a_list_of_other_cards_each_once() {
         assert_eq!(
-            check_relation_value("me", "rel", &json!(null)),
+            check_relation_value("me", "rel", &json!(null), &HashSet::new()),
             Ok(Vec::new())
         );
         assert_eq!(
-            check_relation_value("me", "rel", &json!(["a", "b"])),
+            check_relation_value("me", "rel", &json!(["a", "b"]), &HashSet::new()),
             Ok(vec!["a", "b"])
         );
         assert_eq!(problem_of(&json!("a")), Some(RelationProblem::NotAList));
@@ -243,16 +246,35 @@ mod tests {
         let ids = |count: usize| -> Value {
             Value::Array((0..count).map(|index| json!(format!("c{index}"))).collect())
         };
-        assert!(check_relation_value("me", "rel", &ids(RELATION_LIMIT)).is_ok());
+        assert!(check_relation_value("me", "rel", &ids(RELATION_LIMIT), &HashSet::new()).is_ok());
         assert_eq!(
             problem_of(&ids(RELATION_LIMIT + 1)),
             Some(RelationProblem::TooMany)
+        );
+        let stored = ids(RELATION_LIMIT + 2);
+        let stored: Vec<&str> = stored
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let had: HashSet<&str> = stored.iter().copied().collect();
+        let fewer = json!(stored[1..]);
+        assert!(
+            check_relation_value("me", "rel", &fewer, &had).is_ok(),
+            "a value over the limit from before the rules may lose cards"
+        );
+        let other = json!([&stored[2..], &["new"]].concat());
+        assert_eq!(
+            check_relation_value("me", "rel", &other, &had).map_err(|error| error.problem),
+            Err(RelationProblem::TooMany),
+            "and may not take in another"
         );
     }
 
     #[test]
     fn the_refusal_names_the_property_and_not_the_cards() {
-        let error = check_relation_value("me", "rel", &json!(["me"]))
+        let error = check_relation_value("me", "rel", &json!(["me"]), &HashSet::new())
             .expect_err("the card itself is refused");
         assert_eq!(error.property, "rel");
         assert!(error.to_string().contains("\"rel\""), "{error}");

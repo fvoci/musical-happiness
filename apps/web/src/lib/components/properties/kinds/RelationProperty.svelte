@@ -4,13 +4,15 @@
   the chip opens that card.
 
   A card is shown only when it is in `cards` (the board's cards that are
-  there). The identifier of a deleted card stays in the stored value, so that
-  bringing the card back brings the relation back, but it is not drawn, and
-  the next change of the value leaves it out.
+  there). The identifier of a deleted card stays in the stored value, also
+  when the value is changed, so that bringing the card back brings the
+  relation back; it is not drawn. (The server takes it: it does not ask again
+  for a card the value named before, whether it is in the trash or gone.)
 
   The card itself cannot be picked, a card is picked once, and no more than
-  RELATION_LIMIT are picked (a value that names more, written some other
-  way, keeps them all until the reader takes some out). The list shows the
+  RELATION_LIMIT are named, the hidden ones counted, as the server counts
+  them (a value that names more, written some other way, keeps them all
+  until the reader takes some out). The list shows the
   picked cards first, then the others by title, at most LIST_LIMIT at a
   time, so that a board of thousands of cards does not draw thousands of
   rows: typing narrows it.
@@ -86,7 +88,9 @@
 
   /** The picked cards that are there, in the order they were picked; never the card itself. */
   const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
-  const full = $derived(shown.length >= RELATION_LIMIT);
+  /** The named cards that are not there (deleted): kept in what is written. */
+  const hidden = $derived(ids.filter((id) => id !== cardId && !cards.has(id)));
+  const full = $derived(shown.length + hidden.length >= RELATION_LIMIT);
 
   /**
    * The cards that can be picked, by title, each with the text it is found
@@ -162,9 +166,14 @@
   /** A picked card on a loop that is there already. */
   const onLoop = (id: string): boolean => excluded?.has(id) ?? false;
 
-  /** Writes the value: only cards that are there, each once, so that the identifiers of deleted ones go. */
+  /**
+   * Writes the value: the picked cards that are there and the hidden ones, in
+   * the order they were named, each once, never the card itself.
+   */
   function write(next: readonly string[]): void {
-    onChange?.([...new Set(next.filter((id) => id !== cardId && cards.has(id)))]);
+    const picked = new Set(next.filter((id) => id !== cardId && cards.has(id)));
+    const kept = ids.filter((id) => id !== cardId && (!cards.has(id) || picked.has(id)));
+    onChange?.([...new Set([...kept, ...picked])]);
   }
 
   function pick(card: Card): void {

@@ -1,10 +1,36 @@
 /**
  * What the board store is built on besides the backend: a member's role,
- * the flags of a role, the name of an undo group, the place of a drop.
+ * the flags of a role, the name of an undo group, the place of a drop, the
+ * card a copy is made as.
  */
-import type { BoardMember, MemberRole } from '../logic/wire.ts';
+import { valuesOfCopy } from '../logic/dependencies.ts';
+import type { Board, BoardMember, Card, MemberRole } from '../logic/wire.ts';
 
-import type { BoardRole } from './backend.ts';
+import type { BoardRole, CardDetail, CardDraft } from './backend.ts';
+
+/**
+ * The new card a copy of `source` on its board is made as, a card template
+ * if `asTemplate` says so (as the source is, if it says nothing). Its
+ * relations name the cards of `cards` its source named ([valuesOfCopy]).
+ */
+export function draftOfCopy(
+  source: CardDetail,
+  board: Board | undefined,
+  cards: readonly Card[],
+  asTemplate: boolean | undefined,
+): CardDraft {
+  return {
+    title: source.title,
+    icon: source.fields.icon,
+    properties: valuesOfCopy(
+      source,
+      board?.cardProperties ?? [],
+      new Set(cards.map(({ id }) => id)),
+    ),
+    isTemplate: asTemplate ?? source.fields.isTemplate,
+    body: source.body,
+  };
+}
 
 export function roleOf(member: BoardMember | undefined): MemberRole {
   if (!member) return '';

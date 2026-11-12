@@ -245,8 +245,8 @@ fn describe_reason(reason: Reason) -> &'static str {
              `relation-not-a-list`."
         }
         Reason::RelationTooMany => {
-            "Status 400. A card relation names more cards than one may (`limit`). `errors` \
-             as for `relation-not-a-list`."
+            "Status 400. A card relation names more cards than one may (`limit`) and one it \
+             did not name before. `errors` as for `relation-not-a-list`."
         }
         Reason::RelationNotACard => {
             "Status 400. A card relation names a block of the board that is no card. \

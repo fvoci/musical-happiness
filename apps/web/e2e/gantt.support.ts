@@ -35,6 +35,7 @@ export interface Store {
   setViewFields(viewId: string, fields: Record<string, unknown>): Promise<void>;
   changeBoard(change: (board: Store['board']) => Store['board']): Promise<void>;
   deleteCards(cardIds: string[]): Promise<void>;
+  createCard(draft: { title: string }): Promise<{ id: string } | undefined>;
 }
 export interface Dev {
   workspace: {
@@ -185,12 +186,22 @@ export async function openRelated(page: Page, info: TestInfo): Promise<void> {
     'Filter and sort cards': { from: '2026-12-03', to: '2026-12-04' },
   });
   await addRelation(page);
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    await store.createCard({ title: 'A card that is gone' });
+  });
   await setAfter(page, {
-    // After two cards, one of them deleted since, and after itself.
-    'Share a board': ['Create a new card', 'a-card-that-is-gone', 'Share a board'],
+    // After two cards, one of them deleted below: its identifier stays in the value.
+    'Share a board': ['Create a new card', 'A card that is gone'],
     'Filter and sort cards': ['Share a board', 'Drag cards'],
     // A card without a date: it has no bar for an arrow to reach.
     'Create a new view': ['Drag cards'],
+  });
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const gone = store.cards.find((card) => card.title === 'A card that is gone');
+    if (!gone) throw new Error('no card to delete');
+    await store.deleteCards([gone.id]);
   });
   await addGantt(page);
   await expect(bars(page)).toHaveCount(4);

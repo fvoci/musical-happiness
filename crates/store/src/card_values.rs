@@ -81,13 +81,13 @@ pub(crate) async fn check_written(
         if !relations.contains(property.as_str()) {
             continue;
         }
-        let ids = check_relation_value(&block.id, property, value)
-            .map_err(|error| invalid(error.into()))?;
         let had: HashSet<&str> = before
             .and_then(|before| before.get(property))
             .and_then(Value::as_array)
             .map(|items| items.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
+        let ids = check_relation_value(&block.id, property, value, &had)
+            .map_err(|error| invalid(error.into()))?;
         let ids: Vec<String> = ids
             .into_iter()
             .filter(|id| !had.contains(id))
