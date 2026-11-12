@@ -17,7 +17,7 @@ pub const MINIMUM_PASSWORD_LENGTH: usize = 8;
 pub const MAXIMUM_PASSWORD_BYTES: usize = 1024;
 
 /// The longest email address, in bytes (RFC 5321).
-const MAXIMUM_EMAIL_BYTES: usize = 254;
+pub const MAXIMUM_EMAIL_BYTES: usize = 254;
 
 /// The longest display name, in UTF-16 code units as the web app counts text.
 pub const DISPLAY_NAME_MAX_LENGTH: usize = 64;

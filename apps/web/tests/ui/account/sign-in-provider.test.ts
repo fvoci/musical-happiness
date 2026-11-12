@@ -5,6 +5,7 @@
  * address names; and what a start or a sign-in that came back refused is told as.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import SignInPage from '$lib/features/account/SignInPage.svelte';
@@ -75,6 +76,11 @@ describe('the provider of the organization on the sign-in page', () => {
     await vi.waitFor(() => {
       expect(organizationOf).toHaveBeenCalled();
     });
+    // The answer read and the page drawn after it: then there is no button.
+    await organizationOf.mock.results[0]?.value;
+    await tick();
+    await tick();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.queryByTestId('oidc-continue')).toBeNull();
   });
 

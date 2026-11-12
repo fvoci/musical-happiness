@@ -146,11 +146,21 @@ fn read(doc: &Doc, update: &[u8]) -> Result<Update, UpdateError> {
 /// applied, leaves a part of itself waiting for changes the document does not have,
 /// writes to another root than the body's, leaves the document too large or in a
 /// state that cannot be read again, or if `doc` itself cannot be read again.
+#[cfg(any(test, feature = "test-util"))]
 pub(crate) fn with_update(
     doc: &Doc,
     update: &[u8],
     limits: &UpdateLimits,
 ) -> Result<Doc, UpdateError> {
+    with_update_sized(doc, update, limits).map(|(doc, _)| doc)
+}
+
+/// [`with_update`], with the size of the state of what comes back.
+pub(crate) fn with_update_sized(
+    doc: &Doc,
+    update: &[u8],
+    limits: &UpdateLimits,
+) -> Result<(Doc, usize), UpdateError> {
     if update.len() > limits.update_bytes {
         return Err(UpdateError::TooLarge {
             size: update.len(),
@@ -175,7 +185,7 @@ pub(crate) fn with_update(
             }
         }
     }
-    settled(&copy, limits)
+    settled_sized(&copy, limits)
 }
 
 /// A document as a server that stored it reads it: its state within the limit of
@@ -183,13 +193,14 @@ pub(crate) fn with_update(
 /// the second time ([`same_state`]).
 ///
 /// What the library took it may write in a form it does not read: the walk keeps out
-/// what is known of that, and this is for what is not.
+/// what is known of that, and this is for what is not. Gives the size of its state
+/// with it.
 ///
 /// # Errors
 ///
 /// Returns [`UpdateError::DocumentTooLarge`] past [`UpdateLimits::state_bytes`], and
 /// [`UpdateError::LeavesUnreadable`] for a state that does not read again to itself.
-pub(crate) fn settled(doc: &Doc, limits: &UpdateLimits) -> Result<Doc, UpdateError> {
+pub(crate) fn settled_sized(doc: &Doc, limits: &UpdateLimits) -> Result<(Doc, usize), UpdateError> {
     let state = state_of(doc);
     if state.len() > limits.state_bytes {
         return Err(UpdateError::DocumentTooLarge {
@@ -200,17 +211,18 @@ pub(crate) fn settled(doc: &Doc, limits: &UpdateLimits) -> Result<Doc, UpdateErr
     let again = doc_of_state(&state).map_err(UpdateError::LeavesUnreadable)?;
     let state_again = state_of(&again);
     if same_state(&state_again, &state) {
-        return Ok(again);
+        return Ok((again, state_again.len()));
     }
     // A first reading may write the same document otherwise (neighbouring changes it
     // joins); a second must not.
     let settled = doc_of_state(&state_again).map_err(UpdateError::LeavesUnreadable)?;
-    if !same_state(&state_of(&settled), &state_again) {
+    let state_settled = state_of(&settled);
+    if !same_state(&state_settled, &state_again) {
         return Err(UpdateError::LeavesUnreadable(
             "its state reads to a document whose state reads to another".to_owned(),
         ));
     }
-    Ok(settled)
+    Ok((settled, state_settled.len()))
 }
 
 /// Whether two states are the same as far as can be told the same way every time: the

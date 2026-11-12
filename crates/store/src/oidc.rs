@@ -130,12 +130,64 @@ impl Store {
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if a statement fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn put_oidc_provider(
         &self,
         provider: &StoredProvider,
     ) -> Result<StoredProvider, StoreError> {
+        self.put_provider(provider, AsRead::Whatever)
+            .await?
+            .ok_or(StoreError::NoRows)
+    }
+
+    /// Stores the provider of the handle's organization, in place of the one it has, if
+    /// that one is still the one read, `read` (the same provider, last changed at the
+    /// same time), or there is still none for `None`; and returns it as stored. `None`
+    /// if it changed or was removed meanwhile, and nothing is stored: what was decided
+    /// from it (the secret kept, the settings kept) is to be decided again. A provider whose issuer and client stay keeps its
+    /// identifier and the time it was first set; one with another issuer or client is
+    /// another provider, under a new identifier, and the sign-ins under way through the
+    /// one before end with it. `provider.id`, `org_id` and the times are the store's;
+    /// the time of a change of a provider is always later than that of the one before,
+    /// and a provider removed and set again is another, so that a reading names one
+    /// state of the provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
+    /// [`StoreError::Database`] if a statement fails.
+    pub async fn put_oidc_provider_as_read(
+        &self,
+        provider: &StoredProvider,
+        read: Option<&StoredProvider>,
+    ) -> Result<Option<StoredProvider>, StoreError> {
+        let read = read.map(|read| (read.id.clone(), read.update_at));
+        self.put_provider(provider, AsRead::Was(read)).await
+    }
+
+    async fn put_provider(
+        &self,
+        provider: &StoredProvider,
+        as_read: AsRead,
+    ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
-            let now = now_millis();
+            hold_provider_of_organization(scope).await?;
+            let mut sql = scope.sql("SELECT id, update_at FROM oidc_providers WHERE org_id = ");
+            sql.bind(scope.org()?);
+            let there = match scope.fetch_optional(sql).await? {
+                Some(row) => Some((row.id(0)?, row.int(1)?)),
+                None => None,
+            };
+            if let AsRead::Was(read) = &as_read
+                && there != *read
+            {
+                return Ok(None);
+            }
+            // Later than the change before, also within one millisecond or when the
+            // clock went back: no two states of one provider have one time.
+            let now = there.as_ref().map_or_else(now_millis, |(_, before)| {
+                now_millis().max(before.saturating_add(1))
+            });
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?)
                 .push_bind(" AND (issuer <> ", &provider.issuer)
@@ -156,13 +208,14 @@ impl Store {
                 .push_bind(", ", now)
                 .push(
                     ") ON CONFLICT (org_id) DO UPDATE SET \
+                     issuer = excluded.issuer, client_id = excluded.client_id, \
                      client_secret = excluded.client_secret, \
                      auto_join = excluded.auto_join, enabled = excluded.enabled, \
                      update_at = excluded.update_at",
                 )
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
-            provider_from_row(&row)
+            provider_from_row(&row).map(Some)
         })
         .await
     }
@@ -173,9 +226,10 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
-    /// [`StoreError::Database`] if the statement fails.
+    /// [`StoreError::Database`] if a statement fails.
     pub async fn delete_oidc_provider(&self) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
+            hold_provider_of_organization(scope).await?;
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
             Ok(scope.execute(sql).await? > 0)
@@ -375,6 +429,28 @@ impl Store {
         self.with_conn(async |scope| is_member(scope, user_id).await)
             .await
     }
+}
+
+/// Holds the provider of the transaction's organization, there or not, until the
+/// transaction ends: changes and removals of it are one after the other. On PostgreSQL
+/// the organization's row is held (no key of it changes, so its references are not held
+/// up); on SQLite a transaction that writes holds the database.
+async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    if scope.dialect() == Dialect::Postgres {
+        let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
+        sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(())
+}
+
+/// What a provider that is replaced must still be.
+#[derive(Debug, Clone)]
+enum AsRead {
+    /// Anything.
+    Whatever,
+    /// The provider of this identifier, last changed at this time; or none for `None`.
+    Was(Option<(String, i64)>),
 }
 
 /// The account a sign-in through a provider ends in.

@@ -83,8 +83,20 @@ fn warn_about_foreign_prefixes() {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // The worker of editing together is this executable too, started by the server
+    // with one argument: it reads no configuration, starts no runtime and logs nothing.
+    if let Some(ended) = fvoci_server::collab::run_as_worker() {
+        return ended;
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("unable to start the runtime")?
+        .block_on(serve())
+}
+
+async fn serve() -> anyhow::Result<()> {
     let cli = Cli::parse();
     if cli.print_openapi {
         return print_openapi();

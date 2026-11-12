@@ -8,7 +8,7 @@
 //! starts a sign-in gets a cookie of its own for it, and only the browser with that
 //! cookie finishes it.
 
-use axum::extract::{Extension, RawQuery, State};
+use axum::extract::{Extension, Path, RawQuery, State};
 use axum::http::header::{LOCATION, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -18,12 +18,15 @@ use utoipa_axum::routes;
 use fvoci_model::{LoginOptions, OidcStart, Problem};
 
 use super::auth::{address_of, user_agent};
-use super::contract::params::{LoginOrg, OidcCode, OidcError, OidcState, StartOrg};
+use super::contract::params::{
+    CallbackOrg, LoginOrg, OidcCode, OidcError, OidcIssuer, OidcState, StartOrg,
+};
 use super::contract::tag;
 use super::{ApiResult, json_response, query_param};
 use crate::app::{App, Callback, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure};
 use crate::auth::token::{Https, cookie_value, query_value};
 use crate::client_address::ClientAddress;
+use crate::error::AppError;
 
 /// The cookie that ties a sign-in to the browser that started it, where the server is
 /// reached over HTTPS: the `__Host-` prefix keeps other hosts of the domain from
@@ -89,6 +92,12 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
             headers(("Set-Cookie" = String, description = "The cookie of the sign-in.")),
         ),
         (
+            status = 400,
+            description = "No organization named (`org`).",
+            body = Problem,
+            content_type = "application/problem+json",
+        ),
+        (
             status = 409,
             description = "No provider that is on, or it cannot be reached.",
             body = Problem,
@@ -109,6 +118,9 @@ async fn handle_start(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let org_id = query_param(query.as_deref(), "org");
+    if org_id.is_empty() {
+        return Err(AppError::bad_request("the query parameter org is required"));
+    }
     let started = app.start_oidc_login(&org_id, address_of(client)).await?;
     let mut response = json_response(&OidcStart {
         authorization_url: started.authorization_url,
@@ -124,8 +136,11 @@ async fn handle_start(
 
 /// Come back from a provider
 ///
-/// Where a provider sends the browser back to, for every organization. The sign-in is
-/// taken by its `state`, once, and only from the browser that started it; the code is
+/// Where a provider sends the browser back to: each organization has an address of its
+/// own, its provider's `redirectUri`, and a sign-in started for one organization does
+/// not finish at another's address, nor with an `iss` (RFC 9207) other than the
+/// provider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the
+/// browser that started it; another browser takes nothing. The code is
 /// exchanged for an ID token, whose signature, issuer, audience, time and nonce are
 /// checked. The person is known by the issuer and the subject: an account of theirs
 /// signs in, and somebody who has none gets one, if the organization lets newcomers in
@@ -140,10 +155,10 @@ async fn handle_start(
 /// `oidc_unavailable`.
 #[utoipa::path(
     get,
-    path = "/auth/oidc/callback",
+    path = "/auth/oidc/callback/{orgId}",
     operation_id = "finishOidcLogin",
     tag = tag::AUTH,
-    params(OidcState, OidcCode, OidcError),
+    params(CallbackOrg, OidcState, OidcCode, OidcError, OidcIssuer),
     security(()),
     responses((
         status = 303,
@@ -156,6 +171,7 @@ async fn handle_start(
 )]
 async fn handle_callback(
     State(app): State<App>,
+    Path(org_id): Path<String>,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
@@ -165,6 +181,8 @@ async fn handle_callback(
         code: query_value(&query, "code").unwrap_or_default(),
         error: query_value(&query, "error"),
         browser_secret: cookie_value(&headers, flow_cookie_name(&app)).unwrap_or_default(),
+        org_id,
+        issuer: query_value(&query, "iss"),
     };
     let (org_id, result) = app
         .finish_oidc_login(&callback, &user_agent(&headers))

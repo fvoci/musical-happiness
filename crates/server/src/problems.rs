@@ -166,7 +166,10 @@ const OIDC_LOGIN_PAGE_UNAVAILABLE: &str = "Status 409 at the start of a sign-in 
     organization's provider; on the login page after one, whose reasons come back in the \
     `oidc_error` parameter of its address, by these names. This one: the organization has \
     no provider that is on, or the provider could not be reached, or it was switched off \
-    or changed while the person was signing in.";
+    or changed while the person was signing in; or the sign-in cannot end for a reason of \
+    the server's: the client secret does not open with its key, the account of the \
+    identity was deleted or changed meanwhile, no user name was free, or the server \
+    failed. The server's log says which.";
 
 fn describe_reason(reason: Reason) -> &'static str {
     match reason {
@@ -255,6 +258,12 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationTooMany
         | Reason::RelationNotACard
         | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        Reason::UpdateRefused
+        | Reason::UpdateOutOfStep
+        | Reason::UpdateTooLarge
+        | Reason::DocumentTooLarge
+        | Reason::TooManyDocuments
+        | Reason::DocumentUnavailable => describe_editing_together(reason),
     }
 }
 
@@ -293,6 +302,46 @@ fn describe_relation(reason: Reason) -> Option<&'static str> {
     })
 }
 
+/// What the reasons of a body edited together mean.
+fn describe_editing_together(reason: Reason) -> &'static str {
+    match reason {
+        Reason::UpdateRefused => {
+            "Status 400. The document of a card's body that is edited together does not take \
+             the update: it is no update, writes outside the body, or would leave a document \
+             that is no body. The document is as it was."
+        }
+        Reason::UpdateOutOfStep => {
+            "Status 409. The update builds on changes the document of the body does not \
+             have: the editor that made it holds another document, or one that was made \
+             again. Load the document again and make the change there."
+        }
+        Reason::UpdateTooLarge => {
+            "Status 413. The update is larger than the server takes (setting \
+             `collab_update_bytes`); `limit` is the limit in bytes. Send the change in \
+             smaller updates."
+        }
+        Reason::DocumentTooLarge => {
+            "Status 413. With the update the document of the body, or the body, would be \
+             larger than it may be (setting `collab_state_bytes`, and the limit of a body); \
+             `limit` is the limit in bytes."
+        }
+        Reason::TooManyDocuments => {
+            "Status 503. The server holds as many documents of bodies being edited as it \
+             may (settings `collab_workers`, `collab_documents_per_worker`, \
+             `collab_worker_memory_bytes`). Try again when others are closed."
+        }
+        Reason::DocumentUnavailable => {
+            "Status 503. The document of the body cannot be worked on for now: the process \
+             that holds the documents ended or did not answer in time, which drops what was \
+             under way, or did so again and again with this document, which is closed for \
+             a while; or a write of the card's whole body came while what its editors typed \
+             could not be written to the card first, and was not done. The document is as \
+             it was stored before. Try again later."
+        }
+        other => unreachable!("{other:?} is no reason of editing together"),
+    }
+}
+
 /// The descriptions of the reasons of signing in through a provider.
 fn describe_sign_in(reason: Reason) -> Option<&'static str> {
     Some(match reason {
@@ -312,7 +361,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
         Reason::OidcStateInvalid => {
             "On the login page, after a sign-in through a provider. What came back is no \
              sign-in this browser started, or one that was used already or took longer than \
-             ten minutes. Start again from the login page."
+             ten minutes, or it came back to the address of another organization than the one \
+             it was started for, or from another issuer (`iss`). Start again from the login \
+             page."
         }
         Reason::OidcDenied => {
             "On the login page, after a sign-in through a provider: the provider sent the \
@@ -339,9 +390,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
             "On the login page, after a sign-in through a provider: the person has no \
              account through the provider, and an account with a password has the email \
              address the provider gave as its own. The two are not joined by their \
-             address: sign in with the password of that account and connect the provider \
-             to it. An address a provider gave for another account is no account's own, \
-             and refuses nobody."
+             address: sign in with the password of that account. (Connecting a provider to \
+             an account that has one is not there yet.) An address a provider gave for \
+             another account is no account's own, and refuses nobody."
         }
         Reason::OidcJoinClosed => {
             "On the login page, after a sign-in through a provider: the person is no member \
