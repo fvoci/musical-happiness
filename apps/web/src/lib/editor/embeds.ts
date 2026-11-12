@@ -204,6 +204,12 @@ export function diagramProblem(
   return parts;
 }
 
+/** What went wrong with a formula that was drawn aside (math-block.ts): its notice, again. */
+export function mathProblem(page: Document, slot: HTMLElement): HTMLElement[] {
+  const said = slot.querySelector('.doc-embed-problem')?.textContent;
+  return said ? [notice(page, said, 'p')] : [];
+}
+
 /**
  * Draws a diagram into its figure, read-only. Gives back whether a picture is
  * shown; a failure shows why instead. The editor draws its own (diagram-block.ts).

@@ -265,26 +265,26 @@ test.describe('formulas', () => {
     }
   });
 
-  test('`$$` and a space opens the box for a block formula; the preview follows the source', async ({
+  test('`$$` and a space opens the place of a block formula on its line; the preview follows the source', async ({
     page,
   }) => {
     await open(page);
     const editor = editorOf(page);
     await editor.click();
     await editor.pressSequentially('$$ ');
-    const box = page.getByRole('dialog', { name: 'Edit formula' });
+    // In the flow of the body, on the line the formula will take: no box over the page.
+    const box = editor.locator('p > .doc-place-new');
     const field = box.getByRole('textbox', { name: 'LaTeX source' });
     await expect(field).toBeFocused();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await stored(page)).toBeNull();
 
     await field.pressSequentially('\\frac{a}{');
-    await expect(box.locator('.doc-math-preview [role="note"]')).toHaveText(
-      'This formula cannot be drawn.',
-    );
+    await expect(box.locator('.doc-place-problem')).toHaveText('This formula cannot be drawn.');
     await field.pressSequentially('b}');
     await expect(box.locator('.doc-math-preview .katex-html')).toBeVisible();
-    await expect(box.locator('.doc-math-preview [role="note"]')).toHaveCount(0);
-    // Enter is a new line in a block formula; Ctrl+Enter applies.
+    await expect(box.locator('.doc-place-problem')).toBeEmpty();
+    // Enter is a new line in a block formula; Ctrl+Enter closes the place.
     await field.press('Enter');
     await expect(box).toBeVisible();
     await field.press('Backspace');
@@ -295,8 +295,10 @@ test.describe('formulas', () => {
       type: 'doc',
       content: [{ type: 'blockMath', attrs: { latex: '\\frac{a}{b}' } }, { type: 'paragraph' }],
     });
-    // The cursor is back in the text, behind the formula.
+    // The formula is selected and the editor has the focus; the line behind it is one arrow away.
     await expect(editor).toBeFocused();
+    await expect(editor.locator('.doc-math-block')).toHaveClass(/ProseMirror-selectednode/);
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.type('뒤');
     await expect(viewOf(page).locator('p')).toHaveText('뒤');
     await expect(viewOf(page).locator('div.doc-math[data-state="drawn"]')).toHaveCount(1);

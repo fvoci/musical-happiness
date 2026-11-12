@@ -16,7 +16,10 @@ type Story = StoryObj<typeof meta>;
 export const Empty: Story = { args: { doc: null } };
 /** Every kind of node and mark a body had before formulas. */
 export const Mixed: Story = { args: { doc: MIXED } };
-/** Formulas: press one to change its source. */
+/**
+ * Formulas: press one to change its source. One in a line opens a small box;
+ * one on a line of its own opens its source under it, as a diagram does.
+ */
 export const Formulas: Story = { args: { doc: FORMULAS } };
 /**
  * Diagrams: the picture alone. Point at one (or select it) and it offers to be

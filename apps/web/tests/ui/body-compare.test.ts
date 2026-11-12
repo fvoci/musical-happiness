@@ -46,6 +46,9 @@
  *     with the picture, its button and the place where the source is changed;
  *     only the source in it (its class and name aside) is compared. The view
  *     adds its picture only once the body is in the page (`drawEmbeds`).
+ * 12. A formula on a line of its own inside an element of its own in the
+ *     editor (`doc-math-block`), which also holds the place where its source
+ *     is changed; only the formula in it is compared.
  *
  * On both sides:
  *
@@ -115,6 +118,7 @@ const LEFT_OUT = {
   'wording of aria-label': 0, // 9
   'attribute aria-readonly': 0, // 10
   'diagram around its source': 0, // 11
+  'block formula around its drawing': 0, // 12
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -176,6 +180,12 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
     source.classList.remove('doc-diagram-source');
     source.querySelector('code')?.removeAttribute('aria-label');
     return shapeOf(source, side);
+  }
+  if (ofEditor && node.tagName === 'DIV' && node.classList.contains('doc-math-block')) {
+    leaveOut('block formula around its drawing');
+    const formula = node.querySelector(':scope > .doc-math');
+    if (!formula) throw new Error('a block formula without its drawing');
+    return shapeOf(formula, side);
   }
   const without = ofEditor ? leftOutNode(node) : undefined;
   if (without) {

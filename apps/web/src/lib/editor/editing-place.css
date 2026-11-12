@@ -1,6 +1,7 @@
 /*
- * Diagrams in the editor (diagram-block.ts, editing-place.ts): the picture
- * alone until the place is opened, then the source right under it.
+ * Diagrams and block formulas in the editor (diagram-block.ts, math-block.ts,
+ * editing-place.ts): the picture alone until the place is opened, then the
+ * source right under it.
  */
 
 /* ------------------------------------------------------------ a diagram */
@@ -121,6 +122,85 @@
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
+/* ------------------------------------------------------------ a block formula */
+
+.doc-math-block {
+  position: relative;
+}
+/*
+ * The space between blocks is the formula's, as in the read-only view, not
+ * its holder's (editor.css gives it to the second of two blocks): the two
+ * lay out alike, and the place opens under the formula, inside that space.
+ */
+.doc-body > * + .doc-math-block,
+.doc-body li > * + .doc-math-block {
+  margin-top: 0;
+}
+.doc-body > * + .doc-math-block > .doc-math {
+  margin-top: 0.75em;
+}
+.doc-body li > * + .doc-math-block > .doc-math {
+  margin-top: 0.25em;
+}
+.doc-math-block:not([data-open]) > .doc-place {
+  display: none;
+}
+.ProseMirror[contenteditable='true'] .doc-math-block:not([data-open]) > .doc-math {
+  cursor: pointer;
+}
+.ProseMirror[contenteditable='true'] .doc-math-block:not([data-open]):hover > .doc-math {
+  outline: 1px solid var(--input-border);
+  outline-offset: 1px;
+}
+.doc-math-block.ProseMirror-selectednode > .doc-math {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.doc-math[data-stale],
+.doc-math-preview > [data-stale] {
+  opacity: 0.4;
+}
+.doc-place {
+  margin-top: 0.25em;
+  font-family: var(--font-sans-stack);
+}
+.doc-place textarea {
+  display: block;
+  width: 100%;
+  min-height: 4.5em;
+  padding: 0.5em;
+  border: 1px solid var(--ring);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono-stack);
+  font-size: var(--text-sm);
+  resize: vertical;
+}
+.doc-place textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.doc-place-problem {
+  margin: 0.4em 0 0;
+}
+.doc-place-problem:empty,
+.doc-place-new .doc-math-preview:empty {
+  display: none;
+}
+/* Out of sight but laid out: where a formula is drawn before it is shown. */
+.doc-math-aside {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* A new formula's empty line shows its place, not the editor's placeholder. */
+.doc-body p:has(> .doc-place-new)::before {
+  content: none;
+}
+
 /* Said by a screen reader, seen by nobody. */
 .doc-announce {
   position: absolute;
