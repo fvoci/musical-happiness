@@ -126,6 +126,64 @@ async fn recovery_after_folding_preserves_the_last_writer() {
     );
 }
 
+/// Reducing the admission limit for new updates must not erase an update that was
+/// already acknowledged under the previous limit and still needs projection.
+#[tokio::test]
+async fn lowering_the_update_limit_does_not_erase_acknowledged_edits() {
+    let mut th = Setup::native().start().await.init_basic().await;
+    let (app, card, user1, _) = editing(&th, paragraph("first")).await;
+    let collab = app.collab();
+    let editor = Editor::join(101, &collab.open(&app, &card.id).await.expect("opened"));
+    let update = editor.append_paragraph(&"kept".repeat(10 * 1024));
+    collab
+        .take(&app, &card.id, &user1, &update)
+        .await
+        .expect("acknowledged");
+    let stored = app
+        .store()
+        .get_body_doc(&card.id)
+        .await
+        .expect("read")
+        .expect("doc");
+    assert_eq!(
+        (stored.projected_seq, stored.log_end),
+        (0, 1),
+        "not projected yet"
+    );
+    th.config.collab.collab_update_bytes = 32 * 1024;
+    let th = th
+        .killed_and_started_again(async |app| app.collab().abandon().await)
+        .await;
+    let entered = th
+        .app
+        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .await
+        .expect("membership read")
+        .expect("member");
+    let app = entered.app;
+    let reopened = Editor::join(
+        102,
+        &app.collab().open(&app, &card.id).await.expect("reopened"),
+    );
+    let wanted = editor.body();
+    let actual = reopened.body();
+    let stored = app
+        .store()
+        .get_body_doc(&card.id)
+        .await
+        .expect("read")
+        .expect("doc");
+    th.teardown().await;
+    assert!(
+        actual == wanted,
+        "acknowledged content disappeared after lowering the limit; state_seq {}, projected_seq {}, log_end {}, remaining updates {}",
+        stored.state_seq,
+        stored.projected_seq,
+        stored.log_end,
+        stored.updates.len()
+    );
+}
+
 /// An accepted image update must keep the file alive while its body waits to be
 /// projected. Otherwise the collector can make a committed update unprojectable.
 #[tokio::test]
