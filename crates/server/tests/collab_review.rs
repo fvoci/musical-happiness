@@ -13,6 +13,7 @@ use fvoci_server::collab::Collab;
 use fvoci_server::error::{AppError, Reason};
 use serde_json::{Value, json};
 
+use common::TEST_WS;
 use common::{Setup, TEST_WORKSPACE_ID, TestServer};
 
 fn paragraph(text: &str) -> Value {
@@ -32,7 +33,7 @@ async fn editing(th: &TestServer, body: Value) -> (App, Card, String, String) {
     let card = th
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &json!({"title": "Review", "body": body}),
         )
         .await
@@ -59,7 +60,7 @@ async fn an_update_from_an_empty_replaced_document_is_out_of_step() {
     let delayed = editor.append_paragraph("before the replacement");
     th.client
         .patch(
-            &format!("/cards/{}", card.id),
+            &format!("{TEST_WS}/cards/{}", card.id),
             &json!({"body": paragraph("replacement"), "readAt": card.update_at}),
         )
         .await
@@ -123,7 +124,7 @@ async fn recovery_after_folding_preserves_the_last_writer() {
         loop {
             let read: Card = th
                 .client
-                .get(&format!("/cards/{}", card.id))
+                .get(&format!("{TEST_WS}/cards/{}", card.id))
                 .await
                 .ok_json();
             if read.body.as_ref().map(|body| body.document().clone()) == wanted {
@@ -237,7 +238,7 @@ async fn a_logged_image_keeps_its_file_before_projection() {
     let replacement = th
         .client
         .patch(
-            &format!("/cards/{}", card.id),
+            &format!("{TEST_WS}/cards/{}", card.id),
             &json!({"body": paragraph("replacement"), "readAt": card.update_at}),
         )
         .await;
