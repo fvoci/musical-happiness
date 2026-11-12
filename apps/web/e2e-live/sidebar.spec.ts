@@ -69,6 +69,9 @@ test('categories and the boards under them are kept on the server and show in th
   browser,
   baseURL,
 }) => {
+  // Two tabs through every change of the sidebar: twice the steps of most tests here,
+  // and more than their time when the runner has several workers.
+  test.slow();
   const base = baseURL ?? '';
   const owner = person('sidebar');
   await register(base, owner);
