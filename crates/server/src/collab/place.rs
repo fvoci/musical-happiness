@@ -14,12 +14,18 @@ use crate::app::App;
 use crate::collab_worker::wire::{Answer, DocNumber, Request};
 use crate::error::AppError;
 
-/// How long a document that ended its worker twice, the second within the longest
-/// closing of the first, is closed the first time; it doubles with each further time.
+/// How long a document that ended its worker twice, the second within
+/// [`DEATHS_REMEMBERED`] of the first, is closed the first time; it doubles with each
+/// further time.
 const FIRST_CLOSING: Duration = Duration::from_secs(10);
 
 /// The longest a document is closed for ending its worker.
 const LONGEST_CLOSING: Duration = Duration::from_mins(5);
+
+/// How long a death of the worker over a document is remembered: the deaths within it
+/// of the one before are counted together. Longer than the longest closing, so that a
+/// document closed that long is closed again at its next death.
+const DEATHS_REMEMBERED: Duration = Duration::from_mins(15);
 
 /// A slot, held by the one request that works on its document.
 pub(super) type Held = OwnedMutexGuard<Slot>;
@@ -38,8 +44,9 @@ pub(super) struct Slot {
     retired: bool,
     pub(super) open: Option<OpenDoc>,
     /// How many requests about it ended its worker, each a little after the one before
-    /// (within the longest closing): a request that ends the worker each time it is
-    /// sent again, between which others are answered, is counted.
+    /// (within [`DEATHS_REMEMBERED`]): a request that ends the worker each time it is
+    /// sent again, between which others are answered, is counted, and so is an opening
+    /// that ends it. The slot stays in the place while it remembers a death.
     deaths: u32,
     /// When the last of them ended it.
     last_death: Option<Instant>,
@@ -138,13 +145,15 @@ impl Collab {
         slots.values().map(Arc::clone).collect()
     }
 
-    /// Takes a slot out of the place, unless its document is open or it remembers that
-    /// its document is closed for a while.
+    /// Takes a slot out of the place, unless its document is open, or it remembers that
+    /// its document is closed for a while or that it ended its worker.
     pub(super) fn retire(&self, slot: &mut Held) {
-        let closed = slot
-            .closed_until
-            .is_some_and(|until| until > Instant::now());
-        if slot.retired || slot.open.is_some() || closed {
+        let now = Instant::now();
+        let closed = slot.closed_until.is_some_and(|until| until > now);
+        let remembered = slot
+            .last_death
+            .is_some_and(|last| now.duration_since(last) <= DEATHS_REMEMBERED);
+        if slot.retired || slot.open.is_some() || closed || remembered {
             return;
         }
         slot.retired = true;
@@ -271,7 +280,7 @@ pub(super) fn died_over(slot: &mut Slot) {
     let now = Instant::now();
     if slot
         .last_death
-        .is_some_and(|last| now.duration_since(last) > LONGEST_CLOSING)
+        .is_some_and(|last| now.duration_since(last) > DEATHS_REMEMBERED)
     {
         slot.deaths = 0;
     }

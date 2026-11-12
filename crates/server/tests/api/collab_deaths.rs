@@ -35,10 +35,10 @@ fn kill(pid: u32) {
     assert!(status.success(), "kill -KILL {pid}");
 }
 
-/// A server whose workers give up on a request after 3 s.
+/// A server whose workers give up on a request after 5 s.
 async fn impatient() -> TestServer {
     Setup::native()
-        .configure(|config| config.collab.collab_worker_timeout_ms = 3000)
+        .configure(|config| config.collab.collab_worker_timeout_ms = 5000)
         .start()
         .await
         .init_basic()
@@ -65,6 +65,11 @@ async fn a_killed_worker_leaves_the_server_answering_and_the_document_opens_agai
     let wanted = editor.body().map(|body| body.document().clone());
     let killed = worker_pid(&e).await;
     kill(killed);
+    // The server finds the worker gone (here: before the next request is asked of it,
+    // which is not counted against its document).
+    while e.app.collab().worker_pids().await[0].is_some() {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
 
     let read = card(&th.client, &e.card_id).await;
     assert_eq!(read.id, e.card_id, "the server answers");
@@ -95,7 +100,8 @@ async fn a_killed_worker_leaves_the_server_answering_and_the_document_opens_agai
 
 /// A request that the worker does not answer in time ends the worker and is refused;
 /// the server answers meanwhile, and the document opens again from what is stored. A
-/// document whose requests end the worker twice in a row is closed for a while.
+/// document whose requests end the worker twice, a little apart, is closed for a while,
+/// even if it was closed between them.
 #[tokio::test]
 async fn a_request_past_the_time_limit_ends_the_worker_and_is_refused() {
     let th = impatient().await;
@@ -116,7 +122,7 @@ async fn a_request_past_the_time_limit_ends_the_worker_and_is_refused() {
     let before = worker_pid(&e).await;
 
     let stalled = collab
-        .stall_document(&e.app, &e.card_id, 10_000)
+        .stall_document(&e.app, &e.card_id, 30_000)
         .await
         .expect_err("past the time limit");
     assert_eq!(reason_of(&stalled), Some("document_unavailable"));
@@ -125,9 +131,11 @@ async fn a_request_past_the_time_limit_ends_the_worker_and_is_refused() {
     let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
     assert_eq!(again.body().map(|body| body.document().clone()), wanted);
     assert_ne!(worker_pid(&e).await, before, "another worker");
+    // Closed and opened again, it remembers the death.
+    collab.close(&e.app, &e.card_id).await.expect("closed");
 
     let stalled = collab
-        .stall_document(&e.app, &e.card_id, 10_000)
+        .stall_document(&e.app, &e.card_id, 30_000)
         .await
         .expect_err("past the time limit");
     assert_eq!(reason_of(&stalled), Some("document_unavailable"));
@@ -190,13 +198,14 @@ async fn what_is_past_the_limits_of_a_document_is_refused() {
 
     let editor = Editor::join(102, &state);
     let mut refused = None;
+    let mut taken = 0;
     for _ in 0..40 {
         let update = editor.append_paragraph(&"y".repeat(60 * 1024));
         match collab
             .take(&first.app, &first.card_id, &first.user1, &update)
             .await
         {
-            Ok(_) => {}
+            Ok(_) => taken += 1,
             Err(error) => {
                 refused = Some(error);
                 break;
@@ -205,6 +214,11 @@ async fn what_is_past_the_limits_of_a_document_is_refused() {
     }
     let refused = refused.expect("a body larger than a body may be is refused");
     assert_eq!(reason_of(&refused), Some("document_too_large"));
+    collab
+        .close(&first.app, &first.card_id)
+        .await
+        .expect("the body that was taken is written");
+    // Opened again from its stored state and log.
     let held = Editor::join(
         103,
         &collab
@@ -214,14 +228,11 @@ async fn what_is_past_the_limits_of_a_document_is_refused() {
     );
     let body = held.body().expect("a body");
     let paragraphs = body.document()["content"].as_array().map_or(0, Vec::len);
-    assert!(
-        (2..40).contains(&paragraphs),
-        "the first and those that were taken, not the refused ones: {paragraphs}"
+    assert_eq!(
+        paragraphs,
+        1 + taken,
+        "the first and those that were taken, not the refused ones"
     );
-    collab
-        .close(&first.app, &first.card_id)
-        .await
-        .expect("the body that was taken is written");
     assert_eq!(
         body_of(&card(&th.client, &first.card_id).await),
         Some(body.document().clone())

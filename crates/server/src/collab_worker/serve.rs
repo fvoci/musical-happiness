@@ -230,7 +230,7 @@ fn take_refused(error: &TakeError) -> Refused {
         TakeError::Update(UpdateError::Unreadable(_)) => Refusal::Unreadable,
         TakeError::Update(UpdateError::MissingChanges) => Refusal::MissingChanges,
         TakeError::Update(UpdateError::DocumentTooLarge { .. }) => Refusal::DocumentTooLarge,
-        TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes)
+        TakeError::Body(BodyError::TooLarge | BodyError::TooManyNodes | BodyError::TooDeep)
         | TakeError::BodyTooLarge { .. } => Refusal::BodyTooLarge,
         TakeError::Body(_) => Refusal::NoBody,
         _ => Refusal::Unappliable,

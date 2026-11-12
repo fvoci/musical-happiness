@@ -243,13 +243,15 @@ async fn hold(settings: Arc<WorkerSettings>, mut jobs: mpsc::Receiver<Job>) {
     };
     loop {
         let job = match state.running.as_mut() {
+            // A worker that ended is buried before the next job is asked of it.
             Some(running) => tokio::select! {
-                job = jobs.recv() => job,
+                biased;
                 status = running.child.wait() => {
                     let death = Death::Broken(format!("it ended by itself: {status:?}"));
                     state.bury(&death).await;
                     continue;
                 }
+                job = jobs.recv() => job,
             },
             None => jobs.recv().await,
         };
@@ -285,6 +287,14 @@ impl State {
         generation: Option<u64>,
         frame: &[u8],
     ) -> Result<(u64, Answer), CallError> {
+        // A worker that ended while the job waited took its documents with it: the
+        // request is not sent to it, and is not counted against them.
+        if let Some(running) = self.running.as_mut()
+            && let Ok(Some(status)) = running.child.try_wait()
+        {
+            let death = Death::Broken(format!("it ended by itself: {status:?}"));
+            self.bury(&death).await;
+        }
         if generation.is_some_and(|generation| generation != self.generation) {
             return Err(CallError::Lost);
         }
