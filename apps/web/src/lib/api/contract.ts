@@ -1863,12 +1863,12 @@ export interface paths {
         put?: never;
         /**
          * Users of a workspace by their identifiers
-         * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be of a user the user sees in the workspace and
-         *     none may be there twice; otherwise the request is 404. The user sees whom
-         *     `getWorkspaceUsers` finds, and who created or last changed a card, block or comment
-         *     of a board of the workspace they read, also after leaving the workspace. Oldest
-         *     account first, not in the order of the request.
+         * @description The users with the identifiers of the body that the user sees in the workspace, each
+         *     once; the body must name at least one: an empty list is 400. An identifier of
+         *     somebody the user does not see finds nothing, as one of nobody: the answer does not
+         *     tell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or
+         *     last changed a card, block or comment of a board of the workspace they read, also
+         *     after leaving the workspace. Oldest account first, not in the order of the request.
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;

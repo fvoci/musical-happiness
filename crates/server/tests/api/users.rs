@@ -508,10 +508,13 @@ async fn users_list_and_profiles() {
         "an empty list is refused"
     );
 
-    th.client
+    // An identifier of nobody finds nothing; the list is not refused.
+    let nobody: Vec<User> = th
+        .client
         .post(&format!("{ROOT_WS}/users"), &["nonexistent"])
         .await
-        .check_not_found();
+        .ok_json();
+    assert!(nobody.is_empty(), "{nobody:?}");
 
     let workspace_users: Vec<User> = th.client.get(&format!("{ROOT_WS}/users")).await.ok_json();
     assert_eq!(workspace_users.len(), 2, "the workspace has both users");

@@ -7851,7 +7851,7 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees in the workspace and\nnone may be there twice; otherwise the request is 404. The user sees whom\n`getWorkspaceUsers` finds, and who created or last changed a card, block or comment\nof a board of the workspace they read, also after leaving the workspace. Oldest\naccount first, not in the order of the request.",
+        "description": "The users with the identifiers of the body that the user sees in the workspace, each\nonce; the body must name at least one: an empty list is 400. An identifier of\nsomebody the user does not see finds nothing, as one of nobody: the answer does not\ntell them apart. The user sees whom `getWorkspaceUsers` finds, and who created or\nlast changed a card, block or comment of a board of the workspace they read, also\nafter leaving the workspace. Oldest account first, not in the order of the request.",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {

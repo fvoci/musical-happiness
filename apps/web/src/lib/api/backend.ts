@@ -68,7 +68,6 @@ import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
 import { ServerRequests, underWorkspace } from './requests.ts';
-import { seenUsers } from './seen-users.ts';
 import { importInParts, uploadInParts } from './upload.ts';
 
 /**
@@ -146,14 +145,15 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return users.map(userOf);
   }
 
+  /** The server leaves out whom the reader does not see; it refuses an empty list. */
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
-    const ask = (json: string[]) =>
-      this.#http.request<Schemas['User'][]>(
-        underWorkspace('/users'),
-        { workspaceId },
-        { method: 'POST', json },
-      );
-    return (await seenUsers([...new Set(userIds)], ask)).map(userOf);
+    if (userIds.length === 0) return [];
+    const users = await this.#http.request<Schemas['User'][]>(
+      underWorkspace('/users'),
+      { workspaceId },
+      { method: 'POST', json: [...new Set(userIds)] },
+    );
+    return users.map(userOf);
   }
 
   async settings(): Promise<AccountSettings> {

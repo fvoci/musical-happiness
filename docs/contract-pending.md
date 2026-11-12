@@ -223,7 +223,7 @@
 
 | 무엇 | 지금 |
 |---|---|
-| ID 목록으로 묻는 조회가 `POST`다 | `getWorkspaceUsersById`(`POST /w/{workspaceId}/users`). 없는 ID나 두 번 적은 ID가 있으면 요청 전체가 거절된다 |
+| ID 목록으로 묻는 조회가 `POST`다 | `getWorkspaceUsersById`(`POST /w/{workspaceId}/users`). 못 보는 사람의 ID는 없는 ID처럼 빠지고, 두 번 적은 ID는 한 번 나온다 |
 | 검색어 없는 `getWorkspaceUsers` | 모든 사용자가 아니라 가장 오래된 열 명이다(검색과 같은 한도) |
 | `searchWorkspaceBoards` | 경로의 워크스페이스로 좁히지 않는다. 사용자가 찾을 수 있는 모든 워크스페이스의 보드를 찾는다 |
 | 동작을 경로 끝에 붙인 라우트 | `duplicate`, `undelete`, `join`, `leave`, `hide`, `unhide`, `onboard` |

@@ -74,11 +74,12 @@ impl App {
     /// The users with the given identifiers that the user `seer_id` sees anywhere by
     /// name (`Sight::Anywhere`, `permissions::sees_person`): who shares a workspace the
     /// seer works in, or a board of a workspace both are in, or wrote on a board the
-    /// seer reads, and the seer. Oldest account first.
+    /// seer reads, and the seer. Oldest account first, each once; whom the seer does not
+    /// see is left out.
     ///
     /// # Errors
     ///
-    /// Returns a 404 unless every identifier is of a user the seer sees, once.
+    /// Returns the store's error if the users cannot be read.
     pub async fn users_seen_by(
         &self,
         seer_id: &str,
@@ -95,11 +96,12 @@ impl App {
 
     /// The users with the given identifiers that the user `seer_id`, in `role` in the
     /// workspace, sees there by name (`permissions::sees_person`): also who left it and
-    /// wrote on a board the seer reads. Oldest account first.
+    /// wrote on a board the seer reads. Oldest account first, each once; whom the seer
+    /// does not see there is left out, as one who does not exist.
     ///
     /// # Errors
     ///
-    /// Returns a 404 unless every identifier is of a user the seer sees there, once.
+    /// Returns the store's error if the users cannot be read.
     pub async fn users_in_workspace(
         &self,
         seer_id: &str,

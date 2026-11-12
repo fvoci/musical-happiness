@@ -73,7 +73,7 @@ async fn a_user_sees_who_shares_a_workspace_and_nobody_else() {
         .await;
     let by_ids = th
         .client
-        .post(&format!("{TEST_WS}/users"), &[&user2, &elsewhere])
+        .post(&format!("{TEST_WS}/users"), &[&user2, &elsewhere, &user2])
         .await;
     let in_workspace = th
         .client
@@ -85,8 +85,17 @@ async fn a_user_sees_who_shares_a_workspace_and_nobody_else() {
     assert_eq!(names(&listed), ["user1", "user2"], "the workspace's people");
     assert!(found.is_empty(), "{found:?}");
     assert_eq!(answer(&profile), answer(&unknown), "a stranger is nobody");
-    by_ids.check_not_found();
-    in_workspace.check_not_found();
+    // Whom the user does not see is left out of the list, which is not refused; who is
+    // named twice is there once.
+    assert_eq!(
+        names(&by_ids.ok_json::<Vec<User>>()),
+        ["user2"],
+        "the coworker alone"
+    );
+    assert!(
+        names(&in_workspace.ok_json::<Vec<User>>()).is_empty(),
+        "nobody"
+    );
     coworker.check_ok();
 }
 
@@ -129,7 +138,10 @@ async fn a_guest_sees_who_is_on_its_boards() {
 
     assert_eq!(names(&listed), ["user1", "user2"], "the board's people");
     assert!(found.is_empty(), "{found:?}");
-    third_by_id.check_not_found();
+    assert!(
+        names(&third_by_id.ok_json::<Vec<User>>()).is_empty(),
+        "the third is left out"
+    );
     assert_eq!(names(&third_from_root), ["third"]);
 }
 
@@ -271,7 +283,10 @@ async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_els
     th.teardown().await;
 
     coworker.check_ok();
-    not_shared.check_not_found();
+    assert!(
+        names(&not_shared.ok_json::<Vec<User>>()).is_empty(),
+        "left out"
+    );
     assert_eq!(
         answer(&not_shared),
         answer(&missing),
@@ -373,10 +388,11 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
         .check_created();
     leave_every_workspace(&th, &leaver).await;
     let by_id = async |client: &crate::common::Client| {
-        client
+        let found: Vec<User> = client
             .post(&format!("{ROOT_WS}/users"), &[&leaver])
             .await
-            .status
+            .ok_json();
+        found.len()
     };
 
     let before = (
@@ -393,8 +409,8 @@ async fn who_left_is_named_on_an_open_board_to_its_members_only() {
     );
     th.teardown().await;
 
-    assert_eq!(before, (StatusCode::NOT_FOUND, StatusCode::NOT_FOUND));
-    assert_eq!(after, (StatusCode::OK, StatusCode::OK));
+    assert_eq!(before, (0, StatusCode::NOT_FOUND));
+    assert_eq!(after, (1, StatusCode::OK));
 }
 
 /// A guest names who wrote on its board, also when they share no role there any more,
