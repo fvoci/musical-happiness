@@ -190,6 +190,35 @@ impl Queue {
         Ok(())
     }
 
+    /// Queues an answer to something the connection sent that the room has dealt with
+    /// (`DOC_ACK`, `DOC_NACK`), whatever waits: what became of an update that was
+    /// logged is told, also to a connection that reads nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotQueued::Full`] if it is past what may wait: it is queued all the
+    /// same, and the caller puts the connection out of the room after it. Returns
+    /// [`NotQueued::Closed`], with nothing queued, if the connection ended.
+    pub(super) fn answer(&self, answer: Queued) -> Result<(), NotQueued> {
+        let fits = {
+            let mut waiting = self.waiting();
+            if waiting.closed {
+                return Err(NotQueued::Closed);
+            }
+            let fits = waiting.messages.len() < self.capacity.messages
+                && (waiting.messages.is_empty()
+                    || waiting.bytes + answer.bytes() <= self.capacity.bytes);
+            waiting.bytes += answer.bytes();
+            waiting.messages.push_back(answer);
+            if waiting.messages.len() > self.capacity.messages.saturating_mul(2) {
+                self.overrun.cancel();
+            }
+            fits
+        };
+        self.wake.notify_one();
+        if fits { Ok(()) } else { Err(NotQueued::Full) }
+    }
+
     /// Drops what waits for a room the connection left of its own accord.
     pub(super) fn forget(&self, doc: u32) {
         self.waiting().drop_where(|queued| queued.doc == doc);
@@ -332,6 +361,22 @@ mod tests {
         queue.push([text(1, "a"), sync(1), sync(2)]).expect("room");
         queue.forget(1);
         assert_eq!(drained(&queue).await.len(), 1, "the other room's");
+    }
+
+    #[tokio::test]
+    async fn an_answer_is_queued_whatever_waits_and_says_when_it_was_one_too_many() {
+        let queue = queue_of(2);
+        queue.answer(text(1, "ack 1")).expect("room");
+        queue.answer(text(1, "ack 2")).expect("room");
+        assert_eq!(queue.answer(text(1, "ack 3")), Err(NotQueued::Full));
+        queue.notice(Some(1), "left".to_owned());
+        let sent = drained(&queue).await;
+        let texts: Vec<Outgoing> = ["ack 1", "ack 2", "ack 3", "left"]
+            .map(|text| Outgoing::Text(text.to_owned()))
+            .into();
+        assert_eq!(sent, texts, "every answer, and then the notice");
+        queue.close();
+        assert_eq!(queue.answer(text(1, "ack")), Err(NotQueued::Closed));
     }
 
     #[tokio::test]

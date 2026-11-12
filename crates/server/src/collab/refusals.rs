@@ -85,6 +85,15 @@ pub(super) fn full(limit: usize) -> AppError {
     .with_limit(u64::try_from(limit).unwrap_or(u64::MAX))
 }
 
+/// The error of a room that as many connections of one user are in as may be.
+pub(super) fn too_many_of_user(limit: usize) -> AppError {
+    AppError::limited(
+        "as many connections of the user edit the body as may",
+        Reason::TooManyConnectionsJoined,
+    )
+    .with_limit(u64::try_from(limit).unwrap_or(u64::MAX))
+}
+
 /// The error of a connection that sends more in a second than it may.
 pub(super) fn too_many_frames(limit: u32) -> AppError {
     AppError::limited(

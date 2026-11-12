@@ -42,6 +42,10 @@ use crate::permissions::DocMode;
 /// cannot be worked on for now, it is tried again.
 const SEND_ANEW_AGAIN: Duration = Duration::from_secs(2);
 
+/// How long after the store did not answer of somebody in a room it is asked of
+/// them once more, before they are put out.
+const ASKED_ONCE_MORE_AFTER: Duration = Duration::from_secs(2);
+
 /// How many users of a room the store is asked about at once, when the room asks
 /// again who may be in it.
 const ASKED_AT_ONCE: usize = 8;
@@ -60,6 +64,8 @@ pub(super) struct Rooms {
     per_connection: usize,
     /// How many connections may be in a room.
     per_room: usize,
+    /// How many of the connections in a room may be one user's.
+    per_user: usize,
     /// How many commands and frames a connection may send in a second.
     frames_per_second: u32,
     /// How many messages may wait for a connection, of all its rooms.
@@ -79,6 +85,7 @@ impl Rooms {
             recheck: Duration::from_secs(settings.collab_recheck_seconds),
             per_connection: as_count(settings.collab_documents_per_connection),
             per_room: as_count(settings.collab_connections_per_document),
+            per_user: as_count(settings.collab_connections_per_user),
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
@@ -217,6 +224,14 @@ struct Who {
 type Answer = Result<Option<DocMode>, String>;
 
 impl Turn {
+    /// How many of the members are connections of the user.
+    fn of_user(&self, user_id: &str) -> usize {
+        self.members
+            .iter()
+            .filter(|member| member.connection.user_id == user_id)
+            .count()
+    }
+
     fn index_of(&self, connection: &Connection, doc: u32) -> Option<usize> {
         self.members
             .iter()
@@ -250,6 +265,18 @@ impl Turn {
                 Ok(())
             }
         });
+    }
+
+    /// Queues the answer to something a connection sent (`DOC_ACK`, `DOC_NACK`) for
+    /// it, whatever waits for it: the answer to an update that is logged is never
+    /// lost. A connection for which it was one too many is put out after it.
+    fn answer(&mut self, connection: &Connection, doc: u32, answer: String) {
+        let Some(index) = self.index_of(connection, doc) else {
+            return;
+        };
+        if connection.queue.answer(Queued::text(doc, answer)).is_err() {
+            self.put_out(index, Reason::ConnectionTooSlow.as_str());
+        }
     }
 
     /// Has `queue` queue something for each member, and puts out who has no room
@@ -438,7 +465,8 @@ impl Collab {
     /// longer read the card's board is put out, and who is to be in the room otherwise
     /// than they are is told so (`DOC_MODE`). Nobody stays unasked: a member the store
     /// could not be asked about, or was not asked about within the time of one
-    /// asking, is put out too. The store is asked while the room is not held; what
+    /// asking, is asked about once more two seconds later, and put out if the store
+    /// does not answer then either. The store is asked while the room is not held; what
     /// a member sent meanwhile was taken as they were.
     async fn recheck(&self, room: &Arc<Room>) {
         let asked: Vec<Asked> = {
@@ -455,7 +483,19 @@ impl Collab {
                 })
                 .collect()
         };
-        let answers = self.answers(room, &asked).await;
+        // Each user once, however many connections they have in the room.
+        let mut users: Vec<Who> = asked.iter().map(|asked| asked.who.clone()).collect();
+        users.sort_unstable();
+        users.dedup();
+        let mut answers = self.answers(room, users.clone()).await;
+        // Whom the store did not answer of is asked once more, a little later: a store
+        // that fails for a moment empties no room. Who is still not answered of then
+        // is put out.
+        users.retain(|who| !matches!(answers.get(who), Some(Ok(_))));
+        if !users.is_empty() {
+            tokio::time::sleep(ASKED_ONCE_MORE_AFTER).await;
+            answers.extend(self.answers(room, users).await);
+        }
         let mut turn = room.turn.lock().await;
         if turn.closed || self.rooms_ended() {
             return;
@@ -486,17 +526,13 @@ impl Collab {
         self.shut_if_empty(room, &mut turn).await;
     }
 
-    /// What the store answers of each user among `asked`, once each however many
-    /// connections they have in the room: how they are in it, `None` for who is not
+    /// What the store answers of each of `users`: how they are in the room, `None` for who is not
     /// let in, or the reason the store could not be asked, which is logged. Some at
     /// a time, and all within the time between two askings: who is not answered by
     /// then has no answer.
-    async fn answers(&self, room: &Room, asked: &[Asked]) -> HashMap<Who, Answer> {
+    async fn answers(&self, room: &Room, users: Vec<Who>) -> HashMap<Who, Answer> {
         use futures_util::StreamExt as _;
 
-        let mut users: Vec<Who> = asked.iter().map(|asked| asked.who.clone()).collect();
-        users.sort_unstable();
-        users.dedup();
         let (app, card_id) = (room.app.clone(), room.card_id.clone());
         let asking = futures_util::stream::iter(users)
             .map(move |who| {
@@ -585,6 +621,8 @@ impl Collab {
                 None
             } else if connection.joined().rooms.len() >= limits.per_connection {
                 Some(refusals::too_many_joined(limits.per_connection))
+            } else if turn.of_user(&connection.user_id) >= limits.per_user {
+                Some(refusals::too_many_of_user(limits.per_user))
             } else if turn.members.len() >= limits.per_room {
                 Some(refusals::full(limits.per_room))
             } else {
@@ -726,13 +764,11 @@ impl Collab {
                 }),
         };
         match taken {
-            Err(reason) => turn.send(to_sender, |_| {
-                [Queued::text(doc, messages::nack(doc, epoch, &reason))]
-            }),
+            Err(reason) => turn.answer(connection, doc, messages::nack(doc, epoch, &reason)),
             Ok(taken) => {
-                turn.send(to_sender, |_| {
-                    [Queued::text(doc, messages::ack(doc, epoch, taken.seq))]
-                });
+                // Told whatever waits for the sender: the update is logged, and is
+                // sent on to the others also if the sender is put out for its queue.
+                turn.answer(connection, doc, messages::ack(doc, epoch, taken.seq));
                 if taken.remade {
                     // The update is in the body the document was made again from.
                     // If it cannot be opened for now, the room's task hears of the

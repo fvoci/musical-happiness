@@ -262,17 +262,9 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::DefaultWorkspace
         | Reason::LastOrgAdmin
         | Reason::PublicLinksOff => describe_organization(reason).unwrap_or_default(),
-        Reason::UpdateRefused
-        | Reason::UpdateOutOfStep
-        | Reason::UpdateTooLarge
-        | Reason::DocumentTooLarge
-        | Reason::TooManyDocuments
-        | Reason::DocumentUnavailable => describe_editing_together(reason),
-        Reason::DocumentReadOnly
-        | Reason::ConnectionTooSlow
-        | Reason::TooManyDocumentsJoined
-        | Reason::DocumentFull
-        | Reason::TooManyFrames => describe_rooms(reason),
+        // The rest are the reasons of a body edited together, which the two functions
+        // below name one by one: a reason that is none of theirs fails the tests.
+        _ => describe_editing_together(reason),
     }
 }
 
@@ -371,7 +363,7 @@ fn describe_editing_together(reason: Reason) -> &'static str {
              could not be written to the card first, and was not done. The document is as \
              it was stored before. Try again later."
         }
-        other => unreachable!("{other:?} is no reason of editing together"),
+        other => describe_rooms(other),
     }
 }
 
@@ -401,6 +393,12 @@ fn describe_rooms(reason: Reason) -> &'static str {
             "Over the websocket only (`DOC_REFUSED`). As many connections are in the room \
              of the card's body as may be (setting `collab_connections_per_document`). \
              Try again when one has left."
+        }
+        Reason::TooManyConnectionsJoined => {
+            "Over the websocket only (`DOC_REFUSED`). As many of the user's own connections \
+             are in the room of the card's body as one user's may be (setting \
+             `collab_connections_per_user`): the card is open in that many tabs or \
+             devices. Close one of them."
         }
         Reason::TooManyFrames => {
             "Over the websocket only (`DOC_REFUSED`, `DOC_LEFT`). The connection sent the \

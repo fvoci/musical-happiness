@@ -1,0 +1,179 @@
+//! The rooms beside what an organization's administrators do to its workspaces: a
+//! workspace put in the trash or removed for good, and an administrator who leaves a
+//! workspace they joined, empty the rooms of its cards of the people they concern, at
+//! the next asking.
+
+use fvoci_model::{BoardMember, BoardType, Card, WorkspaceRole};
+use serde_json::json;
+
+use crate::boards::new_board;
+use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::org_admin::{let_in, make_workspace, org_of};
+use crate::rooms::{Peer, give, no_rooms, paragraphs, table};
+
+/// A server that asks every second whether who is in a room may be there.
+fn asking_often() -> Setup {
+    Setup::native().configure(|config| config.collab.collab_recheck_seconds = 1)
+}
+
+/// A card with a body on a private board of the workspace, made by the first user.
+async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
+    let board = th.create_board(workspace_id, BoardType::Private).await;
+    let card: Card = th
+        .client
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &json!({"title": "Theirs", "body": paragraphs(&["first"])}),
+        )
+        .await
+        .created_json();
+    (board.id, card.id)
+}
+
+/// A workspace put in the trash is not there for its members: who is in the room of
+/// one of its cards is put out at the next asking, as for a card that is not there.
+/// Brought back, the card is as it was, with what was typed. Removed for good while
+/// its room is open, it empties the room the same, and the server goes on with the
+/// rooms of other workspaces.
+#[tokio::test]
+async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_cards() {
+    let th = asking_often().start().await.init_basic().await;
+    let org_id = org_of(&th).await;
+    let member = th.client2.me().await.id;
+    let workspace = make_workspace(&th, &org_id, "Ops").await;
+    let place = format!("/org/{org_id}/workspaces/{workspace}");
+    th.client
+        .post_empty(&format!("{place}/join"))
+        .await
+        .check_ok();
+    let_in(&th, &workspace, &member, WorkspaceRole::Member).await;
+    let (board_id, card_id) = card_in(&th, &workspace).await;
+    give(&th, &board_id, &member, "editor").await;
+    let mut one = Peer::connect(&th.client, 101).await;
+    let mut two = Peer::connect(&th.client2, 102).await;
+    one.joined(&workspace, &card_id).await;
+    two.joined(&workspace, &card_id).await;
+    one.write_acked("typed").await;
+    two.settle().await;
+
+    th.client.delete(&place).await.check_no_content();
+    for peer in [&mut one, &mut two] {
+        let left = peer.text("DOC_LEFT").await;
+        assert_eq!(
+            left,
+            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "not_found"}),
+            "put out of the room of a workspace in the trash"
+        );
+        let refused = peer.join(&workspace, &card_id).await;
+        assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    }
+    no_rooms(&th).await;
+
+    th.client
+        .post_empty(&format!("{place}/restore"))
+        .await
+        .check_ok();
+    one.joined(&workspace, &card_id).await;
+    two.joined(&workspace, &card_id).await;
+    assert_eq!(one.lines(), ["first", "typed"], "as it was");
+
+    // For good, with the room open: the trash emptied of it before the next asking.
+    th.client.delete(&place).await.check_no_content();
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspaces SET delete_at = 1 WHERE id = '{workspace}'"
+        ))
+        .await
+        .expect("the deletion is made an old one");
+    fvoci_server::keep_house(&th.app).await;
+    for peer in [&mut one, &mut two] {
+        let left = peer.text("DOC_LEFT").await;
+        assert_eq!(left["reason"], json!("not_found"), "{left}");
+        let refused = peer.join(&workspace, &card_id).await;
+        assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    }
+    no_rooms(&th).await;
+
+    // The rooms of another workspace are as they were.
+    let t = table(&th, &paragraphs(&["elsewhere"])).await;
+    one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    one.write_acked("goes on").await;
+    assert_eq!(one.lines(), ["elsewhere", "goes on"]);
+    th.teardown().await;
+}
+
+/// An administrator of the organization joins a workspace as its administrator, gives
+/// themselves a role on one of its boards and writes a card's body there with a
+/// member. When they leave the workspace again, the role goes with the joining: they
+/// are put out of the room at the next asking, and the member writes on.
+#[tokio::test]
+async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms() {
+    let th = asking_often().start().await.init_basic().await;
+    let org_id = org_of(&th).await;
+    let (admin, member) = (th.client.me().await.id, th.client2.me().await.id);
+    let workspace = make_workspace(&th, &org_id, "Research").await;
+    let place = format!("/org/{org_id}/workspaces/{workspace}");
+    let_in(&th, &workspace, &member, WorkspaceRole::Member).await;
+    let board: fvoci_model::Board = th
+        .client2
+        .create_board(&new_board(&workspace, BoardType::Private, "Theirs"))
+        .await
+        .created_json();
+    let card: Card = th
+        .client2
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &json!({"title": "Theirs", "body": paragraphs(&["first"])}),
+        )
+        .await
+        .created_json();
+    let mut joined = Peer::connect(&th.client, 101).await;
+    let mut theirs = Peer::connect(&th.client2, 102).await;
+    theirs.joined(&workspace, &card.id).await;
+
+    // No member of the workspace: the card is not there for them.
+    let refused = joined.join(&workspace, &card.id).await;
+    assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    th.client
+        .post_empty(&format!("{place}/join"))
+        .await
+        .check_ok();
+    // Its administrator now, who reads no board for the invited only without a role.
+    let refused = joined.join(&workspace, &card.id).await;
+    assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    th.client
+        .add_member(&BoardMember {
+            board_id: board.id.clone(),
+            user_id: admin,
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
+        .await
+        .check_ok();
+    let entered = joined.joined(&workspace, &card.id).await;
+    assert_eq!(entered["mode"], json!("write"), "{entered}");
+    joined.write_acked("by the administrator").await;
+    theirs.settle().await;
+
+    th.client
+        .post_empty(&format!("{place}/leave"))
+        .await
+        .check_ok();
+    let left = joined.text("DOC_LEFT").await;
+    assert_eq!(
+        left,
+        json!({"action": "DOC_LEFT", "doc": joined.doc, "reason": "not_found"})
+    );
+    let refused = joined.join(&workspace, &card.id).await;
+    assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    theirs.write_acked("by the member, after").await;
+    assert_eq!(
+        theirs.lines(),
+        ["first", "by the administrator", "by the member, after"]
+    );
+    assert!(theirs.unread().is_empty(), "{:?}", theirs.unread());
+    drop((joined, theirs));
+    no_rooms(&th).await;
+    th.teardown().await;
+}

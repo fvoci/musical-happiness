@@ -51,7 +51,13 @@ fn report(line: &str) {
 async fn twenty_connections_edit_one_body() {
     const PEERS: usize = 20;
     const ROUNDS: usize = 5;
-    let th = Setup::native().start().await.init_basic().await;
+    let th = Setup::native()
+        // All twenty are one user's.
+        .configure(|config| config.collab.collab_connections_per_user = 20)
+        .start()
+        .await
+        .init_basic()
+        .await;
     let t = table(&th, &paragraphs(&["first"])).await;
     let before = resident_kib(std::process::id());
     let mut peers = Vec::new();

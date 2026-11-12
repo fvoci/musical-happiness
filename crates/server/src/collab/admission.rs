@@ -1,8 +1,6 @@
 //! Who is let into the room of a card's body, and how: asked when a connection
 //! comes in, and again while it is there.
 
-use fvoci_model::BlockType;
-
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{DocMode, doc_mode};
@@ -23,8 +21,9 @@ pub(super) struct Admitted {
 /// the connection's handshake reached it.
 ///
 /// Whoever is in the workspace is asked the same of the store whether the card is
-/// there or not ([`App::board_access`]), so that a card that is not there for the
-/// user takes as long to refuse as one that does not exist.
+/// there or not ([`App::board_access`]), and of the card only which board it is on
+/// (`Store::board_of_card`), never its body: a card that is not there for the user
+/// takes as long to refuse as one that does not exist, however large its body is.
 ///
 /// # Errors
 ///
@@ -42,16 +41,15 @@ pub(super) async fn admit(
         return Ok(None);
     };
     let app = entered.app;
-    let card = match app.store().get_block(card_id).await {
-        Ok(block) => (block.block_type == BlockType::Card).then_some(block),
-        Err(error) if error.is_not_found() => None,
-        Err(error) => return Err(AppError::from(error).context("reading a card to enter its room")),
-    };
-    let board_id = card.as_ref().map_or("", |card| card.board_id.as_str());
+    // The card's board and nothing else of the card: its body is read once the user
+    // is let in, so that a refusal costs the same whatever the body is.
+    let board_id = app.store().board_of_card(card_id).await.map_err(|error| {
+        AppError::from(error).context("reading a card's board to enter its room")
+    })?;
     let mode = app
-        .board_access(user_id, board_id)
+        .board_access(user_id, board_id.as_deref().unwrap_or_default())
         .await?
         .filter(|access| access.board.workspace_id == workspace_id)
         .and_then(|access| doc_mode(access.grant));
-    Ok(card.zip(mode).map(|(_, mode)| Admitted { app, mode }))
+    Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
 }

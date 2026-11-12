@@ -64,7 +64,13 @@ async fn a_connection_is_in_eight_rooms_and_no_more() {
 /// Fifty connections are in the room of a body, and no fifty-first until one leaves.
 #[tokio::test]
 async fn fifty_connections_are_in_a_room_and_no_more() {
-    let th = Setup::native().start().await.init_basic().await;
+    let th = Setup::native()
+        // One user's here: the limit of one user's is another test's.
+        .configure(|config| config.collab.collab_connections_per_user = 50)
+        .start()
+        .await
+        .init_basic()
+        .await;
     let t = table(&th, &paragraphs(&["first"])).await;
     let mut peers = Vec::new();
     for client in 0..50 {
@@ -72,7 +78,9 @@ async fn fifty_connections_are_in_a_room_and_no_more() {
         peer.joined(TEST_WORKSPACE_ID, &t.card_id).await;
         peers.push(peer);
     }
-    let mut late = Peer::connect(&th.client, 200).await;
+    // Another user's, so that it is the room that is full and not the user's share.
+    give(&th, &t.board_id, &th.client2.me().await.id, "viewer").await;
+    let mut late = Peer::connect(&th.client2, 200).await;
     let refused = late.join(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(refused["reason"], json!("document_full"), "{refused}");
     // Who is in it comes in anew all the same, and all are sent what one writes.
@@ -97,6 +105,42 @@ async fn fifty_connections_are_in_a_room_and_no_more() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     late.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    th.teardown().await;
+}
+
+/// Five connections of one user are in the room of a body, and no sixth until one of
+/// them leaves; another user's comes in beside them, and one of the five comes in
+/// anew.
+#[tokio::test]
+async fn five_connections_of_a_user_are_in_a_room_and_no_sixth() {
+    let th = Setup::native().start().await.init_basic().await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    give(&th, &t.board_id, &th.client2.me().await.id, "viewer").await;
+    let mut tabs = Vec::new();
+    for client in 0..5 {
+        let mut tab = Peer::connect(&th.client, 100 + client).await;
+        tab.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+        tabs.push(tab);
+    }
+    let mut sixth = Peer::connect(&th.client, 200).await;
+    let refused = sixth.join(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(
+        refused,
+        json!({
+            "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+            "reason": "too_many_connections_joined",
+        })
+    );
+    let mut another = Peer::connect(&th.client2, 201).await;
+    another.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    tabs[0].joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    let app = room_app(&th).await;
+    assert_eq!(th.app.collab().room_members(&app, &t.card_id).await, 6);
+    tabs[1].leave().await;
+    while th.app.collab().room_members(&app, &t.card_id).await == 6 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    sixth.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     th.teardown().await;
 }
 

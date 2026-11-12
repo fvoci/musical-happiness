@@ -5,7 +5,7 @@ use anyhow::bail;
 use serde::Deserialize;
 
 /// The variables of the environment of these keys ([`super::ENV_KEYS`]).
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 11] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 12] = [
     ("collab_workers", super::EnvKind::Number),
     ("collab_documents_per_worker", super::EnvKind::Number),
     ("collab_state_bytes", super::EnvKind::Number),
@@ -15,6 +15,7 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 11] = [
     ("collab_recheck_seconds", super::EnvKind::Number),
     ("collab_documents_per_connection", super::EnvKind::Number),
     ("collab_connections_per_document", super::EnvKind::Number),
+    ("collab_connections_per_user", super::EnvKind::Number),
     ("collab_frames_per_second", super::EnvKind::Number),
     ("collab_queue_messages", super::EnvKind::Number),
 ];
@@ -47,6 +48,9 @@ pub struct CollabSettings {
     pub collab_documents_per_connection: u32,
     /// How many websocket connections may be in the room of one body. 1 to 10000.
     pub collab_connections_per_document: u32,
+    /// How many of the websocket connections in the room of one body may be one
+    /// user's. 1 to 10000.
+    pub collab_connections_per_user: u32,
     /// How many frames of the rooms one websocket connection may send in a second,
     /// and at once after a pause; a `JOIN_DOC` and a sync step 1 count as five. 10
     /// to 1000000.
@@ -112,6 +116,7 @@ impl Default for CollabSettings {
             collab_recheck_seconds: 30,
             collab_documents_per_connection: 8,
             collab_connections_per_document: 50,
+            collab_connections_per_user: 5,
             collab_frames_per_second: 50,
             collab_queue_messages: 512,
             worker_command: None,
@@ -180,6 +185,11 @@ impl CollabSettings {
             (
                 "collab_connections_per_document",
                 self.collab_connections_per_document,
+                1..=10_000,
+            ),
+            (
+                "collab_connections_per_user",
+                self.collab_connections_per_user,
                 1..=10_000,
             ),
             (
@@ -277,6 +287,14 @@ mod tests {
         refused(
             |s| s.collab_connections_per_document = 10_001,
             "collab_connections_per_document",
+        );
+        refused(
+            |s| s.collab_connections_per_user = 0,
+            "collab_connections_per_user",
+        );
+        refused(
+            |s| s.collab_connections_per_user = 10_001,
+            "collab_connections_per_user",
         );
         refused(
             |s| s.collab_frames_per_second = LEAST_FRAMES_PER_SECOND - 1,

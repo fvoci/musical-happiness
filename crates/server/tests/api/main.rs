@@ -57,6 +57,8 @@ mod rooms_contract;
 mod rooms_epochs;
 mod rooms_limits;
 mod rooms_measure;
+mod rooms_org;
+mod rooms_review;
 mod search;
 mod server_lock;
 mod sharing;

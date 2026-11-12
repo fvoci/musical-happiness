@@ -4,7 +4,7 @@
 use serde_json::json;
 
 use crate::common::{Setup, TEST_WORKSPACE_ID};
-use crate::rooms::{Incoming, QUIET, UPDATE, frame, give, paragraphs, two_in_a_room};
+use crate::rooms::{Incoming, QUIET, UPDATE, frame, give, no_rooms, paragraphs, two_in_a_room};
 
 /// A server that asks every second whether who is in a room may be there.
 fn asking_often() -> Setup {
@@ -111,5 +111,47 @@ async fn the_room_of_a_deleted_card_is_emptied() {
         );
     }
     crate::rooms::no_rooms(&th).await;
+    th.teardown().await;
+}
+
+/// The store cannot be asked about who is in a room: asked once more two seconds
+/// later, it answers, and nobody is put out; when it does not answer then either,
+/// everybody is, with the reason it gave. The memberships of the boards are out of the
+/// store's reach meanwhile: their table has another name.
+#[tokio::test]
+async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_failed_does() {
+    let th = asking_often().start().await.init_basic().await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let rename = async |from: &str, to: &str| {
+        th.app
+            .store()
+            .execute_unchecked(&format!("ALTER TABLE {from} RENAME TO {to}"))
+            .await
+            .expect("the table of the memberships is renamed");
+    };
+    // For longer than the time between two askings, and less than until the second.
+    rename("board_members", "board_members_away").await;
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    rename("board_members_away", "board_members").await;
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    for peer in [&mut one, &mut two] {
+        assert_eq!(peer.incoming(QUIET).await, Incoming::Nothing, "stays in");
+    }
+    one.write_acked("after the store came back").await;
+    two.settle().await;
+    assert_eq!(two.lines(), ["first", "after the store came back"]);
+
+    rename("board_members", "board_members_away").await;
+    for peer in [&mut one, &mut two] {
+        let left = peer.text("DOC_LEFT").await;
+        assert_eq!(
+            left,
+            json!({"action": "DOC_LEFT", "doc": peer.doc, "reason": "internal"})
+        );
+    }
+    rename("board_members_away", "board_members").await;
+    no_rooms(&th).await;
+    one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(one.lines(), ["first", "after the store came back"]);
     th.teardown().await;
 }

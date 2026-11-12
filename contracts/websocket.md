@@ -1,6 +1,6 @@
 # WebSocket `/ws`의 메시지
 
-적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 01:05 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
+적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다.
 - 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
@@ -144,7 +144,7 @@
 | `DOC_JOINED` | `workspaceId`, `cardId`, `doc`, `epoch`, `mode` | 방에 들었다. `doc`은 이 연결에서 그 방을 가리키는 번호(1부터, 들어올 때마다 새 번호)이고 뒤의 메시지와 프레임이 모두 이 번호로 방을 가리킨다. `epoch`은 문서의 세대(아래), `mode`는 `write`나 `read`. **그 방의 다음 Binary 프레임이 문서 전체다**(sync step 2. 그 사이에 다른 방이나 구독의 메시지가 낄 수 있다) |
 | `DOC_REFUSED` | `workspaceId`, `cardId`, `reason` | 들지 못했다. `reason`은 아래 표 |
 
-- **누가 드나.** 카드의 보드에서 카드를 고칠 수 있으면(편집 역할부터) `write`, 보드를 읽을 수만 있으면(보기·댓글 역할, 열린 템플릿을 읽는 워크스페이스 구성원) `read`로 든다. 그 밖의 사용자, 세션 없는 연결(공유 보드를 읽기 토큰으로 따라가는 연결도), 없는 카드, 카드가 아닌 블록, `workspaceId`가 카드의 보드가 있는 워크스페이스가 아닌 것은 모두 `reason`이 `not_found`인 같은 `DOC_REFUSED`다. `workspaceId`나 `cardId`가 64바이트를 넘는 `JOIN_DOC`은 답 없이 버린다.
+- **누가 드나.** 카드의 보드에서 카드를 고칠 수 있으면(편집 역할부터) `write`, 보드를 읽을 수만 있으면(보기·댓글 역할, 열린 템플릿을 읽는 워크스페이스 구성원) `read`로 든다. 그 밖의 사용자, 세션 없는 연결(공유 보드를 읽기 토큰으로 따라가는 연결도), 없는 카드, 카드가 아닌 블록, `workspaceId`가 카드의 보드가 있는 워크스페이스가 아닌 것은 모두 `reason`이 `not_found`인 같은 `DOC_REFUSED`다. `workspaceId`나 `cardId`가 64바이트를 넘는 `JOIN_DOC`은 답 없이 버린다. 들 수 있는지는 카드가 어느 보드의 것인지만 읽어 가른다: 본문은 들인 뒤에 읽으므로 거절은 본문의 크기와 상관없이 같은 일을 한다.
 - **클라이언트는 빈 문서로 든다.** 문서는 서버가 카드의 본문에서 만든다. 클라이언트가 본문에서 스스로 만든 문서는 서버의 것과 다른 문서여서 합치면 내용이 두 번 든다.
 - 이미 든 카드에 다시 `JOIN_DOC`을 보내면 새 번호로 새로 들고(문서 전체를 다시 받는다) 앞의 번호는 더 방이 아니다(그 번호의 기다리던 Binary 프레임은 버려진다). 거절되면 앞의 것이 그대로다.
 - `LEAVE_DOC`(`doc`)으로 나온다. 연결이 끊겨도 나온다. 나온 뒤에도 그 번호로 이미 보낸 것이 조금 더 올 수 있다: 모르는 번호의 메시지와 프레임은 버린다.
@@ -181,7 +181,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `DOC_NACK` | `doc`, `epoch`, `reason` | 보낸 변경을 받아들이지 않았다. 문서는 그대로이고 누구에게도 가지 않았다 |
 | `DOC_RESET` | `doc`, `epoch` | 문서를 다시 보낸다. **그 방의 다음 Binary 프레임이 문서 전체다**(step 2. 세대, 아래) |
 | `DOC_MODE` | `doc`, `mode` | 이 연결이 이제부터 `write`나 `read`다(아래 "방에 있는 동안") |
-| `DOC_LEFT` | `doc`, `reason` | 서버가 이 연결을 방에서 내보냈다. 그 번호는 더 방이 아니다. 그 방에서 이미 정해진 답(`DOC_JOINED`, `DOC_ACK`, `DOC_NACK`, `DOC_MODE`)은 이보다 먼저 오고, 기다리던 그 방의 Binary 프레임은 버려진다 |
+| `DOC_LEFT` | `doc`, `reason` | 서버가 이 연결을 방에서 내보냈다. 그 번호는 더 방이 아니다. 그 방에서 이미 정해진 답(`DOC_JOINED`, `DOC_ACK`, `DOC_NACK`, `DOC_MODE`)은 이보다 먼저 오고, 기다리던 그 방의 Binary 프레임은 버려진다. 보낼 줄이 차서 내보내는 때에도 그렇다: 기록에 적힌 변경의 `DOC_ACK`는 줄이 찼어도 실리고 그 뒤에 `DOC_LEFT`가 온다 |
 
 - **기록이 먼저다.** 변경은 서버가 문서에 넣고 기록(DB)에 적은 뒤에만 나간다: 보낸 연결에 `DOC_ACK`, 방의 다른 연결에 update 프레임. 보낸 연결에는 자기 변경이 돌아오지 않는다. 방의 연결들은 변경을 기록의 순서대로 받는다.
 - **변경 프레임 하나에 답 하나.** 방에 든 연결이 보낸 update·step 2 프레임마다 `DOC_ACK`나 `DOC_NACK`가 보낸 순서대로 하나씩 온다. `epoch`은 그 프레임이 실은 값 그대로다. `DOC_LEFT`를 받은 방의 것은 더 오지 않는다.
@@ -192,7 +192,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 서버는 설정 `collab_recheck_seconds`(기본 30초)마다 방의 연결마다 들어올 때와 같은 것을 다시 묻는다(같은 사용자의 연결들은 한 번에).
 
-- 더 읽을 수 없으면(보드에서 빠졌다, 워크스페이스에서 빠졌다, 카드가 지워졌거나 다른 워크스페이스의 보드로 갔다) `reason`이 `not_found`인 `DOC_LEFT`로 내보낸다. 물을 수 없었을 때(저장소의 오류)는 그 오류의 `reason`으로, 한 간격 안에 답을 얻지 못했을 때는 `document_unavailable`로 내보낸다: 확인되지 않은 연결은 방에 남지 않는다.
+- 더 읽을 수 없으면(보드에서 빠졌다, 워크스페이스에서 빠졌다, 카드가 지워졌거나 다른 워크스페이스의 보드로 갔다) `reason`이 `not_found`인 `DOC_LEFT`로 내보낸다. 물을 수 없었을 때(저장소의 오류, 한 간격 안에 답이 없음)는 2초 뒤에 한 번 더 묻고, 그래도 답이 없으면 그 오류의 `reason`(답이 없었으면 `document_unavailable`)으로 내보낸다: 확인되지 않은 연결은 방에 남지 않는다.
 - 쓰던 연결이 읽을 수만 있게 됐으면 `DOC_MODE`(`read`)를 보내고 그 뒤의 변경은 `DOC_NACK`(`document_read_only`)이다. 반대로 쓸 수 있게 됐으면 `DOC_MODE`(`write`)다.
 - 그 사이(보통 그 간격 안, 길어야 그 두 배)에는 들어올 때의 방식 그대로다. 구성원이 바뀌는 순간에 곧바로 내보내는 것은 아직 없다. 세션이 끝난 연결은 연결째 닫힌다(3절).
 
@@ -220,6 +220,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `too_many_documents` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 서버가 쥘 수 있는 문서가 다 찼다 |
 | `document_unavailable` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 지금 그 문서를 다룰 수 없다(작업자가 죽었거나 답하지 않았다, 문서가 잠시 닫혔다, 서버가 멈추는 중이다). 그 변경은 문서에 없다 |
 | `too_many_documents_joined` | `DOC_REFUSED` | 이 연결이 이미 `collab_documents_per_connection`(기본 8)개의 방에 들어 있다. 이미 든 카드에 다시 드는 것은 세지 않는다 |
+| `too_many_connections_joined` | `DOC_REFUSED` | 그 방에 이 사용자의 연결이 이미 `collab_connections_per_user`(기본 5)개 들어 있다(같은 카드를 연 탭과 기기). 이미 든 연결이 다시 드는 것은 세지 않는다 |
 | `document_full` | `DOC_REFUSED` | 그 방에 이미 `collab_connections_per_document`(기본 50)개의 연결이 들어 있다 |
 | `too_many_frames` | `DOC_REFUSED`, `DOC_LEFT` | 이 연결이 `collab_frames_per_second`(기본 50)보다 빨리 보냈다. 쉬고 난 뒤에는 그만큼을 한꺼번에, 그 뒤로 1초에 그만큼씩 보낼 수 있다. Binary 프레임은 모두 하나로(들지 않은 방의 것도, 프레임이 아닌 것도), 문서 전체로 답하는 `JOIN_DOC`과 step 1은 다섯으로, `LEAVE_DOC`은 하나로 센다(나가기는 넘어도 된다). 서버가 이 연결의 일을 하느라 읽지 못한 시간의 몫은 그대로 받는다. 넘은 `JOIN_DOC`은 거절되고, 넘은 프레임은 그 프레임의 방에서 이 연결을 내보낸다: 그 프레임이 실은 것을 방이 받지 않았으므로 다시 들어 문서를 새로 받는다. |
 | `connection_too_slow` | `DOC_LEFT`, `DOC_REFUSED` | 이 연결에 보낼 방의 메시지가 `collab_queue_messages`(기본 512)개, 또는 `collab_state_bytes`의 두 배(바이트)를 넘게 쌓였다(읽지 않는 연결. step 1을 답을 읽지 않고 거듭 보내도 그렇다). 방의 다른 연결은 그대로 받는다. 다시 들면 문서 전체를 받는다 |

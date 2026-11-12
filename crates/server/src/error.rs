@@ -221,6 +221,8 @@ reasons! {
     TooManyDocumentsJoined => "too_many_documents_joined", "Connection in too many documents";
     /// As many websocket connections are in the room of the body as may be.
     DocumentFull => "document_full", "Document full";
+    /// As many of the user's websocket connections are in the room of the body as may be.
+    TooManyConnectionsJoined => "too_many_connections_joined", "Too many connections of one user";
     /// The websocket connection sends more of the rooms in a second than it may.
     TooManyFrames => "too_many_frames", "Too many frames";
     /// The server has no `secret_key` to seal a provider's client secret with.
