@@ -740,7 +740,9 @@ async fn the_instance_is_administered_through_its_own_organization_only() {
              VALUES ('{other_org}', '{instance_admin}', 'member', 1)"
         ),
     ] {
-        test.execute_unchecked(&statement)
+        // Through the other organization's handle: its wall takes its rows only.
+        theirs
+            .execute_unchecked(&statement)
             .await
             .expect("the roles in the other organization");
     }
