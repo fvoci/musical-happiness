@@ -18,12 +18,42 @@
  */
 import type { CalendarDate } from './dates.ts';
 import { propertyBehavior } from './properties.ts';
-import { cardProperty, parseRelationValue, type Card, type PropertyTemplate } from './wire.ts';
+import {
+  cardProperties,
+  cardProperty,
+  parseRelationValue,
+  RELATION_LIMIT,
+  type Card,
+  type PropertyTemplate,
+  type PropertyValue,
+} from './wire.ts';
 
 /** `from` is named in the relation value of `to`. */
 export interface RelationEdge {
   from: string;
   to: string;
+}
+
+/**
+ * The property values a copy of `card` on its own board is made with: a
+ * relation names the cards of `cardIds` it named, each once, not `card`
+ * itself, at most RELATION_LIMIT. `cardIds` are the cards a copy may name,
+ * those in the board's trash too: the caller knows which those are. Other
+ * values are as they are.
+ */
+export function valuesOfCopy(
+  card: Card,
+  templates: readonly PropertyTemplate[],
+  cardIds: ReadonlySet<string>,
+): Record<string, PropertyValue> {
+  const values = { ...cardProperties(card) };
+  for (const template of templates) {
+    if (template.type !== 'relation' || values[template.id] === undefined) continue;
+    values[template.id] = parseRelationValue(values[template.id])
+      .filter((id) => id !== card.id && cardIds.has(id))
+      .slice(0, RELATION_LIMIT);
+  }
+  return values;
 }
 
 /** The identifiers in a card's value that name no card in `cardIds` (deleted ones). */

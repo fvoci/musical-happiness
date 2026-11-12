@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use crate::Store;
 use crate::boards;
-use crate::card_values;
+use crate::card_values::{self, NamedCards};
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
@@ -490,10 +490,16 @@ impl Store {
             let mut copies = Vec::with_capacity(children.len() + 1);
             copies.push(root);
             copies.extend(children);
+            // What the source holds is settled before the copies are named, so that a
+            // value that named its own card names no card; a copy on the same board then
+            // names the cards its source named.
+            let definitions = boards::find_board(scope, board_id)
+                .await?
+                .map(|board| board.card_properties)
+                .unwrap_or_default();
+            card_values::clear_copied_values(&mut copies, &definitions);
             generate_block_ids(&mut copies);
-            if let Some(board) = boards::find_board(scope, board_id).await? {
-                card_values::clear_copied_values(&mut copies, &board.card_properties);
-            }
+            card_values::keep_cards_of_board(scope, &mut copies, board_id, &definitions).await?;
             insert_blocks(scope, &mut copies, user_id, NewImages::Unchecked).await?;
             Ok(copies)
         })
@@ -651,18 +657,21 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    insert_block_at(scope, block, user_id, None, NewImages::Recorded).await
+    let named = insert_block_at(scope, block, user_id, None, NewImages::Recorded).await?;
+    card_values::check_named_cards(scope, &named).await
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`. The images it shows newly are asked as `new_images` says.
+/// that is `None`. The images it shows newly are asked as `new_images` says. Returns the
+/// cards its relation values newly name, which the caller asks for once the write is
+/// stored ([`card_values::check_named_cards`]).
 async fn insert_block_at(
     scope: &mut Scope<'_>,
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
     new_images: NewImages,
-) -> Result<(), StoreError> {
+) -> Result<Vec<NamedCards>, StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
         source,
@@ -698,7 +707,7 @@ async fn insert_block_at(
 
     let existing = find_block(scope, &block.id).await?;
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
-    card_values::check_written_kinds(scope, block, existing.as_ref()).await?;
+    let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
         // Every change of a block moves its `updateAt` on, also within one millisecond
         // and when the clock steps back: a writer that read the block before this
@@ -737,13 +746,14 @@ async fn insert_block_at(
             } else {
                 existing.edited_at
             };
-        file_refs::refresh(scope, block, new_images).await
+        file_refs::refresh(scope, block, new_images).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
-        insert_block_row(scope, block, new_images).await
+        insert_block_row(scope, block, new_images).await?;
     }
+    Ok(named)
 }
 
 /// Inserts a block row with every column as `block` has it. For a new block, and for
@@ -823,10 +833,15 @@ pub(crate) async fn insert_blocks(
     // decide the order they are listed in. With one time it is that of their
     // identifiers, which whoever made them made in the order that is meant.
     let now = now_millis();
+    // What relation values name is asked for once all are stored: two new cards may
+    // name each other.
+    let mut named = Vec::new();
     for index in parents_first(blocks) {
-        insert_block_at(scope, &mut blocks[index], user_id, Some(now), new_images).await?;
+        named.extend(
+            insert_block_at(scope, &mut blocks[index], user_id, Some(now), new_images).await?,
+        );
     }
-    Ok(())
+    card_values::check_named_cards(scope, &named).await
 }
 
 /// The positions of the blocks in an order in which every block comes after its parent,

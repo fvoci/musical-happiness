@@ -18,6 +18,7 @@
   import {
     BackendError,
     isBackendError,
+    whileHere,
     Workspace,
     type Account,
     type Registration,
@@ -113,7 +114,7 @@
       }
     }
     workspace?.close();
-    window.location.assign(router.href({}));
+    router.restart({});
   }
 
   // The root address: to the workspace the reader starts in, in its place.
@@ -176,7 +177,7 @@
       if (workspace && before) {
         const now = await workspace.backend.me().catch(() => undefined);
         if (now?.id === before.id) location.reload();
-        else location.assign(router.href({}));
+        else router.restart({});
         return;
       }
       await workspace?.load(router.route.workspaceId);
@@ -193,8 +194,9 @@
       if (made && workspace?.status === 'ready') {
         registered = undefined;
         if (login === made.username || login === made.email) {
-          const welcome = await workspace.onboard();
-          const where = workspace.info?.id;
+          const signedIn = workspace;
+          const where = signedIn.info?.id;
+          const welcome = await whileHere(signedIn, () => signedIn.onboard());
           // The page may be on it already (the first board is shown by itself).
           if (welcome && where && router.route.boardId !== welcome) {
             router.openBoard({ id: welcome, workspaceId: where });

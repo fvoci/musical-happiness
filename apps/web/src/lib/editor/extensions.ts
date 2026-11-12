@@ -18,7 +18,6 @@ import {
 import { Blockquote } from '@tiptap/extension-blockquote';
 import { Bold } from '@tiptap/extension-bold';
 import { Code } from '@tiptap/extension-code';
-import { CodeBlock } from '@tiptap/extension-code-block';
 import { Document } from '@tiptap/extension-document';
 import { HardBreak } from '@tiptap/extension-hard-break';
 import { Heading } from '@tiptap/extension-heading';
@@ -45,8 +44,9 @@ import {
   type Trigger,
 } from '@tiptap/suggestion';
 
-import { DiagramPreview } from './diagram-preview.ts';
+import { BodyCodeBlock } from './diagram-block.ts';
 import { IMAGE_ATTRIBUTES, LINK_ATTRIBUTES } from './drawing.ts';
+import { EditingPlace } from './editing-place.ts';
 import { findEmojiTrigger } from './emoji-trigger.ts';
 import { fileUrl } from './files.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
@@ -307,7 +307,7 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     TaskList,
     TaskItem.configure({ nested: true }),
     Blockquote,
-    CodeBlock,
+    BodyCodeBlock,
     HorizontalRule,
     HardBreak,
     FileImage,
@@ -327,6 +327,6 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     Gapcursor,
     Placeholder.configure({ placeholder: options.placeholder ?? '' }),
     EmojiSuggestion.configure(options.emoji ?? {}),
-    DiagramPreview,
+    EditingPlace,
   ];
 }

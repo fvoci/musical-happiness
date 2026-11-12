@@ -1,7 +1,8 @@
 /**
- * Formulas, diagrams and the emoji list in the editor, in a simulated page:
- * what typing turns into, what pasted markup becomes, and when the list of
- * emoji is asked for. Runs a real editor without layout.
+ * Formulas and the emoji list in the editor, in a simulated page: what
+ * typing turns into, what pasted markup becomes, and when the list of emoji
+ * is asked for. Runs a real editor without layout. Diagrams are in
+ * editor-diagrams.test.ts.
  */
 import { Editor } from '@tiptap/core';
 import { NodeSelection, Selection } from '@tiptap/pm/state';
@@ -139,49 +140,11 @@ describe('typing a formula', () => {
     expect(validateDoc(stored(list))).toEqual([]);
     expect(JSON.stringify(stored(list))).not.toContain('blockMath');
   });
-
-  it('opens the box for a new block formula on `$$` and a space, and adds nothing until it is applied', async () => {
-    const target = create();
-    type(target, '$$ ');
-    await vi.waitFor(() => {
-      expect(document.querySelector('.doc-math-editing')).not.toBeNull();
-    });
-    // Nothing is stored for a formula that has no source yet.
-    expect(stored(target)).toEqual(doc(paragraph()));
-    const box = document.querySelector<HTMLElement>('.doc-math-editing');
-    expect(box?.getAttribute('role')).toBe('dialog');
-    expect(box?.getAttribute('aria-label')).toBe('Edit formula');
-    const field = box?.querySelector('textarea');
-    expect(field?.getAttribute('aria-label')).toBe('LaTeX source');
-    expect(field?.getAttribute('maxlength')).toBe(String(MAX_LATEX));
-    expect(document.activeElement).toBe(field);
-
-    if (!field) throw new Error('no field');
-    field.value = 'a^2 + b^2';
-    field.dispatchEvent(new Event('input', { bubbles: true }));
-    field.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
-    );
-    expect(document.querySelector('.doc-math-editing')).toBeNull();
-    expect(stored(target)).toEqual(doc(mathBlock('a^2 + b^2'), paragraph()));
-  });
-
-  it('gives up a new formula on Escape', async () => {
-    const target = create();
-    type(target, '$$ ');
-    const field = await vi.waitFor(() => {
-      const found = document.querySelector<HTMLTextAreaElement>('.doc-math-editing textarea');
-      if (!found) throw new Error('not open yet');
-      return found;
-    });
-    field.value = 'x';
-    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(document.querySelector('.doc-math-editing')).toBeNull();
-    expect(stored(target)).toEqual(doc(paragraph()));
-  });
+  // `$$` and a space opens the place of a new block formula: editor-formula-blocks.test.ts.
 });
 
-describe('changing a formula', () => {
+// A block formula is changed in its place under it: editor-formula-blocks.test.ts.
+describe('changing a formula in a line', () => {
   const open = (target: Editor, position: number): HTMLTextAreaElement => {
     target.view.dispatch(
       target.state.tr.setSelection(NodeSelection.create(target.state.doc, position)),
@@ -208,7 +171,7 @@ describe('changing a formula', () => {
   });
 
   it('opens on a press, too', () => {
-    const target = create(doc(mathBlock('x')));
+    const target = create(doc(paragraph(math('x'))));
     target.view.dom.querySelector<HTMLElement>('.doc-math')?.click();
     expect(document.querySelector<HTMLTextAreaElement>('.doc-math-editing textarea')?.value).toBe(
       'x',
@@ -222,49 +185,48 @@ describe('changing a formula', () => {
     press(field, { key: 'Enter' });
     expect(stored(target)).toEqual(doc(paragraph(text('a  b'))));
 
-    const second = create(doc(mathBlock('x'), paragraph(text('after'))));
-    open(second, 0);
+    const second = create(doc(paragraph(math('x')), paragraph(text('after'))));
+    open(second, 1);
     document
       .querySelector<HTMLButtonElement>('.doc-math-editing button[data-action="remove"]')
       ?.click();
-    expect(stored(second)).toEqual(doc(paragraph(text('after'))));
+    expect(stored(second)).toEqual(doc(paragraph(), paragraph(text('after'))));
   });
 
   it('changes nothing on Escape, and nothing while an input method is composing', () => {
-    const target = create(doc(mathBlock('x')));
-    const field = open(target, 0);
+    const target = create(doc(paragraph(math('x'))));
+    const field = open(target, 1);
     field.value = 'changed';
-    // In a block formula Enter is a new line; while composing, no key is a command.
-    press(field, { key: 'Enter' });
-    press(field, { key: 'Enter', ctrlKey: true, isComposing: true });
+    // While an input method is composing, no key is a command.
+    press(field, { key: 'Enter', isComposing: true });
     press(field, { key: 'Escape', isComposing: true });
     expect(document.querySelector('.doc-math-editing')).not.toBeNull();
     press(field, { key: 'Escape' });
     expect(document.querySelector('.doc-math-editing')).toBeNull();
-    expect(stored(target)).toEqual(doc(mathBlock('x')));
+    expect(stored(target)).toEqual(doc(paragraph(math('x'))));
   });
 
   it('applies what was written when something else is pressed', () => {
-    const target = create(doc(mathBlock('x')));
-    const field = open(target, 0);
+    const target = create(doc(paragraph(math('x'))));
+    const field = open(target, 1);
     field.value = 'kept';
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-    expect(stored(target)).toEqual(doc(mathBlock('kept')));
+    expect(stored(target)).toEqual(doc(paragraph(math('kept'))));
   });
 
   it('does not open when the editor is read-only', () => {
-    const target = create(doc(mathBlock('x')));
+    const target = create(doc(paragraph(math('x'))));
     target.setEditable(false);
     target.view.dom.querySelector<HTMLElement>('.doc-math')?.click();
     expect(document.querySelector('.doc-math-editing')).toBeNull();
   });
 
   it('never keeps a source longer than the limit', () => {
-    const target = create(doc(mathBlock('x')));
-    const field = open(target, 0);
+    const target = create(doc(paragraph(math('x'))));
+    const field = open(target, 1);
     field.value = 'y'.repeat(MAX_LATEX + 50);
-    press(field, { key: 'Enter', ctrlKey: true });
-    expect(stored(target)).toEqual(doc(mathBlock('y'.repeat(MAX_LATEX))));
+    press(field, { key: 'Enter' });
+    expect(stored(target)).toEqual(doc(paragraph(math('y'.repeat(MAX_LATEX)))));
     expect(validateDoc(stored(target))).toEqual([]);
   });
 });
@@ -313,61 +275,6 @@ describe('formulas from elsewhere', () => {
     expect(target.getText()).toContain('a<b & "c"');
     // And reads it back as the same document.
     expect(stored(create(html))).toEqual(stored(target));
-  });
-});
-
-describe('a diagram while editing', () => {
-  const diagram = (source: string): DocNode => ({
-    type: 'codeBlock',
-    attrs: { language: 'mermaid' },
-    content: [text(source)],
-  });
-
-  it('gets a figure behind a code block in the language of diagrams, and only there', async () => {
-    const target = create(
-      doc(
-        diagram('flowchart LR\n  A --> B'),
-        { type: 'codeBlock', attrs: { language: 'ts' }, content: [text('x')] },
-        paragraph(),
-      ),
-    );
-    const blocks = Array.from(target.view.dom.querySelectorAll('pre'));
-    expect(blocks).toHaveLength(2);
-    expect(blocks[0]?.nextElementSibling?.classList.contains('doc-diagram')).toBe(true);
-    expect(blocks[1]?.nextElementSibling?.classList.contains('doc-diagram')).toBe(false);
-    // The source stays in sight and stays the document.
-    expect(blocks[0]?.hidden).toBe(false);
-    expect(stored(target).content?.[0]).toEqual(diagram('flowchart LR\n  A --> B'));
-    await vi.waitFor(() => {
-      expect(drawDiagram).toHaveBeenCalledWith('flowchart LR\n  A --> B');
-    });
-  });
-
-  it('draws again a moment after the source changes, once for a burst of typing', async () => {
-    vi.useFakeTimers();
-    try {
-      const target = create(doc(diagram('pie\n  "a" : 1')));
-      await vi.advanceTimersByTimeAsync(10);
-      expect(drawDiagram).toHaveBeenCalledTimes(1);
-      toEnd(target);
-      type(target, '\n  "b" : 2');
-      await vi.advanceTimersByTimeAsync(100);
-      expect(drawDiagram).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1000);
-      expect(drawDiagram).toHaveBeenCalledTimes(2);
-      expect(drawDiagram).toHaveBeenLastCalledWith('pie\n  "a" : 1\n  "b" : 2');
-      // The figure is the same element throughout: the picture does not blink.
-      expect(target.view.dom.querySelectorAll('.doc-diagram')).toHaveLength(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('drops the figure when the block stops being a diagram', () => {
-    const target = create(doc(diagram('pie')));
-    expect(target.view.dom.querySelector('.doc-diagram')).not.toBeNull();
-    target.commands.updateAttributes('codeBlock', { language: 'text' });
-    expect(target.view.dom.querySelector('.doc-diagram')).toBeNull();
   });
 });
 

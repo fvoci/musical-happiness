@@ -1,25 +1,23 @@
 /**
- * The small box in which the source of a formula is written or changed.
+ * The small box in which the source of a formula in a line is changed. (A
+ * block formula is changed in its place under it: math-block.ts.)
  *
- * It opens under the formula (or under the line a new one is going into)
- * with the source in a text field and the drawn formula below it, redrawn as
- * the source changes; a source that cannot be drawn shows why instead. Plain
- * DOM, styled by editor.css: this layer cannot use the app's popover.
+ * It opens under the formula with the source in a text field and the drawn
+ * formula below it, redrawn as the source changes; a source that cannot be
+ * drawn shows why instead. Plain DOM, styled by editor.css: this layer cannot
+ * use the app's popover.
  *
- * Enter applies (in a block formula, where Enter makes a new line,
- * Ctrl+Enter or Cmd+Enter does), and so does moving on to something else.
- * Escape gives up the change. Applying an empty source removes the formula.
+ * Enter applies, and so does moving on to something else. Escape gives up
+ * the change. Applying an empty source removes the formula.
  */
 import { m } from '$lib/i18n/paraglide/messages.js';
 
-import { MATH_CLASS, MATH_SLOTS, MATH_SOURCE_ATTRIBUTE, type MathNodeName } from './drawing.ts';
+import { MATH_CLASS, MATH_SLOTS, MATH_SOURCE_ATTRIBUTE } from './drawing.ts';
 import { fillMath } from './embeds.ts';
 import { MAX_LATEX } from './schema.ts';
 
 export interface MathEditingOptions {
-  /** Which of the two kinds of formula. */
-  node: MathNodeName;
-  /** The source to start from; empty for a new formula. */
+  /** The source to start from. */
   latex: string;
   /** Where on the screen the formula is, now. Asked again when the window changes. */
   anchor: () => { left: number; top: number; bottom: number } | undefined;
@@ -31,7 +29,7 @@ export interface MathEditingOptions {
 }
 
 /** Builds the dialog controls before any listeners for its lifetime are installed. */
-function mathDialog(page: Document, block: boolean, options: MathEditingOptions) {
+function mathDialog(page: Document, options: MathEditingOptions) {
   const box = page.createElement('div');
   box.setAttribute('class', 'doc-math-editing');
   box.setAttribute('role', 'dialog');
@@ -40,7 +38,7 @@ function mathDialog(page: Document, block: boolean, options: MathEditingOptions)
   const field = page.createElement('textarea');
   field.setAttribute('aria-label', m.editor_math_source());
   field.setAttribute('maxlength', String(MAX_LATEX));
-  field.setAttribute('rows', block ? '3' : '1');
+  field.setAttribute('rows', '1');
   field.setAttribute('spellcheck', 'false');
   field.setAttribute('autocapitalize', 'off');
   field.setAttribute('autocomplete', 'off');
@@ -52,7 +50,7 @@ function mathDialog(page: Document, block: boolean, options: MathEditingOptions)
 
   const hint = page.createElement('p');
   hint.setAttribute('class', 'doc-math-hint');
-  hint.append(page.createTextNode(block ? m.editor_math_hint_block() : m.editor_math_hint()));
+  hint.append(page.createTextNode(m.editor_math_hint()));
 
   const buttons = page.createElement('div');
   buttons.setAttribute('class', 'doc-math-buttons');
@@ -88,9 +86,7 @@ export function editMath(options: MathEditingOptions): void {
   open?.apply();
   const { page } = options;
   const view = page.defaultView;
-  const block = MATH_SLOTS[options.node].display;
-
-  const { box, field, preview, hint, buttons, button } = mathDialog(page, block, options);
+  const { box, field, preview, hint, buttons, button } = mathDialog(page, options);
 
   let done = false;
   let sequence = 0;
@@ -104,9 +100,9 @@ export function editMath(options: MathEditingOptions): void {
       return;
     }
     // Drawn aside and swapped in when ready, so that the preview does not blink.
-    const slot = page.createElement(MATH_SLOTS[options.node].tag);
+    const slot = page.createElement(MATH_SLOTS.inlineMath.tag);
     slot.setAttribute('class', MATH_CLASS);
-    slot.setAttribute('data-type', MATH_SLOTS[options.node].type);
+    slot.setAttribute('data-type', MATH_SLOTS.inlineMath.type);
     slot.setAttribute(MATH_SOURCE_ATTRIBUTE, latex);
     slot.append(page.createTextNode(latex));
     const holder = page.createElement('div');
@@ -163,7 +159,7 @@ export function editMath(options: MathEditingOptions): void {
       event.preventDefault();
       event.stopPropagation();
       cancel();
-    } else if (event.key === 'Enter' && (!block || event.ctrlKey || event.metaKey)) {
+    } else if (event.key === 'Enter') {
       event.preventDefault();
       apply();
     }

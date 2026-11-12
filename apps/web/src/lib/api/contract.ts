@@ -344,6 +344,16 @@ export interface paths {
         /**
          * Make a card
          * @description The server chooses the identifier, the creator and the times. For editors.
+         *
+         *     The value of a card relation property (of the `type` `relation`) is `null` or a list
+         *     of other cards of the board, in the trash or not, each once, at most 50 (a value over
+         *     it from before may be written with fewer of its cards, not with another). Any other is
+         *     400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,
+         *     `relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board
+         *     that is no card) or `relation_card_not_found`: no card of that identifier on the
+         *     board, which is also the answer for a card of another board. Every write of a card
+         *     checks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it
+         *     changes, and does not ask again for a card that a value named before.
          */
         post: operations["createCard"];
         delete?: never;
@@ -711,7 +721,7 @@ export interface paths {
         /**
          * Change a card
          * @description For editors of the card's board. To a user who is no member of that board there is
-         *     no such card.
+         *     no such card. The relation values it changes are checked as `createCard` says.
          */
         patch: operations["patchCard"];
         trace?: never;

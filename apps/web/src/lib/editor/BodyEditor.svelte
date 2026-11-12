@@ -25,6 +25,7 @@
 
   import type { BodyEditorProps } from './body-editor.ts';
   import './editor.css';
+  import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
   import { bodyExtensions } from './extensions.ts';
   import { cancelMathEditing } from './math-editing.ts';

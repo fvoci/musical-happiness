@@ -164,7 +164,14 @@
   {#if actions.length > 0}
     <ActionMenu bind:open={menuOpen} title={m.card_menu()} subtitle={cardTitle} {actions}>
       {#snippet trigger(props: Record<string, unknown>)}
-        <IconButton {...props} label={m.card_menu()} data-testid="card-menu">
+        <!-- The menu holds undo and redo: it says so while one of them waits for a write. -->
+        <IconButton
+          {...props}
+          label={m.card_menu()}
+          data-testid="card-menu"
+          aria-busy={workspace.undoBusy}
+          class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60"
+        >
           <EllipsisIcon aria-hidden="true" />
         </IconButton>
       {/snippet}

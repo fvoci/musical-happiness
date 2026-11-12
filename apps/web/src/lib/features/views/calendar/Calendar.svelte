@@ -224,9 +224,8 @@
   }
 
   /**
-   * How many drops are being written. Until the backend has answered, a
-   * drop is not yet a step that undo takes back (the step before it is):
-   * the calendar says it is settling meanwhile (`data-settling`), as a board does.
+   * How many drops are being written: until the backend has answered them,
+   * the calendar says it is settling (`data-settling`), as a board does.
    */
   let writing = $state(0);
 

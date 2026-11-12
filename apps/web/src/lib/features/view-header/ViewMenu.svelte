@@ -28,7 +28,7 @@
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardView } from '$lib/logic/wire.ts';
-  import type { BoardStore } from '$lib/state/index.ts';
+  import { whileHere, type BoardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
 
@@ -83,10 +83,8 @@
   }
 
   async function duplicate(): Promise<void> {
-    const copy = await board.duplicateView(
-      view.id,
-      m.viewheader_copy_title({ title: viewTitle(view) }),
-    );
+    const title = m.viewheader_copy_title({ title: viewTitle(view) });
+    const copy = await whileHere(board, () => board.duplicateView(view.id, title));
     if (copy) onOpenView(copy.id);
   }
 
