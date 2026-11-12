@@ -6,6 +6,7 @@
 //! differ go through [`Dialect`].
 
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fvoci_model::is_id;
@@ -261,8 +262,12 @@ pub(crate) struct Scope<'c> {
     /// it began.
     tenant: Tenant,
     /// Whether a statement ran that may have changed something: anything but a plain
-    /// `SELECT`.
+    /// `SELECT`. Set when the statement starts.
     wrote: bool,
+    /// Told the same, as the statement starts, if the call is watched: so that a call
+    /// given up while such a statement is under way is told as one that wrote
+    /// ([`crate::observe::Watch`]).
+    writes: Option<&'c AtomicBool>,
     /// How many earlier versions of a comment are kept
     /// ([`crate::Store::set_comment_versions_kept`]).
     comment_versions_kept: usize,
@@ -305,7 +310,21 @@ impl<'c> Scope<'c> {
             conn,
             tenant,
             wrote: false,
+            writes: None,
             comment_versions_kept,
+        }
+    }
+
+    /// The same scope, which also sets `writes` when a statement that may write starts.
+    pub(crate) fn reporting_writes_to(self, writes: Option<&'c AtomicBool>) -> Self {
+        Self { writes, ..self }
+    }
+
+    /// Notes that a statement that may write starts.
+    fn starts_writing(&mut self) {
+        self.wrote = true;
+        if let Some(writes) = self.writes {
+            writes.store(true, Ordering::Relaxed);
         }
     }
 
@@ -377,7 +396,9 @@ impl<'c> Scope<'c> {
     ///
     /// A value bound as an identifier that is not one matches no row.
     pub(crate) async fn fetch_all(&mut self, sql: Sql) -> Result<Vec<Row>, StoreError> {
-        self.wrote |= !is_plain_select(&sql.text);
+        if !is_plain_select(&sql.text) {
+            self.starts_writing();
+        }
         // The text is built from literals in this crate; every value is a bound
         // parameter.
         let text = AssertSqlSafe(sql.text);
@@ -412,7 +433,7 @@ impl<'c> Scope<'c> {
         if let Some(invalid) = sql.invalid_id {
             return Err(StoreError::InvalidId(invalid));
         }
-        self.wrote = true;
+        self.starts_writing();
         let text = AssertSqlSafe(sql.text);
         match &mut self.conn {
             ConnRef::Sqlite(conn) => Ok(bind_params!(sqlx::query(text), sql.params, sqlite_id)

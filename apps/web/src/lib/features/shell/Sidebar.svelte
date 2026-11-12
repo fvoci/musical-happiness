@@ -23,6 +23,7 @@
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
   import { boardTrash, type Category, type Trash, type Workspace } from '$lib/state/index.ts';
   import { Input } from '$lib/ui/input/index.js';
@@ -36,10 +37,10 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    boardHref: (boardId: string) => string;
+    boardHref: (board: BoardPlace) => string;
     /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
     beside: boolean;
-    onOpenBoard: (boardId: string) => void;
+    onOpenBoard: (board: BoardPlace) => void;
     onClose: () => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
@@ -57,8 +58,16 @@
   }: Props = $props();
 
   let query = $state('');
-  /** What the backend finds for the query beyond what the sidebar shows. */
-  const boardSearch = new BoardSearch((text) => workspace.searchBoards(text));
+  /**
+   * What the backend finds for the query beyond what the sidebar shows. The
+   * server searches every workspace the reader is in, those they are a guest
+   * of too; only boards of one they can be taken to are offered.
+   */
+  const boardSearch = new BoardSearch(async (text) =>
+    (await workspace.searchBoards(text)).filter((board) =>
+      workspace.workspaces.some((one) => one.id === board.workspaceId),
+    ),
+  );
   onDestroy(() => {
     boardSearch.stop();
   });
@@ -118,7 +127,7 @@
     // The page showed the board that is gone: show the first one that is left.
     if (board.id !== boardId || workspace.boards.some((left) => left.id === board.id)) return;
     const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
-    if (next) onOpenBoard(next.id);
+    if (next) onOpenBoard(next);
   }
 
   function confirmed(): void {

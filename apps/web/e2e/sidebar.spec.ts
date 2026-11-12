@@ -9,6 +9,7 @@
  */
 import { expect, test } from '@playwright/test';
 
+import { ON_A_BOARD, ON_A_VIEW } from './address.ts';
 import {
   boardLink,
   boardMenu,
@@ -154,7 +155,7 @@ test.describe('the shapes of the sidebar', () => {
     await expect(shell(page)).toHaveAttribute('data-sidebar', 'closed');
     await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
     await expect(page).not.toHaveURL(first);
-    await expect(page).toHaveURL(/\/board\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(ON_A_VIEW);
     const second = page.url();
 
     // The new address took the place of the drawer's step: one "back" is the board before.
@@ -270,7 +271,7 @@ test.describe('boards in the sidebar', () => {
     await showSidebar(page);
     await expect(boardLink(page, FIRST_BOARD)).toHaveAttribute('aria-current', 'page');
     // The links are real addresses: a new tab can be opened from them.
-    await expect(boardLink(page, 'Roadmap')).toHaveAttribute('href', /\/board\/[0-9a-f-]{36}$/);
+    await expect(boardLink(page, 'Roadmap')).toHaveAttribute('href', ON_A_BOARD);
 
     await boardLink(page, 'Roadmap').click();
     await expect(topBar(page).getByTestId('board-title')).toHaveValue('Roadmap');
@@ -547,7 +548,7 @@ test.describe('boards in the sidebar', () => {
     await page.getByTestId('template-picker').getByTestId('empty-board').click();
 
     await expect(page).not.toHaveURL(first);
-    await expect(page).toHaveURL(/\/board\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/);
+    await expect(page).toHaveURL(ON_A_VIEW);
     await expect(page.getByTestId('board-page')).toBeVisible();
     const title = topBar(page).getByTestId('board-title');
     await expect(title).toHaveValue('');

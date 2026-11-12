@@ -156,7 +156,7 @@ fn describe_kind(kind: ErrorKind) -> &'static str {
         ErrorKind::ServiceUnavailable => {
             "The server cannot serve for now: what it depends on does not answer. The \
              readiness check (`GET /api/v1/ready`) answers so while the database or the \
-             file storage cannot be reached; `detail` names which."
+             file storage cannot be used; `detail` names which."
         }
     }
 }

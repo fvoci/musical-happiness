@@ -14,6 +14,7 @@
  */
 import { expect, test, type Locator } from '@playwright/test';
 
+import { ON_A_CARD } from './address.ts';
 import {
   bars,
   calendar,
@@ -166,7 +167,7 @@ test('a card opens from its bar with a mouse, from the list of its day with a fi
     await list.locator('[data-card]').filter({ hasText: 'Drag cards' }).locator('a').click();
   }
   await expect(dialog(page)).toContainText('Drag cards');
-  await expect(page).toHaveURL(/\/board\/[^/]+\/[^/]+\/[^/]+$/);
+  await expect(page).toHaveURL(ON_A_CARD);
 });
 
 test('a narrow box has the small grid over the list of the picked day', async ({ page }, info) => {

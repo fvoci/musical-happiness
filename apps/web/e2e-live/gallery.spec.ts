@@ -6,13 +6,14 @@
 import { expect, test } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -87,12 +88,12 @@ test('a gallery shows each card’s first picture and the start of its text, rea
   });
 
   // The board's other view asks for no previews.
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await expect(page.locator(`[data-card="${sunset}"]`)).toBeVisible();
   expect(asked.some((url) => url.includes('preview=true'))).toBe(false);
 
-  await page.goto(`/board/${board.boardId}/${gallery?.id ?? ''}`);
+  await page.goto(boardPath(board, gallery?.id ?? ''));
   const card = page.getByTestId('gallery').locator(`[data-card="${sunset}"]`);
   const preview = card.locator('[data-slot="card-preview"]');
   await expect(preview).toContainText('Taken from the pier');

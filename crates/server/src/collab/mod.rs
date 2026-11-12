@@ -373,6 +373,11 @@ impl Collab {
     /// as its organization: for a server that starts. `app` reaches every organization.
     /// What cannot be written is logged and left for when the document is opened.
     pub async fn recover(&self, app: &App) {
+        // Writes to cards: only the server of the database does.
+        if let Err(error) = app.require_server_lock() {
+            tracing::warn!(%error, "the bodies a run that ended did not write are not written");
+            return;
+        }
         let unwritten = match app.store().unwritten_body_docs().await {
             Ok(unwritten) => unwritten,
             Err(error) => {

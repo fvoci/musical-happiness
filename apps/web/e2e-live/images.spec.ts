@@ -7,14 +7,15 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
+  type Person,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Person,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -69,7 +70,7 @@ test('an image pasted into the body is a file of the board, and is drawn from th
     members: [{ who: onlooker, role: 'viewer' }],
   });
   const cardId = board.cards['The view from the hill'] ?? '';
-  const path = `/board/${board.boardId}/${board.viewId}/${cardId}`;
+  const path = boardPath(board, board.viewId, cardId);
   const stored = async (): Promise<Schemas['Card']> =>
     (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
 
@@ -137,7 +138,7 @@ test('a card does not close at once while an image is still going up for its bod
   });
   const cardId = board.cards['Hold on'] ?? '';
   const errors = watchErrors(page);
-  await openCard(page, `/board/${board.boardId}/${board.viewId}/${cardId}`, owner);
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
 
   // The upload's completion waits until released: the image is still going up.

@@ -30,6 +30,7 @@
   import { tick, type Snippet } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
@@ -53,8 +54,8 @@
     /** The board that is shown, to mark it in the sidebar. */
     boardId: string | undefined;
     /** The address of a board, for a link to it. */
-    boardHref: (boardId: string) => string;
-    onOpenBoard: (boardId: string) => void;
+    boardHref: (board: BoardPlace) => string;
+    onOpenBoard: (board: BoardPlace) => void;
     /** The languages the app has, as tags, for the settings. */
     locales?: readonly string[];
     /** The reader's language setting: `auto`, or the one of `locales` it is shown in. */
@@ -157,8 +158,8 @@
   }
 
   /** A board was chosen. From the drawer, the router puts the new address in place of the drawer's entry. */
-  function openBoard(id: string): void {
-    onOpenBoard(id);
+  function openBoard(board: BoardPlace): void {
+    onOpenBoard(board);
     sidebar.drawerOpen = false;
   }
 
@@ -206,12 +207,12 @@
       m['View.NewBoardTitle'](),
       m.shell_new_board_status(),
     );
-    if (made) openBoard(made.id);
+    if (made) openBoard(made);
   }
 
   async function addBoardFromTemplate(template: Board): Promise<void> {
     const made = await workspace.createBoardFromTemplate(template.id);
-    if (made) openBoard(made.id);
+    if (made) openBoard(made);
   }
 
   function onkeydown(event: KeyboardEvent): void {
@@ -330,7 +331,7 @@
   onEmptyBoard={() => void addEmptyBoard()}
   onFromTemplate={(template: Board) => void addBoardFromTemplate(template)}
   onEditTemplate={(template: Board) => {
-    openBoard(template.id);
+    openBoard(template);
   }}
 />
 

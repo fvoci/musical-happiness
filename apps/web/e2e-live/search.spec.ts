@@ -7,7 +7,15 @@ import { expect, test } from '@playwright/test';
 
 import { boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.support.ts';
 
-import { makeBoard, person, register, signedIn, signInOnPage, watchErrors } from './support.ts';
+import {
+  boardPath,
+  makeBoard,
+  person,
+  register,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+} from './support.ts';
 
 test.use({ locale: 'en-US' });
 
@@ -24,7 +32,7 @@ test('the search finds boards on the server beyond what the sidebar shows', asyn
   await makeBoard(api, { title: `Hidden ${word} notes` });
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${shown.boardId}/${shown.viewId}`);
+  await page.goto(boardPath(shown, shown.viewId));
   await signInOnPage(page, owner);
   await chooseFromMenu(page, boardMenu(page, `Hidden ${word} notes`), 'hide');
 
@@ -50,7 +58,7 @@ test('the search finds boards on the server beyond what the sidebar shows', asyn
   // Opened from the results.
   await field.fill(`plan ${word}`);
   await more.getByRole('link', { name: `Orchard ${word} plan` }).click();
-  await expect(page).toHaveURL(new RegExp(`/board/${shown.boardId}`));
+  await expect(page).toHaveURL(new RegExp(boardPath(shown)));
   await expect(page.locator('[data-problem]')).toHaveCount(0);
 
   await api.dispose();
