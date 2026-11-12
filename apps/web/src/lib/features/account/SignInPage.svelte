@@ -209,6 +209,11 @@
     }
   }
 
+  /** Back from the provider by the browser's back button, the page as it was left: no longer busy. */
+  function onpageshow(event: PageTransitionEvent): void {
+    if (event.persisted) working = false;
+  }
+
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (working) return;
@@ -259,6 +264,8 @@
     fieldProblems = {};
   }
 </script>
+
+<svelte:window {onpageshow} />
 
 {#snippet fieldProblem(field: Field)}
   {#if fieldProblems[field]}

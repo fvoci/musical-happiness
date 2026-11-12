@@ -166,7 +166,10 @@ const OIDC_LOGIN_PAGE_UNAVAILABLE: &str = "Status 409 at the start of a sign-in 
     organization's provider; on the login page after one, whose reasons come back in the \
     `oidc_error` parameter of its address, by these names. This one: the organization has \
     no provider that is on, or the provider could not be reached, or it was switched off \
-    or changed while the person was signing in.";
+    or changed while the person was signing in; or the sign-in cannot end for a reason of \
+    the server's: the client secret does not open with its key, the account of the \
+    identity was deleted or changed meanwhile, no user name was free, or the server \
+    failed. The server's log says which.";
 
 fn describe_reason(reason: Reason) -> &'static str {
     match reason {
@@ -312,7 +315,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
         Reason::OidcStateInvalid => {
             "On the login page, after a sign-in through a provider. What came back is no \
              sign-in this browser started, or one that was used already or took longer than \
-             ten minutes. Start again from the login page."
+             ten minutes, or it came back to the address of another organization than the one \
+             it was started for, or from another issuer (`iss`). Start again from the login \
+             page."
         }
         Reason::OidcDenied => {
             "On the login page, after a sign-in through a provider: the provider sent the \
@@ -339,9 +344,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
             "On the login page, after a sign-in through a provider: the person has no \
              account through the provider, and an account with a password has the email \
              address the provider gave as its own. The two are not joined by their \
-             address: sign in with the password of that account and connect the provider \
-             to it. An address a provider gave for another account is no account's own, \
-             and refuses nobody."
+             address: sign in with the password of that account. (Connecting a provider to \
+             an account that has one is not there yet.) An address a provider gave for \
+             another account is no account's own, and refuses nobody."
         }
         Reason::OidcJoinClosed => {
             "On the login page, after a sign-in through a provider: the person is no member \
