@@ -142,6 +142,35 @@ test('a loop of cards without a date is counted, and they are marked in their li
   await expect(list.locator('[data-mark="loop"]')).toHaveCount(2);
 });
 
+test('cards without a date on a loop are told on "No date" while cards with a bar are counted', async ({
+  page,
+}, info) => {
+  await openRelated(page, info);
+  const other = await page.evaluate(() => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const due = store.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+    const cards = store.cards as unknown as {
+      title: string;
+      fields: { isTemplate: boolean; properties: Record<string, unknown> };
+    }[];
+    return (
+      cards
+        .filter((card) => !card.fields.isTemplate && card.title !== 'Create a new view')
+        .find((card) => card.fields.properties[due] === undefined && card.title !== '')?.title ?? ''
+    );
+  });
+  const undated = page.getByTestId('gantt-undated');
+  await setAfter(page, { 'Create a new view': [other], [other]: ['Create a new view'] });
+  await expect(undated.locator('[data-mark="loop"]')).toHaveCount(0);
+  // A loop of two cards with a bar as well: those are counted, and "No date" tells of its own.
+  await setAfter(page, { 'Create a new card': ['Filter and sort cards'] });
+  await expect(page.getByTestId('gantt-loops')).toHaveAccessibleName(
+    /^On a loop: \d+\. Show the next\.$/,
+  );
+  await expect(undated).toHaveAccessibleName(/^No date: \d+\. On a loop among them: 2\.$/);
+  await expect(undated.locator('[data-mark="loop"]')).toBeVisible();
+});
+
 test('the counts above the chart say what they count in words, on a narrow page too', async ({
   page,
 }, info) => {

@@ -153,6 +153,7 @@
   "gantt_loop": "순환",
   "gantt_loop_next": "순환 {count}. 다음 카드 보기",
   "gantt_loop_undated_next": "날짜 없는 카드의 순환: {count}. 목록 보기",
+  "gantt_undated_loops": "날짜 없음: {count}. 그 가운데 순환 {loops}",
   "gantt_zoom_in": "확대",
   "gantt_zoom_out": "축소",
   "gantt_zoom_day": "일",

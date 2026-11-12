@@ -351,6 +351,7 @@
     {zoom}
     onzoom={setZoom}
     undated={chart.placed.undated.length}
+    undatedLoops={chart.loopCount > 0 ? chart.undatedLoops.size : 0}
     undatedCard={focus.openedUndated}
     undatedOpen={undated.open}
     bind:undatedButton={undated.button}

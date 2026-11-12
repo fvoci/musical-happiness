@@ -242,10 +242,11 @@ describe('a card relation a Gantt view reads as its dependencies', () => {
   }
 
   it('is no longer read once deleted, and is read again once an undo brings it back', async () => {
-    const { board, workspace, relation, named } = await withRelation();
+    const { board, workspace, relation, definition, named } = await withRelation();
     await deleteProperty(board, relation);
     expect(await named()).toBeUndefined();
     await workspace.undoLast();
+    expect(definition(relation)?.type).toBe('relation');
     expect(await named()).toBe(relation);
   });
 
