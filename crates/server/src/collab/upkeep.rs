@@ -3,6 +3,7 @@
 //! grew too large again from its body.
 
 use fvoci_model::Body;
+use fvoci_store::StoreError;
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 use tokio::time::{Instant, sleep_until};
@@ -168,6 +169,20 @@ impl Collab {
         Ok(false)
     }
 
+    /// Makes the open document of a held slot again from `body`, the body its card was
+    /// given whole past the document, and tells the room ([`DocChange::Replaced`]).
+    pub(super) async fn replaced(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        body: Option<&Body>,
+    ) -> Result<(), AppError> {
+        self.remake_held(app, card_id, slot, body).await?;
+        self.tell(card_id, DocChange::Replaced);
+        Ok(())
+    }
+
     /// Makes the open document of a held slot again from `body`; a document that could
     /// not be made again is closed (the store holds it as it was, or as it was made).
     async fn remake_held(
@@ -258,10 +273,10 @@ impl Collab {
         if open.written_seq >= open.log_end {
             return Ok(false);
         }
-        let held = app.store().get_block(card_id).await?.body;
-        if digest_of(held.as_ref()) != open.body_digest {
-            self.remake_held(app, card_id, slot, held.as_ref()).await?;
-            self.tell(card_id, DocChange::Replaced);
+        let held = app.store().get_block(card_id).await?;
+        if digest_of(held.body.as_ref()) != open.body_digest {
+            self.replaced(app, card_id, slot, held.body.as_ref())
+                .await?;
             return Ok(true);
         }
         let json = match self.ask(app, card_id, slot, Request::Body).await? {
@@ -281,9 +296,25 @@ impl Collab {
         let through = open.log_end;
         let changed = digest != open.body_digest;
         let write = changed.then_some(body);
-        app.store()
-            .project_body(card_id, write, through, &digest, &open.last_writer)
-            .await?;
+        let projected = app
+            .store()
+            .project_body(
+                card_id,
+                write,
+                held.update_at,
+                through,
+                &digest,
+                &open.last_writer,
+            )
+            .await;
+        if let Err(StoreError::Stale { .. }) = projected {
+            // Written past the document since it was read.
+            let held = app.store().get_block(card_id).await?.body;
+            self.replaced(app, card_id, slot, held.as_ref()).await?;
+            return Ok(true);
+        }
+        projected?;
+        let open = slot.open.as_mut().expect("the document is open");
         open.written_seq = through;
         open.body_digest = digest;
         open.first_unwritten = None;

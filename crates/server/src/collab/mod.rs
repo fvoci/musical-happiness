@@ -335,6 +335,41 @@ impl Collab {
         .await
     }
 
+    /// Runs `write`, a write of a card's whole body that is not the document's (over the
+    /// routes, with the `updateAt` its writer read), around the card's document if it is
+    /// open: the document's body is written to the card first, so that a writer who read
+    /// the card before the editors' last updates is refused for that (409); and once
+    /// `write` is done, the document is made again from the body written, and the room
+    /// is told ([`DocChange::Replaced`]): its editors load it anew. A document that is not
+    /// open is made again from the card's body when it is opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of `write`, and the store's if the card cannot be read after
+    /// it. What fails with the document is logged: the card holds what was written, and
+    /// a document that was not made again is closed.
+    pub async fn write_whole<T>(
+        &self,
+        app: &App,
+        card_id: &str,
+        write: impl Future<Output = Result<T, AppError>>,
+    ) -> Result<T, AppError> {
+        let Some(mut slot) = self.existing_slot(app, card_id).await else {
+            return write.await;
+        };
+        if let Err(error) = self.write_now(app, card_id, &mut slot).await {
+            tracing::error!(%error, card_id, "cannot write a card's body before it is written whole");
+        }
+        let written = write.await?;
+        if slot.open.is_some() {
+            let body = app.store().get_block(card_id).await?.body;
+            if let Err(error) = self.replaced(app, card_id, &mut slot, body.as_ref()).await {
+                tracing::error!(%error, card_id, "cannot make a document again from a body written whole");
+            }
+        }
+        Ok(written)
+    }
+
     /// Writes the body of every open document and closes them, and ends the workers:
     /// for a server that stops. `app` is any handle of the server: each document is
     /// written as its card's organization.

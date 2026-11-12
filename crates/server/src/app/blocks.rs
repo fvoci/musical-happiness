@@ -184,9 +184,19 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let board = self.store().get_board(&old_block.board_id).await?;
-        self.store()
-            .patch_block(block_id, patch, modified_by)
-            .await?;
+        let write = async {
+            Ok::<_, AppError>(
+                self.store()
+                    .patch_block(block_id, patch, modified_by)
+                    .await?,
+            )
+        };
+        // A whole body is written around the document of a body edited together.
+        if patch.body.is_keep() {
+            write.await?;
+        } else {
+            self.collab().write_whole(self, block_id, write).await?;
+        }
         let block = self.store().get_block(block_id).await?;
         log_notification(notification, ChangeAction::Update, block_id);
 

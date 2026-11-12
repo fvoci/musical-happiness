@@ -248,16 +248,19 @@ impl Store {
     /// body is (its plain text, task counts and the files it shows with it), and the
     /// document is marked as written up to there, with `body_digest` the digest of
     /// `body`. With `body` `None` the block is not patched: its body is the document's
-    /// already.
+    /// already. `read_at` is the block's `update_at` as it was read: a block changed
+    /// since is not written over.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if the block, or its document, is not there,
-    /// and the errors of a patch of the block.
+    /// [`StoreError::Stale`] if the block changed since `read_at`, and the errors of a
+    /// patch of the block.
     pub async fn project_body(
         &self,
         block_id: &str,
         body: Option<Option<Body>>,
+        read_at: i64,
         through_seq: i64,
         body_digest: &[u8],
         user_id: &str,
@@ -266,6 +269,7 @@ impl Store {
             if let Some(body) = body {
                 let patch = BlockPatch {
                     body: body.map_or(BodyChange::Clear, BodyChange::Set),
+                    read_at: Some(read_at),
                     ..BlockPatch::default()
                 };
                 blocks::patch_block(scope, block_id, &patch, user_id).await?;

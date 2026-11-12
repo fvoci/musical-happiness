@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use fvoci_collab::testing::Editor;
 use fvoci_model::{BoardType, Card};
 use fvoci_server::app::App;
+use fvoci_server::collab::DocChange;
 use serde_json::{Value, json};
 
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
@@ -295,6 +296,167 @@ async fn a_take_given_up_half_way_is_done_whole() {
         again.body().map(|body| body.document().clone()),
         wanted,
         "in the log"
+    );
+    th.teardown().await;
+}
+
+/// The next event of a card's document that is `change`, passing over others.
+fn told(
+    events: &mut tokio::sync::broadcast::Receiver<fvoci_server::collab::DocEvent>,
+    card_id: &str,
+    change: DocChange,
+) -> bool {
+    while let Ok(event) = events.try_recv() {
+        if event.card_id == card_id && event.change == change {
+            return true;
+        }
+    }
+    false
+}
+
+/// A whole body written over the routes to a card whose document is open: a writer who
+/// read the card before the editors' last update is refused (409), as that update is
+/// written to the card first; one who read it after writes it, the document is made
+/// again from that body, the room is told, and an update made against the document
+/// before is out of step.
+#[tokio::test]
+async fn a_body_written_whole_makes_the_open_document_that_body() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let read_before = card(&th.client, &e.card_id).await;
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph("typed"),
+        )
+        .await
+        .expect("taken");
+    let whole = paragraphs(&["written whole"]);
+    let path = format!("/cards/{}", e.card_id);
+    th.client
+        .patch(
+            &path,
+            &json!({"body": whole, "readAt": read_before.update_at}),
+        )
+        .await
+        .check_status(reqwest::StatusCode::CONFLICT);
+    let read = card(&th.client, &e.card_id).await;
+    assert_eq!(
+        body_of(&read),
+        editor.body().map(|body| body.document().clone()),
+        "the editors' update was written first"
+    );
+    th.client
+        .patch(&path, &json!({"body": whole, "readAt": read.update_at}))
+        .await
+        .check_ok();
+    assert!(
+        told(&mut events, &e.card_id, DocChange::Replaced),
+        "the room is told"
+    );
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        Some(whole.clone())
+    );
+    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    assert_eq!(
+        again.body().map(|body| body.document().clone()),
+        Some(whole.clone())
+    );
+    let refused = collab
+        .take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph("late"),
+        )
+        .await
+        .expect_err("made against the document before");
+    assert_eq!(
+        refused.reason().map(fvoci_server::error::Reason::as_str),
+        Some("update_out_of_step")
+    );
+    let stored = e
+        .app
+        .store()
+        .get_body_doc(&e.card_id)
+        .await
+        .expect("read")
+        .expect("a document");
+    assert_eq!(
+        (stored.projected_seq, stored.state_seq, stored.updates.len()),
+        (stored.log_end, stored.log_end, 0),
+        "the log is folded into the document made again"
+    );
+    collab
+        .take(&e.app, &e.card_id, &e.user1, &again.append_paragraph("on"))
+        .await
+        .expect("an editor that loaded it again goes on");
+    collab.close(&e.app, &e.card_id).await.expect("closed");
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        again.body().map(|body| body.document().clone())
+    );
+    th.teardown().await;
+}
+
+/// A body written to the card past its open document by a writer that does not go
+/// through the document (here: the store itself) is not written over when the
+/// document's body is written: the document is made again from it.
+#[tokio::test]
+async fn a_body_written_past_an_open_document_is_not_written_over() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph("typed"),
+        )
+        .await
+        .expect("taken");
+    let whole = paragraphs(&["written past"]);
+    let read = card(&th.client, &e.card_id).await;
+    e.app
+        .store()
+        .patch_block(
+            &e.card_id,
+            &fvoci_model::BlockPatch {
+                body: fvoci_model::BodyChange::Set(
+                    fvoci_model::Body::parse(whole.clone())
+                        .expect("a body")
+                        .expect("not empty"),
+                ),
+                read_at: Some(read.update_at),
+                ..fvoci_model::BlockPatch::default()
+            },
+            &e.user2,
+        )
+        .await
+        .expect("written past the document");
+    collab
+        .write_body(&e.app, &e.card_id)
+        .await
+        .expect("the document's body is due");
+    assert_eq!(
+        body_of(&card(&th.client, &e.card_id).await),
+        Some(whole.clone()),
+        "not written over"
+    );
+    assert!(told(&mut events, &e.card_id, DocChange::Replaced));
+    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    assert_eq!(
+        again.body().map(|body| body.document().clone()),
+        Some(whole)
     );
     th.teardown().await;
 }
