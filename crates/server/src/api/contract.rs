@@ -148,8 +148,9 @@ whole body here (a patch of the card or of blocks, a card stored again) first wr
 card what its editors typed: a `readAt` from before that is refused with 409, and if it \
 cannot be written the write is refused with `document_unavailable`. The editors \
 themselves speak to the server over the websocket, whose messages name the same reasons \
-(`contracts/websocket.md`); `document_read_only` and `connection_too_slow` come only \
-there. The page of each kind says when it comes.
+(`contracts/websocket.md`); `document_read_only`, `connection_too_slow`, \
+`too_many_documents_joined`, `document_full` and `too_many_frames` come only there. The \
+page of each kind says when it comes.
 
 ## Request bodies
 

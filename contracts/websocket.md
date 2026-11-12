@@ -107,7 +107,7 @@
 | 공유를 끄거나 새 토큰을 내거나 `deleteBoard`, `deleteBoardsAndBlocks`로 보드를 지움 | 그 보드의 옛 읽기 토큰으로 블록을 따라가던 연결 |
 | 보내지 못한 메시지가 512개 쌓임 | 그 연결(읽지 않는 클라이언트) |
 | 받은 텍스트 메시지가 64 KiB를 넘거나, Binary 프레임이 64 KiB(설정 `collab_update_bytes`에 32바이트를 더한 것이 더 크면 그것)를 넘음 | 그 연결 |
-| 방(6절)이 보낸 것을 전혀 읽지 않아, 방에서 내보냈다는 알림만으로 기다리는 메시지가 1,024개를 넘음 | 그 연결 |
+| 방(6절)이 보낸 것을 전혀 읽지 않아, 방에서 내보냈다는 알림만으로 기다리는 메시지가 `collab_queue_messages`의 두 배(기본 1,024개)를 넘음 | 그 연결 |
 | 서버가 멈춤 | 모든 연결 |
 
 ## 4. 알아 둘 것
@@ -219,6 +219,9 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `document_read_only` | `DOC_NACK` | `read`로 든 연결의 변경 |
 | `too_many_documents` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 서버가 쥘 수 있는 문서가 다 찼다 |
 | `document_unavailable` | `DOC_REFUSED`, `DOC_NACK`, `DOC_LEFT` | 지금 그 문서를 다룰 수 없다(작업자가 죽었거나 답하지 않았다, 문서가 잠시 닫혔다, 서버가 멈추는 중이다). 그 변경은 문서에 없다 |
-| `connection_too_slow` | `DOC_LEFT`, `DOC_REFUSED` | 이 연결에 보낼 방의 메시지가 512개, 또는 `collab_state_bytes`의 두 배(바이트)를 넘게 쌓였다(읽지 않는 연결. step 1을 답을 읽지 않고 거듭 보내도 그렇다). 방의 다른 연결은 그대로 받는다. 그 방의 기다리던 것은 버려진다. 다시 들면 문서 전체를 받는다 |
+| `too_many_documents_joined` | `DOC_REFUSED` | 이 연결이 이미 `collab_documents_per_connection`(기본 8)개의 방에 들어 있다. 이미 든 카드에 다시 드는 것은 세지 않는다 |
+| `document_full` | `DOC_REFUSED` | 그 방에 이미 `collab_connections_per_document`(기본 50)개의 연결이 들어 있다 |
+| `too_many_frames` | `DOC_REFUSED`, `DOC_LEFT` | 이 연결이 `collab_frames_per_second`(기본 50)보다 빨리 보냈다. 쉬고 난 뒤에는 그만큼을 한꺼번에, 그 뒤로 1초에 그만큼씩 보낼 수 있다. Binary 프레임은 모두 하나로(들지 않은 방의 것도, 프레임이 아닌 것도), 문서 전체로 답하는 `JOIN_DOC`과 step 1은 다섯으로 센다. 서버가 이 연결의 일을 하느라 읽지 못한 시간의 몫은 그대로 받는다. 넘은 `JOIN_DOC`은 거절되고, 넘은 프레임은 그 프레임의 방에서 이 연결을 내보낸다: 그 프레임이 실은 것을 방이 받지 않았으므로 다시 들어 문서를 새로 받는다. 그 전에 보낸 변경의 답(`DOC_ACK`)은 `DOC_LEFT`보다 먼저 온다 |
+| `connection_too_slow` | `DOC_LEFT`, `DOC_REFUSED` | 이 연결에 보낼 방의 메시지가 `collab_queue_messages`(기본 512)개, 또는 `collab_state_bytes`의 두 배(바이트)를 넘게 쌓였다(읽지 않는 연결. step 1을 답을 읽지 않고 거듭 보내도 그렇다). 방의 다른 연결은 그대로 받는다. 그 방의 기다리던 것은 버려진다. 다시 들면 문서 전체를 받는다 |
 | `internal` 등 | 모두 | 서버의 오류(저장소 등). 로그에 남는다 |
 

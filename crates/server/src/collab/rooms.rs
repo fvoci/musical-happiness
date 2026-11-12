@@ -37,9 +37,6 @@ use crate::config::collab::CollabSettings;
 use crate::error::{AppError, Reason};
 use crate::permissions::DocMode;
 
-/// How many messages may wait for one connection, of all its rooms.
-pub(super) const QUEUE_MESSAGES: usize = 512;
-
 /// How long after a room could not be sent its document anew, because the document
 /// cannot be worked on for now, it is tried again.
 const SEND_ANEW_AGAIN: Duration = Duration::from_secs(2);
@@ -58,6 +55,14 @@ pub(super) struct Rooms {
     by_key: Mutex<HashMap<String, Arc<Room>>>,
     /// How often a room asks again whether its members may be in it.
     recheck: Duration,
+    /// In how many rooms a connection may be.
+    per_connection: usize,
+    /// How many connections may be in a room.
+    per_room: usize,
+    /// How many commands and frames a connection may send in a second.
+    frames_per_second: u32,
+    /// How many messages may wait for a connection, of all its rooms.
+    queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
     /// The server stops: nobody comes in any more, and no update is taken.
@@ -70,10 +75,19 @@ impl Rooms {
         Self {
             by_key: Mutex::new(HashMap::new()),
             recheck: Duration::from_secs(settings.collab_recheck_seconds),
+            per_connection: as_count(settings.collab_documents_per_connection),
+            per_room: as_count(settings.collab_connections_per_document),
+            frames_per_second: settings.collab_frames_per_second,
+            queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
             ended: AtomicBool::new(false),
         }
     }
+}
+
+/// A setting that counts things, as the count of a collection.
+fn as_count(setting: u32) -> usize {
+    usize::try_from(setting).unwrap_or(usize::MAX)
 }
 
 /// A connection as the rooms know it.
@@ -104,6 +118,13 @@ impl Connection {
     /// Takes the room the connection knows as `doc` from those it is in.
     pub(super) fn forget(&self, doc: u32) -> Option<Arc<Room>> {
         self.joined().rooms.remove(&doc)
+    }
+
+    /// Whether the connection is in as many rooms as `limit` and in none of the card
+    /// `card_id`: it comes into no room of that card, whatever else is asked.
+    fn is_full_without(&self, limit: usize, card_id: &str) -> bool {
+        let joined = self.joined();
+        joined.rooms.len() >= limit && !joined.rooms.values().any(|room| room.card_id == card_id)
     }
 
     /// Takes every room from those it is in, for good: the connection ended, and a
@@ -199,6 +220,17 @@ impl Turn {
             .notice(Some(member.doc), messages::left(member.doc, reason));
     }
 
+    /// Puts a member out of the room and tells its connection why, after what waits
+    /// for it of the room: the answers to what it sent before, which the room took.
+    fn put_out_after_answers(&mut self, index: usize, reason: &str) {
+        let member = self.members.swap_remove(index);
+        member.connection.forget(member.doc);
+        member
+            .connection
+            .queue
+            .notice(None, messages::left(member.doc, reason));
+    }
+
     /// Queues what `make` makes for each member `to` picks. A member whose connection
     /// has no room for it is put out: it does not read, or it ended, and the others
     /// go on.
@@ -249,7 +281,7 @@ impl Collab {
             id: rooms.next_connection.fetch_add(1, Ordering::Relaxed),
             user_id: user_id.to_owned(),
             queue: Queue::new(Capacity {
-                messages: QUEUE_MESSAGES,
+                messages: rooms.queue_messages,
                 bytes: usize::try_from(self.inner.limits.state_bytes)
                     .unwrap_or(usize::MAX)
                     .saturating_mul(QUEUE_DOCUMENTS),
@@ -262,6 +294,11 @@ impl Collab {
     /// stops.
     pub(super) fn end_rooms(&self) {
         self.inner.rooms.ended.store(true, Ordering::Relaxed);
+    }
+
+    /// How many commands and frames of the rooms a connection may send in a second.
+    pub(super) fn frames_per_second(&self) -> u32 {
+        self.inner.rooms.frames_per_second
     }
 
     fn rooms_ended(&self) -> bool {
@@ -488,6 +525,12 @@ impl Collab {
         workspace_id: &str,
         card_id: &str,
     ) -> Result<(), AppError> {
+        let limits = &self.inner.rooms;
+        // Before anything is asked of the store: a connection that is in as many
+        // rooms as it may be has nothing asked for it.
+        if connection.is_full_without(limits.per_connection, card_id) {
+            return Err(refusals::too_many_joined(limits.per_connection));
+        }
         let user_id = &connection.user_id;
         let admitted = admission::admit(home, user_id, workspace_id, card_id)
             .await?
@@ -498,9 +541,26 @@ impl Collab {
             if turn.closed {
                 continue;
             }
-            if self.rooms_ended() {
+            let is_member = turn
+                .members
+                .iter()
+                .any(|member| member.connection.id == connection.id);
+            let refused = if self.rooms_ended() {
+                Some(refusals::unavailable())
+            } else if is_member {
+                // In the room anew: one more neither of the connection's rooms nor of
+                // the room's connections.
+                None
+            } else if connection.joined().rooms.len() >= limits.per_connection {
+                Some(refusals::too_many_joined(limits.per_connection))
+            } else if turn.members.len() >= limits.per_room {
+                Some(refusals::full(limits.per_room))
+            } else {
+                None
+            };
+            if let Some(refused) = refused {
                 self.shut_if_empty(&room, &mut turn).await;
-                return Err(refusals::unavailable());
+                return Err(refused);
             }
             let loaded = match self.open(&room.app, card_id).await {
                 Ok(loaded) => loaded,
@@ -554,6 +614,41 @@ impl Collab {
         }
         connection.queue.forget(doc);
         self.shut_if_empty(room, &mut turn).await;
+    }
+
+    /// Puts a connection out of a room it knows as `doc`, and tells it why, after
+    /// the answers to what it sent before.
+    pub(super) async fn put_out(
+        &self,
+        room: &Arc<Room>,
+        connection: &Connection,
+        doc: u32,
+        reason: &str,
+    ) {
+        let mut turn = room.turn.lock().await;
+        if let Some(index) = turn.index_of(connection, doc) {
+            turn.put_out_after_answers(index, reason);
+        }
+        self.shut_if_empty(room, &mut turn).await;
+    }
+
+    /// How many connections are in the room of a card of `app`'s organization, for
+    /// the tests of who is put out of it.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub async fn room_members(&self, app: &App, card_id: &str) -> usize {
+        let key = place::key_of(app.store().tenant(), card_id);
+        let room = {
+            let rooms = self.inner.rooms.by_key.lock();
+            rooms
+                .expect("the rooms are never held across a panic")
+                .get(&key)
+                .map(Arc::clone)
+        };
+        match room {
+            Some(room) => room.turn.lock().await.members.len(),
+            None => 0,
+        }
     }
 
     /// Takes an update a connection sent into the room's document, and sends it on:

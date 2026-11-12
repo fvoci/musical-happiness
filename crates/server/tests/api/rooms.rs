@@ -148,6 +148,12 @@ impl Peer {
             .expect("the frame is sent");
     }
 
+    /// Sends a frame the server may close the connection over before all of it is
+    /// written.
+    pub(crate) async fn try_send_binary(&mut self, bytes: Vec<u8>) {
+        let _ = self.stream.send(Message::Binary(bytes.into())).await;
+    }
+
     /// What comes next, without taking it: pings are passed over.
     pub(crate) async fn incoming(&mut self, wait: Duration) -> Incoming {
         loop {

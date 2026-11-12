@@ -66,6 +66,34 @@ pub(super) fn read_only() -> AppError {
         .with_reason(Reason::DocumentReadOnly)
 }
 
+/// The error of a connection that is in as many rooms as one may be.
+pub(super) fn too_many_joined(limit: usize) -> AppError {
+    // A count of a collection, which a setting of 32 bits gave.
+    AppError::limited(
+        "the connection is in as many rooms as it may be",
+        Reason::TooManyDocumentsJoined,
+    )
+    .with_limit(u64::try_from(limit).unwrap_or(u64::MAX))
+}
+
+/// The error of a room that as many connections are in as may be.
+pub(super) fn full(limit: usize) -> AppError {
+    AppError::limited(
+        "as many connections edit the body as may",
+        Reason::DocumentFull,
+    )
+    .with_limit(u64::try_from(limit).unwrap_or(u64::MAX))
+}
+
+/// The error of a connection that sends more in a second than it may.
+pub(super) fn too_many_frames(limit: u32) -> AppError {
+    AppError::limited(
+        "the connection sends more commands and frames in a second than it may",
+        Reason::TooManyFrames,
+    )
+    .with_limit(u64::from(limit))
+}
+
 /// The error of a connection that does not read what it is sent.
 pub(super) fn too_slow() -> AppError {
     AppError::limited(

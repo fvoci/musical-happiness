@@ -29,10 +29,21 @@ async fn left_for_not_reading(
     .to_string();
     let (mut slow, waiting) = collab.seat(&th.app, user_id);
     assert!(slow.command(&join).await, "a command of the rooms");
-    // `DOC_JOINED` and the document wait already: 510 more, and the next is one too many.
-    for n in 0..511 {
+    let app = th
+        .app
+        .enter_workspace(user_id, TEST_WORKSPACE_ID)
+        .await
+        .expect("the membership is read")
+        .expect("a member")
+        .app;
+    // Sixty-four may wait here. `DOC_JOINED` and the document wait already: 62 more,
+    // and the next is one too many.
+    for n in 0..62 {
         one.write_acked(&format!("{n}")).await;
     }
+    assert_eq!(collab.room_members(&app, card_id).await, 3, "still in");
+    one.write_acked("one too many").await;
+    assert_eq!(collab.room_members(&app, card_id).await, 2, "put out");
     let Some(Outgoing::Text(left)) = waiting.next().await else {
         panic!("what waited is dropped for the notice");
     };
@@ -44,7 +55,7 @@ async fn left_for_not_reading(
     );
     assert!(!slow.overrun().is_cancelled(), "the connection stays");
     two.settle().await;
-    assert_eq!(two.lines().len(), 512, "the others were sent all of it");
+    assert_eq!(two.lines().len(), 64, "the others were sent all of it");
     assert_eq!(one.body(), two.body(), "and hold the same");
     // It comes in again, and is sent the whole document.
     assert!(slow.command(&join).await, "a command of the rooms");
@@ -72,7 +83,12 @@ async fn the_messages_of_the_rooms_match_the_websocket_contract() {
     let contract = read_contract("websocket.json");
     let openapi = read_contract("openapi.json");
     let th = Setup::native()
-        .configure(|config| config.collab.collab_recheck_seconds = 1)
+        .configure(|config| {
+            config.collab.collab_recheck_seconds = 1;
+            // The test writes faster than an editor does.
+            config.collab.collab_frames_per_second = 1_000_000;
+            config.collab.collab_queue_messages = 64;
+        })
         .start()
         .await
         .init_basic()

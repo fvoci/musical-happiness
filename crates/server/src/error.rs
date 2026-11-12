@@ -217,6 +217,12 @@ reasons! {
     DocumentReadOnly => "document_read_only", "Document read only";
     /// The websocket connection does not read what it is sent of the body's document.
     ConnectionTooSlow => "connection_too_slow", "Connection too slow";
+    /// The websocket connection is in as many rooms of bodies as one may be.
+    TooManyDocumentsJoined => "too_many_documents_joined", "Connection in too many documents";
+    /// As many websocket connections are in the room of the body as may be.
+    DocumentFull => "document_full", "Document full";
+    /// The websocket connection sends more of the rooms in a second than it may.
+    TooManyFrames => "too_many_frames", "Too many frames";
     /// The server has no `secret_key` to seal a provider's client secret with.
     SecretKeyRequired => "secret_key_required", "Secret key required";
     /// The issuer of a provider could not be read and checked.

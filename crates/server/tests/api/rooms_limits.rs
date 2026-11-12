@@ -1,0 +1,271 @@
+//! The limits of the rooms: how many a connection is in, how many are in one, how
+//! fast a connection sends and how large, and what waits for one that does not read.
+
+use std::time::Duration;
+
+use fvoci_model::Card;
+use serde_json::json;
+
+use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::rooms::{
+    Incoming, PATIENCE, Peer, QUIET, STEP_1, UPDATE, frame, no_rooms, paragraphs, table,
+    two_in_a_room,
+};
+
+/// A connection is in eight rooms and no ninth; one it leaves makes room for
+/// another, and to come anew into one it is in takes none.
+#[tokio::test]
+async fn a_connection_is_in_eight_rooms_and_no_more() {
+    let th = Setup::native()
+        // Coming into ten rooms at once is more than a connection does in a second.
+        .configure(|config| config.collab.collab_frames_per_second = 1000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let mut cards = vec![t.card_id.clone()];
+    for n in 1..9 {
+        let card: Card = th
+            .client
+            .post(
+                &format!("/boards/{}/cards", t.board_id),
+                &json!({"title": format!("card {n}")}),
+            )
+            .await
+            .created_json();
+        cards.push(card.id);
+    }
+    let mut peer = Peer::connect(&th.client, 101).await;
+    let mut docs = Vec::new();
+    for card_id in &cards[..8] {
+        let joined = peer.joined(TEST_WORKSPACE_ID, card_id).await;
+        docs.push(joined["doc"].clone());
+    }
+    let refused = peer.join(TEST_WORKSPACE_ID, &cards[8]).await;
+    assert_eq!(
+        refused,
+        json!({
+            "action": "DOC_REFUSED", "workspaceId": TEST_WORKSPACE_ID, "cardId": cards[8],
+            "reason": "too_many_documents_joined",
+        })
+    );
+    // Anew into one it is in: no ninth.
+    peer.joined(TEST_WORKSPACE_ID, &cards[7]).await;
+    assert_eq!(th.app.collab().rooms(), 8);
+    peer.send_json(json!({"action": "LEAVE_DOC", "doc": docs[0]}))
+        .await;
+    peer.joined(TEST_WORKSPACE_ID, &cards[8]).await;
+    drop(peer);
+    no_rooms(&th).await;
+    th.teardown().await;
+}
+
+/// Fifty connections are in the room of a body, and no fifty-first until one leaves.
+#[tokio::test]
+async fn fifty_connections_are_in_a_room_and_no_more() {
+    let th = Setup::native().start().await.init_basic().await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let mut peers = Vec::new();
+    for client in 0..50 {
+        let mut peer = Peer::connect(&th.client, 100 + client).await;
+        peer.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+        peers.push(peer);
+    }
+    let mut late = Peer::connect(&th.client, 200).await;
+    let refused = late.join(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(refused["reason"], json!("document_full"), "{refused}");
+    // Who is in it comes in anew all the same, and all are sent what one writes.
+    peers[0].joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    peers[0].write_acked("to forty-nine").await;
+    for peer in &mut peers[1..] {
+        let frame = match peer.incoming(PATIENCE).await {
+            Incoming::Frame(frame) => frame,
+            other => panic!("the update reaches everyone: {other:?}"),
+        };
+        assert_eq!(frame.sync, UPDATE);
+    }
+    let mut left = peers.pop().expect("fifty");
+    left.leave().await;
+    while th
+        .app
+        .collab()
+        .room_members(&room_app(&th).await, &t.card_id)
+        .await
+        == 50
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    late.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    th.teardown().await;
+}
+
+/// The application as the organization of the tests' workspace reaches it.
+async fn room_app(th: &TestServer) -> fvoci_server::app::App {
+    let user = th.client.me().await.id;
+    th.app
+        .enter_workspace(&user, TEST_WORKSPACE_ID)
+        .await
+        .expect("the membership is read")
+        .expect("a member")
+        .app
+}
+
+/// A connection that sends more frames than it may is put out of the room the frame
+/// past the limit was for, after the answers to the frames before it, and a
+/// `JOIN_DOC` past the limit is refused; the other in the room is sent what was
+/// taken, and goes on.
+#[tokio::test]
+async fn frames_past_the_rate_put_a_connection_out_of_the_room() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_frames_per_second = 10)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    // What coming in cost is made up for: ten frames at once from here.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    // All of it before anything is read. Three updates, which are taken; thirty
+    // frames for a room it is not in, which cost a count each and the server no time
+    // (the time it takes over a frame is not counted against the connection); an
+    // update past the limit; and to come in again.
+    for n in 0..3 {
+        one.write(&format!("{n}")).await;
+    }
+    for _ in 0..30 {
+        one.send_binary(frame(999, 1, UPDATE, &[0, 0])).await;
+    }
+    one.write("past the limit").await;
+    one.send_json(json!({
+        "action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID, "cardId": t.card_id,
+    }))
+    .await;
+    for _ in 0..3 {
+        let answer = one.incoming(PATIENCE).await;
+        assert!(
+            matches!(&answer, Incoming::Text(ack) if ack["action"] == json!("DOC_ACK")),
+            "the answers to what was taken come first: {answer:?}"
+        );
+    }
+    assert_eq!(
+        one.incoming(PATIENCE).await,
+        Incoming::Text(json!({
+            "action": "DOC_LEFT", "doc": one.doc, "reason": "too_many_frames",
+        })),
+        "put out by the update past the limit"
+    );
+    let refused = one.text("DOC_REFUSED").await;
+    assert_eq!(refused["reason"], json!("too_many_frames"), "{refused}");
+    two.settle().await;
+    assert_eq!(
+        two.lines(),
+        ["first", "0", "1", "2"],
+        "what was taken, and no more"
+    );
+
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(one.body(), two.body());
+    two.write_acked("goes on").await;
+    one.settle().await;
+    assert_eq!(one.body(), two.body());
+    th.teardown().await;
+}
+
+/// An update larger than an update may be is refused by its name and goes to nobody;
+/// a frame larger than the websocket takes ends the connection, and the other in the
+/// room goes on.
+#[tokio::test]
+async fn a_large_update_is_refused_and_a_larger_frame_ends_the_connection() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_update_bytes = 2048)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    one.write(&"x".repeat(3000)).await;
+    let nack = one.text("DOC_NACK").await;
+    assert_eq!(nack["reason"], json!("update_too_large"), "{nack}");
+    assert_eq!(
+        two.incoming(QUIET).await,
+        Incoming::Nothing,
+        "sent to nobody"
+    );
+
+    // Past what the websocket reads at all (64 KiB here).
+    let large = vec![0_u8; 64 * 1024 + 1];
+    // The server may close before the whole frame is written.
+    one.try_send_binary(frame(one.doc, one.epoch, UPDATE, &large))
+        .await;
+    assert_eq!(one.incoming(PATIENCE).await, Incoming::Closed);
+    two.write_acked("goes on").await;
+    while th
+        .app
+        .collab()
+        .room_members(&room_app(&th).await, &t.card_id)
+        .await
+        == 2
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(two.lines(), ["first", "goes on"]);
+    th.teardown().await;
+}
+
+/// A connection that asks and asks for the document and reads nothing: once as many
+/// messages wait for it as may (sixteen here, past what the system holds of a
+/// connection nobody reads), it is put out of the room. The others are sent what is
+/// written meanwhile; when it reads at last it finds that it was put out, comes in
+/// again and is sent the whole document.
+#[tokio::test]
+async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.collab.collab_queue_messages = 16;
+            config.collab.collab_frames_per_second = 1_000_000;
+            // The bytes that may wait are far off: it is the messages that count.
+            config.collab.collab_state_bytes = 64 * 1024 * 1024;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let t = table(&th, &paragraphs(&["first"])).await;
+    let mut one = Peer::connect(&th.client, 101).await;
+    // Its socket takes little of what it does not read: what waits for it waits in
+    // the server, but for the few megabytes the server's own side of the socket holds.
+    let mut slow = Peer::on(th.client.connect_websocket_receiving(64 * 1024).await, 102);
+    one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    slow.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    let app = room_app(&th).await;
+    // A document of some size, so that the answers fill that soon.
+    one.write_acked(&"y".repeat(60 * 1024)).await;
+    slow.settle().await;
+    let mut asked = 0;
+    while th.app.collab().room_members(&app, &t.card_id).await == 2 {
+        assert!(asked < 20_000, "put out before {asked} answers waited");
+        for _ in 0..50 {
+            slow.send_binary(frame(slow.doc, slow.epoch, STEP_1, &[0]))
+                .await;
+        }
+        asked += 50;
+        one.write_acked(&format!("meanwhile {asked}")).await;
+    }
+    one.write_acked("after it was put out").await;
+
+    // It reads at last: answers that were on their way, and then the notice.
+    let left = slow.text("DOC_LEFT").await;
+    assert_eq!(
+        left,
+        json!({"action": "DOC_LEFT", "doc": slow.doc, "reason": "connection_too_slow"})
+    );
+    slow.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(slow.body(), one.body());
+    assert_eq!(
+        one.lines().last().map(String::as_str),
+        Some("after it was put out")
+    );
+    th.teardown().await;
+}

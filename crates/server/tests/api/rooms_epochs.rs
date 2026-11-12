@@ -145,7 +145,11 @@ async fn a_killed_worker_has_the_room_sent_the_document_again() {
 #[tokio::test]
 async fn a_document_made_again_for_its_size_is_sent_to_the_room() {
     let th = Setup::native()
-        .configure(|config| config.collab.collab_state_bytes = 2 * 1024 * 1024)
+        .configure(|config| {
+            config.collab.collab_state_bytes = 2 * 1024 * 1024;
+            // The test writes faster than an editor does.
+            config.collab.collab_frames_per_second = 1_000_000;
+        })
         .start()
         .await
         .init_basic()
