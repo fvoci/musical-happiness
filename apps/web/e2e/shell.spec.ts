@@ -188,6 +188,7 @@ test.describe('the top bar', () => {
     await expect(redo).toBeEnabled();
     await page.keyboard.press('Meta+Shift+z');
     await expect(title).toHaveValue('One');
+    await expect(undo).toBeEnabled();
 
     // In a field they are the field's: what was typed is undone, not the board.
     await title.focus();
@@ -195,6 +196,8 @@ test.describe('the top bar', () => {
     await page.keyboard.type('x');
     await expect(title).toHaveValue('Onex');
     await page.keyboard.press('Control+z');
+    await expect(title).toHaveValue('One');
+    await expect(title).toBeFocused();
     await expect(redo).toBeDisabled();
     await title.press('Escape');
     await expect(title).toHaveValue('One');
