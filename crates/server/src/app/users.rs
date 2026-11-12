@@ -32,19 +32,21 @@ impl App {
             .map_err(|error| AppError::from(error).context("unable to find user"))
     }
 
-    /// Makes a user an administrator of the instance, or ends that, and returns the
-    /// user as stored now.
+    /// Makes a user an administrator of the instance, or ends that, on behalf of
+    /// `actor_id`, and returns the user as stored now.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such user, and a conflict (reason
-    /// `last_admin`) if the user is the only administrator and would stop being one.
+    /// `last_admin`) if the user is the only administrator, of the instance or of its
+    /// organization, and would stop being one.
     pub async fn set_user_admin(
         &self,
         user_id: &str,
         role: InstanceRole,
+        actor_id: &str,
     ) -> Result<User, AppError> {
-        match self.store().set_user_admin(user_id, role).await? {
+        match self.store().set_user_admin(user_id, role, actor_id).await? {
             AdminChange::Done(user) => Ok(*user),
             AdminChange::NoSuchUser => Err(AppError::not_found("user")),
             AdminChange::LastAdmin => Err(AppError::conflict(
@@ -67,7 +69,7 @@ impl App {
             Err(error) if error.is_not_found() => return Err(AppError::not_found("user")),
             Err(error) => return Err(error.into()),
         };
-        self.set_user_admin(&user.id, InstanceRole::Administrator)
+        self.set_user_admin(&user.id, InstanceRole::Administrator, &user.id)
             .await
     }
 

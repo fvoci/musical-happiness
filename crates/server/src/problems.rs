@@ -255,6 +255,23 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationTooMany
         | Reason::RelationNotACard
         | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        Reason::WorkspaceNameTaken => {
+            "Status 409. Another workspace of the organization that is in use has the name; \
+             one in the trash leaves its name to be taken. `errors` names `/name`."
+        }
+        Reason::DefaultWorkspace => {
+            "Status 409. The organization's default workspace, which whoever joins the \
+             organization gets into, is not deleted."
+        }
+        Reason::LastOrgAdmin => {
+            "Status 409. The change would leave the organization without an administrator. \
+             Make somebody else one first."
+        }
+        Reason::PublicLinksOff => {
+            "Status 403. The organization has turned its public links off: no board of it is \
+             shared by a link until they are on again. Stopping a board's sharing is not \
+             refused."
+        }
     }
 }
 

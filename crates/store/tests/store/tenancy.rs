@@ -6,12 +6,12 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use fvoci_model::{
-    BlockType, Board, BoardMember, BoardType, Category, OrgRole, SubscriberType, Subscription,
+    AuditAction, BlockType, Board, BoardMember, BoardType, Category, OrgRole, SubscriberType, Subscription,
     Upload, UploadPart, User, Workspace, WorkspaceRole, is_id, new_id,
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{
-    AuditAction, AuditEntry, DbType, InstanceRole, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID,
+    AuditEntry, DbType, InstanceRole, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID,
     SharingChange, Store, StoreError, Tenant,
 };
 use sqlx::Connection as _;
@@ -477,13 +477,12 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         scheme_viewer: true,
         ..BoardMember::default()
     };
-    let entry = AuditEntry {
-        workspace_id: board.workspace_id.clone(),
-        actor_id: user_id.clone(),
-        action: AuditAction::SelfAddedToBoard,
-        target_id: board_id.clone(),
-        create_at: 0,
-    };
+    let entry = AuditEntry::new(
+        &board.workspace_id,
+        &user_id,
+        AuditAction::SelfAddedToBoard,
+        &board_id,
+    );
     store
         .change_member_recorded(&as_viewer, &entry)
         .await
@@ -748,7 +747,7 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
     assert!(missing.is_not_found(), "got {missing:?}");
 
     // The roles follow the instance's administrators, but a guest stays a guest.
-    test.set_user_admin(&second, InstanceRole::Administrator)
+    test.set_user_admin(&second, InstanceRole::Administrator, &second)
         .await
         .expect("the user is made an administrator");
     assert_eq!(access(&second, &test.workspace_id).await, admin);
@@ -756,7 +755,7 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
         access(&second, &second_workspace).await,
         Some((Some(OrgRole::Admin), WorkspaceRole::Guest))
     );
-    test.set_user_admin(&second, InstanceRole::User)
+    test.set_user_admin(&second, InstanceRole::User, &second)
         .await
         .expect("the user is an administrator no more");
     assert_eq!(access(&second, &test.workspace_id).await, member);

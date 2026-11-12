@@ -2,10 +2,10 @@
 
 use fvoci_model::{
     Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
-    DeleteBoardsAndBlocks, new_id,
+    AuditAction, DeleteBoardsAndBlocks, new_id,
 };
 use fvoci_store::{
-    AuditAction, AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards,
+    AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards,
 };
 
 use super::{App, DEFAULT_CATEGORY_BOARDS};
@@ -546,29 +546,32 @@ impl App {
         self.add_member_to_board_recorded(member, None).await
     }
 
-    /// Makes a user, who manages the board without reading it, a member of it as
-    /// [`App::add_member_to_board`] does and, if the membership is new, records in the
-    /// organization's audit log in the same step that they made themselves one.
+    /// Makes a user a member of a board, on behalf of `actor_id`, who manages the board
+    /// without reading it, as [`App::add_member_to_board`] does and, if the membership
+    /// is new, records in the organization's audit log in the same step who made whom a
+    /// member: themselves, by which they come to read it, or somebody else, who might be
+    /// another account of theirs.
     ///
     /// # Errors
     ///
     /// As [`App::add_member_to_board`]; a record that cannot be written is the store's
     /// error, and the membership is not made then.
-    pub async fn add_self_to_board_recorded(
+    pub async fn add_member_as_manager(
         &self,
         member: &BoardMember,
+        actor_id: &str,
     ) -> Result<Option<BoardMember>, AppError> {
-        self.add_member_to_board_recorded(member, Some(AuditAction::SelfAddedToBoard))
+        self.add_member_to_board_recorded(member, Some(actor_id))
             .await
     }
 
     /// Adds a member as [`App::add_member_to_board`] does and, if the membership is new
-    /// and `action` is given, records the user doing it in the audit log in the same
+    /// and a manager is given, records the manager doing it in the audit log in the same
     /// step.
     async fn add_member_to_board_recorded(
         &self,
         member: &BoardMember,
-        action: Option<AuditAction>,
+        manager_id: Option<&str>,
     ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
@@ -578,9 +581,9 @@ impl App {
 
         // Added unless already there, in one step: of two requests that add the same
         // user at once, the second finds the membership the first made.
-        let existing = match action {
-            Some(action) => {
-                let entry = audit_entry(&board, member, action);
+        let existing = match manager_id {
+            Some(manager_id) => {
+                let entry = audit_entry(&board, member, manager_id);
                 self.store().add_member_recorded(member, &entry).await?
             }
             None => self.store().add_member(member).await?,
@@ -661,26 +664,28 @@ impl App {
         self.update_board_member_recorded(member, None).await
     }
 
-    /// Gives a user, who manages the board without reading it, roles on it as
-    /// [`App::update_board_member`] does and records in the organization's audit log in
-    /// the same step that they gave them to themselves.
+    /// Gives a member of a board roles on it, on behalf of `actor_id`, who manages the
+    /// board without reading it, as [`App::update_board_member`] does and records in the
+    /// organization's audit log in the same step who gave whom the roles, as
+    /// [`App::add_member_as_manager`] does.
     ///
     /// # Errors
     ///
     /// As [`App::update_board_member`]; a record that cannot be written is the store's
     /// error, and the membership is not changed then.
-    pub async fn update_self_on_board_recorded(
+    pub async fn update_member_as_manager(
         &self,
         member: &BoardMember,
+        actor_id: &str,
     ) -> Result<Option<BoardMember>, AppError> {
-        self.update_board_member_recorded(member, Some(AuditAction::SelfAddedToBoard))
+        self.update_board_member_recorded(member, Some(actor_id))
             .await
     }
 
     async fn update_board_member_recorded(
         &self,
         member: &BoardMember,
-        action: Option<AuditAction>,
+        manager_id: Option<&str>,
     ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
@@ -690,9 +695,9 @@ impl App {
         // A board keeps at least one admin. Whether this change would take the last one
         // away is decided where the change is written, so that two admins who step down
         // at once do not both pass.
-        let change = match action {
-            Some(action) => {
-                let entry = audit_entry(&board, member, action);
+        let change = match manager_id {
+            Some(manager_id) => {
+                let entry = audit_entry(&board, member, manager_id);
                 self.store().change_member_recorded(member, &entry).await?
             }
             None => self.store().change_member(member).await?,
@@ -753,13 +758,23 @@ impl App {
     }
 }
 
-/// The record of a user doing `action` to their own membership of the board.
-fn audit_entry(board: &Board, member: &BoardMember, action: AuditAction) -> AuditEntry {
-    AuditEntry {
-        workspace_id: board.workspace_id.clone(),
-        actor_id: member.user_id.clone(),
-        action,
-        target_id: board.id.clone(),
-        create_at: 0,
+/// The record of a manager of the board, who does not read it, giving `member` its
+/// roles: themselves, or somebody else.
+fn audit_entry(board: &Board, member: &BoardMember, manager_id: &str) -> AuditEntry {
+    if member.user_id == manager_id {
+        AuditEntry::new(
+            &board.workspace_id,
+            manager_id,
+            AuditAction::SelfAddedToBoard,
+            &board.id,
+        )
+    } else {
+        AuditEntry::new(
+            &board.workspace_id,
+            manager_id,
+            AuditAction::AddedToBoard,
+            &board.id,
+        )
+        .with_subject(&member.user_id)
     }
 }

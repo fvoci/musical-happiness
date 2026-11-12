@@ -574,8 +574,9 @@ impl Store {
 
     /// The organization of a board that is shared, for whoever holds its read token;
     /// `None` if the board is not shared, is not there, or the token is not its own.
-    /// Nothing of the system organization is shared, and nothing of a workspace or an
-    /// organization that was deleted.
+    /// Nothing of the system organization is shared, nothing of a workspace or an
+    /// organization that was deleted, and nothing of an organization that turned its
+    /// public links off.
     ///
     /// The tokens are compared without showing through timing where they differ.
     ///
@@ -597,6 +598,7 @@ impl Store {
                 );
                 sql.bind(Id(board_id))
                     .push_bind(" AND s.enabled = ", true)
+                    .push_bind(" AND o.public_links = ", true)
                     .push(IN_USE)
                     .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
@@ -616,6 +618,32 @@ impl Store {
 }
 
 impl Store {
+    /// The workspaces of every organization that were put in the trash before
+    /// `deleted_before`, by organization and identifier: what the housekeeping removes
+    /// for good, each in its organization ([`Store::purge_workspace`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn workspaces_to_purge(
+        &self,
+        deleted_before: i64,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql =
+                    scope.sql("SELECT org_id, id FROM workspaces WHERE is_system = false AND delete_at > 0 AND delete_at < ");
+                sql.bind(deleted_before).push(" ORDER BY org_id, id");
+                scope
+                    .fetch_all(sql)
+                    .await?
+                    .iter()
+                    .map(|row| Ok((row.id(0)?, row.id(1)?)))
+                    .collect()
+            })
+            .await
+    }
+
     /// Takes the sign-in under way whose `state` has the digest `state_hash`: it is
     /// removed, whatever it is, so that it comes back once. `None` if there is none, or
     /// it ended before `now`. The sign-in names its organization: the request that

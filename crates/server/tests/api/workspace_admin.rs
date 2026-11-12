@@ -3,7 +3,7 @@
 //! its member: making themselves one is recorded.
 
 use fvoci_model::{Board, BoardMember, BoardType, WorkspaceRole};
-use fvoci_store::AuditAction;
+use fvoci_model::AuditAction;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 

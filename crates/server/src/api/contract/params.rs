@@ -33,6 +33,7 @@ macro_rules! parameter {
 // -- in the path -----------------------------------------------------------------------
 
 parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.");
+parameter!(WorkerWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.");
 parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.");
 parameter!(HomeMemberWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.");
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
@@ -45,6 +46,7 @@ parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of t
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
 parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
 parameter!(OrgId: Path "orgId", String, True, "The identifier of the organization. 404 unless the user of the session administers it.");
+parameter!(OrgWorkspaceId: Path "workspaceId", String, True, "The identifier of a workspace of the organization. 404 for one of no other organization.");
 
 // -- in the headers --------------------------------------------------------------------
 
@@ -69,6 +71,7 @@ parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the b
 parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type. The word `unknown` narrows nothing.");
 parameter!(Page: Query "page", i64, False, "The page, counted from 0. Left out, the first one.");
 parameter!(PerPage: Query "perPage", i64, False, "How many a page has. Left out, 100. Zero or less asks for all of them.");
+parameter!(CappedPerPage: Query "perPage", i64, False, "How many a page has, at most 200. Left out, or zero or less, 50.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");
 parameter!(UserSearch: Query "search", String, False, "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.");

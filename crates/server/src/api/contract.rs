@@ -38,10 +38,11 @@ pub(crate) mod tag {
     pub(crate) const FILES: &str = "files";
     pub(crate) const ARCHIVES: &str = "archives";
     pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
+    pub(crate) const ORGANIZATION: &str = "organization";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 13] = [
+const TAGS: [(&str, &str); 14] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -73,6 +74,11 @@ const TAGS: [(&str, &str); 13] = [
     (tag::FILES, "The files of a board."),
     (tag::ARCHIVES, "Exporting boards and importing them."),
     (tag::SUBSCRIPTIONS, "Subscriptions to blocks."),
+    (
+        tag::ORGANIZATION,
+        "What an organization's administrators manage: the organization, its members' \
+         roles, its workspaces and their trash, joining a workspace, and the audit logs.",
+    ),
 ];
 
 /// The name of the security scheme of the session cookie.

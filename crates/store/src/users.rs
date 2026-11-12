@@ -212,7 +212,9 @@ impl Store {
     ///
     /// Through a handle that names an organization the user's role in it, and in its
     /// workspaces where the user is no guest, follows: the instance's administrators
-    /// are the organization's, for now.
+    /// are the organization's, for now. Then the organization's last administrator stays
+    /// one too, and one who stops being its administrator is taken out of the workspaces
+    /// they joined as one, on behalf of `actor_id`, who is recorded doing so.
     ///
     /// # Errors
     ///
@@ -221,6 +223,7 @@ impl Store {
         &self,
         user_id: &str,
         role: InstanceRole,
+        actor_id: &str,
     ) -> Result<AdminChange, StoreError> {
         let is_admin = role == InstanceRole::Administrator;
         self.transaction(async |scope| {
@@ -245,6 +248,9 @@ impl Store {
                 if scope.fetch_optional(sql).await?.is_none() {
                     return Ok(AdminChange::LastAdmin);
                 }
+                if scope.has_org() && crate::org_admin::is_last_org_admin(scope, user_id).await? {
+                    return Ok(AdminChange::LastAdmin);
+                }
             }
             if current.is_admin != is_admin {
                 let mut sql = scope.sql("UPDATE users SET is_admin = ");
@@ -253,7 +259,7 @@ impl Store {
                     .push_bind(" WHERE id = ", Id(user_id));
                 scope.execute(sql).await?;
                 if scope.has_org() {
-                    members::follow_instance_role(scope, user_id, role).await?;
+                    members::follow_instance_role(scope, user_id, role, actor_id).await?;
                 }
             }
             let user = get_user_by_id(scope, user_id).await?;

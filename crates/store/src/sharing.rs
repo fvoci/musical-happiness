@@ -82,6 +82,36 @@ impl Store {
         })
         .await
     }
+
+    /// The boards of the handle's organization, or of one workspace of it, that are
+    /// shared by a link, by identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn shared_board_ids(
+        &self,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(
+                "SELECT s.board_id FROM sharing AS s JOIN boards AS b ON b.id = s.board_id \
+                 JOIN workspaces AS w ON w.id = b.workspace_id WHERE s.enabled = ",
+            );
+            sql.bind(true).push_bind(" AND w.org_id = ", scope.org()?);
+            if let Some(workspace_id) = workspace_id {
+                sql.push_bind(" AND w.id = ", Id(workspace_id));
+            }
+            sql.push(" ORDER BY s.board_id");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.id(0))
+                .collect()
+        })
+        .await
+    }
 }
 
 async fn upsert_sharing(scope: &mut Scope<'_>, sharing: &Sharing) -> Result<(), StoreError> {

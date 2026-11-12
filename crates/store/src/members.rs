@@ -5,7 +5,7 @@
 
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
-use crate::Store;
+use crate::{Store, org_admin};
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
@@ -229,7 +229,9 @@ pub(crate) async fn join_organization_unless_member(
 
 /// Gives a member of the organization the role that goes with being, or no longer
 /// being, an administrator of the instance: in the organization, and in its workspaces
-/// where the user is no guest. Somebody who is no member stays none.
+/// where the user is no guest. Somebody who is no member stays none. Who stops being an
+/// administrator is taken out of the workspaces they joined as the organization's
+/// administrator, on behalf of `actor_id` (`org_admin::revoke_joinings`).
 ///
 /// TEMPORARY, as [`join_organization`] is: while the instance's administrators are the
 /// organization's.
@@ -237,8 +239,13 @@ pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,
     instance_role: InstanceRole,
+    actor_id: &str,
 ) -> Result<(), StoreError> {
     let (org_role, workspace_role) = roles_of(instance_role);
+    if org_role != OrgRole::Admin {
+        // What they joined as the organization's administrator is theirs no more.
+        org_admin::revoke_joinings(scope, user_id, actor_id).await?;
+    }
     let mut sql = scope.sql("UPDATE organization_members SET role = ");
     sql.bind(org_role.as_str())
         .push_bind(" WHERE user_id = ", Id(user_id))

@@ -65,7 +65,7 @@ impl Store {
         self.transaction(async |scope| {
             let change = change_member(scope, member).await?;
             if change == MemberChange::Done {
-                audit::record(scope, entry).await?;
+                audit::record_entry(scope, entry).await?;
             }
             Ok(change)
         })
@@ -106,7 +106,7 @@ impl Store {
         self.transaction(async |scope| {
             let existing = add_member(scope, member).await?;
             if existing.is_none() {
-                audit::record(scope, entry).await?;
+                audit::record_entry(scope, entry).await?;
             }
             Ok(existing)
         })

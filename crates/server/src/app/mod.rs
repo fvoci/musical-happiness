@@ -20,6 +20,7 @@ mod housekeeping;
 mod import;
 mod loose_objects;
 mod oidc;
+mod org_admin;
 mod onboarding;
 mod readiness;
 mod reconcile;
@@ -57,6 +58,7 @@ pub use oidc::{
     CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
     secret_context,
 };
+pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, page_of};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use uploads::{
