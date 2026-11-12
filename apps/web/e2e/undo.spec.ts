@@ -4,6 +4,11 @@
  * one before it; a change the backend refuses leaves the undo that waited
  * for it with nothing to do; redo follows the same rule. The change is the
  * board's title, written from the top bar.
+ *
+ * So that the keys are surely pressed while the write is under way, also on
+ * a machine too busy to press within 400ms, the test holds that write in
+ * the page until it has pressed them (`holdNextWrite`); it then waits its
+ * 400ms as any other.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -13,6 +18,7 @@ interface Dev {
   fvociDev: {
     backend: {
       latency: number;
+      patchBoard: (...args: unknown[]) => Promise<unknown>;
       failNext: (method: string, error: Error) => void;
       world: { boards: Map<string, { title: string }> };
     };
@@ -72,6 +78,28 @@ async function openSlow(page: Page): Promise<void> {
   await expect.poll(() => stored(page)).toBe('One');
 }
 
+/** Holds the next write of the board until `release` is called. */
+async function holdNextWrite(page: Page): Promise<{ release: () => Promise<void> }> {
+  await page.evaluate(() => {
+    const { backend } = (window as unknown as Dev).fvociDev;
+    const write = backend.patchBoard.bind(backend);
+    const held = new Promise<void>((resolve) => {
+      (window as unknown as { releaseWrite: () => void }).releaseWrite = resolve;
+    });
+    backend.patchBoard = async (...args: unknown[]) => {
+      backend.patchBoard = write;
+      await held;
+      return write(...args);
+    };
+  });
+  return {
+    release: () =>
+      page.evaluate(() => {
+        (window as unknown as { releaseWrite: () => void }).releaseWrite();
+      }),
+  };
+}
+
 function refuseNextWrite(page: Page): Promise<void> {
   return page.evaluate(() => {
     (window as unknown as Dev).fvociDev.backend.failNext(
@@ -90,11 +118,13 @@ test('Ctrl+Z right after a change takes back that change, and Ctrl+Shift+Z does 
   const redo = topBar(page).getByTestId('redo');
   const presses = await recordPresses(page);
 
+  let write = await holdNextWrite(page);
   await title.fill('Two');
   await title.press('Enter');
   await undo.press('Control+z');
   // Pressed while "Two" was still being written; undo said it was waiting.
   expect(await presses()).toEqual([{ stored: 'One', busy: true }]);
+  await write.release();
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
   await expect.poll(() => stored(page)).toBe('One');
   // "One" is still in force, and is the next to undo.
@@ -103,9 +133,11 @@ test('Ctrl+Z right after a change takes back that change, and Ctrl+Shift+Z does 
   await expect(redo).toBeEnabled();
 
   // Undo "One", and redo it while the undo is still being written: it waits its turn.
+  write = await holdNextWrite(page);
   await undo.press('Control+z');
   await undo.press('Control+Shift+z');
   expect((await presses())[2]).toEqual({ stored: 'One', busy: true });
+  await write.release();
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
   await expect(title).toHaveValue('One');
   await expect.poll(() => stored(page)).toBe('One');
@@ -129,10 +161,12 @@ test('an undo that waited for a refused change does not touch the change before 
   const presses = await recordPresses(page);
 
   await refuseNextWrite(page);
+  const write = await holdNextWrite(page);
   await title.fill('Two');
   await title.press('Enter');
   await undo.press('Control+z');
   expect(await presses()).toEqual([{ stored: 'One', busy: true }]);
+  await write.release();
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
   // "Two" never happened, and "One" was not taken back.
   await expect(title).toHaveValue('One');
@@ -151,6 +185,7 @@ test('a redo that waited for a refused undo is dropped, and the change stays in 
   const presses = await recordPresses(page);
 
   await refuseNextWrite(page);
+  const write = await holdNextWrite(page);
   await undo.press('Control+z');
   await undo.press('Control+Shift+z');
   // The redo was pressed while the undo still waited for its write.
@@ -158,6 +193,7 @@ test('a redo that waited for a refused undo is dropped, and the change stays in 
     { stored: 'One', busy: true },
     { stored: 'One', busy: true },
   ]);
+  await write.release();
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
   await expect(title).toHaveValue('One');
   await expect.poll(() => stored(page)).toBe('One');
