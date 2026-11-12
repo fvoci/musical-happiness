@@ -79,14 +79,23 @@ async fn a_user_sees_who_shares_a_workspace_and_nobody_else() {
         .client
         .post(&format!("{TEST_WS}/users"), &[&elsewhere])
         .await;
+    let with_nobody = th
+        .client
+        .post(&format!("{TEST_WS}/users"), &[&user2, UNKNOWN_ID, &user2])
+        .await;
     let coworker = th.client.get(&format!("{TEST_WS}/users/{user2}")).await;
     th.teardown().await;
 
     assert_eq!(names(&listed), ["user1", "user2"], "the workspace's people");
     assert!(found.is_empty(), "{found:?}");
     assert_eq!(answer(&profile), answer(&unknown), "a stranger is nobody");
-    // Whom the user does not see is left out of the list, which is not refused; who is
-    // named twice is there once.
+    // Whom the user does not see is left out of the list, which is not refused, as
+    // somebody who does not exist is; who is named twice is there once.
+    assert_eq!(
+        answer(&by_ids),
+        answer(&with_nobody),
+        "unseen is as missing"
+    );
     assert_eq!(
         names(&by_ids.ok_json::<Vec<User>>()),
         ["user2"],

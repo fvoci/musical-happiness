@@ -84,6 +84,19 @@ describe('the server backend', () => {
     ]);
   });
 
+  it('asks once for the people by their identifiers, each once, and not for none', async () => {
+    const sent = serve([
+      { id: 'u1', username: 'ann', email: '', createAt: 1, updateAt: 1, deleteAt: 0 },
+    ]);
+    const backend = serverBackend('');
+    expect(await backend.usersById('w1', [])).toEqual([]);
+    const found = await backend.usersById('w1', ['u1', 'u2', 'u1']);
+    expect(found.map((user) => user.id)).toEqual(['u1']);
+    expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
+      ['POST', '/api/v1/w/w1/users', ['u1', 'u2']],
+    ]);
+  });
+
   it('makes a card from a draft, its body along', async () => {
     const sent = serve({
       ...BLOCK,

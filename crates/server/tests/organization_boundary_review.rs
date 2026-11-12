@@ -235,6 +235,10 @@ async fn a_workspace_user_search_and_profile_lookup_do_not_expose_another_organi
         .client2
         .post(&format!("{ROOT_WS}/users"), &vec![owner.id.clone()])
         .await;
+    let by_nobody = ts
+        .client2
+        .post(&format!("{ROOT_WS}/users"), &vec![UNKNOWN_ID.to_owned()])
+        .await;
     ts.teardown().await;
 
     assert_eq!(
@@ -243,8 +247,14 @@ async fn a_workspace_user_search_and_profile_lookup_do_not_expose_another_organi
             profile.status,
             by_ids.status
         ),
-        (false, StatusCode::NOT_FOUND, StatusCode::NOT_FOUND),
+        (false, StatusCode::NOT_FOUND, StatusCode::OK),
         "the ordinary user shares neither a workspace nor an organization with this owner"
+    );
+    // Left out of the list as somebody who does not exist is.
+    assert_eq!(by_ids.text(), "[]");
+    assert_eq!(
+        (by_ids.status, by_ids.text()),
+        (by_nobody.status, by_nobody.text())
     );
 }
 

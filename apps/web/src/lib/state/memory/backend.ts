@@ -265,10 +265,9 @@ export class MemoryBackend implements Backend {
     });
   }
 
-  /** As strict as the server: no empty list, no identifier twice, every one a user's. */
+  /** As the server: whom the workspace does not have is left out, and each is there once. */
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
     const users = await this.users(workspaceId);
-    if (userIds.length === 0) fail(400, 'no users asked for');
     return users.filter((user) => userIds.includes(user.id));
   }
 

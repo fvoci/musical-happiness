@@ -154,6 +154,17 @@ describe('the workspace', () => {
     expect(workspace.users.map((user) => user.id).sort()).toEqual([...everyone].sort());
   });
 
+  it('learns the names it finds and leaves the others unknown', async () => {
+    const { workspace } = setup();
+    await workspace.load();
+    const [known] = workspace.users.map((user) => user.id);
+    if (!known) throw new Error('unexpected seed');
+    workspace.users = [];
+    await workspace.learnUsers([known, 'nobody-of-this-workspace']);
+    expect(workspace.users.map((user) => user.id)).toEqual([known]);
+    expect(workspace.userName('nobody-of-this-workspace')).toBeUndefined();
+  });
+
   it('files a board under another category and keeps the order the reader gave', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
