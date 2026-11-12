@@ -8,6 +8,7 @@
 //!
 //! A store without an observer pays one atomic load a call, and reads no clock.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sqlx::pool::PoolConnection;
@@ -48,7 +49,8 @@ pub enum Access {
     /// statements ran (no connection came, or the transaction did not begin) is a read
     /// too: what it would have done is not known.
     Read,
-    /// It was a transaction that may write, or some statement wrote.
+    /// It was a transaction that may write, or some statement that may write started:
+    /// also one that its caller gave up before it ended.
     Write,
 }
 
@@ -119,9 +121,12 @@ impl Outcome {
 pub(crate) struct Watch<'a> {
     observer: &'a dyn Observer,
     db: DbType,
-    /// What the call is known to be before it ends: a transaction writes, a call on
+    /// What the call is known to be when it starts: a transaction writes, a call on
     /// one connection reads until a statement writes.
     access: Access,
+    /// Set by the call's scope when a statement that may write starts
+    /// ([`Scope::reporting_writes_to`]): a call on one connection given up after that wrote.
+    writes: AtomicBool,
     started: Instant,
     finished: bool,
 }
@@ -137,6 +142,7 @@ impl<'a> Watch<'a> {
             observer,
             db,
             access,
+            writes: AtomicBool::new(false),
             started: Instant::now(),
             finished: false,
         })
@@ -158,6 +164,11 @@ impl<'a> Watch<'a> {
         pool.acquire().await
     }
 
+    /// What the call's scope sets when a statement that may write starts.
+    pub(crate) fn writes(&self) -> &AtomicBool {
+        &self.writes
+    }
+
     /// Tells the observer how the call ended.
     pub(crate) fn finish<T>(mut self, access: Access, result: &Result<T, StoreError>) {
         self.finished = true;
@@ -177,7 +188,12 @@ impl<'a> Watch<'a> {
 impl Drop for Watch<'_> {
     fn drop(&mut self) {
         if !self.finished {
-            self.tell(self.access, Outcome::Abandoned);
+            let access = if self.writes.load(Ordering::Relaxed) {
+                Access::Write
+            } else {
+                self.access
+            };
+            self.tell(access, Outcome::Abandoned);
         }
     }
 }

@@ -418,6 +418,28 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
     server.teardown().await;
 }
 
+/// The open uploads and their bytes, as scrapes find them once they are counted anew:
+/// a count is kept five seconds, so this scrapes until both are `want`, fifteen seconds
+/// at most (two counts, one of which may fail after two seconds, and slack).
+async fn open_uploads_become(server: &TestServer, want: (f64, f64)) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let body = scrape(server).await;
+        let found = (
+            sample(&body, "fvoci_uploads_open", &[]),
+            sample(&body, "fvoci_uploads_open_bytes", &[]),
+        );
+        if found == (Some(want.0), Some(want.1)) {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the open uploads are {found:?}, not {want:?}: {body}"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
 #[tokio::test]
 async fn the_pool_and_the_open_uploads_are_measured() {
     let server = Setup::native()
@@ -426,11 +448,17 @@ async fn the_pool_and_the_open_uploads_are_measured() {
         .await
         .init_basic()
         .await;
+    let counted = tokio::time::Instant::now();
     let body = scrape(&server).await;
     let max = sample(&body, "fvoci_db_pool_max_connections", &[]).expect("the pool's size");
     let open = sample(&body, "fvoci_db_pool_connections", &[]).expect("its connections");
     let idle = sample(&body, "fvoci_db_pool_idle_connections", &[]).expect("its idle ones");
     assert!(max >= 1.0 && open <= max && idle <= open, "{body}");
+    assert_eq!(
+        sample(&body, "fvoci_uploads_open", &[]),
+        Some(0.0),
+        "{body}"
+    );
 
     let board = server
         .create_board(
@@ -455,33 +483,28 @@ async fn the_pool_and_the_open_uploads_are_measured() {
                 .to_owned(),
         );
     }
+    // However often a scrape comes, the database is asked at most once in five
+    // seconds: a scrape soon after the count keeps it.
     let body = scrape(&server).await;
-    assert_eq!(
-        sample(&body, "fvoci_uploads_open", &[]),
-        Some(2.0),
-        "{body}"
-    );
-    assert_eq!(
-        sample(&body, "fvoci_uploads_open_bytes", &[]),
-        Some(30.0),
-        "{body}"
-    );
+    if counted.elapsed() < Duration::from_secs(4) {
+        assert_eq!(
+            sample(&body, "fvoci_uploads_open", &[]),
+            Some(0.0),
+            "the count of a moment ago: {body}"
+        );
+        assert_eq!(
+            sample(&body, "fvoci_uploads_read_failures_total", &[]),
+            Some(0.0),
+            "kept, not failed: {body}"
+        );
+    }
+    open_uploads_become(&server, (2.0, 30.0)).await;
     server
         .client
         .delete(&format!("/uploads/{}", uploads[0]))
         .await
         .check_no_content();
-    let body = scrape(&server).await;
-    assert_eq!(
-        sample(&body, "fvoci_uploads_open", &[]),
-        Some(1.0),
-        "{body}"
-    );
-    assert_eq!(
-        sample(&body, "fvoci_uploads_open_bytes", &[]),
-        Some(20.0),
-        "{body}"
-    );
+    open_uploads_become(&server, (1.0, 20.0)).await;
 
     server.teardown().await;
 }

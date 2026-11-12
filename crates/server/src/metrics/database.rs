@@ -87,7 +87,8 @@ impl DatabaseMetrics {
                  calls given up (a scrape's or a readiness check's timeout, a shutdown); \
                  by db (sqlite3, postgres) and access \
                  (read, write: a transaction that may write, or a call in which a \
-                 statement wrote); its count is the number of calls.",
+                 statement that may write started, also one given up); its count is \
+                 the number of calls.",
             )
             .namespace(PREFIX)
             .buckets(CALL_BUCKETS.to_vec()),

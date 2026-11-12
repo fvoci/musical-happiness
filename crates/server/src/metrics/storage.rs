@@ -8,6 +8,12 @@ use prometheus::{IntGauge, IntGaugeVec, Opts, Registry};
 
 use super::{Metrics, PREFIX, ScrapeRead};
 
+/// How long a count of the open uploads stays fresh: a scrape before then reads none.
+/// Whoever reaches the listener may scrape, and without a token anyone may; so the
+/// database is asked for it at most this often, however many scrapes come. Prometheus
+/// scrapes more seldom than this.
+const UPLOADS_FRESH_FOR: Duration = Duration::from_secs(5);
+
 /// The work on archives that is counted while it holds its place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ArchiveWork {
@@ -84,19 +90,21 @@ impl StorageMetrics {
         )?;
         let uploads_open = gauge(
             "uploads_open",
-            "How many uploads in parts are open: neither completed, abandoned nor ended.",
+            "How many uploads in parts are open, as a scrape counts them at most once \
+             in five seconds: neither completed, abandoned nor ended.",
         )?;
         let uploads_open_bytes = gauge(
             "uploads_open_bytes",
-            "The sizes of the open uploads together, in bytes: what they hold back of \
-             max_pending_upload_bytes.",
+            "The sizes of the open uploads together, in bytes, counted with them: what \
+             they hold back of max_pending_upload_bytes.",
         )?;
         let uploads_read = ScrapeRead::register(
             registry,
             "uploads_read_failures_total",
-            "How many scrapes could not count the open uploads (the database failed or \
-             took over two seconds) and gave the values counted before.",
-            Duration::ZERO,
+            "How many counts of the open uploads failed (the database failed or took \
+             over two seconds); the scrapes until the next count give the values counted \
+             before.",
+            UPLOADS_FRESH_FOR,
         )?;
         let archives = IntGaugeVec::new(
             Opts::new(
@@ -154,7 +162,8 @@ impl Metrics {
     }
 
     /// Sets the open uploads to what `read` answers, for a scrape. `read` is what asks
-    /// the database; it is not polled if no metrics are kept or a read is under way.
+    /// the database; it is not polled if no metrics are kept, a read is under way, or
+    /// the last one started less than five seconds ago.
     /// The uploads stay as they were then, and if `read` fails or does not answer in
     /// two seconds, which is counted; a read that answers late is kept then.
     pub(crate) async fn read_open_uploads<E: Display + Send + 'static>(

@@ -49,9 +49,12 @@ pub enum StorageError {
     ObjectStore(#[source] object_store::Error),
 }
 
-/// The key the readiness check lists under in the object store. Nothing stores a file
-/// at it (no stored path begins with a dot); that the list is answered is what counts.
-const READY_KEY: &str = ".fvoci-ready";
+/// The path the readiness check writes a file at, reads it back from and removes it
+/// from. Nothing else stores a file at it: no stored path begins with a dot.
+const READY_PATH: &str = ".fvoci-ready";
+
+/// What the readiness check writes and expects to read back.
+const READY_BYTES: &[u8] = b"fvoci readiness check";
 
 /// The bytes of a stored file, as a stream of chunks.
 pub type FileStream = BoxStream<'static, Result<Bytes, StorageError>>;
@@ -314,20 +317,28 @@ impl FileBackend {
         .await
     }
 
-    /// Whether the storage can be used, for the readiness check, unmeasured: on the local
-    /// disk, that the directory is one or is still to be made; on the object store, that
-    /// the bucket is there and lists its objects under a key that need not be there, with
-    /// the credentials.
+    /// Whether files can be stored and read, for the readiness check, unmeasured: a small
+    /// file is written at a path of its own at the root of the storage, as every file is
+    /// written, read back and removed. On the object store that is one request of each,
+    /// with the credentials the server uses for the files.
     ///
     /// # Errors
     ///
-    /// Returns the backend's error if the look fails.
+    /// Returns the backend's error if a step fails, and an I/O error if what is read back
+    /// is not what was written.
     pub async fn check(&self) -> Result<(), StorageError> {
-        match self {
-            Self::Local(files) => files.check().await,
-            Self::S3(files) => files.check(READY_KEY).await,
+        let read = match self {
+            Self::Local(files) => Bytes::from(files.check(READY_PATH, READY_BYTES).await?),
+            Self::S3(files) => files.check(READY_PATH, READY_BYTES).await?,
             #[cfg(feature = "test-util")]
-            Self::Faulty(inner, _) => Box::pin(inner.check()).await,
+            Self::Faulty(inner, _) => return Box::pin(inner.check()).await,
+        };
+        if read == READY_BYTES {
+            Ok(())
+        } else {
+            Err(StorageError::Io(std::io::Error::other(
+                "the file read back is not the one written",
+            )))
         }
     }
 
