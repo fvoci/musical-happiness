@@ -6,13 +6,17 @@
 //! is nobody's. What is asked before the organization is known (which sign-in comes
 //! back, which organization a login page is for) is in `directory.rs`.
 
-use fvoci_model::{Session, User, new_id};
+use fvoci_model::{LinkedIdentity, Session, User, new_id};
 
 use crate::Store;
-use crate::db::{Dialect, Id, Row, Scope, now_millis};
-use crate::error::StoreError;
+use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
+use crate::error::{StoreError, Taken};
 use crate::users::{InstanceRole, insert_user_row};
 use crate::{members, sessions};
+
+/// The columns of a sign-in under way, in the order [`flow_from_row`] reads them.
+pub(crate) const FLOW_COLUMNS: &str = "state_hash, browser_hash, nonce, pkce_verifier, org_id, \
+                                       provider_id, create_at, expires_at, link_session_id";
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str = "id, org_id, issuer, client_id, client_secret, auto_join, enabled, \
@@ -78,6 +82,9 @@ pub struct LoginFlow {
     pub create_at: i64,
     /// When it can no longer come back, in milliseconds since the Unix epoch.
     pub expires_at: i64,
+    /// The session it was started from to link what the provider vouches for to that
+    /// session's account; `None` for a sign-in.
+    pub link_session_id: Option<String>,
 }
 
 impl std::fmt::Debug for LoginFlow {
@@ -87,6 +94,7 @@ impl std::fmt::Debug for LoginFlow {
             .field("org_id", &self.org_id)
             .field("provider_id", &self.provider_id)
             .field("expires_at", &self.expires_at)
+            .field("link_session_id", &self.link_session_id)
             .finish_non_exhaustive()
     }
 }
@@ -295,7 +303,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
                 "INSERT INTO oidc_login_flows (state_hash, browser_hash, nonce, pkce_verifier, \
-                 org_id, provider_id, create_at, expires_at) SELECT ",
+                 org_id, provider_id, create_at, expires_at, link_session_id) SELECT ",
             );
             sql.bind(&flow.state_hash)
                 .push_bind(", ", &flow.browser_hash)
@@ -304,6 +312,10 @@ impl Store {
                 .push(", org_id, id")
                 .push_bind(", ", flow.create_at)
                 .push_bind(", ", flow.expires_at)
+                .push_bind(
+                    ", ",
+                    OptId(flow.link_session_id.as_deref().unwrap_or_default()),
+                )
                 .push_bind(" FROM oidc_providers WHERE id = ", Id(&flow.provider_id))
                 .push_bind(" AND org_id = ", scope.org()?);
             if scope.execute(sql).await? == 0 {
@@ -441,6 +453,164 @@ impl Store {
         .await
     }
 
+    /// The identities tied to an account, each with the address its provider gave:
+    /// oldest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn identities_of_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<LinkedIdentity>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(
+                "SELECT issuer, subject, email, create_at FROM user_identities WHERE user_id = ",
+            );
+            sql.bind(Id(user_id))
+                .push(" ORDER BY create_at, issuer, subject");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| {
+                    Ok(LinkedIdentity {
+                        issuer: row.text(0)?,
+                        subject: row.text(1)?,
+                        email: row.text(2)?,
+                        create_at: row.int(3)?,
+                    })
+                })
+                .collect()
+        })
+        .await
+    }
+
+    /// Ends a sign-in through the provider `provider_id` of the handle's organization
+    /// that was started from a session to link: ties `identity` to the account of that
+    /// session, in one transaction. The provider is read again and held, as at the end
+    /// of a sign-in; the session `link.session_id` must still be there under the token
+    /// digest the browser came back with, good at `link.now`, and of an account in use.
+    /// Nothing is stored otherwise. An identity that is the account's already is left
+    /// as it is.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NoOrganization`] if the handle names no organization, and
+    /// [`StoreError::Database`] if a statement fails.
+    pub async fn finish_oidc_link(
+        &self,
+        provider_id: &str,
+        link: LinkingSession<'_>,
+        identity: Identity<'_>,
+        provider_email: &str,
+    ) -> Result<Result<Linked, LinkRefusal>, StoreError> {
+        self.transaction(async |scope| {
+            let mut sql = scope.sql("SELECT 1 FROM oidc_providers WHERE org_id = ");
+            sql.bind(scope.org()?)
+                .push_bind(" AND id = ", Id(provider_id))
+                .push_bind(" AND enabled = ", true);
+            if scope.dialect() == Dialect::Postgres {
+                sql.push(" FOR SHARE");
+            }
+            if scope.fetch_optional(sql).await?.is_none() {
+                return Ok(Err(LinkRefusal::ProviderGone));
+            }
+            let mut sql = scope.sql(
+                "SELECT s.user_id FROM sessions AS s JOIN users AS u ON u.id = s.user_id \
+                 WHERE s.id = ",
+            );
+            sql.bind(Id(link.session_id))
+                .push_bind(" AND s.token_hash = ", link.token_digest)
+                .push_bind(" AND s.expires_at > ", link.now)
+                .push_bind(" AND s.last_used_at > ", link.idle_since)
+                .push_bind(" AND u.delete_at = ", 0_i64);
+            if scope.dialect() == Dialect::Postgres {
+                // The account stays while its identity is stored.
+                sql.push(" FOR SHARE OF u");
+            }
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Ok(Err(LinkRefusal::SessionEnded));
+            };
+            let user_id = row.id(0)?;
+            let mut sql = scope.sql("SELECT user_id FROM user_identities WHERE issuer = ");
+            sql.bind(identity.issuer)
+                .push_bind(" AND subject = ", identity.subject);
+            if let Some(row) = scope.fetch_optional(sql).await? {
+                return Ok(if row.id(0)? == user_id {
+                    Ok(Linked {
+                        user_id,
+                        newly: false,
+                    })
+                } else {
+                    Err(LinkRefusal::IdentityTaken)
+                });
+            }
+            match insert_identity(scope, identity, &user_id, provider_email, now_millis()).await {
+                Ok(()) => Ok(Ok(Linked {
+                    user_id,
+                    newly: true,
+                })),
+                // Tied a moment ago by another return: to whom is not asked again in
+                // a transaction that failed. Nothing of this one is stored.
+                Err(StoreError::Conflict(Taken::Identity)) => Ok(Err(LinkRefusal::IdentityTaken)),
+                Err(error) => Err(error),
+            }
+        })
+        .await
+    }
+
+    /// Removes an identity from the account `user_id`, whose password hash was read as
+    /// `seen_password_hash`, in one transaction that holds the account: so that of two
+    /// removals at once the second sees what the first left. The last identity of an
+    /// account without a password stays: nothing else lets its owner in.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn unlink_identity(
+        &self,
+        user_id: &str,
+        seen_password_hash: &str,
+        identity: Identity<'_>,
+    ) -> Result<Unlinked, StoreError> {
+        self.transaction(async |scope| {
+            let mut sql =
+                scope.sql("SELECT password_hash FROM users WHERE delete_at = 0 AND id = ");
+            sql.bind(Id(user_id));
+            if scope.dialect() == Dialect::Postgres {
+                sql.push(" FOR UPDATE");
+            }
+            let password_hash = match scope.fetch_optional(sql).await? {
+                Some(row) => row.text(0)?,
+                None => return Ok(Unlinked::AccountChanged),
+            };
+            if password_hash != seen_password_hash {
+                return Ok(Unlinked::AccountChanged);
+            }
+            let mut sql = scope.sql("SELECT issuer, subject FROM user_identities WHERE user_id = ");
+            sql.bind(Id(user_id));
+            let tied = scope.fetch_all(sql).await?;
+            let mut is_tied = false;
+            for row in &tied {
+                is_tied |= row.text(0)? == identity.issuer && row.text(1)? == identity.subject;
+            }
+            if !is_tied {
+                return Ok(Unlinked::NotTied);
+            }
+            if password_hash.is_empty() && tied.len() == 1 {
+                return Ok(Unlinked::LastWayIn);
+            }
+            let mut sql = scope.sql("DELETE FROM user_identities WHERE user_id = ");
+            sql.bind(Id(user_id))
+                .push_bind(" AND issuer = ", identity.issuer)
+                .push_bind(" AND subject = ", identity.subject);
+            scope.execute(sql).await?;
+            Ok(Unlinked::Removed)
+        })
+        .await
+    }
+
     /// The email addresses the providers gave for an account, one for each identity of
     /// it, oldest first: their word, checked by nobody. For tests: nothing shows them
     /// yet, and what does is to mark them as unchecked.
@@ -552,6 +722,52 @@ pub enum OidcAccount<'a> {
     },
 }
 
+/// The session a sign-in to link was started from, as the browser brings it back.
+#[derive(Debug, Clone, Copy)]
+pub struct LinkingSession<'a> {
+    /// The session the flow names.
+    pub session_id: &'a str,
+    /// The digest of the session token the browser came back with.
+    pub token_digest: &'a str,
+    /// Now, in milliseconds since the Unix epoch: the session must not have ended.
+    pub now: i64,
+    /// The session must have been used after this time.
+    pub idle_since: i64,
+}
+
+/// An identity that is tied to an account at the end of a sign-in to link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Linked {
+    /// The account.
+    pub user_id: String,
+    /// Whether this tied it; false if it was the account's already.
+    pub newly: bool,
+}
+
+/// Why a sign-in to link tied nothing at its end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkRefusal {
+    /// The provider is switched off, removed, or another one, since it began.
+    ProviderGone,
+    /// The session it was started from has ended, or is not the one that came back.
+    SessionEnded,
+    /// The identity is another account's.
+    IdentityTaken,
+}
+
+/// What came of removing an identity from an account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unlinked {
+    /// It is removed.
+    Removed,
+    /// It is not the account's.
+    NotTied,
+    /// It stays: the account has no password, and no other identity.
+    LastWayIn,
+    /// The account was deleted, or its password changed, since it was read.
+    AccountChanged,
+}
+
 /// Why a sign-in through a provider stored nothing at its end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OidcRefusal {
@@ -608,8 +824,7 @@ fn provider_from_row(row: &Row) -> Result<StoredProvider, StoreError> {
     })
 }
 
-/// Reads a sign-in under way from the columns `state_hash, browser_hash, nonce,
-/// pkce_verifier, org_id, provider_id, create_at, expires_at`.
+/// Reads a sign-in under way from the columns [`FLOW_COLUMNS`].
 pub(crate) fn flow_from_row(row: &Row) -> Result<LoginFlow, StoreError> {
     Ok(LoginFlow {
         state_hash: row.text(0)?,
@@ -620,5 +835,6 @@ pub(crate) fn flow_from_row(row: &Row) -> Result<LoginFlow, StoreError> {
         provider_id: row.id(5)?,
         create_at: row.int(6)?,
         expires_at: row.int(7)?,
+        link_session_id: Some(row.id(8)?).filter(|id| !id.is_empty()),
     })
 }

@@ -80,8 +80,9 @@ pub use deleted_item::DeletedItem;
 pub use file_info::{FileInfo, is_storage_path};
 pub use id::{is_id, new_id};
 pub use oidc::{
-    LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES, OIDC_ISSUER_MAX_BYTES,
-    OidcProvider, OidcProviderSettings, OidcStart,
+    LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
+    OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,
+    UnlinkRequest,
 };
 pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};

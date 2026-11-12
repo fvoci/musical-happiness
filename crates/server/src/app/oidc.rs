@@ -97,6 +97,9 @@ pub struct Callback {
     pub org_id: String,
     /// The `iss` parameter (RFC 9207): the issuer that answered, if it says.
     pub issuer: Option<String>,
+    /// The token of the session cookie the browser came back with, if it has one: a
+    /// sign-in that links ends only for the session it was started from.
+    pub session_token: Option<String>,
 }
 
 impl std::fmt::Debug for Callback {
@@ -107,16 +110,26 @@ impl std::fmt::Debug for Callback {
     }
 }
 
-/// A sign-in that ended in a session: the token of the session.
+/// How a sign-in through a provider ended well.
 #[derive(Clone)]
-pub struct FinishedLogin {
-    /// The token of the new session.
-    pub token: String,
+pub enum FinishedLogin {
+    /// In a session.
+    SignedIn {
+        /// The token of the new session.
+        token: String,
+    },
+    /// In an identity tied to the account of the session it was started from: no
+    /// session is made, and the one there goes on.
+    Linked,
 }
 
 impl std::fmt::Debug for FinishedLogin {
+    /// Leaves out the token.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FinishedLogin").finish_non_exhaustive()
+        f.write_str(match self {
+            Self::SignedIn { .. } => "SignedIn",
+            Self::Linked => "Linked",
+        })
     }
 }
 
@@ -294,6 +307,17 @@ impl App {
         org_id: &str,
         address: Option<IpAddr>,
     ) -> Result<StartedLogin, AppError> {
+        self.start_oidc_flow(org_id, address, None).await
+    }
+
+    /// Starts a sign-in as [`Self::start_oidc_login`] does: to sign in, or, from the
+    /// session `link_session_id`, to link (`App::start_oidc_link`).
+    pub(super) async fn start_oidc_flow(
+        &self,
+        org_id: &str,
+        address: Option<IpAddr>,
+        link_session_id: Option<&str>,
+    ) -> Result<StartedLogin, AppError> {
         // Counted against the address as a login is, and let go at once: the requests
         // to the provider below are no password work, and must not keep the address's
         // other logins waiting.
@@ -364,6 +388,7 @@ impl App {
                 provider_id: stored.id.clone(),
                 create_at: now,
                 expires_at: now.saturating_add(LOGIN_FLOW_LIFETIME_MILLIS),
+                link_session_id: link_session_id.map(str::to_owned),
             })
             .await
             .map_err(|error| AppError::from(error).context("storing a sign-in"))?;
@@ -488,6 +513,11 @@ impl App {
         let claims = self
             .checked_claims(&discovery, &stored, secret.as_deref(), flow, &callback.code)
             .await?;
+        if let Some(session_id) = &flow.link_session_id {
+            org.link_through(&claims, &stored, session_id, callback)
+                .await?;
+            return Ok(FinishedLogin::Linked);
+        }
         let token = new_secret();
         let now = now_millis();
         let mut session = Session {
@@ -499,7 +529,7 @@ impl App {
         };
         org.sign_in_through(&claims, &stored, &mut session, &token_digest(&token))
             .await?;
-        Ok(FinishedLogin { token })
+        Ok(FinishedLogin::SignedIn { token })
     }
 
     /// Whether `org_id` names an organization in use that is not the system's: none

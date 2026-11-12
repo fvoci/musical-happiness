@@ -211,6 +211,49 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 403. Sharing a board with whoever has its link is turned off in the \
              configuration of this server."
         }
+        Reason::TooManyUploads
+        | Reason::UploadsPending
+        | Reason::ServerUploadsPending
+        | Reason::UploadInParts
+        | Reason::ExportRunning
+        | Reason::ServerExportsBusy
+        | Reason::ImportRunning
+        | Reason::ServerImportsBusy => describe_transfer(reason).unwrap_or_default(),
+        Reason::SecretKeyRequired
+        | Reason::OidcIssuerUnverified
+        | Reason::OidcUnavailable
+        | Reason::OidcStateInvalid
+        | Reason::OidcDenied
+        | Reason::OidcTokenRefused
+        | Reason::OidcTokenInvalid
+        | Reason::OidcEmailMissing
+        | Reason::OidcEmailUnverified
+        | Reason::OidcEmailTaken
+        | Reason::OidcJoinClosed
+        | Reason::OidcIdentityTaken
+        | Reason::PasswordNotSet
+        | Reason::LastSignIn
+        | Reason::SsoRequired
+        | Reason::SsoUnproven
+        | Reason::SsoEnforced => describe_sign_in(reason).unwrap_or_default(),
+        Reason::RelationNotAList
+        | Reason::RelationToItself
+        | Reason::RelationRepeated
+        | Reason::RelationTooMany
+        | Reason::RelationNotACard
+        | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        Reason::UpdateRefused
+        | Reason::UpdateOutOfStep
+        | Reason::UpdateTooLarge
+        | Reason::DocumentTooLarge
+        | Reason::TooManyDocuments
+        | Reason::DocumentUnavailable => describe_editing_together(reason),
+    }
+}
+
+/// The descriptions of the reasons of uploads in parts and of archives.
+fn describe_transfer(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
         Reason::TooManyUploads => {
             "Status 429. The user has as many uploads in parts open as one user may. Complete \
              or abandon one first. No wait is told: what makes room is the user's own doing."
@@ -241,33 +284,8 @@ fn describe_reason(reason: Reason) -> &'static str {
         Reason::ServerImportsBusy => {
             "Status 429. The server runs as many imports as it may at once. Try again later."
         }
-        Reason::SecretKeyRequired
-        | Reason::OidcIssuerUnverified
-        | Reason::OidcUnavailable
-        | Reason::OidcStateInvalid
-        | Reason::OidcDenied
-        | Reason::OidcTokenRefused
-        | Reason::OidcTokenInvalid
-        | Reason::OidcEmailMissing
-        | Reason::OidcEmailUnverified
-        | Reason::OidcEmailTaken
-        | Reason::OidcJoinClosed
-        | Reason::SsoRequired
-        | Reason::SsoUnproven
-        | Reason::SsoEnforced => describe_sign_in(reason).unwrap_or_default(),
-        Reason::RelationNotAList
-        | Reason::RelationToItself
-        | Reason::RelationRepeated
-        | Reason::RelationTooMany
-        | Reason::RelationNotACard
-        | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
-        Reason::UpdateRefused
-        | Reason::UpdateOutOfStep
-        | Reason::UpdateTooLarge
-        | Reason::DocumentTooLarge
-        | Reason::TooManyDocuments
-        | Reason::DocumentUnavailable => describe_editing_together(reason),
-    }
+        _ => return None,
+    })
 }
 
 /// The descriptions of the reasons a value of a card relation is refused for.
@@ -365,8 +383,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
             "On the login page, after a sign-in through a provider. What came back is no \
              sign-in this browser started, or one that was used already or took longer than \
              ten minutes, or it came back to the address of another organization than the one \
-             it was started for, or from another issuer (`iss`). Start again from the login \
-             page."
+             it was started for, or from another issuer (`iss`); or it was started to link \
+             and the session it was started from has ended, or is not the one the browser \
+             came back with. Start again from the login page."
         }
         Reason::OidcDenied => {
             "On the login page, after a sign-in through a provider: the provider sent the \
@@ -393,14 +412,39 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
             "On the login page, after a sign-in through a provider: the person has no \
              account through the provider, and an account with a password has the email \
              address the provider gave as its own. The two are not joined by their \
-             address: sign in with the password of that account. (Connecting a provider to \
-             an account that has one is not there yet.) An address a provider gave for \
-             another account is no account's own, and refuses nobody."
+             address: sign in with the password of that account, and link the provider to \
+             it there (`startOidcLogin` with `linkPassword`); after that the provider \
+             signs in to the same account. An address a provider gave for another account \
+             is no account's own, and refuses nobody."
         }
         Reason::OidcJoinClosed => {
             "On the login page, after a sign-in through a provider: the person is no member \
              of the organization, and the organization does not let newcomers in through \
              its provider."
+        }
+        other => return describe_linking_and_enforcing(other),
+    })
+}
+
+/// The descriptions of the reasons of linking a provider to an account, and of an
+/// organization that takes no password.
+fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::OidcIdentityTaken => {
+            "On the login page, after a sign-in through a provider that was started to \
+             link (`startOidcLogin` with `linkPassword`): who the provider vouches for is \
+             another account's already. Nothing is linked, and the two accounts are not \
+             joined."
+        }
+        Reason::PasswordNotSet => {
+            "Status 409, linking a provider to the account or removing an identity from \
+             it: both ask for the account's password, and the account has none (it was \
+             made by a sign-in through a provider)."
+        }
+        Reason::LastSignIn => {
+            "Status 409, removing an identity from the account (`unlinkIdentity`): the \
+             account has no password and no other identity, so nothing else would let \
+             its owner in."
         }
         Reason::SsoRequired => {
             "Status 401, with a session that is good: the organization takes no password \

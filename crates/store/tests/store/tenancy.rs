@@ -589,6 +589,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             provider_id: provider.id,
             create_at: 0,
             expires_at: i64::MAX,
+            link_session_id: None,
         })
         .await
         .expect("a sign-in is stored");

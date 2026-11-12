@@ -8,23 +8,25 @@
 //! starts a sign-in gets a cookie of its own for it, and only the browser with that
 //! cookie finishes it.
 
+use axum::body::Bytes;
 use axum::extract::{Extension, Path, RawQuery, State};
 use axum::http::header::{LOCATION, SET_COOKIE};
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{Extensions, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use fvoci_model::{LoginOptions, OidcStart, Problem};
+use fvoci_model::{LoginOptions, OidcStart, OidcStartRequest, Problem};
 
 use super::auth::{address_of, user_agent};
 use super::contract::params::{
     CallbackOrg, LoginOrg, OidcCode, OidcError, OidcIssuer, OidcState, StartOrg,
 };
 use super::contract::tag;
-use super::{ApiResult, json_response, query_param};
-use crate::app::{App, Callback, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure};
-use crate::auth::token::{Https, cookie_value, query_value};
+use super::session::session_of;
+use super::{ApiResult, decode_object, json_response, query_param};
+use crate::app::{App, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure};
+use crate::auth::token::{Credential, Https, cookie_value, query_value};
 use crate::client_address::ClientAddress;
 use crate::error::AppError;
 
@@ -77,12 +79,27 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 /// browser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if
 /// the organization has no provider that is on, or it cannot be reached; 429 when
 /// this address made too many sign-ins of late.
+///
+/// With `linkPassword` in the body the sign-in links: it needs a session (401 without),
+/// whose account's password that is, and when the browser comes back, who the provider
+/// vouches for is tied to that account in place of signing in (`getMyIdentities`);
+/// after that the provider signs in to the account. No account is made and none is
+/// joined to another: an identity that is another account's is refused
+/// (`oidc_identity_taken`). It ends only in the browser that started it and still has
+/// the session it was started from (`oidc_state_invalid` otherwise). A wrong password
+/// is 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a
+/// wrong one of `changePassword` is; an account without a password is 409 with the
+/// reason `password_not_set`. The session need not open the organization.
 #[utoipa::path(
     post,
     path = "/auth/oidc/start",
     operation_id = "startOidcLogin",
     tag = tag::AUTH,
     params(StartOrg),
+    request_body(
+        content = OidcStartRequest,
+        description = "May be left out, to sign in.",
+    ),
     security(()),
     responses(
         (
@@ -115,13 +132,30 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 async fn handle_start(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
+    headers: HeaderMap,
     RawQuery(query): RawQuery,
+    body: Bytes,
 ) -> ApiResult {
     let org_id = query_param(query.as_deref(), "org");
     if org_id.is_empty() {
         return Err(AppError::bad_request("the query parameter org is required"));
     }
-    let started = app.start_oidc_login(&org_id, address_of(client)).await?;
+    let request: OidcStartRequest = if body.is_empty() {
+        OidcStartRequest::default()
+    } else {
+        decode_object(&body)?
+    };
+    let address = address_of(client);
+    let started = match &request.link_password {
+        None => app.start_oidc_login(&org_id, address).await?,
+        Some(password) => {
+            // Linking is the account's own doing, with a session of it, whatever
+            // organization that session opens.
+            let session = session_of(&app, &headers, &Extensions::new()).await?;
+            app.start_oidc_link(&org_id, &session, password, address)
+                .await?
+        }
+    };
     let mut response = json_response(&OidcStart {
         authorization_url: started.authorization_url,
     });
@@ -145,14 +179,16 @@ async fn handle_start(
 /// checked. The person is known by the issuer and the subject: an account of theirs
 /// signs in, and somebody who has none gets one, if the organization lets newcomers in
 /// and no account has their email address. The session comes in the `Set-Cookie`
-/// header, and the browser goes to the web app (303).
+/// header, and the browser goes to the web app (303). A sign-in that was started to
+/// link sets no session: the browser goes to the web app with `oidc_linked=1` in the
+/// query.
 ///
 /// Otherwise the browser goes to the login page of the organization (`/login?org=…`),
 /// with the reason of what went wrong in `oidc_error`, by the name of its problem
 /// (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
 /// `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
-/// `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or
-/// `oidc_unavailable`.
+/// `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
+/// `oidc_identity_taken` or `oidc_unavailable`.
 #[utoipa::path(
     get,
     path = "/auth/oidc/callback/{orgId}",
@@ -183,17 +219,24 @@ async fn handle_callback(
         browser_secret: cookie_value(&headers, flow_cookie_name(&app)).unwrap_or_default(),
         org_id,
         issuer: query_value(&query, "iss"),
+        // The session a browser comes back with is the one of its cookie.
+        session_token: match app.authenticator().session_cookie().credential(&headers) {
+            Some(Credential::Cookie(token)) => Some(token),
+            Some(Credential::Bearer(_)) | None => None,
+        },
     };
     let (org_id, result) = app
         .finish_oidc_login(&callback, &user_agent(&headers))
         .await;
     let mut response = match result {
-        Ok(finished) => {
+        Ok(FinishedLogin::SignedIn { token }) => {
             let mut response = see_other(&app_root(&app));
-            let cookie = app.authenticator().session_cookie().set(&finished.token);
+            let cookie = app.authenticator().session_cookie().set(&token);
             response.headers_mut().append(SET_COOKIE, cookie);
             response
         }
+        // The session there goes on; the web app is told that the link is made.
+        Ok(FinishedLogin::Linked) => see_other(&format!("{}?oidc_linked=1", app_root(&app))),
         Err(failure) => to_login_page(&app, org_id.as_deref(), failure),
     };
     // The sign-in is over, whatever came of it.

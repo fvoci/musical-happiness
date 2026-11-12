@@ -22,14 +22,16 @@ export interface paths {
          *     checked. The person is known by the issuer and the subject: an account of theirs
          *     signs in, and somebody who has none gets one, if the organization lets newcomers in
          *     and no account has their email address. The session comes in the `Set-Cookie`
-         *     header, and the browser goes to the web app (303).
+         *     header, and the browser goes to the web app (303). A sign-in that was started to
+         *     link sets no session: the browser goes to the web app with `oidc_linked=1` in the
+         *     query.
          *
          *     Otherwise the browser goes to the login page of the organization (`/login?org=…`),
          *     with the reason of what went wrong in `oidc_error`, by the name of its problem
          *     (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
          *     `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
-         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or
-         *     `oidc_unavailable`.
+         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
+         *     `oidc_identity_taken` or `oidc_unavailable`.
          */
         get: operations["finishOidcLogin"];
         put?: never;
@@ -60,6 +62,17 @@ export interface paths {
          *     browser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if
          *     the organization has no provider that is on, or it cannot be reached; 429 when
          *     this address made too many sign-ins of late.
+         *
+         *     With `linkPassword` in the body the sign-in links: it needs a session (401 without),
+         *     whose account's password that is, and when the browser comes back, who the provider
+         *     vouches for is tied to that account in place of signing in (`getMyIdentities`);
+         *     after that the provider signs in to the account. No account is made and none is
+         *     joined to another: an identity that is another account's is refused
+         *     (`oidc_identity_taken`). It ends only in the browser that started it and still has
+         *     the session it was started from (`oidc_state_invalid` otherwise). A wrong password
+         *     is 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a
+         *     wrong one of `changePassword` is; an account without a password is 409 with the
+         *     reason `password_not_set`. The session need not open the organization.
          */
         post: operations["startOidcLogin"];
         delete?: never;
@@ -1281,6 +1294,39 @@ export interface paths {
         patch: operations["patchClientState"];
         trace?: never;
     };
+    "/api/v1/users/me/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The identities linked to the account
+         * @description Who the user of the session is at the providers they linked to the account, or
+         *     first signed in through: an organization's provider with that issuer signs in to
+         *     this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.
+         */
+        get: operations["getMyIdentities"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove an identity from the account
+         * @description Removes the identity of `issuer` and `subject` from the account of the session: the
+         *     providers of that issuer no longer sign in to it. Asks for the account's password,
+         *     as `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,
+         *     naming `/password`, and too many are 429. An identity that is not the account's is
+         *     404. An account without a password keeps its last identity, which is all that lets
+         *     its owner in: 409 with the reason `last_sign_in`; and has no password to confirm
+         *     removing another with: 409 with the reason `password_not_set`. The sessions made
+         *     through a provider go on.
+         */
+        delete: operations["unlinkIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/memberships": {
         parameters: {
             query?: never;
@@ -2467,6 +2513,26 @@ export interface components {
              */
             reason: string;
         };
+        /**
+         * @description An identity tied to an account: who its owner is at a provider, by which they sign
+         *     in to it through the provider of an organization.
+         */
+        LinkedIdentity: {
+            /**
+             * Format: int64
+             * @description When it was tied, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /**
+             * @description The email address the provider gave when the identity was tied: its word,
+             *     checked by nobody. Empty if it gave none.
+             */
+            email: string;
+            /** @description The issuer, as the provider names itself. */
+            issuer: string;
+            /** @description Who the account's owner is at the issuer. */
+            subject: string;
+        };
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
             organization: components["schemas"]["LoginOrganization"] | null;
@@ -2768,6 +2834,15 @@ export interface components {
             /** @description The provider's address that asks the person to sign in, for this sign-in. */
             authorizationUrl: string;
         };
+        /** @description What a sign-in through a provider is started with. Nothing, to sign in. */
+        OidcStartRequest: {
+            /**
+             * @description The password of the account of the request's session. With it the sign-in
+             *     links: what the provider vouches for is tied to that account, in place of
+             *     signing in.
+             */
+            linkPassword?: string | null;
+        };
         /** @description What starting the tour answers: where the tour's board is. */
         OnboardingStart: {
             /** @description The identifier of the board the tour goes through. */
@@ -3025,6 +3100,15 @@ export interface components {
          * @enum {string}
          */
         Theme: "auto" | "light" | "dark";
+        /** @description A request to remove an identity from the account of the session. */
+        UnlinkRequest: {
+            /** @description The issuer of the identity. */
+            issuer: string;
+            /** @description The account's password. */
+            password: string;
+            /** @description Its subject. */
+            subject: string;
+        };
         /** @description An upload that is open. */
         UploadOpened: {
             /**
@@ -3282,7 +3366,12 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description May be left out, to sign in. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OidcStartRequest"];
+            };
+        };
         responses: {
             /** @description Started: where the browser goes. */
             200: {
@@ -5425,6 +5514,77 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMyIdentities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The identities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedIdentity"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unlinkIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The identity is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The password was wrong too often, or the server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

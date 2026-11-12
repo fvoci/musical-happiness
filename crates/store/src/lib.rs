@@ -60,7 +60,10 @@ pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
-pub use oidc::{Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider};
+pub use oidc::{
+    Identity, LinkRefusal, Linked, LinkingSession, LoginFlow, OidcAccount, OidcRefusal, Removal,
+    StoredProvider, Unlinked,
+};
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};

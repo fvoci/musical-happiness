@@ -20,6 +20,7 @@ mod housekeeping;
 mod import;
 mod loose_objects;
 mod oidc;
+mod oidc_link;
 mod onboarding;
 mod readiness;
 mod reconcile;

@@ -23,7 +23,7 @@ use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
-use crate::oidc::{LoginFlow, flow_from_row};
+use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{users, workspaces};
 
@@ -694,10 +694,7 @@ impl Store {
                 let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE state_hash = ");
                 sql.bind(state_hash)
                     .push_bind(" AND browser_hash = ", browser_hash)
-                    .push(
-                        " RETURNING state_hash, browser_hash, nonce, pkce_verifier, org_id, \
-                     provider_id, create_at, expires_at",
-                    );
+                    .push(&format!(" RETURNING {FLOW_COLUMNS}"));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };

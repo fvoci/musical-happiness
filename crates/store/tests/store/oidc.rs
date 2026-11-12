@@ -4,7 +4,10 @@
 use std::time::Duration;
 
 use fvoci_model::{Session, new_id};
-use fvoci_store::{DbType, OidcAccount, OidcRefusal, Removal, Store, StoredProvider, Tenant};
+use fvoci_store::{
+    DbType, Identity, LinkRefusal, LinkingSession, OidcAccount, OidcRefusal, Removal, Store,
+    StoredProvider, Tenant, Unlinked,
+};
 use sqlx::Connection as _;
 
 use crate::common;
@@ -448,4 +451,178 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
         test.delete_oidc_provider().await.expect("asked");
     }
     test.teardown().await;
+}
+
+/// A session of `user_id` under the token digest `digest`, made at 1,000 and ending at
+/// 2,000.
+async fn session_of(test: &common::TestStore, user_id: &str, digest: &str) -> Session {
+    let session = Session {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        created_at: 1_000,
+        expires_at: 2_000,
+        ..Session::default()
+    };
+    let password_hash = test
+        .get_user_by_id(user_id)
+        .await
+        .expect("the account")
+        .password_hash;
+    assert!(
+        test.create_session(&session, digest, &password_hash)
+            .await
+            .expect("stored"),
+        "the session is made"
+    );
+    session
+}
+
+/// A sign-in to link ties the identity to the account of the session it was started
+/// from, if that session came back under its token and is still good, and the provider
+/// is still the one, switched on. An identity that is another account's is refused,
+/// and one that is the account's already is left as it is.
+#[tokio::test]
+async fn a_link_ties_an_identity_to_the_account_of_a_session_that_is_still_good() {
+    let test = common::setup().await;
+    let user = common::user(&test, "linker").await;
+    let other = common::user(&test, "other").await;
+    let provider = test
+        .put_oidc_provider(&provider_that(Enforcement::Off))
+        .await
+        .expect("stored");
+    let session = session_of(&test, &user, "digest").await;
+    let identity = Identity {
+        issuer: "https://idp.example.com",
+        subject: "linker-there",
+    };
+    let link = |token_digest: &'static str, now: i64, idle_since: i64| LinkingSession {
+        session_id: &session.id,
+        token_digest,
+        now,
+        idle_since,
+    };
+    let attempt = async |provider_id: &str, link: LinkingSession<'_>, identity: Identity<'_>| {
+        test.finish_oidc_link(provider_id, link, identity, "linker@idp.example.com")
+            .await
+            .expect("asked")
+    };
+
+    let refused = [
+        attempt(&provider.id, link("another digest", 1_500, 0), identity).await,
+        attempt(&provider.id, link("digest", 2_000, 0), identity).await,
+        attempt(&provider.id, link("digest", 1_500, 1_000), identity).await,
+        attempt(&new_id(), link("digest", 1_500, 0), identity).await,
+    ];
+    let before = test.identities_of_user(&user).await.expect("read");
+    let first = attempt(&provider.id, link("digest", 1_500, 0), identity).await;
+    let again = attempt(&provider.id, link("digest", 1_500, 0), identity).await;
+    test.add_identity(
+        &other,
+        Identity {
+            issuer: "https://idp.example.com",
+            subject: "other-there",
+        },
+        "",
+    )
+    .await
+    .expect("the other account's identity");
+    let of_another = attempt(
+        &provider.id,
+        link("digest", 1_500, 0),
+        Identity {
+            issuer: "https://idp.example.com",
+            subject: "other-there",
+        },
+    )
+    .await;
+    let after = test.identities_of_user(&user).await.expect("read");
+    test.teardown().await;
+
+    assert_eq!(
+        refused,
+        [
+            Err(LinkRefusal::SessionEnded),
+            Err(LinkRefusal::SessionEnded),
+            Err(LinkRefusal::SessionEnded),
+            Err(LinkRefusal::ProviderGone),
+        ],
+        "another token, past its end, idle too long, another provider"
+    );
+    assert_eq!(before, [], "nothing tied by what was refused");
+    assert_eq!(
+        first.map(|linked| (linked.user_id, linked.newly)),
+        Ok((user.clone(), true))
+    );
+    assert_eq!(
+        again.map(|linked| (linked.user_id, linked.newly)),
+        Ok((user, false))
+    );
+    assert_eq!(of_another, Err(LinkRefusal::IdentityTaken));
+    assert_eq!(
+        after
+            .iter()
+            .map(|identity| (identity.subject.as_str(), identity.email.as_str()))
+            .collect::<Vec<_>>(),
+        [("linker-there", "linker@idp.example.com")]
+    );
+}
+
+/// An account without a password keeps its last identity, also when two of them are
+/// removed at once: one removal sees what the other left. An account with a password
+/// loses any, and an identity that is not the account's is not removed.
+#[tokio::test]
+async fn the_last_identity_of_an_account_without_a_password_is_not_removed() {
+    let test = common::setup().await;
+    let user = common::user(&test, "without-password").await;
+    let other = common::user(&test, "other").await;
+    let first = Identity {
+        issuer: "https://one.example.com",
+        subject: "there",
+    };
+    let second = Identity {
+        issuer: "https://two.example.com",
+        subject: "there",
+    };
+    let mut rounds = Vec::new();
+    for _ in 0..8 {
+        for identity in [first, second] {
+            // Tied anew, or still there from the round before.
+            match test.add_identity(&user, identity, "").await {
+                Ok(()) | Err(fvoci_store::StoreError::Conflict(_)) => {}
+                Err(error) => panic!("an identity is tied: {error}"),
+            }
+        }
+        let removing = |identity: Identity<'static>| {
+            let store = test.store.clone();
+            let user = user.clone();
+            tokio::spawn(async move { store.unlink_identity(&user, "", identity).await })
+        };
+        let (one, two) = (removing(first), removing(second));
+        let mut outcomes = [
+            one.await.expect("joined").expect("asked"),
+            two.await.expect("joined").expect("asked"),
+        ];
+        outcomes.sort_by_key(|outcome| *outcome != Unlinked::Removed);
+        let left = test.identities_of_user(&user).await.expect("read").len();
+        rounds.push((outcomes, left));
+    }
+    let not_theirs = test
+        .unlink_identity(&other, "", first)
+        .await
+        .expect("asked");
+    let changed = test
+        .unlink_identity(&user, "another hash", first)
+        .await
+        .expect("asked");
+    test.teardown().await;
+
+    for (round, (outcomes, left)) in rounds.into_iter().enumerate() {
+        assert_eq!(
+            (outcomes, left),
+            ([Unlinked::Removed, Unlinked::LastWayIn], 1),
+            "round {round}: one goes and the last stays"
+        );
+    }
+    assert_eq!(not_theirs, Unlinked::NotTied);
+    assert_eq!(changed, Unlinked::AccountChanged);
 }

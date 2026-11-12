@@ -235,6 +235,12 @@ reasons! {
     OidcEmailTaken => "oidc_email_taken", "Email address of another account";
     /// The organization does not let in who is no member through its provider.
     OidcJoinClosed => "oidc_join_closed", "Organization closed to newcomers";
+    /// The identity a provider vouches for is another account's: it is not linked.
+    OidcIdentityTaken => "oidc_identity_taken", "Sign-in of another account";
+    /// The account has no password to confirm with.
+    PasswordNotSet => "password_not_set", "Account without a password";
+    /// The identity is the only way in to an account without a password.
+    LastSignIn => "last_sign_in", "Last way to sign in";
     /// The organization takes only sessions made through its provider, and this one
     /// was not.
     SsoRequired => "sso_required", "Sign-in through the provider required";

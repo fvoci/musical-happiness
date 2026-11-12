@@ -434,6 +434,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "getClientState",
     "getLoginOptions",
     "getMe",
+    "getMyIdentities",
     "getMyWorkspaces",
     "getUserSettings",
     "hello",
@@ -446,6 +447,7 @@ const OPEN_TO_ANY_SESSION: &[&str] = &[
     "ready",
     "register",
     "startOidcLogin",
+    "unlinkIdentity",
 ];
 
 /// What the sweep names in the paths, and a file of the board.

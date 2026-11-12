@@ -497,6 +497,7 @@ const ORDERS: &[(&str, &str)] = &[
         "The last deleted first; the pages cut that order",
     ),
     ("getMembers", "By the identifier of the user"),
+    ("getMyIdentities", "Oldest first"),
     ("getMyMemberships", "By the identifier of the board"),
     ("getMyWorkspaces", "the oldest workspace first"),
     (

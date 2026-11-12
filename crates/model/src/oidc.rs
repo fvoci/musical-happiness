@@ -145,6 +145,87 @@ impl fmt::Debug for OidcProviderSettings {
     }
 }
 
+/// What a sign-in through a provider is started with. Nothing, to sign in.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OidcStartRequest {
+    /// The password of the account of the request's session. With it the sign-in
+    /// links: what the provider vouches for is tied to that account, in place of
+    /// signing in.
+    pub link_password: Option<String>,
+}
+
+impl fmt::Debug for OidcStartRequest {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OidcStartRequest")
+            .field("links", &self.link_password.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// An identity tied to an account: who its owner is at a provider, by which they sign
+/// in to it through the provider of an organization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedIdentity {
+    /// The issuer, as the provider names itself.
+    pub issuer: String,
+    /// Who the account's owner is at the issuer.
+    pub subject: String,
+    /// The email address the provider gave when the identity was tied: its word,
+    /// checked by nobody. Empty if it gave none.
+    pub email: String,
+    /// When it was tied, in milliseconds since the Unix epoch.
+    pub create_at: i64,
+}
+
+/// A request to remove an identity from the account of the session.
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UnlinkRequest {
+    /// The issuer of the identity.
+    #[serde(deserialize_with = "null_as_default")]
+    pub issuer: String,
+    /// Its subject.
+    #[serde(deserialize_with = "null_as_default")]
+    pub subject: String,
+    /// The account's password.
+    #[serde(deserialize_with = "null_as_default")]
+    pub password: String,
+}
+
+impl UnlinkRequest {
+    /// Checks that every member is there.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member that is empty.
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        for (name, value) in [
+            ("issuer", &self.issuer),
+            ("subject", &self.subject),
+            ("password", &self.password),
+        ] {
+            if value.is_empty() {
+                refused.refuse(name, RefusalReason::Required, format!("{name} is required"));
+            }
+        }
+        refused.into_result()
+    }
+}
+
+impl fmt::Debug for UnlinkRequest {
+    /// Leaves out the password.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UnlinkRequest")
+            .field("issuer", &self.issuer)
+            .field("subject", &self.subject)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What the login page may know of an organization before anybody signs in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
