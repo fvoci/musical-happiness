@@ -7,6 +7,8 @@ pub mod api;
 pub mod app;
 pub mod auth;
 pub mod client_address;
+pub mod collab;
+pub mod collab_worker;
 pub mod config;
 pub mod error;
 pub mod metrics;

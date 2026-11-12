@@ -13,6 +13,7 @@ publish = false
 # The names of the IANA time zones, compiled in: what a user may set as their time zone
 # is the same on every installation, whatever the host has in /usr/share/zoneinfo.
 chrono-tz = "0.10"
+fvoci-collab = { path = "crates/collab" }
 fvoci-model = { path = "crates/model" }
 fvoci-store = { path = "crates/store" }
 
@@ -33,6 +34,9 @@ futures-util = "0.3"
 getrandom = "0.4"
 # RFC 1123 date formatting and parsing for Last-Modified / If-Modified-Since. License: MIT OR Apache-2.0.
 httpdate = "1"
+# The limits of the worker processes of editing together (setrlimit, prctl), on Unix.
+# License: MIT OR Apache-2.0.
+libc = "0.2"
 md-5 = { version = "0.11", default-features = false }
 mime_guess = "2"
 clap = { version = "4", features = ["derive"] }

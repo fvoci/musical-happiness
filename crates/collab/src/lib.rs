@@ -28,6 +28,7 @@
 //! (`contracts/ydoc-vectors.json`), and this crate's tests read those.
 
 mod build;
+mod doc;
 mod project;
 mod read;
 mod repair;
@@ -37,6 +38,7 @@ mod take;
 mod update;
 
 pub use build::{from_body, from_body_by, new_doc};
+pub use doc::{BodyDoc, Changed};
 pub use repair::Repair;
 pub use take::{TakeError, Taken, from_state, take_update};
 pub use update::{UpdateError, UpdateLimits, state_of};
@@ -105,6 +107,74 @@ pub mod testing {
     /// Returns why the document cannot be read again from its state.
     pub fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
         crate::update::copy_of(doc)
+    }
+
+    /// An editor that holds a body's document, as a client of the server does: it
+    /// takes what the server sends and makes the updates of what it writes.
+    #[derive(Debug)]
+    pub struct Editor {
+        doc: Doc,
+    }
+
+    impl Editor {
+        /// An editor with the client identifier `client` that holds the document of
+        /// `state`, a version 1 update the server sent.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `state` is no update.
+        #[must_use]
+        pub fn join(client: u64, state: &[u8]) -> Self {
+            let doc = crate::build::doc_of_client(Some(client));
+            let editor = Self { doc };
+            editor.receive(state);
+            editor
+        }
+
+        /// Takes an update the server sent.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `update` is no update.
+        pub fn receive(&self, update: &[u8]) {
+            let update = Update::decode_v1(update).expect("the server sends updates");
+            self.doc
+                .transact_mut()
+                .apply_update(update)
+                .expect("an update the server sent applies");
+        }
+
+        /// Appends a paragraph of `text` and gives the update of it.
+        #[must_use]
+        pub fn append_paragraph(&self, text: &str) -> Vec<u8> {
+            use yrs::{ReadTxn as _, XmlElementPrelim, XmlFragment as _, XmlTextPrelim};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            {
+                let mut txn = self.doc.transact_mut();
+                let paragraph = root.push_back(&mut txn, XmlElementPrelim::empty("paragraph"));
+                paragraph.push_back(&mut txn, XmlTextPrelim::new(text));
+            }
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
+        /// The state vector of what the editor holds, version 1.
+        #[must_use]
+        pub fn state_vector(&self) -> Vec<u8> {
+            use yrs::ReadTxn as _;
+            use yrs::updates::encoder::Encode as _;
+            self.doc.transact().state_vector().encode_v1()
+        }
+
+        /// The body of what the editor holds.
+        ///
+        /// # Panics
+        ///
+        /// Panics if it is no body.
+        #[must_use]
+        pub fn body(&self) -> Option<Body> {
+            crate::project::to_body(&self.doc).expect("an editor holds a body")
+        }
     }
 }
 

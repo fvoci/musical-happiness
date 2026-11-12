@@ -20,9 +20,11 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 /// so every single valid block fits. Requests of the web app measured below 1 kB.
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
+mod collab;
 mod keys;
 mod scrapes;
 
+pub use collab::CollabSettings;
 pub use scrapes::{MetricsAddress, MetricsToken};
 
 /// The settings of the S3 file backend, the `filess3config` object.
@@ -241,6 +243,9 @@ pub struct Configuration {
     /// How long a request waits for that turn before it is told to try again, in
     /// seconds.
     pub password_hash_queue_seconds: u64,
+    /// The keys `collab_*`: editing a body together.
+    #[serde(flatten)]
+    pub collab: CollabSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -300,6 +305,7 @@ impl Default for Configuration {
             password_hash_concurrency: 4,
             password_hash_queue: 16,
             password_hash_queue_seconds: 5,
+            collab: CollabSettings::default(),
             skip_template_init: false,
         }
     }
@@ -378,6 +384,7 @@ impl std::fmt::Debug for Configuration {
                 "password_hash_queue_seconds",
                 &self.password_hash_queue_seconds,
             )
+            .field("collab", &self.collab)
             .finish_non_exhaustive()
     }
 }
@@ -397,7 +404,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 55] = [
+const ENV_KEYS: [(&str, EnvKind); 61] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -453,6 +460,12 @@ const ENV_KEYS: [(&str, EnvKind); 55] = [
     ("password_hash_concurrency", EnvKind::Number),
     ("password_hash_queue", EnvKind::Number),
     ("password_hash_queue_seconds", EnvKind::Number),
+    ("collab_workers", EnvKind::Number),
+    ("collab_documents_per_worker", EnvKind::Number),
+    ("collab_state_bytes", EnvKind::Number),
+    ("collab_update_bytes", EnvKind::Number),
+    ("collab_worker_timeout_ms", EnvKind::Number),
+    ("collab_worker_memory_bytes", EnvKind::Number),
 ];
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
@@ -749,7 +762,7 @@ impl Configuration {
         if self.export_stall_seconds == 0 {
             bail!("export_stall_seconds must be at least 1");
         }
-        Ok(())
+        self.collab.check()
     }
 
     /// Checks that the configuration only asks for what this server supports.

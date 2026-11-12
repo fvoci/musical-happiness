@@ -12,6 +12,7 @@ name = "fvoci-server"
 path = "src/main.rs"
 
 [dependencies]
+fvoci-collab.workspace = true
 fvoci-model.workspace = true
 fvoci-store.workspace = true
 
@@ -33,7 +34,7 @@ serde_json.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time", "fs", "io-util"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time", "fs", "io-util", "process"] }
 tokio-rustls.workspace = true
 tokio-util.workspace = true
 tower.workspace = true
@@ -45,12 +46,16 @@ utoipa-axum.workspace = true
 uuid.workspace = true
 zip.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [features]
 # Test support for this crate's tests: a file storage that fails when a test asks it to.
 test-util = []
 
 [dev-dependencies]
 brotli.workspace = true
+fvoci-collab = { workspace = true, features = ["test-util"] }
 fvoci-server = { path = ".", features = ["test-util"] }
 fvoci-store = { workspace = true, features = ["test-util"] }
 rcgen.workspace = true
