@@ -42,6 +42,7 @@ mod templates;
 mod trash;
 mod uploads;
 mod users;
+mod workspace_members;
 mod workspaces;
 
 pub use access::{BoardAccess, DeletedBoardAccess, as_managed};

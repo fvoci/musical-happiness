@@ -753,13 +753,15 @@ fn who_sees_whom_of_the_people() {
 }
 
 /// What a member of a workspace does in it beside its boards: its administrators invite
-/// its members and say whether guests are invited, and nobody else does. `(case, actor, what they may do)`; a permission a
+/// its members, say whether guests are invited and manage who is in it, and nobody
+/// else does. `(case, actor, what they may do)`; a permission a
 /// row does not name is one the user does not have.
 #[test]
 fn the_work_of_a_workspace() {
-    use super::WorkspacePermission::{self, InviteMembers, SwitchGuestInvitations};
+    use super::WorkspacePermission::{self, InviteMembers, ManageMembers, SwitchGuestInvitations};
     use super::allows_in_workspace;
-    const ADMINISTERS: &[WorkspacePermission] = &[InviteMembers, SwitchGuestInvitations];
+    const ADMINISTERS: &[WorkspacePermission] =
+        &[InviteMembers, SwitchGuestInvitations, ManageMembers];
     let rows: [(&str, Actor, &[WorkspacePermission]); 8] = [
         ("a workspace admin", WORKSPACE_ADMIN, ADMINISTERS),
         ("a member", MEMBER, &[]),
@@ -780,6 +782,27 @@ fn the_work_of_a_workspace() {
             .filter(|permission| allows_in_workspace(actor, *permission))
             .collect();
         assert_eq!(got, allowed, "{case}");
+    }
+}
+
+/// What a change of a member's role makes of them: every pair of roles, and no other.
+#[test]
+fn what_a_member_of_a_workspace_is_made_by_a_change_of_role() {
+    use super::may_become;
+    use WorkspaceRole::{Admin, Guest, Member};
+    let rows = [
+        (Admin, Admin, true),
+        (Admin, Member, true),
+        (Admin, Guest, false),
+        (Member, Admin, true),
+        (Member, Member, true),
+        (Member, Guest, true),
+        (Guest, Admin, false),
+        (Guest, Member, false),
+        (Guest, Guest, true),
+    ];
+    for (from, to, allowed) in rows {
+        assert_eq!(may_become(from, to), allowed, "{from:?} to {to:?}");
     }
 }
 

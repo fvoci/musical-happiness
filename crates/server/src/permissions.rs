@@ -58,11 +58,18 @@ pub enum WorkspacePermission {
     /// Turn on and off whether the admins of the workspace's boards invite guests to
     /// them.
     SwitchGuestInvitations,
+    /// List the members of the workspace, change what one of them is in it, and
+    /// remove one.
+    ManageMembers,
 }
 
 impl WorkspacePermission {
     /// Every permission, in the order of the declaration.
-    pub const ALL: [Self; 2] = [Self::InviteMembers, Self::SwitchGuestInvitations];
+    pub const ALL: [Self; 3] = [
+        Self::InviteMembers,
+        Self::SwitchGuestInvitations,
+        Self::ManageMembers,
+    ];
 }
 
 /// Whether the user may do this in the workspace: its administrators invite its
@@ -71,10 +78,28 @@ impl WorkspacePermission {
 #[must_use]
 pub const fn allows_in_workspace(actor: Actor, permission: WorkspacePermission) -> bool {
     match permission {
-        WorkspacePermission::InviteMembers | WorkspacePermission::SwitchGuestInvitations => {
+        WorkspacePermission::InviteMembers
+        | WorkspacePermission::SwitchGuestInvitations
+        | WorkspacePermission::ManageMembers => {
             matches!(actor.workspace, Some(WorkspaceRole::Admin))
         }
     }
+}
+
+/// Whether a member of a workspace who is `from` there is made `to` by a change of
+/// their role: an administrator a member and a member an administrator, and a member a
+/// guest. A guest becomes a member by an invitation for members, and an administrator
+/// a guest in two steps. What a member is already they may be made again.
+#[must_use]
+pub const fn may_become(from: WorkspaceRole, to: WorkspaceRole) -> bool {
+    matches!(
+        (from, to),
+        (
+            WorkspaceRole::Admin,
+            WorkspaceRole::Admin | WorkspaceRole::Member
+        ) | (WorkspaceRole::Member, _)
+            | (WorkspaceRole::Guest, WorkspaceRole::Guest)
+    )
 }
 
 /// Whether a user who may do `grant` on a board of `scope` invites guests to it:

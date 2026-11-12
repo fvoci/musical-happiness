@@ -39,6 +39,7 @@ pub mod testing;
 mod trash;
 mod uploads;
 mod users;
+mod workspace_membership;
 mod workspaces;
 
 use std::sync::Arc;
@@ -68,6 +69,7 @@ pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
+pub use workspace_membership::MembershipChange;
 
 use db::{ConnRef, Scope};
 use observe::Watch;

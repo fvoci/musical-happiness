@@ -88,7 +88,9 @@ pub use oidc::{
     LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES, OIDC_ISSUER_MAX_BYTES,
     OidcProvider, OidcProviderSettings, OidcStart,
 };
-pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
+pub use organization::{
+    OrgRole, UnknownRole, UserWorkspace, WorkspaceMember, WorkspaceRole, WorkspaceRoleChange,
+};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use relation::{

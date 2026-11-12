@@ -30,5 +30,6 @@ mod tenancy;
 mod trash;
 mod users;
 mod users_at_once;
+mod workspace_membership;
 mod workspace_rename;
 mod workspaces;

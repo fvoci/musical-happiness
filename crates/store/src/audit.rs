@@ -13,7 +13,9 @@ use crate::error::StoreError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuditAction {
     /// An administrator of a workspace made themselves a member of a board of it whose
-    /// content they could not read before. The target is the board.
+    /// content they could not read before: by adding themselves, or by taking the
+    /// board over from its only admin, whom they removed from the workspace or made a
+    /// guest of it. The target is the board.
     SelfAddedToBoard,
 }
 

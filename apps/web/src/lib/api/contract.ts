@@ -1913,6 +1913,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The members of a workspace
+         * @description Everybody who is in the workspace, its guests too, each with their login name, the
+         *     name they are shown by and what they are in the workspace (`admin`, `member` or
+         *     `guest`). The oldest membership first, and then by the identifier of the user.
+         *
+         *     For the workspace's administrators: anybody else who works there is refused (403),
+         *     and a guest of the workspace is told that it is not there (404).
+         */
+        get: operations["getWorkspaceMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change what a member is in a workspace
+         * @description Makes a member an administrator, an administrator a member, or a member a guest,
+         *     and answers the member; what they are already they are made again, and nothing
+         *     changes. A guest becomes a member by accepting an invitation for members, and an
+         *     administrator a guest in two steps: those are 400, at `/role`.
+         *
+         *     Who becomes a guest keeps the boards they are on, as an editor at most. A board
+         *     they were the only admin of passes to the user who makes the change, who is its
+         *     admin from then on: no board is left without one.
+         *
+         *     The workspace keeps an administrator: the last one is not made anything else (409,
+         *     reason `last_admin`). Somebody who is no member of the workspace is 404.
+         *
+         *     For the workspace's administrators: anybody else who works there is refused (403),
+         *     and a guest of the workspace is told that it is not there (404).
+         */
+        put: operations["setWorkspaceRole"];
+        post?: never;
+        /**
+         * Take a member out of a workspace
+         * @description The workspace is not there for the user from then on (404), and nothing in it:
+         *     their roles on its boards go with them, and a link they made lets nobody in. What
+         *     they wrote stays, under their name. Their account stays, and they come back by an
+         *     invitation, with nothing of before.
+         *
+         *     A board they were the only admin of passes to the user who takes them out, who is
+         *     its admin from then on: no board is left without one.
+         *
+         *     The workspace keeps an administrator: its last one is not taken out (409, reason
+         *     `last_admin`), and an administrator is taken out by another, not by themselves
+         *     (403). Somebody who is no member of the workspace is 404.
+         *
+         *     For the workspace's administrators: anybody else who works there is refused (403),
+         *     and a guest of the workspace is told that it is not there (404).
+         */
+        delete: operations["removeWorkspaceMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/onboard": {
         parameters: {
             query?: never;
@@ -3424,11 +3499,32 @@ export interface components {
              */
             updateAt: number;
         };
+        /** @description A member of a workspace, as its administrators list them. */
+        WorkspaceMember: {
+            /**
+             * Format: int64
+             * @description When the user became a member, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description The name the user is shown by; empty if they have none. */
+            displayName: string;
+            /** @description What the user is in the workspace. */
+            role: components["schemas"]["WorkspaceRole"];
+            /** @description The identifier of the user. */
+            userId: string;
+            /** @description The user's login name. */
+            username: string;
+        };
         /**
          * @description What a member of a workspace is in it.
          * @enum {string}
          */
         WorkspaceRole: "admin" | "member" | "guest";
+        /** @description A request to change what a member is in a workspace. */
+        WorkspaceRoleChange: {
+            /** @description What the member is to be: `admin`, `member` or `guest`. */
+            role: components["schemas"]["WorkspaceRole"];
+        };
     };
     responses: never;
     parameters: never;
@@ -6595,6 +6691,108 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description The invitation is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMember"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setWorkspaceRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceRoleChange"];
+            };
+        };
+        responses: {
+            /** @description The member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMember"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeWorkspaceMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the user. */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member is out of the workspace. */
             204: {
                 headers: {
                     [name: string]: unknown;

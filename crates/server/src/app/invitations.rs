@@ -352,6 +352,15 @@ impl App {
         if new_user.is_some() {
             self.metrics().registered();
         }
+        // Who is on the board of a guest's link sees the newcomer among its members.
+        if let (true, Some(board_id)) = (accepted.used, &accepted.board_id)
+            && let Ok(member) = app
+                .store()
+                .get_member_for_board(board_id, &accepted.user_id)
+                .await
+        {
+            app.broadcast_member_change_in_background(accepted.workspace_id.clone(), member);
+        }
         tracing::info!(
             user_id = %accepted.user_id,
             workspace_id = %accepted.workspace_id,

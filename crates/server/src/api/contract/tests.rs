@@ -514,6 +514,7 @@ const ORDERS: &[(&str, &str)] = &[
         "Oldest account first, not in the order of the request",
     ),
     ("getWorkspaceBoards", "Oldest first"),
+    ("getWorkspaceMembers", "The oldest membership first"),
     ("getWorkspaceUsers", "Oldest account first"),
     (
         "getWorkspaceUsersById",

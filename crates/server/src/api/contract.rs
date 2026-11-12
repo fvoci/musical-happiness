@@ -221,7 +221,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("User", Members::All),
     ("UserSettings", Members::AsWritten),
     ("UserWorkspace", Members::All),
+    ("WorkspaceMember", Members::All),
     ("WorkspaceRole", Members::AsWritten),
+    ("WorkspaceRoleChange", Members::All),
     // What a request carries.
     ("AcceptInvitation", Members::Only(&["token"])),
     ("AccountChange", Members::AsWritten),

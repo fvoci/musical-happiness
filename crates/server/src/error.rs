@@ -177,7 +177,8 @@ reasons! {
     UsernameTaken => "username_taken", "User name taken";
     /// The email address is taken.
     EmailTaken => "email_taken", "Email address taken";
-    /// The change would leave the board, or the instance, without an administrator.
+    /// The change would leave the board, the workspace or the instance without an
+    /// administrator.
     LastAdmin => "last_admin", "Last administrator";
     /// Only an administrator of the instance may do this.
     AdminRequired => "admin_required", "Administrator required";

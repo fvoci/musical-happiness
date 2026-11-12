@@ -202,8 +202,8 @@ fn describe_reason(reason: Reason) -> &'static str {
             "Status 409. Another user has the email address. `errors` names `/email`."
         }
         Reason::LastAdmin => {
-            "Status 409. The change would leave the board, or the server, without an \
-             administrator. Make somebody else one first."
+            "Status 409. The change would leave the board, the workspace or the server \
+             without an administrator. Make somebody else one first."
         }
         Reason::AdminRequired => "Status 403. Only an administrator of the server may do this.",
         Reason::GuestRoleLimit => "Status 403. A guest of a workspace has no role above editor.",
@@ -458,7 +458,7 @@ mod tests {
         );
         assert!(page.contains("reason: last_admin\n"), "{page}");
         assert!(
-            page.ends_with("\n\nStatus 409. The change would leave the board, or the server, without an administrator. Make somebody else one first.\n"),
+            page.ends_with("\n\nStatus 409. The change would leave the board, the workspace or the server without an administrator. Make somebody else one first.\n"),
             "{page}"
         );
         let page = find("not-found").expect("a kind").page("/base");

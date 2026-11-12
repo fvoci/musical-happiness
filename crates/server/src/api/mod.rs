@@ -32,6 +32,7 @@ mod trash;
 mod uploads;
 mod users;
 mod workspace;
+mod workspace_members;
 
 use axum::Json;
 use axum::Router;
@@ -105,6 +106,7 @@ fn routes() -> Routes {
         .merge(files::routes())
         .merge(invitations::routes())
         .merge(members::routes())
+        .merge(workspace_members::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(search::routes())

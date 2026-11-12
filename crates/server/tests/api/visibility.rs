@@ -794,6 +794,13 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (Method::POST, "/w/{}/onboard".to_owned(), Value::Null),
         (Method::POST, "/w/{}/invitations".to_owned(), Value::Null),
         (Method::GET, "/w/{}/invitations".to_owned(), Value::Null),
+        (Method::GET, "/w/{}/members".to_owned(), Value::Null),
+        (
+            Method::PUT,
+            format!("/w/{{}}/members/{me}"),
+            json!({"role": "member"}),
+        ),
+        (Method::DELETE, format!("/w/{{}}/members/{me}"), Value::Null),
         (
             Method::DELETE,
             format!("/w/{{}}/invitations/{}", crate::common::UNKNOWN_ID),
