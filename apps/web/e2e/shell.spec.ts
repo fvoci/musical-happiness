@@ -169,6 +169,7 @@ test.describe('the top bar', () => {
     await expect(redo).toBeEnabled();
     await redo.click();
     await expect(title).toHaveValue('One');
+    await expect(undo).toBeEnabled();
 
     // The keys, pressed outside of any field.
     await undo.focus();
