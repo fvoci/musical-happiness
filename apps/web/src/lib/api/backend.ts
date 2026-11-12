@@ -947,7 +947,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * limit, as the server would (413). It takes a turn among the uploads: it
    * counts toward the same open uploads of the reader.
    */
-  async importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<void> {
+  async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     const limit = (await this.#clientConfig()).maxImportSize;
     if (file.size > limit) {
       // The reason is this app's: the server's 413 may count entries, this one counts bytes.
@@ -959,7 +959,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     }
     await this.#uploadTurn(options?.signal);
     try {
-      await importInParts(this.#http, workspaceId, file, options);
+      return await importInParts(this.#http, workspaceId, file, options);
     } finally {
       this.#uploading -= 1;
       this.#uploadWaiting.shift()?.();

@@ -1334,7 +1334,9 @@ export interface paths {
          *     value that does not fit its property's kind is cleared, as a copy does.
          *
          *     The boards are made one after the other, not all or none: when one of them fails,
-         *     those before it stay.
+         *     those before it stay. The members of a board who are not in the workspace are left
+         *     out of it, a guest of the workspace keeps no role above editor; the answer says how
+         *     many users were left out, not who.
          *
          *     A user runs one import at a time, and the server as many as its setting
          *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
@@ -2257,6 +2259,15 @@ export interface components {
              *     import, whether the import succeeds or not.
              */
             uploadId: string;
+        };
+        /** @description What an import did beyond making the archive's boards. */
+        ImportResult: {
+            /**
+             * @description How many of the users who were members of the archive's boards were left out of
+             *     the boards made of them, because they are not in the workspace; each counted
+             *     once. Who they are is not told.
+             */
+            membersLeftOut: number;
         };
         /**
          * @description One thing of a request that was refused, and where in the request it is: exactly
@@ -5240,11 +5251,13 @@ export interface operations {
         };
         responses: {
             /** @description The boards of the archive are made. */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

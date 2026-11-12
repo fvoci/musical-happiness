@@ -148,14 +148,14 @@ export function uploadInParts(
 
 /**
  * An archive to import into a workspace: opened by `createImportUpload`, ended
- * by `importArchive` (in place of `completeUpload`).
+ * by `importArchive` (in place of `completeUpload`), which says what it left out.
  */
 export function importInParts(
   http: Http,
   workspaceId: string,
   file: File,
   options: UploadOptions = {},
-): Promise<void> {
+): Promise<Schemas['ImportResult']> {
   return sendInParts(
     http,
     file,
@@ -168,7 +168,7 @@ export function importInParts(
       ),
     async (uploadId, signal) => {
       const request: Schemas['ImportRequest'] = { uploadId };
-      await http.request(
+      return http.request<Schemas['ImportResult']>(
         '/api/v1/w/{workspaceId}/archive/import',
         { workspaceId },
         { method: 'POST', json: request, signal },

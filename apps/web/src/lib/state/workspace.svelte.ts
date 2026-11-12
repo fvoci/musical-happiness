@@ -30,6 +30,7 @@ import {
   type Category,
   type Change,
   type DownloadedFile,
+  type Imported,
   type WorkspaceInfo,
   type User,
 } from './backend.ts';
@@ -574,23 +575,20 @@ export class Workspace {
   /**
    * Imports the boards of an archive, then reads the boards and the sidebar
    * again: the server tells the new boards before their members exist, so
-   * nobody hears of them. Whether it went through.
+   * nobody hears of them. What it left out, if it went through.
    */
-  async importArchive(file: File): Promise<boolean> {
+  async importArchive(file: File): Promise<Imported | undefined> {
     const workspace = this.info;
-    if (!workspace) return false;
+    if (!workspace) return undefined;
     const done = await this.transfers.run(
       'import',
       `import ${file.name} ${file.size} ${file.lastModified}`,
       file.name,
-      async (options) => {
-        await this.backend.importArchive(workspace.id, file, options);
-        return true;
-      },
+      (options) => this.backend.importArchive(workspace.id, file, options),
     );
     // Even a failed import may have made some boards (one after the other).
     void this.#refresh();
-    return done === true;
+    return done;
   }
 
   /** Deletes a board. It can be brought back with undo. */

@@ -1,6 +1,7 @@
 //! Who has left a workspace, and is still in the organization, finds none of its boards
-//! through the routes that list or search boards; and a workspace the user is no member
-//! of exports nothing but a 404.
+//! through the routes that list or search boards; a workspace the user is no member of
+//! exports nothing but a 404; and an import leaves out who is not in the workspace,
+//! saying how many.
 
 use fvoci_model::{Board, BoardMember, BoardType};
 use reqwest::StatusCode;
@@ -129,4 +130,55 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
     assert_eq!(left.status, StatusCode::CONFLICT, "{}", left.text());
     assert_eq!(left.error_reason(), "last_admin");
     assert!(stored.is_ok(), "the last admin who can act stays");
+}
+
+#[tokio::test]
+async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user2 = th.client2.me().await.id;
+    let board: Board = th
+        .client
+        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Shared"))
+        .await
+        .created_json();
+    th.client
+        .add_member(&BoardMember {
+            scheme_editor: true,
+            ..crate::boards::member(&board.id, &user2)
+        })
+        .await
+        .check_ok();
+    let archive = th
+        .client
+        .get(&format!("/boards/{}/archive/export", board.id))
+        .await;
+    archive.check_ok();
+
+    let kept = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
+    remove_user2_from_the_test_workspace(&th, &user2).await;
+    let left_out = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
+    let shared: Vec<Board> = th
+        .client
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
+        .await
+        .ok_json();
+    let mut held = 0;
+    for listed in shared.iter().filter(|listed| listed.title == "Shared") {
+        let members = th
+            .app
+            .store()
+            .get_members_for_board(&listed.id)
+            .await
+            .expect("the members of a board");
+        held += members
+            .iter()
+            .filter(|member| member.user_id == user2)
+            .count();
+    }
+    th.teardown().await;
+
+    assert_eq!(kept.value(), json!({"membersLeftOut": 0}));
+    assert_eq!(left_out.value(), json!({"membersLeftOut": 1}));
+    // The board, and the first import, have the second user; the second import not.
+    assert_eq!(held, 2);
 }

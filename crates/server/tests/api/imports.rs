@@ -151,7 +151,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
     let before = boards_of(&ts).await.len();
     import(&ts.client, TEST_WORKSPACE_ID, &archive)
         .await
-        .check_no_content();
+        .check_ok();
     assert_eq!(boards_of(&ts).await.len(), before + 1, "the board is made");
     assert_eq!(
         entries(&uploads_dir(&ts)),
@@ -184,7 +184,7 @@ async fn an_archive_that_names_the_workspace_teamid_is_imported() {
     let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
     import(&ts.client, TEST_WORKSPACE_ID, &archive)
         .await
-        .check_no_content();
+        .check_ok();
     let imported: Vec<_> = boards_of(&ts)
         .await
         .into_iter()
@@ -253,7 +253,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
 
     import_upload(&ts.client, TEST_WORKSPACE_ID, &id)
         .await
-        .check_no_content();
+        .check_ok();
     import_upload(&ts.client, TEST_WORKSPACE_ID, &id)
         .await
         .check_status(StatusCode::NOT_FOUND);
@@ -466,7 +466,7 @@ async fn a_large_version_json_is_no_archive() {
     );
     import(&ts.client, TEST_WORKSPACE_ID, &nested)
         .await
-        .check_no_content();
+        .check_ok();
     ts.teardown().await;
 }
 
@@ -507,5 +507,5 @@ async fn imports_run_one_per_user_and_two_on_the_server() {
     drop(second);
     import_upload(&ts.client, ROOT_WORKSPACE_ID, &opened)
         .await
-        .check_no_content();
+        .check_ok();
 }

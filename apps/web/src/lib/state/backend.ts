@@ -37,6 +37,12 @@ import type { TrashReads } from './trash-reads.ts';
 export type { Account, Registration } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 
+/** What an import did beyond making the archive's boards. */
+export interface Imported {
+  /** How many members of the archive's boards were left out: they are not in the workspace. */
+  readonly membersLeftOut: number;
+}
+
 // ----------------------------------------------------------------- errors
 
 export {
@@ -455,9 +461,10 @@ export interface Backend extends TrashReads {
    * Makes the boards of an archive in the workspace, the reader their admin. An
    * archive over the server's limit is refused before anything is sent (413,
    * with the limit); one that is no archive of this app is 400. The boards
-   * are made one after the other: a failure keeps those before it.
+   * are made one after the other: a failure keeps those before it. Members of
+   * the boards who are not in the workspace are left out; it says how many.
    */
-  importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<void>;
+  importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<Imported>;
 
   // Changes as they happen.
   /** Listens to the changes of one board. Returns the function that stops listening. */

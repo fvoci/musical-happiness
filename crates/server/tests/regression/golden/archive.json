@@ -312,8 +312,11 @@
   {
     "name": "import",
     "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
-    "status": 204,
-    "body": "<0 bytes>"
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "membersLeftOut": 0
+    }
   },
   {
     "name": "import: anonymous",

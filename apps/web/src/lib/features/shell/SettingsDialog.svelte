@@ -13,7 +13,8 @@
     come from the app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
   - Archives: every board of the workspace exported, an archive imported; the
-    progress shows at the foot of the page (`Transfers.svelte`).
+    progress shows at the foot of the page (`Transfers.svelte`). An import that
+    left members out, who are not in the workspace, says how many in a line.
   - The display name (`DisplayNameField.svelte`).
   - Who is signed in, signing out and changing the password: only where the
     backend has accounts.
@@ -102,6 +103,8 @@
 
   const uid = $props.id();
   let importField = $state<HTMLInputElement | null>(null);
+  /** How many members the last import from here left out. */
+  let leftOut = $state(0);
 
   /** Saves an archive of every board of the workspace, once it has all arrived. */
   async function exportWorkspace(): Promise<void> {
@@ -330,11 +333,20 @@
               const file = field.files?.[0];
               // The same file can be chosen again.
               field.value = '';
-              if (file) void workspace.importArchive(file);
+              if (!file) return;
+              leftOut = 0;
+              void workspace.importArchive(file).then((imported) => {
+                leftOut = imported?.membersLeftOut ?? 0;
+              });
             }}
           />
         </div>
         <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
+        {#if leftOut > 0}
+          <p role="status" class="text-xs" data-testid="import-left-out">
+            {m.shell_import_left_out({ count: leftOut })}
+          </p>
+        {/if}
       </section>
 
       {#if workspace.me}

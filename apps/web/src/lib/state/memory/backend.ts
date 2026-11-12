@@ -618,7 +618,7 @@ export class MemoryBackend implements Backend {
     return { bytes, name: `archive-${day}.boardarchive` };
   }
 
-  async importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<void> {
+  async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     await this.#enter('importArchive', options?.signal);
     if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
     let lines: { type?: string; version?: string; data?: unknown }[];
@@ -630,9 +630,7 @@ export class MemoryBackend implements Backend {
     } catch {
       fail(400, 'not an archive');
     }
-    if (lines[0]?.version !== MEMORY_ARCHIVE) {
-      fail(400, 'not an archive of this app');
-    }
+    if (lines[0]?.version !== MEMORY_ARCHIVE) fail(400, 'not an archive of this app');
     options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
     const boards = lines.filter((line) => line.type === 'board').map((line) => line.data as Board);
     const blocks = lines
@@ -644,6 +642,8 @@ export class MemoryBackend implements Backend {
         blocks.filter((block) => block.boardId === board.id),
       );
     }
+    // Its archives carry no members: nobody is left out.
+    return { membersLeftOut: 0 };
   }
 
   async joinBoard(boardId: string): Promise<BoardMember> {

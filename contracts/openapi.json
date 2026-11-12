@@ -1041,6 +1041,20 @@
         ],
         "type": "object"
       },
+      "ImportResult": {
+        "description": "What an import did beyond making the archive's boards.",
+        "properties": {
+          "membersLeftOut": {
+            "description": "How many of the users who were members of the archive's boards were left out of\nthe boards made of them, because they are not in the workspace; each counted\nonce. Who they are is not told.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "membersLeftOut"
+        ],
+        "type": "object"
+      },
       "InvalidInput": {
         "description": "One thing of a request that was refused, and where in the request it is: exactly\none of `pointer`, `parameter` and `header` says.",
         "properties": {
@@ -5779,7 +5793,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/import": {
       "post": {
-        "description": "Makes the boards of an archive in the workspace, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another workspace, is 400. For users of the workspace who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
+        "description": "Makes the boards of an archive in the workspace, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another workspace, is 400. For users of the workspace who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay. The members of a board who are not in the workspace are left\nout of it, a guest of the workspace keeps no role above editor; the answer says how\nmany users were left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -5803,7 +5817,14 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            },
             "description": "The boards of the archive are made."
           },
           "default": {

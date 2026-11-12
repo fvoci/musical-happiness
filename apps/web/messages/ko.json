@@ -316,6 +316,7 @@
   "shell_export_workspace": "모든 보드 내보내기",
   "shell_import": "아카이브 가져오기",
   "shell_import_hint": "이 앱이 내보낸 아카이브입니다. 그 보드들이 이 팀에 만들어지고, 내가 관리자가 됩니다.",
+  "shell_import_left_out": "아카이브 보드의 구성원 {count}명은 이 팀에 없어 빠졌습니다.",
   "shell_transfer_export": "{name} 내보내는 중",
   "shell_transfer_import": "{name} 가져오는 중",
   "shell_transfer_done_export": "{name}을(를) 저장했습니다.",

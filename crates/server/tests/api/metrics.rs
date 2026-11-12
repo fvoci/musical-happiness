@@ -534,11 +534,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
         &export.body,
     )
     .await;
-    assert_eq!(
-        imported.status,
-        StatusCode::NO_CONTENT,
-        "the archive is imported"
-    );
+    assert_eq!(imported.status, StatusCode::OK, "the archive is imported");
     let archives =
         |body: &str, work: &str| sample(body, "fvoci_archives_in_progress", &[("work", work)]);
     // The export's place is given back once its file is removed, in a task after the

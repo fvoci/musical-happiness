@@ -50,6 +50,7 @@ pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
+pub use import::Imported;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};

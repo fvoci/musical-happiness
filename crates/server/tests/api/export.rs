@@ -112,7 +112,7 @@ async fn export_single_board_round_trips() {
 
     import(&ts.client, ROOT_WORKSPACE_ID, &exported.body)
         .await
-        .check_no_content();
+        .check_ok();
 
     let user_id = ts.client.me().await.id;
     let boards = ts
@@ -151,7 +151,7 @@ async fn export_of_a_board_without_blocks_round_trips() {
     exported.check_ok();
     import(&ts.client, ROOT_WORKSPACE_ID, &exported.body)
         .await
-        .check_no_content();
+        .check_ok();
 
     let user_id = ts.client.me().await.id;
     let boards = ts
@@ -269,7 +269,7 @@ async fn import_is_allowed_for_any_signed_in_user() {
 
     import(&ts.client2, ROOT_WORKSPACE_ID, &archive)
         .await
-        .check_no_content();
+        .check_ok();
     import(&ts.anonymous(), ROOT_WORKSPACE_ID, &archive)
         .await
         .check_unauthorized();
@@ -356,7 +356,7 @@ async fn import_of_a_traversing_entry_is_harmless() {
     // succeeds.
     import(&ts.client, ROOT_WORKSPACE_ID, &bytes)
         .await
-        .check_no_content();
+        .check_ok();
     ts.teardown().await;
 }
 
@@ -529,7 +529,7 @@ async fn an_archive_carries_the_images_of_bodies() {
 
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
         .await
-        .check_no_content();
+        .check_ok();
     let imported = boards_of(&ts)
         .await
         .into_iter()
@@ -592,7 +592,7 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     exported.check_ok();
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
         .await
-        .check_no_content();
+        .check_ok();
     let imported = boards_of(&ts)
         .await
         .into_iter()
@@ -756,7 +756,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
     let before = boards_of(&ts).await.len();
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
         .await
-        .check_no_content();
+        .check_ok();
     assert_eq!(boards_of(&ts).await.len(), before + 1, "one board was made");
     ts.teardown().await;
 }

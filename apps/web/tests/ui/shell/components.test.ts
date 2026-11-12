@@ -12,6 +12,7 @@ import { routePath } from '../../../src/app/router.svelte.ts';
 import BoardIcon from '$lib/features/shell/BoardIcon.svelte';
 import BoardTitle from '$lib/features/shell/BoardTitle.svelte';
 import SettingChoice from '$lib/features/shell/SettingChoice.svelte';
+import SettingsDialog from '$lib/features/shell/SettingsDialog.svelte';
 import Sidebar from '$lib/features/shell/Sidebar.svelte';
 import type { BoardPlace } from '$lib/logic/urls.ts';
 
@@ -341,5 +342,30 @@ describe('the sidebar over a workspace', () => {
     for (const button of screen.getAllByRole('button')) {
       expect(button, button.outerHTML.slice(0, 120)).toHaveAccessibleName();
     }
+  });
+});
+
+describe('an import from the settings', () => {
+  it('says in a line how many members it left out, and nothing when it left out none', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const answers = [{ membersLeftOut: 2 }, { membersLeftOut: 0 }];
+    vi.spyOn(workspace, 'importArchive').mockImplementation(() => Promise.resolve(answers.shift()));
+    render(SettingsDialog, { props: { open: true, workspace } });
+    const field = await screen.findByTestId('import-archive');
+    const choose = async () => {
+      const file = new File(['PK'], 'boards.boardarchive');
+      Object.defineProperty(field, 'files', { value: [file], configurable: true });
+      await fireEvent.change(field);
+      await settle();
+      await tick();
+    };
+
+    await choose();
+    expect(screen.getByTestId('import-left-out')).toHaveTextContent(
+      /^2 members of the archive's boards are not in /,
+    );
+    await choose();
+    expect(screen.queryByTestId('import-left-out')).toBeNull();
   });
 });

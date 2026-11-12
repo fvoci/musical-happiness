@@ -8,7 +8,7 @@ use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{Session, UploadPurpose};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -18,7 +18,7 @@ use super::contract::bodies::Binary;
 use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::workspace::Ws;
-use super::{ApiResult, RequiredSession, no_content};
+use super::{ApiResult, RequiredSession, json_response};
 use super::{require_board_permission, user_is_guest};
 use crate::app::{App, ExportedArchive, Slot, download};
 use crate::connection::{Breaker, Connection};
@@ -35,6 +35,16 @@ struct ImportRequest {
     /// The upload of the archive, every part of it received. It is thrown away by the
     /// import, whether the import succeeds or not.
     upload_id: String,
+}
+
+/// What an import did beyond making the archive's boards.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ImportResult {
+    /// How many of the users who were members of the archive's boards were left out of
+    /// the boards made of them, because they are not in the workspace; each counted
+    /// once. Who they are is not told.
+    members_left_out: usize,
 }
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -189,7 +199,9 @@ async fn handle_export_workspace(
 /// value that does not fit its property's kind is cleared, as a copy does.
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
-/// those before it stay.
+/// those before it stay. The members of a board who are not in the workspace are left
+/// out of it, a guest of the workspace keeps no role above editor; the answer says how
+/// many users were left out, not who.
 ///
 /// A user runs one import at a time, and the server as many as its setting
 /// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
@@ -201,7 +213,11 @@ async fn handle_export_workspace(
     tag = tag::ARCHIVES,
     params(WorkspaceId),
     request_body = ImportRequest,
-    responses((status = 204, description = "The boards of the archive are made.")),
+    responses((
+        status = 200,
+        description = "The boards of the archive are made.",
+        body = ImportResult,
+    )),
 )]
 async fn handle_import(
     State(app): State<App>,
@@ -246,11 +262,14 @@ async fn handle_import(
     let _slot = ws.app.start_import(&user_id)?;
     // What is refused of the archive's boards and blocks is in the archive, not in the
     // request, which names the upload alone.
-    ws.app
+    let imported = ws
+        .app
         .import_upload(&upload)
         .await
         .map_err(AppError::outside_the_request)?;
-    Ok(no_content())
+    Ok(json_response(&ImportResult {
+        members_left_out: imported.members_left_out,
+    }))
 }
 
 /// Sends an archive, written whole before, as the download the original sends, with its

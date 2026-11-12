@@ -744,7 +744,7 @@ async fn a_board_takes_the_people_of_its_workspace() {
     let members_after_import_into = async |workspace_id: &str| {
         crate::export::import(&ts.client, workspace_id, &archive.body)
             .await
-            .check_no_content();
+            .check_ok();
         let boards: Vec<Board> = ts
             .client
             .get(&format!("/w/{workspace_id}/boards"))
