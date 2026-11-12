@@ -494,7 +494,7 @@
     </div>
   {/if}
 
-  {#if !filtering}
+  {#if !filtering && workspace.info?.role !== 'guest'}
     <button
       type="button"
       data-testid="new-category"

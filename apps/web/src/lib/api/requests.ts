@@ -18,7 +18,10 @@ import type {
 } from '../state/backend.ts';
 
 import { workspacesOf, userOf, type Schemas } from './convert.ts';
+import type { People } from '../state/people-types.ts';
+
 import type { Http } from './http.ts';
+import { ServerPeople } from './people.ts';
 
 /** The account as the server takes it: a display name that is empty is left out. */
 function accountOf(account: NewAccount): Schemas['NewAccount'] {
@@ -32,9 +35,12 @@ function accountOf(account: NewAccount): Schemas['NewAccount'] {
 
 export class ServerRequests implements TrashReads {
   readonly #http: Http;
+  /** Who is in a workspace, and the links that let others in. */
+  readonly people: People;
 
   constructor(http: Http) {
     this.#http = http;
+    this.people = new ServerPeople(http);
   }
 
   async register(registration: Registration): Promise<void> {

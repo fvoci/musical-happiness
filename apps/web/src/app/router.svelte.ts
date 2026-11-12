@@ -153,6 +153,11 @@ export class Router {
     return routePath(route, this.basePath);
   }
 
+  /** The address of the page of an invitation, by its token. */
+  inviteHref(token: string): string {
+    return buildUrl(`/invite/${encodeURIComponent(token)}`, this.basePath);
+  }
+
   /**
    * Loads the page anew at a route (signing out, another account signing
    * in). What is open over the page lets go of its entries first: closing as

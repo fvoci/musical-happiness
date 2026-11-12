@@ -17,9 +17,9 @@ import { boardLink, sidebar } from '../e2e/shell.support.ts';
 import {
   ADMIN,
   ORG_NAME,
-  memberLink,
   person,
   placeOf,
+  shot,
   signedIn,
   watchErrors,
   type Schemas,
@@ -109,6 +109,7 @@ test('somebody starts a team, and a second person comes in by its link and edits
   await form.getByLabel(/email/i).fill(ADMIN.email);
   await form.getByLabel(/^password$/i).fill(ADMIN.password);
   await look(page, 'the form that starts a team');
+  await shot(page, 'sign-up');
   await form.getByRole('button', { name: 'Start team' }).click();
 
   // Signed in at once, on a copy of the welcome board of their own, made once.
@@ -142,12 +143,18 @@ test('somebody starts a team, and a second person comes in by its link and edits
   await page.getByTestId('card-title').fill('Book the venue');
   await page.goBack();
   await expect(page.getByText('Book the venue')).toBeVisible();
-  const { workspaceId, boardId } = placeOf(page.url());
+  const { boardId } = placeOf(page.url());
 
-  // The link of an invitation.
+  // The link of an invitation, made where the people of the team are.
+  await page.getByTestId('open-people').click();
+  const people = page.getByTestId('people-dialog');
+  await people.getByTestId('people-make-link').click();
+  const field = people.getByTestId('people-link');
+  await expect(field).toHaveValue(/\/invite\/[\w-]{43}$/);
+  const address = await field.inputValue();
+  await look(page, 'the people of the team, with a link');
+  await page.keyboard.press('Escape');
   const api = await signedIn(base, ADMIN);
-  const link = await memberLink(api, workspaceId);
-  const address = `${base}/invite/${link.token ?? ''}`;
 
   // A second person, in a browser of their own, in Korean.
   await koreanPage.goto(address);
@@ -155,6 +162,7 @@ test('somebody starts a team, and a second person comes in by its link and edits
     `${ADMIN.username} 님이 ${ORG_NAME}에 초대했습니다`,
   );
   await look(koreanPage, 'the page of an invitation, in Korean');
+  await shot(koreanPage, 'invite-member-ko');
   const second = person('second');
   const account = koreanPage.getByTestId('invite-register-form');
   await account.getByLabel('사용자 이름').fill(second.username);
@@ -185,6 +193,7 @@ test('somebody starts a team, and a second person comes in by its link and edits
     `${ADMIN.username} invited you to ${ORG_NAME}`,
   );
   await look(page, 'the page of an invitation');
+  await shot(page, 'invite-signed-in');
 
   for (const { screen, words } of seen) {
     expect(words, `${screen} says what the server calls it`).not.toMatch(SERVER_WORDS);

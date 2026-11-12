@@ -23,6 +23,7 @@
   import {
     BackendError,
     isBackendError,
+    providePeople,
     whileHere,
     Workspace,
     type AcceptedInvitation,
@@ -63,6 +64,12 @@
       const { backend } = started;
       account = started.account;
       const made = new Workspace({ backend, locale: currentLocale, lastWorkspace });
+      if (started.people) {
+        providePeople(made, {
+          people: started.people,
+          inviteLink: (token: string) => new URL(router.inviteHref(token), location.origin).href,
+        });
+      }
       // The bodies of cards name their images by file; the board that is open says where they are.
       setFileUrlResolver((fileId) =>
         made.board ? backend.fileUrl(made.board.boardId, fileId) : undefined,

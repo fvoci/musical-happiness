@@ -28,6 +28,8 @@
   import { userDisplayName } from '$lib/logic/users.ts';
   import {
     isBackendError,
+    isGuest,
+    peopleOf,
     type BoardRole,
     type BoardStore,
     type Sharing,
@@ -39,6 +41,7 @@
   import { Input } from '$lib/ui/input/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
+  import GuestInvite from './GuestInvite.svelte';
   import { publicLinkOf, ROLE_ORDER, roleOfMember } from './share-logic.ts';
 
   interface Props {
@@ -72,6 +75,9 @@
 
   const nameOf = (userId: string): string =>
     workspace.userName(userId) ?? m['centerPanel.unknown-user']();
+
+  /** Inviting a guest by a link, where the backend has that. */
+  const access = $derived(peopleOf(workspace));
 
   const isOpen = $derived(board.board?.type === 'O');
   const minimumRole = $derived<BoardRole>(
@@ -234,6 +240,10 @@
           </label>
         {/if}
       </section>
+
+      {#if access && !isGuest(workspace) && !board.board?.isTemplate}
+        <GuestInvite {workspace} {access} boardId={board.boardId} />
+      {/if}
 
       <!-- The members. -->
       <section class="grid gap-2" aria-labelledby="{uid}-members">

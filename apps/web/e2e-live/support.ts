@@ -16,6 +16,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
 
 import { addressOf, placeOf } from '../e2e/address.ts';
+import { screensDir } from '../e2e/screens.ts';
 
 import type { components } from '../src/lib/api/contract.ts';
 
@@ -138,6 +139,21 @@ export async function signInOnPage(page: Page, who: Person): Promise<void> {
   await form.getByLabel(/^password$/i).fill(who.password);
   await form.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
+}
+
+/**
+ * Takes the pictures of a screen that are shown to whoever decides how it is
+ * to look: as wide as the page is, and 390 pixels wide. Only with
+ * `FVOCI_SCREENS=1`; they go to `target/screens/invite/` (`e2e/screens.ts`).
+ */
+export async function shot(page: Page, name: string): Promise<void> {
+  if (process.env.FVOCI_SCREENS !== '1') return;
+  const folder = screensDir('invite');
+  const wide = page.viewportSize() ?? { width: 1280, height: 720 };
+  await page.screenshot({ path: path.join(folder, `${name}-wide.png`) });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: path.join(folder, `${name}-390.png`) });
+  await page.setViewportSize(wide);
 }
 
 /** Fails the test on anything the page throws. Call before the page loads. */

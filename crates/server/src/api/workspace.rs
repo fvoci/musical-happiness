@@ -195,6 +195,24 @@ impl FromRequestParts<App> for WorksIn {
     }
 }
 
+/// The workspace a request names in its path, for a member of it, a guest too, if it is
+/// of the server's organization ([`Ws::require_home`]): for a route that was for who
+/// works in the workspace and is a guest's too now. A parameter of the path that is no
+/// text is a malformed request (400), as it was for it.
+#[derive(Debug)]
+pub(crate) struct AtHome(pub(crate) Ws);
+
+impl FromRequestParts<App> for AtHome {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        Ws::extract(parts, app, malformed_path)
+            .await?
+            .require_home()
+            .map(Self)
+    }
+}
+
 fn workspace_not_found() -> AppError {
     AppError::not_found("workspace")
 }

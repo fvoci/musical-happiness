@@ -8,7 +8,7 @@
  * The page says which (`chosenBackend`). Each is fetched as a chunk of its
  * own, so the app the server serves does not carry the one in memory.
  */
-import type { Account, Backend } from '$lib/state/index.ts';
+import type { Account, Backend, People } from '$lib/state/index.ts';
 
 import { readBasePath } from './router.svelte.ts';
 import { readDisplaySettings } from '$lib/logic/display.ts';
@@ -19,6 +19,8 @@ export interface StartedBackend {
   backend: Backend;
   /** Signing in and out; only a backend with accounts has it. */
   account?: Account;
+  /** Managing who is in a workspace; only a backend with accounts has it. */
+  people?: People;
 }
 
 export type BackendName = 'server' | 'memory';
@@ -74,7 +76,7 @@ async function startServer(): Promise<StartedBackend> {
   const { ServerBackend } = await import('$lib/api/backend.ts');
   const base = readBasePath(document);
   const backend = new ServerBackend(base === '' ? '' : `/${base}`);
-  return { backend, account: backend };
+  return { backend, account: backend, people: backend.people };
 }
 
 export async function startBackend(): Promise<StartedBackend> {
