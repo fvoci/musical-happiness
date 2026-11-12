@@ -6,6 +6,7 @@ mod common;
 use fvoci_model::{Board, BoardMember, User};
 use serde_json::json;
 
+use crate::common::TEST_WS;
 use common::{ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// The second user manages a private template without a role on it.
@@ -24,7 +25,7 @@ async fn private_template_for_admin() -> (TestServer, Board, String) {
     let template: Board = server
         .client
         .post(
-            "/boards",
+            &format!("{TEST_WS}/boards"),
             &json!({
                 "workspaceId": TEST_WORKSPACE_ID,
                 "type": "P",
@@ -54,13 +55,13 @@ async fn a_roleless_workspace_admin_gets_no_template_content_from_the_list() {
         .check_ok();
     let direct: Board = server
         .client2
-        .get(&format!("/boards/{}", template.id))
+        .get(&format!("{TEST_WS}/boards/{}", template.id))
         .await
         .ok_json();
     assert!(direct.description.is_empty() && direct.properties.is_empty());
     let listed: Vec<Board> = server
         .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/templates"))
+        .get(&format!("{TEST_WS}/templates"))
         .await
         .ok_json();
     let audit = server
@@ -87,12 +88,12 @@ async fn a_workspace_admin_can_list_a_private_template_without_a_membership() {
     let (server, template, _) = private_template_for_admin().await;
     let direct: Board = server
         .client2
-        .get(&format!("/boards/{}", template.id))
+        .get(&format!("{TEST_WS}/boards/{}", template.id))
         .await
         .ok_json();
     let listed: Vec<Board> = server
         .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/templates"))
+        .get(&format!("{TEST_WS}/templates"))
         .await
         .ok_json();
     server.teardown().await;
@@ -140,10 +141,13 @@ async fn a_former_non_author_is_not_discoverable_through_a_stale_board_role() {
         .patch("/users/me", &json!({"displayName": "After leaving"}))
         .await
         .check_ok();
-    let profile = server.client.get(&format!("/users/{leaver}")).await;
+    let profile = server
+        .client
+        .get(&format!("{TEST_WS}/users/{leaver}"))
+        .await;
     let found: Vec<User> = server
         .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/users?search=user2"))
+        .get(&format!("{TEST_WS}/users?search=user2"))
         .await
         .ok_json();
     server.teardown().await;

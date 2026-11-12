@@ -1,7 +1,7 @@
 //! Public sharing of a board.
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::Path;
 use fvoci_model::{RefusalReason, Refusals, Sharing};
 use fvoci_store::SharingChange;
 use serde_json::Value;
@@ -10,9 +10,11 @@ use utoipa_axum::routes;
 
 use super::contract::bodies::SharingRequest;
 use super::contract::params::BoardId;
+use super::contract::params::MemberWorkspaceId;
 use super::contract::tag;
+use super::workspace::Ws;
 
-use super::{ApiResult, RequiredSession, json_response};
+use super::{ApiResult, json_response};
 use super::{decode_json, json_object, require_board_permission};
 use crate::app::App;
 use crate::error::{AppError, Reason};
@@ -47,19 +49,15 @@ async fn require_share_permission(
 /// shared is not shared. For the board's admins.
 #[utoipa::path(
     get,
-    path = "/boards/{boardId}/sharing",
+    path = "/w/{workspaceId}/boards/{boardId}/sharing",
     operation_id = "getSharing",
     tag = tag::SHARING,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     responses((status = 200, description = "The sharing state.", body = Sharing)),
 )]
-async fn handle_get_sharing(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
-) -> ApiResult {
-    require_share_permission(&app, &session.user_id, &board_id).await?;
-    let sharing = app.sharing(&board_id).await?;
+async fn handle_get_sharing(ws: Ws, Path((_, board_id)): Path<(String, String)>) -> ApiResult {
+    require_share_permission(&ws.app, &ws.session.user_id, &board_id).await?;
+    let sharing = ws.app.sharing(&board_id).await?;
     tracing::debug!(board_id, enabled = sharing.enabled, "GET sharing");
     Ok(json_response(&sharing))
 }
@@ -111,10 +109,10 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
 /// reason `public_links_off`; stopping it is not. For the board's admins.
 #[utoipa::path(
     post,
-    path = "/boards/{boardId}/sharing",
+    path = "/w/{workspaceId}/boards/{boardId}/sharing",
     operation_id = "setSharing",
     tag = tag::SHARING,
-    params(BoardId),
+    params(MemberWorkspaceId, BoardId),
     request_body = SharingRequest,
     responses((
         status = 200,
@@ -123,17 +121,16 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     )),
 )]
 async fn handle_post_sharing(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(board_id): Path<String>,
+    ws: Ws,
+    Path((_, board_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    require_share_permission(&app, &session.user_id, &board_id).await?;
+    require_share_permission(&ws.app, &ws.session.user_id, &board_id).await?;
 
-    if !app.config().enable_public_shared_boards {
+    if !ws.app.config().enable_public_shared_boards {
         tracing::warn!(
             board_id,
-            user_id = %session.user_id,
+            user_id = %ws.session.user_id,
             "Attempt to turn on sharing for board via API failed, sharing off in configuration."
         );
         return Err(
@@ -143,7 +140,10 @@ async fn handle_post_sharing(
     }
 
     let change = sharing_change(&body)?;
-    let sharing = app.set_sharing(&board_id, change, &session.user_id).await?;
+    let sharing = ws
+        .app
+        .set_sharing(&board_id, change, &ws.session.user_id)
+        .await?;
     tracing::debug!(board_id, enabled = sharing.enabled, "POST sharing");
     Ok(json_response(&sharing))
 }

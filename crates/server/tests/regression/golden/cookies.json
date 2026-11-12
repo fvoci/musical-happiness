@@ -145,7 +145,7 @@
   },
   {
     "name": "change: cookie, no header",
-    "request": "POST /api/v1/boards as token (cookie)",
+    "request": "POST /api/v1/w/<id:2>/boards as token (cookie)",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -160,7 +160,7 @@
   },
   {
     "name": "change: cookie and header",
-    "request": "POST /api/v1/boards as token (cookie)",
+    "request": "POST /api/v1/w/<id:2>/boards as token (cookie)",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -170,7 +170,7 @@
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:2>",
+      "id": "<id:3>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
@@ -181,12 +181,12 @@
       "title": "made",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:2>"
     }
   },
   {
     "name": "change: bearer, no header",
-    "request": "POST /api/v1/boards as token",
+    "request": "POST /api/v1/w/<id:2>/boards as token",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -207,12 +207,12 @@
       "title": "made",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:2>"
     }
   },
   {
     "name": "change: cookie and header, the own origin",
-    "request": "POST /api/v1/boards as token (cookie)",
+    "request": "POST /api/v1/w/<id:2>/boards as token (cookie)",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -233,12 +233,12 @@
       "title": "made",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:2>"
     }
   },
   {
     "name": "change: cookie and header, another origin",
-    "request": "POST /api/v1/boards as token (cookie)",
+    "request": "POST /api/v1/w/<id:2>/boards as token (cookie)",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -253,7 +253,7 @@
   },
   {
     "name": "change: bearer, another origin",
-    "request": "POST /api/v1/boards as token",
+    "request": "POST /api/v1/w/<id:2>/boards as token",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -268,7 +268,7 @@
   },
   {
     "name": "change: cookie and header, no origin to speak of",
-    "request": "POST /api/v1/boards as token (cookie)",
+    "request": "POST /api/v1/w/<id:2>/boards as token (cookie)",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -283,7 +283,7 @@
   },
   {
     "name": "change: bearer and cookie, the bearer is no session's",
-    "request": "POST /api/v1/boards as token",
+    "request": "POST /api/v1/w/<id:2>/boards as token",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {

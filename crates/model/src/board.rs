@@ -273,8 +273,8 @@ impl Board {
         Ok(())
     }
 
-    /// The board as it goes to whoever reads by a read token alone, or to a user who
-    /// reads it by the token without being a member: no `createdBy` or `modifiedBy`
+    /// The board as it goes to whoever reads it by its link, signed in or not: no
+    /// `createdBy` or `modifiedBy`
     /// (`docs/s6-design.md`, decision 7). The blocks go so by [`Block::hide_people`].
     ///
     /// [`Block::hide_people`]: crate::Block::hide_people

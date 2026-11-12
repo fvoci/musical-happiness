@@ -9,6 +9,7 @@ use std::time::Instant;
 use fvoci_model::{Block, Board, BoardType};
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
 use crate::common::{ROOT_WORKSPACE_ID, Setup};
 
 /// `TestGetTemplates`: the built-in templates are listed, each with blocks, and each can
@@ -23,7 +24,7 @@ async fn get_templates_returns_the_built_in_templates() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
+        .get(&format!("{ROOT_WS}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -56,7 +57,7 @@ async fn get_templates_returns_the_built_in_templates() {
     let first = &boards[0];
     let blocks = ts
         .client
-        .get(&format!("/boards/{}/blocks", first.id))
+        .get(&format!("{ROOT_WS}/boards/{}/blocks", first.id))
         .await
         .ok_json::<Vec<Block>>();
     assert!(!blocks.is_empty(), "the template has blocks");
@@ -65,7 +66,7 @@ async fn get_templates_returns_the_built_in_templates() {
         .client
         .post(
             &format!(
-                "/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
+                "{ROOT_WS}/boards/{}/duplicate?toWorkspace={ROOT_WORKSPACE_ID}",
                 first.id
             ),
             &json!({}),
@@ -99,7 +100,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
+        .get(&format!("{ROOT_WS}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -136,7 +137,7 @@ async fn get_templates_without_a_session_is_401() {
         .init_basic()
         .await;
     ts.anonymous()
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
+        .get(&format!("{ROOT_WS}/templates"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -210,7 +211,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     };
     let before: Vec<Board> = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
+        .get(&format!("{ROOT_WS}/templates"))
         .await
         .ok_json();
     let marked_before = marked(&before);
@@ -240,7 +241,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     );
     let after: Vec<Board> = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
+        .get(&format!("{ROOT_WS}/templates"))
         .await
         .ok_json();
     assert_eq!(after.len(), before.len(), "the same number of templates");
@@ -248,7 +249,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     assert_eq!(marked_after.len(), 1, "one marked template again");
     assert_ne!(marked_after, marked_before, "a newly imported board");
     ts.client
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
+        .post_empty(&format!("{ROOT_WS}/onboard"))
         .await
         .check_ok();
     ts.teardown().await;
@@ -268,7 +269,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .await;
     let templates = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
+        .get(&format!("{ROOT_WS}/templates"))
         .await
         .ok_json::<Vec<Board>>();
     let welcome = templates
@@ -278,7 +279,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
 
     let response = ts
         .client
-        .post_empty(&format!("/boards/{}/join", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/boards/{}/join", welcome.id))
         .await;
     response.check_error(
         reqwest::StatusCode::FORBIDDEN,
@@ -288,18 +289,18 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
     // Without a membership there is no way to write to it.
     ts.client
         .patch(
-            &format!("/boards/{}", welcome.id),
+            &format!("{ROOT_WS}/boards/{}", welcome.id),
             &serde_json::json!({"title": "taken over"}),
         )
         .await
         .check_forbidden();
     ts.client
-        .delete(&format!("/boards/{}", welcome.id))
+        .delete(&format!("{ROOT_WS}/boards/{}", welcome.id))
         .await
         .check_forbidden();
     let blocks = ts
         .client
-        .get(&format!("/boards/{}/blocks", welcome.id))
+        .get(&format!("{ROOT_WS}/boards/{}/blocks", welcome.id))
         .await
         .ok_json::<Vec<fvoci_model::Block>>();
     let card = blocks
@@ -308,19 +309,19 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .expect("the template has cards");
     ts.client
         .patch(
-            &format!("/boards/{}/blocks/{}", welcome.id, card.id),
+            &format!("{ROOT_WS}/boards/{}/blocks/{}", welcome.id, card.id),
             &serde_json::json!({"title": "taken over"}),
         )
         .await
         .check_forbidden();
     ts.client
-        .post_empty(&format!("/boards/{}/members", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/boards/{}/members", welcome.id))
         .await
         .check_forbidden();
 
     // Reading and copying it is what it is for.
     ts.client
-        .post_empty(&format!("/boards/{}/duplicate", welcome.id))
+        .post_empty(&format!("{ROOT_WS}/boards/{}/duplicate", welcome.id))
         .await
         .check_created();
     ts.teardown().await;
@@ -384,7 +385,7 @@ async fn the_built_in_templates_are_the_template_files() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
+        .get(&format!("{ROOT_WS}/templates"))
         .await
         .ok_json::<Vec<Board>>();
     let files = template_files();
@@ -413,7 +414,7 @@ async fn the_built_in_templates_are_the_template_files() {
     for board in &boards {
         let blocks = ts
             .client
-            .get(&format!("/boards/{}/blocks", board.id))
+            .get(&format!("{ROOT_WS}/boards/{}/blocks", board.id))
             .await
             .ok_json::<Vec<Value>>();
         let cards: Vec<&Value> = blocks

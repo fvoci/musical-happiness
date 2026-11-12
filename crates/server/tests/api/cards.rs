@@ -24,6 +24,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::board_broadcasts::WorkspaceSocket;
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID};
 
 /// How long background notifications may take to finish.
@@ -82,11 +83,11 @@ pub(crate) fn check_error(response: &ApiResponse, status: StatusCode, message: &
 }
 
 pub(crate) fn cards_path(board_id: &str) -> String {
-    format!("/boards/{board_id}/cards")
+    format!("{TEST_WS}/boards/{board_id}/cards")
 }
 
 fn card_path(card_id: &str) -> String {
-    format!("/cards/{card_id}")
+    format!("{TEST_WS}/cards/{card_id}")
 }
 
 /// `CreateCard`, expecting success. Returns the card, which is stored as answered.
@@ -204,7 +205,7 @@ async fn get_cards_fixture(th: &TestServer) -> Board {
             .collect();
         th.client
             .post(
-                &format!("/boards/{}/blocks?disableNotify=true", board.id),
+                &format!("{TEST_WS}/boards/{}/blocks?disableNotify=true", board.id),
                 &texts,
             )
             .await
@@ -1146,7 +1147,7 @@ async fn a_malformed_card_block_is_refused() {
         let response = th
             .client
             .patch(
-                &format!("/boards/{}/blocks/{}", board.id, nulls.id),
+                &format!("{TEST_WS}/boards/{}/blocks/{}", board.id, nulls.id),
                 &json!({"updatedFields": fields}),
             )
             .await;
@@ -1159,7 +1160,7 @@ async fn a_malformed_card_block_is_refused() {
         let batch = json!({"blockIds": [nulls.id], "blockPatches": [{"updatedFields": fields}]});
         let response = th
             .client
-            .patch(&format!("/boards/{}/blocks", board.id), &batch)
+            .patch(&format!("{TEST_WS}/boards/{}/blocks", board.id), &batch)
             .await;
         response.check_bad_request();
         assert_eq!(
@@ -1210,7 +1211,7 @@ async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it()
     let response = th
         .client
         .patch(
-            &format!("/boards/{}/blocks/{}", board.id, card.id),
+            &format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id),
             &json!({"title": "newer"}),
         )
         .await;
@@ -1222,12 +1223,12 @@ async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it()
         .await
         .expect("written again");
     th.client
-        .post_empty(&format!("/boards/{}/duplicate", board.id))
+        .post_empty(&format!("{TEST_WS}/boards/{}/duplicate", board.id))
         .await
         .check_created();
     th.client
         .post_empty(&format!(
-            "/boards/{}/blocks/{}/duplicate",
+            "{TEST_WS}/boards/{}/blocks/{}/duplicate",
             board.id, card.id
         ))
         .await
@@ -1256,7 +1257,7 @@ async fn a_title_with_u0000_is_refused() {
     let response = th
         .client
         .patch(
-            &format!("/boards/{}/blocks/{}", board.id, card.id),
+            &format!("{TEST_WS}/boards/{}/blocks/{}", board.id, card.id),
             &json!({"title": "a\u{0}b"}),
         )
         .await;
@@ -1282,7 +1283,7 @@ async fn a_title_with_u0000_is_refused() {
     ] {
         let response = th
             .client
-            .patch(&format!("/boards/{}", board.id), &patch)
+            .patch(&format!("{TEST_WS}/boards/{}", board.id), &patch)
             .await;
         response.check_bad_request();
         assert_eq!(response.refused_at(), format!("/{member}"), "{patch}");
@@ -1290,7 +1291,7 @@ async fn a_title_with_u0000_is_refused() {
     let response = th
         .client
         .post(
-            "/boards",
+            &format!("{TEST_WS}/boards"),
             &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "title": "x\u{0}"}),
         )
         .await;
@@ -1787,7 +1788,7 @@ async fn card_changes_call_the_webhook() {
 
     th.client
         .post(
-            "/subscriptions",
+            &format!("{TEST_WS}/subscriptions"),
             &json!({
                 "blockType": "card",
                 "blockId": card.id,
@@ -1798,7 +1799,7 @@ async fn card_changes_call_the_webhook() {
         .await
         .check_created();
     th.client
-        .delete(&format!("/subscriptions/{}/{}", card.id, me.id))
+        .delete(&format!("{TEST_WS}/subscriptions/{}/{}", card.id, me.id))
         .await
         .check_no_content();
     assert_eq!(take_posted().await, nothing, "subscriptions are not posted");
@@ -1898,10 +1899,8 @@ async fn a_card_says_when_it_was_last_commented_on() {
         "commenting does not touch the card"
     );
 
-    th.client
-        .delete(&format!("/boards/{}/blocks/{}", board.id, later.id))
-        .await
-        .check_no_content();
+    let block = |id: &str| format!("{TEST_WS}/boards/{}/blocks/{id}", board.id);
+    th.client.delete(&block(&later.id)).await.check_no_content();
     let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
     assert_eq!(
         read.last_comment_at, earlier.create_at,
@@ -1918,10 +1917,7 @@ async fn a_card_says_when_it_was_last_commented_on() {
     );
     // A comment changed is not a comment posted.
     th.client
-        .patch(
-            &format!("/boards/{}/blocks/{}", board.id, earlier.id),
-            &json!({"title": "said again"}),
-        )
+        .patch(&block(&earlier.id), &json!({"title": "said again"}))
         .await
         .check_no_content();
     let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
@@ -1930,7 +1926,7 @@ async fn a_card_says_when_it_was_last_commented_on() {
         "the time it was posted"
     );
     th.client
-        .delete(&format!("/boards/{}/blocks/{}", board.id, earlier.id))
+        .delete(&block(&earlier.id))
         .await
         .check_no_content();
     assert_eq!(

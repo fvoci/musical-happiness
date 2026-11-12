@@ -8,6 +8,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::boards::new_board;
+use crate::common::TEST_WS;
 use crate::common::{
     ApiResponse, HIDDEN_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
@@ -49,7 +50,10 @@ async fn who_left_a_workspace_finds_none_of_its_boards() {
         .created_json();
     remove_from_the_test_workspace(&th, &user2).await;
 
-    let found_everywhere: Vec<Board> = th.client2.get("/boards/search?q=Quarterly").await.ok_json();
+    let search_where_left = th
+        .client2
+        .get(&format!("{TEST_WS}/boards/search?q=Quarterly"))
+        .await;
     let found_from_root: Vec<Board> = th
         .client2
         .get(&format!(
@@ -59,13 +63,10 @@ async fn who_left_a_workspace_finds_none_of_its_boards() {
         .await
         .ok_json();
     let memberships: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
-    let export = th
-        .client2
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/archive/export"))
-        .await;
+    let export = th.client2.get(&format!("{TEST_WS}/archive/export")).await;
     th.teardown().await;
 
-    assert!(found_everywhere.is_empty(), "{found_everywhere:?}");
+    search_where_left.check_not_found();
     assert!(found_from_root.is_empty(), "{found_from_root:?}");
     assert!(
         memberships.iter().all(|member| member.board_id != board.id),
@@ -85,10 +86,7 @@ async fn a_workspace_the_user_is_no_member_of_exports_a_404() {
         .client
         .get(&format!("/w/{UNKNOWN_ID}/archive/export"))
         .await;
-    let own = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/archive/export"))
-        .await;
+    let own = th.client.get(&format!("{TEST_WS}/archive/export")).await;
     th.teardown().await;
 
     hidden.check_not_found();
@@ -122,7 +120,7 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
 
     let left = th
         .client
-        .post(&format!("/boards/{}/leave", board.id), &json!({}))
+        .post(&format!("{TEST_WS}/boards/{}/leave", board.id), &json!({}))
         .await;
     let stored = th.app.store().get_member_for_board(&board.id, &user1).await;
     th.teardown().await;
@@ -150,18 +148,14 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
         .check_ok();
     let archive = th
         .client
-        .get(&format!("/boards/{}/archive/export", board.id))
+        .get(&format!("{TEST_WS}/boards/{}/archive/export", board.id))
         .await;
     archive.check_ok();
 
     let kept = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
     remove_from_the_test_workspace(&th, &user2).await;
     let left_out = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
-    let shared: Vec<Board> = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json();
+    let shared: Vec<Board> = th.client.get(&format!("{TEST_WS}/boards")).await.ok_json();
     let mut held = 0;
     for listed in shared.iter().filter(|listed| listed.title == "Shared") {
         let members = th
@@ -211,10 +205,7 @@ async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
         .await
         .expect("a membership without a role");
     remove_from_the_test_workspace(&th, &third).await;
-    let archive = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/archive/export"))
-        .await;
+    let archive = th.client.get(&format!("{TEST_WS}/archive/export")).await;
     archive.check_ok();
 
     remove_from_the_test_workspace(&th, &user2).await;

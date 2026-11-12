@@ -12,6 +12,8 @@ import type { Account, Backend } from '$lib/state/index.ts';
 import type { Organizations } from '$lib/state/organization.ts';
 
 import { readBasePath } from './router.svelte.ts';
+import { display } from '$lib/display.svelte.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
 import { readDisplaySettings } from '$lib/logic/display.ts';
 import { readLanguageSettings } from '$lib/logic/language.ts';
 import { readRegionalSettings } from '$lib/logic/regional.ts';
@@ -83,6 +85,23 @@ async function startServer(): Promise<StartedBackend> {
   const path = base === '' ? '' : `/${base}`;
   const backend = new ServerBackend(path);
   return { backend, account: backend, organizations: new ServerOrganizations(new Http(path)) };
+}
+
+/**
+ * The backend of a reader by a board's public link (`/shared/…`): the
+ * server's, which reads the board by the link's read token alone, and the
+ * place it shows the board in.
+ */
+export async function startShared(
+  boardId: string,
+  readToken: string,
+): Promise<{ backend: Backend; place: string }> {
+  const { SharedBackend, SHARED_PLACE } = await import('$lib/api/shared-backend.ts');
+  const base = readBasePath(document);
+  // The device's theme and density stay as they are: the reader has no account's.
+  const settings = { ...DEFAULT_ACCOUNT_SETTINGS, ...display.settings };
+  const backend = new SharedBackend(base === '' ? '' : `/${base}`, boardId, readToken, settings);
+  return { backend, place: SHARED_PLACE };
 }
 
 export async function startBackend(): Promise<StartedBackend> {

@@ -111,9 +111,9 @@ fn describe_kind(kind: ErrorKind) -> &'static str {
         }
         ErrorKind::Unauthorized => {
             "The request has no session, or its session is over: sign in and send the request \
-             again. What a shared board lets be read without a session answers so to a \
-             request without the board's read token, and the websocket endpoint to a \
-             handshake that has no `Origin` header and no bearer token."
+             again. The websocket endpoint answers so to a handshake that has no `Origin` \
+             header and no bearer token. A shared board's link needs no session: what it does \
+             not open is not found."
         }
         ErrorKind::Forbidden => {
             "The user can see what the request is about, but may not do this with it."

@@ -32,7 +32,8 @@ impl App {
     }
 
     /// Ends the subscription of a subscriber to a block and returns it, marked as
-    /// deleted now.
+    /// deleted now. For a handle of one workspace (`App::in_workspace`) only one to a
+    /// block of a board of that workspace is there.
     ///
     /// # Errors
     ///
@@ -43,6 +44,15 @@ impl App {
         block_id: &str,
         subscriber_id: &str,
     ) -> Result<Subscription, AppError> {
+        if self.workspace.is_some()
+            && !self
+                .subscriptions(subscriber_id)
+                .await?
+                .iter()
+                .any(|subscription| subscription.block_id == block_id)
+        {
+            return Err(AppError::not_found("subscription"));
+        }
         let mut subscription = self
             .store()
             .get_subscription(block_id, subscriber_id)
@@ -58,13 +68,20 @@ impl App {
         Ok(subscription)
     }
 
-    /// Returns the subscriptions of a subscriber that have not ended, in no particular
-    /// order.
+    /// Returns the subscriptions of a subscriber that have not ended, oldest first: for a
+    /// handle of one workspace (`App::in_workspace`), those to blocks of its boards.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
     pub async fn subscriptions(&self, subscriber_id: &str) -> Result<Vec<Subscription>, AppError> {
-        Ok(self.store().get_subscriptions(subscriber_id).await?)
+        Ok(match self.workspace.as_deref() {
+            Some(workspace_id) => {
+                self.store()
+                    .get_subscriptions_in_workspace(subscriber_id, workspace_id)
+                    .await?
+            }
+            None => self.store().get_subscriptions(subscriber_id).await?,
+        })
     }
 }

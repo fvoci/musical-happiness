@@ -89,7 +89,7 @@ type AccountKey = [u8; 32];
 /// An address as it is counted: an IPv4 address, or the /64 an IPv6 address is in,
 /// which is what one subscriber usually has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum AddressKey {
+pub(crate) enum AddressKey {
     V4([u8; 4]),
     V6([u8; 8]),
 }

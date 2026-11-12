@@ -20,11 +20,12 @@ use crate::board_broadcasts::WorkspaceSocket;
 use crate::boards::{
     board_with_admin, board_without_members, insert_block, member, members_of, new_board,
 };
+use crate::common::TEST_WS;
 use crate::common::{
     ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
 
-const PATH: &str = "/boards-and-blocks";
+const PATH: &str = "/w/00000000-0000-7000-8000-000000000001/boards-and-blocks";
 
 // -- helpers --------------------------------------------------------------------------
 
@@ -258,7 +259,9 @@ async fn create_boards_and_blocks_boards_from_different_workspaces() {
 
     let response = th.client.post(PATH, &request).await;
 
-    expect_bad_request(&response, "cannot create boards for multiple workspaces");
+    // The path names the workspace, and the second board names another.
+    expect_bad_request(&response, "the board is made in the workspace of the path");
+    assert_eq!(response.refused_at(), "/boards/1/workspaceId");
     th.teardown().await;
 }
 
@@ -366,10 +369,7 @@ fn card_json(board_id: &str) -> Value {
 
 /// The boards of the test workspace that a client's user sees.
 async fn workspace_boards(client: &Client) -> Vec<Board> {
-    client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json()
+    client.get(&format!("{TEST_WS}/boards")).await.ok_json()
 }
 
 /// What `POST /boards-and-blocks` refuses beyond what the original's tests cover.
@@ -432,12 +432,11 @@ async fn create_boards_and_blocks_refusals() {
         );
     }
 
-    // No workspace at all, a workspace that does not exist, and text that is no identifier: the
-    // boards' workspace must exist. (The original's workspace permission check fails on no workspace,
-    // and it creates boards in a workspace of any other name.)
+    // A board that names a workspace other than the path's, one that does not exist and
+    // text that is no identifier among them, is refused; the path names the workspace.
     for board in [
-        json!({"id": "bd", "type": "P"}),
         json!({"id": "bd", "workspaceId": UNKNOWN_ID, "type": "P"}),
+        json!({"id": "bd", "workspaceId": ROOT_WORKSPACE_ID, "type": "P"}),
         json!({"id": "bd", "workspaceId": "nope", "type": "P"}),
     ] {
         let response = th
@@ -447,10 +446,10 @@ async fn create_boards_and_blocks_refusals() {
                 &json!({"boards": [board], "blocks": [card_json("bd")]}),
             )
             .await;
-        expect_bad_request(&response, "no such workspace");
+        expect_bad_request(&response, "the board is made in the workspace of the path");
         assert_eq!(
             response.refused_at(),
-            "/boards",
+            "/boards/0/workspaceId",
             "the member at fault: {board}"
         );
     }
@@ -755,7 +754,8 @@ async fn patch_boards_and_blocks_boards_belonging_to_different_workspaces_should
 
     let response = patch(&th.client, &request).await;
 
-    expect_bad_request(&response, "mismatched workspace ID");
+    // A board of another workspace is not there under this one's path.
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     assert_titles_unchanged(&th, &boards).await;
     th.teardown().await;
 }
@@ -1097,7 +1097,8 @@ async fn delete_boards_and_blocks_boards_from_different_workspaces() {
 
     let response = delete(&th.client, &request).await;
 
-    expect_bad_request(&response, "all boards should belong to the same workspace");
+    // A board of another workspace is not there under this one's path.
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     th.app.board(&board.id).await.expect("the board is there");
     assert_eq!(blocks_of(&th, &board.id).await.len(), 1, "with its block");
     th.teardown().await;

@@ -8,11 +8,12 @@ use serde_json::json;
 
 use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{block, id_of, new_blocks, new_board};
+use crate::harness::ROOT_API;
 use crate::harness::{API, Session, id_by_title};
 
 pub(crate) async fn boards(s: &mut Session) {
     let [alice, bob] = s.users("boards", ["alice", "bob"]).await;
-    let boards = format!("{API}/boards");
+    let boards = format!("{ROOT_API}/boards");
     s.post("create: no type", &boards)
         .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "title": "x"}))
         .user(&alice)
@@ -47,27 +48,21 @@ pub(crate) async fn boards(s: &mut Session) {
     )
     .await;
     let open_board = new_board(s, &alice, "Open board", "O", json!({})).await;
-    let path = format!("{API}/boards/{board}");
-    let open_path = format!("{API}/boards/{open_board}");
-    let unknown = format!("{API}/boards/unknown-board");
+    let path = format!("{ROOT_API}/boards/{board}");
+    let open_path = format!("{ROOT_API}/boards/{open_board}");
+    let unknown = format!("{ROOT_API}/boards/unknown-board");
 
     s.get("get", &path).user(&alice).await;
     s.get("get: non-member, private", &path).user(&bob).await;
     s.get("get: non-member, open", &open_path).user(&bob).await;
     s.get("get: anonymous", &path).await;
     s.get("get: unknown board", &unknown).user(&alice).await;
-    s.get(
-        "list: member",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
-    )
-    .user(&alice)
-    .await;
-    s.get(
-        "list: other user",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
-    )
-    .user(&bob)
-    .await;
+    s.get("list: member", &format!("{ROOT_API}/boards"))
+        .user(&alice)
+        .await;
+    s.get("list: other user", &format!("{ROOT_API}/boards"))
+        .user(&bob)
+        .await;
     s.get("metadata", &format!("{path}/metadata"))
         .user(&alice)
         .await;
@@ -147,9 +142,12 @@ pub(crate) async fn boards(s: &mut Session) {
         .user(&alice)
         .await;
     let copy = id_of(&duplicate.json()["boards"][0]);
-    s.get("blocks of the copy", &format!("{API}/boards/{copy}/blocks"))
-        .user(&alice)
-        .await;
+    s.get(
+        "blocks of the copy",
+        &format!("{ROOT_API}/boards/{copy}/blocks"),
+    )
+    .user(&alice)
+    .await;
 
     s.delete("delete: non-member", &path).user(&bob).await;
     s.delete("delete", &path).user(&alice).await;
@@ -165,22 +163,20 @@ pub(crate) async fn boards(s: &mut Session) {
     s.get("blocks after undelete", &format!("{path}/blocks"))
         .user(&alice)
         .await;
-    s.get(
-        "list at the end",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
-    )
-    .user(&alice)
-    .await;
+    s.get("list at the end", &format!("{ROOT_API}/boards"))
+        .user(&alice)
+        .await;
 }
 
 pub(crate) async fn members(s: &mut Session) {
+    let boards_api = format!("{ROOT_API}/boards");
     let [alice, bob, carol] = s.users("members", ["alice", "bob", "carol"]).await;
     let board = new_board(s, &alice, "Workspace board", "P", json!({})).await;
     let open_board = new_board(s, &alice, "Open board", "O", json!({})).await;
     let bob_id = s.user_id(&bob).await;
     let carol_id = s.user_id(&carol).await;
     let alice_id = s.user_id(&alice).await;
-    let members = format!("{API}/boards/{board}/members");
+    let members = format!("{boards_api}/{board}/members");
 
     s.get("list", &members).user(&alice).await;
     s.get("list: non-member", &members).user(&bob).await;
@@ -253,36 +249,36 @@ pub(crate) async fn members(s: &mut Session) {
         .user(&alice)
         .await;
 
-    s.post("join: private board", &format!("{API}/boards/{board}/join"))
+    s.post("join: private board", &format!("{boards_api}/{board}/join"))
         .user(&carol)
         .await;
     s.post(
         "join: open board",
-        &format!("{API}/boards/{open_board}/join"),
+        &format!("{boards_api}/{open_board}/join"),
     )
     .user(&carol)
     .await;
-    s.post("join: again", &format!("{API}/boards/{open_board}/join"))
+    s.post("join: again", &format!("{boards_api}/{open_board}/join"))
         .user(&carol)
         .await;
     s.post(
         "join: unknown board",
-        &format!("{API}/boards/unknown-board/join"),
+        &format!("{boards_api}/unknown-board/join"),
     )
     .user(&carol)
     .await;
-    s.post("leave", &format!("{API}/boards/{open_board}/leave"))
+    s.post("leave", &format!("{boards_api}/{open_board}/leave"))
         .user(&carol)
         .await;
     s.post(
         "leave: not a member",
-        &format!("{API}/boards/{open_board}/leave"),
+        &format!("{boards_api}/{open_board}/leave"),
     )
     .user(&carol)
     .await;
     s.post(
         "leave: the last admin",
-        &format!("{API}/boards/{open_board}/leave"),
+        &format!("{boards_api}/{open_board}/leave"),
     )
     .user(&alice)
     .await;
@@ -292,7 +288,7 @@ pub(crate) async fn members(s: &mut Session) {
     // What joining gives, and what somebody gives who adds a member without managing the
     // board's roles. A board always has one; a new board has editor.
     let role_board = new_board(s, &alice, "Role board", "O", json!({})).await;
-    let role_path = format!("{API}/boards/{role_board}");
+    let role_path = format!("{boards_api}/{role_board}");
     let role_members = format!("{role_path}/members");
     s.patch("minimum role: none", &role_path)
         .json(json!({"minimumRole": ""}))
@@ -304,7 +300,7 @@ pub(crate) async fn members(s: &mut Session) {
         .await;
     s.post(
         "create a board with no minimum role",
-        &format!("{API}/boards"),
+        &format!("{ROOT_API}/boards"),
     )
     .json(json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "O", "minimumRole": ""}))
     .user(&alice)
@@ -375,7 +371,7 @@ pub(crate) async fn members(s: &mut Session) {
 
 pub(crate) async fn boards_and_blocks(s: &mut Session) {
     let [alice, bob] = s.users("bab", ["alice", "bob"]).await;
-    let path = format!("{API}/boards-and-blocks");
+    let path = format!("{ROOT_API}/boards-and-blocks");
     let body = json!({
         "boards": [
             {"id": "board-a", "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Board A"},
@@ -466,12 +462,15 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
         }))
         .user(&alice)
         .await;
-    s.get("board a after patch", &format!("{API}/boards/{board_a}"))
-        .user(&alice)
-        .await;
+    s.get(
+        "board a after patch",
+        &format!("{ROOT_API}/boards/{board_a}"),
+    )
+    .user(&alice)
+    .await;
     s.get(
         "blocks of b after patch",
-        &format!("{API}/boards/{board_b}/blocks"),
+        &format!("{ROOT_API}/boards/{board_b}/blocks"),
     )
     .user(&alice)
     .await;
@@ -496,7 +495,10 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
         .json(json!({"boards": [board_a, board_b], "blocks": [card_a, card_b]}))
         .user(&alice)
         .await;
-    s.get("board a after delete", &format!("{API}/boards/{board_a}"))
-        .user(&alice)
-        .await;
+    s.get(
+        "board a after delete",
+        &format!("{ROOT_API}/boards/{board_a}"),
+    )
+    .user(&alice)
+    .await;
 }

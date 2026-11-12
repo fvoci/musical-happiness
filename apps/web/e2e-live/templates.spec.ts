@@ -27,9 +27,9 @@ async function templates(api: APIRequestContext, workspaceId: string) {
   return (await answer.json()) as Schemas['Board'][];
 }
 
-async function views(api: APIRequestContext, boardId: string) {
+async function views(api: APIRequestContext, workspaceId: string, boardId: string) {
   return (await (
-    await api.get(`/api/v1/boards/${boardId}/blocks`, { params: { type: 'view' } })
+    await api.get(`/api/v1/w/${workspaceId}/boards/${boardId}/blocks`, { params: { type: 'view' } })
   ).json()) as Schemas['Block'][];
 }
 
@@ -61,7 +61,9 @@ test('a board is made from a template, and a template from a board is changed on
   await projectTasks.getByRole('button', { name: 'Use this template: Project Tasks' }).click();
   await expect(boardLink(page, 'Project Tasks')).toHaveAttribute('aria-current', 'page');
   const made = placeOf(page.url()).boardId;
-  const copy = (await (await api.get(`/api/v1/boards/${made}`)).json()) as Schemas['Board'];
+  const copy = (await (
+    await api.get(`/api/v1/w/${mine.workspaceId}/boards/${made}`)
+  ).json()) as Schemas['Board'];
   // In the reader's workspace (sent as `toWorkspace`: a built-in template is kept apart from every workspace).
   expect(copy).toMatchObject({
     title: 'Project Tasks',
@@ -69,7 +71,9 @@ test('a board is made from a template, and a template from a board is changed on
     type: 'P',
     workspaceId: mine.workspaceId,
   });
-  expect((await views(api, made)).length).toBe((await views(api, builtIn?.id ?? '')).length);
+  expect((await views(api, mine.workspaceId, made)).length).toBe(
+    (await views(api, mine.workspaceId, builtIn?.id ?? '')).length,
+  );
 
   // A template from a board: it opens on its page, and is changed there.
   await chooseFromMenu(page, boardMenu(page, 'Weekly plan'), 'template-from-board');

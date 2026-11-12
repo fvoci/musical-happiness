@@ -44,7 +44,9 @@ test('a property moved on a card is the board’s order, seen by another member,
   const path = boardPath(board, board.viewId, board.cards.Ticket ?? '');
   const stored = async () =>
     (
-      (await (await api.get(`/api/v1/boards/${board.boardId}`)).json()) as Schemas['Board']
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)
+      ).json()) as Schemas['Board']
     ).cardProperties.map((template) => template.name);
 
   const pages: Page[] = [];
@@ -74,7 +76,9 @@ test('a property moved on a card is the board’s order, seen by another member,
     .click();
   await ownerPage.getByTestId('property-menu').locator('[data-action="move-up"]').click();
   await expect.poll(stored).toEqual(['Status', 'Due', 'Note']);
-  expect(sent).toEqual([`PUT /api/v1/boards/${board.boardId}/property-order`]);
+  expect(sent).toEqual([
+    `PUT /api/v1/w/${board.workspaceId}/boards/${board.boardId}/property-order`,
+  ]);
   await expect.poll(() => shown(helperPage)).toEqual(['Status', 'Due', 'Note']);
   await ownerPage.keyboard.press('Escape');
   await expect(ownerPage.getByTestId('property-menu')).toHaveCount(0);
@@ -105,7 +109,9 @@ test('a property moved in the view’s properties panel is the board’s order, 
   });
   const stored = async () =>
     (
-      (await (await api.get(`/api/v1/boards/${board.boardId}`)).json()) as Schemas['Board']
+      (await (
+        await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)
+      ).json()) as Schemas['Board']
     ).cardProperties.map((template) => template.name);
   const face = page.locator(`[data-card="${board.cards.One ?? ''}"] [data-property]`);
   const faceOrder = () =>

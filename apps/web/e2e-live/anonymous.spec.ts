@@ -38,8 +38,10 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
     cards: [{ title: 'Ask around', status: 'To do' }],
   });
   const cardId = board.cards['Ask around'] ?? '';
-  const card = (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
-  const written = await api.patch(`/api/v1/cards/${cardId}`, {
+  const card = (await (
+    await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+  ).json()) as Schemas['Card'];
+  const written = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
     data: {
       readAt: card.updateAt,
       body: {
@@ -61,14 +63,16 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
   });
   expect(written.ok()).toBe(true);
   const shared = (await (
-    await api.post(`/api/v1/boards/${board.boardId}/sharing`, { data: { enabled: true } })
+    await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/sharing`, {
+      data: { enabled: true },
+    })
   ).json()) as Schemas['Sharing'];
   expect(shared.token).toBeTruthy();
 
   // Read with the read token alone, signed in as nobody.
   const anonymous = await request.newContext({ baseURL: base });
   const [block] = (await (
-    await anonymous.get(`/api/v1/boards/${board.boardId}/blocks`, {
+    await anonymous.get(`/api/v1/shared/${board.boardId}/blocks`, {
       params: { readToken: shared.token ?? '', blockId: cardId },
     })
   ).json()) as Schemas['Block'][];
@@ -79,8 +83,10 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
   // The web app draws it and would not write it; the server refuses it too.
   expect(validateDoc(body, { shown: true })).toEqual([]);
   expect(validateDoc(body)).not.toEqual([]);
-  const now = (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
-  const back = await api.patch(`/api/v1/cards/${cardId}`, {
+  const now = (await (
+    await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+  ).json()) as Schemas['Card'];
+  const back = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
     data: { readAt: now.updateAt, body },
   });
   expect(back.status()).toBe(400);

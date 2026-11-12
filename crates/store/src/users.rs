@@ -527,13 +527,7 @@ pub(crate) async fn users_by_ids(
     user_ids: &[String],
     narrow: impl Fn(&mut Sql, &Scope<'_>),
 ) -> Result<Vec<User>, StoreError> {
-    let mut sql = select_users(scope);
-    narrow(&mut sql, scope);
-    sql.push(" AND id IN (")
-        .bind_list(user_ids.iter().map(|id| Id(id)))
-        .push(")")
-        .push(OLDEST_FIRST);
-    let users = fetch_users(scope, sql).await?;
+    let users = found_users_by_ids(scope, user_ids, narrow).await?;
     if users.is_empty() {
         return Err(user_not_found());
     }
@@ -546,6 +540,29 @@ pub(crate) async fn users_by_ids(
         });
     }
     Ok(users)
+}
+
+/// The users with the given identifiers among those `narrow` keeps, oldest first, each
+/// once: an identifier of nobody it keeps finds nothing, as one of nobody at all.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if the query fails.
+pub(crate) async fn found_users_by_ids(
+    scope: &mut Scope<'_>,
+    user_ids: &[String],
+    narrow: impl Fn(&mut Sql, &Scope<'_>),
+) -> Result<Vec<User>, StoreError> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut sql = select_users(scope);
+    narrow(&mut sql, scope);
+    sql.push(" AND id IN (")
+        .bind_list(user_ids.iter().map(|id| Id(id)))
+        .push(")")
+        .push(OLDEST_FIRST);
+    fetch_users(scope, sql).await
 }
 
 /// The ten oldest users among those `narrow` keeps, oldest first, whose login name or

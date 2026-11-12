@@ -7,6 +7,7 @@ use fvoci_model::{Board, BoardType, Category, CategoryBoardMetadata};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::common::ROOT_WS;
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::sidebar::{
     category, category_boards, create_category, file_board, open_board, put_empty,
@@ -94,7 +95,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
         "after creating a category"
     );
 
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/categories/{}", created.id);
+    let path = format!("{ROOT_WS}/categories/{}", created.id);
     let change = Category {
         name: "Cat B".to_owned(),
         ..created.clone()
@@ -108,10 +109,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
 
     let category_order = [default_id.as_str(), created.id.as_str()];
     th.client
-        .put(
-            &format!("/w/{ROOT_WORKSPACE_ID}/category-order"),
-            &category_order,
-        )
+        .put(&format!("{ROOT_WS}/category-order"), &category_order)
         .await
         .check_ok();
     assert_eq!(
@@ -166,7 +164,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     category_boards(&th.client, ROOT_WORKSPACE_ID).await;
     let created =
         create_category(&th.client, &category(ROOT_WORKSPACE_ID, &user.id, "Cat A")).await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/categories/{}", created.id);
+    let path = format!("{ROOT_WS}/categories/{}", created.id);
     let mut socket = subscribed_socket(&th, ROOT_WORKSPACE_ID, &user.id).await;
     let board_change = |boards: Value| json!({"action": "UPDATE_BOARD_CATEGORY", "workspaceId": ROOT_WORKSPACE_ID, "boardCategories": boards});
     let first = open_board(&th, ROOT_WORKSPACE_ID).await;
@@ -237,7 +235,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
         let client = th.client.clone();
         async move {
             let body = json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title});
-            client.post("/boards", &body).await
+            client.post(&format!("{ROOT_WS}/boards"), &body).await
         }
     };
 
@@ -249,7 +247,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
 
     let categories = th
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
+        .get(&format!("{ROOT_WS}/categories"))
         .await
         .value();
     let categories = categories.as_array().expect("a list of categories");
@@ -310,7 +308,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .created_json();
     file_board(&th.client, ROOT_WORKSPACE_ID, &created.id, &board.id).await;
     file_board(&th.client2, ROOT_WORKSPACE_ID, &gone.id, &board.id).await;
-    let category_path = format!("/w/{ROOT_WORKSPACE_ID}/categories/{}", created.id);
+    let category_path = format!("{ROOT_WS}/categories/{}", created.id);
     put_empty(
         &th.client,
         &format!("{category_path}/boards/{}/hide", board.id),
@@ -324,15 +322,15 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         subscribed_socket_of(&th, &third, ROOT_WORKSPACE_ID, &third_user.id).await;
 
     th.client
-        .delete(&format!("/boards/{}", board.id))
+        .delete(&format!("{ROOT_WS}/boards/{}", board.id))
         .await
         .check_no_content();
     th.client2
-        .delete(&format!("/w/{ROOT_WORKSPACE_ID}/categories/{}", gone.id))
+        .delete(&format!("{ROOT_WS}/categories/{}", gone.id))
         .await
         .check_no_content();
     th.client
-        .post_empty(&format!("/boards/{}/undelete", board.id))
+        .post_empty(&format!("{ROOT_WS}/boards/{}/undelete", board.id))
         .await
         .check_ok();
 

@@ -5,6 +5,8 @@
 
 use std::io::{Cursor, Read as _, Write as _};
 
+use crate::common::ROOT_WS;
+use crate::common::TEST_WS;
 use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -13,9 +15,12 @@ use reqwest::{Method, StatusCode};
 use sha2::{Digest as _, Sha256};
 
 /// `GET /boards/{id}/archive/export` for a board.
-async fn export_board(client: &Client, board_id: &str) -> ApiResponse {
+async fn export_board(client: &Client, board: &Board) -> ApiResponse {
     client
-        .get(&format!("/boards/{board_id}/archive/export"))
+        .get(&format!(
+            "/w/{}/boards/{}/archive/export",
+            board.workspace_id, board.id
+        ))
         .await
 }
 
@@ -41,7 +46,7 @@ pub(crate) async fn import(client: &Client, workspace_id: &str, bytes: &[u8]) ->
         .and_then(|size| usize::try_from(size).ok())
         .expect("an upload has a part size");
     for (index, part) in bytes.chunks(part_size).enumerate() {
-        let sent = put_part(client, &upload_id, index + 1, part).await;
+        let sent = put_part(client, workspace_id, &upload_id, index + 1, part).await;
         if sent.status != StatusCode::NO_CONTENT {
             return sent;
         }
@@ -66,13 +71,17 @@ pub(crate) async fn import_upload(
 /// Sends `bytes` as part `number` of an upload, with their digest.
 pub(crate) async fn put_part(
     client: &Client,
+    workspace_id: &str,
     upload_id: &str,
     number: usize,
     bytes: &[u8],
 ) -> ApiResponse {
     let digest = format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(bytes)));
     let request = client
-        .request(Method::PUT, &format!("/uploads/{upload_id}/parts/{number}"))
+        .request(
+            Method::PUT,
+            &format!("/w/{workspace_id}/uploads/{upload_id}/parts/{number}"),
+        )
         .header("Content-Type", "application/octet-stream")
         .header("Content-Digest", digest)
         .body(bytes.to_vec());
@@ -93,7 +102,7 @@ async fn board_with_card(ts: &TestServer, workspace_id: &str) -> Board {
         ..Block::default()
     };
     ts.client
-        .insert_blocks(&board.id, std::slice::from_ref(&card))
+        .insert_blocks_in(workspace_id, &board.id, std::slice::from_ref(&card))
         .await
         .check_created();
     board
@@ -106,7 +115,7 @@ async fn export_single_board_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
 
-    let exported = export_board(&ts.client, &board.id).await;
+    let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
     assert!(!exported.body.is_empty(), "the archive has bytes");
 
@@ -147,7 +156,7 @@ async fn export_of_a_board_without_blocks_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
-    let exported = export_board(&ts.client, &board.id).await;
+    let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
     import(&ts.client, ROOT_WORKSPACE_ID, &exported.body)
         .await
@@ -178,7 +187,7 @@ async fn export_of_a_board_without_blocks_round_trips() {
 async fn export_has_the_download_headers() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
-    let response = export_board(&ts.client, &board.id).await;
+    let response = export_board(&ts.client, &board).await;
     response.check_ok();
     assert_eq!(
         response.header("content-type"),
@@ -230,9 +239,9 @@ async fn export_board_access_control() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
 
-    export_board(&ts.client, &board.id).await.check_ok();
-    export_board(&ts.client2, &board.id).await.check_forbidden();
-    export_board(&ts.anonymous(), &board.id)
+    export_board(&ts.client, &board).await.check_ok();
+    export_board(&ts.client2, &board).await.check_forbidden();
+    export_board(&ts.anonymous(), &board)
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -244,17 +253,14 @@ async fn export_board_access_control() {
 async fn export_workspace_is_a_zip() {
     let ts = Setup::native().start().await.init_basic().await;
     board_with_card(&ts, ROOT_WORKSPACE_ID).await;
-    let response = ts
-        .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/archive/export"))
-        .await;
+    let response = ts.client.get(&format!("{ROOT_WS}/archive/export")).await;
     response.check_ok();
     assert!(
         zip::ZipArchive::new(Cursor::new(response.body.clone())).is_ok(),
         "a zip"
     );
     ts.anonymous()
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/archive/export"))
+        .get(&format!("{ROOT_WS}/archive/export"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -265,7 +271,7 @@ async fn export_workspace_is_a_zip() {
 async fn import_is_allowed_for_any_signed_in_user() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, ROOT_WORKSPACE_ID).await;
-    let archive = export_board(&ts.client, &board.id).await.body;
+    let archive = export_board(&ts.client, &board).await.body;
 
     import(&ts.client2, ROOT_WORKSPACE_ID, &archive)
         .await
@@ -402,7 +408,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         .await
         .expect("the blocks are stored");
 
-    let export = export_board(&ts.client, &board.id).await;
+    let export = export_board(&ts.client, &board).await;
     export.check_ok();
     let archive = zip::ZipArchive::new(std::io::Cursor::new(export.body.clone()))
         .expect("the export is an archive");
@@ -426,10 +432,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
 
 /// The boards of a workspace that the first client sees.
 pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Board> {
-    ts.client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
-        .await
-        .ok_json()
+    ts.client.get(&format!("{TEST_WS}/boards")).await.ok_json()
 }
 
 /// The archives of the original, the line-based version 1 and the ZIP of version 2, and
@@ -496,7 +499,7 @@ async fn an_archive_carries_the_images_of_bodies() {
     ]});
     ts.client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &serde_json::json!({"title": "Card", "body": body}),
         )
         .await
@@ -515,7 +518,7 @@ async fn an_archive_carries_the_images_of_bodies() {
         .await
         .check_created();
 
-    let exported = export_board(&ts.client, &board.id).await;
+    let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
     let archive = zip::ZipArchive::new(Cursor::new(exported.body.clone())).expect("a zip");
     let entry = format!("{}/{file_id}", board.id);
@@ -537,7 +540,10 @@ async fn an_archive_carries_the_images_of_bodies() {
         .expect("the imported board");
     let blocks: Vec<serde_json::Value> = ts
         .client
-        .get(&format!("/boards/{}/blocks?type=card", imported.id))
+        .get(&format!(
+            "{TEST_WS}/boards/{}/blocks?type=card",
+            imported.id
+        ))
         .await
         .ok_json();
     let new_file = blocks[0]["body"]["content"][0]["attrs"]["fileId"]
@@ -547,7 +553,10 @@ async fn an_archive_carries_the_images_of_bodies() {
     assert_ne!(new_file, file_id, "a file of the new board");
     let file = ts
         .client
-        .get(&format!("/boards/{}/files/{new_file}", imported.id))
+        .get(&format!(
+            "{TEST_WS}/boards/{}/files/{new_file}",
+            imported.id
+        ))
         .await;
     file.check_ok();
     assert_eq!(
@@ -571,7 +580,7 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     let card: serde_json::Value = ts
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("{TEST_WS}/boards/{}/cards", board.id),
             &serde_json::json!({"title": "Card"}),
         )
         .await
@@ -581,14 +590,14 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     ]});
     ts.client
         .post(
-            &format!("/boards/{}/blocks", board.id),
+            &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &serde_json::json!([{"boardId": board.id, "parentId": card["id"], "type": "comment",
                                  "createAt": 1, "updateAt": 1, "body": body}]),
         )
         .await
         .check_created();
 
-    let exported = export_board(&ts.client, &board.id).await;
+    let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
         .await
@@ -600,7 +609,10 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
         .expect("the imported board");
     let comments: Vec<serde_json::Value> = ts
         .client
-        .get(&format!("/boards/{}/blocks?type=comment", imported.id))
+        .get(&format!(
+            "{TEST_WS}/boards/{}/blocks?type=comment",
+            imported.id
+        ))
         .await
         .ok_json();
     let [comment] = comments.as_slice() else {
@@ -614,7 +626,7 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     let versions = ts
         .client
         .get(&format!(
-            "/boards/{}/blocks/{}/versions",
+            "{TEST_WS}/boards/{}/blocks/{}/versions",
             imported.id,
             comment["id"].as_str().expect("an id")
         ))
@@ -622,7 +634,10 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
         .value();
     assert_eq!(versions, serde_json::json!([]));
     ts.client
-        .get(&format!("/boards/{}/files/{new_file}", imported.id))
+        .get(&format!(
+            "{TEST_WS}/boards/{}/files/{new_file}",
+            imported.id
+        ))
         .await
         .check_ok();
     ts.teardown().await;
@@ -751,7 +766,7 @@ async fn an_archive_reads_back_whatever_an_attachment_names() {
         .await
         .check_created();
 
-    let exported = export_board(&ts.client, &board.id).await;
+    let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
     let before = boards_of(&ts).await.len();
     import(&ts.client, TEST_WORKSPACE_ID, &exported.body)
@@ -840,7 +855,7 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
 
-    let exported = export_board(&ts.client, &board.id).await;
+    let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
     assert_eq!(
         exported.header("Content-Length"),
@@ -894,7 +909,7 @@ async fn a_large_file_is_whole_in_the_archive() {
         .await
         .check_created();
 
-    let exported = export_board(&ts.client, &board.id).await;
+    let exported = export_board(&ts.client, &board).await;
     exported.check_ok();
     let mut zip = zip::ZipArchive::new(Cursor::new(exported.body)).expect("the export is a ZIP");
     let mut entry = zip
@@ -914,14 +929,14 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_WORKSPACE_ID).await;
     let me = ts.client.me().await;
-    let workspace_export = format!("/w/{TEST_WORKSPACE_ID}/archive/export");
+    let workspace_export = format!("{TEST_WS}/archive/export");
     let refused = |response: &ApiResponse, reason: &str| {
         response.check_status(StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.error_reason(), reason, "{}", response.text());
     };
 
     let mine = ts.app.start_export(&me.id).expect("a place for user1");
-    refused(&export_board(&ts.client, &board.id).await, "export_running");
+    refused(&export_board(&ts.client, &board).await, "export_running");
     refused(&ts.client.get(&workspace_export).await, "export_running");
     let other = ts.app.start_export(&new_id()).expect("a place for another");
     refused(
@@ -929,7 +944,7 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
         "server_exports_busy",
     );
     // Who may not export the board is told so first: a full server says nothing of it.
-    let outsider = export_board(&ts.client2, &board.id).await;
+    let outsider = export_board(&ts.client2, &board).await;
     assert!(
         [StatusCode::FORBIDDEN, StatusCode::NOT_FOUND].contains(&outsider.status),
         "{}",
@@ -938,9 +953,9 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
 
     drop(mine);
     drop(other);
-    export_board(&ts.client, &board.id).await.check_ok();
+    export_board(&ts.client, &board).await.check_ok();
     // The place of a sent export is given back.
-    export_board(&ts.client, &board.id).await.check_ok();
+    export_board(&ts.client, &board).await.check_ok();
     ts.client2.get(&workspace_export).await.check_ok();
 }
 
@@ -1002,7 +1017,7 @@ async fn stalled_download(ts: &TestServer, board_id: &str) -> tokio::net::TcpStr
         .expect("a small receive buffer");
     let mut stream = socket.connect(address).await.expect("connected");
     let request = format!(
-        "GET /api/v1/boards/{board_id}/archive/export HTTP/1.1\r\nHost: localhost\r\n\
+        "GET /api/v1/w/{TEST_WORKSPACE_ID}/boards/{board_id}/archive/export HTTP/1.1\r\nHost: localhost\r\n\
          Authorization: Bearer {}\r\nX-Requested-With: XMLHttpRequest\r\n\r\n",
         ts.client.token
     );

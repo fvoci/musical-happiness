@@ -12,6 +12,7 @@ use fvoci_store::SharingChange;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
 use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID};
 
 /// Puts a board into the store without going through the board routes, with `user_id` as
@@ -32,7 +33,7 @@ async fn board_with_admin(th: &TestServer, user_id: &str, board_type: BoardType)
 }
 
 fn sharing_path(board_id: &str) -> String {
-    format!("/boards/{board_id}/sharing")
+    format!("{ROOT_WS}/boards/{board_id}/sharing")
 }
 
 /// `POST /boards/{id}/sharing` with a body.
@@ -74,7 +75,7 @@ async fn shared_setup() -> (TestServer, Board) {
 
 /// Returns whether a read token lets a request without a session read the board.
 async fn read_token_opens(th: &TestServer, board_id: &str, token: &str) -> bool {
-    let path = format!("/boards/{board_id}?readToken={token}");
+    let path = format!("/shared/{board_id}?readToken={token}");
     th.anonymous().get(&path).await.status == StatusCode::OK
 }
 

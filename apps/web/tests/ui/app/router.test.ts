@@ -36,6 +36,46 @@ describe('reading an address', () => {
     expect(parseRoute('/w/t/boards/b/v/', '')).toMatchObject({ boardId: 'b', viewId: 'v' });
   });
 
+  it('reads a public link: the board, a view and a card, and the read token', () => {
+    expect(parseRoute('/base/shared/b/v/c', 'base', '?r=tok')).toEqual({
+      ...none,
+      boardId: 'b',
+      viewId: 'v',
+      cardId: 'c',
+      readToken: 'tok',
+      shared: true,
+    });
+    expect(parseRoute('/shared/b', '', '?r=a%2Fb')).toEqual({
+      ...none,
+      boardId: 'b',
+      readToken: 'a/b',
+      shared: true,
+    });
+    // Without a token, or with more than a card, it is no address of the app's.
+    expect(parseRoute('/shared/b', '').unknown).toBe(true);
+    expect(parseRoute('/shared/b', '', '?r=').unknown).toBe(true);
+    expect(parseRoute('/shared', '', '?r=t').unknown).toBe(true);
+    expect(parseRoute('/shared/b/v/c/x', '', '?r=t').unknown).toBe(true);
+    // Each is still under `/shared`: the reader's screen says not found, not the app.
+    for (const [path, search] of [
+      ['/shared/b', ''],
+      ['/shared/b', '?r='],
+      ['/shared', '?r=t'],
+      ['/shared/b/v/c/x', '?r=t'],
+    ] as const) {
+      expect(parseRoute(path, '', search).shared).toBe(true);
+    }
+    expect(parseRoute('/w/t', '').shared).toBeUndefined();
+  });
+
+  it('writes a public link under the base path, the token in the query', () => {
+    const shared = { boardId: 'b', viewId: 'v', readToken: 't/1' };
+    expect(routePath(shared, 'base')).toBe('/base/shared/b/v?r=t%2F1');
+    expect(routePath({ ...shared, cardId: 'c' }, '')).toBe('/shared/b/v/c?r=t%2F1');
+    // A link names no workspace, also when the route has one.
+    expect(routePath({ ...shared, workspaceId: 'w' }, '')).toBe('/shared/b/v?r=t%2F1');
+  });
+
   it("reads the organization's screen, and nothing below it", () => {
     expect(parseRoute('/org/o', '')).toEqual({ ...none, orgId: 'o' });
     expect(parseRoute('/app/org/o', 'app')).toEqual({ ...none, orgId: 'o' });

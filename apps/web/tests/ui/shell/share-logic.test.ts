@@ -1,7 +1,9 @@
 /** The share dialog's roles and public link. */
 import { describe, expect, it } from 'vitest';
 
-import { publicLinkOf, roleOfMember } from '$lib/features/shell/share-logic.ts';
+import { roleOfMember } from '$lib/features/shell/share-logic.ts';
+
+import { routePath } from '../../../src/app/router.svelte.ts';
 
 const member = (
   flags: Partial<
@@ -27,9 +29,7 @@ describe('the share dialog', () => {
     expect(roleOfMember(member({}))).toBe('none');
   });
 
-  it('puts the read token on the board’s address', () => {
-    expect(publicLinkOf('https://boards.example/app/board/b1', 'a+b')).toBe(
-      'https://boards.example/app/board/b1?readToken=a%2Bb',
-    );
+  it('makes the public link the reader’s address of the board, the read token in it', () => {
+    expect(routePath({ boardId: 'b1', readToken: 'a+b' }, 'app')).toBe('/app/shared/b1?r=a%2Bb');
   });
 });

@@ -14,6 +14,7 @@ use crate::boards::{
     board_with_admin, delete_member, duplicate_board, editor, insert_block, member, new_board,
     patch_board, undelete_board, update_member, view_block,
 };
+use crate::common::TEST_WS;
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// How long to wait for a message that should arrive.
@@ -147,7 +148,7 @@ async fn board_changes_are_broadcast_to_the_members() {
     assert_eq!(message["board"]["title"], json!("Roadmap 2"), "{message}");
 
     th.client
-        .delete(&format!("/boards/{}", board.id))
+        .delete(&format!("{TEST_WS}/boards/{}", board.id))
         .await
         .check_no_content();
     let message = socket1.expect("UPDATE_BOARD", "/board/id", &board.id).await;

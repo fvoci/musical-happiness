@@ -1,39 +1,39 @@
 [
   {
     "name": "create board Workspace board",
-    "request": "POST /api/v1/boards as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as members-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:2>",
+      "id": "<id:3>",
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Workspace board",
       "type": "P",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "create board Open board",
-    "request": "POST /api/v1/boards as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as members-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
@@ -41,35 +41,35 @@
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "list",
-    "request": "GET /api/v1/boards/<id:2>/members as members-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:1>"
+        "userId": "<id:2>"
       }
     ]
   },
   {
     "name": "list: non-member",
-    "request": "GET /api/v1/boards/<id:2>/members as members-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/members as members-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -83,7 +83,7 @@
   },
   {
     "name": "add: non-member adds",
-    "request": "POST /api/v1/boards/<id:2>/members as members-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as members-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -97,11 +97,11 @@
   },
   {
     "name": "add editor",
-    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:2>",
+      "boardId": "<id:3>",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
@@ -111,7 +111,7 @@
   },
   {
     "name": "add: no user",
-    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as members-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -132,7 +132,7 @@
   },
   {
     "name": "add: unknown user",
-    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as members-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -153,7 +153,7 @@
   },
   {
     "name": "add: editor adds",
-    "request": "POST /api/v1/boards/<id:2>/members as members-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as members-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -167,11 +167,11 @@
   },
   {
     "name": "add viewer",
-    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:2>",
+      "boardId": "<id:3>",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
@@ -181,11 +181,11 @@
   },
   {
     "name": "add: already a member",
-    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:2>",
+      "boardId": "<id:3>",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
@@ -195,20 +195,20 @@
   },
   {
     "name": "list after adding",
-    "request": "GET /api/v1/boards/<id:2>/members as members-bob",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/members as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:1>"
+        "userId": "<id:2>"
       },
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
@@ -216,7 +216,7 @@
         "userId": "<id:5>"
       },
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": false,
@@ -232,7 +232,7 @@
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
@@ -243,11 +243,11 @@
   },
   {
     "name": "update: to commenter",
-    "request": "PUT /api/v1/boards/<id:2>/members/<id:6> as members-alice",
+    "request": "PUT /api/v1/w/<id:1>/boards/<id:3>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:2>",
+      "boardId": "<id:3>",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
@@ -257,7 +257,7 @@
   },
   {
     "name": "update: by editor",
-    "request": "PUT /api/v1/boards/<id:2>/members/<id:6> as members-bob",
+    "request": "PUT /api/v1/w/<id:1>/boards/<id:3>/members/<id:6> as members-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -271,7 +271,7 @@
   },
   {
     "name": "update: demote the last admin",
-    "request": "PUT /api/v1/boards/<id:2>/members/<id:1> as members-alice",
+    "request": "PUT /api/v1/w/<id:1>/boards/<id:3>/members/<id:2> as members-alice",
     "status": 409,
     "content_type": "application/problem+json",
     "body": {
@@ -286,7 +286,7 @@
   },
   {
     "name": "update: unknown member",
-    "request": "PUT /api/v1/boards/<id:2>/members/unknown-user as members-alice",
+    "request": "PUT /api/v1/w/<id:1>/boards/<id:3>/members/unknown-user as members-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -300,7 +300,7 @@
   },
   {
     "name": "delete: by editor",
-    "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-bob",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/members/<id:6> as members-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -314,7 +314,7 @@
   },
   {
     "name": "delete: the last admin",
-    "request": "DELETE /api/v1/boards/<id:2>/members/<id:1> as members-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/members/<id:2> as members-alice",
     "status": 409,
     "content_type": "application/problem+json",
     "body": {
@@ -329,19 +329,19 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/members/<id:6> as members-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "delete: not a member",
-    "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-alice",
+    "request": "DELETE /api/v1/w/<id:1>/boards/<id:3>/members/<id:6> as members-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "join: private board",
-    "request": "POST /api/v1/boards/<id:2>/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:3>/join as members-carol",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -355,7 +355,7 @@
   },
   {
     "name": "join: open board",
-    "request": "POST /api/v1/boards/<id:4>/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -369,7 +369,7 @@
   },
   {
     "name": "join: again",
-    "request": "POST /api/v1/boards/<id:4>/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -383,7 +383,7 @@
   },
   {
     "name": "join: unknown board",
-    "request": "POST /api/v1/boards/unknown-board/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/unknown-board/join as members-carol",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -397,13 +397,13 @@
   },
   {
     "name": "leave",
-    "request": "POST /api/v1/boards/<id:4>/leave as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/leave as members-carol",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "leave: not a member",
-    "request": "POST /api/v1/boards/<id:4>/leave as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/leave as members-carol",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -417,7 +417,7 @@
   },
   {
     "name": "leave: the last admin",
-    "request": "POST /api/v1/boards/<id:4>/leave as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:4>/leave as members-alice",
     "status": 409,
     "content_type": "application/problem+json",
     "body": {
@@ -432,20 +432,20 @@
   },
   {
     "name": "members at the end",
-    "request": "GET /api/v1/boards/<id:2>/members as members-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:3>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:1>"
+        "userId": "<id:2>"
       },
       {
-        "boardId": "<id:2>",
+        "boardId": "<id:3>",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
@@ -456,13 +456,13 @@
   },
   {
     "name": "create board Role board",
-    "request": "POST /api/v1/boards as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as members-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
@@ -470,19 +470,19 @@
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "editor",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Role board",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "minimum role: none",
-    "request": "PATCH /api/v1/boards/<id:7> as members-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:7> as members-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -496,7 +496,7 @@
   },
   {
     "name": "minimum role: admin",
-    "request": "PATCH /api/v1/boards/<id:7> as members-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:7> as members-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -510,7 +510,7 @@
   },
   {
     "name": "create a board with no minimum role",
-    "request": "POST /api/v1/boards as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards as members-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -524,13 +524,13 @@
   },
   {
     "name": "minimum role: commenter",
-    "request": "PATCH /api/v1/boards/<id:7> as members-alice",
+    "request": "PATCH /api/v1/w/<id:1>/boards/<id:7> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
@@ -538,19 +538,19 @@
       "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "commenter",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
       "templateVersion": 0,
       "title": "Role board",
       "type": "O",
       "updateAt": "<ts>",
-      "workspaceId": "<id:3>"
+      "workspaceId": "<id:1>"
     }
   },
   {
     "name": "add below the minimum role: admin adds a viewer",
-    "request": "POST /api/v1/boards/<id:7>/members as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -564,7 +564,7 @@
   },
   {
     "name": "a viewer on the board cannot comment",
-    "request": "POST /api/v1/boards/<id:7>/blocks as members-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/blocks as members-bob",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -578,7 +578,7 @@
   },
   {
     "name": "join again: raised to the minimum role",
-    "request": "POST /api/v1/boards/<id:7>/join as members-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/join as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -592,7 +592,7 @@
   },
   {
     "name": "join once more: nothing changes",
-    "request": "POST /api/v1/boards/<id:7>/join as members-bob",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/join as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -606,7 +606,7 @@
   },
   {
     "name": "join: a new member gets the minimum role",
-    "request": "POST /api/v1/boards/<id:7>/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -620,7 +620,7 @@
   },
   {
     "name": "make an editor",
-    "request": "PUT /api/v1/boards/<id:7>/members/<id:6> as members-alice",
+    "request": "PUT /api/v1/w/<id:1>/boards/<id:7>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -634,7 +634,7 @@
   },
   {
     "name": "join above the minimum role: not lowered",
-    "request": "POST /api/v1/boards/<id:7>/join as members-carol",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -648,7 +648,7 @@
   },
   {
     "name": "join: the admin stays the admin",
-    "request": "POST /api/v1/boards/<id:7>/join as members-alice",
+    "request": "POST /api/v1/w/<id:1>/boards/<id:7>/join as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -657,12 +657,12 @@
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "userId": "<id:1>"
+      "userId": "<id:2>"
     }
   },
   {
     "name": "members of the role board",
-    "request": "GET /api/v1/boards/<id:7>/members as members-alice",
+    "request": "GET /api/v1/w/<id:1>/boards/<id:7>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -672,7 +672,7 @@
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:1>"
+        "userId": "<id:2>"
       },
       {
         "boardId": "<id:7>",

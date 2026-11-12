@@ -293,8 +293,8 @@ export interface Backend extends TrashReads {
   users(workspaceId: string): Promise<User[]>;
   /**
    * The people of a workspace with these identifiers: for the names `users`
-   * did not bring (the server's list of a workspace is short). Every identifier
-   * must be a user's.
+   * did not bring (the server's list of a workspace is short). Whom the reader
+   * does not see there is left out, as one who does not exist.
    */
   usersById(workspaceId: string, userIds: string[]): Promise<User[]>;
 

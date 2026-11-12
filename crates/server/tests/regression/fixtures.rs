@@ -3,7 +3,8 @@
 use serde_json::{Value, json};
 
 use crate::common::ROOT_WORKSPACE_ID;
-use crate::harness::{API, Session, string_member};
+use crate::harness::ROOT_API;
+use crate::harness::{Session, string_member};
 
 /// A one-pixel PNG.
 pub(crate) const PNG: [u8; 67] = [
@@ -94,11 +95,14 @@ pub(crate) async fn new_board(
         }),
         extra,
     );
-    s.post(&format!("create board {title}"), &format!("{API}/boards"))
-        .json(body)
-        .user(user)
-        .await
-        .string("id")
+    s.post(
+        &format!("create board {title}"),
+        &format!("{ROOT_API}/boards"),
+    )
+    .json(body)
+    .user(user)
+    .await
+    .string("id")
 }
 
 /// Inserts blocks as `user`, recorded as `name`, and returns the created blocks.
@@ -109,7 +113,7 @@ pub(crate) async fn new_blocks(
     blocks: Value,
     name: &str,
 ) -> Value {
-    s.post(name, &format!("{API}/boards/{board}/blocks"))
+    s.post(name, &format!("{ROOT_API}/boards/{board}/blocks"))
         .json(blocks)
         .user(user)
         .await
@@ -125,7 +129,7 @@ pub(crate) async fn add_member(s: &mut Session, admin: &str, board: &str, user: 
     );
     s.post(
         &format!("add {role}"),
-        &format!("{API}/boards/{board}/members"),
+        &format!("{ROOT_API}/boards/{board}/members"),
     )
     .json(body)
     .user(admin)

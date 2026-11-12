@@ -120,14 +120,16 @@ test('people are shown by display name and login name wherever the board names t
   });
   const cardId = board.cards['Plan the launch'] ?? '';
   // A person property with Grace in it, a body that mentions her, and her comment.
-  const patched = await ownerApi.patch(`/api/v1/boards/${board.boardId}`, {
+  const patched = await ownerApi.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
     data: {
       updatedCardProperties: [{ id: 'owner', name: 'Owner', type: 'person', options: [] }],
     },
   });
   expect(patched.ok()).toBe(true);
-  const card = (await (await ownerApi.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
-  const written = await ownerApi.patch(`/api/v1/cards/${cardId}`, {
+  const card = (await (
+    await ownerApi.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+  ).json()) as Schemas['Card'];
+  const written = await ownerApi.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
     data: {
       readAt: card.updateAt,
       updatedProperties: { owner: namedId },
@@ -146,23 +148,26 @@ test('people are shown by display name and login name wherever the board names t
     },
   });
   expect(written.ok()).toBe(true);
-  const commented = await namedApi.post(`/api/v1/boards/${board.boardId}/blocks`, {
-    data: [
-      {
-        boardId: board.boardId,
-        parentId: cardId,
-        type: 'comment',
-        title: '',
-        createAt: 1,
-        updateAt: 1,
-        fields: {},
-        body: {
-          type: 'doc',
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'On it' }] }],
+  const commented = await namedApi.post(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`,
+    {
+      data: [
+        {
+          boardId: board.boardId,
+          parentId: cardId,
+          type: 'comment',
+          title: '',
+          createAt: 1,
+          updateAt: 1,
+          fields: {},
+          body: {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'On it' }] }],
+          },
         },
-      },
-    ],
-  });
+      ],
+    },
+  );
   expect(commented.ok()).toBe(true);
 
   const errors = watchErrors(page);

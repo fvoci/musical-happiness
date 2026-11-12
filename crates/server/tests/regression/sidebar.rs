@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{add_member, block, id_of, merged, new_blocks, new_board};
+use crate::harness::ROOT_API;
 use crate::harness::{API, Session};
 
 pub(crate) async fn categories(s: &mut Session) {
@@ -17,7 +18,7 @@ pub(crate) async fn categories(s: &mut Session) {
     let other = new_board(s, &alice, "Other board", "P", json!({})).await;
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
-    let path = format!("{API}/w/{ROOT_WORKSPACE_ID}/categories");
+    let path = format!("{ROOT_API}/categories");
 
     s.get("list: default only", &path).user(&alice).await;
     s.get("list: other user", &path).user(&bob).await;
@@ -153,7 +154,7 @@ pub(crate) async fn categories(s: &mut Session) {
         .json(json!([archive, category, default]))
         .user(&alice)
         .await;
-    let reorder = format!("{API}/w/{ROOT_WORKSPACE_ID}/category-order");
+    let reorder = format!("{ROOT_API}/category-order");
     s.put("reorder categories", &reorder)
         .json(json!([archive, category, default]))
         .user(&alice)
@@ -226,8 +227,9 @@ pub(crate) async fn sharing(s: &mut Session) {
     )
     .await;
     let card = id_of(&created[0]);
-    let path = format!("{API}/boards/{board}/sharing");
-    let board_path = format!("{API}/boards/{board}");
+    let path = format!("{ROOT_API}/boards/{board}/sharing");
+    let board_path = format!("{ROOT_API}/boards/{board}");
+    let shared_path = format!("{API}/shared/{board}");
 
     s.get("get: none yet", &path).user(&alice).await;
     s.post("post: editor", &path)
@@ -257,7 +259,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     s.get("get: editor", &path).user(&bob).await;
     s.get(
         "get: unknown board",
-        &format!("{API}/boards/unknown-board/sharing"),
+        &format!("{ROOT_API}/boards/unknown-board/sharing"),
     )
     .user(&alice)
     .await;
@@ -271,27 +273,27 @@ pub(crate) async fn sharing(s: &mut Session) {
 
     s.get(
         "board with the read token",
-        &format!("{board_path}?readToken={token}"),
+        &format!("{shared_path}?readToken={token}"),
     )
     .await;
     s.get(
         "board with a wrong read token",
-        &format!("{board_path}?readToken=wrong"),
+        &format!("{shared_path}?readToken=wrong"),
     )
     .await;
     s.get(
         "board with the token under the old name of the parameter",
-        &format!("{board_path}?read_token={token}"),
+        &format!("{shared_path}?read_token={token}"),
     )
     .await;
     s.get(
         "blocks with the read token",
-        &format!("{board_path}/blocks?readToken={token}"),
+        &format!("{shared_path}/blocks?readToken={token}"),
     )
     .await;
     s.get(
         "blocks with a wrong read token",
-        &format!("{board_path}/blocks?readToken=wrong"),
+        &format!("{shared_path}/blocks?readToken=wrong"),
     )
     .await;
     s.get(
@@ -324,12 +326,12 @@ pub(crate) async fn sharing(s: &mut Session) {
     );
     s.get(
         "board with the token from before regenerating",
-        &format!("{board_path}?readToken={token}"),
+        &format!("{shared_path}?readToken={token}"),
     )
     .await;
     s.get(
         "board with the regenerated token",
-        &format!("{board_path}?readToken={renewed}"),
+        &format!("{shared_path}?readToken={renewed}"),
     )
     .await;
 
@@ -340,7 +342,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     s.get("get: disabled", &path).user(&alice).await;
     s.get(
         "board with the token of a disabled share",
-        &format!("{board_path}?readToken={renewed}"),
+        &format!("{shared_path}?readToken={renewed}"),
     )
     .await;
     let last = s
@@ -355,7 +357,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     );
     s.get(
         "board with the token from before disabling",
-        &format!("{board_path}?readToken={renewed}"),
+        &format!("{shared_path}?readToken={renewed}"),
     )
     .await;
 }
@@ -374,7 +376,7 @@ pub(crate) async fn subscriptions(s: &mut Session) {
     let card = id_of(&created[0]);
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
-    let path = format!("{API}/subscriptions");
+    let path = format!("{ROOT_API}/subscriptions");
     let subscription = |block_id: &str, subscriber_type: &str, subscriber: &str| {
         json!({
             "blockType": "card", "blockId": block_id,
@@ -437,7 +439,7 @@ pub(crate) async fn search(s: &mut Session) {
     new_board(s, &alice, "Quarterly zebra plan", "P", json!({})).await;
     new_board(s, &alice, "Open zebra notes", "O", json!({})).await;
     new_board(s, &bob, "Private zebra diary", "P", json!({})).await;
-    let workspace_search = format!("{API}/w/{ROOT_WORKSPACE_ID}/boards/search");
+    let workspace_search = format!("{ROOT_API}/boards/search");
 
     s.get("workspace search", &format!("{workspace_search}?q=zebra"))
         .user(&alice)
@@ -486,12 +488,15 @@ pub(crate) async fn search(s: &mut Session) {
         &format!("{workspace_search}?q=zebra"),
     )
     .await;
-    s.get("all search", &format!("{API}/boards/search?q=zebra"))
+    s.get("all search: gone", &format!("{API}/boards/search?q=zebra"))
         .user(&alice)
         .await;
-    s.get("all search: empty term", &format!("{API}/boards/search?q="))
-        .user(&alice)
-        .await;
+    s.get(
+        "all search: gone, empty term",
+        &format!("{API}/boards/search?q="),
+    )
+    .user(&alice)
+    .await;
     s.get(
         "linkable search",
         &format!("{workspace_search}/linkable?q=zebra"),

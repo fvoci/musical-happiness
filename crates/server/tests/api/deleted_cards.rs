@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::blocks::{
     NO_BOARD, block_path, blocks_of, boards_with_roles, child_of, delete, insert_one, new_block,
 };
+use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID};
 
 /// Not in the original (user decision 2026-11-11 14:25 KST). The deleted cards of a board
@@ -26,7 +27,7 @@ async fn the_deleted_cards_of_a_board_are_listed_for_its_editors() {
     a_moment().await;
     delete(&boards.editor, &second).await;
     delete(&th.client, &view).await;
-    let trash = format!("/boards/{board_id}/trash/cards");
+    let trash = format!("{TEST_WS}/boards/{board_id}/trash/cards");
 
     let listed = boards.editor.get(&trash).await.value();
     let entries: Vec<(Value, Value)> = listed
@@ -101,7 +102,7 @@ async fn the_deleted_cards_are_those_that_come_back_by_themselves() {
     delete(&th.client, &nested).await;
     a_moment().await;
     delete(&th.client, &outer).await;
-    let trash = format!("/boards/{board_id}/trash/cards");
+    let trash = format!("{TEST_WS}/boards/{board_id}/trash/cards");
     let titles = |listed: &[Value]| -> Vec<Value> {
         listed.iter().map(|entry| entry["title"].clone()).collect()
     };
@@ -138,7 +139,7 @@ async fn the_deleted_cards_are_those_that_come_back_by_themselves() {
     assert_eq!(titles(&listed), [json!("nested")]);
 
     th.client
-        .delete(&format!("/boards/{board_id}"))
+        .delete(&format!("{TEST_WS}/boards/{board_id}"))
         .await
         .check_no_content();
     th.client

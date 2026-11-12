@@ -7,6 +7,7 @@ use fvoci_model::{Board, BoardType, JsonMap, new_id};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
 use crate::common::{
     ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
 };
@@ -163,18 +164,24 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
     )
     .await;
 
+    // The board of the other workspace is found under that one.
+    assert_eq!(
+        found_ids(&search_workspace(&th.client, ROOT_WORKSPACE_ID, "admin").await),
+        sorted_ids(&[&board5]),
+        "the board of the root workspace"
+    );
     let cases = [
         (
-            "should return all boards where user1 is member or that are public",
+            "should return all boards of the workspace where user1 is member or that are public",
             &th.client,
             "board",
-            vec![&board1, &board2, &board3, &board5],
+            vec![&board1, &board2, &board3],
         ),
         (
             "matching a full word",
             &th.client,
             "admin",
-            vec![&board1, &board3, &board5],
+            vec![&board1, &board3],
         ),
         (
             "matching part of the word",
@@ -234,17 +241,21 @@ async fn search_without_a_term_finds_nothing() {
     let (th, _open, _private) = two_boards().await;
 
     for path in [
-        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search"),
-        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search?q="),
-        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search?field=title"),
-        "/boards/search",
-        "/boards/search?q=",
+        &format!("{ROOT_WS}/boards/search"),
+        &format!("{ROOT_WS}/boards/search?q="),
+        &format!("{ROOT_WS}/boards/search?field=title"),
+        &format!("{ROOT_WS}/boards/search"),
+        &format!("{ROOT_WS}/boards/search?q="),
     ] {
         check_nothing_found(&th.client.get(path).await);
     }
     // And a term that matches no board answers the same.
     check_nothing_found(&search_workspace(&th.client, ROOT_WORKSPACE_ID, "zzzzqq").await);
-    check_nothing_found(&th.client.get("/boards/search?q=zzzzqq").await);
+    check_nothing_found(
+        &th.client
+            .get(&format!("{ROOT_WS}/boards/search?q=zzzzqq"))
+            .await,
+    );
 
     th.teardown().await;
 }
@@ -284,13 +295,8 @@ async fn search_boards_of_a_workspace() {
     }
     check_nothing_found(&search_workspace(&th.client, ROOT_WORKSPACE_ID, "one+two").await);
 
-    // Preserved quirk: the workspace of the path is not part of the search.
-    let response = search_workspace(&th.client, TEST_WORKSPACE_ID, "b").await;
-    assert_eq!(
-        found_ids(&response),
-        sorted_ids(&[&open, &private]),
-        "the boards of the root workspace are found under another workspace"
-    );
+    // The boards of the root workspace are not found under another workspace.
+    check_nothing_found(&search_workspace(&th.client, TEST_WORKSPACE_ID, "b").await);
     // The workspace has to be one, though.
     for no_workspace in [UNKNOWN_ID, "another-workspace"] {
         let response = search_workspace(&th.client, no_workspace, "b").await;
@@ -319,7 +325,7 @@ async fn search_boards_by_field() {
     .await;
     let search = async |query: &str| {
         th.client
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/search?{query}"))
+            .get(&format!("{ROOT_WS}/boards/search?{query}"))
             .await
     };
 
@@ -349,10 +355,6 @@ async fn search_boards_by_field() {
         );
     }
 
-    // The search across workspaces has no such parameter.
-    let response = th.client.get("/boards/search?q=one&field=bogus").await;
-    assert_eq!(found_ids(&response), sorted_ids(&[&open]), "field ignored");
-
     th.teardown().await;
 }
 
@@ -379,7 +381,7 @@ async fn searches_answer_the_same_on_both_databases() {
     .await;
     let search = async |query: &str| {
         th.client
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards/search?{query}"))
+            .get(&format!("{ROOT_WS}/boards/search?{query}"))
             .await
     };
     for query in [
@@ -408,7 +410,8 @@ async fn searches_answer_the_same_on_both_databases() {
     th.teardown().await;
 }
 
-/// The search across all workspaces.
+/// The search of a workspace finds no board of another workspace, and no template; the
+/// search of every workspace (`/boards/search`) is gone.
 #[tokio::test]
 async fn search_all_boards() {
     let (th, open, private) = two_boards().await;
@@ -431,27 +434,25 @@ async fn search_all_boards() {
     )
     .await;
 
-    let response = th.client.get("/boards/search?q=b").await;
+    let response = search_workspace(&th.client, ROOT_WORKSPACE_ID, "b").await;
     assert_eq!(
         found_ids(&response),
-        sorted_ids(&[&open, &private, &elsewhere]),
-        "the member finds the boards of every workspace, and no template"
+        sorted_ids(&[&open, &private]),
+        "the boards of the workspace, and no template"
     );
     assert!(
         !found_ids(&response).contains(&template.id),
         "templates are left out"
     );
-
-    let response = th.client2.get("/boards/search?q=b").await;
     assert_eq!(
-        found_ids(&response),
-        sorted_ids(&[&open]),
-        "another user finds the open board only"
+        found_ids(&search_workspace(&th.client, TEST_WORKSPACE_ID, "b").await),
+        sorted_ids(&[&elsewhere]),
+        "the other workspace's"
     );
-
-    let response = th.anonymous().get("/boards/search?q=b").await;
-    check_error(&response, StatusCode::UNAUTHORIZED, "no session token");
-
+    th.client
+        .get("/boards/search?q=b")
+        .await
+        .check_error(StatusCode::NOT_FOUND, "route not found");
     th.teardown().await;
 }
 
@@ -464,7 +465,7 @@ async fn search_routes_of_the_host_application_do_not_exist() {
     let paths = [
         &format!("/teams/{ROOT_WORKSPACE_ID}/channels"),
         &format!("/teams/{ROOT_WORKSPACE_ID}/channels?search=x"),
-        &format!("/w/{ROOT_WORKSPACE_ID}/boards/search/linkable?q=b"),
+        &format!("{ROOT_WS}/boards/search/linkable?q=b"),
     ];
 
     for path in paths {

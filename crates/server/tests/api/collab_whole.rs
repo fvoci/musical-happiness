@@ -7,6 +7,7 @@ use tokio::sync::broadcast::Receiver;
 
 use crate::collab::{body_of, card, editing, joined};
 use crate::common::Setup;
+use crate::common::TEST_WS;
 
 fn paragraphs(texts: &[&str]) -> Value {
     let content: Vec<Value> = texts
@@ -54,7 +55,7 @@ async fn a_title_written_while_a_body_is_written_keeps_what_the_editors_typed() 
     waiting.notified().await;
     th.client
         .patch(
-            &format!("/cards/{}", e.card_id),
+            &format!("{TEST_WS}/cards/{}", e.card_id),
             &json!({"title": "renamed"}),
         )
         .await
@@ -156,7 +157,7 @@ async fn a_body_written_whole_over_a_log_not_written_yet_is_refused_until_read_a
         editor.body().map(|body| body.document().clone()),
         "not written yet"
     );
-    let path = format!("/cards/{}", e.card_id);
+    let path = format!("{TEST_WS}/cards/{}", e.card_id);
     let whole = paragraphs(&["written whole"]);
     th.client
         .patch(
@@ -211,7 +212,7 @@ async fn a_batch_that_writes_a_body_whole_meets_the_open_document() {
             "blockPatches": [{"body": whole, "readAt": read_at}],
         })
     };
-    let path = format!("/boards/{}/blocks", read_before.board_id);
+    let path = format!("{TEST_WS}/boards/{}/blocks", read_before.board_id);
     th.client
         .patch(&path, &batch(read_before.update_at))
         .await
@@ -242,7 +243,7 @@ async fn a_batch_writes_the_body_of_the_card_its_patch_is_for() {
     let newer: fvoci_model::Card = th
         .client
         .post(
-            &format!("/boards/{board_id}/cards"),
+            &format!("{TEST_WS}/boards/{board_id}/cards"),
             &json!({"title": "newer", "body": paragraphs(&["newer"])}),
         )
         .await
@@ -260,7 +261,7 @@ async fn a_batch_writes_the_body_of_the_card_its_patch_is_for() {
         .await
         .expect("taken");
     let whole = paragraphs(&["written in a batch"]);
-    let path = format!("/boards/{}/blocks", read_before.board_id);
+    let path = format!("{TEST_WS}/boards/{}/blocks", read_before.board_id);
     th.client
         .patch(
             &path,
@@ -309,12 +310,18 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
         })
     };
     th.client
-        .patch("/boards-and-blocks", &patch(read_before.update_at))
+        .patch(
+            &format!("{TEST_WS}/boards-and-blocks"),
+            &patch(read_before.update_at),
+        )
         .await
         .check_status(reqwest::StatusCode::CONFLICT);
     let read = card(&th.client, &e.card_id).await;
     th.client
-        .patch("/boards-and-blocks", &patch(read.update_at))
+        .patch(
+            &format!("{TEST_WS}/boards-and-blocks"),
+            &patch(read.update_at),
+        )
         .await
         .check_ok();
     assert!(told(&mut events, &e.card_id, DocChange::Replaced));
