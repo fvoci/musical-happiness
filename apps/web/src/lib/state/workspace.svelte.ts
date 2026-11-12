@@ -2,6 +2,11 @@
  * The reader's workspace: who they are, the people around them, the boards
  * they can see, their sidebar and their settings. One per app.
  *
+ * The reader may work in several workspaces; the one shown is the one the
+ * address names (`enter`). What is of a workspace (its people, boards,
+ * sidebar, the open board, undo) is read anew when another is entered, and
+ * nothing of the one left stays.
+ *
  * Screens read the fields and call the methods; the methods talk to the
  * backend. A write shows at once and is taken back if the backend refuses
  * it (see `write.ts`); what went wrong is put into `problems` for the shell
@@ -30,19 +35,10 @@ import {
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
 import { hiddenBoardsOf, sidebarOf, type SidebarCategory } from './order.ts';
+import { SidebarWrites } from './sidebar-writes.ts';
+import { Transfers } from './transfers.svelte.ts';
+import { firstChoiceOf, readWorkspace, type EnterStatus } from './workspace-entry.ts';
 import { reread } from './write.ts';
-
-/** An archive on its way down or up, for the reader to watch. */
-export interface Transfer {
-  id: number;
-  kind: 'export' | 'import';
-  /** What is moved: the board's title, the workspace's, or the archive's file name. */
-  name: string;
-  done: number;
-  /** 0 while the length is not known. */
-  total: number;
-  finished: boolean;
-}
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut';
@@ -61,20 +57,30 @@ export interface WorkspaceOptions {
   backend: Backend;
   /** The language the app is shown in, a BCP 47 tag. Decides alphabetical order. */
   locale: () => string;
+  /**
+   * The workspace this user was last in on this device, if the app keeps
+   * one: entered when `load` is not told which.
+   */
+  lastWorkspace?: (userId: string) => string | undefined;
 }
-
-/** How long a finished transfer stays in sight, in milliseconds. */
-const TRANSFER_STAYS = 6000;
 
 const DEFAULT_SETTINGS: AccountSettings = DEFAULT_ACCOUNT_SETTINGS;
 
 export class Workspace {
   readonly backend: Backend;
   readonly #locale: () => string;
+  readonly #lastWorkspace: ((userId: string) => string | undefined) | undefined;
 
   status = $state<LoadStatus>('idle');
   me = $state.raw<User | undefined>(undefined);
+  /** The workspaces the reader works in (not those they are a guest of), in the backend's order. */
+  workspaces = $state.raw<WorkspaceInfo[]>([]);
+  /** The workspace entered; undefined while none is, or the one asked for is missing. */
   info = $state.raw<WorkspaceInfo | undefined>(undefined);
+  /** How the workspace last asked for (`asked`) stands. */
+  entered = $state<EnterStatus>('none');
+  /** The identifier of the workspace last asked for, whether or not it was found. */
+  asked = $state<string | undefined>(undefined);
   users = $state.raw<User[]>([]);
   /** The workspace's list as the backend gives it without a search: on the server, its oldest ten (D2). */
   workspaceUsers = $state.raw<User[]>([]);
@@ -82,7 +88,6 @@ export class Workspace {
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
   problems = $state.raw<Problem[]>([]);
-  transfers = $state.raw<Transfer[]>([]);
 
   /** The board that is open, if one is. */
   board = $state.raw<BoardStore | undefined>(undefined);
@@ -118,6 +123,7 @@ export class Workspace {
   constructor(options: WorkspaceOptions) {
     this.backend = options.backend;
     this.#locale = options.locale;
+    this.#lastWorkspace = options.lastWorkspace;
     this.undo.onStateDidChange = () => {
       this.canUndo = this.undo.canUndo;
       this.canRedo = this.undo.canRedo;
@@ -138,8 +144,13 @@ export class Workspace {
     return user ? userDisplayName(user) : undefined;
   }
 
-  /** Reads everything the shell needs. Call once; call again to retry after a failure. */
-  async load(): Promise<void> {
+  /**
+   * Reads everything the shell needs: the reader, their workspaces and
+   * settings, and then the workspace `workspaceId` (`enter`). Without one,
+   * the workspace they were last in on this device if it is still theirs,
+   * else their first. Call once; call again to retry after a failure.
+   */
+  async load(workspaceId?: string): Promise<void> {
     this.status = 'loading';
     try {
       const [me, workspaces, settings] = await Promise.all([
@@ -147,27 +158,16 @@ export class Workspace {
         this.backend.workspaces(),
         this.backend.settings(),
       ]);
-      const workspace = workspaces[0];
-      if (!workspace) throw new Error('the reader belongs to no workspace');
-      const [users, boards, categories] = await Promise.all([
-        this.backend.users(workspace.id),
-        this.backend.boards(workspace.id),
-        this.backend.categories(workspace.id),
-      ]);
       this.me = me;
-      this.info = workspace;
-      this.users = users;
-      this.workspaceUsers = users;
-      this.boards = boards;
-      this.categories = categories;
+      this.workspaces = workspaces;
       this.#takeSettings(settings);
-      // The list of the workspace is short (ten): the open board's members it did
-      // not bring are read again, as when the board was opened.
-      if (this.board) void this.learnUsers(this.board.members.map((member) => member.userId));
       this.#stopWatching?.();
       this.#stopWatching = this.backend.watchSelf((change) => {
         this.#apply(change);
       });
+      const chosen = workspaceId ?? this.firstChoice();
+      if (chosen === undefined) this.#leave(undefined);
+      else await this.#enter(chosen);
       this.status = 'ready';
     } catch (error) {
       if (isBackendError(error) && error.status === 401) {
@@ -177,6 +177,72 @@ export class Workspace {
       this.status = 'failed';
       this.report('load', error);
     }
+  }
+
+  /**
+   * The workspace to start in when the address names none: the one the
+   * reader was last in on this device if it is still theirs, else their first.
+   */
+  firstChoice(): string | undefined {
+    return firstChoiceOf(this.workspaces, this.me && this.#lastWorkspace?.(this.me.id));
+  }
+
+  /**
+   * Shows the workspace `workspaceId`: its people, boards and sidebar are
+   * read, and what was shown of another (the open board, undo) is let go.
+   * Nothing is done when it is the one entered or being entered. A failure
+   * is told; the status says it (`entered`).
+   */
+  async enter(workspaceId: string): Promise<void> {
+    if (this.asked === workspaceId && this.entered !== 'failed') return;
+    try {
+      await this.#enter(workspaceId);
+    } catch (error) {
+      if (this.asked !== workspaceId) return;
+      this.entered = 'failed';
+      this.report('load', error);
+    }
+  }
+
+  /** Entries begun: the latest is the one that counts. */
+  #entering = 0;
+
+  async #enter(workspaceId: string): Promise<void> {
+    this.#entering += 1;
+    const turn = this.#entering;
+    this.#leave(workspaceId);
+    const workspace = this.workspaces.find((one) => one.id === workspaceId);
+    if (!workspace) {
+      this.entered = 'missing';
+      return;
+    }
+    this.info = workspace;
+    this.entered = 'loading';
+    this.backend.enter?.(workspace.id);
+    const read = await readWorkspace(this.backend, workspace.id);
+    if (turn !== this.#entering) return;
+    if (!read) {
+      this.info = undefined;
+      this.entered = 'missing';
+      return;
+    }
+    ({ users: this.users, boards: this.boards, categories: this.categories } = read);
+    this.workspaceUsers = read.users;
+    this.entered = 'ready';
+  }
+
+  /** Lets go of everything of the workspace shown: nothing of it stays for the next. */
+  #leave(asked: string | undefined): void {
+    this.board?.close();
+    this.board = undefined;
+    this.undo.clear();
+    this.asked = asked;
+    this.info = undefined;
+    this.entered = 'none';
+    this.users = [];
+    this.workspaceUsers = [];
+    this.boards = [];
+    this.categories = [];
   }
 
   /**
@@ -205,6 +271,8 @@ export class Workspace {
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board': {
+        // A board of another workspace than the one shown is not of its sidebar.
+        if (change.board.workspaceId !== this.info?.id) break;
         // Two tellings of one board may arrive out of order: the older one is let go.
         const known = this.boards.find((board) => board.id === change.board.id);
         if (known && known.updateAt > change.board.updateAt) break;
@@ -248,18 +316,19 @@ export class Workspace {
     this.#refreshing += 1;
     const reading = this.#refreshing;
     const before = this.boards.map((board) => board.id);
-    const begun = this.#sidebarBegun;
+    const begun = this.#sidebarWrites.begun;
     try {
       const [boards, categories] = await Promise.all([
         this.backend.boards(workspace.id),
         this.backend.categories(workspace.id),
       ]);
-      if (reading !== this.#refreshing) return;
+      // Superseded, or another workspace was entered meanwhile.
+      if (reading !== this.#refreshing || this.info !== workspace) return;
       this.boards = reread(this.boards, boards, before);
       // Not over a sidebar write under way, or one begun since this reading was.
-      if (this.#sidebarWrites > 0) this.#sidebarStale = true;
-      else if (begun !== this.#sidebarBegun) void this.#refresh();
-      else this.categories = categories;
+      const verdict = this.#sidebarWrites.reading(begun);
+      if (verdict === 'show') this.categories = categories;
+      else if (verdict === 'again') void this.#refresh();
     } catch (error) {
       // A reading in the background: only a session that is over is told
       // (as signing out). The next message, or the next load, brings the rest.
@@ -306,6 +375,7 @@ export class Workspace {
     if (!workspace || missing.length === 0) return;
     try {
       const found = await this.backend.usersById(workspace.id, missing);
+      if (this.info !== workspace) return;
       // Another read may have brought some of them meanwhile.
       this.users = [
         ...this.users,
@@ -480,69 +550,15 @@ export class Workspace {
 
   // ----------------------------------------------------------- archives
 
-  #transferCount = 0;
-  /** What stops each transfer under way, and what it moves (one at a time of each). */
-  #running: { id: number; stop: AbortController; key: string }[] = [];
-
-  /**
-   * Runs a transfer that the reader can watch: its progress, its end. A
-   * finished one stays a moment, then goes; a failed one is told as a
-   * problem; one given up (dismissed while under way) is told nothing. The
-   * same thing is not moved twice at once: asked again meanwhile, nothing
-   * more is done.
-   */
-  async #transfer<T>(
-    kind: Transfer['kind'],
-    key: string,
-    name: string,
-    run: (options: {
-      onProgress: (progress: { sentBytes: number; totalBytes: number }) => void;
-      signal: AbortSignal;
-    }) => Promise<T>,
-  ): Promise<T | undefined> {
-    if (this.#running.some((running) => running.key === key)) return undefined;
-    this.#transferCount += 1;
-    const id = this.#transferCount;
-    const stop = new AbortController();
-    this.#running = [...this.#running, { id, stop, key }];
-    const change = (patch: Partial<Transfer>): void => {
-      this.transfers = this.transfers.map((one) => (one.id === id ? { ...one, ...patch } : one));
-    };
-    this.transfers = [...this.transfers, { id, kind, name, done: 0, total: 0, finished: false }];
-    try {
-      const result = await run({
-        onProgress: (progress) => {
-          change({ done: progress.sentBytes, total: progress.totalBytes });
-        },
-        signal: stop.signal,
-      });
-      if (stop.signal.aborted) return undefined;
-      change({ finished: true });
-      setTimeout(() => {
-        this.dismissTransfer(id);
-      }, TRANSFER_STAYS);
-      return result;
-    } catch (error) {
-      if (!stop.signal.aborted) {
-        this.dismissTransfer(id);
-        this.report(kind, error);
-      }
-      return undefined;
-    } finally {
-      this.#running = this.#running.filter((running) => running.id !== id);
-    }
-  }
-
-  /** Takes a transfer out of sight; one under way is given up. */
-  dismissTransfer(id: number): void {
-    this.#running.find((running) => running.id === id)?.stop.abort();
-    this.transfers = this.transfers.filter((one) => one.id !== id);
-  }
+  /** The archives on their way down or up, for the reader to watch. */
+  readonly transfers = new Transfers((kind, error) => {
+    this.report(kind, error);
+  });
 
   /** An archive of the board, for the shell to save. */
   exportBoard(boardId: string): Promise<DownloadedFile | undefined> {
     const board = this.boards.find((one) => one.id === boardId);
-    return this.#transfer('export', `board ${boardId}`, board?.title ?? '', (options) =>
+    return this.transfers.run('export', `board ${boardId}`, board?.title ?? '', (options) =>
       this.backend.exportBoard(boardId, options),
     );
   }
@@ -551,7 +567,7 @@ export class Workspace {
   exportWorkspace(): Promise<DownloadedFile | undefined> {
     const workspace = this.info;
     if (!workspace) return Promise.resolve(undefined);
-    return this.#transfer('export', `workspace ${workspace.id}`, workspace.title, (options) =>
+    return this.transfers.run('export', `workspace ${workspace.id}`, workspace.title, (options) =>
       this.backend.exportWorkspace(workspace.id, options),
     );
   }
@@ -564,7 +580,7 @@ export class Workspace {
   async importArchive(file: File): Promise<boolean> {
     const workspace = this.info;
     if (!workspace) return false;
-    const done = await this.#transfer(
+    const done = await this.transfers.run(
       'import',
       `import ${file.name} ${file.size} ${file.lastModified}`,
       file.name,
@@ -611,39 +627,20 @@ export class Workspace {
   async #categoryWrite(optimistic: Category[], send: () => Promise<unknown>): Promise<void> {
     const before = this.categories;
     this.categories = optimistic;
-    this.#sidebarWriting();
+    this.#sidebarWrites.begin();
     try {
       await send();
     } catch (error) {
       this.#sidebarRefused(before);
       this.report('save', error);
     } finally {
-      this.#sidebarWritten();
+      this.#sidebarWrites.end();
     }
   }
 
-  /**
-   * Sidebar writes under way. A reading of the sidebar meanwhile may be
-   * older than what they show (a filing is two requests, and the first one's
-   * message has the sidebar read between them): it is not shown, and the
-   * sidebar is read again once the last write has ended.
-   */
-  #sidebarWrites = 0;
-  /** Sidebar writes ever begun: a reading begun before one of them is older than it. */
-  #sidebarBegun = 0;
-  #sidebarStale = false;
-
-  #sidebarWriting(): void {
-    this.#sidebarWrites += 1;
-    this.#sidebarBegun += 1;
-  }
-
-  #sidebarWritten(): void {
-    this.#sidebarWrites -= 1;
-    if (this.#sidebarWrites > 0 || !this.#sidebarStale) return;
-    this.#sidebarStale = false;
+  readonly #sidebarWrites = new SidebarWrites(() => {
     void this.#refresh();
-  }
+  });
 
   #sidebarRefused(before: Category[]): void {
     this.categories = before;
@@ -653,7 +650,7 @@ export class Workspace {
   /** A new category goes first, as the backend puts it. */
   async createCategory(name: string): Promise<void> {
     if (!this.info) return;
-    this.#sidebarWriting();
+    this.#sidebarWrites.begin();
     try {
       const category = await this.backend.createCategory(this.info.id, { name });
       if (this.categories.some((existing) => existing.id === category.id)) return;
@@ -667,7 +664,7 @@ export class Workspace {
     } catch (error) {
       this.report('save', error);
     } finally {
-      this.#sidebarWritten();
+      this.#sidebarWrites.end();
     }
   }
 
@@ -794,7 +791,7 @@ export class Workspace {
         hiddenBoardIds: hidden ? [...others, boardId] : others,
       };
     });
-    this.#sidebarWriting();
+    this.#sidebarWrites.begin();
     try {
       if (loose) {
         await this.backend.moveBoardToCategory(
@@ -809,7 +806,7 @@ export class Workspace {
       this.#sidebarRefused(before);
       throw error;
     } finally {
-      this.#sidebarWritten();
+      this.#sidebarWrites.end();
     }
   }
 

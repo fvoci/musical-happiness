@@ -23,6 +23,7 @@
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
   import { boardTrash, type Category, type Trash, type Workspace } from '$lib/state/index.ts';
   import { Input } from '$lib/ui/input/index.js';
@@ -36,10 +37,10 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    boardHref: (boardId: string) => string;
+    boardHref: (board: BoardPlace) => string;
     /** The sidebar is a column beside the board: its button folds it. Otherwise it closes the drawer. */
     beside: boolean;
-    onOpenBoard: (boardId: string) => void;
+    onOpenBoard: (board: BoardPlace) => void;
     onClose: () => void;
     onAddBoard: () => void;
     onOpenSettings: () => void;
@@ -118,7 +119,7 @@
     // The page showed the board that is gone: show the first one that is left.
     if (board.id !== boardId || workspace.boards.some((left) => left.id === board.id)) return;
     const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
-    if (next) onOpenBoard(next.id);
+    if (next) onOpenBoard(next);
   }
 
   function confirmed(): void {

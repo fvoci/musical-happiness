@@ -8,6 +8,11 @@
  * only an administrator can read. `invitation()` makes that first account
  * once per run and reads the invitation with it.
  */
+import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
 import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
 
 import type { components } from '../src/lib/api/contract.ts';
@@ -32,6 +37,33 @@ export function uniqueName(prefix: string): string {
 export function person(prefix: string): Person {
   const username = uniqueName(prefix);
   return { username, email: `${username}@example.test`, password: PASSWORD };
+}
+
+/**
+ * The address of a board in its workspace, a view of it, a card on that view
+ * (`/w/…/boards/…`): the one place the tests write the app's addresses.
+ */
+export function boardPath(
+  board: { workspaceId: string; boardId: string },
+  viewId?: string,
+  cardId?: string,
+): string {
+  const parts = [board.boardId, viewId, cardId].filter((part) => part !== undefined);
+  const encoded = parts.map((part) => encodeURIComponent(part)).join('/');
+  return `/w/${encodeURIComponent(board.workspaceId)}/boards/${encoded}`;
+}
+
+/** What an address of the app names; an empty string for what it does not. */
+export function placeOf(address: string): {
+  workspaceId: string;
+  boardId: string;
+  viewId: string;
+  cardId: string;
+} {
+  const { pathname } = new URL(address, 'http://here');
+  const [, workspaceId = '', boardId = '', viewId = '', cardId = ''] =
+    /^\/w\/([^/]+)(?:\/boards\/([^/]+)(?:\/([^/]+)(?:\/([^/]+))?)?)?$/.exec(pathname) ?? [];
+  return { workspaceId, boardId, viewId, cardId };
 }
 
 /** A client of the API, signed in as nobody yet. */
@@ -122,6 +154,8 @@ export interface BoardPlan {
   /** The options of "Status", in order. */
   statuses?: string[];
   cards?: { title: string; status?: string; note?: string }[];
+  /** The workspace to make it in; the first of the maker's when none is named. */
+  workspaceId?: string;
   /** Other people to add, and the role each gets. */
   members?: { who: Person; role: 'viewer' | 'commenter' | 'editor' }[];
 }
@@ -147,7 +181,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     await api.get('/api/v1/users/me/workspaces'),
     'workspaces',
   );
-  const workspaceId = workspaces[0]?.id ?? '';
+  const workspaceId = plan.workspaceId ?? workspaces[0]?.id ?? '';
   const statuses = plan.statuses ?? ['To do', 'Doing', 'Done'];
   const options = Object.fromEntries(statuses.map((name, at) => [name, `opt-${at}`]));
   const board = await json<Schemas['Board']>(
@@ -235,4 +269,67 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
     );
   }
   return { boardId: board.id, viewId: view?.id ?? '', workspaceId, options, cards };
+}
+
+/** An identifier as the server makes them (UUID version 7). */
+function newId(): string {
+  const hex = Date.now().toString(16).padStart(12, '0') + randomBytes(10).toString('hex');
+  const variant = ((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `7${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join('-');
+}
+
+/**
+ * Makes `who` a member of a new workspace of their organization, as its
+ * administrator, and returns its identifier. No request of the server makes
+ * a workspace yet, so it is written into the server's database
+ * (`tools/live-server.ts` says where that is), as the server would.
+ */
+export function addWorkspace(baseURL: string, who: Person, name: string): string {
+  const port = new URL(baseURL).port;
+  const pointer = path.resolve(import.meta.dirname, `../../../target/web-live/server-${port}.json`);
+  const { data } = JSON.parse(readFileSync(pointer, 'utf8')) as { data: string };
+  const database = new DatabaseSync(path.join(data, 'fvoci.db'), { timeout: 10_000 });
+  try {
+    const user = database.prepare('SELECT id FROM users WHERE username = ?').get(who.username) as
+      { id: string } | undefined;
+    if (!user) throw new Error(`no user ${who.username}`);
+    const home = database
+      .prepare(
+        'SELECT w.org_id, w.settings FROM workspaces AS w JOIN workspace_members AS m ' +
+          'ON m.workspace_id = w.id WHERE m.user_id = ? AND NOT w.is_system LIMIT 1',
+      )
+      .get(user.id) as { org_id: string; settings: string } | undefined;
+    if (!home) throw new Error(`${who.username} works in no workspace`);
+    const id = newId();
+    const now = Date.now();
+    database
+      .prepare(
+        'INSERT INTO workspaces (id, signup_token, settings, modified_by, create_at, update_at, ' +
+          'org_id, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        id,
+        randomBytes(16).toString('hex'),
+        home.settings,
+        user.id,
+        now,
+        now,
+        home.org_id,
+        name,
+      );
+    database
+      .prepare(
+        'INSERT INTO workspace_members (workspace_id, user_id, role, create_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(id, user.id, 'admin', now);
+    return id;
+  } finally {
+    database.close();
+  }
 }

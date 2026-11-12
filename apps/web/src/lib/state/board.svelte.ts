@@ -42,7 +42,7 @@ import { droppedCardOrder, placeAmongAll } from './card-order.ts';
 import { CardStore } from './card.svelte.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
-import { newUndoGroup, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
+import { boardOfWorkspace, newUndoGroup, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -169,7 +169,7 @@ export class BoardStore {
         this.#apply(change);
       });
       const [board, views, cards, members] = await Promise.all([
-        this.#backend.board(this.boardId),
+        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
         this.#backend.views(this.boardId),
         this.#backend.cards(this.boardId),
         this.#backend.members(this.boardId),
@@ -197,7 +197,7 @@ export class BoardStore {
    */
   async #openToJoin(): Promise<boolean> {
     try {
-      const board = await this.#backend.board(this.boardId);
+      const board = await boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id);
       if (board.type !== 'O' || board.isTemplate) return false;
       this.board = board;
       return true;
@@ -359,7 +359,7 @@ export class BoardStore {
     const membersTold = this.#membersTold;
     try {
       const [board, views, cards, members] = await Promise.all([
-        this.#backend.board(this.boardId),
+        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
         this.#backend.views(this.boardId),
         this.#backend.cards(this.boardId),
         this.#backend.members(this.boardId),

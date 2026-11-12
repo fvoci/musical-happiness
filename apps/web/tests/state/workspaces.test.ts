@@ -1,0 +1,183 @@
+/**
+ * The workspace shown is the one asked for (`Workspace.load`, `enter`): which
+ * one is entered when none is named, what a workspace that is not the
+ * reader's reads as, and that nothing of the one left stays.
+ */
+import { describe, expect, it, vi, type MockInstance } from 'vitest';
+
+import { Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
+
+import { settle, setup, type Setup } from './support.ts';
+
+const OTHER: WorkspaceInfo = { id: 'other-workspace', title: 'Other' };
+
+/** The world's workspace and a second one, empty, that the reader also works in. */
+function twoWorkspaces(made: Setup = setup()): Setup & {
+  first: WorkspaceInfo;
+  /** The reading of a workspace's boards, watched. */
+  readBoards: MockInstance<Setup['backend']['boards']>;
+} {
+  const { backend, world } = made;
+  const first = world.workspace;
+  vi.spyOn(backend, 'workspaces').mockResolvedValue([first, OTHER]);
+  // The second workspace is empty; the world's is read as it is.
+  const users = backend.users.bind(backend);
+  const boards = backend.boards.bind(backend);
+  const categories = backend.categories.bind(backend);
+  vi.spyOn(backend, 'users').mockImplementation((id) =>
+    id === OTHER.id ? Promise.resolve([]) : users(id),
+  );
+  const readBoards = vi
+    .spyOn(backend, 'boards')
+    .mockImplementation((id) => (id === OTHER.id ? Promise.resolve([]) : boards(id)));
+  vi.spyOn(backend, 'categories').mockImplementation((id) =>
+    id === OTHER.id ? Promise.resolve([]) : categories(id),
+  );
+  return { ...made, first, readBoards };
+}
+
+describe('the workspace entered', () => {
+  it('is the first one when none is named and none was kept', async () => {
+    const { workspace, first } = twoWorkspaces();
+    await workspace.load();
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.info).toEqual(first);
+    expect(workspace.boards.length).toBeGreaterThan(0);
+  });
+
+  it('is the one this user was last in when it is still theirs, and the first when it is not', async () => {
+    const made = twoWorkspaces();
+    const asked: string[] = [];
+    let kept = OTHER.id;
+    const workspace = new Workspace({
+      backend: made.backend,
+      locale: () => 'en',
+      lastWorkspace: (userId) => {
+        asked.push(userId);
+        return kept;
+      },
+    });
+    await workspace.load();
+    expect(workspace.info).toEqual(OTHER);
+    expect(asked).toEqual([made.backend.userId]);
+
+    kept = 'gone';
+    expect(workspace.firstChoice()).toBe(made.first.id);
+  });
+
+  it('is the one named, and one the reader does not work in is missing, with nothing of it read', async () => {
+    const { workspace, readBoards } = twoWorkspaces();
+    await workspace.load('not-theirs');
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('missing');
+    expect(workspace.asked).toBe('not-theirs');
+    expect(workspace.info).toBeUndefined();
+    expect(workspace.boards).toEqual([]);
+    expect(readBoards).not.toHaveBeenCalled();
+  });
+
+  it('is missing when the backend says it is not there (404), as one not theirs', async () => {
+    const { workspace, backend, world } = setup();
+    vi.spyOn(backend, 'workspaces').mockResolvedValue([world.workspace, OTHER]);
+    await workspace.load(OTHER.id);
+    expect(workspace.entered).toBe('missing');
+    expect(workspace.info).toBeUndefined();
+  });
+
+  it('is none when the reader works in no workspace', async () => {
+    const { workspace, backend } = setup();
+    vi.spyOn(backend, 'workspaces').mockResolvedValue([]);
+    await workspace.load();
+    expect(workspace.status).toBe('ready');
+    expect(workspace.entered).toBe('none');
+    expect(workspace.firstChoice()).toBeUndefined();
+  });
+});
+
+describe('entering another workspace', () => {
+  it('reads it anew, and lets go of the open board, the sidebar and undo of the one left', async () => {
+    const { workspace, backend, first } = twoWorkspaces();
+    const entered = vi.fn();
+    Object.assign(backend, { enter: entered });
+    await workspace.load();
+    expect(entered).toHaveBeenLastCalledWith(first.id);
+    const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!board) throw new Error('no board');
+    const store = await workspace.openBoard(board.id);
+    await workspace.hideBoard(board.id);
+    expect(workspace.canUndo).toBe(true);
+
+    await workspace.enter(OTHER.id);
+    expect(entered).toHaveBeenLastCalledWith(OTHER.id);
+    expect(workspace.info).toEqual(OTHER);
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.board).toBeUndefined();
+    expect(workspace.boards).toEqual([]);
+    expect(workspace.categories).toEqual([]);
+    expect(workspace.users).toEqual([]);
+    expect(workspace.canUndo).toBe(false);
+    // The board left hears nothing any more.
+    const stopped = store.board;
+    await settle();
+    expect(store.board).toBe(stopped);
+
+    await workspace.enter(first.id);
+    expect(workspace.boards.map((one) => one.id)).toContain(board.id);
+  });
+
+  it('counts the latest of two entries that overlap', async () => {
+    const { workspace, first, readBoards } = twoWorkspaces();
+    await workspace.load();
+    let answer: (boards: never[]) => void = () => undefined;
+    readBoards.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const slow = workspace.enter(OTHER.id);
+    await workspace.enter(first.id);
+    answer([]);
+    await slow;
+    expect(workspace.info).toEqual(first);
+    expect(workspace.boards.length).toBeGreaterThan(0);
+  });
+
+  it('does nothing for the workspace it is in already', async () => {
+    const { workspace, readBoards } = twoWorkspaces();
+    await workspace.load();
+    readBoards.mockClear();
+    await workspace.enter(workspace.info?.id ?? '');
+    expect(readBoards).not.toHaveBeenCalled();
+  });
+});
+
+describe('a board of another workspace', () => {
+  it('is missing when opened from this one, as one that is not there', async () => {
+    const { workspace, world } = setup();
+    await workspace.load();
+    const board = workspace.boards[0];
+    if (!board) throw new Error('no board');
+    const stored = world.boards.get(board.id);
+    if (!stored) throw new Error('not in the world');
+    world.boards.set(board.id, { ...stored, workspaceId: OTHER.id });
+    const store = await workspace.openBoard(board.id);
+    expect(store.missing).toBe(true);
+    expect(store.board).toBeUndefined();
+    expect(store.cards).toEqual([]);
+  });
+
+  it('is not put into the sidebar when its change is heard', async () => {
+    const { workspace, backend, world } = setup();
+    await workspace.load();
+    const board = workspace.boards[0];
+    if (!board) throw new Error('no board');
+    const stored = world.boards.get(board.id);
+    if (!stored) throw new Error('not in the world');
+    world.boards.set(board.id, { ...stored, workspaceId: OTHER.id });
+    await backend.patchBoard(board.id, { title: 'Moved' });
+    await settle();
+    expect(workspace.boards.find((one) => one.id === board.id)?.title).not.toBe('Moved');
+  });
+});

@@ -7,14 +7,15 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 import {
+  boardPath,
   invitation,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -165,7 +166,7 @@ test('people are shown by display name and login name wherever the board names t
   expect(commented.ok()).toBe(true);
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}/${cardId}`);
+  await page.goto(boardPath(board, board.viewId, cardId));
   await signInOnPage(page, owner);
   const dialog = page.getByTestId('card-dialog');
   await expect(dialog).toBeVisible();

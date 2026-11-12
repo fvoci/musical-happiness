@@ -7,7 +7,15 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 
 import { boardLink, boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.support.ts';
 
-import { person, register, signedIn, signInOnPage, watchErrors, type Schemas } from './support.ts';
+import {
+  person,
+  placeOf,
+  register,
+  type Schemas,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+} from './support.ts';
 
 test.use({ locale: 'en-US' });
 
@@ -37,8 +45,8 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();
   await made;
-  await expect(page).toHaveURL(/\/board\/[0-9a-z-]+\/[0-9a-z-]+$/);
-  const [, boardId = '', viewId = ''] = /\/board\/([^/]+)\/([^/]+)$/.exec(page.url()) ?? [];
+  await expect(page).toHaveURL(/\/w\/[0-9a-z-]+\/boards\/[0-9a-z-]+\/[0-9a-z-]+$/);
+  const { boardId, viewId } = placeOf(page.url());
   const board = (await (await api.get(`/api/v1/boards/${boardId}`)).json()) as Schemas['Board'];
   const status = board.cardProperties.find((template) => template.type === 'select');
   expect(status?.name).toBe('Status');
@@ -79,12 +87,12 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(boardLink(page, 'Launch plan')).toHaveCount(0);
   await expect.poll(async () => (await api.get(`/api/v1/boards/${boardId}`)).status()).toBe(404);
-  await expect(page.getByTestId('board-missing')).toBeVisible();
+  await expect(page.getByTestId('not-found')).toBeVisible();
   await page.getByTestId('undo').click();
   await expect(boardLink(page, 'Launch plan')).toBeVisible();
   // The page, which showed it as gone, shows it again.
   await expect(title).toHaveValue('Launch plan');
-  await expect(page.getByTestId('board-missing')).toHaveCount(0);
+  await expect(page.getByTestId('not-found')).toHaveCount(0);
   expect((await api.get(`/api/v1/boards/${boardId}`)).status()).toBe(200);
   expect(await views(api, boardId)).toHaveLength(2);
 

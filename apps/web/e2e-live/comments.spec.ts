@@ -7,14 +7,15 @@
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
+  type Person,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Person,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -72,7 +73,7 @@ test('a comment is written, changed and deleted on the server, its text a docume
   const stored = () => commentsOn(api, board.boardId, cardId);
 
   const errors = watchErrors(page);
-  await openCard(page, `/board/${board.boardId}/${board.viewId}/${cardId}`, owner);
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
   await send(page, 'How about Friday?\nOr Monday');
   const comments = page.getByTestId('card-comments');
   await expect(comments.locator('[data-comment]')).toHaveCount(1);
@@ -120,7 +121,7 @@ test('a commenter changes their own comment, an admin anybody’s, an editor nob
     ],
   });
   const cardId = board.cards.Menu ?? '';
-  const path = `/board/${board.boardId}/${board.viewId}/${cardId}`;
+  const path = boardPath(board, board.viewId, cardId);
 
   const pages: Page[] = [];
   const watched: string[][] = [];
@@ -234,7 +235,7 @@ test('a comment changed elsewhere while its field is open is not written over un
   });
 
   const errors = watchErrors(page);
-  await openCard(page, `/board/${board.boardId}/${board.viewId}/${cardId}`, owner);
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
   await send(page, 'First words');
   const comments = page.getByTestId('card-comments');
   await expect(comments.locator('[data-comment]')).toHaveText(/First words/);
@@ -285,7 +286,7 @@ test('a commenter deletes their own comment and brings it back with undo; somebo
     members: [{ who: guest, role: 'commenter' }],
   });
   const cardId = board.cards.Plan ?? '';
-  const path = `/board/${board.boardId}/${board.viewId}/${cardId}`;
+  const path = boardPath(board, board.viewId, cardId);
   const stored = async () =>
     (await commentsOn(api, board.boardId, cardId)).map((one) => lines(one.body)).sort();
 

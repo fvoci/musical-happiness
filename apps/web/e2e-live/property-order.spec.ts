@@ -7,13 +7,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US', viewport: { width: 1400, height: 900 } });
@@ -40,7 +41,7 @@ test('a property moved on a card is the board’s order, seen by another member,
     cards: [{ title: 'Ticket', status: 'To do' }],
     members: [{ who: helper, role: 'editor' }],
   });
-  const path = `/board/${board.boardId}/${board.viewId}/${board.cards.Ticket ?? ''}`;
+  const path = boardPath(board, board.viewId, board.cards.Ticket ?? '');
   const stored = async () =>
     (
       (await (await api.get(`/api/v1/boards/${board.boardId}`)).json()) as Schemas['Board']
@@ -110,7 +111,7 @@ test('a property moved in the view’s properties panel is the board’s order, 
   const faceOrder = () =>
     face.evaluateAll((all) => all.map((one) => one.getAttribute('data-property')));
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await page.locator('[data-tool="properties"]').click();
   const panel = page.getByTestId('properties-panel');

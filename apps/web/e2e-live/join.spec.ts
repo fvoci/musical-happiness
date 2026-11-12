@@ -7,13 +7,14 @@
 import { expect, test } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -44,7 +45,7 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
   };
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, visitor);
   const join = page.getByTestId('board-join');
   await expect(join).toBeVisible();

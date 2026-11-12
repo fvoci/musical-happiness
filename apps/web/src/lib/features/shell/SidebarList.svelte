@@ -55,7 +55,7 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    boardHref: (boardId: string) => string;
+    boardHref: (board: Board) => string;
     /** What the reader typed into the search of the sidebar. */
     query: string;
     /** What the backend found for the query; those the list shows already are left out. */
@@ -64,7 +64,7 @@
     searching: boolean;
     /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
     canDeleteOpenBoard: boolean;
-    onOpenBoard: (boardId: string) => void;
+    onOpenBoard: (board: Board) => void;
     onNewCategory: () => void;
     onRenameCategory: (category: Category) => void;
     onDeleteCategory: (category: Category) => void;
@@ -92,14 +92,14 @@
   const filtering = $derived(query.trim() !== '');
   const shown = $derived(filterSidebar(workspace.sidebar, query));
   /**
-   * Found by the backend and not in the list as it is narrowed: hidden, or
-   * the words in another order. Only boards the workspace has, as it has them:
-   * the server searches every workspace of the reader, and a board may have been
-   * deleted or renamed since it answered.
+   * Found by the backend and not in the list as it is narrowed: hidden, the words in another
+   * order, or of another workspace (the server searches them all), linked at its own. One of
+   * this workspace is as the workspace has it: deleted or renamed since the server answered.
    */
   const more = $derived(
     filtering
       ? found.flatMap((board) => {
+          if (board.workspaceId !== workspace.info?.id) return [board];
           const known = workspace.boards.find((one) => one.id === board.id);
           const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
           return known && !listed ? [known] : [];
@@ -234,7 +234,7 @@
   /** Makes a template of the board and opens it, to be changed there. */
   async function templateFrom(boardId: string): Promise<void> {
     const made = await workspace.createTemplateFromBoard(boardId);
-    if (made) onOpenBoard(made.id);
+    if (made) onOpenBoard(made);
   }
 
   function boardActions(board: Board, home: Category): MenuAction[] {
@@ -343,7 +343,7 @@
                 boardId={row.board.id}
                 title={titleOf(row.board)}
                 icon={row.board.icon}
-                href={boardHref(row.board.id)}
+                href={boardHref(row.board)}
                 current={row.board.id === boardId}
                 locale={workspace.locale}
                 draggable={!filtering}
@@ -351,7 +351,7 @@
                 describedBy={instructionsId}
                 actions={boardActions(row.board, category)}
                 onOpen={() => {
-                  onOpenBoard(row.board.id);
+                  onOpenBoard(row.board);
                 }}
               />
             {:else if drag?.mode === 'keyboard' && lifted}
@@ -394,7 +394,7 @@
           {@const hidden = isHidden(board.id)}
           <li class="flex items-center gap-1">
             <a
-              href={boardHref(board.id)}
+              href={boardHref(board)}
               aria-current={board.id === boardId ? 'page' : undefined}
               class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 hover:bg-sidebar-accent roomy:min-h-touch"
               onclick={(event: MouseEvent) => {
@@ -408,7 +408,7 @@
                   return;
                 }
                 event.preventDefault();
-                onOpenBoard(board.id);
+                onOpenBoard(board);
               }}
             >
               <BoardIcon icon={board.icon} title={titleOf(board)} locale={workspace.locale} />
@@ -461,7 +461,7 @@
           {#each workspace.hiddenBoards as board (board.id)}
             <li class="flex items-center gap-1">
               <a
-                href={boardHref(board.id)}
+                href={boardHref(board)}
                 aria-current={board.id === boardId ? 'page' : undefined}
                 class="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-2 text-muted-foreground hover:bg-sidebar-accent roomy:min-h-touch"
                 onclick={(event: MouseEvent) => {
@@ -475,7 +475,7 @@
                     return;
                   }
                   event.preventDefault();
-                  onOpenBoard(board.id);
+                  onOpenBoard(board);
                 }}
               >
                 <BoardIcon icon={board.icon} title={titleOf(board)} locale={workspace.locale} />

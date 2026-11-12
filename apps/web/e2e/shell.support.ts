@@ -9,6 +9,8 @@
  */
 import { expect, type CDPSession, type Locator, type Page } from '@playwright/test';
 
+import { SETTLED } from './address.ts';
+
 export type Stage = 'compact' | 'medium' | 'expanded';
 
 export const shell = (page: Page): Locator => page.getByTestId('app-shell');
@@ -31,7 +33,7 @@ export async function openApp(page: Page, address = '/'): Promise<void> {
   await page.goto(address);
   await expect(page.getByTestId('board-page')).toBeVisible();
   // The address has settled on the first view of the board.
-  await expect(page).toHaveURL(/\/board\/[0-9a-f-]{36}\/[0-9a-f-]{36}/);
+  await expect(page).toHaveURL(SETTLED);
   expect(errors).toEqual([]);
 }
 
