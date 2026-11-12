@@ -4,6 +4,67 @@
  */
 
 export interface paths {
+    "/api/v1/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Come back from a provider
+         * @description Where a provider sends the browser back to, for every organization. The sign-in is
+         *     taken by its `state`, once, and only from the browser that started it; the code is
+         *     exchanged for an ID token, whose signature, issuer, audience, time and nonce are
+         *     checked. The person is known by the issuer and the subject: an account of theirs
+         *     signs in, and somebody who has none gets one, if the organization lets newcomers in
+         *     and no account has their email address. The session comes in the `Set-Cookie`
+         *     header, and the browser goes to the web app (303).
+         *
+         *     Otherwise the browser goes to the login page of the organization (`/login?org=…`),
+         *     with the reason of what went wrong in `oidc_error`, by the name of its problem
+         *     (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
+         *     `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
+         *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or
+         *     `oidc_unavailable`.
+         */
+        get: operations["finishOidcLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start signing in through a provider
+         * @description For the login page of the server, as a request of its own, not an address a browser
+         *     is sent to: like every request that changes something it needs the header
+         *     `X-Requested-With: XMLHttpRequest` and no foreign `Origin`, which a page of another
+         *     site cannot send, so that no such page can sign a browser in to an account of its
+         *     choosing. Starts a sign-in for the organization `org` and answers where the page
+         *     sends the browser (the provider), with a cookie that ties the sign-in to this
+         *     browser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if
+         *     the organization has no provider that is on, or it cannot be reached; 429 when
+         *     this address made too many sign-ins of late.
+         */
+        post: operations["startOidcLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/boards": {
         parameters: {
             query?: never;
@@ -805,6 +866,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/login-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the login page shows
+         * @description The organization the login page is for, and whether people sign in through its
+         *     provider: the one `org` names, or without it the only organization of a server that
+         *     holds one. Its identifier, its name and whether it has a provider that is on, and
+         *     nothing else. An identifier that names no organization in use answers as none
+         *     (`organization` is `null`), and so does a server that takes in several
+         *     organizations when none is named.
+         */
+        get: operations["getLoginOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/logout": {
         parameters: {
             query?: never;
@@ -820,6 +906,51 @@ export interface paths {
          */
         post: operations["logout"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/{orgId}/oidc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The provider of an organization
+         * @description The `OpenID Connect` provider people of the organization sign in through, without
+         *     its client secret: `hasClientSecret` says whether there is one. 404 if the
+         *     organization has none.
+         */
+        get: operations["getOidcProvider"];
+        /**
+         * Set the provider of an organization
+         * @description Sets the organization's `OpenID Connect` provider, in place of the one it has. The
+         *     issuer's discovery document is read first: it must name the issuer exactly and have
+         *     `https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`
+         *     and `errors` naming `/issuer`. The server reaches only `https` addresses, follows no
+         *     redirect, and reaches only public addresses unless its configuration lets it
+         *     (`oidc_allow_private_addresses`).
+         *
+         *     `clientSecret` left out keeps the stored secret while the issuer and the client stay
+         *     the same; with another issuer or client it is required when a secret is stored (400,
+         *     `required` at `/clientSecret`), as the secret is the old client's. The empty string
+         *     stores none. The
+         *     secret is stored sealed with the server's key and never answered: without the key
+         *     the request is 409 with the reason `secret_key_required`. `autoJoin` and `enabled`
+         *     are on if left out. The answer's `redirectUri` is the address to register with the
+         *     provider.
+         */
+        put: operations["putOidcProvider"];
+        post?: never;
+        /**
+         * Remove the provider of an organization
+         * @description Removes the organization's provider and the sign-ins under way through it. The
+         *     sessions made through it go on. An organization without one answers the same.
+         */
+        delete: operations["deleteOidcProvider"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2312,6 +2443,19 @@ export interface components {
              */
             reason: string;
         };
+        /** @description What the login page shows: the organization it is for, if it is for one. */
+        LoginOptions: {
+            organization: components["schemas"]["LoginOrganization"] | null;
+        };
+        /** @description What the login page may know of an organization before anybody signs in. */
+        LoginOrganization: {
+            /** @description The organization's identifier, for starting a sign-in through its provider. */
+            id: string;
+            /** @description The organization's name; empty if it was given none. */
+            name: string;
+            /** @description Whether signing in through the organization's provider is on. */
+            oidc: boolean;
+        };
         /** @description A login request. */
         LoginRequest: {
             /** @description The email address to log in with, used when no user has the given name. */
@@ -2527,6 +2671,62 @@ export interface components {
              *     413.
              */
             size: number;
+        };
+        /**
+         * @description The provider of an organization, as its administrators read it. The client secret
+         *     is not in it: only whether there is one.
+         */
+        OidcProvider: {
+            /**
+             * @description Whether somebody the provider vouches for who is no member of the organization
+             *     becomes one, and a member of its default workspace, by signing in.
+             */
+            autoJoin: boolean;
+            /** @description The client identifier the provider gave this server. */
+            clientId: string;
+            /**
+             * Format: int64
+             * @description When the provider was first set, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description Whether signing in through the provider is on. */
+            enabled: boolean;
+            /** @description Whether a client secret is stored. */
+            hasClientSecret: boolean;
+            /** @description The issuer: an `https` address, exactly as the provider names itself. */
+            issuer: string;
+            /** @description The address the provider sends people back to, to be registered with it. */
+            redirectUri: string;
+            /**
+             * Format: int64
+             * @description When the provider was last changed, in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
+        /** @description What an administrator sets of the organization's provider. */
+        OidcProviderSettings: {
+            /**
+             * @description Whether somebody the provider vouches for who is no member becomes one. On if
+             *     left out.
+             */
+            autoJoin?: boolean | null;
+            /** @description The client identifier the provider gave this server. */
+            clientId: string;
+            /**
+             * @description The client secret. Left out, the stored one stays while the issuer and the client
+             *     stay the same (none for a new provider), and is required with another issuer or
+             *     client when one is stored; the empty string stores none.
+             */
+            clientSecret?: string | null;
+            /** @description Whether signing in through the provider is on. On if left out. */
+            enabled?: boolean | null;
+            /** @description The issuer: an `https` address without query or fragment. */
+            issuer: string;
+        };
+        /** @description A sign-in through a provider that was started: where the page sends the browser. */
+        OidcStart: {
+            /** @description The provider's address that asks the person to sign in, for this sign-in. */
+            authorizationUrl: string;
         };
         /** @description What starting the tour answers: where the tour's board is. */
         OnboardingStart: {
@@ -2977,6 +3177,98 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    finishOidcLogin: {
+        parameters: {
+            query?: {
+                /** @description The `state` the sign-in was started with, as the provider sends it back. */
+                state?: string;
+                /** @description The authorization code the provider gives. */
+                code?: string;
+                /** @description The provider's code of why it did not let the person sign in. */
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To the web app, signed in, or to the login page. */
+            303: {
+                headers: {
+                    /** @description Where the browser goes. */
+                    Location?: string;
+                    /** @description The session cookie, and the cookie of the sign-in cleared. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startOidcLogin: {
+        parameters: {
+            query: {
+                /** @description The identifier of the organization whose provider the person signs in through. */
+                org: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started: where the browser goes. */
+            200: {
+                headers: {
+                    /** @description The cookie of the sign-in. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcStart"];
+                };
+            };
+            /** @description No provider that is on, or it cannot be reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     createBoard: {
         parameters: {
             query?: never;
@@ -4419,6 +4711,38 @@ export interface operations {
             };
         };
     };
+    getLoginOptions: {
+        parameters: {
+            query?: {
+                /** @description The identifier of the organization the login page is for. */
+                org?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the login page shows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginOptions"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     logout: {
         parameters: {
             query?: never;
@@ -4433,6 +4757,104 @@ export interface operations {
                 headers: {
                     /** @description Clears the session cookie. */
                     "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getOidcProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcProvider"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    putOidcProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OidcProviderSettings"];
+            };
+        };
+        responses: {
+            /** @description The provider as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcProvider"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteOidcProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the organization. 404 unless the user of the session administers it. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization has no provider. */
+            204: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content?: never;

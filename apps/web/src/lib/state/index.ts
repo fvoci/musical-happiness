@@ -26,6 +26,7 @@ export {
   type CommentVersion,
   type DeletedItem,
   type InvalidInput,
+  type LoginOrganization,
   type Registration,
   type Sharing,
   type WorkspaceInfo,

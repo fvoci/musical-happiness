@@ -22,8 +22,12 @@ pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 mod keys;
 mod scrapes;
+mod secret_key;
 
 pub use scrapes::{MetricsAddress, MetricsToken};
+pub use secret_key::{ENV_ONLY, SECRET_KEY_ENV};
+
+use crate::auth::sealed::SecretKey;
 
 /// The settings of the S3 file backend, the `filess3config` object.
 #[derive(Clone, Default, Deserialize)]
@@ -164,9 +168,25 @@ pub struct Configuration {
     /// Whether user lists include first and last names.
     #[serde(rename = "showfullname")]
     pub show_full_name: bool,
-    /// The authentication mode. Only `native` is supported.
+    /// The authentication mode. Only `native` is supported. Signing in through an
+    /// organization's `OpenID Connect` provider is the organization's to set, beside it.
     #[serde(rename = "authmode")]
     pub auth_mode: String,
+    /// Whether the providers of the organizations may be reached at addresses that are
+    /// not public (loopback, private networks): for an installation whose provider is
+    /// on its own network. Off, such a provider is neither stored nor signed in
+    /// through.
+    pub oidc_allow_private_addresses: bool,
+    /// The key the server seals what it keeps secret in the database with: the client
+    /// secrets of the providers. Read from `FVOCI_SECRET_KEY` only, never from the
+    /// file, and never written by `Debug`. Without it no provider can be stored.
+    #[serde(skip)]
+    pub secret_key: Option<SecretKey>,
+    /// Certificates (DER) that the client of the providers trusts besides the
+    /// system's. Not a configuration file key: the tests set it for a provider of
+    /// their own, as they set `skip_template_init`.
+    #[serde(skip)]
+    pub oidc_extra_root_certificates: Vec<Vec<u8>>,
     /// Whether the server holds one organization (`first_user_only`) or takes in
     /// several (`open`). `open` needs PostgreSQL, and a database role that the wall
     /// between organizations holds.
@@ -281,6 +301,9 @@ impl Default for Configuration {
             show_email_address: false,
             show_full_name: false,
             auth_mode: "native".to_owned(),
+            oidc_allow_private_addresses: false,
+            secret_key: None,
+            oidc_extra_root_certificates: Vec::new(),
             org_creation: ORG_CREATION_FIRST_USER_ONLY.to_owned(),
             websocket_ping_seconds: 30,
             compress_responses: true,
@@ -341,6 +364,11 @@ impl std::fmt::Debug for Configuration {
             .field("show_email_address", &self.show_email_address)
             .field("show_full_name", &self.show_full_name)
             .field("auth_mode", &self.auth_mode)
+            .field(
+                "oidc_allow_private_addresses",
+                &self.oidc_allow_private_addresses,
+            )
+            .field("secret_key", &self.secret_key)
             .field("org_creation", &self.org_creation)
             .field("server_lock_wait_seconds", &self.server_lock_wait_seconds)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
@@ -402,7 +430,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 56] = [
+const ENV_KEYS: [(&str, EnvKind); 57] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -436,6 +464,7 @@ const ENV_KEYS: [(&str, EnvKind); 56] = [
     ("showemailaddress", EnvKind::Flag),
     ("showfullname", EnvKind::Flag),
     ("authmode", EnvKind::Text),
+    ("oidc_allow_private_addresses", EnvKind::Flag),
     ("org_creation", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
     ("compress_responses", EnvKind::Flag),
@@ -660,7 +689,11 @@ impl Configuration {
         }
 
         scrapes::check_token_is_text(&keys)?;
-        serde_json::from_value(Value::Object(keys)).context("a key has a value of the wrong type")
+        let secret_key = secret_key::read(&keys, &env, is_unset)?;
+        let mut config: Self = serde_json::from_value(Value::Object(keys))
+            .context("a key has a value of the wrong type")?;
+        config.secret_key = secret_key;
+        Ok(config)
     }
 
     /// How long a session may go unused before it ends, in milliseconds.

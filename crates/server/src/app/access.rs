@@ -1,6 +1,8 @@
 //! What is known of a user and a board: the facts [`permissions::grant`] is asked with.
 //!
-//! This and `Store::resolve_workspace` (by `App::actor`) are where the facts of a permission are read.
+//! This and `Store::resolve_workspace` (by `App::actor`, and `Store::org_role_of_user` by
+//! `App::org_actor` for the organization alone) are where the facts of a permission are
+//! read.
 //! Every check of a route that names a board asks [`App::board_access`], and decides by
 //! the [`Grant`] it gives; nothing else reads a membership to decide what a user may do.
 
@@ -140,6 +142,20 @@ impl App {
             )
         };
         Ok(Some(DeletedBoardAccess { deleted, grant }))
+    }
+
+    /// What the user is in the organization alone, of no workspace of it, as
+    /// `Store::org_role_of_user` answers: nothing for who is no member of it, and for an
+    /// organization that is not in use or is the system's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn org_actor(&self, user_id: &str, org_id: &str) -> Result<Actor, AppError> {
+        Ok(Actor {
+            org: self.store().org_role_of_user(user_id, org_id).await?,
+            workspace: None,
+        })
     }
 
     /// What the user is in the workspace and its organization, as

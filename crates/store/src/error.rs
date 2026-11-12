@@ -151,6 +151,8 @@ pub enum Taken {
     Username,
     /// The email address, in any letter case.
     Email,
+    /// The subject of an issuer: another account is the one its provider vouches for.
+    Identity,
 }
 
 impl std::fmt::Display for Taken {
@@ -158,6 +160,7 @@ impl std::fmt::Display for Taken {
         formatter.write_str(match self {
             Self::Username => "the user name",
             Self::Email => "the email address",
+            Self::Identity => "the identity at the provider",
         })
     }
 }

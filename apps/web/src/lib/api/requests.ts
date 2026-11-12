@@ -1,11 +1,12 @@
 /**
  * The requests of the server backend that take nothing but HTTP: making an
- * account, changing the reader's own and reading their workspaces, and reading
- * the trash. `ServerBackend`
- * is made of these and the rest (`backend.ts`).
+ * account, what the login page shows of an organization, changing the
+ * reader's own and reading their workspaces, and reading the trash.
+ * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
 import type {
   DeletedItem,
+  LoginOrganization,
   Paging,
   Registration,
   WorkspaceInfo,
@@ -32,6 +33,29 @@ export class ServerRequests implements TrashReads {
       ...(registration.token ? { token: registration.token } : {}),
     };
     await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
+  }
+
+  async loginOrganization(orgId: string | undefined): Promise<LoginOrganization | undefined> {
+    const options = await this.#http.request<Schemas['LoginOptions']>(
+      '/api/v1/login-options',
+      {},
+      { query: { org: orgId } },
+    );
+    return options.organization ?? undefined;
+  }
+
+  /**
+   * Starts a sign-in through the organization's provider, as a request of this
+   * page (which another site's page cannot send): the address to send the
+   * browser to. The cookie that ties the sign-in to this browser comes with it.
+   */
+  async startOidc(orgId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OidcStart']>(
+      '/api/v1/auth/oidc/start',
+      {},
+      { method: 'POST', query: { org: orgId } },
+    );
+    return started.authorizationUrl;
   }
 
   async patchMe(patch: { displayName: string | null }): Promise<User> {

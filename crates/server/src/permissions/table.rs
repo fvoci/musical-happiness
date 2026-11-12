@@ -751,3 +751,19 @@ fn who_sees_whom_of_the_people() {
         );
     }
 }
+
+/// An organization's administrator, and nobody else, takes the routes of the
+/// organization; it gives nothing on a board (the rows above).
+#[test]
+fn who_administers_the_organization() {
+    let rows = [
+        ("an org admin outside every workspace", ORG_ADMIN_ONLY, true),
+        ("an org admin in a workspace", ORG_ADMIN_IN_WORKSPACE, true),
+        ("a workspace admin", WORKSPACE_ADMIN, false),
+        ("a member", MEMBER, false),
+        ("a stranger", STRANGER, false),
+    ];
+    for (case, actor, administers) in rows {
+        assert_eq!(actor.administers_the_organization(), administers, "{case}");
+    }
+}

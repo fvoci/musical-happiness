@@ -17,6 +17,10 @@ fvoci-model = { path = "crates/model" }
 fvoci-store = { path = "crates/store" }
 
 anyhow = "1"
+# AES-256-GCM, which seals the client secrets of the providers in the database. The
+# library rustls uses already, through tokio-rustls. License: ISC AND (Apache-2.0 OR ISC)
+# AND OpenSSL-style notices of the AWS-LC C library, as for rustls.
+aws-lc-rs = "1"
 # Password hashing: Argon2id with PHC strings. License: MIT OR Apache-2.0.
 argon2 = "0.6"
 axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
@@ -33,6 +37,10 @@ futures-util = "0.3"
 getrandom = "0.4"
 # RFC 1123 date formatting and parsing for Last-Modified / If-Modified-Since. License: MIT OR Apache-2.0.
 httpdate = "1"
+# The signatures of the ID tokens of the OpenID Connect providers, checked with aws-lc-rs.
+# The `openidconnect` crate is not used: its 4.x line depends on `rsa` 0.9, which has an
+# advisory (RUSTSEC-2023-0071) with no fixed 0.9 release, and on reqwest 0.12. License: MIT.
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 md-5 = { version = "0.11", default-features = false }
 mime_guess = "2"
 clap = { version = "4", features = ["derive"] }
@@ -44,7 +52,7 @@ ctrlc = { version = "3", features = ["termination"] }
 prometheus = { version = "0.14", default-features = false, features = ["process"] }
 object_store = { version = "0.14", default-features = false, features = ["aws"] }
 rcgen = "0.14"
-reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["form", "json", "multipart", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The digest under which session tokens are stored. License: MIT OR Apache-2.0.

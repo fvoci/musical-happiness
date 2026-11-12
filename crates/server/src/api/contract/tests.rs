@@ -97,13 +97,16 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 6] = [
+const NO_SESSION: [&str; 9] = [
+    "finishOidcLogin",
     "getClientConfig",
+    "getLoginOptions",
     "hello",
     "login",
     "ping",
     "ready",
     "register",
+    "startOidcLogin",
 ];
 /// The operations that are read with a session or with the read token of a board.
 const READ_TOKEN: [&str; 5] = [

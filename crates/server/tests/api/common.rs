@@ -100,6 +100,8 @@ pub(crate) struct Setup {
     with_templates: bool,
     /// `prometheusaddress`.
     metrics_at: Option<String>,
+    /// Certificates the client of the providers trusts besides the system's.
+    oidc_roots: Vec<Vec<u8>>,
 }
 
 impl Setup {
@@ -155,6 +157,12 @@ impl Setup {
     /// Keeps the metrics and serves them at `address` (`prometheusaddress`).
     pub(crate) fn metrics_at(mut self, address: &str) -> Self {
         self.metrics_at = Some(address.to_owned());
+        self
+    }
+
+    /// Trusts the certificate (DER) of a provider of the test's own.
+    pub(crate) fn trusting_oidc_provider(mut self, certificate_der: &[u8]) -> Self {
+        self.oidc_roots.push(certificate_der.to_vec());
         self
     }
 
@@ -228,6 +236,9 @@ impl Setup {
         if let Some(address) = &self.metrics_at {
             address.clone_into(&mut config.prometheus_address);
         }
+        config
+            .oidc_extra_root_certificates
+            .clone_from(&self.oidc_roots);
         for change in &self.configure {
             change(&mut config);
         }

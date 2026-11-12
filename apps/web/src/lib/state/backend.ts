@@ -34,7 +34,7 @@ import type {
 
 import type { TrashReads } from './trash-reads.ts';
 
-export type { Account, Registration } from './account-types.ts';
+export type { Account, LoginOrganization, Registration } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 
 /** What an import did beyond making the archive's boards. */

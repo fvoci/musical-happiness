@@ -39,6 +39,13 @@ impl Actor {
             Some(WorkspaceRole::Admin | WorkspaceRole::Member)
         )
     }
+
+    /// Whether the user administers the organization: what the routes of an
+    /// organization (`/org/{orgId}`) take. It opens nothing of its workspaces' boards.
+    #[must_use]
+    pub fn administers_the_organization(self) -> bool {
+        matches!(self.org, Some(OrgRole::Admin))
+    }
 }
 
 /// Who a board is there for, besides its members.
