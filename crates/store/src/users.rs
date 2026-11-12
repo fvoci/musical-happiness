@@ -143,7 +143,9 @@ impl Store {
     /// Returns the user with the given email address, unless deleted.
     ///
     /// The address is compared without regard to case, as the unique index on it is:
-    /// all letters on PostgreSQL, the ASCII letters on SQLite.
+    /// all letters on PostgreSQL, the ASCII letters on SQLite. It is the account's own
+    /// address: an account made through a provider has none, and the address the
+    /// provider gave for it finds nothing here.
     ///
     /// # Errors
     ///
@@ -581,7 +583,11 @@ impl Lookup<'_> {
         match self {
             Self::Id(id) => sql.push_bind("id = ", Id(id)),
             Self::Username(name) => sql.push_bind("lower(username) = lower(", name).push(")"),
-            Self::Email(email) => sql.push_bind("lower(email) = lower(", email).push(")"),
+            // An account with no address of its own (one made through a provider) is
+            // found by none, not even by an empty one.
+            Self::Email(email) => sql
+                .push_bind("email <> '' AND lower(email) = lower(", email)
+                .push(")"),
         };
     }
 }

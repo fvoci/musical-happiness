@@ -251,6 +251,15 @@ async fn identities(ts: &TestServer) -> i64 {
         .expect("the identities are counted")
 }
 
+/// The addresses the providers gave for an account.
+async fn provider_emails(ts: &TestServer, user_id: &str) -> Vec<String> {
+    ts.app
+        .store()
+        .provider_emails(user_id)
+        .await
+        .expect("the identities are read")
+}
+
 async fn users(ts: &TestServer) -> i64 {
     ts.app
         .store()
@@ -293,7 +302,12 @@ async fn the_first_sign_in_makes_an_account_and_the_next_finds_it() {
         .get_user_by_id(&me.id)
         .await
         .expect("the account is stored");
-    assert_eq!(stored.email, "ada@example.com");
+    assert_eq!(stored.email, "", "no address of its own");
+    assert_eq!(
+        provider_emails(&ts, &me.id).await,
+        ["ada@example.com"],
+        "the provider's word, kept with the identity"
+    );
     assert_eq!(stored.password_hash, "", "no password");
     assert!(!stored.is_admin, "no administrator of the server");
     let session = ts
@@ -901,8 +915,137 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
         Outcome::Refused("oidc-unavailable".to_owned())
     );
     let me: User = client.me().await;
-    let stored = ts.app.store().get_user_by_id(&me.id).await.expect("stored");
-    assert_eq!(stored.email, "theirs@example.com");
+    assert_eq!(provider_emails(&ts, &me.id).await, ["theirs@example.com"]);
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// Two organizations whose providers give the same address for somebody make two
+/// accounts of them: an address a provider gives is its word, and joins nothing.
+#[tokio::test]
+async fn the_same_address_from_two_providers_is_two_accounts() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        // An SQLite database holds one organization.
+        return;
+    }
+    let ours_fake = FakeProvider::start().await;
+    let theirs_fake = FakeProvider::start().await;
+    let ts = Setup::native()
+        .trusting_oidc_provider(&ours_fake.certificate_der)
+        .trusting_oidc_provider(&theirs_fake.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let ours = org_of(&ts).await;
+    set_provider(&ts, &ours, &ours_fake).await;
+    let theirs = ts
+        .app
+        .store()
+        .create_organization(
+            "theirs",
+            &Workspace {
+                id: new_id(),
+                ..Workspace::default()
+            },
+        )
+        .await
+        .expect("a second organization");
+    ts.app
+        .store()
+        .for_org(&theirs)
+        .expect("an identifier")
+        .put_oidc_provider(&StoredProvider {
+            id: String::new(),
+            org_id: theirs.clone(),
+            issuer: theirs_fake.issuer.clone(),
+            client_id: CLIENT_ID.to_owned(),
+            sealed_client_secret: secret_key().seal(
+                CLIENT_SECRET,
+                &secret_context(&theirs, &theirs_fake.issuer, CLIENT_ID),
+            ),
+            auto_join: true,
+            enabled: true,
+            create_at: 0,
+            update_at: 0,
+        })
+        .await
+        .expect("their provider");
+
+    let address = "someone@example.com";
+    ours_fake.sign_in_as(Person::new("subject-1", address));
+    theirs_fake.sign_in_as(Person::new("subject-1", address));
+    let ours_token = Browser::new(&ts, &ours_fake).sign_in(&ours).await;
+    let theirs_token = Browser::new(&ts, &theirs_fake).sign_in(&theirs).await;
+    let ours_me = ts.client_with_token(ours_token.token()).me().await;
+    let theirs_me = ts.client_with_token(theirs_token.token()).me().await;
+    assert_ne!(ours_me.id, theirs_me.id, "two accounts");
+    for me in [&ours_me, &theirs_me] {
+        assert_eq!(provider_emails(&ts, &me.id).await, [address]);
+    }
+    assert_eq!(identities(&ts).await, 2);
+    ts.teardown().await;
+    ours_fake.stop();
+    theirs_fake.stop();
+}
+
+/// An address a provider gave holds no place: its owner registers with it and a
+/// password afterwards, and another person the same provider gives it for is another
+/// account. The account the password made then refuses whoever comes new with it.
+#[tokio::test]
+async fn an_address_a_provider_gave_is_still_free_to_register() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    let address = "owner@example.com";
+
+    fake.sign_in_as(Person::new("subject-squatter", address));
+    let squatter = browser.sign_in(&org_id).await;
+    let squatter = ts.client_with_token(squatter.token()).me().await;
+    fake.sign_in_as(Person::new("subject-other", &address.to_uppercase()));
+    let other = browser.sign_in(&org_id).await;
+    let other = ts.client_with_token(other.token()).me().await;
+    assert_ne!(squatter.id, other.id, "two accounts of one address");
+
+    let signup_token = ts
+        .app
+        .root_workspace()
+        .await
+        .expect("the root workspace")
+        .signup_token;
+    let owner = ts
+        .register_and_login("the-owner", address, PASSWORD, &signup_token)
+        .await
+        .me()
+        .await;
+    assert_ne!(owner.id, squatter.id);
+    ts.anonymous()
+        .post("/login", &json!({ "email": address, "password": PASSWORD }))
+        .await
+        .check_no_content();
+    let found = ts
+        .app
+        .store()
+        .get_user_by_email(address)
+        .await
+        .expect("the address finds its owner");
+    assert_eq!(found.id, owner.id, "and nobody else");
+
+    fake.sign_in_as(Person::new("subject-late", address));
+    assert_eq!(
+        browser.sign_in(&org_id).await,
+        Outcome::Refused("oidc-email-taken".to_owned())
+    );
+    // Those made before stay who they were.
+    fake.sign_in_as(Person::new("subject-squatter", address));
+    let again = browser.sign_in(&org_id).await;
+    assert_eq!(
+        ts.client_with_token(again.token()).me().await.id,
+        squatter.id
+    );
     ts.teardown().await;
     fake.stop();
 }

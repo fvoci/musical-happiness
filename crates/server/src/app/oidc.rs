@@ -539,6 +539,10 @@ impl App {
         if claims.email_verified == Some(false) {
             return Err(Reason::OidcEmailUnverified.into());
         }
+        // An account whose own address this is, one with a password: most likely the
+        // same person, who is to sign in to it and link the provider to it, not to have
+        // two accounts. What a provider gave for another account is no account's
+        // address, and stands in nobody's way.
         match self.store().get_user_by_email(email).await {
             Ok(_) => return Err(Reason::OidcEmailTaken.into()),
             Err(error) if error.is_not_found() => {}
@@ -593,10 +597,10 @@ impl App {
                 Err(error) if error.is_not_found() => {}
                 Err(error) => return Err(logged(&error, "looking up a user name")),
             }
+            // No address of its own: the provider's is kept with the identity.
             let mut user = User {
                 id: new_id(),
                 username,
-                email: email.to_owned(),
                 display_name: claims
                     .name
                     .as_deref()
@@ -606,7 +610,7 @@ impl App {
             };
             match self
                 .store()
-                .create_oidc_user(&mut user, identity, Join::Organization)
+                .create_oidc_user(&mut user, identity, email, Join::Organization)
                 .await
             {
                 Ok(()) => {
@@ -615,9 +619,6 @@ impl App {
                     return Ok(user);
                 }
                 Err(StoreError::Conflict(Taken::Username)) => {}
-                Err(StoreError::Conflict(Taken::Email)) => {
-                    return Err(Reason::OidcEmailTaken.into());
-                }
                 // Another sign-in of the same person made the account a moment ago.
                 Err(StoreError::Conflict(Taken::Identity)) => {
                     let user = self

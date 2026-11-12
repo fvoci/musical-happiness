@@ -294,9 +294,11 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
         }
         Reason::OidcEmailTaken => {
             "On the login page, after a sign-in through a provider: the person has no \
-             account through the provider, and an account of the email address the \
-             provider gave exists. The two are not joined by their address: sign in with \
-             the password of that account and connect the provider to it."
+             account through the provider, and an account with a password has the email \
+             address the provider gave as its own. The two are not joined by their \
+             address: sign in with the password of that account and connect the provider \
+             to it. An address a provider gave for another account is no account's own, \
+             and refuses nobody."
         }
         Reason::OidcJoinClosed => {
             "On the login page, after a sign-in through a provider: the person is no member \

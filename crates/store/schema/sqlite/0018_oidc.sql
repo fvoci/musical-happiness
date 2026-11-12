@@ -30,9 +30,16 @@ CREATE TABLE user_identities (
     issuer TEXT NOT NULL,
     subject TEXT NOT NULL,
     user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
     create_at BIGINT NOT NULL,
     PRIMARY KEY (issuer, subject)
 );
 CREATE INDEX user_identities_user_id_idx ON user_identities (user_id);
+
+-- An account made through a provider has no email address of its own: the address the
+-- provider gave is its word alone, kept with the identity above, and it holds no place
+-- among the addresses of the accounts. Those stay unique, the empty one aside.
+DROP INDEX users_email_key;
+CREATE UNIQUE INDEX users_email_key ON users (lower(email)) WHERE email <> '';
 
 ALTER TABLE sessions ADD COLUMN login_provider_id TEXT;

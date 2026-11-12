@@ -240,17 +240,20 @@ impl Store {
     }
 
     /// Stores a new account that a provider of the handle's organization vouches for
-    /// under `identity`, with no password: an empty hash, which no password matches. In
+    /// under `identity`, with no password: an empty hash, which no password matches;
+    /// and with no email address of its own: `provider_email`, the address the provider
+    /// gave, is kept with the identity, unchecked, and holds no account's place. In
     /// the same transaction the account joins the organization and its default
     /// workspace, as a member, if `join` is [`Join::Organization`].
     ///
     /// `user` is updated to what was stored: the current time as creation and
-    /// modification time, not deleted, no administrator of the instance, no password.
+    /// modification time, not deleted, no administrator of the instance, no password, no
+    /// email address.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Conflict`] if another account has the name or the email
-    /// address in any letter case, or the identity is another account's already;
+    /// Returns [`StoreError::Conflict`] if another account has the name in any letter
+    /// case, or the identity is another account's already;
     /// [`StoreError::NoOrganization`] if the account is to join and the handle names no
     /// organization; and [`StoreError::Database`] if a statement fails. Nothing is
     /// stored then.
@@ -258,6 +261,7 @@ impl Store {
         &self,
         user: &mut User,
         identity: Identity<'_>,
+        provider_email: &str,
         join: Join,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
@@ -267,12 +271,34 @@ impl Store {
             user.delete_at = 0;
             user.is_admin = false;
             user.password_hash = String::new();
+            user.email = String::new();
             insert_user_row(scope, user).await?;
-            insert_identity(scope, identity, &user.id, now).await?;
+            insert_identity(scope, identity, &user.id, provider_email, now).await?;
             if join == Join::Organization {
                 members::join_organization(scope, &user.id, InstanceRole::User).await?;
             }
             Ok(())
+        })
+        .await
+    }
+
+    /// The email addresses the providers gave for an account, one for each identity of
+    /// it, oldest first: their word, checked by nobody.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn provider_emails(&self, user_id: &str) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT email FROM user_identities WHERE user_id = ");
+            sql.bind(Id(user_id))
+                .push(" ORDER BY create_at, issuer, subject");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect()
         })
         .await
     }
@@ -329,13 +355,15 @@ async fn insert_identity(
     scope: &mut Scope<'_>,
     identity: Identity<'_>,
     user_id: &str,
+    email: &str,
     now: i64,
 ) -> Result<(), StoreError> {
-    let mut sql =
-        scope.sql("INSERT INTO user_identities (issuer, subject, user_id, create_at) VALUES (");
+    let mut sql = scope
+        .sql("INSERT INTO user_identities (issuer, subject, user_id, email, create_at) VALUES (");
     sql.bind(identity.issuer)
         .push_bind(", ", identity.subject)
         .push_bind(", ", Id(user_id))
+        .push_bind(", ", email)
         .push_bind(", ", now)
         .push(")");
     match scope.execute(sql).await {
