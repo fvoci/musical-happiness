@@ -19,6 +19,7 @@ mod files;
 mod housekeeping;
 mod import;
 mod invitations;
+mod limits;
 mod loose_objects;
 mod oidc;
 mod onboarding;
@@ -54,6 +55,7 @@ pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use import::Imported;
 pub use invitations::{Accepting, Inviting};
+pub use limits::OrgLimits;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
@@ -466,8 +468,8 @@ impl App {
             enable_public_shared_boards: config.enable_public_shared_boards,
             teammate_name_display: config.teammate_name_display.clone(),
             feature_flags: config.feature_flags.clone(),
-            max_file_size: config.max_file_size,
-            max_import_size: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
+            max_file_size: self.limits().largest_file,
+            max_import_size: self.limits().largest_import,
         }
     }
 
