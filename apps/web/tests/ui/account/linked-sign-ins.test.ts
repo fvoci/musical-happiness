@@ -216,6 +216,15 @@ describe('a sign-in that came back refused to somebody who is signed in', () => 
     expect(onGoOn).toHaveBeenCalledOnce();
   });
 
+  it('says that single sign-on knows them by another address than the account has', () => {
+    render(SignInNotice, {
+      props: { problem: 'oidc-email-mismatch', onGoOn: vi.fn(), onOpenLinked: vi.fn() },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      "Single sign-on knows you by another email address than this account's. Nothing was connected.",
+    );
+  });
+
   it('does not tell somebody who is signed in to sign in with a password', () => {
     render(SignInNotice, {
       props: { problem: 'oidc-email-taken', onGoOn: vi.fn(), onOpenLinked: vi.fn() },

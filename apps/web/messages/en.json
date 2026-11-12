@@ -82,6 +82,7 @@
   "account_oidc_email_taken": "An account with your email address exists already. Sign in to it with its password, then connect single sign-on to it in the settings, under Connected sign-ins.",
   "account_oidc_join_closed": "This team does not let new people in through its single sign-on. Ask its administrator for an invitation.",
   "account_oidc_identity_taken": "That sign-in belongs to another account already. Nothing was connected.",
+  "account_oidc_email_mismatch": "Single sign-on knows you by another email address than this account's. Nothing was connected.",
   "account_sso_required_title": "This team signs in with single sign-on",
   "account_sso_required_title_named": "{name} signs in with single sign-on",
   "account_sso_required_text": "This team opens only for its own single sign-on, and you are signed in another way. Continue with single sign-on to open it.",

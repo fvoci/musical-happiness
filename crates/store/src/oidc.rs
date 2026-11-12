@@ -494,6 +494,11 @@ impl Store {
     /// Nothing is stored otherwise. An identity that is the account's already is left
     /// as it is.
     ///
+    /// The identity is tied only where `provider_email`, the address the provider
+    /// vouches for, is the account's own (whatever the case of its letters): who knows
+    /// an account's password ties no other person of the provider to it, who would
+    /// then sign in to it without the password.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names no organization, and
@@ -517,8 +522,8 @@ impl Store {
                 return Ok(Err(LinkRefusal::ProviderGone));
             }
             let mut sql = scope.sql(
-                "SELECT s.user_id FROM sessions AS s JOIN users AS u ON u.id = s.user_id \
-                 WHERE s.id = ",
+                "SELECT s.user_id, u.email FROM sessions AS s JOIN users AS u \
+                 ON u.id = s.user_id WHERE s.id = ",
             );
             sql.bind(Id(link.session_id))
                 .push_bind(" AND s.token_hash = ", link.token_digest)
@@ -533,6 +538,22 @@ impl Store {
                 return Ok(Err(LinkRefusal::SessionEnded));
             };
             let user_id = row.id(0)?;
+            let is_the_accounts_address = !provider_email.is_empty()
+                && provider_email.to_lowercase() == row.text(1)?.to_lowercase();
+            if !is_the_accounts_address {
+                // Nothing is tied; one that is the account's already is that still.
+                let mut sql = scope.sql("SELECT 1 FROM user_identities WHERE issuer = ");
+                sql.bind(identity.issuer)
+                    .push_bind(" AND subject = ", identity.subject)
+                    .push_bind(" AND user_id = ", Id(&user_id));
+                return Ok(match scope.fetch_optional(sql).await? {
+                    Some(_) => Ok(Linked {
+                        user_id,
+                        newly: false,
+                    }),
+                    None => Err(LinkRefusal::AnotherAddress),
+                });
+            }
             // Tied unless it is somebody's already, in one statement: of two links of
             // one identity at once the second waits for the first and ties nothing, and
             // the transaction goes on to read whose it is.
@@ -759,6 +780,8 @@ pub enum LinkRefusal {
     SessionEnded,
     /// The identity is another account's.
     IdentityTaken,
+    /// The address the provider vouches for is not the account's own.
+    AnotherAddress,
 }
 
 /// What came of removing an identity from an account.

@@ -82,6 +82,7 @@
   "account_oidc_email_taken": "그 이메일 주소의 계정이 이미 있습니다. 그 계정의 비밀번호로 로그인한 뒤, 설정의 '연결된 로그인'에서 SSO를 연결해 주세요.",
   "account_oidc_join_closed": "이 팀은 SSO로 새 사람을 들이지 않습니다. 관리자에게 초대를 받아 주세요.",
   "account_oidc_identity_taken": "그 로그인은 이미 다른 계정에 연결돼 있습니다. 연결하지 않았습니다.",
+  "account_oidc_email_mismatch": "SSO가 알려 준 이메일 주소가 이 계정의 주소와 다릅니다. 연결하지 않았습니다.",
   "account_sso_required_title": "이 팀은 SSO로 로그인해야 합니다",
   "account_sso_required_title_named": "{name}에 들어가려면 SSO로 로그인해야 합니다",
   "account_sso_required_text": "이 팀은 팀의 SSO로 로그인해야만 열립니다. 지금은 다른 방법으로 로그인되어 있습니다. SSO로 계속하면 열립니다.",

@@ -31,7 +31,7 @@ export interface paths {
          *     (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
          *     `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
          *     `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
-         *     `oidc_identity_taken` or `oidc_unavailable`.
+         *     `oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.
          */
         get: operations["finishOidcLogin"];
         put?: never;
@@ -69,7 +69,9 @@ export interface paths {
          *     vouches for is tied to that account in place of signing in (`getMyIdentities`);
          *     after that the provider signs in to the account. No account is made and none is
          *     joined to another: an identity that is another account's is refused
-         *     (`oidc_identity_taken`). It ends only in the browser that started it and still has
+         *     (`oidc_identity_taken`), and so is one whose email address, as the provider has
+         *     checked it, is not the account's own (`oidc_email_mismatch`): the password ties no
+         *     other person of the provider to the account. It ends only in the browser that started it and still has
          *     the session it was started from (`oidc_state_invalid` otherwise). A wrong password
          *     is 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a
          *     wrong one of `changePassword` is; an account without a password is 409 with the
@@ -328,9 +330,11 @@ export interface paths {
          *     on when the organization has no provider.
          *
          *     `ssoRequired` true makes the organization take no password: from the next request
-         *     on, what is the organization's (the routes under `/w/{workspaceId}` and here, and
-         *     those that name a board, a card or another thing of it) answers 401 with the reason
-         *     `sso_required` to every session that was not made through this provider. The
+         *     on, what is the organization's (the routes under `/w/{workspaceId}` and
+         *     `/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is
+         *     the one the server stands in) answers 401 with the reason `sso_required` to every
+         *     session that was not made through this provider, and the websocket follows none of
+         *     its workspaces for one. The
          *     sessions stay, and open what is of other organizations. It is switched on by a
          *     session that was itself made through this provider, switched on, or the request is
          *     409 with the reason `sso_unproven`: who asks has then shown that it lets them in.

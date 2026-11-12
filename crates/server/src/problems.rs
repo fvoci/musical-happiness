@@ -231,6 +231,7 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::OidcEmailTaken
         | Reason::OidcJoinClosed
         | Reason::OidcIdentityTaken
+        | Reason::OidcEmailMismatch
         | Reason::PasswordNotSet
         | Reason::LastSignIn
         | Reason::SsoRequired
@@ -430,11 +431,13 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
         }
         Reason::OidcEmailMissing => {
             "On the login page, after a sign-in through a provider: the person has no \
-             account yet, and the provider gave no email address to make one with."
+             account yet, and the provider gave no email address to make one with; or the \
+             sign-in was to link, and the provider gave none to know the account by."
         }
         Reason::OidcEmailUnverified => {
             "On the login page, after a sign-in through a provider: the person has no \
-             account yet, and the provider says it has not checked their email address."
+             account yet, or the sign-in was to link, and the provider says it has not \
+             checked their email address."
         }
         Reason::OidcEmailTaken => {
             "On the login page, after a sign-in through a provider: the person has no \
@@ -463,6 +466,15 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
              link (`startOidcLogin` with `linkPassword`): who the provider vouches for is \
              another account's already. Nothing is linked, and the two accounts are not \
              joined."
+        }
+        Reason::OidcEmailMismatch => {
+            "On the login page, after a sign-in through a provider that was started to \
+             link (`startOidcLogin` with `linkPassword`): the email address the provider \
+             vouches for is not the account's own. Nothing is linked: the account's \
+             password ties to it only the person the provider knows by the account's \
+             address. A provider that gave no address, or one it has not checked, is \
+             refused as at a first sign-in (`oidc_email_missing`, \
+             `oidc_email_unverified`)."
         }
         Reason::PasswordNotSet => {
             "Status 409, linking a provider to the account or removing an identity from \

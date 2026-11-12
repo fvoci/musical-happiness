@@ -502,7 +502,7 @@ async fn a_link_ties_an_identity_to_the_account_of_a_session_that_is_still_good(
         idle_since,
     };
     let attempt = async |provider_id: &str, link: LinkingSession<'_>, identity: Identity<'_>| {
-        test.finish_oidc_link(provider_id, link, identity, "linker@idp.example.com")
+        test.finish_oidc_link(provider_id, link, identity, "Linker@Example.com")
             .await
             .expect("asked")
     };
@@ -563,8 +563,56 @@ async fn a_link_ties_an_identity_to_the_account_of_a_session_that_is_still_good(
             .iter()
             .map(|identity| (identity.subject.as_str(), identity.email.as_str()))
             .collect::<Vec<_>>(),
-        [("linker-there", "linker@idp.example.com")]
+        [("linker-there", "Linker@Example.com")]
     );
+}
+
+/// An identity is tied to the account whose own address the provider vouches for, in
+/// whatever letters, and to no other: not by another address, another account's, or
+/// none. One that is the account's already is that still, whatever address comes.
+#[tokio::test]
+async fn a_link_ties_only_the_identity_of_the_accounts_own_address() {
+    let test = common::setup().await;
+    let user = common::user(&test, "linker").await;
+    common::user(&test, "other").await;
+    let provider = test
+        .put_oidc_provider(&provider_that(Enforcement::Off))
+        .await
+        .expect("stored");
+    let session = session_of(&test, &user, "digest").await;
+    let attempt = async |address: &str| {
+        let link = LinkingSession {
+            session_id: &session.id,
+            token_digest: "digest",
+            now: 1_500,
+            idle_since: 0,
+        };
+        let identity = Identity {
+            issuer: "https://idp.example.com",
+            subject: "linker-there",
+        };
+        test.finish_oidc_link(&provider.id, link, identity, address)
+            .await
+            .expect("asked")
+            .map(|linked| linked.newly)
+    };
+
+    for address in ["somebody@elsewhere.example", "other@example.com", ""] {
+        assert_eq!(
+            attempt(address).await,
+            Err(LinkRefusal::AnotherAddress),
+            "{address:?}"
+        );
+    }
+    assert_eq!(test.identities_of_user(&user).await.expect("read"), []);
+    assert_eq!(attempt("LINKER@example.com").await, Ok(true));
+    assert_eq!(
+        attempt("somebody@elsewhere.example").await,
+        Ok(false),
+        "the account's already"
+    );
+    assert_eq!(test.identities_of_user(&user).await.expect("read").len(), 1);
+    test.teardown().await;
 }
 
 /// An account without a password keeps its last identity, also when two of them are
@@ -648,6 +696,8 @@ async fn one_identity_linked_by_two_accounts_at_once_is_tied_to_one() {
             let session = session_of(&test, &user, &digest).await;
             let (store, provider_id, subject) =
                 (test.store.clone(), provider.id.clone(), subject.clone());
+            // Each as the provider would know it: by the address of its own account.
+            let address = format!("{name}-{round}@example.com");
             users.push(user);
             linking.push(tokio::spawn(async move {
                 let link = LinkingSession {
@@ -661,7 +711,7 @@ async fn one_identity_linked_by_two_accounts_at_once_is_tied_to_one() {
                     subject: &subject,
                 };
                 store
-                    .finish_oidc_link(&provider_id, link, identity, "")
+                    .finish_oidc_link(&provider_id, link, identity, &address)
                     .await
             }));
         }
@@ -693,7 +743,7 @@ async fn one_identity_linked_by_two_accounts_at_once_is_tied_to_one() {
                 issuer: "https://idp.example.com",
                 subject: "late",
             },
-            "",
+            "late@example.com",
         )
         .await
         .expect("asked");

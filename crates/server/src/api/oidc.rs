@@ -87,7 +87,9 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 /// vouches for is tied to that account in place of signing in (`getMyIdentities`);
 /// after that the provider signs in to the account. No account is made and none is
 /// joined to another: an identity that is another account's is refused
-/// (`oidc_identity_taken`). It ends only in the browser that started it and still has
+/// (`oidc_identity_taken`), and so is one whose email address, as the provider has
+/// checked it, is not the account's own (`oidc_email_mismatch`): the password ties no
+/// other person of the provider to the account. It ends only in the browser that started it and still has
 /// the session it was started from (`oidc_state_invalid` otherwise). A wrong password
 /// is 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a
 /// wrong one of `changePassword` is; an account without a password is 409 with the
@@ -196,7 +198,7 @@ async fn handle_start(
 /// (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
 /// `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
 /// `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,
-/// `oidc_identity_taken` or `oidc_unavailable`.
+/// `oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.
 #[utoipa::path(
     get,
     path = "/auth/oidc/callback/{orgId}",

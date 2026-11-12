@@ -106,13 +106,17 @@ impl App {
             issuer: &claims.issuer,
             subject: &claims.subject,
         };
-        // The provider's word, kept with the identity as at a first sign-in.
+        // The provider's word, as at a first sign-in: an address it has checked. It is
+        // the account's own, or nothing is tied (`Store::finish_oidc_link`).
         let email = claims
             .email
             .as_deref()
             .map(str::trim)
             .filter(|email| is_email_valid(email))
-            .unwrap_or_default();
+            .ok_or(Reason::OidcEmailMissing)?;
+        if claims.email_verified == Some(false) {
+            return Err(Reason::OidcEmailUnverified.into());
+        }
         let linked = self
             .store()
             .finish_oidc_link(&stored.id, link, identity, email)
@@ -134,6 +138,10 @@ impl App {
                 Err(Reason::OidcStateInvalid.into())
             }
             Err(LinkRefusal::IdentityTaken) => Err(Reason::OidcIdentityTaken.into()),
+            Err(LinkRefusal::AnotherAddress) => {
+                tracing::info!(org_id = %stored.org_id, "a sign-in to link was of another address than the account's");
+                Err(Reason::OidcEmailMismatch.into())
+            }
         }
     }
 

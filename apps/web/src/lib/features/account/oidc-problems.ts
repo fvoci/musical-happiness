@@ -22,6 +22,8 @@ export function oidcProblemOf(name: string): string {
       return m.account_oidc_join_closed();
     case 'oidc-identity-taken':
       return m.account_oidc_identity_taken();
+    case 'oidc-email-mismatch':
+      return m.account_oidc_email_mismatch();
     default:
       return m.account_oidc_failed();
   }

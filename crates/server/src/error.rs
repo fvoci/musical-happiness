@@ -237,6 +237,9 @@ reasons! {
     OidcJoinClosed => "oidc_join_closed", "Organization closed to newcomers";
     /// The identity a provider vouches for is another account's: it is not linked.
     OidcIdentityTaken => "oidc_identity_taken", "Sign-in of another account";
+    /// The email address a provider vouches for is not the one of the account it was
+    /// to be linked to: it is not linked.
+    OidcEmailMismatch => "oidc_email_mismatch", "Email address of the provider not the account's";
     /// The account has no password to confirm with.
     PasswordNotSet => "password_not_set", "Account without a password";
     /// The identity is the only way in to an account without a password.

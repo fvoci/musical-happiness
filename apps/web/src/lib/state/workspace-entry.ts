@@ -22,6 +22,9 @@ import {
  */
 export type EnterStatus = 'none' | 'loading' | 'ready' | 'missing' | 'failed' | 'sso';
 
+/** Open to this session: not of an organization that takes its single sign-on alone. */
+export const isOpen = (workspace: WorkspaceInfo): boolean => !workspace.ssoRequired;
+
 /**
  * The workspace to start in when the address names none: `last`, the one
  * the reader was last in on this device, if it is still theirs, else their
@@ -35,7 +38,7 @@ export function firstChoiceOf(
     workspaces.find((workspace) => workspace.id === last) ??
     // Not one that is closed to this session while another is open: from a
     // closed one the reader has only the way through its single sign-on.
-    workspaces.find((workspace) => !workspace.ssoRequired) ??
+    workspaces.find(isOpen) ??
     workspaces[0];
   return chosen?.id;
 }

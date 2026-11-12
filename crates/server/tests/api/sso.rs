@@ -118,8 +118,8 @@ fn closed(workspaces: &[UserWorkspace]) -> Vec<bool> {
 }
 
 /// From the request after it is switched on, a session made with a password opens
-/// nothing of the organization, under a workspace, under the organization or by an
-/// identifier, and goes on as the account's own; the session made through the provider
+/// nothing of the organization, under a workspace or under the organization, and goes
+/// on as the account's own; the session made through the provider
 /// opens everything. Switched off, the same password session opens it again: no session
 /// was ended.
 #[tokio::test]
@@ -487,7 +487,7 @@ impl Named {
     /// A body the operation reads before it asks whose the request is, where it does.
     fn body(&self, operation: &str) -> Value {
         match operation {
-            "getWorkspaceUsersById" | "getUsers" => json!([self.user_id]),
+            "getWorkspaceUsersById" => json!([self.user_id]),
             "createBlocks" | "reorderCardProperties" => json!([]),
             "importArchive" => json!({ "uploadId": self.upload_id }),
             _ => json!({}),
@@ -629,8 +629,8 @@ async fn walled(fake: &FakeProvider) -> (TestServer, Named, Client) {
 /// Nothing of an organization that takes no password is reached around the wall: with
 /// a password session of its administrator, every operation of the contract that is
 /// not the account's own answers that the session does not open the organization,
-/// whether it names a workspace, the organization, or a thing by its identifier. An
-/// operation that is added is asked too.
+/// whether it names a workspace, the organization, or neither. An operation that is
+/// added is asked too.
 #[tokio::test]
 async fn nothing_of_the_organization_is_reached_around_the_wall() {
     let fake = FakeProvider::start().await;

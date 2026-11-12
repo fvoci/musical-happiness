@@ -307,6 +307,62 @@ async fn a_link_is_started_with_a_session_and_the_accounts_password() {
     fake.stop();
 }
 
+/// The account's password ties to it only the person the provider knows by the
+/// account's own address, which the provider has checked: with the password alone,
+/// nobody ties another person of the provider to the account, who would then sign in to
+/// it, past an organization that takes no password, without it. Nothing is linked
+/// otherwise, and the provider signs in to no account by it.
+#[tokio::test]
+async fn only_the_person_of_the_accounts_own_address_is_linked() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let user1: User = ts.client.me().await;
+    let linker = Linker::new(&ts, &fake);
+    let unchecked = Person {
+        email_verified: Some(false),
+        ..Person::new("subject-of-user1", "user1@sample.com")
+    };
+    let without = Person {
+        email: None,
+        ..Person::new("subject-of-user1", "user1@sample.com")
+    };
+    for (person, refusal) in [
+        (
+            Person::new("subject-of-another", "another@elsewhere.example"),
+            "oidc-email-mismatch",
+        ),
+        // The address of another account is no more this account's.
+        (
+            Person::new("subject-of-another", "user2@sample.com"),
+            "oidc-email-mismatch",
+        ),
+        (unchecked, "oidc-email-unverified"),
+        (without, "oidc-email-missing"),
+    ] {
+        fake.sign_in_as(person);
+        assert_eq!(
+            linker.link(&org_id, &ts.client.token).await,
+            Ended::Refused(refusal.to_owned())
+        );
+        assert_eq!(identities(&ts.client).await, [], "{refusal}");
+    }
+    assert_eq!(flows(&ts).await, 0, "each sign-in is taken");
+
+    // The same address in other letters is the account's.
+    fake.sign_in_as(Person::new("subject-of-user1", "User1@Sample.com"));
+    assert_eq!(linker.link(&org_id, &ts.client.token).await, Ended::Linked);
+    let token = Browser::new(&ts, &fake)
+        .sign_in(&org_id)
+        .await
+        .token()
+        .to_owned();
+    assert_eq!(ts.client_with_token(&token).me().await.id, user1.id);
+    ts.teardown().await;
+    fake.stop();
+}
+
 /// Who the provider vouches for is another account's: nothing is linked, and the two
 /// accounts stay two.
 #[tokio::test]
@@ -318,7 +374,9 @@ async fn an_identity_of_another_account_is_not_linked() {
     let theirs = through_provider(&ts, &fake, &org_id, "subject-of-somebody").await;
     let them: User = theirs.me().await;
 
-    // The provider still vouches for that person when user1 links.
+    // The provider still vouches for that person when user1 links, now by user1's
+    // address: whose the identity is decides, not what the provider says of it today.
+    fake.sign_in_as(Person::new("subject-of-somebody", "user1@sample.com"));
     let linker = Linker::new(&ts, &fake);
     assert_eq!(
         linker.link(&org_id, &ts.client.token).await,

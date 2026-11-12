@@ -479,11 +479,11 @@ export class Workspace {
 
   /**
    * The boards the reader may find by `query` (every word of the title) in each of their
-   * workspaces, oldest first. A failure finds nothing there; a session over signs out.
+   * workspaces the session opens, oldest first. A failure finds nothing there; a session over signs out.
    */
   async searchBoards(query: string): Promise<Board[]> {
     if (!this.info || query.trim() === '') return [];
-    const found = this.workspaces.map((workspace) =>
+    const found = this.workspaces.filter(entry.isOpen).map((workspace) =>
       this.backend.searchBoards(workspace.id, query.trim()).catch((error: unknown) => {
         if (isBackendError(error) && error.status === 401) this.report('load', error);
         else if (!isBackendError(error)) console.error(error);
