@@ -159,6 +159,9 @@ impl Fetcher {
             if is_refused_address(&error) {
                 FetchError::NotPublic
             } else {
+                // What failed (TLS, a refused connection, the time): for the operator.
+                // The request's form is not in it.
+                tracing::debug!(error = %error.without_url(), "a provider could not be reached");
                 FetchError::Unreachable
             }
         })?;
@@ -173,11 +176,10 @@ impl Fetcher {
             return Err(FetchError::TooLarge);
         }
         let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| FetchError::Unreachable)?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
+            tracing::debug!(error = %error.without_url(), "a provider's answer broke off");
+            FetchError::Unreachable
+        })? {
             if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
                 return Err(FetchError::TooLarge);
             }

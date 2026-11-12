@@ -71,7 +71,8 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 /// or `none`) is sent to the login page with `oidc_state_invalid`. If the
 /// organization has no provider that is on, or it cannot be reached, the browser is
 /// sent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the
-/// name of its problem (`oidc-unavailable`), or `too-many-requests`.
+/// name of its problem (`oidc-unavailable`), or `rate-limited` when this address made
+/// too many sign-ins of late.
 #[utoipa::path(
     get,
     path = "/auth/oidc/start",
@@ -132,8 +133,8 @@ async fn handle_start(
 /// with the reason of what went wrong in `oidc_error`, by the name of its problem
 /// (`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,
 /// `oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,
-/// `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`, `oidc_unavailable`,
-/// or `too-many-requests`.
+/// `oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or
+/// `oidc_unavailable`.
 #[utoipa::path(
     get,
     path = "/auth/oidc/callback",

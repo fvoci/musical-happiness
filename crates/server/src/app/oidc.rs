@@ -14,7 +14,7 @@ use fvoci_model::{
     LoginOptions, OidcProvider, OidcProviderSettings, RefusalReason, Refusals, Session, User,
     display_name, is_email_valid, new_id,
 };
-use fvoci_store::{Identity, Join, LoginFlow, StoreError, StoredProvider, Taken};
+use fvoci_store::{Identity, LoginFlow, StoreError, StoredProvider, Taken};
 use subtle::ConstantTimeEq as _;
 
 use super::App;
@@ -527,6 +527,16 @@ impl App {
             self.let_in(&user, stored).await?;
             return Ok(user);
         }
+        // The identity of an account that is deleted: not let in, and not made anew.
+        if self
+            .store()
+            .is_identity_known(identity)
+            .await
+            .map_err(|error| logged(&error, "looking up an identity"))?
+        {
+            tracing::info!(issuer = %claims.issuer, "a sign-in through a provider was for a deleted account");
+            return Err(Reason::OidcUnavailable.into());
+        }
         if !stored.auto_join {
             return Err(Reason::OidcJoinClosed.into());
         }
@@ -610,7 +620,7 @@ impl App {
             };
             match self
                 .store()
-                .create_oidc_user(&mut user, identity, email, Join::Organization)
+                .create_oidc_user(&mut user, identity, email)
                 .await
             {
                 Ok(()) => {
@@ -641,10 +651,12 @@ impl App {
 /// What a sealed client secret is bound to: the organization, the issuer and the client
 /// it is for. Moved to another row, or kept for another issuer, it does not open.
 pub fn secret_context(org_id: &str, issuer: &str, client_id: &str) -> Vec<u8> {
-    // Each part is length-prefixed, so no two triples give the same bytes.
+    // Each part is length-prefixed, so no two triples give the same bytes; the length
+    // is eight bytes on every platform.
     let mut context = b"oidc client secret".to_vec();
     for part in [org_id, issuer, client_id] {
-        context.extend_from_slice(&part.len().to_be_bytes());
+        let length = u64::try_from(part.len()).unwrap_or(u64::MAX);
+        context.extend_from_slice(&length.to_be_bytes());
         context.extend_from_slice(part.as_bytes());
     }
     context

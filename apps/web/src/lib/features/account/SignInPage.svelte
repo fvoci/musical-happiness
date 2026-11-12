@@ -70,7 +70,7 @@
         return m.account_oidc_email_taken();
       case 'oidc-join-closed':
         return m.account_oidc_join_closed();
-      case 'too-many-requests':
+      case 'rate-limited':
         return m.account_rate_limited();
       default:
         return m.account_oidc_failed();

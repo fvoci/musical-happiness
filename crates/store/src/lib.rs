@@ -52,7 +52,7 @@ pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
 pub use error::{StoreError, Taken};
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
-pub use oidc::{Identity, Join, LoginFlow, StoredProvider};
+pub use oidc::{Identity, LoginFlow, StoredProvider};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};

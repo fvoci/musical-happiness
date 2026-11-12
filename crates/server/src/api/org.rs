@@ -110,7 +110,10 @@ async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
 /// redirect, and reaches only public addresses unless its configuration lets it
 /// (`oidc_allow_private_addresses`).
 ///
-/// `clientSecret` left out keeps the stored secret; the empty string stores none. The
+/// `clientSecret` left out keeps the stored secret while the issuer and the client stay
+/// the same; with another issuer or client it is required when a secret is stored (400,
+/// `required` at `/clientSecret`), as the secret is the old client's. The empty string
+/// stores none. The
 /// secret is stored sealed with the server's key and never answered: without the key
 /// the request is 409 with the reason `secret_key_required`. `autoJoin` and `enabled`
 /// are on if left out. The answer's `redirectUri` is the address to register with the

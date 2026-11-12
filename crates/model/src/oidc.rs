@@ -48,8 +48,9 @@ pub struct OidcProviderSettings {
     /// The client identifier the provider gave this server.
     #[serde(deserialize_with = "null_as_default")]
     pub client_id: String,
-    /// The client secret. Left out, the stored one stays (none for a new provider); the
-    /// empty string stores none.
+    /// The client secret. Left out, the stored one stays while the issuer and the client
+    /// stay the same (none for a new provider), and is required with another issuer or
+    /// client when one is stored; the empty string stores none.
     pub client_secret: Option<String>,
     /// Whether somebody the provider vouches for who is no member becomes one. On if
     /// left out.

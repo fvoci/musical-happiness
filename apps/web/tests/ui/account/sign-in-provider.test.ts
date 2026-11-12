@@ -49,7 +49,11 @@ describe('the provider of the organization on the sign-in page', () => {
   });
 
   it('is not there when the organization has no provider', async () => {
-    const { organizationOf } = mount('/login?org=org-1', undefined);
+    const { organizationOf } = mount('/login?org=org-1', {
+      id: 'org-1',
+      name: 'Acme',
+      oidc: false,
+    });
     await vi.waitFor(() => expect(organizationOf).toHaveBeenCalled());
     expect(screen.queryByTestId('oidc-continue')).toBeNull();
   });

@@ -269,7 +269,8 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
         Reason::OidcStateInvalid => {
             "On the login page, after a sign-in through a provider. What came back is no \
              sign-in this browser started, or one that was used already or took longer than \
-             ten minutes. Start again."
+             ten minutes; or the sign-in was started from a page of another site. Start \
+             again from the login page."
         }
         Reason::OidcDenied => {
             "On the login page, after a sign-in through a provider: the provider sent the \

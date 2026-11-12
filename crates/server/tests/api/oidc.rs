@@ -1202,3 +1202,67 @@ async fn an_organization_not_in_use_lets_nobody_in() {
     ts.teardown().await;
     fake.stop();
 }
+
+/// Sign-ins are counted against the address they come from, as logins are: past the
+/// limit, a start is sent back to the sign-in page as `rate-limited`, the name the page
+/// knows.
+#[tokio::test]
+async fn too_many_sign_ins_from_one_address_are_refused() {
+    fn with_few_sign_ins(config: &mut Configuration) {
+        with_key_and_private_addresses(config);
+        config.login_address_attempts_per_minute = 12;
+    }
+    let fake = FakeProvider::start().await;
+    let ts = Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(with_few_sign_ins)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    let mut refused = None;
+    for _ in 0..13 {
+        if let Err(refusal) = browser.go_to_provider(&org_id).await {
+            refused = Some(refusal);
+            break;
+        }
+    }
+    assert_eq!(refused.as_deref(), Some("rate-limited"));
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// The identity of an account that is deleted signs nobody in, and makes no account
+/// anew.
+#[tokio::test]
+async fn the_identity_of_a_deleted_account_lets_nobody_in() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    fake.sign_in_as(Person::new("subject-gone", "gone@example.com"));
+    let first = browser.sign_in(&org_id).await;
+    let me = ts.client_with_token(first.token()).me().await;
+    ts.app
+        .store()
+        .system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET delete_at = 1 WHERE id = '{}'",
+            me.id
+        ))
+        .await
+        .expect("the account is marked deleted");
+    let users_before = users(&ts).await;
+    assert_eq!(
+        browser.sign_in(&org_id).await,
+        Outcome::Refused("oidc-unavailable".to_owned())
+    );
+    assert_eq!(users(&ts).await, users_before, "no account was made");
+    assert_eq!(identities(&ts).await, 1);
+    ts.teardown().await;
+    fake.stop();
+}

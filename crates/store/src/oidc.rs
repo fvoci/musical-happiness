@@ -239,12 +239,27 @@ impl Store {
         .await
     }
 
+    /// Whether the identity is an account's, whether the account is deleted or not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn is_identity_known(&self, identity: Identity<'_>) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT 1 FROM user_identities WHERE issuer = ");
+            sql.bind(identity.issuer)
+                .push_bind(" AND subject = ", identity.subject);
+            Ok(scope.fetch_optional(sql).await?.is_some())
+        })
+        .await
+    }
+
     /// Stores a new account that a provider of the handle's organization vouches for
     /// under `identity`, with no password: an empty hash, which no password matches;
     /// and with no email address of its own: `provider_email`, the address the provider
     /// gave, is kept with the identity, unchecked, and holds no account's place. In
     /// the same transaction the account joins the organization and its default
-    /// workspace, as a member, if `join` is [`Join::Organization`].
+    /// workspace, as a member.
     ///
     /// `user` is updated to what was stored: the current time as creation and
     /// modification time, not deleted, no administrator of the instance, no password, no
@@ -254,15 +269,13 @@ impl Store {
     ///
     /// Returns [`StoreError::Conflict`] if another account has the name in any letter
     /// case, or the identity is another account's already;
-    /// [`StoreError::NoOrganization`] if the account is to join and the handle names no
-    /// organization; and [`StoreError::Database`] if a statement fails. Nothing is
+    /// [`StoreError::NoOrganization`] if the handle names no organization; and [`StoreError::Database`] if a statement fails. Nothing is
     /// stored then.
     pub async fn create_oidc_user(
         &self,
         user: &mut User,
         identity: Identity<'_>,
         provider_email: &str,
-        join: Join,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
             let now = now_millis();
@@ -274,9 +287,7 @@ impl Store {
             user.email = String::new();
             insert_user_row(scope, user).await?;
             insert_identity(scope, identity, &user.id, provider_email, now).await?;
-            if join == Join::Organization {
-                members::join_organization(scope, &user.id, InstanceRole::User).await?;
-            }
+            members::join_organization(scope, &user.id, InstanceRole::User).await?;
             Ok(())
         })
         .await
@@ -342,15 +353,6 @@ impl Store {
         })
         .await
     }
-}
-
-/// Whether an account that is made joins the organization of the handle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Join {
-    /// It joins the organization and its default workspace.
-    Organization,
-    /// It is made alone.
-    Nothing,
 }
 
 async fn insert_identity(

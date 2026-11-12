@@ -1870,7 +1870,7 @@ async fn the_bag_of_client_state_is_bounded() {
     test.teardown().await;
 }
 
-// -- a password that changed in the meantime ---------------------------------------------
+// -- accounts without an address of their own --------------------------------------------
 
 /// An account without an address of its own (one made through a provider) holds no
 /// place among the addresses: there are as many as there are, and no lookup by address
@@ -1918,3 +1918,5 @@ async fn an_empty_address_is_nobody_s_and_taken_by_none() {
     );
     test.teardown().await;
 }
+
+// -- a password that changed in the meantime ---------------------------------------------

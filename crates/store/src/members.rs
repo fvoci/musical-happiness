@@ -97,11 +97,13 @@ fn roles_of(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
     }
 }
 
-/// Makes a user who registered a member of the organization and of its default
-/// workspace, as an administrator of both if the user is one of the instance.
+/// Makes a user a member of the organization and of its default workspace, as an
+/// administrator of both if the user is one of the instance: one who registered, or one
+/// a provider of the organization let in (`Store::create_oidc_user`).
 ///
-/// TEMPORARY, with [`Store::only_organization`]: until signing up makes an organization
-/// and an invitation leads into one, whoever registers joins the one there is.
+/// TEMPORARY for registration, with [`Store::only_organization`]: until signing up makes
+/// an organization and an invitation leads into one, whoever registers joins the one
+/// there is. A provider's newcomers join its organization so for good.
 pub(crate) async fn join_organization(
     scope: &mut Scope<'_>,
     user_id: &str,
