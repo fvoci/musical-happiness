@@ -63,6 +63,11 @@ use sqlx::types::Uuid;
 /// How many connections a store keeps to a file or server database.
 const MAX_CONNECTIONS: u32 = 10;
 
+/// How long the statement of [`Store::check_ready`] may run on PostgreSQL: less than
+/// the two seconds the server's readiness check waits, so that the statement ends by
+/// itself before its caller gives it up.
+const READY_STATEMENT_TIMEOUT: Duration = Duration::from_millis(1500);
+
 /// Whose rows the operations of a [`Store`] handle reach.
 ///
 /// The rows of an organization are kept apart from the others' twice. The server
@@ -365,13 +370,24 @@ impl Store {
     /// Reads one row of the sessions at most, to see that the database answers and holds
     /// the table every signed-in request reads: one connection, one statement. A
     /// database that answers but has lost this server's tables is not one it can serve
-    /// from; the schema as a whole is not compared.
+    /// from; the schema as a whole is not compared. On PostgreSQL the statement gives
+    /// up after one and a half seconds, also while it waits for a lock on the table
+    /// (a `VACUUM FULL`, a migration): a check its caller gave up does not keep its
+    /// connection from the pool until the lock goes.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if no connection comes or the statement fails.
-    pub async fn ping(&self) -> Result<(), StoreError> {
+    /// Returns [`StoreError::Database`] if no connection comes or a statement fails.
+    pub async fn check_ready(&self) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
+            if scope.dialect() == Dialect::Postgres {
+                // For this transaction only; a plain SELECT, so the call stays a read.
+                let sql = scope.sql(&format!(
+                    "SELECT set_config('statement_timeout', '{}ms', true)",
+                    READY_STATEMENT_TIMEOUT.as_millis()
+                ));
+                scope.fetch_optional(sql).await?;
+            }
             let sql = scope.sql("SELECT 1 FROM sessions LIMIT 1");
             scope.fetch_optional(sql).await.map(|_| ())
         })

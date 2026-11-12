@@ -150,8 +150,10 @@ impl App {
     /// Makes the checks, and sets the gauges of the metrics from them. The database's
     /// check is one call of the store, measured as any other.
     async fn check_readiness(&self) -> Readiness {
-        let (database, files) =
-            tokio::join!(checked("database", self.store().ping()), self.check_files(),);
+        let (database, files) = tokio::join!(
+            checked("database", self.store().check_ready()),
+            self.check_files(),
+        );
         let readiness = Readiness { database, files };
         self.metrics().set_ready([
             (

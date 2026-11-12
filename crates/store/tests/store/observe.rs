@@ -153,7 +153,7 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
 
 /// A call on one connection given up while its statement that writes waits for a lock
 /// that another connection holds is told as one that wrote: it started writing, though
-/// it never said so by ending (`origin/fvoci/review-metrics`, `review_observe.rs`).
+/// it never said so by ending.
 #[tokio::test]
 async fn a_cancelled_statement_that_started_writing_is_observed_as_a_write() {
     let store = common::setup().await;

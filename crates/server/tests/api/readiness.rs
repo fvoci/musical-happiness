@@ -73,8 +73,7 @@ async fn without_the_database_the_server_is_alive_and_not_ready_and_says_no_more
 }
 
 /// A database that answers but has lost a table every signed-in request reads is not
-/// ready: that it answers a statement says nothing of its schema
-/// (`origin/fvoci/review-metrics`, `review_metrics_readiness.rs`).
+/// ready: that it answers a statement says nothing of its schema.
 #[tokio::test]
 async fn readiness_refuses_a_database_missing_a_required_table() {
     let server = Setup::native().start().await;
@@ -119,8 +118,7 @@ async fn a_files_directory_that_is_no_directory_is_not_ready() {
 }
 
 /// A directory the server may not write in is not ready: that it is a directory says
-/// nothing of whether a file can be stored (`origin/fvoci/review-metrics`,
-/// `review_metrics_readiness.rs`). A check that fails leaves no partial file behind.
+/// nothing of whether a file can be stored. A check that fails leaves no partial file behind.
 #[cfg(unix)]
 #[tokio::test]
 async fn readiness_refuses_a_files_directory_that_cannot_be_written() {
