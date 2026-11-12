@@ -8,16 +8,21 @@ use axum::body::Bytes;
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
-use fvoci_model::{Board, Session, User, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{AuditRecord, Board, Session, User, UserWorkspace, Workspace, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{HomeMemberWorkspaceId, MemberWorkspaceId, UserSearch, WorkspaceId};
+use super::contract::params::{
+    CappedPerPage, HomeMemberWorkspaceId, MemberWorkspaceId, Page, UserSearch, WorkerWorkspaceId,
+    WorkspaceId,
+};
 use super::contract::tag;
+use super::org_admin::requested_page;
 use super::session::session_of;
 use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
+use crate::permissions;
 
 /// The path parameter that names the workspace of a route.
 const WORKSPACE_ID: &str = "workspaceId";
@@ -31,6 +36,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_get_workspace_users,
             handle_get_workspace_users_by_id
         ))
+        .routes(routes!(handle_get_workspace_audit))
 }
 
 /// The workspace a request names in its path, for a member of it.
@@ -307,4 +313,35 @@ async fn handle_get_workspace_users_by_id(
         .users_in_workspace(&ws.session.user_id, &ws.workspace_id, ws.role, &user_ids)
         .await?;
     Ok(json_response(&users))
+}
+
+/// The audit log of a workspace
+///
+/// One page of what was done in the workspace that its members are to know of, the
+/// newest first: an administrator of the organization joining it as its administrator,
+/// leaving it, or being taken out of it when they stopped administering the
+/// organization; and an administrator of the workspace who could not read a board
+/// giving somebody (themselves or another) a role on it. A board's title is there where
+/// the reader sees the board. For whoever works in the workspace (a member who is no
+/// guest), of any organization. 50 to a page unless `perPage` says otherwise, at most
+/// 200. The records are never changed or removed but with the workspace, when it is
+/// removed for good.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/audit",
+    operation_id = "getWorkspaceAudit",
+    tag = tag::WORKSPACES,
+    params(WorkerWorkspaceId, Page, CappedPerPage),
+    responses((status = 200, description = "The records of the page.", body = Vec<AuditRecord>)),
+)]
+async fn handle_get_workspace_audit(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
+    if !permissions::reads_the_audit_log(Some(ws.role)) {
+        return Err(workspace_not_found());
+    }
+    let paging = requested_page(query.as_deref())?;
+    Ok(json_response(
+        &ws.app
+            .workspace_audit(&ws.session.user_id, &ws.workspace_id, paging)
+            .await?,
+    ))
 }

@@ -106,7 +106,9 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
 /// Shares the board, shares it under a new read token, or stops sharing it. The server
 /// makes the token; a request that names one is 400. Where the server is configured
 /// without public sharing, every request is refused with 403 and the reason
-/// `sharing_disabled`, also one that stops sharing. For the board's admins.
+/// `sharing_disabled`, also one that stops sharing. While the organization has its
+/// public links off (`patchOrganization`), sharing a board is refused with 403 and the
+/// reason `public_links_off`; stopping it is not. For the board's admins.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/sharing",

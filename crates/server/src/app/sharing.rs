@@ -5,7 +5,7 @@ use fvoci_store::{SharingChange, StoreError};
 
 use super::App;
 use crate::auth::secret::new_secret;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 impl App {
     /// Returns the sharing state of a board. A board that was never shared is not
@@ -27,17 +27,25 @@ impl App {
 
     /// Changes whether a board is shared, on behalf of a user, and returns the sharing
     /// state as stored. A board that becomes shared, or is shared anew, gets a read
-    /// token the server makes; one that stops being shared loses its token.
+    /// token the server makes; one that stops being shared loses its token. Stopping
+    /// is never refused; sharing is, while the organization has its public links off.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if there is no such board.
+    /// Returns a not-found error if there is no such board, and a 403 with the reason
+    /// `public_links_off` for sharing it while the organization's public links are off.
     pub async fn set_sharing(
         &self,
         board_id: &str,
         change: SharingChange,
         user_id: &str,
     ) -> Result<Sharing, AppError> {
+        if change != SharingChange::Off && !self.public_links_on().await? {
+            return Err(
+                AppError::forbidden("the organization has turned its public links off")
+                    .with_reason(Reason::PublicLinksOff),
+            );
+        }
         match self
             .store()
             .set_sharing(board_id, change, &new_secret(), user_id)

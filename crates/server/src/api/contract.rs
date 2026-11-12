@@ -38,10 +38,11 @@ pub(crate) mod tag {
     pub(crate) const FILES: &str = "files";
     pub(crate) const ARCHIVES: &str = "archives";
     pub(crate) const SUBSCRIPTIONS: &str = "subscriptions";
+    pub(crate) const ORGANIZATION: &str = "organization";
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 13] = [
+const TAGS: [(&str, &str); 14] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -73,6 +74,11 @@ const TAGS: [(&str, &str); 13] = [
     (tag::FILES, "The files of a board."),
     (tag::ARCHIVES, "Exporting boards and importing them."),
     (tag::SUBSCRIPTIONS, "Subscriptions to blocks."),
+    (
+        tag::ORGANIZATION,
+        "What an organization's administrators manage: the organization, its members' \
+         roles, its workspaces and their trash, joining a workspace, and the audit logs.",
+    ),
 ];
 
 /// The name of the security scheme of the session cookie.
@@ -222,6 +228,12 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
     ("Workspace", Members::AllBut(&["signupToken"])),
+    ("AuditAction", Members::AsWritten),
+    ("AuditPerson", Members::All),
+    ("AuditRecord", Members::All),
+    ("Organization", Members::All),
+    ("OrgMember", Members::All),
+    ("OrgWorkspace", Members::All),
     ("UploadOpened", Members::All),
     ("UploadState", Members::All),
     ("ReceivedPart", Members::All),
@@ -230,6 +242,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UserSettings", Members::AsWritten),
     ("UserWorkspace", Members::All),
     ("WorkspaceRole", Members::AsWritten),
+    ("OrgRole", Members::AsWritten),
     // What a request carries.
     ("AccountChange", Members::AsWritten),
     ("AdminChange", Members::AsWritten),
@@ -258,6 +271,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewMember", Members::AsWritten),
     ("NewSubscription", Members::AsWritten),
     ("NewUpload", Members::Only(&["name", "size"])),
+    ("OrganizationPatch", Members::Only(&[])),
+    ("OrgRoleChange", Members::AsWritten),
+    ("WorkspaceName", Members::AsWritten),
     (
         "OidcProviderSettings",
         Members::Only(&["issuer", "clientId"]),
