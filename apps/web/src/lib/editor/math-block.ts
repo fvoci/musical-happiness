@@ -3,12 +3,12 @@
  * where its source is changed, opened right under the drawing in the flow of
  * the body (editing-place.ts), the way a diagram's is.
  *
- * Open, every change of the field goes into the document at once, so that it
- * is in the body's undo like any typing (Ctrl+Z in the field is the body's
- * undo), and the drawing above follows it. A source that cannot be drawn
- * leaves the last drawing dimmed, with what went wrong said under the field.
- * An emptied field keeps the last source in the document; closing the place
- * then removes the formula.
+ * Open, the drawing above follows the field as it is typed in; a source that
+ * cannot be drawn leaves the last drawing dimmed, with what went wrong said
+ * under the field. What the field holds goes into the document when the
+ * place is closed on purpose (a key, its button, a press or the focus
+ * elsewhere), as one step of the body's undo; a formula closed empty is
+ * removed (editing-place.ts). Until then Ctrl+Z is the field's own.
  *
  * A new formula (`$$` and a space on an empty line) has no node yet: a
  * formula without a source is none. Its place is drawn on that empty line,
@@ -67,8 +67,8 @@ async function drawAside(
   return { slot, ok: slot.getAttribute('data-state') === 'drawn' };
 }
 
-/** The field of a place, with the keys that close it and the body's undo. */
-function sourceField(page: Document, editor: Editor, latex: string): HTMLTextAreaElement {
+/** The field of a place. */
+function sourceField(page: Document, latex: string): HTMLTextAreaElement {
   const field = page.createElement('textarea');
   field.setAttribute('aria-label', m.editor_math_source());
   field.setAttribute('maxlength', String(MAX_LATEX));
@@ -77,18 +77,6 @@ function sourceField(page: Document, editor: Editor, latex: string): HTMLTextAre
   field.setAttribute('autocapitalize', 'off');
   field.setAttribute('autocomplete', 'off');
   field.value = latex;
-  field.addEventListener('keydown', (event) => {
-    // While an input method is composing, its keys are not commands.
-    if (event.isComposing) return;
-    const mod = event.ctrlKey || event.metaKey;
-    const key = event.key.toLowerCase();
-    if (mod && !event.altKey && (key === 'z' || key === 'y')) {
-      // The field has no undo of its own: what it changed is in the body's.
-      event.preventDefault();
-      if (key === 'y' || event.shiftKey) editor.commands.redo();
-      else editor.commands.undo();
-    }
-  });
   return field;
 }
 
@@ -100,7 +88,7 @@ function say(problem: HTMLElement, parts: HTMLElement[]): void {
 
 /** The box under a formula: the field, what went wrong (said aloud), how to close. */
 function placeBox(page: Document, editor: Editor, field: HTMLTextAreaElement) {
-  const problem = page.createElement('p');
+  const problem = page.createElement('div');
   problem.setAttribute('class', 'doc-place-problem');
   problem.setAttribute('aria-live', 'polite');
   const box = page.createElement('div');
@@ -196,14 +184,16 @@ class FormulaView implements NodeView {
     this.#place = place;
     if (place && !this.#panel) {
       const page = this.dom.ownerDocument;
-      const field = sourceField(page, this.#editor, this.#latex);
+      const field = sourceField(page, this.#latex);
       const { box, problem } = placeBox(page, this.#editor, field);
       field.addEventListener('input', () => {
-        this.#input(field.value);
+        this.#edited(field.value);
       });
       this.dom.append(box);
       this.#panel = { box, field, problem };
       this.dom.setAttribute('data-open', '');
+      // What is wrong with the source is said under the field from the start.
+      void this.#preview(this.#latex);
     } else if (!place && this.#panel) {
       this.#panel.box.remove();
       this.#panel = undefined;
@@ -217,27 +207,36 @@ class FormulaView implements NodeView {
     }
   }
 
-  /** A change of the field goes into the document now, unless it is empty. */
-  #input(value: string): void {
+  /** A change of the field: drawn above it, and kept for when the place closes. */
+  #edited(value: string): void {
     const latex = value.trim().slice(0, MAX_LATEX);
-    const pos = this.#getPos();
-    if (latex === '' || pos === undefined || latex === this.#latex) return;
-    const { view } = this.#editor;
-    view.dispatch(view.state.tr.setNodeAttribute(pos, 'latex', latex));
+    if (latex === '') {
+      // Nothing to draw: the last drawing stays, dimmed, until the field says more.
+      this.#drawn += 1;
+      this.#slot.toggleAttribute('data-stale', true);
+      return;
+    }
+    void this.#preview(latex);
   }
 
   update(node: DocumentNode, decorations: readonly Decoration[]): boolean {
     if (node.type.name !== 'blockMath') return false;
     const latex = latexOf(node);
-    const changed = latex !== this.#latex;
+    const before = this.#latex;
+    const changed = latex !== before;
     this.#latex = latex;
     const place = placeIn(decorations);
+    // Closing draws the stored source again by itself.
+    const closing = place === undefined && this.#place !== undefined;
     if (place !== this.#place) this.#setPlace(place);
     if (changed && this.#panel) {
-      // From the field, or from outside it (an undo): the field shows what is stored.
-      if (this.#panel.field.value.trim() !== latex) this.#panel.field.value = latex;
-      void this.#preview(latex);
-    } else if (changed) this.#show();
+      // Changed from elsewhere while open: the field follows, unless it was written in.
+      const { field } = this.#panel;
+      if (field.value.trim() === before) {
+        field.value = latex;
+        void this.#preview(latex);
+      }
+    } else if (changed && !closing) this.#show();
     return true;
   }
 
@@ -269,7 +268,7 @@ export function newFormulaPanel(editor: Editor): NewFormulaPanel {
   const page = editor.view.dom.ownerDocument;
   const preview = page.createElement('div');
   preview.setAttribute('class', 'doc-math-preview');
-  const field = sourceField(page, editor, '');
+  const field = sourceField(page, '');
   const { box, problem } = placeBox(page, editor, field);
   box.classList.add('doc-place-new');
   box.prepend(preview);

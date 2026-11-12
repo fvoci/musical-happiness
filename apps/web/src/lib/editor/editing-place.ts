@@ -29,6 +29,7 @@ import {
   type EditorState,
   type Transaction,
 } from '@tiptap/pm/state';
+import { closeHistory } from '@tiptap/pm/history';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 
 import { m } from '$lib/i18n/paraglide/messages.js';
@@ -113,39 +114,38 @@ function nextPlace(value: Place | null, tr: Transaction, state: EditorState): Pl
   return selectionStays(place, state) ? place : null;
 }
 
-/** Positions of the old state, carried through the transactions to the new one. */
-function mapThrough(transactions: readonly Transaction[], pos: number): number {
-  return transactions.reduce((at, tr) => tr.mapping.map(at, 1), pos);
-}
-
 /**
- * What closing a formula's place does to the document: a formula closed
- * empty is removed, and a new one that was written goes in place of its line.
+ * What a formula's place leaves in the document when it is closed on
+ * purpose: what its field holds, as one step of undo of its own. A formula
+ * closed empty is removed; a new one that was written goes in place of its
+ * empty line. Gives the position of the formula, if there is one.
  */
-function finishFormula(
-  closed: Place,
-  transactions: readonly Transaction[],
-  state: EditorState,
-): Transaction | null {
-  const written = (closed.panel ?? closed.draft)?.value() ?? '';
-  const pos = mapThrough(transactions, closed.pos);
-  const node = state.doc.nodeAt(pos);
-  if (closed.kind === 'formula' && written === '' && node?.type.name === 'blockMath')
-    return state.tr.delete(pos, pos + node.nodeSize);
-  if (closed.kind !== 'new-formula' || written === '' || !node || !isEmptyParagraph(node))
-    return null;
-  const formula = state.schema.nodes.blockMath?.create({ latex: written });
-  if (!formula) return null;
-  const { from } = state.selection;
-  const stayed = from > pos && from < pos + node.nodeSize;
-  const tr = state.tr.replaceWith(pos, pos + node.nodeSize, formula);
+function finishFormula(tr: Transaction, place: Place): number | undefined {
+  const written = (place.panel ?? place.draft)?.value() ?? '';
+  const node = tr.doc.nodeAt(place.pos);
+  if (!node) return undefined;
+  const { pos } = place;
+  if (place.kind === 'formula') {
+    if (written === String(node.attrs.latex)) return pos;
+    closeHistory(tr);
+    if (written === '') {
+      tr.delete(pos, pos + node.nodeSize);
+      return undefined;
+    }
+    tr.setNodeAttribute(pos, 'latex', written);
+    return pos;
+  }
+  const formula =
+    written === '' ? undefined : tr.doc.type.schema.nodes.blockMath?.create({ latex: written });
+  if (!formula || !isEmptyParagraph(node)) return undefined;
+  closeHistory(tr);
+  tr.replaceWith(pos, pos + node.nodeSize, formula);
   // Somewhere to go on writing when the formula ends what holds it.
   if (tr.doc.resolve(pos + formula.nodeSize).nodeAfter === null) {
-    const paragraph = state.schema.nodes.paragraph?.create();
+    const paragraph = tr.doc.type.schema.nodes.paragraph?.create();
     if (paragraph) tr.insert(pos + formula.nodeSize, paragraph);
   }
-  // Closed from its own line, the formula is selected; closed by a press elsewhere, that press wins.
-  return stayed ? tr.setSelection(NodeSelection.create(tr.doc, pos)) : tr;
+  return pos;
 }
 
 /**
@@ -210,18 +210,30 @@ export function openPlace(view: EditorView, pos: number): boolean {
 }
 
 /**
- * Closes the place that is open. With `focusBlock`, the block is selected and
- * the editor takes the focus, as after a key; without, the selection and the
- * focus are left to whatever was pressed.
+ * Closes the place that is open, on purpose: a formula keeps what its field
+ * holds. With `focusBlock` (a key, its button) the block is selected and the
+ * editor takes the focus; without (a press or the focus elsewhere), the
+ * selection and the focus are left to what was pressed. A place that only
+ * goes away (its block is deleted, the document replaced, the editor made
+ * read-only) is dropped instead (`dropPlace`): nothing is written then.
  */
 export function closePlace(view: EditorView, focusBlock: boolean): void {
   const place = placeOf(view.state);
   if (!place) return;
   const tr = view.state.tr.setMeta(placeKey, { close: true });
-  if (focusBlock && place.kind !== 'new-formula')
-    tr.setSelection(NodeSelection.create(tr.doc, place.pos));
+  const at = place.kind === 'diagram' ? place.pos : finishFormula(tr, place);
+  if (focusBlock) {
+    if (at !== undefined) tr.setSelection(NodeSelection.create(tr.doc, at));
+    else if (place.kind === 'formula')
+      tr.setSelection(Selection.near(tr.doc.resolve(Math.min(place.pos, tr.doc.content.size))));
+  }
   view.dispatch(tr);
   if (focusBlock) view.focus();
+}
+
+/** Closes the place that is open and writes nothing: what a field holds is given up. */
+export function dropPlace(view: EditorView): void {
+  if (placeOf(view.state)) view.dispatch(view.state.tr.setMeta(placeKey, { close: true }));
 }
 
 /** Opens the place of a new formula on the empty line at `pos`, as part of `tr`. */
@@ -311,7 +323,10 @@ function holderOf(view: EditorView, place: Place): Node | null {
 }
 
 /** What a screen reader is told when a place opens, or a block is selected. */
-function announcement(state: EditorState, before: EditorState): string | undefined {
+function announcement(view: EditorView, before: EditorState): string | undefined {
+  const { state } = view;
+  // Where nothing can be edited there is nothing to offer.
+  if (!view.editable) return undefined;
   const place = placeOf(state);
   if (place) return placeOf(before) ? undefined : m.editor_place_opened();
   const { selection } = state;
@@ -342,9 +357,11 @@ function placeView(view: EditorView) {
     if (outside(event.target) && !view.composing) closePlace(view, false);
   };
   const onFocusIn = (event: Event): void => {
-    // The editor itself is not "elsewhere": a press in it moves the selection, which closes.
-    if (outside(event.target) && event.target !== view.dom && !view.composing)
-      closePlace(view, false);
+    // The editor itself is "elsewhere" only for a formula, whose field has the focus; for a
+    // diagram a press in the editor moves the selection, which closes.
+    const place = placeOf(view.state);
+    const away = event.target !== view.dom || (place !== null && place.kind !== 'diagram');
+    if (outside(event.target) && away && !view.composing) closePlace(view, false);
   };
   page.addEventListener('click', onClick, true);
   page.addEventListener('focusin', onFocusIn);
@@ -354,11 +371,11 @@ function placeView(view: EditorView) {
       if (place && !view.editable) {
         // The editor became read-only with a place open. Not from inside this update.
         queueMicrotask(() => {
-          if (!view.isDestroyed) closePlace(view, false);
+          if (!view.isDestroyed) dropPlace(view);
         });
         return;
       }
-      const said = announcement(view.state, before);
+      const said = announcement(view, before);
       if (said !== undefined) live.textContent = said;
       if (!place || placeOf(before)) return;
       // Just opened: the field of a formula takes the focus (a diagram's source is the editor's).
@@ -389,14 +406,7 @@ export const EditingPlace = Extension.create({
           init: () => null,
           apply: (tr, value, _old, state) => nextPlace(value, tr, state),
         },
-        appendTransaction: (transactions, before, state) => {
-          const closed = placeOf(before);
-          if (closed && closed.kind !== 'diagram' && !placeOf(state)) {
-            const finished = finishFormula(closed, transactions, state);
-            if (finished) return finished;
-          }
-          return keepOutOfClosed(transactions, before, state);
-        },
+        appendTransaction: keepOutOfClosed,
         props: {
           handleDOMEvents: { keydown: placeKeys },
           handleKeyDown,

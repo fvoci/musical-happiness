@@ -206,8 +206,9 @@ export function diagramProblem(
 
 /** What went wrong with a formula that was drawn aside (math-block.ts): its notice, again. */
 export function mathProblem(page: Document, slot: HTMLElement): HTMLElement[] {
-  const said = slot.querySelector('.doc-embed-problem')?.textContent;
-  return said ? [notice(page, said, 'p')] : [];
+  // Without a notice the library did not arrive: the formula is not drawn all the same.
+  const said = slot.querySelector('.doc-embed-problem')?.textContent ?? mathFailure.invalid();
+  return [notice(page, said, 'p')];
 }
 
 /**

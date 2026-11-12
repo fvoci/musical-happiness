@@ -161,8 +161,13 @@
   opacity: 0.4;
 }
 .doc-place {
+  position: relative;
   margin-top: 0.25em;
   font-family: var(--font-sans-stack);
+}
+/* Open, a source that cannot be drawn is said under the field, not shown again above it. */
+.doc-math-block[data-open] > .doc-math[data-state='error'] {
+  display: none;
 }
 .doc-place textarea {
   display: block;

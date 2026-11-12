@@ -112,7 +112,7 @@ describe('a block formula', () => {
     expect(field().value).toBe('x^2');
     expect(document.activeElement).toBe(field());
     // Under the drawing, inside the body: no box floating over the page.
-    expect(block(target).lastElementChild?.classList.contains('doc-place')).toBe(true);
+    expect(block(target).querySelector(':scope > .doc-math + .doc-place')).not.toBeNull();
     expect(document.querySelector('.doc-math-editing')).toBeNull();
   });
 
@@ -138,22 +138,67 @@ describe('a block formula', () => {
     expect(updates).toBe(0);
   });
 
-  it('puts every change into the document at once, and into its undo', () => {
+  it('keeps what the field holds when the place is closed, as one step of undo', () => {
     const target = create(BODY);
     formula(target).click();
-    write('y^3');
-    expect(stored(target)).toEqual(
-      doc(paragraph(text('a')), mathBlock('y^3'), paragraph(text('b'))),
-    );
-    // In the field, Ctrl+Z is the body's undo; the field shows what is stored again.
+    write('x^2+');
+    write('x^2+1');
+    write('x^2+12');
+    // Not before it is closed: until then Ctrl+Z is the field's own, and the body is untouched.
+    expect(stored(target)).toEqual(BODY);
     pressIn(field(), { key: 'z', ctrlKey: true });
     expect(stored(target)).toEqual(BODY);
-    expect(field().value).toBe('x^2');
-    write('z');
+    expect(isOpen(target)).toBe(true);
     pressIn(field(), { key: 'Escape' });
+    expect(stored(target)).toEqual(
+      doc(paragraph(text('a')), mathBlock('x^2+12'), paragraph(text('b'))),
+    );
+    expect(updates).toBe(1);
     target.commands.undo();
     expect(stored(target)).toEqual(BODY);
     expect(isOpen(target)).toBe(false);
+  });
+
+  it('is one step of undo of its own, apart from what was typed just before', () => {
+    const target = create(BODY);
+    target.view.dispatch(target.state.tr.insertText('zz', 2));
+    formula(target).click();
+    write('');
+    pressIn(field(), { key: 'Escape' });
+    expect(stored(target)).toEqual(doc(paragraph(text('azz')), paragraph(text('b'))));
+    target.commands.undo();
+    expect(stored(target)).toEqual(
+      doc(paragraph(text('azz')), mathBlock('x^2'), paragraph(text('b'))),
+    );
+  });
+
+  it('writes nothing when the place only goes away: a new document, the editor made read-only', async () => {
+    const target = create(doc(mathBlock('x^2'), paragraph()));
+    formula(target).click();
+    write('');
+    target.commands.setContent(doc(mathBlock('other')));
+    expect(stored(target)).toEqual(doc(mathBlock('other')));
+
+    formula(target).click();
+    write('');
+    target.setEditable(false);
+    await vi.waitFor(() => {
+      expect(isOpen(target)).toBe(false);
+    });
+    expect(stored(target)).toEqual(doc(mathBlock('other')));
+  });
+
+  it('says what is wrong with a source that cannot be drawn as soon as it opens', async () => {
+    const target = create(doc(mathBlock('\\frac{')));
+    await vi.waitFor(() => {
+      expect(formula(target).getAttribute('data-state')).toBe('error');
+    });
+    formula(target).click();
+    await vi.waitFor(() => {
+      expect(block(target).querySelector('.doc-place-problem')?.textContent).toBe(
+        'This formula cannot be drawn.',
+      );
+    });
   });
 
   it('keeps the last drawing, dimmed, while the source cannot be drawn, and says why under the field', async () => {
@@ -182,7 +227,6 @@ describe('a block formula', () => {
     const target = create(BODY);
     formula(target).click();
     write('   ');
-    // Nothing empty goes into the document meanwhile.
     expect(stored(target)).toEqual(BODY);
     pressIn(field(), { key: 'Escape' });
     expect(stored(target)).toEqual(doc(paragraph(text('a')), paragraph(text('b'))));
@@ -190,6 +234,7 @@ describe('a block formula', () => {
     const second = create(doc(mathBlock('x')));
     formula(second).click();
     write('y'.repeat(MAX_LATEX + 50));
+    pressIn(field(), { key: 'Escape' });
     expect(stored(second)).toEqual(doc(mathBlock('y'.repeat(MAX_LATEX))));
     expect(validateDoc(stored(second))).toEqual([]);
   });
@@ -234,6 +279,31 @@ describe('a new block formula', () => {
     // An undo takes it out again.
     target.commands.undo();
     expect(JSON.stringify(stored(target))).not.toContain('blockMath');
+  });
+
+  it('writes nothing when its line is taken by a new document or the editor turns read-only', async () => {
+    const target = create(doc(paragraph()));
+    type(target, '$$ ');
+    write('x');
+    target.commands.setContent(doc(paragraph()));
+    expect(stored(target)).toEqual(doc(paragraph()));
+    expect(document.querySelector('.doc-place-new')).toBeNull();
+
+    type(target, '$$ ');
+    write('y');
+    target.setEditable(false);
+    await vi.waitFor(() => {
+      expect(document.querySelector('.doc-place-new')).toBeNull();
+    });
+    expect(stored(target)).toEqual(doc(paragraph()));
+  });
+
+  it('goes in when the focus goes back to the editor, not lost to what is typed there', () => {
+    const target = create(doc(paragraph()));
+    type(target, '$$ ');
+    write('x^2');
+    target.view.dom.focus();
+    expect(stored(target)).toEqual(doc(mathBlock('x^2'), paragraph()));
   });
 
   it('leaves the line as it was when closed with nothing written', () => {
