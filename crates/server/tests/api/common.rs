@@ -13,7 +13,9 @@ use fvoci_model::{
 };
 use fvoci_server::app::App;
 use fvoci_server::auth::secret::new_secret;
+use fvoci_server::collab::worker::WorkerCommand;
 use fvoci_server::config::Configuration;
+use fvoci_server::config::collab::CollabSettings;
 use fvoci_server::{Server, TlsFiles};
 use fvoci_store::testing::TestDatabase;
 use fvoci_store::{SharingChange, Store};
@@ -60,6 +62,11 @@ pub(crate) struct TestServer {
     serving: tokio::task::JoinHandle<anyhow::Result<()>>,
     database: TestDatabase,
     directory: PathBuf,
+    /// What the server was started with, for a start again on the same database (which
+    /// a test may change before).
+    /// Boxed: the futures of the tests hold the server.
+    pub(crate) config: Box<Configuration>,
+    base_path: String,
 }
 
 /// As whom a test server connects to PostgreSQL.
@@ -227,6 +234,14 @@ impl Setup {
             // Every client of a test comes from one address, and many sign in at once.
             // The limit by address is tested where a test turns it on.
             login_address_attempts_per_minute: 0,
+            // The executable of the tests is no server: the workers of editing together
+            // are started from the server's.
+            collab: CollabSettings {
+                worker_command: Some(WorkerCommand::of_executable(
+                    env!("CARGO_BIN_EXE_fvoci-server").into(),
+                )),
+                ..CollabSettings::default()
+            },
             ..Configuration::default()
         };
         if let Some(path) = &self.admin_socket {
@@ -246,7 +261,7 @@ impl Setup {
         if self.database == Database::Seeded {
             seed_workspaces(&config).await;
         }
-        let mut server = match Server::new(config, &self.base_path).await {
+        let mut server = match Server::new(config.clone(), &self.base_path).await {
             Ok(server) => server,
             Err(error) => {
                 // The database of a server that did not start is of no further use.
@@ -280,6 +295,8 @@ impl Setup {
             serving,
             database,
             directory,
+            config: Box::new(config),
+            base_path: self.base_path.clone(),
         };
         if self.one_user {
             server.client = server
@@ -500,6 +517,49 @@ impl TestServer {
         self.database.remove().await;
         let _ = std::fs::remove_dir_all(&self.directory);
         served
+    }
+
+    /// Stops the server as a server that is killed stops, past what it does when it
+    /// is asked to stop (`abandon`, which is given the application), and starts another
+    /// on the same database and files, with the clients signed in as they were.
+    pub(crate) async fn killed_and_started_again(self, abandon: impl AsyncFnOnce(&App)) -> Self {
+        abandon(&self.app).await;
+        let _ = self.shutdown.send(());
+        self.serving
+            .await
+            .expect("the server task does not panic")
+            .expect("the server stops");
+        let server = Server::new((*self.config).clone(), &self.base_path)
+            .await
+            .expect("the server starts again");
+        let app = server.app().clone();
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("a local port is free");
+        let address = listener.local_addr().expect("the listener has an address");
+        let (shutdown, stopped) = oneshot::channel::<()>();
+        let serving = tokio::spawn(server.serve(listener, async move {
+            let _ = stopped.await;
+        }));
+        let base_url = format!("http://{address}{}", self.base_path);
+        let again = |client: &Client| Client {
+            base_url: base_url.clone(),
+            ..client.clone()
+        };
+        Self {
+            app,
+            metrics_address: None,
+            client: again(&self.client),
+            client2: again(&self.client2),
+            base_url: base_url.clone(),
+            stranger: self.stranger,
+            shutdown,
+            serving,
+            database: self.database,
+            directory: self.directory,
+            config: self.config,
+            base_path: self.base_path,
+        }
     }
 
     /// Stops the server cleanly, and keeps its database and files for another server

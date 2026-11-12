@@ -82,6 +82,7 @@ use crate::auth::Authenticator;
 use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::auth::oidc::fetch::{Addresses, Fetcher};
+use crate::collab::Collab;
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
@@ -138,6 +139,8 @@ struct Inner {
     exports: slots::Slots,
     /// The imports that run.
     imports: slots::Slots,
+    /// The documents of the bodies being edited together.
+    collab: Collab,
     /// Whether this process holds the lock of the server (`server_lock`).
     server_lock: server_lock::Holder,
 }
@@ -224,6 +227,8 @@ impl App {
             |capacity: u32| slots::Slots::new(usize::try_from(capacity).unwrap_or(usize::MAX));
         let exports = slots(config.max_concurrent_exports);
         let imports = slots(config.max_concurrent_imports);
+        let collab = Collab::new(&config.collab)
+            .context("unable to find the executable to start the collab workers from")?;
         Ok(Self {
             store,
             ws,
@@ -245,6 +250,7 @@ impl App {
                 readiness: readiness::Kept::default(),
                 exports,
                 imports,
+                collab,
                 server_lock: server_lock::Holder::default(),
             }),
         })
@@ -253,6 +259,11 @@ impl App {
     /// The Prometheus metrics; they do nothing unless `prometheusaddress` is set.
     pub fn metrics(&self) -> &Metrics {
         &self.inner.metrics
+    }
+
+    /// The documents of the bodies being edited together.
+    pub fn collab(&self) -> &Collab {
+        &self.inner.collab
     }
 
     /// The server configuration.

@@ -3,7 +3,8 @@
 //! log that records it and is never changed.
 
 use fvoci_model::{
-    AuditAction, Board, BoardMember, BoardType, FileInfo, OrgRole, Workspace, WorkspaceRole, new_id,
+    AuditAction, Block, BlockType, Board, BoardMember, BoardType, FileInfo, OrgRole, Workspace,
+    WorkspaceRole, new_id,
 };
 use fvoci_store::{
     AuditEntry, AuditPlace, DbType, InstanceRole, Joining, LooseState, OrgRoleChange, Paging,
@@ -790,5 +791,66 @@ async fn the_instance_is_administered_through_its_own_organization_only() {
         !stepped_down.is_admin,
         "the instance's administrator no more"
     );
+    test.teardown().await;
+}
+
+/// A card of the board with a body edited together: its document and a logged update.
+async fn card_with_body(store: &Store, board_id: &str, user_id: &str) -> String {
+    let mut card = Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    };
+    common::insert_blocks(store, std::slice::from_mut(&mut card), user_id).await;
+    store
+        .create_body_doc(&card.id, b"a state", b"a digest")
+        .await
+        .expect("a document is stored");
+    store
+        .append_body_updates(&card.id, &[(b"an update", user_id)], &[])
+        .await
+        .expect("an update is logged");
+    card.id
+}
+
+/// A workspace removed for good takes the documents of its cards' bodies, and their
+/// logs, with it, as a board removed for good does; another workspace's stay.
+#[tokio::test]
+async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let doomed = named_workspace(&test, "Doomed", &admin).await;
+    let kept = named_workspace(&test, "Kept", &admin).await;
+    let doomed_board = private_board(&test, &doomed, &admin).await;
+    let kept_board = private_board(&test, &kept, &admin).await;
+    let gone = card_with_body(&test, &doomed_board, &admin).await;
+    let stays = card_with_body(&test, &kept_board, &admin).await;
+
+    assert_eq!(
+        test.trash_workspace(&doomed, &admin)
+            .await
+            .expect("trashed"),
+        WorkspaceTrashing::Done
+    );
+    test.purge_workspace(&doomed, i64::MAX)
+        .await
+        .expect("the workspace is purged");
+
+    assert!(
+        test.get_body_doc(&gone).await.expect("read").is_none(),
+        "its card's document went"
+    );
+    assert!(
+        test.get_body_doc(&stays).await.expect("read").is_some(),
+        "the other workspace's stays"
+    );
+    for table in ["body_docs", "body_updates"] {
+        assert_eq!(
+            test.count_rows(table).await.expect("counted"),
+            1,
+            "{table}: the other workspace's alone"
+        );
+    }
     test.teardown().await;
 }

@@ -1,7 +1,6 @@
 //! Signing in through a provider when things happen meanwhile: the provider changed
 //! while the person is at it, a sign-in that ended or comes back twice, a start that
-//! another site's page or a forged host would make. First written by an independent
-//! review of the branch (`fvoci/review-oidc-i1`).
+//! another site's page or a forged host would make.
 
 use std::time::Duration;
 
@@ -15,7 +14,7 @@ use fvoci_server::error::Reason;
 use serde_json::json;
 
 use crate::common::{Setup, TestServer};
-use crate::fake_oidc::{self, CLIENT_ID, CLIENT_SECRET, FakeProvider};
+use crate::fake_oidc::{self, AnswerIssuer, CLIENT_ID, CLIENT_SECRET, FakeProvider};
 
 fn configure(config: &mut Configuration) {
     config.secret_key = Some(
@@ -91,6 +90,12 @@ async fn callback_for(ts: &TestServer, fake: &FakeProvider, org_id: &str) -> Cal
         code: get("code"),
         browser_secret: started.browser_secret,
         error: None,
+        org_id: url
+            .path_segments()
+            .and_then(|mut segments| segments.next_back())
+            .expect("the organization's own address")
+            .to_owned(),
+        issuer: None,
     }
 }
 
@@ -217,7 +222,7 @@ async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
         .await
         .expect("members counted");
     let (_, outcome) = {
-        let finishing = ts.app.finish_oidc_login(&callback, "independent review");
+        let finishing = ts.app.finish_oidc_login(&callback, "a returning browser");
         tokio::pin!(finishing);
         tokio::time::timeout(Duration::from_secs(10), async {
             tokio::select! {
@@ -314,7 +319,7 @@ async fn an_expired_flow_is_consumed_without_exchanging_its_code() {
         .expect("the flow expires");
     let (_, outcome) = ts
         .app
-        .finish_oidc_login(&callback, "independent review")
+        .finish_oidc_login(&callback, "a returning browser")
         .await;
     let flow_count = ts
         .app
@@ -393,7 +398,7 @@ async fn a_start_with_a_forged_host_keeps_the_configured_callback_address() {
         .1
         .into_owned();
     let expected = format!(
-        "{}/api/v1/auth/oidc/callback",
+        "{}/api/v1/auth/oidc/callback/{org_id}",
         ts.app.config().server_root.trim_end_matches('/')
     );
     ts.teardown().await;
@@ -475,4 +480,104 @@ async fn flows(ts: &TestServer, org_id: &str) -> i64 {
         .count_rows("oidc_login_flows")
         .await
         .expect("flows counted")
+}
+
+/// An answer of one provider handed to another is no sign-in: a return to the address of
+/// another organization than the one the sign-in was started for, or that says another
+/// issuer answered (RFC 9207), is refused before its code is exchanged anywhere. So an
+/// administrator of one organization cannot route another organization's code through
+/// a provider of theirs.
+#[tokio::test]
+async fn an_answer_of_one_provider_is_not_taken_for_another() {
+    let fake = FakeProvider::start().await;
+    let (ts, org_id) = server_for(&fake).await;
+    let mut outcomes = Vec::new();
+    for change in [
+        |callback: &mut Callback| callback.org_id = fvoci_model::new_id(),
+        |callback: &mut Callback| callback.issuer = Some("https://elsewhere.example".to_owned()),
+    ] {
+        let mut callback = callback_for(&ts, &fake, &org_id).await;
+        change(&mut callback);
+        let exchanged_before = fake.token_requests();
+        let (_, outcome) = ts
+            .app
+            .finish_oidc_login(&callback, "a returning browser")
+            .await;
+        outcomes.push((outcome.err(), fake.token_requests() - exchanged_before));
+    }
+    // The issuer the provider is, said: it goes through.
+    let mut callback = callback_for(&ts, &fake, &org_id).await;
+    callback.issuer = Some(fake.issuer.clone());
+    let (_, said) = ts
+        .app
+        .finish_oidc_login(&callback, "a returning browser")
+        .await;
+    ts.teardown().await;
+    fake.stop();
+    let refused = Some(LoginFailure::Reason(Reason::OidcStateInvalid));
+    assert_eq!(
+        outcomes,
+        [(refused, 0), (refused, 0)],
+        "refused, and no code exchanged"
+    );
+    assert!(said.is_ok(), "{said:?}");
+}
+
+/// A return without the cookie of the browser that started the sign-in takes nothing:
+/// one who learned the `state` cannot end the sign-in of the browser that has it.
+#[tokio::test]
+async fn another_browser_does_not_end_a_sign_in() {
+    let fake = FakeProvider::start().await;
+    let (ts, org_id) = server_for(&fake).await;
+    let callback = callback_for(&ts, &fake, &org_id).await;
+    let mut other = callback.clone();
+    other.browser_secret = fvoci_model::new_id();
+    let (other_org, refused) = ts.app.finish_oidc_login(&other, "another browser").await;
+    let (_, finished) = ts.app.finish_oidc_login(&callback, "the browser").await;
+    ts.teardown().await;
+    fake.stop();
+    assert_eq!(
+        refused.err(),
+        Some(LoginFailure::Reason(Reason::OidcStateInvalid))
+    );
+    assert_eq!(
+        other_org.as_deref(),
+        Some(org_id.as_str()),
+        "back to the organization's login page"
+    );
+    assert!(
+        finished.is_ok(),
+        "the browser that started it ends it: {finished:?}"
+    );
+}
+
+/// A provider that says it names who answered (RFC 9207) must: a return without `iss`
+/// from it is refused before its code is exchanged; with its own issuer it goes through.
+#[tokio::test]
+async fn a_provider_that_promises_iss_must_send_it() {
+    let fake = FakeProvider::start().await;
+    let (ts, org_id) = server_for(&fake).await;
+    fake.answer_issuer(AnswerIssuer::Promises);
+    let callback = callback_for(&ts, &fake, &org_id).await;
+    let exchanged_before = fake.token_requests();
+    let (_, missing) = ts
+        .app
+        .finish_oidc_login(&callback, "a returning browser")
+        .await;
+    let exchanged = fake.token_requests() - exchanged_before;
+    fake.answer_issuer(AnswerIssuer::Says);
+    let mut callback = callback_for(&ts, &fake, &org_id).await;
+    callback.issuer = Some(fake.issuer.clone());
+    let (_, said) = ts
+        .app
+        .finish_oidc_login(&callback, "a returning browser")
+        .await;
+    ts.teardown().await;
+    fake.stop();
+    assert_eq!(
+        (missing.err(), exchanged),
+        (Some(LoginFailure::Reason(Reason::OidcStateInvalid)), 0),
+        "refused, and no code exchanged"
+    );
+    assert!(said.is_ok(), "{said:?}");
 }

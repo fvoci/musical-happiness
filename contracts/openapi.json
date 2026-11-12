@@ -1701,7 +1701,7 @@
             "type": "string"
           },
           "redirectUri": {
-            "description": "The address the provider sends people back to, to be registered with it.",
+            "description": "The address the provider sends people back to, to be registered with it exactly:\nthe organization's own, which does not change with the provider.",
             "type": "string"
           },
           "updateAt": {
@@ -1726,7 +1726,7 @@
         "description": "What an administrator sets of the organization's provider.",
         "properties": {
           "autoJoin": {
-            "description": "Whether somebody the provider vouches for who is no member becomes one. On if\nleft out.",
+            "description": "Whether somebody the provider vouches for who is no member becomes one. Left\nout, it stays as it is; on when the organization has no provider.",
             "type": [
               "boolean",
               "null"
@@ -1744,7 +1744,7 @@
             ]
           },
           "enabled": {
-            "description": "Whether signing in through the provider is on. On if left out.",
+            "description": "Whether signing in through the provider is on. Left out, it stays as it is; on\nwhen the organization has no provider.",
             "type": [
               "boolean",
               "null"
@@ -2196,6 +2196,36 @@
             "reason": "server_imports_busy",
             "title": "The server is busy importing",
             "type": "/problems/server-imports-busy"
+          },
+          {
+            "reason": "update_refused",
+            "title": "Update refused",
+            "type": "/problems/update-refused"
+          },
+          {
+            "reason": "update_out_of_step",
+            "title": "Update out of step",
+            "type": "/problems/update-out-of-step"
+          },
+          {
+            "reason": "update_too_large",
+            "title": "Update too large",
+            "type": "/problems/update-too-large"
+          },
+          {
+            "reason": "document_too_large",
+            "title": "Document too large",
+            "type": "/problems/document-too-large"
+          },
+          {
+            "reason": "too_many_documents",
+            "title": "Too many documents open",
+            "type": "/problems/too-many-documents"
+          },
+          {
+            "reason": "document_unavailable",
+            "title": "Document unavailable",
+            "type": "/problems/document-unavailable"
           },
           {
             "reason": "secret_key_required",
@@ -2982,7 +3012,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. A few operations that read a shared board need no session when the request has the board's `readToken`.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## Request bodies\n\nA request schema lists the members a request is for. An optional member may be left out or be `null`. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. A few operations that read a shared board need no session when the request has the board's `readToken`.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## Bodies edited together\n\nWhile people edit a card's body together the server holds it as a Y document. What it refuses of an editor has the reason `update_refused`, `update_out_of_step`, `update_too_large` or `document_too_large`; `too_many_documents` and `document_unavailable` say that it cannot take the document for now. A write of a card's whole body here (a patch of the card or of blocks, a card stored again) first writes to the card what its editors typed: a `readAt` from before that is refused with 409, and if it cannot be written the write is refused with `document_unavailable`. The page of each kind says when it comes.\n\n## Request bodies\n\nA request schema lists the members a request is for. An optional member may be left out or be `null`. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -2992,11 +3022,20 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/v1/auth/oidc/callback": {
+    "/api/v1/auth/oidc/callback/{orgId}": {
       "get": {
-        "description": "Where a provider sends the browser back to, for every organization. The sign-in is\ntaken by its `state`, once, and only from the browser that started it; the code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or\n`oidc_unavailable`.",
+        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or\n`oidc_unavailable`.",
         "operationId": "finishOidcLogin",
         "parameters": [
+          {
+            "description": "The organization the sign-in was started for: each has an address of its own to come back to (its provider's `redirectUri`).",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "description": "The `state` the sign-in was started with, as the provider sends it back.",
             "in": "query",
@@ -3019,6 +3058,15 @@
             "description": "The provider's code of why it did not let the person sign in.",
             "in": "query",
             "name": "error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The issuer that answered (RFC 9207), if the provider says: it must be the provider's.",
+            "in": "query",
+            "name": "iss",
             "required": false,
             "schema": {
               "type": "string"
@@ -3096,6 +3144,16 @@
                 }
               }
             }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No organization named (`org`)."
           },
           "409": {
             "content": {
@@ -5788,7 +5846,7 @@
         ]
       },
       "put": {
-        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The\nsecret is stored sealed with the server's key and never answered: without the key\nthe request is 409 with the reason `secret_key_required`. `autoJoin` and `enabled`\nare on if left out. The answer's `redirectUri` is the address to register with the\nprovider.",
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
         "operationId": "putOidcProvider",
         "parameters": [
           {

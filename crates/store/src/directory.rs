@@ -644,10 +644,12 @@ impl Store {
             .await
     }
 
-    /// Takes the sign-in under way whose `state` has the digest `state_hash`: it is
-    /// removed, whatever it is, so that it comes back once. `None` if there is none, or
-    /// it ended before `now`. The sign-in names its organization: the request that
-    /// comes back from the provider does not.
+    /// Takes the sign-in under way whose `state` has the digest `state_hash`, if the
+    /// browser that comes back with it has the digest `browser_hash` of the one that
+    /// started it: it is removed, ended or not, so that it comes back once; whether it
+    /// ended (`expires_at`) is the caller's to see. `None` if there is none of that
+    /// browser; one of another browser stays. The sign-in names its organization: the
+    /// request that comes back from the provider does not.
     ///
     /// # Errors
     ///
@@ -655,20 +657,44 @@ impl Store {
     pub async fn take_oidc_login_flow(
         &self,
         state_hash: &str,
-        now: i64,
+        browser_hash: &str,
     ) -> Result<Option<LoginFlow>, StoreError> {
         self.system()
             .with_conn(async |scope| {
                 let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE state_hash = ");
-                sql.bind(state_hash).push(
-                    " RETURNING state_hash, browser_hash, nonce, pkce_verifier, org_id, \
+                sql.bind(state_hash)
+                    .push_bind(" AND browser_hash = ", browser_hash)
+                    .push(
+                        " RETURNING state_hash, browser_hash, nonce, pkce_verifier, org_id, \
                      provider_id, create_at, expires_at",
-                );
+                    );
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };
-                let flow = flow_from_row(&row)?;
-                Ok((flow.expires_at > now).then_some(flow))
+                flow_from_row(&row).map(Some)
+            })
+            .await
+    }
+
+    /// The organization of the sign-in under way whose `state` has the digest
+    /// `state_hash`, if there is one: for the login page a refused return goes back to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn oidc_login_flow_org(
+        &self,
+        state_hash: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT org_id FROM oidc_login_flows WHERE state_hash = ");
+                sql.bind(state_hash);
+                scope
+                    .fetch_optional(sql)
+                    .await?
+                    .map(|row| row.id(0))
+                    .transpose()
             })
             .await
     }

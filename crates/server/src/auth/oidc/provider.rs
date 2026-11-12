@@ -7,6 +7,7 @@
 
 use std::fmt::Write as _;
 
+use fvoci_model::MAXIMUM_EMAIL_BYTES;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, PublicKeyUse};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
@@ -31,6 +32,9 @@ pub const ALLOWED_ALGORITHMS: [Algorithm; 9] = [
 
 /// How far the clocks of the server and the provider may be apart, in seconds.
 const CLOCK_SKEW_SECONDS: u64 = 60;
+
+/// The longest subject, in bytes (`OpenID Connect Core 1.0`, 2: 255 ASCII characters).
+const MAXIMUM_SUBJECT_BYTES: usize = 255;
 
 /// The path of the discovery document under the issuer.
 const DISCOVERY_PATH: &str = "/.well-known/openid-configuration";
@@ -71,6 +75,10 @@ pub struct Discovery {
     /// does not say, which means `client_secret_basic`.
     #[serde(default)]
     pub token_endpoint_auth_methods_supported: Option<Vec<String>>,
+    /// Whether the provider says which issuer answered, in the `iss` parameter of the
+    /// address it sends the browser back to (RFC 9207); then it must.
+    #[serde(default)]
+    pub authorization_response_iss_parameter_supported: bool,
 }
 
 /// Reads the discovery document of `issuer` and checks that it is the issuer's: that
@@ -234,7 +242,7 @@ pub struct IdClaims {
     pub issuer: String,
     /// The subject: who the person is at the issuer.
     pub subject: String,
-    /// The email address, if the token has one.
+    /// The email address, if the token has one no longer than an account's may be.
     pub email: Option<String>,
     /// Whether the provider says it checked the address; `None` if it does not say.
     pub email_verified: Option<bool>,
@@ -341,10 +349,19 @@ pub fn verify_id_token(
     if claims.sub.is_empty() {
         return Err(invalid("no subject"));
     }
+    // `OpenID Connect Core 1.0`, 2: a subject is at most 255 ASCII characters. Longer,
+    // it is no token's of a provider (and would not fit the key it is kept under).
+    if claims.sub.len() > MAXIMUM_SUBJECT_BYTES {
+        return Err(invalid("subject longer than 255 bytes"));
+    }
     Ok(IdClaims {
         issuer: claims.iss,
         subject: claims.sub,
-        email: claims.email,
+        // An address longer than an account's may be is none: it is kept nowhere, and a
+        // newcomer without one is refused as one without an address.
+        email: claims
+            .email
+            .filter(|email| email.trim().len() <= MAXIMUM_EMAIL_BYTES),
         email_verified: claims.email_verified,
         name: claims.name,
         preferred_username: claims.preferred_username,
@@ -441,6 +458,7 @@ mod tests {
             jwks_uri: String::new(),
             token_endpoint_auth_methods_supported: methods
                 .map(|methods| methods.iter().map(|method| (*method).to_owned()).collect()),
+            authorization_response_iss_parameter_supported: false,
         };
         assert!(takes_basic(&with(None)));
         assert!(takes_basic(&with(Some(&["client_secret_basic"]))));

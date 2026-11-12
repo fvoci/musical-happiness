@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 use crate::Store;
 use crate::blocks::{self, Paging, parents_first};
 use crate::boards;
+use crate::body_docs;
 use crate::category_boards::{self, BoardPlace};
 use crate::comment_places;
 use crate::comment_versions;
@@ -389,6 +390,7 @@ pub(crate) async fn remove_what_they_left(scope: &mut Scope<'_>) -> Result<u64, 
     // What the blocks gone for good showed is shown no more, and the texts the comments
     // among them had go with them.
     comment_versions::forget_gone_comments(scope).await?;
+    body_docs::forget_gone_blocks(scope).await?;
     file_refs::forget_gone_blocks(scope).await?;
     file_refs::mark(scope, None).await?;
     Ok(records)

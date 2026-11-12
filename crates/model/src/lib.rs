@@ -41,8 +41,8 @@ mod workspace;
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
-    MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, RegisterRequest, check_new_password,
-    display_name, is_email_valid,
+    MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, RegisterRequest,
+    check_new_password, display_name, is_email_valid,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,

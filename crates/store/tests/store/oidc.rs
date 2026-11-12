@@ -1,6 +1,5 @@
 //! Signing in through a provider: two first sign-ins at once of an account already
-//! known to the issuer. First written by an independent review of the branch
-//! (`fvoci/review-oidc-i1`).
+//! known to the issuer.
 
 use std::time::Duration;
 
@@ -134,4 +133,111 @@ async fn concurrent_oidc_joins_of_one_account_both_succeed() {
     );
     assert_eq!(rows, 1, "one organization membership");
     assert_eq!(sessions, 2, "a session for each sign-in");
+}
+
+/// A change of the provider decided from what was read is stored only if the provider
+/// is still as it was read: another change of the same provider meanwhile (its secret,
+/// within the same millisecond as often as not) makes it read again. Without one, it is
+/// stored.
+#[tokio::test]
+async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
+    let test = common::setup().await;
+    let provider = |client_id: &str, secret: &str| StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: "https://idp.example.com".to_owned(),
+        client_id: client_id.to_owned(),
+        sealed_client_secret: secret.to_owned(),
+        auto_join: true,
+        enabled: true,
+        create_at: 0,
+        update_at: 0,
+    };
+    let none_read = test
+        .put_oidc_provider_as_read(&provider("first", ""), None)
+        .await
+        .expect("stored")
+        .expect("none was there, as read");
+    // Read by one request; changed by another meanwhile, within the same millisecond
+    // as often as not: the time of the change is later all the same.
+    let later = test
+        .put_oidc_provider(&provider("first", "a secret"))
+        .await
+        .expect("changed");
+    assert_eq!(later.id, none_read.id, "the same provider");
+    assert!(
+        later.update_at > none_read.update_at,
+        "{} after {}",
+        later.update_at,
+        none_read.update_at
+    );
+    let stale = test
+        .put_oidc_provider_as_read(&provider("first", ""), Some(&none_read))
+        .await
+        .expect("asked");
+    let stored = test.oidc_provider().await.expect("read").expect("stored");
+    let fresh = test
+        .put_oidc_provider_as_read(&provider("third", ""), Some(&later))
+        .await
+        .expect("asked");
+    let none_stale = test
+        .put_oidc_provider_as_read(&provider("fourth", ""), None)
+        .await
+        .expect("asked");
+    test.teardown().await;
+    assert!(stale.is_none(), "not stored from an old reading: {stale:?}");
+    assert_eq!(
+        (
+            stored.client_id.as_str(),
+            stored.sealed_client_secret.as_str()
+        ),
+        ("first", "a secret"),
+        "the change meanwhile stays"
+    );
+    assert!(fresh.is_some(), "stored from the reading of what is there");
+    assert!(none_stale.is_none(), "one was there, not none");
+}
+
+/// A provider removed after a change of it was read does not come back: the change,
+/// decided from the reading before the removal, is not stored; nor when the provider was
+/// set again meanwhile, at whatever time, as it is another. (That a removal and a
+/// change are one after the other, not interleaved, is the lock's; this test runs them
+/// one after the other.)
+#[tokio::test]
+async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
+    let test = common::setup().await;
+    let provider = StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: "https://idp.example.com".to_owned(),
+        client_id: "client".to_owned(),
+        sealed_client_secret: "sealed".to_owned(),
+        auto_join: true,
+        enabled: false,
+        create_at: 0,
+        update_at: 0,
+    };
+    let read = test.put_oidc_provider(&provider).await.expect("stored");
+    assert!(test.delete_oidc_provider().await.expect("removed"));
+    let change = test
+        .put_oidc_provider_as_read(&provider, Some(&read))
+        .await
+        .expect("asked");
+    let after = test.oidc_provider().await.expect("read");
+    // Set again, by another request; the reading of the one removed has, at worst,
+    // the time of the new one (the same millisecond, or the clock went back).
+    let again = test.put_oidc_provider(&provider).await.expect("set again");
+    let of_the_removed = StoredProvider {
+        update_at: again.update_at,
+        ..read.clone()
+    };
+    let change_again = test
+        .put_oidc_provider_as_read(&provider, Some(&of_the_removed))
+        .await
+        .expect("asked");
+    test.teardown().await;
+    assert!(change.is_none(), "{change:?}");
+    assert!(after.is_none(), "{after:?}");
+    assert_ne!(again.id, read.id, "another provider");
+    assert!(change_again.is_none(), "{change_again:?}");
 }
