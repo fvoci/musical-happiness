@@ -9,7 +9,7 @@ import { newCardProperties } from '$lib/logic/calendar.ts';
 import { addDays, type CalendarDate } from '$lib/logic/dates.ts';
 import type { Axis } from '$lib/logic/gantt.ts';
 import type { BoardView, PropertyTemplate } from '$lib/logic/wire.ts';
-import type { BoardStore } from '$lib/state/index.ts';
+import { whileHere, type BoardStore } from '$lib/state/index.ts';
 
 export interface MakingSource {
   board: () => BoardStore;
@@ -59,7 +59,7 @@ export function ganttCardMaker(source: MakingSource): () => Promise<void> {
       const templates = board.board?.cardProperties ?? [];
       const filter = source.view().fields.filter;
       const properties = newCardProperties(filter, templates, source.template(), day);
-      const card = await board.createCard({ properties });
+      const card = await whileHere(board, () => board.createCard({ properties }));
       if (card) source.onOpenCard(card.id);
     } finally {
       busy = false;

@@ -4,13 +4,18 @@
   the chip opens that card.
 
   A card is shown only when it is in `cards` (the board's cards that are
-  there). The identifier of a deleted card stays in the stored value, so that
-  bringing the card back brings the relation back, but it is not drawn, and
-  the next change of the value leaves it out.
+  there). The identifier of a deleted card stays in the stored value, also
+  when the value is changed, so that bringing the card back brings the
+  relation back; it is not drawn. (The server takes it: it does not ask again
+  for a card the value named before, whether it is in the trash or gone.)
 
   The card itself cannot be picked, a card is picked once, and no more than
-  RELATION_LIMIT are picked (a value that names more, written some other
-  way, keeps them all until the reader takes some out). The list shows the
+  RELATION_LIMIT are named (a value that names more, written some other way,
+  keeps them all until the reader takes some out). The hidden ones count, as
+  the server counts them: when they fill the value, nothing more is offered,
+  and a line says how many deleted cards hold places, with a button that
+  takes them out. Nothing else leaves them out. A card template the value
+  names is not among `cards` either: it counts as deleted here. The list shows the
   picked cards first, then the others by title, at most LIST_LIMIT at a
   time, so that a board of thousands of cards does not draw thousands of
   rows: typing narrows it.
@@ -80,13 +85,17 @@
   // svelte-ignore state_referenced_locally (only where editing starts)
   let open = $state(startOpen);
   let search = $state('');
+  /** The open editor, where the search is. */
+  let editor: HTMLDivElement | undefined = $state();
 
   const untitled = (card: Card | undefined): string => card?.title || m['KanbanCard.untitled']();
   const titleOf = (id: string): string => untitled(cards.get(id));
 
   /** The picked cards that are there, in the order they were picked; never the card itself. */
   const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
-  const full = $derived(shown.length >= RELATION_LIMIT);
+  /** The named cards that are not there (deleted), each once: written back as they are. */
+  const hidden = $derived([...new Set(ids.filter((id) => id !== cardId && !cards.has(id)))]);
+  const full = $derived(shown.length + hidden.length >= RELATION_LIMIT);
 
   /**
    * The cards that can be picked, by title, each with the text it is found
@@ -135,13 +144,17 @@
         (wanted === '' || entry.folded.includes(wanted)),
     ).length;
   });
-  /** What the reader is told about the cards held back: the limit first, then loops. */
+  /** What the reader is told about the cards held back: deleted cards in the way, the limit, then loops. */
+  /** Deleted cards fill the value, and taking them out leaves room. */
+  const crowded = $derived(full && hidden.length > 0 && shown.length < RELATION_LIMIT);
   const heldBack = $derived(
-    full
-      ? m.property_relation_full({ count: RELATION_LIMIT })
-      : leftOut > 0
-        ? m.property_relation_loop({ count: leftOut })
-        : '',
+    crowded
+      ? m.property_relation_hidden_full({ count: hidden.length })
+      : full
+        ? m.property_relation_full({ count: RELATION_LIMIT })
+        : leftOut > 0
+          ? m.property_relation_loop({ count: leftOut })
+          : '',
   );
 
   /**
@@ -162,9 +175,15 @@
   /** A picked card on a loop that is there already. */
   const onLoop = (id: string): boolean => excluded?.has(id) ?? false;
 
-  /** Writes the value: only cards that are there, each once, so that the identifiers of deleted ones go. */
-  function write(next: readonly string[]): void {
-    onChange?.([...new Set(next.filter((id) => id !== cardId && cards.has(id)))]);
+  /**
+   * Writes the value: the picked cards that are there and the hidden ones
+   * (unless the reader takes those out), in the order they were named, each
+   * once, never the card itself.
+   */
+  function write(next: readonly string[], keepHidden = true): void {
+    const picked = new Set(next.filter((id) => id !== cardId && cards.has(id)));
+    const kept = ids.filter((id) => picked.has(id) || (keepHidden && hidden.includes(id)));
+    onChange?.([...new Set([...kept, ...picked])]);
   }
 
   function pick(card: Card): void {
@@ -255,7 +274,7 @@
         </button>
       {/snippet}
 
-      <div class="flex flex-col gap-1">
+      <div class="flex flex-col gap-1" bind:this={editor}>
         {#if shown.length > 0}
           <ul
             class="m-0 flex list-none flex-wrap gap-1 p-1"
@@ -288,7 +307,7 @@
           multiple
           label={name}
           placeholder={m.property_relation_search()}
-          emptyText={m.property_no_matches()}
+          emptyText={full ? '' : m.property_no_matches()}
           onPick={pick}
           onBackspaceEmpty={() => {
             const last = shown.at(-1);
@@ -312,6 +331,20 @@
         >
           {regionReady ? heldBack : ''}
         </p>
+        {#if crowded}
+          <Button
+            variant="ghost"
+            class="justify-start group-data-[presentation=sheet]/surface:min-h-touch"
+            data-slot="relation-drop-hidden"
+            onclick={() => {
+              write(shown, false);
+              // The button goes with the deleted cards: the search keeps the focus.
+              editor?.querySelector('input')?.focus();
+            }}
+          >
+            {m.property_relation_drop_hidden({ count: hidden.length })}
+          </Button>
+        {/if}
         {#if shown.length > 0}
           <Button
             variant="ghost"

@@ -53,6 +53,13 @@ describe('the keys for undo and redo', () => {
     expect(undoKey(press({ key: 'z', ctrlKey: true, altKey: true }))).toBeUndefined();
   });
 
+  it('a key held down asks once: its repeats are not asked for', () => {
+    expect(undoKey(press({ key: 'z', ctrlKey: true, repeat: true }))).toBeUndefined();
+    expect(
+      undoKey(press({ key: 'Z', ctrlKey: true, shiftKey: true, repeat: true })),
+    ).toBeUndefined();
+  });
+
   it('inside a field the keys are the field’s own', () => {
     for (const html of [
       '<input />',

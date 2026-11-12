@@ -4,7 +4,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, CommentVersion,
-    generate_block_ids, stamp_modification_metadata,
+    RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
 };
 
 use serde_json::Value;
@@ -367,7 +367,7 @@ async fn handle_post_blocks(
         .await?;
     }
 
-    generate_block_ids(&mut blocks);
+    renew_request_ids(&app, &board_id, &mut blocks).await?;
     stamp_modification_metadata(user_id, &mut blocks, now_millis());
 
     check_and_copy_body_files(&app, user_id, &board_id, query, &mut blocks).await?;
@@ -379,6 +379,26 @@ async fn handle_post_blocks(
         .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), ""))?;
     tracing::debug!(block_count = blocks.len(), "POST Blocks");
     Ok(created(&blocks))
+}
+
+/// Gives the blocks of a request to a board new identifiers ([`renew_block_ids`]): a
+/// card relation value names the request's cards by their new identifiers, and keeps
+/// what else it names, for the store to check.
+async fn renew_request_ids(
+    app: &App,
+    board_id: &str,
+    blocks: &mut [Block],
+) -> Result<(), AppError> {
+    let relations = if blocks
+        .iter()
+        .any(|block| block.block_type == BlockType::Card)
+    {
+        RelationProperties::of_board(board_id, &app.board(board_id).await?.card_properties)
+    } else {
+        RelationProperties::new()
+    };
+    renew_block_ids(blocks, &relations, UnmatchedRelation::Kept);
+    Ok(())
 }
 
 /// Delete a block

@@ -35,7 +35,7 @@
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { whileHere, type Workspace } from '$lib/state/index.ts';
 
   import { devReadout } from './dev.svelte.ts';
   import DevReadout from './DevReadout.svelte';
@@ -202,16 +202,14 @@
    * to it.
    */
   async function addEmptyBoard(): Promise<void> {
-    const made = await workspace.createBoard(
-      { title: '' },
-      m['View.NewBoardTitle'](),
-      m.shell_new_board_status(),
+    const made = await whileHere(workspace, () =>
+      workspace.createBoard({ title: '' }, m['View.NewBoardTitle'](), m.shell_new_board_status()),
     );
     if (made) openBoard(made);
   }
 
   async function addBoardFromTemplate(template: Board): Promise<void> {
-    const made = await workspace.createBoardFromTemplate(template.id);
+    const made = await whileHere(workspace, () => workspace.createBoardFromTemplate(template.id));
     if (made) openBoard(made);
   }
 

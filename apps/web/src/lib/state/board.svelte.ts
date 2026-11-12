@@ -3,15 +3,14 @@
  * while it is open, and every change a screen can make to them.
  *
  * A change shows at once, is sent, and is taken back if the backend refuses
- * it. Each one can be undone (`workspace.undoLast`); changes made with one
- * gesture share a group and are undone together. What other people change
+ * it. Each one can be undone (`workspace.undoLast`); the changes of one
+ * gesture (`inOneStep`) are undone together. What other people change
  * arrives through the backend's change messages and is applied the same way
  * as the answers to the reader's own writes.
  */
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
-import { manualComparator } from '../logic/sort.ts';
 import {
   createBoardView,
   viewGrouping,
@@ -38,11 +37,13 @@ import {
   type Change,
   type ViewDraft,
 } from './backend.ts';
-import { droppedCardOrder, placeAmongAll } from './card-order.ts';
+import { copyOfCard } from './card-copy.ts';
+import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
+import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
-import { boardOfWorkspace, newUndoGroup, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
+import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -51,6 +52,7 @@ import {
   boardPatches,
   cardPatches,
   isEmptyBlockPatch,
+  isEmptyBoardPatch,
   isEmptyCardPatch,
   viewPatches,
 } from './patches.ts';
@@ -58,7 +60,7 @@ import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { restoreCard } from './trash.svelte.ts';
 import { PendingWrites, put, reread, take } from './write.ts';
 
-export { newUndoGroup, type CardDrop } from './board-parts.ts';
+export type { CardDrop } from './board-parts.ts';
 
 export class BoardStore {
   readonly workspace: Workspace;
@@ -143,6 +145,10 @@ export class BoardStore {
   readonly #lastComments = lastCommentsOf(this);
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
+  readonly #boardWrites = new PendingWrites<Board>();
+  readonly #cardInverses = new Inverses<CardPatch>('updatedProperties', 'deletedProperties');
+  readonly #viewInverses = new Inverses<BlockPatch>('updatedFields', 'deletedFields');
+  readonly #boardInverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
   /** Lists of members told by changes: a reading begun before the latest does not replace it. */
@@ -301,7 +307,7 @@ export class BoardStore {
           void this.load();
           break;
         }
-        if (!this.board || change.board.updateAt >= this.board.updateAt) this.board = change.board;
+        if (this.#boardWrites.receive(change.board)) this.#takeBoard(change.board);
         break;
       case 'boardDeleted':
         // An open board may only have been closed to the reader (taken off
@@ -366,7 +372,7 @@ export class BoardStore {
       ]);
       // A newer reading has begun meanwhile: it is the one that counts.
       if (reading !== this.#refreshing) return;
-      if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
+      if (this.#boardWrites.receive(board)) this.#takeBoard(board);
       this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
       const shown = this.cards;
       const read = cards.map((card) => this.#lastComments.settle(card, heard));
@@ -428,6 +434,11 @@ export class BoardStore {
     }
   }
 
+  /** Runs a gesture whose changes, made with the group it is given, are one step of undo. */
+  inOneStep<T>(gesture: (groupId: string) => Promise<T>, placedAtOnce = false): Promise<T> {
+    return this.workspace.undo.group(gesture, placedAtOnce);
+  }
+
   // -------------------------------------------------------------- cards
 
   /** Shows `patch` on the card and sends it; on refusal shows `reverse` instead. */
@@ -437,7 +448,9 @@ export class BoardStore {
     this.cards = put(this.cards, applyCardPatch(current, patch));
     this.#cardWrites.begin(cardId);
     try {
-      const answer = await this.#backend.patchCard(this.boardId, cardId, patch);
+      const answer = await this.#cardInverses.write(cardId, patch, reverse, () =>
+        this.#backend.patchCard(this.boardId, cardId, patch),
+      );
       const latest = this.#cardWrites.end(cardId, answer);
       if (latest) {
         this.cards = take(this.cards, latest);
@@ -465,6 +478,7 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = cardPatches(change(current), current);
     if (isEmptyCardPatch(forward)) return;
+    this.#cardInverses.keep(cardId, backward);
     await this.#perform(
       () => this.#sendCardPatch(cardId, forward, backward),
       () => this.#sendCardPatch(cardId, backward, forward),
@@ -526,22 +540,8 @@ export class BoardStore {
   }
 
   /** A copy of a card: title, icon, properties and body. Comments and attachments are not copied. */
-  async duplicateCard(cardId: string, asTemplate?: boolean): Promise<CardSummary | undefined> {
-    const source = this.card(cardId);
-    if (!source) return undefined;
-    try {
-      const detail = await this.#backend.card(this.boardId, cardId);
-      return await this.createCard({
-        title: detail.title,
-        icon: detail.fields.icon,
-        properties: detail.fields.properties,
-        isTemplate: asTemplate ?? detail.fields.isTemplate,
-        body: detail.body,
-      });
-    } catch (error) {
-      this.workspace.report('save', error);
-      return undefined;
-    }
+  duplicateCard(cardId: string, asTemplate?: boolean): Promise<CardSummary | undefined> {
+    return copyOfCard(this, cardId, asTemplate);
   }
 
   /**
@@ -559,20 +559,21 @@ export class BoardStore {
 
   /** Deletes cards. Undo brings them back with their comments and attachments. */
   async deleteCards(cardIds: readonly string[]): Promise<void> {
-    const groupId = newUndoGroup();
-    for (const cardId of cardIds) {
-      await this.#perform(
-        async () => {
-          this.deleting(cardId);
-          await this.#backend.deleteBlock(this.boardId, cardId);
-          this.cards = this.cards.filter((card) => card.id !== cardId);
-          if (this.openCard?.cardId === cardId) this.closeCard();
-        },
-        () => restoreCard(this, cardId),
-        'deleteCard',
-        groupId,
-      );
-    }
+    await this.inOneStep(async (groupId) => {
+      for (const cardId of cardIds) {
+        await this.#perform(
+          async () => {
+            this.deleting(cardId);
+            await this.#backend.deleteBlock(this.boardId, cardId);
+            this.cards = this.cards.filter((card) => card.id !== cardId);
+            if (this.openCard?.cardId === cardId) this.closeCard();
+          },
+          () => restoreCard(this, cardId),
+          'deleteCard',
+          groupId,
+        );
+      }
+    });
   }
 
   /**
@@ -581,57 +582,7 @@ export class BoardStore {
    * manual order changes). One undo takes all of it back.
    */
   async dropCards(drop: CardDrop): Promise<void> {
-    const view = this.view(drop.viewId);
-    if (!view) return;
-    const groupId = newUndoGroup();
-    const groupById = this.groupingOf(view)?.id;
-    const optionId = drop.optionId;
-    const valueOf = (card: Card): string => {
-      const value = groupById ? card.fields.properties[groupById] : undefined;
-      return typeof value === 'string' ? value : '';
-    };
-
-    if (drop.index !== undefined) {
-      // The cards as they stand in the manual order, the dropped ones taken out.
-      const shown = [...this.realCards].sort(manualComparator(view.fields.cardOrder));
-      const moved = drop.cardIds;
-      const column = shown
-        .filter((card) => !moved.includes(card.id))
-        .filter((card) => optionId === undefined || valueOf(card) === optionId)
-        .map((card) => card.id);
-      const cardOrder = droppedCardOrder(
-        shown.map((card) => card.id),
-        column,
-        // The dropped cards keep the order they had.
-        shown.filter((card) => moved.includes(card.id)).map((card) => card.id),
-        drop.shown
-          ? placeAmongAll(
-              column,
-              drop.shown.filter((id) => !moved.includes(id)),
-              drop.index,
-            )
-          : drop.index,
-      );
-      await this.changeView(
-        view.id,
-        (current) => ({ ...current, fields: { ...current.fields, cardOrder } }),
-        'moveCard',
-        groupId,
-      );
-    }
-
-    if (groupById && optionId !== undefined) {
-      for (const cardId of drop.cardIds) {
-        const card = this.card(cardId);
-        if (!card || valueOf(card) === optionId) continue;
-        await this.setCardProperty(
-          cardId,
-          groupById,
-          optionId === '' ? undefined : optionId,
-          groupId,
-        );
-      }
-    }
+    await dropCardsOn(this, drop);
   }
 
   // -------------------------------------------------------------- views
@@ -642,7 +593,9 @@ export class BoardStore {
     this.views = put(this.views, applyViewPatch(current, patch));
     this.#viewWrites.begin(viewId);
     try {
-      const answer = await this.#backend.patchView(this.boardId, viewId, patch);
+      const answer = await this.#viewInverses.write(viewId, patch, reverse, () =>
+        this.#backend.patchView(this.boardId, viewId, patch),
+      );
       const latest = this.#viewWrites.end(viewId, answer);
       if (latest) this.views = take(this.views, latest);
     } catch (error) {
@@ -664,6 +617,7 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = viewPatches(change(current), current);
     if (isEmptyBlockPatch(forward)) return;
+    this.#viewInverses.keep(viewId, backward);
     await this.#perform(
       () => this.#sendViewPatch(viewId, forward, backward),
       () => this.#sendViewPatch(viewId, backward, forward),
@@ -731,13 +685,22 @@ export class BoardStore {
   async #sendBoardPatch(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
     if (!this.board) return;
     this.board = applyBoardPatch(this.board, patch);
+    this.#boardWrites.begin(this.boardId);
+    let answer: Board | undefined;
     try {
-      const answer = await this.#backend.patchBoard(this.boardId, patch);
-      if (answer.updateAt >= this.board.updateAt) this.board = answer;
-    } catch (error) {
-      this.board = applyBoardPatch(this.board, reverse);
-      throw error;
+      answer = await this.#boardInverses.write(this.boardId, patch, reverse, () =>
+        this.#backend.patchBoard(this.boardId, patch),
+      );
+    } finally {
+      const latest = this.#boardWrites.end(this.boardId, answer);
+      if (latest) this.#takeBoard(latest);
+      else if (!answer) this.board = applyBoardPatch(this.board, reverse);
     }
+  }
+
+  /** As `take` (write.ts) does for cards and views. */
+  #takeBoard(board: Board): void {
+    if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
   }
 
   /**
@@ -751,13 +714,8 @@ export class BoardStore {
   ): Promise<void> {
     if (!this.board) return;
     const [forward, backward] = boardPatches(change(this.board), this.board);
-    const empty = Object.keys(forward).every((key) => {
-      const value = (forward as Record<string, unknown>)[key];
-      if (Array.isArray(value)) return value.length === 0;
-      if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0;
-      return value === undefined;
-    });
-    if (empty) return;
+    if (isEmptyBoardPatch(forward)) return;
+    this.#boardInverses.keep(this.boardId, backward);
     await this.#perform(
       () => this.#sendBoardPatch(forward, backward),
       () => this.#sendBoardPatch(backward, forward),
@@ -798,14 +756,8 @@ export class BoardStore {
   }
 
   /** Makes a person of the workspace a member. Somebody who is a member already keeps their role. */
-  async addMember(userId: string, role: BoardRole): Promise<void> {
-    try {
-      const member = await this.#backend.addMember(this.boardId, userId, role);
-      this.members = [...this.members.filter((one) => one.userId !== userId), member];
-      void this.workspace.learnUsers([userId]);
-    } catch (error) {
-      this.workspace.report('save', error);
-    }
+  addMember(userId: string, role: BoardRole): Promise<void> {
+    return addMemberTo(this, userId, role);
   }
 
   async setMemberRole(userId: string, role: BoardRole): Promise<void> {

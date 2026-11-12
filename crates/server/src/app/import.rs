@@ -900,9 +900,10 @@ fn trim(line: &[u8]) -> &[u8] {
     &line[start..=end]
 }
 
-/// Clears the card values that do not fit the kind of their property, as a copy of
-/// stored cards does: an archive holds what its board held, and a change of the
-/// definitions leaves such values behind (`docs/contract-pending.md` 2).
+/// Clears the card values that do not fit the kind of their property, and of relation
+/// values what a write refuses, as a copy of stored cards does: an archive holds what
+/// its board held, and a change of the definitions leaves such values behind
+/// (`docs/contract-pending.md` 2).
 fn clear_values_of_another_kind(boards_and_blocks: &mut BoardsAndBlocks) {
     let definitions: HashMap<&str, &[JsonMap]> = boards_and_blocks
         .boards
@@ -913,8 +914,10 @@ fn clear_values_of_another_kind(boards_and_blocks: &mut BoardsAndBlocks) {
         let Some(definitions) = definitions.get(block.board_id.as_str()) else {
             continue;
         };
+        let id = block.id.clone();
         if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
             fvoci_model::clear_values_of_another_kind(values, definitions);
+            fvoci_model::tidy_copied_relations(values, &id, definitions);
         }
     }
 }

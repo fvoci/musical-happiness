@@ -12,7 +12,8 @@
 
 use fvoci_model::{
     AuthParamError, BlockError, BoardError, CardError, CategoryError, InvalidInput, Problem,
-    Refusal, Refusals, SubscriptionError, json_pointer,
+    RELATION_LIMIT, Refusal, Refusals, RelationError, RelationProblem, SubscriptionError,
+    json_pointer,
 };
 use fvoci_store::StoreError;
 
@@ -200,6 +201,18 @@ reasons! {
     ImportRunning => "import_running", "An import is running";
     /// The server runs as many imports as it may.
     ServerImportsBusy => "server_imports_busy", "The server is busy importing";
+    /// The value of a card relation is neither `null` nor a list of identifiers.
+    RelationNotAList => "relation_not_a_list", "Card relation that is no list";
+    /// A card relation names the card it is the value of.
+    RelationToItself => "relation_to_itself", "Card relation to the card itself";
+    /// A card relation names a card twice.
+    RelationRepeated => "relation_repeated", "Card named twice in a relation";
+    /// A card relation names more cards than one may.
+    RelationTooMany => "relation_too_many", "Card relation names too many cards";
+    /// A card relation names a block of the board that is no card.
+    RelationNotACard => "relation_not_a_card", "Card relation names no card";
+    /// A card relation names a card that is not on the board.
+    RelationCardNotFound => "relation_card_not_found", "Card relation names a card not on the board";
 }
 
 impl Reason {
@@ -715,6 +728,7 @@ impl From<StoreError> for AppError {
                     | BlockError::ImageWithoutFile
                     | BlockError::NulInTitle
                     | BlockError::InvalidCardField { .. }
+                    | BlockError::InvalidRelation(_)
                     | BlockError::TypeNotCurrent(_)),
             } => {
                 let mut error = Self::from(source);
@@ -788,6 +802,7 @@ impl From<BlockError> for AppError {
             }
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
             BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
+            BlockError::InvalidRelation(error) => Self::from(error),
             BlockError::TypeNotCurrent(_) | BlockError::TypeStrandsComments => {
                 Self::bad_request(error).with_field("type")
             }
@@ -797,6 +812,28 @@ impl From<BlockError> for AppError {
             | BlockError::ParentIsComment => Self::bad_request(error).with_field("parentId"),
             BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),
         }
+    }
+}
+
+impl From<RelationError> for AppError {
+    /// A bad request on `fields` (where a card's property values are), with the reason
+    /// of the problem: the words name the property, and no card.
+    fn from(error: RelationError) -> Self {
+        let reason = match error.problem {
+            RelationProblem::NotAList => Reason::RelationNotAList,
+            RelationProblem::ToItself => Reason::RelationToItself,
+            RelationProblem::Repeated => Reason::RelationRepeated,
+            RelationProblem::TooMany => Reason::RelationTooMany,
+            RelationProblem::NotACard => Reason::RelationNotACard,
+            RelationProblem::CardNotFound => Reason::RelationCardNotFound,
+        };
+        let refused = Self::bad_request(&error).with_reason(reason);
+        let refused = if error.problem == RelationProblem::TooMany {
+            refused.with_limit(u64::try_from(RELATION_LIMIT).unwrap_or(u64::MAX))
+        } else {
+            refused
+        };
+        refused.with_field("fields")
     }
 }
 

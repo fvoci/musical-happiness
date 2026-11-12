@@ -70,6 +70,7 @@ import {
   type Role,
 } from './comments.ts';
 import { changeDisplayName } from './account.ts';
+import { checkRelations, renameCopied } from './references.ts';
 import { fail } from './refuse.ts';
 import {
   deletedBoardsOf,
@@ -530,18 +531,14 @@ export class MemoryBackend implements Backend {
   /**
    * Stores a board and its blocks under new identifiers, the reader its
    * admin. As on the server, only the references it renames follow: a
-   * block's board and parent, and a view's `cardOrder` and `contentOrder`
-   * and `defaultTemplateId`. Anything else keeps naming the source.
+   * block's board and parent, and what `renameCopied` renames.
    */
   #insertBoard(source: Board, blocks: readonly StoredBlock[]): Board {
     const now = this.world.now();
     const ids = new Map<string, string>([[source.id, this.world.newId()]]);
     for (const block of blocks) ids.set(block.id, this.world.newId());
     const renamed = (id: string): string => ids.get(id) ?? id;
-    const renamedList = (value: unknown): unknown =>
-      Array.isArray(value)
-        ? (value as unknown[]).map((item) => (typeof item === 'string' ? renamed(item) : item))
-        : value;
+    const cardIds = new Set(blocks.filter((block) => block.type === 'card').map(({ id }) => id));
     const board: Board = {
       ...copy(source),
       id: renamed(source.id),
@@ -558,13 +555,7 @@ export class MemoryBackend implements Backend {
     this.#fileAsNew(this.userId, board);
     for (const block of blocks) {
       const made = copy(block);
-      const fields: Record<string, unknown> = made.fields;
-      for (const name of ['cardOrder', 'contentOrder']) {
-        if (name in fields) fields[name] = renamedList(fields[name]);
-      }
-      if (typeof fields.defaultTemplateId === 'string') {
-        fields.defaultTemplateId = renamed(fields.defaultTemplateId);
-      }
+      renameCopied(source, made, ids, cardIds);
       this.world.blocks.set(renamed(block.id), {
         ...made,
         id: renamed(block.id),
@@ -946,7 +937,7 @@ export class MemoryBackend implements Backend {
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
     await this.#enter('createCard');
-    this.#board(boardId);
+    const board = this.#board(boardId);
     const block = this.#newBlock(boardId, boardId, 'card');
     block.title = draft.title ?? '';
     block.fields = {
@@ -955,6 +946,7 @@ export class MemoryBackend implements Backend {
       properties: copy(draft.properties ?? {}),
     };
     block.body = this.#checkBody(boardId, draft.body ?? null);
+    checkRelations(this.world, board, block, undefined, 'properties');
     this.world.blocks.set(block.id, block);
     this.#tellBlocks(boardId, [block]);
     return this.#commented(summaryOf(block as StoredCard));
@@ -962,7 +954,9 @@ export class MemoryBackend implements Backend {
 
   async patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
     await this.#enter('patchCard');
-    const card = applyCardPatch(this.#block(boardId, cardId, 'card') as StoredCard, patch);
+    const before = this.#block(boardId, cardId, 'card') as StoredCard;
+    const card = applyCardPatch(before, patch);
+    checkRelations(this.world, this.#board(boardId), card, before, 'updatedProperties');
     this.world.blocks.set(cardId, card);
     this.#touch(card);
     this.#tellBlocks(boardId, [card]);

@@ -160,6 +160,79 @@ describe('changing the kind of a property', () => {
     expect(STATUS in cardNamed('Alpha').fields.properties).toBe(false);
   });
 
+  it('removes the values first, so that one undo brings them back under the old kind', async () => {
+    const { board, backend, workspace, definition, cardNamed } = await open();
+    const template = definition(STATUS);
+    if (!template) throw new Error('no status');
+    for (const kind of ['relation', 'date'] as const) {
+      await changePropertyType(board, planTypeChange(template, kind, board.cards));
+      expect(definition(STATUS)?.type).toBe(kind);
+      expect(STATUS in cardNamed('Alpha').fields.properties).toBe(false);
+      await workspace.undoLast();
+      expect(definition(STATUS)?.type).toBe('select');
+      const alpha = await backend.card(board.boardId, cardNamed('Alpha').id);
+      expect(alpha.fields.properties[STATUS]).toBe('todo');
+      expect(workspace.canUndo).toBe(false);
+    }
+  });
+
+  it('keeps a value left over from a kind before when the change is refused, and undoes it', async () => {
+    const { board, backend, workspace, definition } = await open();
+    // Turned into a card relation earlier: the values of the select stay, as the server leaves them.
+    await board.changeBoard((current) => ({
+      ...current,
+      cardProperties: current.cardProperties.map((property) =>
+        property.id === STATUS ? { ...property, type: 'relation', options: [] } : property,
+      ),
+    }));
+    const template = definition(STATUS);
+    const source = board.cards[0];
+    if (!template || !source) throw new Error('a property and a card are needed');
+    const stored = async () =>
+      (await backend.card(board.boardId, source.id)).fields.properties[STATUS];
+    const before = await stored();
+    expect(before).toBeDefined();
+
+    backend.failNext('patchBoard', new BackendError(403));
+    await changePropertyType(board, planTypeChange(template, 'text', board.cards));
+    expect(
+      (await backend.board(board.boardId)).cardProperties.find((p) => p.id === STATUS)?.type,
+    ).toBe('relation');
+    expect(await stored()).toEqual(before);
+
+    await changePropertyType(board, planTypeChange(template, 'text', board.cards));
+    expect(await stored()).toBeUndefined();
+    await workspace.undoLast();
+    expect(definition(STATUS)?.type).toBe('relation');
+    expect(await stored()).toEqual(before);
+  });
+
+  it('leaves a value no kind of the change takes, so that undo is not stopped by it', async () => {
+    const { board, backend, workspace, definition } = await open();
+    await board.changeBoard((current) => ({
+      ...current,
+      cardProperties: current.cardProperties.map((property) =>
+        property.id === STATUS ? { ...property, type: 'relation', options: [] } : property,
+      ),
+    }));
+    const template = definition(STATUS);
+    const source = board.cards[0];
+    if (!template || !source) throw new Error('a property and a card are needed');
+    const stored = async () =>
+      (await backend.card(board.boardId, source.id)).fields.properties[STATUS];
+    const before = await stored();
+    expect(typeof before).toBe('string');
+
+    // A select value is no relation value and no date value: it stays where it is.
+    await changePropertyType(board, planTypeChange(template, 'date', board.cards));
+    expect(definition(STATUS)?.type).toBe('date');
+    expect(await stored()).toEqual(before);
+    await workspace.undoLast();
+    expect(workspace.problems).toEqual([]);
+    expect(definition(STATUS)?.type).toBe('relation');
+    expect(await stored()).toEqual(before);
+  });
+
   it('takes the views off what they wrote for the old kind', async () => {
     const { board, view, definition } = await open();
     expect(view.fields.groupById).toBe(STATUS);
@@ -180,6 +253,12 @@ describe('changing the kind of a property', () => {
     expect(definition(STATUS)?.type).toBe('select');
     expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
     expect(cardNamed('Alpha').fields.properties[STATUS]).toBe('todo');
+
+    backend.failNext('patchBoard', new BackendError(403));
+    await changePropertyType(board, planTypeChange(template, 'relation', board.cards));
+    expect(definition(STATUS)?.type).toBe('select');
+    const alpha = await backend.card(board.boardId, cardNamed('Alpha').id);
+    expect(alpha.fields.properties[STATUS]).toBe('todo');
   });
 });
 
@@ -224,6 +303,42 @@ describe('deleting a property', () => {
     await deleteProperty(board, STATUS);
     expect(definition(STATUS)).toBeDefined();
     expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
+  });
+});
+
+describe('a card relation a Gantt view reads as its dependencies', () => {
+  async function withRelation() {
+    const made = await open();
+    const { board, view } = made;
+    const relation = (await addProperty(board, view, 'relation', 'After')) ?? '';
+    await board.setViewFields(view.id, { viewType: 'gantt', dependencyPropertyId: relation });
+    const named = async (): Promise<string | undefined> => {
+      const kept = (await made.backend.views(board.boardId))[0]?.fields.dependencyPropertyId;
+      expect(board.view(view.id)?.fields.dependencyPropertyId).toBe(kept);
+      return kept;
+    };
+    return { ...made, relation, named };
+  }
+
+  it('is no longer read once deleted, and is read again once an undo brings it back', async () => {
+    const { board, workspace, relation, definition, named } = await withRelation();
+    await deleteProperty(board, relation);
+    expect(await named()).toBeUndefined();
+    await workspace.undoLast();
+    expect(definition(relation)?.type).toBe('relation');
+    expect(await named()).toBe(relation);
+  });
+
+  it('is no longer read once it is another kind, and is read again once that is undone', async () => {
+    const { board, workspace, relation, definition, named } = await withRelation();
+    const template = definition(relation);
+    if (!template) throw new Error('no relation');
+    await changePropertyType(board, planTypeChange(template, 'text', board.cards));
+    expect(definition(relation)?.type).toBe('text');
+    expect(await named()).toBeUndefined();
+    await workspace.undoLast();
+    expect(definition(relation)?.type).toBe('relation');
+    expect(await named()).toBe(relation);
   });
 });
 

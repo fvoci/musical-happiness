@@ -14,23 +14,8 @@
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { boardPath } from './address.ts';
+import { drawnDiagram, openCardWithBody, type Dev } from './embeds.support.ts';
 import { screensDir } from './screens.ts';
-
-/** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
-interface DevBackend {
-  workspaces(): Promise<{ id: string }[]>;
-  boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
-  views(boardId: string): Promise<{ id: string; title: string }[]>;
-  cards(boardId: string): Promise<{ id: string; title: string }[]>;
-  card(boardId: string, cardId: string): Promise<{ updateAt: number }>;
-  writeCardBody(boardId: string, cardId: string, write: object): Promise<unknown>;
-  patchSettings(patch: object): Promise<unknown>;
-}
-interface Dev {
-  backend: DevBackend;
-  someoneElse(): DevBackend;
-}
 
 const BODY = {
   type: 'doc',
@@ -53,42 +38,8 @@ const BODY = {
   ],
 };
 
-/**
- * Opens the first card of a board, and then somebody else gives it this body.
- * In that order: the data lives in memory and a page that loads starts from
- * the seed again, so what was written before the card was opened is gone. It
- * is written as another member because on the board the reader may only look
- * at, the reader cannot.
- */
 async function openCardWithEmbeds(page: Page, board: string): Promise<Locator> {
-  await page.goto('/');
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  const place = await page.evaluate(async (boardTitle) => {
-    const reader = (window as unknown as { fvociDev: Dev }).fvociDev.backend;
-    const [workspace] = await reader.workspaces();
-    const boards = await reader.boards(workspace?.id ?? '');
-    const found = boards.find((each) => each.title.startsWith(boardTitle));
-    if (!found) throw new Error(`no board ${boardTitle}`);
-    const [card] = await reader.cards(found.id);
-    const [view] = await reader.views(found.id);
-    if (!card || !view) throw new Error('the board has no card or no view');
-    return { boardId: found.id, viewId: view.id, cardId: card.id };
-  }, board);
-  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
-  const body = page.getByTestId('card-body');
-  await expect(body).toBeVisible();
-  await expect(page.getByTestId('card-comments')).toBeVisible();
-  await page.evaluate(
-    async ([at, doc]) => {
-      const handle = (window as unknown as { fvociDev: Dev }).fvociDev;
-      const { updateAt } = await handle.backend.card(at.boardId, at.cardId);
-      await handle
-        .someoneElse()
-        .writeCardBody(at.boardId, at.cardId, { body: doc, readAt: updateAt });
-    },
-    [place, BODY] as const,
-  );
-  return body;
+  return openCardWithBody(page, board, BODY);
 }
 
 function refusals(page: Page): string[] {
@@ -104,23 +55,8 @@ async function drawn(body: Locator): Promise<void> {
   await expect(body.locator('.doc-math[data-state="drawn"]')).toHaveCount(2, { timeout: 30_000 });
   await expect(body.locator('.doc-math .katex').first()).toBeVisible();
   await expect(body.locator('.doc-math[data-state="error"]')).toHaveCount(0);
-  const diagram = body.locator('.doc-diagram[data-state="drawn"]');
-  await expect(diagram).toHaveCount(1, { timeout: 30_000 });
-  await expect(diagram.locator('svg')).toBeVisible();
-  await expect(diagram.locator('svg')).toContainText('Start');
-  // The whole of it is in the picture: nothing drawn outside what the picture shows.
-  const outside = await diagram.locator('svg').evaluate((svg) => {
-    const frame = svg.getBoundingClientRect();
-    const content = svg.querySelector('g')?.getBoundingClientRect();
-    if (!content) return Number.POSITIVE_INFINITY;
-    return Math.max(
-      frame.left - content.left,
-      frame.top - content.top,
-      content.right - frame.right,
-      content.bottom - frame.bottom,
-    );
-  });
-  expect(outside).toBeLessThanOrEqual(1);
+  await drawnDiagram(body);
+  await expect(body.locator('.doc-diagram svg')).toContainText('Start');
 }
 
 test.describe.configure({ timeout: 90_000 });

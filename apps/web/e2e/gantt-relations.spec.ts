@@ -30,8 +30,8 @@ test('a new Gantt view reads the first card relation, and draws one arrow for ea
   await openRelated(page, info);
   await expectDependencies(page, 'After');
   expect((await storedFields(page)).dependencyPropertyId).toBe('after');
-  // Three edges between cards that have a bar; the deleted card, the card
-  // itself and the card without a date give none.
+  // Three edges between cards that have a bar; the deleted card and the card
+  // without a date give none.
   await expect(gantt(page)).toHaveAttribute('data-edges', '3');
   await expect(arrows(page)).toHaveCount(3);
   const ends = await arrows(page).evaluateAll((drawn) =>

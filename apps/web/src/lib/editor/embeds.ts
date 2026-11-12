@@ -13,6 +13,7 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import type { DiagramFailure, DiagramResult } from './diagram.ts';
+import { diagramKind } from './diagram-kind.ts';
 import { DIAGRAM_CODE_SELECTOR, MATH_CLASS, MATH_SLOTS, MATH_SOURCE_ATTRIBUTE } from './drawing.ts';
 import type { drawMath, MathLibrary, MathResult } from './math.ts';
 
@@ -34,10 +35,11 @@ const MATH_SELECTOR = Object.values(MATH_SLOTS)
   .map((slot) => `${slot.tag}.${MATH_CLASS}[data-type="${slot.type}"][${MATH_SOURCE_ATTRIBUTE}]`)
   .join(', ');
 
-const mathFailure: Record<'too-long' | 'invalid' | 'too-large', () => string> = {
+const mathFailure: Record<'too-long' | 'invalid' | 'too-large' | 'over-budget', () => string> = {
   'too-long': m.editor_math_too_long,
   invalid: m.editor_math_invalid,
   'too-large': m.editor_math_too_large,
+  'over-budget': m.editor_math_not_drawn,
 };
 const diagramFailure: Record<DiagramFailure, () => string> = {
   'too-long': m.editor_diagram_too_long,
@@ -61,10 +63,13 @@ function notice(page: Document, text: string, tag: 'span' | 'p' = 'span'): HTMLE
   return element;
 }
 
-/** Puts the source back into a formula's place, with what went wrong behind it. */
+/**
+ * Puts the source back into a formula's place, with why behind it: what went
+ * wrong (`error`), or that the formula was not drawn at all (`skipped`).
+ */
 function showMathSource(slot: HTMLElement, reason: keyof typeof mathFailure): void {
   const page = slot.ownerDocument;
-  slot.setAttribute('data-state', 'error');
+  slot.setAttribute('data-state', reason === 'over-budget' ? 'skipped' : 'error');
   slot.replaceChildren(
     page.createTextNode(slot.getAttribute(MATH_SOURCE_ATTRIBUTE) ?? ''),
     notice(page, mathFailure[reason]()),
@@ -165,7 +170,11 @@ async function fillAllMath(slots: HTMLElement[], cancelled: () => boolean): Prom
   let slice = 0;
   for (const slot of slots) {
     if (cancelled()) return;
-    if (spent > MATH_BUDGET) break;
+    if (spent > MATH_BUDGET) {
+      // Past the budget: the rest stay their source, and say they were not drawn.
+      showMathSource(slot, 'over-budget');
+      continue;
+    }
     const { ms } = applyMath(slot, library, drawMath);
     spent += ms;
     slice += ms;
@@ -180,27 +189,49 @@ async function fillAllMath(slots: HTMLElement[], cancelled: () => boolean): Prom
 }
 
 /** The element a diagram is drawn into; it follows the code block that holds the source. */
-export function createDiagramFigure(page: Document): HTMLElement {
+function createDiagramFigure(page: Document): HTMLElement {
   const figure = page.createElement('div');
   figure.setAttribute('class', 'doc-diagram');
   figure.setAttribute('data-state', 'pending');
   return figure;
 }
 
+/** What went wrong with a diagram, in words, and the library's own words about where. */
+export function diagramProblem(
+  page: Document,
+  result: Extract<DiagramResult, { ok: false }>,
+): HTMLElement[] {
+  const parts = [notice(page, diagramFailure[result.reason](), 'p')];
+  if (result.detail) {
+    // The library's own words about where the text went wrong. Text, not markup.
+    const detail = page.createElement('pre');
+    detail.setAttribute('class', 'doc-embed-detail');
+    detail.append(page.createTextNode(result.detail));
+    parts.push(detail);
+  }
+  return parts;
+}
+
+/** What went wrong with a formula that was drawn aside (math-block.ts): its notice, again. */
+export function mathProblem(page: Document, slot: HTMLElement): HTMLElement[] {
+  // Without a notice the library did not arrive: the formula is not drawn all the same.
+  const said = slot.querySelector('.doc-embed-problem')?.textContent ?? mathFailure.invalid();
+  return [notice(page, said, 'p')];
+}
+
 /**
- * Draws a diagram into its figure. What the figure showed before stays until
- * the new picture or the notice of a failure is ready, so that a diagram
- * being edited does not flicker. Gives back whether a picture is shown.
+ * Draws a diagram into its figure, read-only. Gives back whether a picture is
+ * shown; a failure shows why instead. The editor draws its own (diagram-block.ts).
  */
-export async function fillDiagram(
+async function fillDiagram(
   figure: HTMLElement,
   source: string,
-  isCurrent: () => boolean = () => true,
+  isCurrent: () => boolean,
 ): Promise<boolean> {
   const page = figure.ownerDocument;
   let result: DiagramResult;
   if (source.trim() === '') {
-    // Nothing to draw yet: an empty figure, and no complaint.
+    // Nothing to draw: an empty figure, and no complaint.
     figure.setAttribute('data-state', 'empty');
     figure.replaceChildren();
     return false;
@@ -216,22 +247,14 @@ export async function fillDiagram(
   if (result.ok) {
     figure.setAttribute('data-state', 'drawn');
     figure.setAttribute('role', 'img');
-    figure.setAttribute('aria-label', m.editor_diagram_label());
+    figure.setAttribute('aria-label', diagramKind(source));
     figure.replaceChildren(result.picture);
     return true;
   }
   figure.setAttribute('data-state', 'error');
   figure.removeAttribute('role');
   figure.removeAttribute('aria-label');
-  const parts: Node[] = [notice(page, diagramFailure[result.reason](), 'p')];
-  if (result.detail) {
-    // The library's own words about where the text went wrong. Text, not markup.
-    const detail = page.createElement('pre');
-    detail.setAttribute('class', 'doc-embed-detail');
-    detail.append(page.createTextNode(result.detail));
-    parts.push(detail);
-  }
-  figure.replaceChildren(...parts);
+  figure.replaceChildren(...diagramProblem(page, result));
   return false;
 }
 
