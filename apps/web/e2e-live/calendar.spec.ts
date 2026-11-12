@@ -10,13 +10,14 @@
 import { expect, test } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US', timezoneId: 'Asia/Seoul' });
@@ -55,7 +56,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
 
   // Made on the page: placed by the first date of the board, "Due".
@@ -64,7 +65,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();
   await expect.poll(async () => (await stored())?.title).toBe('Calendar view');
   const viewId = (await stored())?.id ?? '';
-  await expect(page).toHaveURL(new RegExp(`/board/${board.boardId}/${viewId}$`));
+  await expect(page).toHaveURL(new RegExp(`${boardPath(board, viewId)}$`));
   expect((await stored())?.fields.dateDisplayPropertyId).toBe('due');
 
   const calendar = page.getByTestId('calendar');
@@ -90,7 +91,7 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await expect(week('2026-11-01').filter({ hasText: 'Pick apples' })).toHaveCount(1);
   await expect(week('2026-11-01').filter({ hasText: 'Press cider' })).toHaveCount(1);
   await expect(week('2026-11-08')).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`/board/${board.boardId}/${viewId}$`));
+  await expect(page).toHaveURL(new RegExp(`${boardPath(board, viewId)}$`));
   expect((await stored())?.fields.viewType).toBe('calendar');
   expect(errors).toEqual([]);
   await api.dispose();
@@ -115,7 +116,7 @@ test('a date changed on the calendar is kept by the server, whole, after a reloa
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
   await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();
@@ -169,7 +170,7 @@ test('on the server: a card made on a day, undone; a timed card moved keeps its 
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
   await page.getByRole('menuitem', { name: 'Calendar', exact: true }).click();

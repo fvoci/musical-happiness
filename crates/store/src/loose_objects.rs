@@ -88,10 +88,14 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the statement fails, as it does when the
+    /// Returns [`StoreError::InvalidPath`] for a place spelled otherwise than the one way,
+    /// and [`StoreError::Database`] if the statement fails, as it does when the
     /// organization lists the path already. Another organization's row of the same path
     /// is no hindrance (PostgreSQL; SQLite holds one organization).
     pub async fn mark_writing(&self, path: &str, doom_at: i64) -> Result<(), StoreError> {
+        if !fvoci_model::is_storage_path(path) {
+            return Err(StoreError::InvalidPath(path.to_owned()));
+        }
         self.with_conn(async |scope| {
             let mut sql =
                 scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at) VALUES (");
@@ -116,6 +120,7 @@ impl Store {
     ///
     /// The errors of [`Store::save_file_info`]; nothing is recorded or doomed then.
     pub async fn record_written_file(&self, file_info: &FileInfo) -> Result<bool, StoreError> {
+        file_info::check_new_path(&file_info.path)?;
         self.transaction(async |scope| {
             let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
             sql.bind(&file_info.path)
@@ -268,8 +273,15 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::InvalidPath`] for a place spelled otherwise than the one way
+    /// (nothing is doomed then), and [`StoreError::Database`] if a statement fails.
     pub async fn doom_unrecorded(&self, paths: &[&str]) -> Result<u64, StoreError> {
+        if let Some(path) = paths
+            .iter()
+            .find(|path| !fvoci_model::is_storage_path(path))
+        {
+            return Err(StoreError::InvalidPath((*path).to_owned()));
+        }
         self.transaction(async |scope| {
             let names_org = scope.dialect() == Dialect::Postgres && !scope.has_org();
             let key = match scope.dialect() {

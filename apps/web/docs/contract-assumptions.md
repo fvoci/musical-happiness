@@ -24,7 +24,7 @@
 
 - **`index.html`의 인라인 스크립트와 콘텐츠 보안 정책.** `index.html` 머리의 인라인 스크립트 하나가 그리기 전에 기기에 기억한 밝기와 밀도를 루트 요소에 넣는다. 빌드가 그 해시를 `dist/csp.json`(`{"script-src": ["'sha256-…'"]}`, 서빙하지 않는 파일)에 쓴다. 서버가 `index.html`에 정책을 붙일 때 이 해시를 `script-src`에 더해야 한다. 지금 서버는 `index.html`에 정책을 붙이지 않는다.
 - **그 정책을 정할 때.** `img-src 'self' data: blob:`, `connect-src 'self'`, `font-src 'self'`를 권한다(KaTeX 글꼴은 앱의 정적 파일이다). `style-src`에 `'unsafe-inline'`이 없어도 편집기와 수식은 돈다. 다만 다이어그램은 색을 잃는다(그린 SVG 안의 `<style>`이 막힌다). 그때 웹앱이 그 스타일을 `adoptedStyleSheets`로 옮긴다(`editor/safe-svg.ts`).
-- **base path.** 스크립트는 `<meta name="fvoci:base" content="{{.BaseURL}}">`에서 읽는다. 화면의 주소는 `/`와 `/board/<보드>/<뷰>/<카드>`(오른쪽부터 생략)다.
+- **base path.** 스크립트는 `<meta name="fvoci:base" content="{{.BaseURL}}">`에서 읽는다. 화면의 주소는 `/`와 `/w/<워크스페이스>/boards/<보드>/<뷰>/<카드>`(오른쪽부터 생략)다.
 
 ## 4. 웹앱 쪽에 남은 것
 

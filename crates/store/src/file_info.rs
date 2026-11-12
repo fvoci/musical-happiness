@@ -48,9 +48,11 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidId`] if the record's or the board's identifier is not
-    /// one, [`StoreError::NotFound`] if the board does not exist, and
+    /// one, [`StoreError::InvalidPath`] for a place spelled otherwise than the one way,
+    /// [`StoreError::NotFound`] if the board does not exist, and
     /// [`StoreError::Database`] if the board has a file of that stored name already.
     pub async fn save_file_info(&self, file_info: &FileInfo) -> Result<(), StoreError> {
+        check_new_path(&file_info.path)?;
         self.with_conn(async |scope| save_file_info(scope, file_info).await)
             .await
     }
@@ -101,6 +103,61 @@ impl Store {
     }
 }
 
+/// Refuses a place of the file storage that a new record, mark or session would name
+/// otherwise than the one way ([`fvoci_model::is_storage_path`]); the empty place of a
+/// record or session that names none passes. A record the store held already, as one
+/// that comes back from the trash, is taken as it was.
+pub(crate) fn check_new_path(path: &str) -> Result<(), StoreError> {
+    if path.is_empty() || fvoci_model::is_storage_path(path) {
+        Ok(())
+    } else {
+        Err(StoreError::InvalidPath(path.to_owned()))
+    }
+}
+
+/// The places that rows name otherwise than the one way: those that a rough condition
+/// finds, checked with [`fvoci_model::is_storage_path`].
+pub(crate) async fn other_spellings(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
+    let (trashed_path, trashed_files, backslash) = match scope.dialect() {
+        Dialect::Sqlite => (
+            "json_extract(f.value, '$.path')",
+            "json_each(d.files) AS f",
+            "instr({p}, char(92)) > 0",
+        ),
+        Dialect::Postgres => (
+            "f.value ->> 'path'",
+            "json_array_elements(d.files) AS f(value)",
+            "strpos({p}, chr(92)) > 0",
+        ),
+    };
+    let rough = |p: &str| {
+        format!(
+            "{p} <> '' AND ({p} LIKE '%//%' OR {p} LIKE '/%' OR {p} LIKE '%/' \
+             OR {p} LIKE '.%' OR {p} LIKE '%/.%' OR {})",
+            backslash.replace("{p}", p)
+        )
+    };
+    let statement = format!(
+        "SELECT path FROM file_info WHERE {} \
+         UNION SELECT path FROM uploads WHERE {} \
+         UNION SELECT path FROM loose_objects WHERE {} \
+         UNION SELECT {trashed_path} FROM deleted_boards AS d, {trashed_files} WHERE {}",
+        rough("path"),
+        rough("path"),
+        rough("path"),
+        rough(trashed_path)
+    );
+    let sql = scope.sql(&statement);
+    let mut found = Vec::new();
+    for row in scope.fetch_all(sql).await? {
+        let path = row.text(0)?;
+        if !fvoci_model::is_storage_path(&path) {
+            found.push(path);
+        }
+    }
+    Ok(found)
+}
+
 pub(crate) async fn save_file_info(
     scope: &mut Scope<'_>,
     file_info: &FileInfo,
@@ -128,8 +185,8 @@ pub(crate) async fn save_file_info(
 
 /// The records of every file of a board, oldest first, held on PostgreSQL until the
 /// transaction ends: the board's deletion takes them to the trash, and a collection of
-/// the files no block shows that removes one of them meanwhile waits, then finds it
-/// gone with the board; or it went before, and is not taken to the trash.
+/// the files no block shows skips them meanwhile (PostgreSQL); or it took one before,
+/// and that one is not taken to the trash.
 pub(crate) async fn file_infos_of_board(
     scope: &mut Scope<'_>,
     board_id: &str,

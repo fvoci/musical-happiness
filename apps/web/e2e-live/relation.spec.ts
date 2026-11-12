@@ -10,13 +10,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US', timezoneId: 'UTC' });
@@ -65,7 +66,7 @@ test('cards picked into a relation are stored as a list of identifiers and stay 
     ((await (await api.get(`/api/v1/cards/${walls}`)).json()) as Schemas['Card']).properties;
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}/${walls}`);
+  await page.goto(boardPath(board, board.viewId, walls));
   await signInOnPage(page, owner);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
   const after = property(page, 'After');
@@ -121,7 +122,7 @@ test('a relation made on the page from a card, and the cards picked into it, sta
   };
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}/${fill}`);
+  await page.goto(boardPath(board, board.viewId, fill));
   await signInOnPage(page, owner);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
 

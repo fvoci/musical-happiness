@@ -8,13 +8,15 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { boardLink, boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.support.ts';
 
 import {
+  boardPath,
   makeBoard,
   person,
+  placeOf,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -46,7 +48,7 @@ test('a board is made from a template, and a template from a board is changed on
   expect(builtIn?.isBuiltin).toBe(true);
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${mine.boardId}/${mine.viewId}`);
+  await page.goto(boardPath(mine, mine.viewId));
   await signInOnPage(page, owner);
 
   // "Add board" offers an empty board and the templates; a built-in one is used.
@@ -58,7 +60,7 @@ test('a board is made from a template, and a template from a board is changed on
   await expect(projectTasks.getByRole('button', { name: /^Change the template/ })).toHaveCount(0);
   await projectTasks.getByRole('button', { name: 'Use this template: Project Tasks' }).click();
   await expect(boardLink(page, 'Project Tasks')).toHaveAttribute('aria-current', 'page');
-  const [, made = ''] = /\/board\/([^/]+)/.exec(page.url()) ?? [];
+  const made = placeOf(page.url()).boardId;
   const copy = (await (await api.get(`/api/v1/boards/${made}`)).json()) as Schemas['Board'];
   // In the reader's workspace (sent as `toWorkspace`: a built-in template is kept apart from every workspace).
   expect(copy).toMatchObject({
@@ -85,13 +87,13 @@ test('a board is made from a template, and a template from a board is changed on
     .toEqual(['Our weekly plan']);
   // No board of the sidebar.
   await expect(boardLink(page, 'Our weekly plan')).toHaveCount(0);
-  const [, templateId = ''] = /\/board\/([^/]+)/.exec(page.url()) ?? [];
+  const templateId = placeOf(page.url()).boardId;
 
   // Offered again from "Add board", to be changed or used.
-  await page.goto(`/board/${mine.boardId}/${mine.viewId}`);
+  await page.goto(boardPath(mine, mine.viewId));
   await sidebar(page).getByTestId('add-board').click();
   await picker.getByRole('button', { name: 'Change the template Our weekly plan' }).click();
-  await expect(page).toHaveURL(new RegExp(`/board/${templateId}`));
+  await expect(page).toHaveURL(new RegExp(boardPath({ ...mine, boardId: templateId })));
   await expect(page.getByTestId('template-note')).toBeVisible();
 
   await sidebar(page).getByTestId('add-board').click();

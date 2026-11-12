@@ -10,6 +10,7 @@
  */
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 
+import { viewIdOf } from './address.ts';
 import { openView } from './kanban.support.ts';
 
 export const WELCOME = ['Welcome to fvoci!', 'Onboarding'] as const;
@@ -63,7 +64,7 @@ export async function setDates(page: Page, values: Record<string, Stored>): Prom
 
 /** The fields of the view that is open, as the backend keeps them. */
 export async function storedFields(page: Page): Promise<Record<string, unknown>> {
-  const viewId = /\/board\/[^/]+\/([^/]+)/.exec(new URL(page.url()).pathname)?.[1] ?? '';
+  const viewId = viewIdOf(page.url());
   return page.evaluate(async (id) => {
     const { workspace, backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
     const views = await backend.views(workspace.board.boardId);

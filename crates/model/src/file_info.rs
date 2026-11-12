@@ -35,11 +35,50 @@ pub struct FileInfo {
     pub size: i64,
 }
 
+/// Whether `path` is a place of the file storage written the one way the storage takes:
+/// relative, its parts parted by single slashes, none of them empty, `.` or `..`, and
+/// no backslash or NUL in it. The storage refuses any other spelling, and the store
+/// takes no other into a record, a mark of writing or an upload session: a place has
+/// one spelling, which the checks of whether an object is held compare.
+#[must_use]
+pub fn is_storage_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.contains(['\\', '\0'])
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_place_has_one_spelling() {
+        for path in [
+            "boards/20261112/b/x.png",
+            "b/x.png",
+            "x",
+            "a/.hidden/b.c..d",
+        ] {
+            assert!(is_storage_path(path), "{path}");
+        }
+        for path in [
+            "",
+            "/boards/x.png",
+            "boards//x.png",
+            "boards/x.png/",
+            "./boards/x.png",
+            "boards/./x.png",
+            "boards/../x.png",
+            "boards\\x.png",
+            "boards/x\0.png",
+        ] {
+            assert!(!is_storage_path(path), "{path:?}");
+        }
+    }
 
     #[test]
     fn json_form_has_no_place_in_the_storage() {

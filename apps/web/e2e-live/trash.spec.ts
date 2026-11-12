@@ -10,13 +10,14 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { boardsIn } from '../e2e/shell.support.ts';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -108,7 +109,7 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
   const pages: Page[] = [];
   for (let tab = 0; tab < 2; tab += 1) {
     const page = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
-    await page.goto(`/board/${alpha.boardId}/${alpha.viewId}`);
+    await page.goto(boardPath(alpha, alpha.viewId));
     await signInOnPage(page, owner);
     pages.push(page);
   }
@@ -158,7 +159,7 @@ test('a deleted card is listed for the editors of its board, and comes back to t
   });
   const gone = board.cards['Throw me out'] ?? '';
   expect((await api.delete(`/api/v1/boards/${board.boardId}/blocks/${gone}`)).ok()).toBe(true);
-  const path = `/board/${board.boardId}/${board.viewId}`;
+  const path = boardPath(board, board.viewId);
 
   // A viewer may not bring cards back: the server refuses the list, and the page offers none.
   expect((await viewerApi.get(`/api/v1/boards/${board.boardId}/trash/cards`)).status()).toBe(403);

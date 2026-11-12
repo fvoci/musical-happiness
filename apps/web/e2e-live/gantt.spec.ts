@@ -20,15 +20,16 @@ import {
 } from '@playwright/test';
 
 import {
+  boardPath,
+  type MadeBoard,
   makeBoard,
+  type Person,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type MadeBoard,
-  type Person,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US', timezoneId: 'Asia/Seoul' });
@@ -104,14 +105,14 @@ async function addGantt(
   board: MadeBoard,
 ): Promise<string> {
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await page.getByTestId('view-header').locator('[data-tool="add-view"]').click();
   await page.getByRole('menuitem', { name: 'Gantt', exact: true }).click();
   await expect(page.getByTestId('gantt')).toBeVisible();
   await expect.poll(async () => (await ganttViews(api, board.boardId)).length).toBe(1);
   const viewId = (await ganttViews(api, board.boardId))[0]?.id ?? '';
-  await expect(page).toHaveURL(new RegExp(`/board/${board.boardId}/${viewId}$`));
+  await expect(page).toHaveURL(new RegExp(`${boardPath(board, viewId)}$`));
   return viewId;
 }
 
@@ -292,7 +293,7 @@ test('"display by" chosen for a view that named no date can be taken back on the
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${viewId}`);
+  await page.goto(boardPath(board, viewId));
   await signInOnPage(page, owner);
   // Placed by the first date, "Due", while it names none.
   await expect(bar(page, 'Sow the beans')).toHaveAccessibleName('Sow the beans, November 12');

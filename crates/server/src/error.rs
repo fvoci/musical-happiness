@@ -723,6 +723,7 @@ impl From<StoreError> for AppError {
                     | BlockError::ParentIsComment
                     | BlockError::TypeStrandsComments
                     | BlockError::BodyNotAllowed
+                    | BlockError::ImageWithoutFile
                     | BlockError::NulInTitle
                     | BlockError::InvalidCardField { .. }
                     | BlockError::InvalidRelation(_)
@@ -794,7 +795,9 @@ impl From<BlockError> for AppError {
             BlockError::TitleSizeLimitExceeded
             | BlockError::FieldsSizeLimitExceeded
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
-            BlockError::BodyNotAllowed => Self::bad_request(error).with_field("body"),
+            BlockError::BodyNotAllowed | BlockError::ImageWithoutFile => {
+                Self::bad_request(error).with_field("body")
+            }
             BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
             BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
             BlockError::InvalidRelation(error) => Self::from(error),

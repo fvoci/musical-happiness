@@ -210,6 +210,10 @@ pub enum BlockError {
     /// A block that is neither a card nor a comment has a body.
     #[error("only a card or a comment has a body")]
     BodyNotAllowed,
+    /// An image of the body that the write makes the block show newly names no file
+    /// that the block's board has when the write is stored.
+    #[error("an image of the body shows no file of the board")]
+    ImageWithoutFile,
     /// The title holds U+0000, which PostgreSQL cannot store in text.
     #[error("the title holds the character U+0000")]
     NulInTitle,

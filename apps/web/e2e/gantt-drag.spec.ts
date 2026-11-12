@@ -9,6 +9,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { viewIdOf } from './address.ts';
 import { bar, dayScale, gantt, openGantt, scroller, type Dev } from './gantt.support.ts';
 import { tabTo } from './calendar.support.ts';
 import { dialog, Finger, pointOn, touch, undo } from './kanban.support.ts';
@@ -336,22 +337,24 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
   await expect(grip(page, 'Drag cards', 'end')).toHaveCount(1);
   // Placed by when the cards were made: no grips. Then by the date again.
   const placeBy = (propertyId: string | undefined): Promise<void> =>
-    page.evaluate(async (wanted) => {
-      const board = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
-      const viewId = /\/board\/[^/]+\/([^/]+)/.exec(location.pathname)?.[1] ?? '';
-      if (!board.board.cardProperties.some((each) => each.id === 'made')) {
-        await board.changeBoard((current) => ({
-          ...current,
-          cardProperties: [
-            ...current.cardProperties,
-            { id: 'made', name: 'Made', type: 'createdTime', options: [] },
-          ],
-        }));
-      }
-      const id =
-        wanted ?? board.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
-      await board.setViewFields(viewId, { dateDisplayPropertyId: id });
-    }, propertyId);
+    page.evaluate(
+      async ([wanted, viewId]) => {
+        const board = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+        if (!board.board.cardProperties.some((each) => each.id === 'made')) {
+          await board.changeBoard((current) => ({
+            ...current,
+            cardProperties: [
+              ...current.cardProperties,
+              { id: 'made', name: 'Made', type: 'createdTime', options: [] },
+            ],
+          }));
+        }
+        const id =
+          wanted ?? board.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+        await board.setViewFields(viewId, { dateDisplayPropertyId: id });
+      },
+      [propertyId, viewIdOf(page.url())] as const,
+    );
   await placeBy('made');
   const made = gantt(page).locator('[data-bar]').first();
   await expect(made).toBeVisible();

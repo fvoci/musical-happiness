@@ -8,6 +8,8 @@
  */
 import { expect, type CDPSession, type Locator, type Page, type TestInfo } from '@playwright/test';
 
+import { boardPath } from './address.ts';
+
 export interface Point {
   x: number;
   y: number;
@@ -83,7 +85,7 @@ export async function openView(
   await page.goto('/');
   await expect(boardPage(page)).toBeVisible();
   // The identifiers are the same on every load: the seed counts, it does not draw lots.
-  const path = await page.evaluate(
+  const place = await page.evaluate(
     async ([board, view]) => {
       const { backend } = (
         window as unknown as {
@@ -101,12 +103,12 @@ export async function openView(
       const found = boards.find((candidate) => candidate.title === board);
       const views = await backend.views(found?.id ?? '');
       const shown = views.find((candidate) => candidate.title === view);
-      return found && shown ? `/board/${found.id}/${shown.id}` : undefined;
+      return found && shown ? { boardId: found.id, viewId: shown.id } : undefined;
     },
     [boardTitle, viewTitle] as const,
   );
-  if (!path) throw new Error(`the seed has no view "${viewTitle}" on a board "${boardTitle}"`);
-  await page.goto(path);
+  if (!place) throw new Error(`the seed has no view "${viewTitle}" on a board "${boardTitle}"`);
+  await page.goto(boardPath(place.boardId, place.viewId));
   await expect(boardPage(page)).toBeVisible();
   await fitPane(page, paneOf(info));
   expect(errors).toEqual([]);

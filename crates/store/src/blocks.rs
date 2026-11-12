@@ -20,7 +20,7 @@ use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_refs;
+use crate::file_refs::{self, NewImages};
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
@@ -338,8 +338,10 @@ impl Store {
         blocks: &mut [Block],
         user_id: &str,
     ) -> Result<(), StoreError> {
-        self.transaction(async |scope| insert_blocks(scope, blocks, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            insert_blocks(scope, blocks, user_id, NewImages::Recorded).await
+        })
+        .await
     }
 
     /// Applies `patch` to the block with the given identifier.
@@ -388,7 +390,7 @@ impl Store {
                     )));
                 }
                 let block = get_block(scope, &block_id).await?;
-                file_refs::refresh(scope, &block).await?;
+                file_refs::refresh(scope, &block, NewImages::Recorded).await?;
             }
             Ok(())
         })
@@ -498,7 +500,7 @@ impl Store {
             card_values::clear_copied_values(&mut copies, &definitions);
             generate_block_ids(&mut copies);
             card_values::keep_cards_of_board(scope, &mut copies, board_id, &definitions).await?;
-            insert_blocks(scope, &mut copies, user_id).await?;
+            insert_blocks(scope, &mut copies, user_id, NewImages::Unchecked).await?;
             Ok(copies)
         })
         .await
@@ -655,18 +657,20 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let named = insert_block_at(scope, block, user_id, None).await?;
+    let named = insert_block_at(scope, block, user_id, None, NewImages::Recorded).await?;
     card_values::check_named_cards(scope, &named).await
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`. Returns the cards its relation values newly name, which the caller
-/// asks for once the write is stored ([`card_values::check_named_cards`]).
+/// that is `None`. The images it shows newly are asked as `new_images` says. Returns the
+/// cards its relation values newly name, which the caller asks for once the write is
+/// stored ([`card_values::check_named_cards`]).
 async fn insert_block_at(
     scope: &mut Scope<'_>,
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
+    new_images: NewImages,
 ) -> Result<Vec<NamedCards>, StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
@@ -742,21 +746,22 @@ async fn insert_block_at(
             } else {
                 existing.edited_at
             };
-        file_refs::refresh(scope, block).await?;
+        file_refs::refresh(scope, block, new_images).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
-        insert_block_row(scope, block).await?;
+        insert_block_row(scope, block, new_images).await?;
     }
     Ok(named)
 }
 
 /// Inserts a block row with every column as `block` has it. For a new block, and for
-/// one that comes back from the trash.
+/// one that comes back from the trash; its images are asked as `new_images` says.
 pub(crate) async fn insert_block_row(
     scope: &mut Scope<'_>,
     block: &Block,
+    new_images: NewImages,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!(
         "INSERT INTO blocks ({BLOCK_COLUMNS}, {BODY_SUMMARY_COLUMNS}) VALUES ("
@@ -775,7 +780,7 @@ pub(crate) async fn insert_block_row(
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
-    file_refs::refresh(scope, block).await
+    file_refs::refresh(scope, block, new_images).await
 }
 
 /// How [`push_body`] writes the body's columns.
@@ -811,6 +816,7 @@ pub(crate) async fn insert_blocks(
     scope: &mut Scope<'_>,
     blocks: &mut [Block],
     user_id: &str,
+    new_images: NewImages,
 ) -> Result<(), StoreError> {
     for block in blocks.iter() {
         block
@@ -831,7 +837,9 @@ pub(crate) async fn insert_blocks(
     // name each other.
     let mut named = Vec::new();
     for index in parents_first(blocks) {
-        named.extend(insert_block_at(scope, &mut blocks[index], user_id, Some(now)).await?);
+        named.extend(
+            insert_block_at(scope, &mut blocks[index], user_id, Some(now), new_images).await?,
+        );
     }
     card_values::check_named_cards(scope, &named).await
 }

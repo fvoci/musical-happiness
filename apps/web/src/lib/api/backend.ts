@@ -101,11 +101,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const socket = new URL(`${basePath}/ws`, location.href);
     socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
     this.#live = new LiveChanges(socket.href, {
-      workspaceId: async () => {
-        const [workspace] = await this.workspaces();
-        if (!workspace) throw new Error('the reader belongs to no workspace');
-        return workspace.id;
-      },
       members: (boardId) => this.members(boardId),
     });
   }
@@ -1003,5 +998,10 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** The reader's own changes: boards and the sidebar. Settings have no message. */
   watchSelf(listener: ChangeListener): () => void {
     return this.#live.watch(undefined, listener);
+  }
+
+  /** The connection follows this workspace from now on, and no other. */
+  enter(workspaceId: string): void {
+    this.#live.enter(workspaceId);
   }
 }

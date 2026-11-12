@@ -76,7 +76,7 @@ pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
-pub use file_info::FileInfo;
+pub use file_info::{FileInfo, is_storage_path};
 pub use id::{is_id, new_id};
 pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};

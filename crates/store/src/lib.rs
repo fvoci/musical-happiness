@@ -25,6 +25,7 @@ mod loose_objects;
 mod members;
 mod observe;
 mod schema;
+mod server_lock;
 mod sessions;
 mod sharing;
 mod subscriptions;
@@ -50,8 +51,10 @@ pub use connect::DbType;
 pub use db::Dialect;
 pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
 pub use error::{StoreError, Taken};
+pub use file_refs::NewImages;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
+pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
@@ -63,6 +66,11 @@ use sqlx::types::Uuid;
 
 /// How many connections a store keeps to a file or server database.
 const MAX_CONNECTIONS: u32 = 10;
+
+/// How long the read of [`Store::check_ready`] may run on PostgreSQL: less than the two
+/// seconds the server's readiness check waits, so that the read ends by itself soon
+/// after its caller gives it up, if not before, and does not keep its connection.
+const READY_STATEMENT_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// Whose rows the operations of a [`Store`] handle reach.
 ///
@@ -160,6 +168,12 @@ struct Inner {
     comment_versions_kept: std::sync::atomic::AtomicUsize,
     /// Who is told about the calls; see [`Store::observe`].
     observer: std::sync::OnceLock<Box<dyn Observer>>,
+    /// Whether rows name places of the file storage otherwise than the one way, once
+    /// asked ([`Store::other_spellings_stored`]).
+    other_spellings: tokio::sync::OnceCell<bool>,
+    /// The file of the lock of the server of an SQLite database in a file
+    /// ([`Store::try_lock_server`]).
+    lock_file: Option<std::path::PathBuf>,
 }
 
 /// The connections. Nothing takes one but [`Store::with_conn`] and
@@ -215,9 +229,12 @@ impl Store {
     /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, and
     /// [`StoreError::Database`] if the database cannot be reached.
     pub async fn open(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
+        let mut lock_file = None;
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
+                let database =
+                    (!settings.in_memory).then(|| settings.options.get_filename().to_path_buf());
                 let options = if settings.in_memory {
                     // The database exists only while a connection to it does, and a single
                     // connection sidesteps the table-level locks of SQLite's shared cache.
@@ -229,7 +246,10 @@ impl Store {
                 } else {
                     SqlitePoolOptions::new().max_connections(MAX_CONNECTIONS)
                 };
-                Pool::Sqlite(options.connect_with(settings.options).await?)
+                let pool = options.connect_with(settings.options).await?;
+                // Once connected, the file of the database is there to be followed to.
+                lock_file = database.as_deref().map(server_lock::file_beside);
+                Pool::Sqlite(pool)
             }
             DbType::Postgres => {
                 let settings = connect::postgres_settings(dbconfig)?;
@@ -251,6 +271,8 @@ impl Store {
                         .unwrap_or(usize::MAX),
                 ),
                 observer: std::sync::OnceLock::new(),
+                other_spellings: tokio::sync::OnceCell::new(),
+                lock_file,
             }),
         })
     }
@@ -363,15 +385,29 @@ impl Store {
         .await
     }
 
-    /// Asks the database for nothing, to see that it answers: one connection, one
-    /// statement.
+    /// Reads one row of the sessions at most, to see that the database answers and holds
+    /// the table every signed-in request reads: one connection, one read of the sessions
+    /// (on PostgreSQL after setting its statement timeout). A
+    /// database that answers but has lost this server's tables is not one it can serve
+    /// from; the schema as a whole is not compared. On PostgreSQL the statement gives
+    /// up after one and a half seconds, also while it waits for a lock on the table
+    /// (a `VACUUM FULL`, a migration): a check its caller gave up does not keep its
+    /// connection from the pool until the lock goes.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if no connection comes or the statement fails.
-    pub async fn ping(&self) -> Result<(), StoreError> {
+    /// Returns [`StoreError::Database`] if no connection comes or a statement fails.
+    pub async fn check_ready(&self) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            let sql = scope.sql("SELECT 1");
+            if scope.dialect() == Dialect::Postgres {
+                // For this transaction only; a plain SELECT, so the call stays a read.
+                let sql = scope.sql(&format!(
+                    "SELECT set_config('statement_timeout', '{}ms', true)",
+                    READY_STATEMENT_TIMEOUT.as_millis()
+                ));
+                scope.fetch_optional(sql).await?;
+            }
+            let sql = scope.sql("SELECT 1 FROM sessions LIMIT 1");
             scope.fetch_optional(sql).await.map(|_| ())
         })
         .await
@@ -442,7 +478,8 @@ impl Store {
                     Ok(conn) => conn,
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
-                let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept);
+                let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept)
+                    .reporting_writes_to(watch.map(Watch::writes));
                 let result = operation(&mut scope).await;
                 (result, Access::of(&scope))
             }
@@ -455,7 +492,8 @@ impl Store {
                     Ok(tx) => tx,
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
-                let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept);
+                let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                    .reporting_writes_to(watch.map(Watch::writes));
                 let result = operation(&mut scope).await;
                 let access = Access::of(&scope);
                 if access == Access::Write {

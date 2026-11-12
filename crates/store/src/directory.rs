@@ -17,6 +17,7 @@ use subtle::ConstantTimeEq as _;
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
+use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::workspaces;
@@ -251,12 +252,47 @@ impl Store {
             .await
     }
 
+    /// Whether a row of any organization names a place of the file storage otherwise
+    /// than the one way: a record, of a board or of one in the trash, a listed object,
+    /// or an upload session. Asked once a process: the store takes no such row since
+    /// it has the rule, and while one is there nothing is removed
+    /// ([`Store::held_objects`]). One found is logged with its place.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn other_spellings_stored(&self) -> Result<bool, StoreError> {
+        let found = self
+            .inner
+            .other_spellings
+            .get_or_try_init(async || {
+                let found = self.system().with_conn(file_info::other_spellings).await?;
+                if let Some(path) = found.first() {
+                    tracing::error!(
+                        count = found.len(),
+                        path,
+                        "rows name places of the file storage otherwise than the one way; \
+                         no object is removed until they are written the one way"
+                    );
+                }
+                Ok::<_, StoreError>(!found.is_empty())
+            })
+            .await?;
+        Ok(*found)
+    }
+
     /// The places among `paths` whose object something of any organization holds: a
     /// file's record, of a board or of a board in the trash, an object being written
     /// there, or an upload session that makes its file there, but for `except_upload`.
     /// Whatever a row says of its board or organization, an object it names is not
     /// removed under it: whether one may go is asked here, of every organization,
     /// before it is removed.
+    ///
+    /// A place is compared as it is spelled, which is the one way the storage takes
+    /// ([`fvoci_model::is_storage_path`]). One among `paths` spelled otherwise is held:
+    /// what another spelling would name is not known, and nothing is removed under it.
+    /// And while a row stored before that rule names a place otherwise (asked once a
+    /// process), every place is held.
     ///
     /// # Errors
     ///
@@ -266,8 +302,17 @@ impl Store {
         paths: &[&str],
         except_upload: Option<&str>,
     ) -> Result<BTreeSet<String>, StoreError> {
+        let (paths, unknown): (Vec<&str>, Vec<&str>) = paths
+            .iter()
+            .copied()
+            .partition(|path| fvoci_model::is_storage_path(path));
+        let mut held: BTreeSet<String> = unknown.into_iter().map(str::to_owned).collect();
         if paths.is_empty() {
-            return Ok(BTreeSet::new());
+            return Ok(held);
+        }
+        if self.other_spellings_stored().await? {
+            held.extend(paths.into_iter().map(str::to_owned));
+            return Ok(held);
         }
         self.system()
             .with_conn(async |scope| {
@@ -296,12 +341,10 @@ impl Store {
                 if let Some(upload_id) = except_upload {
                     sql.push_bind(" AND id <> ", upload_id);
                 }
-                scope
-                    .fetch_all(sql)
-                    .await?
-                    .iter()
-                    .map(|row| row.text(0))
-                    .collect()
+                for row in scope.fetch_all(sql).await? {
+                    held.insert(row.text(0)?);
+                }
+                Ok(held)
             })
             .await
     }

@@ -1,7 +1,7 @@
 /**
- * What the board store is built on besides the backend: a member's role,
- * the flags of a role, the name of an undo group, the place of a drop, the
- * card a copy is made as.
+ * What the board store is built on besides the backend: a board of the
+ * workspace shown, a member's role, the flags of a role, the name of an undo
+ * group, the place of a drop, the card a copy is made as.
  */
 import { valuesOfCopy } from '../logic/dependencies.ts';
 import {
@@ -14,6 +14,24 @@ import {
 } from '../logic/wire.ts';
 
 import type { Backend, BoardRole, CardDraft, Paging } from './backend.ts';
+import { BackendError } from './problems.ts';
+
+/**
+ * Reads a board of the workspace `workspaceId`, the one the address names.
+ * A board of another workspace is not found there (404), as one that is not
+ * there at all: the address does not say where else it is.
+ */
+export async function boardOfWorkspace(
+  backend: Backend,
+  boardId: string,
+  workspaceId: string | undefined,
+): Promise<Board> {
+  const board = await backend.board(boardId);
+  if (board.workspaceId !== workspaceId) {
+    throw new BackendError(404, { detail: 'the board is of another workspace' });
+  }
+  return board;
+}
 
 /** Every card in the trash, in one page: a page size of zero is all of them. */
 const ALL: Paging = { page: 0, perPage: 0 };
