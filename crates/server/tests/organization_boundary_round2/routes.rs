@@ -144,6 +144,14 @@ const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/users/{userId}", "getWorkspaceUser"),
 ];
 
+/// What a guest of the workspace is told by an operation of `REACHED_BY_ITEM` about
+/// nothing: the body is refused, the operation, or what the path names.
+const REFUSED_IN_REACH: [StatusCode; 3] = [
+    StatusCode::BAD_REQUEST,
+    StatusCode::FORBIDDEN,
+    StatusCode::NOT_FOUND,
+];
+
 /// The operations of `WORKSPACE_ROUTES` that a guest of the workspace reaches by what
 /// they name, as a member does: for the guest the workspace is there, and what is refused
 /// is what the path names (a board, a card, an upload, a user), or the operation.
@@ -302,10 +310,7 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
         } else if asker == Asker::Guest && REACHED_BY_ITEM.contains(operation) {
             // The workspace is there for its guest: what is refused is what the path
             // names, the operation, or the empty body; nothing is done.
-            matches!(
-                hidden.status,
-                StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
-            ) && absent.status == StatusCode::NOT_FOUND
+            REFUSED_IN_REACH.contains(&hidden.status) && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
             // The guest's archive has the boards the guest is on, none here.
             hidden.status == StatusCode::OK
