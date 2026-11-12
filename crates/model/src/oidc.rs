@@ -30,7 +30,8 @@ pub struct OidcProvider {
     pub auto_join: bool,
     /// Whether signing in through the provider is on.
     pub enabled: bool,
-    /// The address the provider sends people back to, to be registered with it.
+    /// The address the provider sends people back to, to be registered with it: this
+    /// provider's own.
     pub redirect_uri: String,
     /// When the provider was first set, in milliseconds since the Unix epoch.
     pub create_at: i64,
@@ -52,10 +53,11 @@ pub struct OidcProviderSettings {
     /// stay the same (none for a new provider), and is required with another issuer or
     /// client when one is stored; the empty string stores none.
     pub client_secret: Option<String>,
-    /// Whether somebody the provider vouches for who is no member becomes one. On if
-    /// left out.
+    /// Whether somebody the provider vouches for who is no member becomes one. Left
+    /// out, it stays as it is; on for a new provider.
     pub auto_join: Option<bool>,
-    /// Whether signing in through the provider is on. On if left out.
+    /// Whether signing in through the provider is on. Left out, it stays as it is; on
+    /// for a new provider.
     pub enabled: Option<bool>,
 }
 

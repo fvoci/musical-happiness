@@ -136,6 +136,14 @@ impl Store {
     ) -> Result<StoredProvider, StoreError> {
         self.transaction(async |scope| {
             let now = now_millis();
+            // Two at once for one organization, one after the other: on PostgreSQL the
+            // organization's row is held (no key of it changes, so its references are
+            // not held up); on SQLite a transaction that writes holds the database.
+            if scope.dialect() == Dialect::Postgres {
+                let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
+                sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
+                scope.fetch_optional(sql).await?;
+            }
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?)
                 .push_bind(" AND (issuer <> ", &provider.issuer)
@@ -156,6 +164,7 @@ impl Store {
                 .push_bind(", ", now)
                 .push(
                     ") ON CONFLICT (org_id) DO UPDATE SET \
+                     issuer = excluded.issuer, client_id = excluded.client_id, \
                      client_secret = excluded.client_secret, \
                      auto_join = excluded.auto_join, enabled = excluded.enabled, \
                      update_at = excluded.update_at",

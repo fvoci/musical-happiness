@@ -177,7 +177,7 @@ impl Browser {
             .unwrap_or_else(|| panic!("{back} is under the server's address"))
             .to_owned();
         assert!(
-            path.starts_with("/api/v1/auth/oidc/callback?"),
+            path.starts_with("/api/v1/auth/oidc/callback/"),
             "back to the one address: {path}"
         );
         Ok(Returning { path, cookie })
@@ -424,15 +424,18 @@ async fn forgeries_are_refused() {
     );
     ts.client_with_token(&first_token).me().await;
 
-    // Another browser: without the cookie, or with another one.
+    // Another browser: without the cookie, or with another one. It takes nothing:
+    // the browser that started the sign-in still ends it.
     for cookie in [None, Some(new_id())] {
-        let mut returning = browser.go_to_provider(&org_id).await.expect("started");
-        returning.cookie = cookie.clone();
+        let returning = browser.go_to_provider(&org_id).await.expect("started");
+        let mut other = returning.clone();
+        other.cookie = cookie.clone();
         assert_eq!(
-            browser.come_back(&returning).await,
+            browser.come_back(&other).await,
             Outcome::Refused("oidc-state-invalid".to_owned()),
             "the cookie {cookie:?}"
         );
+        browser.come_back(&returning).await.token();
     }
 
     fake.sign_in_as(Person::new("subject-eve", "eve@example.com"));
@@ -608,9 +611,12 @@ async fn the_client_secret_is_sealed_and_never_answered() {
         let provider: OidcProvider = answer.ok_json();
         assert!(provider.has_client_secret);
         assert_eq!(provider.client_id, CLIENT_ID);
-        assert_eq!(
-            provider.redirect_uri,
-            "http://localhost:8000/api/v1/auth/oidc/callback"
+        assert!(
+            provider
+                .redirect_uri
+                .starts_with("http://localhost:8000/api/v1/auth/oidc/callback/"),
+            "{}",
+            provider.redirect_uri
         );
     }
     let stored: StoredProvider = ts
@@ -1273,6 +1279,52 @@ async fn the_identity_of_a_deleted_account_lets_nobody_in() {
     );
     assert_eq!(users(&ts).await, users_before, "no account was made");
     assert_eq!(identities(&ts).await, 1);
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A setting left out of a change of the provider stays as it is, as the secret does:
+/// giving a new secret does not open an organization closed to newcomers, nor switch on
+/// a provider that is off. A start that names no organization is a bad request.
+#[tokio::test]
+async fn what_a_change_leaves_out_stays() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    let path = format!("/org/{org_id}/oidc");
+    let closed: OidcProvider = ts
+        .client
+        .put(
+            &path,
+            &json!({
+                "issuer": fake.issuer, "clientId": CLIENT_ID, "clientSecret": CLIENT_SECRET,
+                "autoJoin": false, "enabled": false,
+            }),
+        )
+        .await
+        .ok_json();
+    assert!(!closed.auto_join && !closed.enabled);
+    let rotated: OidcProvider = ts
+        .client
+        .put(
+            &path,
+            &json!({ "issuer": fake.issuer, "clientId": CLIENT_ID, "clientSecret": "rotated" }),
+        )
+        .await
+        .ok_json();
+    assert!(!rotated.auto_join && !rotated.enabled, "{rotated:?}");
+    assert_eq!(
+        rotated.redirect_uri, closed.redirect_uri,
+        "the same provider"
+    );
+
+    let unnamed = reqwest::Client::new()
+        .post(format!("{}/api/v1/auth/oidc/start", ts.base_url))
+        .header("X-Requested-With", "XMLHttpRequest")
+        .send()
+        .await
+        .expect("an answer");
+    assert_eq!(unnamed.status(), StatusCode::BAD_REQUEST);
     ts.teardown().await;
     fake.stop();
 }

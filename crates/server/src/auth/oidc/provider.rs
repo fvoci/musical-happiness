@@ -71,6 +71,10 @@ pub struct Discovery {
     /// does not say, which means `client_secret_basic`.
     #[serde(default)]
     pub token_endpoint_auth_methods_supported: Option<Vec<String>>,
+    /// Whether the provider says which issuer answered, in the `iss` parameter of the
+    /// address it sends the browser back to (RFC 9207); then it must.
+    #[serde(default)]
+    pub authorization_response_iss_parameter_supported: bool,
 }
 
 /// Reads the discovery document of `issuer` and checks that it is the issuer's: that
@@ -441,6 +445,7 @@ mod tests {
             jwks_uri: String::new(),
             token_endpoint_auth_methods_supported: methods
                 .map(|methods| methods.iter().map(|method| (*method).to_owned()).collect()),
+            authorization_response_iss_parameter_supported: false,
         };
         assert!(takes_basic(&with(None)));
         assert!(takes_basic(&with(Some(&["client_secret_basic"]))));

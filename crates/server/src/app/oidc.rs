@@ -17,7 +17,6 @@ use fvoci_model::{
 use fvoci_store::{
     Identity, LoginFlow, OidcAccount, OidcRefusal, StoreError, StoredProvider, Taken,
 };
-use subtle::ConstantTimeEq as _;
 
 use super::App;
 use crate::auth::limiter::RetryAfter;
@@ -91,6 +90,11 @@ pub struct Callback {
     pub error: Option<String>,
     /// The secret of the browser's cookie.
     pub browser_secret: String,
+    /// The provider the address it came back to names: each provider has an address of
+    /// its own (`…/callback/{providerId}`).
+    pub provider_id: String,
+    /// The `iss` parameter (RFC 9207): the issuer that answered, if it says.
+    pub issuer: Option<String>,
 }
 
 impl std::fmt::Debug for Callback {
@@ -115,11 +119,13 @@ impl std::fmt::Debug for FinishedLogin {
 }
 
 impl App {
-    /// The address a provider sends a browser back to: from the server's own address
-    /// (`serverRoot`), never from what a request says its host is.
-    pub fn oidc_redirect_uri(&self) -> String {
+    /// The address the provider `provider_id` sends a browser back to: from the
+    /// server's own address (`serverRoot`), never from what a request says its host is.
+    /// Each provider has its own, so that what one provider sends back is never taken
+    /// for another's (a mix-up of providers).
+    pub fn oidc_redirect_uri(&self, provider_id: &str) -> String {
         format!(
-            "{}{CALLBACK_PATH}",
+            "{}{CALLBACK_PATH}/{provider_id}",
             self.config().server_root.trim_end_matches('/')
         )
     }
@@ -166,6 +172,9 @@ impl App {
             .with_field("issuer"));
         }
         let existing = self.store().oidc_provider().await?;
+        let kept = existing
+            .as_ref()
+            .map(|existing| (existing.auto_join, existing.enabled));
         let sealed_client_secret = match settings.client_secret.as_deref() {
             // The secret stays with the client it was given for: one that went on to
             // another issuer or client would be sent to it.
@@ -201,8 +210,12 @@ impl App {
                 issuer: settings.issuer.clone(),
                 client_id: settings.client_id.clone(),
                 sealed_client_secret,
-                auto_join: settings.auto_join.unwrap_or(true),
-                enabled: settings.enabled.unwrap_or(true),
+                // Left out, what is stored stays, as the secret does; on for a new one.
+                auto_join: settings
+                    .auto_join
+                    .or(kept.map(|kept| kept.0))
+                    .unwrap_or(true),
+                enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
                 create_at: 0,
                 update_at: 0,
             })
@@ -231,7 +244,7 @@ impl App {
             has_client_secret: !stored.sealed_client_secret.is_empty(),
             auto_join: stored.auto_join,
             enabled: stored.enabled,
-            redirect_uri: self.oidc_redirect_uri(),
+            redirect_uri: self.oidc_redirect_uri(&stored.id),
             create_at: stored.create_at,
             update_at: stored.update_at,
         }
@@ -304,12 +317,30 @@ impl App {
                 unavailable()
             })?;
 
+        let (state, nonce, verifier, browser_secret) =
+            (new_secret(), new_secret(), new_secret(), new_secret());
+        // The address first: a provider whose address is none starts nothing.
+        let mut url = reqwest::Url::parse(&discovery.authorization_endpoint).map_err(|_| {
+            tracing::warn!(
+                org_id,
+                "the authorization endpoint of a provider is no address"
+            );
+            unavailable()
+        })?;
+        url.query_pairs_mut()
+            .append_pair("response_type", "code")
+            .append_pair("client_id", &stored.client_id)
+            .append_pair("redirect_uri", &self.oidc_redirect_uri(&stored.id))
+            .append_pair("scope", SCOPES)
+            .append_pair("state", &state)
+            .append_pair("nonce", &nonce)
+            .append_pair("code_challenge", &pkce_challenge(&verifier))
+            .append_pair("code_challenge_method", "S256");
+
         let now = now_millis();
         if let Err(error) = self.store().delete_ended_oidc_login_flows(now).await {
             tracing::warn!(%error, "unable to remove the sign-ins that ended");
         }
-        let (state, nonce, verifier, browser_secret) =
-            (new_secret(), new_secret(), new_secret(), new_secret());
         org.store()
             .create_oidc_login_flow(&LoginFlow {
                 state_hash: token_digest(&state),
@@ -323,20 +354,6 @@ impl App {
             })
             .await
             .map_err(|error| AppError::from(error).context("storing a sign-in"))?;
-
-        let mut url = reqwest::Url::parse(&discovery.authorization_endpoint).map_err(|_| {
-            provider_failure(&ProviderError::EndpointNotHttps, Reason::OidcUnavailable);
-            unavailable()
-        })?;
-        url.query_pairs_mut()
-            .append_pair("response_type", "code")
-            .append_pair("client_id", &stored.client_id)
-            .append_pair("redirect_uri", &self.oidc_redirect_uri())
-            .append_pair("scope", SCOPES)
-            .append_pair("state", &state)
-            .append_pair("nonce", &nonce)
-            .append_pair("code_challenge", &pkce_challenge(&verifier))
-            .append_pair("code_challenge_method", "S256");
         Ok(StartedLogin {
             authorization_url: url.into(),
             browser_secret,
@@ -356,7 +373,7 @@ impl App {
     ) -> (Option<String>, Result<FinishedLogin, LoginFailure>) {
         let flow = match self.take_flow(callback).await {
             Ok(flow) => flow,
-            Err(failure) => return (None, Err(failure)),
+            Err((org_id, failure)) => return (org_id, Err(failure)),
         };
         let result = self.finish_flow(&flow, callback, user_agent).await;
         if let Err(failure) = &result {
@@ -366,27 +383,40 @@ impl App {
     }
 
     /// The sign-in a callback is for, taken so that it is not taken again, if this
-    /// browser started it and it has not ended.
-    async fn take_flow(&self, callback: &Callback) -> Result<LoginFlow, LoginFailure> {
+    /// browser started it and it has not ended. Another browser takes nothing: one who
+    /// learned the `state` cannot end the sign-in of the browser that started it. A
+    /// refusal names the organization of the sign-in, where there is one, for the login
+    /// page to go back to.
+    async fn take_flow(
+        &self,
+        callback: &Callback,
+    ) -> Result<LoginFlow, (Option<String>, LoginFailure)> {
         let invalid = LoginFailure::Reason(Reason::OidcStateInvalid);
-        if callback.state.is_empty() {
-            return Err(invalid);
+        if callback.state.is_empty() || callback.browser_secret.is_empty() {
+            return Err((None, invalid));
         }
-        let flow = self
+        let state_hash = token_digest(&callback.state);
+        let taken = self
             .store()
-            .take_oidc_login_flow(&token_digest(&callback.state), now_millis())
+            .take_oidc_login_flow(
+                &state_hash,
+                &token_digest(&callback.browser_secret),
+                now_millis(),
+            )
             .await
-            .map_err(|error| logged(&error, "taking a sign-in"))?
-            .ok_or(invalid)?;
-        let same_browser: bool = token_digest(&callback.browser_secret)
-            .as_bytes()
-            .ct_eq(flow.browser_hash.as_bytes())
-            .into();
-        if callback.browser_secret.is_empty() || !same_browser {
-            tracing::info!(org_id = %flow.org_id, "a sign-in came back to another browser than the one that started it");
-            return Err(invalid);
+            .map_err(|error| (None, logged(&error, "taking a sign-in")))?;
+        if let Some(flow) = taken {
+            return Ok(flow);
         }
-        Ok(flow)
+        let org_id = self
+            .store()
+            .oidc_login_flow_org(&state_hash)
+            .await
+            .map_err(|error| (None, logged(&error, "reading a sign-in")))?;
+        if let Some(org_id) = &org_id {
+            tracing::info!(org_id = %org_id, "a sign-in came back to another browser than the one that started it");
+        }
+        Err((org_id, invalid))
     }
 
     async fn finish_flow(
@@ -395,6 +425,12 @@ impl App {
         callback: &Callback,
         user_agent: &str,
     ) -> Result<FinishedLogin, LoginFailure> {
+        // Came back to the address of another provider than the one it was started
+        // with: an answer of one provider handed to another. Nothing is exchanged.
+        if callback.provider_id != flow.provider_id {
+            tracing::info!(org_id = %flow.org_id, "a sign-in came back to the address of another provider");
+            return Err(Reason::OidcStateInvalid.into());
+        }
         if let Some(error) = &callback.error {
             // The provider's code of the error, short, for the log only.
             let error: String = error.chars().take(64).collect();
@@ -426,6 +462,16 @@ impl App {
         let discovery = provider::discover(self.oidc_fetcher(), &stored.issuer)
             .await
             .map_err(|error| provider_failure(&error, Reason::OidcUnavailable))?;
+        // RFC 9207: the issuer that answered, where it says, is the one asked; a
+        // provider that says it always says must have.
+        let answered_by_it = match &callback.issuer {
+            Some(issuer) => *issuer == stored.issuer,
+            None => !discovery.authorization_response_iss_parameter_supported,
+        };
+        if !answered_by_it {
+            tracing::info!(org_id = %flow.org_id, "a sign-in came back with another issuer than its provider's");
+            return Err(Reason::OidcStateInvalid.into());
+        }
         let claims = self
             .checked_claims(&discovery, &stored, secret.as_deref(), flow, &callback.code)
             .await?;
@@ -483,7 +529,7 @@ impl App {
         flow: &LoginFlow,
         code: &str,
     ) -> Result<IdClaims, LoginFailure> {
-        let redirect_uri = self.oidc_redirect_uri();
+        let redirect_uri = self.oidc_redirect_uri(&stored.id);
         let id_token = provider::exchange_code(
             self.oidc_fetcher(),
             discovery,

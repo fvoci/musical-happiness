@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/api/v1/auth/oidc/callback": {
+    "/api/v1/auth/oidc/callback/{providerId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -13,8 +13,11 @@ export interface paths {
         };
         /**
          * Come back from a provider
-         * @description Where a provider sends the browser back to, for every organization. The sign-in is
-         *     taken by its `state`, once, and only from the browser that started it; the code is
+         * @description Where a provider sends the browser back to: each provider has an address of its own,
+         *     its `redirectUri`, and a sign-in started with one provider does not finish at
+         *     another's address, nor with an `iss` (RFC 9207) other than the provider's, before
+         *     any code is exchanged. The sign-in is taken by its `state`, once, and only from the
+         *     browser that started it; another browser takes nothing. The code is
          *     exchanged for an ID token, whose signature, issuer, audience, time and nonce are
          *     checked. The person is known by the issuer and the subject: an account of theirs
          *     signs in, and somebody who has none gets one, if the organization lets newcomers in
@@ -926,11 +929,11 @@ export interface paths {
          *     `clientSecret` left out keeps the stored secret while the issuer and the client stay
          *     the same; with another issuer or client it is required when a secret is stored (400,
          *     `required` at `/clientSecret`), as the secret is the old client's. The empty string
-         *     stores none. The
-         *     secret is stored sealed with the server's key and never answered: without the key
-         *     the request is 409 with the reason `secret_key_required`. `autoJoin` and `enabled`
-         *     are on if left out. The answer's `redirectUri` is the address to register with the
-         *     provider.
+         *     stores none. The secret is stored sealed with the server's key and never answered:
+         *     without the key the request is 409 with the reason `secret_key_required`. `autoJoin`
+         *     and `enabled` left out stay as they are, and are on for a new provider. The
+         *     answer's `redirectUri` is the address to register with the provider: the provider's
+         *     own, which another issuer or client (another provider) changes.
          */
         put: operations["putOidcProvider"];
         post?: never;
@@ -2656,7 +2659,10 @@ export interface components {
             hasClientSecret: boolean;
             /** @description The issuer: an `https` address, exactly as the provider names itself. */
             issuer: string;
-            /** @description The address the provider sends people back to, to be registered with it. */
+            /**
+             * @description The address the provider sends people back to, to be registered with it: this
+             *     provider's own.
+             */
             redirectUri: string;
             /**
              * Format: int64
@@ -2667,8 +2673,8 @@ export interface components {
         /** @description What an administrator sets of the organization's provider. */
         OidcProviderSettings: {
             /**
-             * @description Whether somebody the provider vouches for who is no member becomes one. On if
-             *     left out.
+             * @description Whether somebody the provider vouches for who is no member becomes one. Left
+             *     out, it stays as it is; on for a new provider.
              */
             autoJoin?: boolean | null;
             /** @description The client identifier the provider gave this server. */
@@ -2679,7 +2685,10 @@ export interface components {
              *     client when one is stored; the empty string stores none.
              */
             clientSecret?: string | null;
-            /** @description Whether signing in through the provider is on. On if left out. */
+            /**
+             * @description Whether signing in through the provider is on. Left out, it stays as it is; on
+             *     for a new provider.
+             */
             enabled?: boolean | null;
             /** @description The issuer: an `https` address without query or fragment. */
             issuer: string;
@@ -3147,9 +3156,14 @@ export interface operations {
                 code?: string;
                 /** @description The provider's code of why it did not let the person sign in. */
                 error?: string;
+                /** @description The issuer that answered (RFC 9207), if the provider says: it must be the provider's. */
+                iss?: string;
             };
             header?: never;
-            path?: never;
+            path: {
+                /** @description The provider the sign-in was started with: each has an address of its own to come back to (its `redirectUri`). */
+                providerId: string;
+            };
             cookie?: never;
         };
         requestBody?: never;

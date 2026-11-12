@@ -71,7 +71,9 @@ test('a sign-in through the provider that went wrong says why, and a password st
   const errors = watchErrors(page);
   // A return from a provider that no sign-in of this browser started: the server
   // sends it to the sign-in page with the name of what went wrong.
-  await page.goto('/api/v1/auth/oidc/callback?state=never-started&code=anything');
+  await page.goto(
+    `/api/v1/auth/oidc/callback/${crypto.randomUUID()}?state=never-started&code=anything`,
+  );
   expect(new URL(page.url()).pathname).toBe('/login');
   expect(new URL(page.url()).searchParams.get('oidc_error')).toBe('oidc-state-invalid');
   await expect(page.getByTestId('sign-in-form').getByRole('alert')).toHaveText(

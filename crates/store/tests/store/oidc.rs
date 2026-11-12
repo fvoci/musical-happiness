@@ -1,6 +1,5 @@
 //! Signing in through a provider: two first sign-ins at once of an account already
-//! known to the issuer. First written by an independent review of the branch
-//! (`fvoci/review-oidc-i1`).
+//! known to the issuer.
 
 use std::time::Duration;
 

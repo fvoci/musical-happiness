@@ -1591,7 +1591,7 @@
             "type": "string"
           },
           "redirectUri": {
-            "description": "The address the provider sends people back to, to be registered with it.",
+            "description": "The address the provider sends people back to, to be registered with it: this\nprovider's own.",
             "type": "string"
           },
           "updateAt": {
@@ -1616,7 +1616,7 @@
         "description": "What an administrator sets of the organization's provider.",
         "properties": {
           "autoJoin": {
-            "description": "Whether somebody the provider vouches for who is no member becomes one. On if\nleft out.",
+            "description": "Whether somebody the provider vouches for who is no member becomes one. Left\nout, it stays as it is; on for a new provider.",
             "type": [
               "boolean",
               "null"
@@ -1634,7 +1634,7 @@
             ]
           },
           "enabled": {
-            "description": "Whether signing in through the provider is on. On if left out.",
+            "description": "Whether signing in through the provider is on. Left out, it stays as it is; on\nfor a new provider.",
             "type": [
               "boolean",
               "null"
@@ -2692,11 +2692,20 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/v1/auth/oidc/callback": {
+    "/api/v1/auth/oidc/callback/{providerId}": {
       "get": {
-        "description": "Where a provider sends the browser back to, for every organization. The sign-in is\ntaken by its `state`, once, and only from the browser that started it; the code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or\n`oidc_unavailable`.",
+        "description": "Where a provider sends the browser back to: each provider has an address of its own,\nits `redirectUri`, and a sign-in started with one provider does not finish at\nanother's address, nor with an `iss` (RFC 9207) other than the provider's, before\nany code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or\n`oidc_unavailable`.",
         "operationId": "finishOidcLogin",
         "parameters": [
+          {
+            "description": "The provider the sign-in was started with: each has an address of its own to come back to (its `redirectUri`).",
+            "in": "path",
+            "name": "providerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "description": "The `state` the sign-in was started with, as the provider sends it back.",
             "in": "query",
@@ -2719,6 +2728,15 @@
             "description": "The provider's code of why it did not let the person sign in.",
             "in": "query",
             "name": "error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The issuer that answered (RFC 9207), if the provider says: it must be the provider's.",
+            "in": "query",
+            "name": "iss",
             "required": false,
             "schema": {
               "type": "string"
@@ -5207,7 +5225,7 @@
         ]
       },
       "put": {
-        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The\nsecret is stored sealed with the server's key and never answered: without the key\nthe request is 409 with the reason `secret_key_required`. `autoJoin` and `enabled`\nare on if left out. The answer's `redirectUri` is the address to register with the\nprovider.",
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, and are on for a new provider. The\nanswer's `redirectUri` is the address to register with the provider: the provider's\nown, which another issuer or client (another provider) changes.",
         "operationId": "putOidcProvider",
         "parameters": [
           {

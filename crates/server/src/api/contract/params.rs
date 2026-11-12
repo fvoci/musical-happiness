@@ -54,6 +54,8 @@ parameter!(ContentDigest: Header "Content-Digest", String, True, "The SHA-256 di
 
 parameter!(LoginOrg: Query "org", String, False, "The identifier of the organization the login page is for.");
 parameter!(StartOrg: Query "org", String, True, "The identifier of the organization whose provider the person signs in through.");
+parameter!(OidcProviderId: Path "providerId", String, True, "The provider the sign-in was started with: each has an address of its own to come back to (its `redirectUri`).");
+parameter!(OidcIssuer: Query "iss", String, False, "The issuer that answered (RFC 9207), if the provider says: it must be the provider's.");
 parameter!(OidcState: Query "state", String, False, "The `state` the sign-in was started with, as the provider sends it back.");
 parameter!(OidcCode: Query "code", String, False, "The authorization code the provider gives.");
 parameter!(OidcError: Query "error", String, False, "The provider's code of why it did not let the person sign in.");
