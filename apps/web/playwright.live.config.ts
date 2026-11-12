@@ -4,7 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
  * End-to-end tests against the real server: `pnpm --filter web run e2e:live`.
  *
  * tools/live-server.ts starts the server built in this checkout (`cargo
- * build -p fvoci-server`) on SQLite, in a new data folder under
+ * build -p fvoci-server --bins --examples`, which builds the fake OpenID
+ * Connect provider beside it, on the next port) on SQLite, in a new data folder under
  * `target/web-live/`, serving this app's build (`pnpm run build` first). The
  * server stops when the run ends, passed or failed.
  *

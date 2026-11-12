@@ -28,7 +28,7 @@ use crate::error::{AppError, Reason};
 const USER_AGENT_MAX_BYTES: usize = 512;
 
 /// What the client says it is, cut to [`USER_AGENT_MAX_BYTES`] at a character boundary.
-fn user_agent(headers: &HeaderMap) -> String {
+pub(super) fn user_agent(headers: &HeaderMap) -> String {
     let Some(value) = headers
         .get(USER_AGENT)
         .and_then(|value| value.to_str().ok())
@@ -144,7 +144,7 @@ async fn handle_logout(
 }
 
 /// The address of the client, as the request log worked it out.
-fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAddr> {
+pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAddr> {
     client.and_then(|Extension(ClientAddress(address))| address)
 }
 

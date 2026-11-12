@@ -180,6 +180,9 @@
         else router.restart({});
         return;
       }
+      // Signed in on an address that is no page of the app (`/login`, where a
+      // sign-in through a provider comes back refused, or any other): the first.
+      if (router.route.unknown) router.go({}, { replace: true });
       await workspace?.load(router.route.workspaceId);
       // Signed in, yet the next request is not: the browser did not keep the
       // session (a cookie for https on a page over http, or cookies blocked).
@@ -209,6 +212,13 @@
     onRegister={async (registration: Registration) => {
       await account?.register(registration);
       registered = { username: registration.username, email: registration.email };
+    }}
+    organizationOf={(orgId: string | undefined) =>
+      account?.loginOrganization(orgId) ?? Promise.resolve(undefined)}
+    onOidcStart={async (orgId: string) => {
+      if (!account) return;
+      // Started by this page's own request; the browser then goes to the provider.
+      location.assign(await account.startOidc(orgId));
     }}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}

@@ -283,11 +283,11 @@ async fn role_is_past_the_wall(connection: &mut PgConnection) -> bool {
 
 /// The tables that are no organization's; every other table of the schema is behind
 /// the wall between organizations.
-pub const GLOBAL_TABLES: [&str; 6] = crate::schema::GLOBAL_TABLES;
+pub const GLOBAL_TABLES: [&str; 7] = crate::schema::GLOBAL_TABLES;
 
 /// The tables that hold rows of organizations, and the organizations themselves, each
 /// behind the wall on PostgreSQL.
-pub const ORG_TABLES: [&str; 21] = crate::schema::ORG_TABLES;
+pub const ORG_TABLES: [&str; 23] = crate::schema::ORG_TABLES;
 
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data
@@ -335,6 +335,22 @@ pub async fn migrate_to_before_workspaces(database: &TestDatabase) {
         .await
         .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
     crate::schema::migrate(&store, Some(crate::schema::WORKSPACES_VERSION - 1))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
+/// Brings a test database to the schema of the migration that named the workspaces so
+/// (migration 17), and none after it.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_the_workspaces(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::WORKSPACES_VERSION))
         .await
         .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
     store.close().await;

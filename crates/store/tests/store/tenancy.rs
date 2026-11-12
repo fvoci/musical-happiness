@@ -535,7 +535,40 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .delete_board(&gone[0].id, &user_id)
         .await
         .expect("a board goes to the trash");
+    sign_in_under_way(store, username).await;
     (card.id, user_id)
+}
+
+/// The organization's provider of sign-ins (one, whoever sets it) and a sign-in through
+/// it that has not come back.
+async fn sign_in_under_way(store: &Store, name: &str) {
+    let provider = store
+        .put_oidc_provider(&fvoci_store::StoredProvider {
+            id: String::new(),
+            org_id: String::new(),
+            issuer: "https://idp.example.com".to_owned(),
+            client_id: "fvoci".to_owned(),
+            sealed_client_secret: String::new(),
+            auto_join: true,
+            enabled: true,
+            create_at: 0,
+            update_at: 0,
+        })
+        .await
+        .expect("a provider is stored");
+    store
+        .create_oidc_login_flow(&fvoci_store::LoginFlow {
+            state_hash: format!("state of {name}"),
+            browser_hash: format!("browser of {name}"),
+            nonce: String::new(),
+            pkce_verifier: String::new(),
+            org_id: provider.org_id.clone(),
+            provider_id: provider.id,
+            create_at: 0,
+            expires_at: i64::MAX,
+        })
+        .await
+        .expect("a sign-in is stored");
 }
 
 /// What two organizations store stays apart in every table of theirs, whatever the
@@ -567,8 +600,9 @@ async fn what_two_organizations_store_stays_apart_in_every_table() {
         let count = async |store: &Store| store.count_rows(table).await.expect("counted");
         let (our_rows, their_rows) = (count(ours).await, count(&theirs).await);
         assert!(our_rows > 0, "{table}: the test stores a row of ours");
-        if table == "organizations" {
-            assert_eq!((our_rows, their_rows), (1, 1), "each reaches itself alone");
+        // An organization, and its provider of sign-ins, are one of each.
+        if ["organizations", "oidc_providers"].contains(&table.as_str()) {
+            assert_eq!((our_rows, their_rows), (1, 1), "each reaches its own alone");
         } else {
             assert!(
                 their_rows > our_rows,

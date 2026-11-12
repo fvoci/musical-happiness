@@ -18,6 +18,7 @@ mod files;
 mod housekeeping;
 mod import;
 mod loose_objects;
+mod oidc;
 mod onboarding;
 mod readiness;
 mod reconcile;
@@ -49,6 +50,10 @@ pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
+pub use oidc::{
+    CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
+    secret_context,
+};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use uploads::{
@@ -71,6 +76,7 @@ use crate::auth::Authenticator;
 use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::collab::Collab;
+use crate::auth::oidc::fetch::{Addresses, Fetcher};
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
@@ -107,6 +113,8 @@ struct Inner {
     files: FileBackend,
     web: WebRoot,
     webhook: Webhook,
+    /// The client of the organizations' providers.
+    oidc: Fetcher,
     /// The Prometheus metrics, kept if `prometheusaddress` is set.
     metrics: Metrics,
     /// Work that continues after a response was sent: websocket broadcasts and webhooks.
@@ -202,6 +210,15 @@ impl App {
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;
+        let oidc = Fetcher::new(
+            if config.oidc_allow_private_addresses {
+                Addresses::Any
+            } else {
+                Addresses::PublicOnly
+            },
+            &config.oidc_extra_root_certificates,
+        )
+        .context("unable to set up the client of the providers")?;
         let part_memory = uploads::part_memory_kib(config.upload_part_bytes);
         let slots =
             |capacity: u32| slots::Slots::new(usize::try_from(capacity).unwrap_or(usize::MAX));
@@ -220,6 +237,7 @@ impl App {
                 files,
                 web,
                 webhook,
+                oidc,
                 metrics,
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
@@ -270,6 +288,11 @@ impl App {
     /// The database, as this handle reaches it.
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// The client of the organizations' providers.
+    pub(crate) fn oidc_fetcher(&self) -> &Fetcher {
+        &self.inner.oidc
     }
 
     /// The session and read-token checks.

@@ -225,16 +225,12 @@ async fn a_database_with_teams_keeps_every_row_under_the_names_of_the_workspaces
         "the old database has rows: {old:?}"
     );
 
+    // Up to this migration, and not past it: what later ones add is theirs to test.
+    fvoci_store::testing::migrate_to_the_workspaces(&database).await;
+    let new = dump(&database).await;
     let store = Store::connect(database.db_type(), database.dbconfig())
         .await
         .expect("the store migrates the database");
-    // The tables that later migrations make are not this migration's.
-    let made_later = ["body_docs", "body_updates"];
-    let new: Dump = dump(&database)
-        .await
-        .into_iter()
-        .filter(|(table, _)| !made_later.contains(&table.as_str()))
-        .collect();
     the_keys_and_the_check_of_an_upload_find_the_workspaces(&store, &database, workspace).await;
     store.close().await;
 

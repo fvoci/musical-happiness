@@ -2,7 +2,9 @@
 
 pub mod hash_queue;
 pub mod limiter;
+pub mod oidc;
 pub mod password;
+pub mod sealed;
 pub mod secret;
 pub mod token;
 

@@ -10,12 +10,23 @@
   the server's own words (`Problem` in `lib/state/backend.ts`). Where the
   server names the members it refuses (`errors`), each field says what is wrong
   with it, beside itself; any other refusal is one line above the button.
+
+  An organization whose people sign in through its provider has a button
+  for that above the form: the organization the page's address names
+  (`/login?org=…`), or the only one of the server. A sign-in through the
+  provider that went wrong comes back to this page with the name of what
+  went wrong in `oidc_error`, which is told as a refusal is.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { isBackendError, type InvalidInput, type Registration } from '$lib/state/index.ts';
+  import {
+    isBackendError,
+    type InvalidInput,
+    type LoginOrganization,
+    type Registration,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
   import { Label } from '$lib/ui/label/index.js';
@@ -23,9 +34,50 @@
   interface Props {
     onSignIn: (login: string, password: string) => Promise<void>;
     onRegister: (registration: Registration) => Promise<void>;
+    /** The organization the page is for (`Account.loginOrganization`). */
+    organizationOf?: (orgId: string | undefined) => Promise<LoginOrganization | undefined>;
+    /**
+     * Starts a sign-in through the provider and sends the browser to it
+     * (`Account.startOidc`); a refusal of the start rejects.
+     */
+    onOidcStart?: (orgId: string) => Promise<void>;
   }
 
-  let { onSignIn, onRegister }: Props = $props();
+  let { onSignIn, onRegister, organizationOf, onOidcStart }: Props = $props();
+
+  /** What the page's address says: the organization, and what went wrong. */
+  const address = new URLSearchParams(location.search);
+  // An empty `org` names none: the server's only organization, if it has one.
+  const askedOrg = address.get('org') || undefined;
+
+  /** The organization with a provider, once read; undefined while there is none. */
+  const organization = $derived(
+    organizationOf?.(askedOrg).then(
+      (found) => (found?.oidc ? found : undefined),
+      () => undefined,
+    ),
+  );
+
+  /** The words for what went wrong with a sign-in through a provider. */
+  function oidcProblemOf(name: string): string {
+    switch (name) {
+      case 'oidc-state-invalid':
+        return m.account_oidc_state_invalid();
+      case 'oidc-denied':
+        return m.account_oidc_denied();
+      case 'oidc-email-missing':
+        return m.account_oidc_email_missing();
+      case 'oidc-email-unverified':
+        return m.account_oidc_email_unverified();
+      case 'oidc-email-taken':
+        return m.account_oidc_email_taken();
+      case 'oidc-join-closed':
+        return m.account_oidc_join_closed();
+      default:
+        return m.account_oidc_failed();
+    }
+  }
+  const oidcError = address.get('oidc_error');
 
   let mode = $state<'signIn' | 'register'>('signIn');
   let login = $state('');
@@ -35,7 +87,7 @@
   let password = $state('');
   let token = $state('');
   let working = $state(false);
-  let problem = $state<string | undefined>(undefined);
+  let problem = $state<string | undefined>(oidcError ? oidcProblemOf(oidcError) : undefined);
 
   type Field = 'login' | 'username' | 'displayName' | 'email' | 'password' | 'token';
 
@@ -139,6 +191,24 @@
     return m.account_failed();
   }
 
+  /** Starts a sign-in through the organization's provider; says why it did not. */
+  async function startOidc(orgId: string): Promise<void> {
+    if (working || !onOidcStart) return;
+    working = true;
+    problem = undefined;
+    try {
+      // Started, the browser is leaving for the provider: the page stays busy,
+      // so that a second press starts no second sign-in in place of this one.
+      await onOidcStart(orgId);
+    } catch (error) {
+      problem =
+        isBackendError(error) && error.reason === 'oidc_unavailable'
+          ? m.account_oidc_failed()
+          : problemOf(error);
+      working = false;
+    }
+  }
+
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (working) return;
@@ -215,6 +285,26 @@
         {mode === 'signIn' ? m.account_sign_in_title() : m.account_register_title()}
       </h1>
     </div>
+
+    {#if mode === 'signIn' && onOidcStart}
+      {#await organization then found}
+        {#if found}
+          <Button
+            type="button"
+            onclick={() => void startOidc(found.id)}
+            disabled={working}
+            variant="outline"
+            class="roomy:min-h-touch"
+            data-testid="oidc-continue"
+          >
+            {found.name
+              ? m.account_oidc_continue({ name: found.name })
+              : m.account_oidc_continue_unnamed()}
+          </Button>
+          <p class="text-center text-sm text-muted-foreground">{m.account_oidc_or()}</p>
+        {/if}
+      {/await}
+    {/if}
 
     {#if mode === 'signIn'}
       <div class="grid gap-1.5">

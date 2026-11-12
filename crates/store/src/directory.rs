@@ -1,5 +1,7 @@
 //! What is asked before the organization of a request is known, and what makes an
-//! organization: which workspaces a user has, whose a workspace or a shared board is.
+//! organization: which workspaces a user has, whose a workspace or a shared board is,
+//! what a user is in an organization, which sign-in through a provider comes back and
+//! what a login page shows of an organization.
 //! And whether an object of the file storage is held, which is asked of every
 //! organization: an object's place is one across them.
 //!
@@ -11,7 +13,7 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{OrgRole, UserWorkspace, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{LoginOrganization, OrgRole, UserWorkspace, Workspace, WorkspaceRole, new_id};
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
@@ -19,6 +21,7 @@ use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
+use crate::oidc::{LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::workspaces;
 
@@ -387,6 +390,122 @@ impl Store {
                     return Ok(None);
                 }
                 row.id(0).map(Some)
+            })
+            .await
+    }
+}
+
+impl Store {
+    /// Takes the sign-in under way whose `state` has the digest `state_hash`: it is
+    /// removed, whatever it is, so that it comes back once. `None` if there is none, or
+    /// it ended before `now`. The sign-in names its organization: the request that
+    /// comes back from the provider does not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn take_oidc_login_flow(
+        &self,
+        state_hash: &str,
+        now: i64,
+    ) -> Result<Option<LoginFlow>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE state_hash = ");
+                sql.bind(state_hash).push(
+                    " RETURNING state_hash, browser_hash, nonce, pkce_verifier, org_id, \
+                     provider_id, create_at, expires_at",
+                );
+                let Some(row) = scope.fetch_optional(sql).await? else {
+                    return Ok(None);
+                };
+                let flow = flow_from_row(&row)?;
+                Ok((flow.expires_at > now).then_some(flow))
+            })
+            .await
+    }
+
+    /// Removes the sign-ins under way, of every organization, that ended before `now`,
+    /// and says how many there were.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn delete_ended_oidc_login_flows(&self, now: i64) -> Result<u64, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("DELETE FROM oidc_login_flows WHERE expires_at <= ");
+                sql.bind(now);
+                scope.execute(sql).await
+            })
+            .await
+    }
+
+    /// What the user is in the organization; `None` for somebody who is no member, and
+    /// for an organization that is not in use or is the system's, whether it exists or
+    /// not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails, and [`StoreError::Corrupt`]
+    /// if the stored role is none.
+    pub async fn org_role_of_user(
+        &self,
+        user_id: &str,
+        org_id: &str,
+    ) -> Result<Option<OrgRole>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT om.role FROM organization_members AS om \
+                     JOIN organizations AS o ON o.id = om.org_id WHERE om.user_id = ",
+                );
+                sql.bind(Id(user_id))
+                    .push_bind(" AND om.org_id = ", Id(org_id))
+                    .push(" AND o.delete_at = 0 AND o.is_system = false");
+                match scope.fetch_optional(sql).await? {
+                    Some(row) => role(&row, 0).map(Some),
+                    None => Ok(None),
+                }
+            })
+            .await
+    }
+
+    /// What a login page may show of an organization: the one with the identifier, or
+    /// with none the only organization in use if there is one only. `None` if there is
+    /// no such organization, it is not in use, or it is the system's. Its name, and
+    /// whether signing in through its provider is on.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn login_organization(
+        &self,
+        org_id: Option<&str>,
+    ) -> Result<Option<LoginOrganization>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT o.id, o.name, EXISTS (SELECT 1 FROM oidc_providers AS p \
+                     WHERE p.org_id = o.id AND p.enabled = ",
+                );
+                sql.bind(true).push(
+                    ") FROM organizations AS o WHERE o.delete_at = 0 AND o.is_system = false",
+                );
+                if let Some(org_id) = org_id {
+                    sql.push_bind(" AND o.id = ", Id(org_id));
+                }
+                // Two rows tell that the organization is not the only one.
+                sql.push(" ORDER BY o.create_at, o.id LIMIT 2");
+                let rows = scope.fetch_all(sql).await?;
+                let [row] = rows.as_slice() else {
+                    return Ok(None);
+                };
+                Ok(Some(LoginOrganization {
+                    id: row.id(0)?,
+                    name: row.text(1)?,
+                    oidc: row.bool(2)?,
+                }))
             })
             .await
     }

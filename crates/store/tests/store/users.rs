@@ -541,6 +541,7 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
         let said = match taken {
             Taken::Username => "the user name is taken",
             Taken::Email => "the email address is taken",
+            Taken::Identity => "the identity at the provider is taken",
         };
         assert_eq!(error.to_string(), said, "{username} <{email}>");
         assert!(
@@ -978,6 +979,7 @@ pub(crate) async fn open_session_under(
         last_used_at: SESSION_MADE,
         expires_at: SESSION_MADE + 1000,
         user_agent: "a browser".to_owned(),
+        login_provider_id: None,
     };
     let stored = store
         .create_session(&session, digest, seen)
@@ -1865,6 +1867,55 @@ async fn the_bag_of_client_state_is_bounded() {
         .expect("a setting is stored next to a full bag");
     assert_eq!(settings.theme, Theme::Dark, "as it was set");
 
+    test.teardown().await;
+}
+
+// -- accounts without an address of their own --------------------------------------------
+
+/// An account without an address of its own (one made through a provider) holds no
+/// place among the addresses: there are as many as there are, and no lookup by address
+/// finds one, not even by the empty address. The others stay one to an address.
+#[tokio::test]
+async fn an_empty_address_is_nobody_s_and_taken_by_none() {
+    let test = common::setup().await;
+    let store = &test.store;
+    for name in ["no-address-1", "no-address-2"] {
+        create_user(
+            store,
+            User {
+                id: new_id(),
+                username: name.to_owned(),
+                email: String::new(),
+                ..User::default()
+            },
+        )
+        .await;
+    }
+    let error = store.get_user_by_email("").await.unwrap_err();
+    assert!(error.is_not_found(), "got {error:?}");
+    create_user(
+        store,
+        User {
+            id: new_id(),
+            username: "with-address".to_owned(),
+            email: "kept@example.com".to_owned(),
+            ..User::default()
+        },
+    )
+    .await;
+    let error = store
+        .create_user(&mut User {
+            id: new_id(),
+            username: "same-address".to_owned(),
+            email: "KEPT@example.com".to_owned(),
+            ..User::default()
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, StoreError::Conflict(Taken::Email)),
+        "got {error:?}"
+    );
     test.teardown().await;
 }
 

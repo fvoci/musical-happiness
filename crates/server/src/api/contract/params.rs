@@ -44,6 +44,7 @@ parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as 
 parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");
 parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, from 1 to the `partCount` of the upload.");
+parameter!(OrgId: Path "orgId", String, True, "The identifier of the organization. 404 unless the user of the session administers it.");
 
 // -- in the headers --------------------------------------------------------------------
 
@@ -51,6 +52,11 @@ parameter!(ContentDigest: Header "Content-Digest", String, True, "The SHA-256 di
 
 // -- in the query ----------------------------------------------------------------------
 
+parameter!(LoginOrg: Query "org", String, False, "The identifier of the organization the login page is for.");
+parameter!(StartOrg: Query "org", String, True, "The identifier of the organization whose provider the person signs in through.");
+parameter!(OidcState: Query "state", String, False, "The `state` the sign-in was started with, as the provider sends it back.");
+parameter!(OidcCode: Query "code", String, False, "The authorization code the provider gives.");
+parameter!(OidcError: Query "error", String, False, "The provider's code of why it did not let the person sign in.");
 parameter!(ReadToken: Query "readToken", String, False, "The read token of the board. With the token of a board that is shared, the request needs no session.");
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.");
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
