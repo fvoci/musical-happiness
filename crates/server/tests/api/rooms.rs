@@ -208,19 +208,25 @@ impl Peer {
 
     /// The next JSON message of `action`, reading until it comes.
     pub(crate) async fn text(&mut self, action: &str) -> Value {
+        self.one_of(&[action]).await
+    }
+
+    /// The next JSON message of one of `actions`, reading until it comes.
+    pub(crate) async fn one_of(&mut self, actions: &[&str]) -> Value {
         let deadline = tokio::time::Instant::now() + PATIENCE;
         loop {
-            if let Some(index) = self
-                .texts
-                .iter()
-                .position(|message| message["action"] == json!(action))
-            {
+            let found = self.texts.iter().position(|message| {
+                message["action"]
+                    .as_str()
+                    .is_some_and(|action| actions.contains(&action))
+            });
+            if let Some(index) = found {
                 return self.texts.remove(index).expect("it is there");
             }
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             assert!(
                 !left.is_zero() && self.step(left).await,
-                "no {action} came; read: {:?}",
+                "none of {actions:?} came; read: {:?}",
                 self.texts
             );
         }
@@ -353,6 +359,19 @@ pub(crate) async fn table(th: &TestServer, body: &Value) -> Table {
         board_id: board.id,
         card_id: card.id,
     }
+}
+
+/// The two clients' users in the room of a card with `body`, both writing: the
+/// second is given the editor's role on the board.
+pub(crate) async fn two_in_a_room(th: &TestServer, body: &Value) -> (Table, Peer, Peer) {
+    let t = table(th, body).await;
+    let user2 = th.client2.me().await.id;
+    give(th, &t.board_id, &user2, "editor").await;
+    let mut one = Peer::connect(&th.client, 101).await;
+    let mut two = Peer::connect(&th.client2, 102).await;
+    one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    (t, one, two)
 }
 
 /// Gives a user a role on the board, as the first client's user: `viewer`,

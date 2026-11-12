@@ -8,7 +8,7 @@ use fvoci_model::{Block, BlockPatch, BlockType};
 
 use super::place::Held;
 use super::upkeep::digest_of;
-use super::{Collab, refusals};
+use super::{Collab, DocChange, refusals};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -143,6 +143,7 @@ impl Collab {
             Err(error) => {
                 tracing::error!(%error, card_id, "cannot read a card written whole; its document is closed");
                 self.forget(slot).await;
+                self.tell(app, card_id, DocChange::Closed);
                 return;
             }
         };
@@ -154,7 +155,9 @@ impl Collab {
             return;
         }
         if let Err(error) = self.replaced(app, card_id, slot, body.as_ref()).await {
+            // Closed by the failure: the room is told, and opens it from the card.
             tracing::error!(%error, card_id, "cannot make a document again from a body written whole");
+            self.tell(app, card_id, DocChange::Closed);
         }
     }
 }

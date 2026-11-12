@@ -7,6 +7,10 @@
 //! room that the last connection left closes its document, which writes its body to
 //! the card.
 //!
+//! While a room is there a task of its own hears what happens to its document
+//! ([`Collab::subscribe`]): made again, or opened again after its worker ended, the
+//! document is sent to everyone in the room anew.
+//!
 //! Every step of a room runs in a task of its own that the caller waits for
 //! (`Seat`): a connection that ends while its update is taken leaves the update
 //! logged and sent to the others, never logged and not sent.
@@ -14,19 +18,27 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bytes::Bytes;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
+use tokio_util::sync::CancellationToken;
 
 use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
 use super::queue::{Capacity, Queue, Queued};
-use super::{Collab, Loaded, admission, place, refusals};
+use super::{Collab, DocChange, DocEvent, Loaded, admission, place, refusals};
 use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::permissions::DocMode;
 
 /// How many messages may wait for one connection, of all its rooms.
 pub(super) const QUEUE_MESSAGES: usize = 512;
+
+/// How long after a room could not be sent its document anew, because the document
+/// cannot be worked on for now, it is tried again.
+const SEND_ANEW_AGAIN: Duration = Duration::from_secs(2);
 
 /// How many times the bytes of the largest document may wait for one connection, of
 /// all its rooms: a document whole, and as much again of what came after it.
@@ -107,6 +119,8 @@ pub(super) struct Room {
     /// The application as the card's organization reaches it.
     app: App,
     turn: tokio::sync::Mutex<Turn>,
+    /// Cancelled when the room is closed: its task ends.
+    gone: CancellationToken,
 }
 
 /// What the one that works on a room holds.
@@ -164,11 +178,9 @@ impl Turn {
         }
     }
 
-    /// Sends every member the document anew. One of another epoch than they held is
-    /// another document, and takes the place of what waited for them of the one
-    /// before.
+    /// Sends every member the document anew, in place of the sync messages that
+    /// waited for them: those were of the document before, or are in this one.
     fn send_anew(&mut self, loaded: &Loaded) {
-        let another = self.epoch != loaded.epoch;
         self.epoch = loaded.epoch;
         let epoch = loaded.epoch;
         let whole = frame::message(Sync::Missing, &loaded.state);
@@ -180,13 +192,7 @@ impl Turn {
                 Queued::text(doc, messages::reset(doc, epoch)),
                 Queued::sync(doc, epoch, &whole),
             ];
-            let queue = &member.connection.queue;
-            let queued = if another {
-                queue.push_anew(doc, anew)
-            } else {
-                queue.push(anew)
-            };
-            if queued.is_err() {
+            if member.connection.queue.push_anew(doc, anew).is_err() {
                 self.put_out(index, Reason::ConnectionTooSlow.as_str());
             } else {
                 index += 1;
@@ -235,7 +241,8 @@ impl Collab {
             .len()
     }
 
-    /// The room of a card of `app`'s organization, made if there is none.
+    /// The room of a card of `app`'s organization, made if there is none, with the
+    /// task that hears what happens to its document.
     fn room(&self, app: &App, card_id: &str) -> Arc<Room> {
         let key = place::key_of(app.store().tenant(), card_id);
         let mut rooms = self
@@ -244,14 +251,57 @@ impl Collab {
             .by_key
             .lock()
             .expect("the rooms are never held across a panic");
-        Arc::clone(rooms.entry(key.clone()).or_insert_with(|| {
-            Arc::new(Room {
-                key,
-                card_id: card_id.to_owned(),
-                app: app.clone(),
-                turn: tokio::sync::Mutex::new(Turn::default()),
-            })
-        }))
+        if let Some(room) = rooms.get(&key) {
+            return Arc::clone(room);
+        }
+        let room = Arc::new(Room {
+            key: key.clone(),
+            card_id: card_id.to_owned(),
+            app: app.clone(),
+            turn: tokio::sync::Mutex::new(Turn::default()),
+            gone: CancellationToken::new(),
+        });
+        rooms.insert(key, Arc::clone(&room));
+        // Subscribed before anyone is in the room: whatever happens to the document
+        // from its first opening on is heard.
+        let events = self.subscribe();
+        tokio::spawn(self.clone().watch(Arc::clone(&room), events));
+        room
+    }
+
+    /// Hears what happens to the document of a room for as long as the room is
+    /// there, and has the room sent the document anew.
+    async fn watch(self, room: Arc<Room>, mut events: broadcast::Receiver<DocEvent>) {
+        let tenant = room.app.store().tenant();
+        // Whether the room is still to be sent its document: it could not be opened.
+        let mut owed = false;
+        loop {
+            let heard = tokio::select! {
+                () = room.gone.cancelled() => return,
+                () = tokio::time::sleep(SEND_ANEW_AGAIN), if owed => None,
+                event = events.recv() => match event {
+                    Ok(event) if event.tenant == tenant && event.card_id == room.card_id => {
+                        Some(event.change)
+                    }
+                    Ok(_) => continue,
+                    // Some were missed: the document may be another by now.
+                    Err(RecvError::Lagged(_)) => None,
+                    Err(RecvError::Closed) => return,
+                },
+            };
+            let mut turn = room.turn.lock().await;
+            // The server stops: the documents are written and closed, and none is
+            // opened again for a room whose connections are about to end.
+            if turn.closed || self.rooms_ended() {
+                return;
+            }
+            // Nobody yet: who comes in opens the document as it is.
+            if turn.members.is_empty() {
+                continue;
+            }
+            owed = !self.anew(&room, &mut turn, heard).await;
+            self.shut_if_empty(&room, &mut turn).await;
+        }
     }
 
     /// Lets a connection into the room of a card of a board of `workspace_id`, to be
@@ -395,7 +445,9 @@ impl Collab {
                 });
                 if taken.remade {
                     // The update is in the body the document was made again from.
-                    self.anew(room, &mut turn).await;
+                    // If it cannot be opened for now, the room's task hears of the
+                    // making and tries again.
+                    self.anew(room, &mut turn, None).await;
                 } else {
                     let update = frame::message(Sync::Update, &update);
                     turn.send(
@@ -446,19 +498,35 @@ impl Collab {
         self.shut_if_empty(room, &mut turn).await;
     }
 
-    /// Sends every member of a held room the document as it is now. If it cannot be
-    /// opened the members are put out, with the reason it cannot.
-    async fn anew(&self, room: &Room, turn: &mut Turn) {
-        match self.open(&room.app, &room.card_id).await {
-            Ok(loaded) => turn.send_anew(&loaded),
+    /// Sends every member of a held room the document as it is now, after `heard`
+    /// happened to it (`None` if what happened is not known). A document that was
+    /// made again and is the one the members hold already is not sent: who came in
+    /// since, or the update that made it again, brought it.
+    ///
+    /// `false` if the document cannot be worked on for now (`document_unavailable`):
+    /// the members stay, with the document they hold, and are still to be sent it.
+    /// If it cannot be opened for another reason (its card is gone, the server holds
+    /// as many documents as it may) the members are put out, with that reason.
+    async fn anew(&self, room: &Room, turn: &mut Turn, heard: Option<DocChange>) -> bool {
+        let loaded = match self.open(&room.app, &room.card_id).await {
+            Ok(loaded) => loaded,
+            Err(error) if error.reason() == Some(Reason::DocumentUnavailable) => return false,
             Err(error) => {
                 error.log();
                 let reason = reason_of(&error);
                 while !turn.members.is_empty() {
                     turn.put_out(0, &reason);
                 }
+                return true;
             }
+        };
+        let made_again = matches!(heard, Some(DocChange::Remade | DocChange::Replaced));
+        if made_again && loaded.epoch == turn.epoch {
+            // Sent already, by the join or the update that found it made again.
+            return true;
         }
+        turn.send_anew(&loaded);
+        true
     }
 
     /// Closes a held room that nobody is in: its document is closed, which writes its
@@ -469,6 +537,7 @@ impl Collab {
             return;
         }
         turn.closed = true;
+        room.gone.cancel();
         if let Err(error) = self.close(&room.app, &room.card_id).await {
             tracing::error!(%error, card_id = room.card_id, "cannot write a card's body as its room closes");
         }

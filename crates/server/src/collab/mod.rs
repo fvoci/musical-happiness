@@ -166,6 +166,10 @@ pub enum DocChange {
     /// The worker that held it ended, and it was opened again from what was stored.
     /// What an editor sent and was refused for that is not in it.
     Reopened,
+    /// It was closed after a write of its card's whole body, because it could not be
+    /// made again from that body: the next request opens it from the card. Editors
+    /// load it anew.
+    Closed,
 }
 
 impl Collab {
