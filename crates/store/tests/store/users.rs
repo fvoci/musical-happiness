@@ -6,10 +6,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, Category, Density, Session, SubscriberType,
-    Subscription, Theme, User, UserPreferencesPatch, UserSettings, UserSettingsPatch, new_id,
+    Subscription, Theme, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+    WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AdminChange, BlockFilter, DbType, InstanceRole, Preference, Store, StoreError, Taken,
+    AdminChange, BlockFilter, DbType, InstanceRole, Looking, Preference, Reach, Sight, Store,
+    StoreError, Taken,
 };
 use serde_json::{Value, json};
 
@@ -720,36 +722,44 @@ async fn user_lookups_ignore_ascii_case() {
 /// The search is a substring match on the user name of at most ten users, ignoring the
 /// case of every letter on both databases, in which `%` and `_` are characters.
 #[tokio::test]
-async fn search_users_by_workspace_matches_substrings_of_the_user_name() {
+async fn a_search_of_users_matches_substrings_of_the_user_name() {
     let test = common::setup().await;
     let store = &test.store;
+    // The search is of the users of a workspace, as one of them sees them.
+    let seer = common::user(store, "seer").await;
+    let workspace_id = common::workspace_of(store, &[&seer]).await;
+    let sight = Sight::InWorkspace {
+        seer_id: &seer,
+        workspace_id: &workspace_id,
+        reach: Reach::Workspace,
+        looking: Looking::AmongPeople,
+    };
+    let let_in = async |user: User| {
+        store
+            .add_workspace_member(&workspace_id, &user.id, WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the workspace");
+    };
 
-    let found = store.search_users_by_workspace("anything").await.unwrap();
-    assert!(found.is_empty(), "no users, no error: {found:?}");
+    let found = store
+        .search_users_in_sight(sight, "anything")
+        .await
+        .unwrap();
+    assert!(found.is_empty(), "nobody else, no error: {found:?}");
 
-    for index in 0..12 {
-        create_user(
-            store,
-            User {
-                id: new_id(),
-                username: format!("Trooper.{index}"),
-                email: format!("search.{index}@example.com"),
-                ..User::default()
-            },
-        )
-        .await;
-    }
-    create_user(
-        store,
-        User {
+    let names = (0..12).map(|index| format!("Trooper.{index}"));
+    for (index, username) in names.chain(["yoda".to_owned()]).enumerate() {
+        let email = format!("search.{index}@example.com");
+        let user = User {
             id: new_id(),
-            username: "yoda".to_owned(),
+            username,
+            email,
             ..User::default()
-        },
-    )
-    .await;
+        };
+        let_in(create_user(store, user).await).await;
+    }
 
-    let found = store.search_users_by_workspace("oop").await.unwrap();
+    let found = store.search_users_in_sight(sight, "oop").await.unwrap();
     assert_eq!(found.len(), 10, "at most ten of the twelve matches");
     assert!(
         found
@@ -758,41 +768,54 @@ async fn search_users_by_workspace_matches_substrings_of_the_user_name() {
         "got {found:?}"
     );
 
-    let found = store.search_users_by_workspace("Trooper.11").await.unwrap();
+    let found = store
+        .search_users_in_sight(sight, "Trooper.11")
+        .await
+        .unwrap();
     assert_eq!(found.len(), 1);
 
-    let found = store.search_users_by_workspace("").await.unwrap();
-    assert_eq!(found.len(), 10, "an empty query matches every user");
+    let found = store.search_users_in_sight(sight, "").await.unwrap();
+    assert_eq!(
+        found.len(),
+        10,
+        "an empty query matches every user, the seer too"
+    );
 
-    let found = store.search_users_by_workspace("y_d").await.unwrap();
+    let found = store.search_users_in_sight(sight, "y_d").await.unwrap();
     assert!(found.is_empty(), "an underscore is no wildcard: {found:?}");
-    let found = store.search_users_by_workspace("o%").await.unwrap();
+    let found = store.search_users_in_sight(sight, "o%").await.unwrap();
     assert!(found.is_empty(), "a percent sign is no wildcard: {found:?}");
 
     let found = store
-        .search_users_by_workspace("example.com")
+        .search_users_in_sight(sight, "example.com")
         .await
         .unwrap();
     assert!(found.is_empty(), "email addresses are not searched");
 
-    let found = store.search_users_by_workspace("trooper.11").await.unwrap();
+    let found = store
+        .search_users_in_sight(sight, "trooper.11")
+        .await
+        .unwrap();
     assert_eq!(found.len(), 1, "the case is ignored");
-    create_user(
-        store,
-        User {
-            id: new_id(),
-            username: "Ödön".to_owned(),
-            email: "odon@example.com".to_owned(),
-            ..User::default()
-        },
+    let_in(
+        create_user(
+            store,
+            User {
+                id: new_id(),
+                username: "Ödön".to_owned(),
+                email: "odon@example.com".to_owned(),
+                ..User::default()
+            },
+        )
+        .await,
     )
     .await;
-    let found = store.search_users_by_workspace("öDÖN").await.unwrap();
+    let found = store.search_users_in_sight(sight, "öDÖN").await.unwrap();
     assert_eq!(found.len(), 1, "on every letter, on both databases");
 
     // A query is data, whatever it contains.
     let found = store
-        .search_users_by_workspace("' OR '1'='1")
+        .search_users_in_sight(sight, "' OR '1'='1")
         .await
         .expect("a quote in the query is not SQL");
     assert!(found.is_empty(), "got {found:?}");
@@ -1152,7 +1175,7 @@ async fn deleting_a_user_row_takes_what_is_theirs_alone_with_it() {
     let store = &test.store;
     let owner = common::user(store, "owner").await;
     let leaver = common::user(store, "leaver").await;
-    let workspace_id = common::workspace(store).await;
+    let workspace_id = common::workspace_of(store, &[&owner, &leaver]).await;
     let boards = common::create_test_boards(store, &workspace_id, &owner, 1).await;
     let mut blocks = vec![card_on(&boards[0].id)];
     common::insert_blocks(store, &mut blocks, &owner).await;

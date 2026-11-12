@@ -6,7 +6,9 @@
 //!
 //! The schema is this server's own: a list of migrations applied by sqlx's migrator.
 
+mod audit;
 mod blocks;
+mod board_membership;
 mod boards;
 mod boards_and_blocks;
 mod card_values;
@@ -44,13 +46,14 @@ use sqlx::Connection as _;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
+pub use audit::{AuditAction, AuditEntry};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use boards::{Joined, MemberChange, PublicBoards};
 pub use category_boards::{BoardPlace, BoardVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;
 pub use connect::DbType;
 pub use db::Dialect;
-pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
+pub use directory::{Looking, Reach, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Sight, WorkspaceAccess};
 pub use error::{StoreError, Taken};
 pub use file_refs::NewImages;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};

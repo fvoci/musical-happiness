@@ -3,10 +3,12 @@
 //! into an organization: for its administrators, and for a sign-in through its
 //! provider.
 
+use std::collections::HashSet;
+
 use fvoci_model::{Board, OrgRole, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
-use super::App;
+use super::{App, as_managed};
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
@@ -44,8 +46,10 @@ impl App {
         let Ok(tenant) = Tenant::org(org_id) else {
             return Ok(None);
         };
-        let role = self.store().org_role_of_user(user_id, org_id).await?;
-        Ok((role == Some(OrgRole::Admin)).then(|| self.scoped(tenant)))
+        let actor = self.org_actor(user_id, org_id).await?;
+        Ok(actor
+            .administers_the_organization()
+            .then(|| self.scoped(tenant)))
     }
 
     /// The same server reaching the rows of the organization `org_id`, for a sign-in
@@ -142,35 +146,7 @@ impl App {
         user_id: &str,
         workspace_id: &str,
     ) -> Result<bool, AppError> {
-        if user_id.is_empty() || workspace_id.is_empty() {
-            return Ok(false);
-        }
-        let access = self
-            .store()
-            .resolve_workspace(user_id, workspace_id)
-            .await?;
-        Ok(access.is_some_and(|access| access.works_there()))
-    }
-
-    /// Whether the user is in the workspace at all, as a guest too: who may be put on a
-    /// board of the workspace. Anybody else is, for the workspace, a user who does not exist.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the membership cannot be read: that is no "no".
-    pub async fn is_in_workspace(
-        &self,
-        user_id: &str,
-        workspace_id: &str,
-    ) -> Result<bool, AppError> {
-        if user_id.is_empty() || workspace_id.is_empty() {
-            return Ok(false);
-        }
-        let access = self
-            .store()
-            .resolve_workspace(user_id, workspace_id)
-            .await?;
-        Ok(access.is_some())
+        Ok(self.actor(user_id, workspace_id).await?.works_there())
     }
 
     /// The workspaces the user is a member of, in every organization: by organization,
@@ -183,8 +159,10 @@ impl App {
         Ok(self.store().workspaces_of_user(user_id).await?)
     }
 
-    /// The boards of a workspace that the user is a member of and, unless the user is
-    /// a guest of the workspace, its open boards. Templates are left out. Oldest first.
+    /// The boards of a workspace as the user lists them: an administrator of the
+    /// workspace every board of it, those they do not read without their description and
+    /// properties ([`as_managed`]); whoever else those they are a member of and the open
+    /// ones ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
     ///
     /// The handle is the one a member entered the workspace with
     /// ([`App::enter_workspace`]).
@@ -193,6 +171,40 @@ impl App {
     ///
     /// Returns the store's error if the query fails.
     pub async fn workspace_boards(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        role: WorkspaceRole,
+    ) -> Result<Vec<Board>, AppError> {
+        let readable = self
+            .readable_workspace_boards(user_id, workspace_id, role)
+            .await?;
+        if role != WorkspaceRole::Admin {
+            return Ok(readable);
+        }
+        // What the administrator does not read is listed as who only manages it sees it.
+        let read: HashSet<String> = readable.into_iter().map(|board| board.id).collect();
+        let every = self.store().get_boards_of_workspace(workspace_id).await?;
+        Ok(every
+            .into_iter()
+            .map(|board| {
+                if read.contains(&board.id) {
+                    board
+                } else {
+                    as_managed(board)
+                }
+            })
+            .collect())
+    }
+
+    /// The boards of a workspace that the user is a member of and, unless the user is a
+    /// guest of the workspace, its open boards: what an archive of the workspace holds
+    /// for the user. Templates are left out. Oldest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the query fails.
+    pub async fn readable_workspace_boards(
         &self,
         user_id: &str,
         workspace_id: &str,

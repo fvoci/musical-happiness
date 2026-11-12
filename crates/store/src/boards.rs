@@ -21,7 +21,7 @@ use crate::{members, subscriptions};
 
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
-const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
+pub(crate) const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
 
 /// The name of every board column, in the order rows are written.
 const BOARD_COLUMNS: &str = "id, workspace_id, created_by, modified_by, type, minimum_role, title, \
@@ -238,48 +238,6 @@ impl Store {
             .await
     }
 
-    /// Makes a user a member of a board unless they are one already, and says which it
-    /// was: `None` if the membership is new, the membership as it stands if there was
-    /// one. Two requests that add the same user at once end in one membership, the one
-    /// that was stored first.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFound`] if the board or the user does not exist, and
-    /// [`StoreError::InvalidId`] if the user's identifier is not one. Text that is no
-    /// identifier names no board, as an identifier does that nothing has.
-    pub async fn add_member(
-        &self,
-        member: &BoardMember,
-    ) -> Result<Option<BoardMember>, StoreError> {
-        self.transaction(async |scope| {
-            // Held so that "there was one already" is still true when it is answered:
-            // without the lock a removal in between would make this say "new" of a
-            // membership that does not exist.
-            hold_board(scope, &member.board_id).await?;
-            let mut sql = scope.sql(
-                "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
-                 scheme_commenter, scheme_viewer) VALUES (",
-            );
-            sql.bind(Id(&member.board_id))
-                .push_bind(", ", Id(&member.user_id))
-                .push_bind(", ", member.scheme_admin)
-                .push_bind(", ", member.scheme_editor)
-                .push_bind(", ", member.scheme_commenter)
-                .push_bind(", ", member.scheme_viewer)
-                .push(") ON CONFLICT (board_id, user_id) DO NOTHING");
-            let added = scope
-                .execute(sql)
-                .await
-                .map_err(|error| error.missing_reference("user"))?;
-            if added > 0 {
-                return Ok(None);
-            }
-            find_member(scope, &member.board_id, &member.user_id).await
-        })
-        .await
-    }
-
     /// Makes a user a member of a board with the board's minimum role, as joining does.
     ///
     /// A user who is no member becomes one with that role. A member whose role is below
@@ -322,35 +280,6 @@ impl Store {
         .await
     }
 
-    /// Replaces the scheme flags of a membership, unless that would leave the board
-    /// without an administrator.
-    ///
-    /// The check and the write are one step: of two administrators who give up the role
-    /// at once, one is refused.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn change_member(&self, member: &BoardMember) -> Result<MemberChange, StoreError> {
-        self.transaction(async |scope| {
-            if !lock_board(scope, &member.board_id).await? {
-                return Ok(MemberChange::NotAMember);
-            }
-            let Some(current) = find_member(scope, &member.board_id, &member.user_id).await? else {
-                return Ok(MemberChange::NotAMember);
-            };
-            if current.scheme_admin
-                && !member.scheme_admin
-                && is_only_admin(scope, &member.board_id, &member.user_id).await?
-            {
-                return Ok(MemberChange::LastAdmin);
-            }
-            save_member(scope, member).await?;
-            Ok(MemberChange::Done)
-        })
-        .await
-    }
-
     /// Removes a user from a board and ends the user's subscriptions to the blocks of
     /// the board, unless that would leave the board without an administrator.
     ///
@@ -372,7 +301,7 @@ impl Store {
             let Some(current) = find_member(scope, board_id, user_id).await? else {
                 return Ok(MemberChange::NotAMember);
             };
-            if current.scheme_admin && is_only_admin(scope, board_id, user_id).await? {
+            if current.scheme_admin && members::is_only_admin(scope, board_id, user_id).await? {
                 return Ok(MemberChange::LastAdmin);
             }
             delete_member(scope, board_id, user_id).await?;
@@ -410,7 +339,8 @@ impl Store {
     }
 
     /// Returns a user's memberships, by the identifier of the board: the boards in the
-    /// order they were made in.
+    /// order they were made in. A membership of a board of a workspace the user is no
+    /// member of any more is left out.
     ///
     /// # Errors
     ///
@@ -443,27 +373,6 @@ impl Store {
     ) -> Result<Vec<Board>, StoreError> {
         self.with_conn(async |scope| {
             search_boards_for_user(scope, term, search_field, user_id, public_boards).await
-        })
-        .await
-    }
-
-    /// Returns the boards of a workspace whose title matches a search term and that are open
-    /// or private with the user as a member, oldest first. Templates are left out.
-    ///
-    /// An empty `term` matches every board; otherwise the title must contain every
-    /// space-separated word of the term, ignoring case.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_boards_for_user_in_workspace(
-        &self,
-        workspace_id: &str,
-        term: &str,
-        user_id: &str,
-    ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| {
-            search_boards_for_user_in_workspace(scope, workspace_id, term, user_id).await
         })
         .await
     }
@@ -508,7 +417,7 @@ impl Store {
 
 /// The select list of a board, in the order [`board_from_row`] reads it. `alias` is
 /// empty or a table alias followed by a dot.
-fn board_select_list(alias: &str) -> String {
+pub(crate) fn board_select_list(alias: &str) -> String {
     format!(
         "{alias}id, {alias}workspace_id, {alias}created_by, {alias}modified_by, {alias}type, \
          {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
@@ -523,7 +432,10 @@ fn select_boards(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!("SELECT {} FROM boards", board_select_list("")))
 }
 
-async fn fetch_boards(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<Board>, StoreError> {
+pub(crate) async fn fetch_boards(
+    scope: &mut Scope<'_>,
+    sql: Sql,
+) -> Result<Vec<Board>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
@@ -610,7 +522,8 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
 
 /// Starts the query for the boards a user can reach: `SELECT DISTINCT` over boards joined
 /// with their memberships, without templates, narrowed to the user's boards and, if
-/// asked for, the open ones where the user works. More `AND` conditions on `b` may follow.
+/// asked for, the open ones where the user works. A membership counts while the user is a
+/// member of the board's workspace, and if it has a role. More `AND` conditions on `b` may follow.
 fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: PublicBoards) -> Sql {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
@@ -622,7 +535,9 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
         PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
         PublicBoards::Exclude => sql.push(" AND ("),
     };
-    sql.push_bind("bm.user_id = ", Id(user_id)).push(")");
+    members::push_own_membership_in_workspace(&mut sql, user_id)
+        .push(members::BM_HAS_A_ROLE)
+        .push(")");
     sql
 }
 
@@ -805,14 +720,17 @@ pub(crate) async fn patch_board(
 }
 
 /// Starts the query for memberships.
-fn select_members(scope: &Scope<'_>) -> Sql {
+pub(crate) fn select_members(scope: &Scope<'_>) -> Sql {
     scope.sql(
         "SELECT bm.board_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
          bm.scheme_commenter, bm.scheme_viewer FROM board_members AS bm",
     )
 }
 
-async fn fetch_members(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<BoardMember>, StoreError> {
+pub(crate) async fn fetch_members(
+    scope: &mut Scope<'_>,
+    sql: Sql,
+) -> Result<Vec<BoardMember>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
@@ -832,7 +750,7 @@ async fn fetch_members(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<BoardMembe
         .collect()
 }
 
-async fn find_member(
+pub(crate) async fn find_member(
     scope: &mut Scope<'_>,
     board_id: &str,
     user_id: &str,
@@ -860,8 +778,8 @@ pub(crate) async fn get_members_for_user(
     user_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.user_id = ", Id(user_id))
-        .push(" ORDER BY bm.board_id");
+    sql.push(" JOIN boards AS b ON b.id = bm.board_id WHERE ");
+    members::push_own_membership_in_workspace(&mut sql, user_id).push(" ORDER BY bm.board_id");
     fetch_members(scope, sql).await
 }
 
@@ -921,7 +839,7 @@ pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
 }
 
 /// Locks a board as [`lock_board`] does; one that is not there is not found.
-async fn hold_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
+pub(crate) async fn hold_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
     if lock_board(scope, board_id).await? {
         return Ok(());
     }
@@ -963,20 +881,6 @@ pub(crate) async fn lock_boards<'a>(
     Ok(())
 }
 
-/// Whether no other member of the board than the user is an administrator.
-async fn is_only_admin(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    user_id: &str,
-) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT 1 FROM board_members WHERE board_id = ");
-    sql.bind(Id(board_id))
-        .push_bind(" AND user_id <> ", Id(user_id))
-        .push_bind(" AND scheme_admin = ", true)
-        .push(" LIMIT 1");
-    Ok(scope.fetch_optional(sql).await?.is_none())
-}
-
 pub(crate) async fn delete_member(
     scope: &mut Scope<'_>,
     board_id: &str,
@@ -1007,7 +911,7 @@ fn title_has_words(title: &str, term: &str) -> bool {
 }
 
 /// Keeps the boards whose title has the words of `term`; an empty term keeps all.
-fn with_title_words(mut boards: Vec<Board>, term: &str) -> Vec<Board> {
+pub(crate) fn with_title_words(mut boards: Vec<Board>, term: &str) -> Vec<Board> {
     if !term.is_empty() {
         boards.retain(|board| title_has_words(&board.title, term));
     }
@@ -1050,27 +954,6 @@ pub(crate) async fn search_boards_for_user(
         BoardSearchField::Title => with_title_words(boards, term),
         BoardSearchField::PropertyName => boards,
     })
-}
-
-pub(crate) async fn search_boards_for_user_in_workspace(
-    scope: &mut Scope<'_>,
-    workspace_id: &str,
-    term: &str,
-    user_id: &str,
-) -> Result<Vec<Board>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
-         WHERE b.is_template = ",
-        board_select_list("b.")
-    ));
-    sql.bind(false)
-        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-        .push_bind(" AND (b.type = ", BoardType::Open.as_str())
-        .push_bind(" OR (b.type = ", BoardType::Private.as_str())
-        .push_bind(" AND bm.user_id = ", Id(user_id))
-        .push("))");
-    sql.push(OLDEST_BOARD_FIRST);
-    Ok(with_title_words(fetch_boards(scope, sql).await?, term))
 }
 
 pub(crate) async fn get_template_boards(

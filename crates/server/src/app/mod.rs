@@ -3,6 +3,7 @@
 //! [`App`] holds the server's shared state. Its operations are spread over the modules of
 //! this directory by area, mirroring the original's `server/app` package.
 
+mod access;
 mod audience;
 mod auth;
 mod blocks;
@@ -42,6 +43,7 @@ mod uploads;
 mod users;
 mod workspaces;
 
+pub use access::{BoardAccess, DeletedBoardAccess, as_managed};
 pub use audience::Audience;
 pub use auth::Admission;
 pub use blocks::ChangeNotification;
@@ -49,6 +51,7 @@ pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
+pub use import::Imported;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
@@ -67,7 +70,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 
-use fvoci_model::{BoardMember, ClientConfig};
+use fvoci_model::ClientConfig;
 use fvoci_store::{Store, Tenant};
 use serde::Serialize;
 use tokio_util::task::TaskTracker;
@@ -79,9 +82,6 @@ use crate::auth::oidc::fetch::{Addresses, Fetcher};
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
-use crate::permissions::{
-    BoardPermission, WorkspacePermission, has_permission_to_workspace, member_has_permission,
-};
 use crate::storage::FileBackend;
 use crate::web::WebRoot;
 use crate::webhook::Webhook;
@@ -366,49 +366,6 @@ impl App {
         finished
     }
 
-    /// Returns whether a user has a permission in a workspace: the user works in the workspace
-    /// ([`App::works_in_workspace`]), and the permission is one a member of a workspace has.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the membership cannot be read.
-    pub async fn has_permission_to_workspace(
-        &self,
-        user_id: &str,
-        workspace_id: &str,
-        permission: WorkspacePermission,
-    ) -> Result<bool, AppError> {
-        Ok(
-            has_permission_to_workspace(user_id, workspace_id, permission)
-                && self.works_in_workspace(user_id, workspace_id).await?,
-        )
-    }
-
-    /// Returns whether a user has a permission on a board, which follows from their
-    /// membership. No membership is "no".
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the membership cannot be read. That is not a "no":
-    /// answered as one, a database failure would tell every member that their board
-    /// does not exist.
-    pub async fn has_permission_to_board(
-        &self,
-        user_id: &str,
-        board_id: &str,
-        permission: BoardPermission,
-    ) -> Result<bool, AppError> {
-        if user_id.is_empty() || board_id.is_empty() {
-            return Ok(false);
-        }
-        match self.store().get_member_for_board(board_id, user_id).await {
-            Ok(member) => Ok(member_has_permission(&member, permission)),
-            Err(error) if error.is_not_found() => Ok(false),
-            Err(error) => Err(AppError::from(anyhow::Error::from(error))
-                .context("reading the membership of a board")),
-        }
-    }
-
     /// Takes the place of an export of the user's, given back when the [`Slot`] is
     /// dropped.
     ///
@@ -489,34 +446,15 @@ impl App {
         })
     }
 
-    /// Returns whether the user is a member of the board who may read it. Who reads a
-    /// shared board by its read token and is not one is told no user's identifier
-    /// (`Board::hide_people`, `Block::hide_people`).
+    /// Returns whether the user may read the board. Who reads a shared board by its
+    /// read token and may not is told no user's identifier (`Board::hide_people`,
+    /// `Block::hide_people`).
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the membership cannot be read.
+    /// Returns the store's error if a fact of the board cannot be read.
     pub async fn is_board_reader(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-        self.has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
-            .await
-    }
-
-    /// Returns the membership of a user on a board, if there is one.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the lookup fails for another reason than the
-    /// membership not existing.
-    pub async fn find_member_for_board(
-        &self,
-        board_id: &str,
-        user_id: &str,
-    ) -> Result<Option<BoardMember>, crate::error::AppError> {
-        match self.store().get_member_for_board(board_id, user_id).await {
-            Ok(member) => Ok(Some(member)),
-            Err(error) if error.is_not_found() => Ok(None),
-            Err(error) => Err(error.into()),
-        }
+        Ok(self.board_grant(user_id, board_id).await?.reads())
     }
 
     /// The part of the configuration the web app needs.

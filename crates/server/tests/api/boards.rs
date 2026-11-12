@@ -273,7 +273,7 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
     let th = Setup::native().start().await.init_basic().await;
     let workspace_id = ROOT_WORKSPACE_ID;
     let other_workspace_id = TEST_WORKSPACE_ID;
-    let user1 = th.client.me().await;
+    let user1 = th.me_as_no_admin(&th.client).await;
     let user2 = th.client2.me().await;
 
     let board1 = board_with_admin(
@@ -2434,12 +2434,12 @@ async fn update_member_should_correctly_update_a_member_for_a_valid_board() {
     let updated: BoardMember = update_member(&th.client, &update).await.ok_json();
 
     assert_eq!(updated, update, "the new roles are answered");
-    let stored = th
-        .app
-        .find_member_for_board(&board.id, &user2.id)
-        .await
-        .expect("the membership is read");
-    assert_eq!(stored, Some(update), "and stored");
+    let stored = th.app.store().get_member_for_board(&board.id, &user2.id);
+    assert_eq!(
+        stored.await.expect("the membership is read"),
+        update,
+        "and stored"
+    );
     th.teardown().await;
 }
 

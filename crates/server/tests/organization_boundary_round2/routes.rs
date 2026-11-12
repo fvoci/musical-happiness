@@ -145,10 +145,19 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             hidden.status == StatusCode::OK
                 && answer(&hidden).1 == json!([])
                 && absent.status == StatusCode::NOT_FOUND
-        } else if *operation == "exportWorkspaceArchive" {
-            hidden.status == absent.status
-                && hidden.status == StatusCode::OK
-                && archive_entries(&hidden.body) == archive_entries(&absent.body)
+        } else if *operation == "getWorkspaceUsers" && asker == Asker::Guest {
+            // The people a guest sees: who is on its boards, none here, and itself.
+            hidden.status == StatusCode::OK
+                && answer(&hidden).1.as_array().map(Vec::len) == Some(1)
+                && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "getWorkspaceUsersById" && asker == Asker::Guest {
+            // The workspace is there for its guest, and the empty list is refused.
+            hidden.status == StatusCode::BAD_REQUEST && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
+            // The guest's archive has the boards the guest is on, none here.
+            hidden.status == StatusCode::OK
+                && archive_entries(&hidden.body).len() == 1
+                && absent.status == StatusCode::NOT_FOUND
         } else {
             answer(&hidden) == answer(&absent) && hidden.status == StatusCode::NOT_FOUND
         };
@@ -206,9 +215,8 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
 
 /// Every route under `/w/{workspaceId}` answers for a workspace the asker is not in, a
 /// workspace of another organization, and a workspace the asker is a guest of as for one
-/// that does not exist; but `getWorkspaceBoards`, which lets a guest see the boards the
-/// guest is on, and `exportWorkspaceArchive`, whose archive of such a workspace has no
-/// boards.
+/// that does not exist; but `getWorkspaceBoards`, `exportWorkspaceArchive` and the users of
+/// the workspace, which let a guest see and export the boards it is on and their people.
 #[tokio::test]
 async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -382,8 +390,9 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
 }
 
 /// A board of a workspace the user is not in, where the user is still on the board,
-/// is visible to them; through a category of their own workspace it is not filed, and
-/// answers as a board that is not there.
+/// is not there for them: a board role opens nothing outside the workspace. Through a
+/// category of their own workspace it is not filed either, and answers as a board that
+/// is not there.
 #[tokio::test]
 async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_not_in() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -418,7 +427,11 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
         .post(&format!("{category}/{UNKNOWN_ID}"), &json!({}))
         .await;
     ts.teardown().await;
-    assert_eq!(seen, StatusCode::OK, "the user sees the board");
+    assert_eq!(
+        seen,
+        StatusCode::NOT_FOUND,
+        "a board role outside the workspace opens nothing"
+    );
     assert_eq!(
         answer(&filed),
         answer(&absent),

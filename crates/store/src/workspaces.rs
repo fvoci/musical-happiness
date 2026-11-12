@@ -4,11 +4,11 @@
 //! ([`Tenant::Org`](crate::Tenant::Org)). SQLite has no policy that would keep the
 //! workspaces of the system organization out of an answer.
 
-use fvoci_model::Workspace;
+use fvoci_model::{Board, BoardType, Workspace};
 
-use crate::Store;
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
+use crate::{Store, boards, members};
 
 const WORKSPACE_COLUMNS: &str = "id, name, signup_token, settings, modified_by, update_at";
 
@@ -142,4 +142,106 @@ fn workspace_from_row(row: &Row) -> Result<Workspace, StoreError> {
         modified_by: row.id(4)?,
         update_at: row.int(5)?,
     })
+}
+
+impl Store {
+    /// Returns the boards of a workspace whose title matches a search term and that are open
+    /// or private with the user as a member with a role, oldest first. Templates are left out.
+    ///
+    /// An empty `term` matches every board; otherwise the title must contain every
+    /// space-separated word of the term, ignoring case.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn search_boards_for_user_in_workspace(
+        &self,
+        workspace_id: &str,
+        term: &str,
+        user_id: &str,
+    ) -> Result<Vec<Board>, StoreError> {
+        self.with_conn(async |scope| {
+            search_boards_for_user_in_workspace(scope, workspace_id, term, user_id).await
+        })
+        .await
+    }
+
+    /// Returns every board of a workspace that is no template, whoever is a member of
+    /// it, oldest first: what the workspace's administrators list.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_boards_of_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<Board>, StoreError> {
+        self.with_conn(async |scope| every_board(scope, workspace_id, Kind::Boards).await)
+            .await
+    }
+
+    /// Returns every template of a workspace, whoever is a member of it, oldest first:
+    /// what the workspace's administrators list of its templates. The built-in templates
+    /// are not among them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_templates_of_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<Board>, StoreError> {
+        self.with_conn(async |scope| every_board(scope, workspace_id, Kind::Templates).await)
+            .await
+    }
+}
+
+/// Which boards of a workspace [`every_board`] reads.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// The boards that are no template.
+    Boards,
+    /// The templates.
+    Templates,
+}
+
+/// Every board of the workspace of the kind, oldest first.
+async fn every_board(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    kind: Kind,
+) -> Result<Vec<Board>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {} FROM boards AS b WHERE b.is_template = ",
+        boards::board_select_list("b.")
+    ));
+    sql.bind(kind == Kind::Templates)
+        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+        .push(boards::OLDEST_BOARD_FIRST);
+    boards::fetch_boards(scope, sql).await
+}
+
+async fn search_boards_for_user_in_workspace(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    term: &str,
+    user_id: &str,
+) -> Result<Vec<Board>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
+         WHERE b.is_template = ",
+        boards::board_select_list("b.")
+    ));
+    sql.bind(false)
+        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+        .push_bind(" AND (b.type = ", BoardType::Open.as_str())
+        .push_bind(" OR (b.type = ", BoardType::Private.as_str())
+        .push_bind(" AND bm.user_id = ", Id(user_id))
+        .push(members::BM_HAS_A_ROLE)
+        .push("))");
+    sql.push(boards::OLDEST_BOARD_FIRST);
+    Ok(boards::with_title_words(
+        boards::fetch_boards(scope, sql).await?,
+        term,
+    ))
 }

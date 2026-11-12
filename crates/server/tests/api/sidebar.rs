@@ -21,9 +21,8 @@ use crate::common::{
 /// What a write answers that was given text where it needs an identifier.
 const NOT_AN_IDENTIFIER: &str = "an identifier in the request is not a valid identifier";
 
-/// Stores the user of an application-level test and returns the identifier. Those tests
-/// work in [`TEST_WORKSPACE_ID`] for this user, who never signs in; where one needs somebody
-/// else, that is the harness's stranger.
+/// Stores the user of an application-level test, a member of [`TEST_WORKSPACE_ID`] who never
+/// signs in, and returns the identifier; somebody else is the harness's stranger.
 async fn stored_user(th: &TestServer) -> String {
     let mut user = User {
         id: new_id(),
@@ -36,6 +35,7 @@ async fn stored_user(th: &TestServer) -> String {
         .create_user(&mut user)
         .await
         .expect("the user is stored");
+    th.let_into_the_second_workspace(&user.id).await;
     user.id
 }
 
@@ -2179,7 +2179,7 @@ async fn reorder_category_boards_over_the_api() {
 #[tokio::test]
 async fn update_category_board_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
-    let user = th.client.me().await;
+    let user = th.me_as_no_admin(&th.client).await;
     let board = board_with_admin(&th, ROOT_WORKSPACE_ID, &user.id).await;
     let default_id = category_boards(&th.client, ROOT_WORKSPACE_ID).await[0]
         .category

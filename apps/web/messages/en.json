@@ -349,6 +349,7 @@
   "shell_export_workspace": "Export all boards",
   "shell_import": "Import an archive",
   "shell_import_hint": "An archive this app exported. Its boards are made in this team, with you as their admin.",
+  "shell_import_left_out": "Members left out of the archive's boards, not in this team: {count}.",
   "shell_transfer_export": "Exporting {name}",
   "shell_transfer_import": "Importing {name}",
   "shell_transfer_done_export": "{name} is saved.",

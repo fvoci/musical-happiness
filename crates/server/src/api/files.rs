@@ -30,8 +30,8 @@ use super::contract::params::{BoardId, FileId, ReadToken};
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, board_refusal, by_read_token, created,
-    json_response, require_board_permission,
+    ApiResult, OptionalSession, RequiredSession, by_read_token, created, json_response,
+    require_board_permission, require_granted,
 };
 use crate::app::App;
 use crate::app::FILE;
@@ -108,12 +108,8 @@ async fn check_read_access(
     if user_id.is_empty() {
         return Err(AppError::unauthorized("access denied to board"));
     }
-    if !app
-        .has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
-        .await?
-    {
-        return Err(board_refusal(&app, user_id, board_id, "access denied to board").await);
-    }
+    let grant = app.board_grant(user_id, board_id).await?;
+    require_granted(grant, BoardPermission::ViewBoard, "access denied to board")?;
     Ok(app)
 }
 

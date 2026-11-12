@@ -181,6 +181,8 @@ reasons! {
     LastAdmin => "last_admin", "Last administrator";
     /// Only an administrator of the instance may do this.
     AdminRequired => "admin_required", "Administrator required";
+    /// A guest of the workspace is given no role on a board above editor.
+    GuestRoleLimit => "guest_role_limit", "A guest is no more than an editor";
     /// Public sharing is turned off in the server's configuration.
     SharingDisabled => "sharing_disabled", "Public sharing turned off";
     /// The user has as many uploads in parts open as one may.

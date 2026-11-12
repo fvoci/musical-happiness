@@ -531,7 +531,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
         &archive(&json!([{"id": "p1"}]), json!({"p1": "v"})),
     )
     .await
-    .check_no_content();
+    .check_ok();
     th.teardown().await;
 }
 
@@ -755,7 +755,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
         ),
     )
     .await
-    .check_no_content();
+    .check_ok();
     let boards: Vec<Board> = th
         .client
         .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))

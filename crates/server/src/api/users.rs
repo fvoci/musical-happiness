@@ -53,8 +53,12 @@ fn user_not_found(error: AppError) -> AppError {
 /// Users by their identifiers
 ///
 /// The users with the identifiers of the body, which must name at least one: an empty
-/// list is 400. Every identifier must be a user's and none may be there twice;
-/// otherwise the request is 404. Oldest account first, not in the order of the request.
+/// list is 400. Every identifier must be of a user the user sees and none may be there
+/// twice; otherwise the request is 404. A user sees who shares with them a workspace
+/// they work in (are no guest of), who holds a role with them on a board of a workspace
+/// both are in, who created or last changed a card, block or comment of a board they
+/// read (also after leaving its workspace), and themselves. Oldest account first, not in
+/// the order of the request.
 #[utoipa::path(
     post,
     path = "/users",
@@ -72,12 +76,7 @@ async fn handle_get_users_list(
     if user_ids.is_empty() {
         return Err(AppError::bad_request("the list of user IDs is empty"));
     }
-    let users = app.users_list(&user_ids).await?;
-
-    // Whether the asking user sees others does not depend on whom they ask about.
-    if !app.can_see_user(&session.user_id).await? {
-        return Ok(json_response(&Vec::<User>::new()));
-    }
+    let users = app.users_seen_by(&session.user_id, &user_ids).await?;
     let mut sanitized = Vec::with_capacity(users.len());
     for mut user in users {
         if user.id == session.user_id {
@@ -164,7 +163,8 @@ async fn handle_patch_me(
 
 /// The boards the user is a member of
 ///
-/// The user's memberships, with the roles of each. By the identifier of the board.
+/// The user's memberships, with the roles of each, of the boards of the workspaces the
+/// user is a member of. By the identifier of the board.
 #[utoipa::path(
     get,
     path = "/users/me/memberships",
@@ -181,6 +181,9 @@ async fn handle_get_my_memberships(
 }
 
 /// A user
+///
+/// A user the user sees, as `getUsers` has it; anybody else is 404, as one who does not
+/// exist.
 #[utoipa::path(
     get,
     path = "/users/{userId}",
@@ -194,11 +197,13 @@ async fn handle_get_user(
     RequiredSession(session): RequiredSession,
     Path(user_id): Path<String>,
 ) -> ApiResult {
-    let mut user = app.user(&user_id).await.map_err(user_not_found)?;
-    // A lookup that failed is no answer to who may be seen.
-    if !app.can_see_user(&session.user_id).await? {
-        return Err(AppError::not_found(USER));
-    }
+    // Somebody the user does not see is as one who does not exist.
+    let mut user = app
+        .users_seen_by(&session.user_id, std::slice::from_ref(&user_id))
+        .await
+        .map_err(user_not_found)?
+        .pop()
+        .ok_or_else(|| AppError::not_found(USER))?;
     if user_id == session.user_id {
         crate::app::sanitize(&mut user);
     } else {

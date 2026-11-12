@@ -14,7 +14,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use fvoci_model::{
     ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardsAndBlocks,
-    BoardsAndBlocksError, JsonMap, renew_boards_and_blocks_ids,
+    BoardsAndBlocksError, JsonMap, WorkspaceRole, renew_boards_and_blocks_ids,
 };
 use serde_json::Value;
 use tokio::fs;
@@ -23,6 +23,7 @@ use super::App;
 use super::export::ARCHIVE_VERSION;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
+use crate::permissions;
 use fvoci_store::StoreError;
 
 /// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
@@ -65,7 +66,7 @@ impl App {
         path: &Path,
         workspace_id: &str,
         modified_by: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Imported, AppError> {
         let options = ImportOptions {
             workspace_id: workspace_id.to_owned(),
             modified_by: modified_by.to_owned(),
@@ -89,7 +90,7 @@ impl App {
         &self,
         path: &Path,
         options: &ImportOptions,
-    ) -> Result<(), AppError> {
+    ) -> Result<Imported, AppError> {
         let zip = open_archive(path).await?;
         let unpacked_file = path.with_file_name("entry");
         // The original's streaming reader rejects a ZIP with no entries as invalid.
@@ -160,13 +161,10 @@ impl App {
         }
 
         // First pass: the boards; a file entry needs its board already known.
-        let mut board_map: HashMap<String, Board> = HashMap::new();
-        for (index, dir) in boards {
-            let jsonl = read_entry(&zip, index, MAX_JSONL_BYTES).await?;
-            let board = parse_board_jsonl(jsonl, options).await?;
-            let board = self.store_archive_board(board, options).await?;
-            board_map.insert(dir, board);
-        }
+        let mut left_out: HashSet<String> = HashSet::new();
+        let board_map = self
+            .store_archive_boards(&zip, boards, options, &mut left_out)
+            .await?;
 
         // Second pass: the files, placed under their board.
         let mut file_map: HashMap<(String, String), String> = HashMap::new();
@@ -201,7 +199,9 @@ impl App {
         self.fix_images_attachments(&board_map, &file_map, &options.modified_by)
             .await;
         tracing::debug!(boards_imported = board_map.len(), "import archive - done");
-        Ok(())
+        Ok(Imported {
+            members_left_out: left_out.len(),
+        })
     }
 
     /// Points every block of each imported board that shows a file at the newly stored
@@ -300,9 +300,34 @@ impl App {
         }
     }
 
+    /// Stores the boards of the archive, each its `board.jsonl` at an index under a
+    /// directory, and returns them by their directory. Members left out are added to
+    /// `left_out` ([`App::store_archive_board`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`App::store_archive_board`], and a bad request for an entry that cannot be read.
+    async fn store_archive_boards(
+        &self,
+        zip: &Archive,
+        boards: Vec<(usize, String)>,
+        options: &ImportOptions,
+        left_out: &mut HashSet<String>,
+    ) -> Result<HashMap<String, Board>, AppError> {
+        let mut board_map = HashMap::new();
+        for (index, dir) in boards {
+            let jsonl = read_entry(zip, index, MAX_JSONL_BYTES).await?;
+            let board = parse_board_jsonl(jsonl, options).await?;
+            let board = self.store_archive_board(board, options, left_out).await?;
+            board_map.insert(dir, board);
+        }
+        Ok(board_map)
+    }
+
     /// Stores one board of an archive as [`parse_board_jsonl`] read it, with its
     /// members who are in the workspace and the importing user as an admin, and
-    /// returns the stored board.
+    /// returns the stored board. The members who are not in the workspace are left out,
+    /// and added to `left_out`.
     ///
     /// # Errors
     ///
@@ -312,19 +337,28 @@ impl App {
         &self,
         board: ParsedBoard,
         options: &ImportOptions,
+        left_out: &mut HashSet<String>,
     ) -> Result<Board, AppError> {
         let ParsedBoard {
             boards_and_blocks,
             members,
         } = board;
-        // Keep only members who are in the workspace: a board takes no others (`is_in_workspace`).
+        // Keep only members who are in the workspace: a board takes no others. A guest of
+        // the workspace keeps a role no higher than editor. A membership without a role
+        // opens nothing, and is neither kept nor counted as left out.
         let mut kept_members = Vec::with_capacity(members.len());
         for member in members {
-            if self
-                .is_in_workspace(&member.user_id, &options.workspace_id)
-                .await?
-            {
-                kept_members.push(member);
+            if permissions::role_of(&member).is_none() {
+                continue;
+            }
+            let actor = self.actor(&member.user_id, &options.workspace_id).await?;
+            match actor.workspace {
+                Some(workspace_role) => {
+                    kept_members.push(no_more_than_holdable(member, workspace_role));
+                }
+                None => {
+                    left_out.insert(member.user_id);
+                }
             }
         }
 
@@ -355,6 +389,24 @@ impl App {
             .into_iter()
             .next()
             .ok_or_else(|| AppError::bad_request("missing board in archive"))
+    }
+}
+
+/// What an import did beyond making the archive's boards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Imported {
+    /// How many of the users who were members of the archive's boards are no members of
+    /// them now: they are not in the workspace (each counted once).
+    pub members_left_out: usize,
+}
+
+/// The membership with its role lowered to the highest the user may hold in the
+/// workspace (`permissions::highest_board_role`), and left as it is if it is not higher.
+fn no_more_than_holdable(member: BoardMember, workspace_role: WorkspaceRole) -> BoardMember {
+    let highest = permissions::highest_board_role(workspace_role);
+    match permissions::role_of(&member) {
+        Some(role) if role > highest => permissions::with_role(member, Some(highest)),
+        _ => member,
     }
 }
 

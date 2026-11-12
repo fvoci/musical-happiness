@@ -39,7 +39,7 @@ async fn import_bytes(client: &Client, workspace: &str, bytes: Vec<u8>) {
             &json!({"uploadId": upload}),
         )
         .await
-        .check_no_content();
+        .check_ok();
 }
 
 #[tokio::test]

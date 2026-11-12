@@ -217,7 +217,6 @@ async fn a_workspace_guest_cannot_gain_editor_access_through_the_legacy_join_rou
 }
 
 #[tokio::test]
-#[ignore = "O4: the search of users and the reading of a profile are narrowed to who shares a workspace with the one who asks; users are no organization's rows, so the wall does not part them"]
 async fn a_workspace_user_search_and_profile_lookup_do_not_expose_another_organizations_users() {
     if db_type_of_the_tests() != DbType::Postgres {
         return;

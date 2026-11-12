@@ -60,7 +60,8 @@ async fn handle_get_deleted_cards(
 /// The deleted boards of a workspace
 ///
 /// One page of the workspace's boards that are in the trash and that the user was an admin
-/// of when they were deleted, which is who `undeleteBoard` lets bring them back: each
+/// of when they were deleted, or every one of them for an administrator of the
+/// workspace, which is who `undeleteBoard` lets bring them back: each
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
 /// first; the pages cut that order. A `page` or `perPage` that is no whole number is
 /// 400. For users of the workspace.
@@ -76,7 +77,13 @@ async fn handle_get_deleted_boards(WorksIn(ws): WorksIn, RawQuery(query): RawQue
     let (page, per_page) = page_params(query.as_deref())?;
     Ok(json_response(
         &ws.app
-            .deleted_boards(&ws.workspace_id, &ws.session.user_id, page, per_page)
+            .deleted_boards(
+                &ws.workspace_id,
+                &ws.session.user_id,
+                ws.role,
+                page,
+                per_page,
+            )
             .await?,
     ))
 }

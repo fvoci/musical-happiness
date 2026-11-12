@@ -1,6 +1,6 @@
 //! What is in the trash, as lists to choose what to bring back from.
 
-use fvoci_model::DeletedItem;
+use fvoci_model::{DeletedItem, WorkspaceRole};
 
 use super::App;
 use super::cards::CardRange;
@@ -37,8 +37,9 @@ impl App {
     }
 
     /// Returns one page of the boards of a workspace that are in the trash and that the user
-    /// was an admin of when they were deleted: whom `undeleteBoard` lets bring them
-    /// back. The last deleted first; `page` and `per_page` are read as for cards.
+    /// was an admin of when they were deleted, or, for an administrator of the workspace
+    /// (`role`), every one: whom `undeleteBoard` lets bring them back. The last deleted
+    /// first; `page` and `per_page` are read as for cards.
     ///
     /// # Errors
     ///
@@ -47,6 +48,7 @@ impl App {
         &self,
         workspace_id: &str,
         user_id: &str,
+        role: WorkspaceRole,
         page: i64,
         per_page: i64,
     ) -> Result<Vec<DeletedItem>, AppError> {
@@ -57,7 +59,11 @@ impl App {
         };
         let deleted = self
             .store()
-            .get_deleted_boards(workspace_id, user_id, paging)
+            .get_deleted_boards(
+                workspace_id,
+                (role != WorkspaceRole::Admin).then_some(user_id),
+                paging,
+            )
             .await?;
         Ok(deleted
             .into_iter()

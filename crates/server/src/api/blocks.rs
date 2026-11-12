@@ -3,7 +3,7 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, CommentVersion,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, CommentVersion,
     RelationProperties, UnmatchedRelation, renew_block_ids, stamp_modification_metadata,
 };
 
@@ -79,24 +79,14 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 /// Checks that a signed-in user may read the blocks of a board: the members of the
 /// board, and for an open template everyone who works in its workspace besides.
 async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<(), AppError> {
-    if board.is_template && board.board_type == BoardType::Open {
-        if !board.is_builtin
-            && !app.works_in_workspace(user_id, &board.workspace_id).await?
-            && !app.is_board_reader(user_id, &board.id).await?
-        {
-            // A template of a workspace the user does not work in is not there.
-            return Err(AppError::not_found("board"));
-        }
-    } else {
-        require_board_permission(
-            app,
-            user_id,
-            &board.id,
-            BoardPermission::ViewBoard,
-            "access denied to board",
-        )
-        .await?;
-    }
+    require_board_permission(
+        app,
+        user_id,
+        &board.id,
+        BoardPermission::ViewBoard,
+        "access denied to board",
+    )
+    .await?;
     if board.is_template && user_is_guest(app, user_id).await? {
         return Err(AppError::forbidden(
             "guest are not allowed to get board templates",
@@ -456,8 +446,10 @@ async fn handle_delete_block(
 /// it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
 /// may no longer hold it (a comment off a card, a block below a comment): 409. For who may
 /// delete what comes back, as `deleteBlock` has it: editors, a comment its author from
-/// the commenter's role up, and a comment of somebody else the board's admins only
-/// (403, `access denied to undelete other users' comments`). What decides is what was
+/// the commenter's role up if they deleted it themselves, and a comment of somebody
+/// else the board's admins only (403, `access denied to undelete other users' comments`),
+/// as one of the user's that somebody else deleted (403, `a comment somebody else
+/// deleted is brought back by the board's admins`). What decides is what was
 /// deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
 /// so a block below somebody else's comment is brought back by the admins only, and a
 /// card alone, so a comment that went with its card comes back for whoever may bring
@@ -497,13 +489,17 @@ async fn handle_undelete_block(
         return Err(AppError::not_found("block"));
     };
     // Only who may delete it brings it back, as it was deleted: from the block at the
-    // top (a block below somebody else's comment brings that comment back).
+    // top (a block below somebody else's comment brings that comment back). A comment
+    // somebody else deleted is not its author's to bring back, but the board's admins'.
+    let deleted_by = app.deleted_by(&top.id).await?;
     require_deletion_permission(
         &app,
         user_id,
         top,
         below,
-        BlockAction::Undelete,
+        BlockAction::Undelete {
+            deleted_by: &deleted_by,
+        },
         CHANGES_DENIED,
     )
     .await?;

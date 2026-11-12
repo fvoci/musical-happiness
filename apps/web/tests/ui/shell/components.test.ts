@@ -12,6 +12,7 @@ import { routePath } from '../../../src/app/router.svelte.ts';
 import BoardIcon from '$lib/features/shell/BoardIcon.svelte';
 import BoardTitle from '$lib/features/shell/BoardTitle.svelte';
 import SettingChoice from '$lib/features/shell/SettingChoice.svelte';
+import SettingsDialog from '$lib/features/shell/SettingsDialog.svelte';
 import Sidebar from '$lib/features/shell/Sidebar.svelte';
 import type { BoardPlace } from '$lib/logic/urls.ts';
 
@@ -341,5 +342,37 @@ describe('the sidebar over a workspace', () => {
     for (const button of screen.getAllByRole('button')) {
       expect(button, button.outerHTML.slice(0, 120)).toHaveAccessibleName();
     }
+  });
+});
+
+describe('an import from the settings', () => {
+  it('says in a line how many members it left out, nothing when none, and forgets it when closed', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const answers = [{ membersLeftOut: 2 }, { membersLeftOut: 0 }, { membersLeftOut: 1 }];
+    vi.spyOn(workspace, 'importArchive').mockImplementation(() => Promise.resolve(answers.shift()));
+    const dialog = render(SettingsDialog, { props: { open: true, workspace } });
+    const choose = async () => {
+      const field = await screen.findByTestId('import-archive');
+      const file = new File(['PK'], 'boards.boardarchive');
+      Object.defineProperty(field, 'files', { value: [file], configurable: true });
+      await fireEvent.change(field);
+      await settle();
+      await tick();
+    };
+    const line = () => screen.getByTestId('import-left-out');
+
+    await choose();
+    expect(line()).toHaveTextContent(/^Members left out of the archive's boards, .*: 2\.$/);
+    expect(line()).toHaveAttribute('role', 'status');
+    await choose();
+    expect(line()).toBeEmptyDOMElement();
+    await choose();
+    expect(line()).toHaveTextContent(/: 1\.$/);
+    await fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await tick();
+    await dialog.rerender({ open: true, workspace });
+    await tick();
+    expect(line()).toBeEmptyDOMElement();
   });
 });

@@ -1041,6 +1041,20 @@
         ],
         "type": "object"
       },
+      "ImportResult": {
+        "description": "What an import did beyond making the archive's boards.",
+        "properties": {
+          "membersLeftOut": {
+            "description": "How many of the users who were members of the archive's boards were left out of\nthe boards made of them, because they are not in the workspace; each counted\nonce. Who they are is not told.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "membersLeftOut"
+        ],
+        "type": "object"
+      },
       "InvalidInput": {
         "description": "One thing of a request that was refused, and where in the request it is: exactly\none of `pointer`, `parameter` and `header` says.",
         "properties": {
@@ -1885,6 +1899,11 @@
             "reason": "admin_required",
             "title": "Administrator required",
             "type": "/problems/admin-required"
+          },
+          {
+            "reason": "guest_role_limit",
+            "title": "A guest is no more than an editor",
+            "type": "/problems/guest-role-limit"
           },
           {
             "reason": "sharing_disabled",
@@ -3006,7 +3025,7 @@
     },
     "/api/v1/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches\nthe term: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
+        "description": "The boards the user finds (a member of them, or open where the user works), whose title matches\nthe term: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
         "operationId": "searchBoards",
         "parameters": [
           {
@@ -3667,7 +3686,7 @@
     },
     "/api/v1/boards/{boardId}/blocks/{blockId}/undelete": {
       "post": {
-        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404; one whose parent\nmay no longer hold it (a comment off a card, a block below a comment): 409. For who may\ndelete what comes back, as `deleteBlock` has it: editors, a comment its author from\nthe commenter's role up, and a comment of somebody else the board's admins only\n(403, `access denied to undelete other users' comments`). What decides is what was\ndeleted, as `deleteBlock` decided it: a comment with every reply that went with it,\nso a block below somebody else's comment is brought back by the admins only, and a\ncard alone, so a comment that went with its card comes back for whoever may bring\nback the card.",
+        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404; one whose parent\nmay no longer hold it (a comment off a card, a block below a comment): 409. For who may\ndelete what comes back, as `deleteBlock` has it: editors, a comment its author from\nthe commenter's role up if they deleted it themselves, and a comment of somebody\nelse the board's admins only (403, `access denied to undelete other users' comments`),\nas one of the user's that somebody else deleted (403, `a comment somebody else\ndeleted is brought back by the board's admins`). What decides is what was\ndeleted, as `deleteBlock` decided it: a comment with every reply that went with it,\nso a block below somebody else's comment is brought back by the admins only, and a\ncard alone, so a comment that went with its card comes back for whoever may bring\nback the card.",
         "operationId": "undeleteBlock",
         "parameters": [
           {
@@ -4297,7 +4316,7 @@
     },
     "/api/v1/boards/{boardId}/members": {
       "get": {
-        "description": "For the board's members. By the identifier of the user: a membership has no time of\nits own, so this is not the order in which the users came to the board.",
+        "description": "For the board's members and the workspace's administrators. Who left the workspace\nis not listed, whatever role they had on the board. By the identifier of the user: a\nmembership has no time of its own, so this is not the order in which the users came\nto the board.",
         "operationId": "getMembers",
         "parameters": [
           {
@@ -4341,7 +4360,7 @@
         ]
       },
       "post": {
-        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors add members too, with the board's minimum role, whatever else the request\nnames; a request of theirs that asks for `schemeAdmin` is 403. A user who is a\nmember already stays as they are.",
+        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors who work in the workspace add members too, with the board's minimum role,\nwhatever else the request names; a request of theirs that asks for `schemeAdmin` is\n403. A guest of the workspace is given no role above editor: asking for\n`schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a\nmember already stays as they are. The workspace's administrators manage the members\nof every board of it; one who makes themselves a member of a board whose content\nthey could not read is recorded in the organization's audit log.",
         "operationId": "addMember",
         "parameters": [
           {
@@ -4437,7 +4456,7 @@
         ]
       },
       "put": {
-        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A user who is\nno member of the board is 404.",
+        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A guest of the\nworkspace is made no more than an editor: `schemeAdmin` for one is 403 with the\nreason `guest_role_limit`. A user who is no member of the board, or of its workspace any\nmore, is 404.",
         "operationId": "updateMember",
         "parameters": [
           {
@@ -4718,7 +4737,7 @@
     },
     "/api/v1/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted;\nto anybody who was no member there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted,\nand for the workspace's administrators (who, if they were no member, get it without\nits description and properties); to anybody else there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {
@@ -5725,7 +5744,7 @@
     },
     "/api/v1/users": {
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees and none may be there\ntwice; otherwise the request is 404. A user sees who shares with them a workspace\nthey work in (are no guest of), who holds a role with them on a board of a workspace\nboth are in, who created or last changed a card, block or comment of a board they\nread (also after leaving its workspace), and themselves. Oldest account first, not in\nthe order of the request.",
         "operationId": "getUsers",
         "requestBody": {
           "content": {
@@ -5928,7 +5947,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each. By the identifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of. By the identifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
@@ -6133,6 +6152,7 @@
     },
     "/api/v1/users/{userId}": {
       "get": {
+        "description": "A user the user sees, as `getUsers` has it; anybody else is 404, as one who does not\nexist.",
         "operationId": "getUser",
         "parameters": [
           {
@@ -6271,11 +6291,11 @@
     },
     "/api/v1/w/{workspaceId}/archive/export": {
       "get": {
-        "description": "An archive of all boards of the workspace that `getWorkspaceBoards` lists for the\nuser, offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. A workspace that is not there, that the user is not in, or that\nis of another organization than the server's, is not refused: its archive has no\nboards.",
+        "description": "An archive of the boards of the workspace that the user is a member of with a role,\nand of its open boards for who works in the workspace (also those they have not\njoined), offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. 404 unless the user is a member of the workspace; a guest's\narchive has the boards they were invited to.",
         "operationId": "exportWorkspaceArchive",
         "parameters": [
           {
-            "description": "The identifier of the workspace. A workspace that is not there, that the user is not in, or that is of another organization than the server's, is not refused: its archive has no boards.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6332,7 +6352,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/import": {
       "post": {
-        "description": "Makes the boards of an archive in the workspace, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another workspace, is 400. For users of the workspace who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
+        "description": "Makes the boards of an archive in the workspace, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another workspace, is 400. For users of the workspace who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay. The members of a board who are not in the workspace are left\nout of it, a guest of the workspace keeps no role above editor; the answer says how\nmany users were left out, not who.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -6356,7 +6376,14 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            },
             "description": "The boards of the archive are made."
           },
           "default": {
@@ -6431,7 +6458,7 @@
     },
     "/api/v1/w/{workspaceId}/boards": {
       "get": {
-        "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former. Templates are not among\nthem. Oldest first. 404 unless the user is a member of the workspace.",
+        "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former, an administrator every board\nof the workspace (what is on a private board they are no member of stays 404 to\nthem). Templates are not among them. Oldest first. 404 unless the user is a member of\nthe workspace.",
         "operationId": "getWorkspaceBoards",
         "parameters": [
           {
@@ -6477,7 +6504,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches\nthe term as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The\nworkspace of the path is not part of the search: the boards of every workspace are\nsearched. A `field` that is neither is 400. Oldest first.",
+        "description": "The boards the user finds (a member of them, or open where the user works), whose title matches\nthe term as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The\nworkspace of the path is not part of the search: the boards of every workspace are\nsearched. A `field` that is neither is 400. Oldest first.",
         "operationId": "searchWorkspaceBoards",
         "parameters": [
           {
@@ -7164,7 +7191,7 @@
     },
     "/api/v1/w/{workspaceId}/trash/boards": {
       "get": {
-        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.",
+        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, or every one of them for an administrator of the\nworkspace, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.",
         "operationId": "getDeletedBoards",
         "parameters": [
           {
@@ -7230,11 +7257,11 @@
     },
     "/api/v1/w/{workspaceId}/users": {
       "get": {
-        "description": "Up to ten users: with `search` those whose login name or display name has that text\nin it, whatever the case of the letters, without it the ten oldest accounts. Oldest\naccount first.",
+        "description": "Up to ten of the users the user sees in the workspace: whoever works there sees its\nmembers and who is on a board of it with them, a guest only who is on a board of it\nwith them; and the user. With `search` those whose login name or display name has\nthat text in it, whatever the case of the letters, without it the ten oldest\naccounts. Oldest account first.",
         "operationId": "getWorkspaceUsers",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -7283,11 +7310,11 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be of a user the user sees in the workspace and\nnone may be there twice; otherwise the request is 404. The user sees whom\n`getWorkspaceUsers` finds, and who created or last changed a card, block or comment\nof a board of the workspace they read, also after leaving the workspace. Oldest\naccount first, not in the order of the request.",
         "operationId": "getWorkspaceUsersById",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
