@@ -37,9 +37,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if there is no such user, and a conflict (reason
-    /// `last_admin`) if the user is the only administrator, of the instance or of its
-    /// organization, and would stop being one.
+    /// Returns a not-found error if there is no such user, a 403 (reason
+    /// `admin_required`) if `actor_id` stopped administering the instance before the
+    /// change was made, and a conflict (reason `last_admin`) if the user is the only
+    /// administrator, of the instance or of its organization, and would stop being one.
     pub async fn set_user_admin(
         &self,
         user_id: &str,
@@ -56,6 +57,10 @@ impl App {
                 Ok(*user)
             }
             AdminChange::NoSuchUser => Err(AppError::not_found("user")),
+            AdminChange::NotAnAdministrator => Err(AppError::forbidden(
+                "only an administrator of the instance may do this",
+            )
+            .with_reason(Reason::AdminRequired)),
             AdminChange::LastAdmin => Err(AppError::conflict(
                 "the instance must keep an administrator",
             )
@@ -76,8 +81,13 @@ impl App {
             Err(error) if error.is_not_found() => return Err(AppError::not_found("user")),
             Err(error) => return Err(error.into()),
         };
-        self.set_user_admin(&user.id, InstanceRole::Administrator, &user.id)
-            .await
+        match self.store().make_admin_by_operator(&user.id).await? {
+            AdminChange::Done(user) => Ok(*user),
+            AdminChange::NoSuchUser => Err(AppError::not_found("user")),
+            change => Err(AppError::internal(format!(
+                "the operator's word made no administrator: {change:?}"
+            ))),
+        }
     }
 
     /// The users with the given identifiers that the user `seer_id` sees anywhere by

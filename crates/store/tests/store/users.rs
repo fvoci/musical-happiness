@@ -1626,8 +1626,16 @@ async fn set_user_admin_keeps_one_administrator() {
         );
     }
 
+    assert_eq!(
+        test.set_user_admin(&other_id, InstanceRole::Administrator, &other_id)
+            .await
+            .expect("no failure"),
+        AdminChange::NotAnAdministrator,
+        "who is none makes nobody one"
+    );
+    assert!(!is_admin(&other_id).await, "nothing changed");
     let AdminChange::Done(made) = test
-        .set_user_admin(&other_id, InstanceRole::Administrator, &other_id)
+        .set_user_admin(&other_id, InstanceRole::Administrator, &admin_id)
         .await
         .expect("no failure")
     else {
@@ -1646,7 +1654,7 @@ async fn set_user_admin_keeps_one_administrator() {
 
     // The other one is the only administrator now. A deactivated administrator next to
     // them would not change that.
-    test.set_user_admin(&admin_id, InstanceRole::Administrator, &admin_id)
+    test.set_user_admin(&admin_id, InstanceRole::Administrator, &other_id)
         .await
         .expect("no failure");
     common::execute_raw(
@@ -1683,7 +1691,7 @@ async fn of_two_administrators_who_step_down_at_once_one_stays() {
 
     for round in 0..ROUNDS {
         for user_id in [&first_id, &second_id] {
-            test.set_user_admin(user_id, InstanceRole::Administrator, user_id)
+            test.make_admin_by_operator(user_id)
                 .await
                 .expect("both are administrators before the round");
         }

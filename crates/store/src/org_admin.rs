@@ -577,7 +577,7 @@ pub(crate) async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organizat
 /// in use or not: the changes of who administers it, of its workspaces and of the
 /// boards they hold, are made one at a time. On SQLite a transaction that writes holds
 /// the whole database.
-async fn hold_organization_row(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+pub(crate) async fn hold_organization_row(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
     sql.bind(scope.org()?);
     // Not FOR UPDATE: what refers to the organization (a member, a workspace, a record)
@@ -665,7 +665,7 @@ pub(crate) struct Joined {
 
 /// What the user is in the workspace and, if they joined it as the organization's
 /// administrator, how they were in it before.
-async fn membership(
+pub(crate) async fn membership(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     user_id: &str,

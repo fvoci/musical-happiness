@@ -1,6 +1,6 @@
 //! Making a user a member of a board, and recording it where that is to be accounted for.
 
-use fvoci_model::BoardMember;
+use fvoci_model::{BoardMember, WorkspaceRole};
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
@@ -11,7 +11,60 @@ use crate::db::{Id, Scope};
 use crate::error::StoreError;
 use crate::{members, org_admin};
 
+/// What the user who asks for a change of a board's members was, as the check of their
+/// permission found them: their role in the board's workspace and their membership of
+/// the board. The change is made only if they still are that when it is written.
+#[derive(Debug, Clone, Copy)]
+pub struct Standing<'a> {
+    /// Who asks.
+    pub user_id: &'a str,
+    /// Their role in the board's workspace; `None` if they were no member of it.
+    pub workspace_role: Option<WorkspaceRole>,
+    /// Their membership of the board; `None` if they were no member of it.
+    pub member: Option<&'a BoardMember>,
+}
+
 impl Store {
+    /// Makes a user a member of a board as [`Store::add_member`] does, on the word of
+    /// who asked: only if they are still what `asked` says, read with the organization
+    /// held, as taking back a joining holds it (`joinings::give_back_roles`). One whose
+    /// role went meanwhile gives none, and the board is not there for them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::add_member`], and [`StoreError::NotFound`] (the board) if who asked
+    /// is not what they were.
+    pub async fn add_member_asked(
+        &self,
+        member: &BoardMember,
+        asked: Standing<'_>,
+    ) -> Result<Option<BoardMember>, StoreError> {
+        self.transaction(async |scope| {
+            standing_holds(scope, &member.board_id, asked).await?;
+            add_member(scope, member).await
+        })
+        .await
+    }
+
+    /// Replaces the roles of a membership as [`Store::change_member`] does, on the word
+    /// of who asked, as [`Store::add_member_asked`] takes it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::change_member`], and [`StoreError::NotFound`] (the board) if who
+    /// asked is not what they were.
+    pub async fn change_member_asked(
+        &self,
+        member: &BoardMember,
+        asked: Standing<'_>,
+    ) -> Result<MemberChange, StoreError> {
+        self.transaction(async |scope| {
+            standing_holds(scope, &member.board_id, asked).await?;
+            change_member(scope, member).await
+        })
+        .await
+    }
+
     /// Returns the members of a board who are members of its workspace now, by the
     /// identifier of the user: who left it keeps a membership that opens nothing, and
     /// is not listed.
@@ -171,6 +224,41 @@ async fn change_member(
 /// is not there for them.
 async fn manager_still(scope: &mut Scope<'_>, entry: &AuditEntry) -> Result<(), StoreError> {
     if org_admin::still_workspace_admin(scope, &entry.workspace_id, &entry.actor_id).await? {
+        Ok(())
+    } else {
+        Err(StoreError::not_found("board"))
+    }
+}
+
+/// Whether who asks is still what their request was let in as: the same role in the
+/// board's workspace and the same membership of the board, read with the organization's
+/// row held before the board's.
+async fn standing_holds(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    asked: Standing<'_>,
+) -> Result<(), StoreError> {
+    org_admin::hold_organization_row(scope).await?;
+    let mut sql = scope.sql("SELECT workspace_id FROM boards WHERE id = ");
+    sql.bind(Id(board_id));
+    let Some(row) = scope.fetch_optional(sql).await? else {
+        return Err(StoreError::not_found("board"));
+    };
+    let workspace_id = row.id(0)?;
+    let now_role = org_admin::membership(scope, &workspace_id, asked.user_id)
+        .await?
+        .map(|(role, _)| role);
+    let now_member = find_member(scope, board_id, asked.user_id).await?;
+    let flags = |member: &BoardMember| {
+        [
+            member.scheme_admin,
+            member.scheme_editor,
+            member.scheme_commenter,
+            member.scheme_viewer,
+        ]
+    };
+    if now_role == asked.workspace_role && now_member.as_ref().map(flags) == asked.member.map(flags)
+    {
         Ok(())
     } else {
         Err(StoreError::not_found("board"))

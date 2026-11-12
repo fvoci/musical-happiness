@@ -8,7 +8,7 @@ use fvoci_model::{
 };
 use fvoci_store::{
     AuditEntry, AuditPlace, DbType, InstanceRole, Joining, LooseState, OrgRoleChange, Paging,
-    Purged, Store, StoreError, Taken, Tenant, WorkspaceTrashing,
+    Purged, Standing, Store, StoreError, Taken, Tenant, WorkspaceTrashing,
 };
 
 use crate::common::{self, TestStore};
@@ -852,5 +852,139 @@ async fn a_workspace_purged_for_good_takes_the_documents_of_its_bodies() {
             "{table}: the other workspace's alone"
         );
     }
+    test.teardown().await;
+}
+
+/// Demoted through the instance's route, an administrator of the organization is taken
+/// out of what they joined as through the organization's, on the record, and keeps a
+/// workspace they administer in their own right: no workspace role follows the instance.
+#[tokio::test]
+async fn the_instances_route_takes_back_what_was_joined_as_the_organizations_does() {
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let other = org_member(&test, "other", OrgRole::Admin).await;
+    let joined = named_workspace(&test, "Joined", &admin).await;
+    let own = named_workspace(&test, "Own", &admin).await;
+    for (workspace, role) in [
+        (&joined, WorkspaceRole::Member),
+        (&own, WorkspaceRole::Admin),
+    ] {
+        test.add_workspace_member(workspace, &other, role)
+            .await
+            .expect("a member");
+    }
+    assert_eq!(
+        test.join_workspace_as_org_admin(&joined, &other)
+            .await
+            .expect("asked"),
+        Joining::Joined
+    );
+
+    test.set_user_admin(&other, InstanceRole::User, &admin)
+        .await
+        .expect("no administrator of the instance any more");
+    assert_eq!(
+        role_in(&test, &joined, &other).await,
+        Some(WorkspaceRole::Member),
+        "what they were before joining"
+    );
+    assert_eq!(
+        role_in(&test, &own, &other).await,
+        Some(WorkspaceRole::Admin),
+        "their own administration stays"
+    );
+    assert_eq!(
+        log_of(&test, &joined).await,
+        [
+            (AuditAction::OrgAdminJoined, other.clone(), String::new()),
+            (AuditAction::OrgAdminRevoked, admin.clone(), other.clone()),
+        ]
+    );
+    assert_eq!(
+        organization_records(&test).await.first(),
+        Some(&(AuditAction::OrgAdminRemoved, test.org_id.clone())),
+        "the change of the role is recorded, the newest, as the organization's route does"
+    );
+    test.teardown().await;
+}
+
+/// A change of a board's members that was let in on what its asker was is made only if
+/// they still are that when it is written: an administrator of the organization whose
+/// joining was taken back meanwhile adds nobody to the board they made while joined, and
+/// gives themselves nothing back. Who still is what they were changes as ever.
+#[tokio::test]
+async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let other_admin = org_member(&test, "other.admin", OrgRole::Admin).await;
+    let owner = org_member(&test, "owner", OrgRole::Member).await;
+    let accomplice = org_member(&test, "accomplice", OrgRole::Member).await;
+    let workspace = named_workspace(&test, "Work", &admin).await;
+    for user in [&owner, &accomplice] {
+        test.add_workspace_member(&workspace, user, WorkspaceRole::Member)
+            .await
+            .expect("a member");
+    }
+    test.join_workspace_as_org_admin(&workspace, &admin)
+        .await
+        .expect("joined");
+    let made = private_board(&test, &workspace, &admin).await;
+    let seen = test
+        .get_member_for_board(&made, &admin)
+        .await
+        .expect("its admin");
+    let stale = Standing {
+        user_id: &admin,
+        workspace_role: Some(WorkspaceRole::Admin),
+        member: Some(&seen),
+    };
+    test.set_org_role(&admin, OrgRole::Member, &other_admin)
+        .await
+        .expect("taken back");
+
+    let as_admin = |user_id: &str| BoardMember {
+        board_id: made.clone(),
+        user_id: user_id.to_owned(),
+        scheme_admin: true,
+        ..BoardMember::default()
+    };
+    let added = test
+        .add_member_asked(&as_admin(&accomplice), stale)
+        .await
+        .expect_err("not as they were");
+    assert!(added.is_not_found(), "{added:?}");
+    let changed = test
+        .change_member_asked(&as_admin(&admin), stale)
+        .await
+        .expect_err("not as they were");
+    assert!(changed.is_not_found(), "{changed:?}");
+    for user in [&accomplice, &admin] {
+        let found = test.get_member_for_board(&made, user).await;
+        assert!(found.is_err_and(|error| error.is_not_found()), "{user}");
+    }
+
+    let theirs = private_board(&test, &workspace, &owner).await;
+    let owner_row = test
+        .get_member_for_board(&theirs, &owner)
+        .await
+        .expect("its admin");
+    let holds = Standing {
+        user_id: &owner,
+        workspace_role: Some(WorkspaceRole::Member),
+        member: Some(&owner_row),
+    };
+    let viewer = BoardMember {
+        board_id: theirs.clone(),
+        user_id: accomplice.clone(),
+        scheme_viewer: true,
+        ..BoardMember::default()
+    };
+    assert_eq!(
+        test.add_member_asked(&viewer, holds)
+            .await
+            .expect("as they were"),
+        None,
+        "a new membership"
+    );
     test.teardown().await;
 }

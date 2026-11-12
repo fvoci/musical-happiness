@@ -17,6 +17,15 @@ WHERE delete_at = 0 AND name <> '' AND EXISTS (
       AND older.delete_at = 0
       AND (older.create_at < workspaces.create_at
            OR (older.create_at = workspaces.create_at AND older.id < workspaces.id)));
+-- A name so made that another workspace has already is left empty on all but the
+-- oldest of them: no name, which the rule leaves alone.
+UPDATE workspaces SET name = ''
+WHERE delete_at = 0 AND name <> '' AND EXISTS (
+    SELECT 1 FROM workspaces AS older
+    WHERE older.org_id = workspaces.org_id AND older.name = workspaces.name
+      AND older.delete_at = 0
+      AND (older.create_at < workspaces.create_at
+           OR (older.create_at = workspaces.create_at AND older.id < workspaces.id)));
 CREATE UNIQUE INDEX workspaces_name_in_use_key ON workspaces (org_id, name)
     WHERE delete_at = 0 AND name <> '';
 -- The workspaces in the trash, which the housekeeping looks through.

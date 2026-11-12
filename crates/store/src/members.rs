@@ -137,9 +137,18 @@ async fn add_organization_member(
     Ok(())
 }
 
-/// The roles in an organization and in its workspaces that go with being, or not
-/// being, an administrator of the instance.
-fn roles_of(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
+/// The role in an organization that goes with being, or not being, an administrator
+/// of the instance.
+const fn org_role_of_instance(role: InstanceRole) -> OrgRole {
+    match role {
+        InstanceRole::Administrator => OrgRole::Admin,
+        InstanceRole::User => OrgRole::Member,
+    }
+}
+
+/// The roles in an organization and in its default workspace of who registers, by what
+/// they are to the instance: its first user administers both.
+const fn roles_on_registering(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
     match role {
         InstanceRole::Administrator => (OrgRole::Admin, WorkspaceRole::Admin),
         InstanceRole::User => (OrgRole::Member, WorkspaceRole::Member),
@@ -158,7 +167,7 @@ pub(crate) async fn join_organization(
     user_id: &str,
     instance_role: InstanceRole,
 ) -> Result<(), StoreError> {
-    let (org_role, workspace_role) = roles_of(instance_role);
+    let (org_role, workspace_role) = roles_on_registering(instance_role);
     add_organization_member(scope, user_id, org_role).await?;
     let mut sql = scope.sql(
         "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
@@ -191,7 +200,7 @@ pub(crate) async fn join_organization_unless_member(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<bool, StoreError> {
-    let (org_role, workspace_role) = roles_of(InstanceRole::User);
+    let (org_role, workspace_role) = roles_on_registering(InstanceRole::User);
     let mut sql =
         scope.sql("INSERT INTO organization_members (org_id, user_id, role, create_at) VALUES (");
     sql.bind(scope.org()?)
@@ -248,7 +257,7 @@ pub(crate) async fn follow_instance_role(
     instance_role: InstanceRole,
     actor_id: &str,
 ) -> Result<(), StoreError> {
-    let (org_role, _) = roles_of(instance_role);
+    let org_role = org_role_of_instance(instance_role);
     let org = org_admin::lock_organization(scope).await?;
     match org_admin::org_role_of(scope, user_id).await? {
         Some(before) if before != org_role => {

@@ -51,6 +51,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use audit::{AuditEntry, AuditPlace};
 pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
+pub use board_membership::Standing;
 pub use boards::{Joined, MemberChange, PublicBoards};
 pub use body_docs::{LoggedUpdate, StoredDoc};
 pub use category_boards::{BoardPlace, BoardVisibility};

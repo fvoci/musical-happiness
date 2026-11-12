@@ -49,6 +49,18 @@ pub enum AdminChange {
     /// The user is the only administrator and the change would have ended that;
     /// nothing changed.
     LastAdmin,
+    /// Who asked is no administrator of the instance, or no longer one by the time the
+    /// change was to be made; nothing changed.
+    NotAnAdministrator,
+}
+
+/// Who asks for a change of the instance's administrators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asker {
+    /// An administrator of the instance, who still is one when the change is made.
+    Administrator,
+    /// The operator, through the administration socket, whom no account stands for.
+    Operator,
 }
 
 /// The category of the bag of state a client keeps with the account: names and values
@@ -210,11 +222,15 @@ impl Store {
     /// The check and the write are one step: of two administrators who give up the role
     /// at once, one is refused.
     ///
-    /// Through a handle that names an organization the user's role in it, and in its
-    /// workspaces where the user is no guest, follows: the instance's administrators
-    /// are the organization's, for now. Then the organization's last administrator stays
-    /// one too, and one who stops being its administrator is taken out of the workspaces
-    /// they joined as one, on behalf of `actor_id`, who is recorded doing so.
+    /// Through a handle that names an organization the user's role in it follows, by
+    /// the organization's own way (`org_admin::change_org_role`): the instance's
+    /// administrators are the organization's, for now. No role in a workspace changes.
+    /// Then the organization's last administrator stays one too, and one who stops being
+    /// its administrator is taken out of the workspaces they joined as one, on behalf of
+    /// `actor_id`, who is recorded doing so.
+    ///
+    /// `actor_id` asks, and must still administer the instance once the instance's row
+    /// is held: a request let in just before they stopped being one changes nothing.
     ///
     /// # Errors
     ///
@@ -225,6 +241,31 @@ impl Store {
         role: InstanceRole,
         actor_id: &str,
     ) -> Result<AdminChange, StoreError> {
+        self.change_instance_role(user_id, role, actor_id, Asker::Administrator)
+            .await
+    }
+
+    /// Makes the user an administrator of the instance on the operator's word, as
+    /// [`Store::set_user_admin`] does but asked by no administrator: for the
+    /// administration socket, the way back in when no administrator can sign in. The
+    /// change is recorded as the user's own.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn make_admin_by_operator(&self, user_id: &str) -> Result<AdminChange, StoreError> {
+        let role = InstanceRole::Administrator;
+        self.change_instance_role(user_id, role, user_id, Asker::Operator)
+            .await
+    }
+
+    async fn change_instance_role(
+        &self,
+        user_id: &str,
+        role: InstanceRole,
+        actor_id: &str,
+        asker: Asker,
+    ) -> Result<AdminChange, StoreError> {
         let is_admin = role == InstanceRole::Administrator;
         self.transaction(async |scope| {
             lock_instance(scope).await?;
@@ -234,6 +275,13 @@ impl Store {
             let Some(current) = fetch_users(scope, sql).await?.into_iter().next() else {
                 return Ok(AdminChange::NoSuchUser);
             };
+            if asker == Asker::Administrator {
+                let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+                sql.bind(true).push_bind(" AND id = ", Id(actor_id));
+                if scope.fetch_optional(sql).await?.is_none() {
+                    return Ok(AdminChange::NotAnAdministrator);
+                }
+            }
             if current.is_admin && !is_admin {
                 let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
                 sql.bind(true)

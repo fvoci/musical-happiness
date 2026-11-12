@@ -177,6 +177,11 @@ pub(crate) const ORGANIZATIONS_VERSION: i64 = 14;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) const WORKSPACES_VERSION: i64 = 17;
 
+/// The migration that makes a workspace's name its own in its organization, among much
+/// else of the organization's management.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const ORG_MANAGEMENT_VERSION: i64 = 23;
+
 /// The tables that are no organization's: the accounts and what is true of the
 /// installation. Every other table of the schema is one of [`ORG_TABLES`].
 #[cfg(any(test, feature = "test-util"))]
