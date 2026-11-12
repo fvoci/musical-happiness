@@ -482,6 +482,13 @@ pub(crate) fn account_error(error: StoreError) -> AppError {
     match error {
         StoreError::Conflict(Taken::Email) => email_taken(),
         StoreError::Conflict(Taken::Username) => username_taken(),
+        // The organization's name is its first workspace's, and a name is one
+        // workspace's among those an organization has in use.
+        StoreError::Conflict(Taken::WorkspaceName) => {
+            AppError::conflict("another workspace of the organization has the name")
+                .with_reason(Reason::WorkspaceNameTaken)
+                .with_field("organizationName")
+        }
         error @ StoreError::NotFirstUser => error.into(),
         error => AppError::from(error).context("unable to store the new account"),
     }

@@ -50,7 +50,9 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFirstUser`] if [`Founding::First`] is asked and the
     /// instance has had its first user; [`StoreError::Conflict`] if another user,
-    /// deleted or not, has the name or the email address in any letter case;
+    /// deleted or not, has the name or the email address in any letter case, or
+    /// (`Taken::WorkspaceName`) another workspace in use of the organization there is
+    /// has the organization's name already;
     /// [`StoreError::NoOrganization`] if [`Founding::First`] is asked of a handle that
     /// names no organization; and [`StoreError::Database`] if a statement fails, as it
     /// does for [`Founding::New`] on an SQLite database, which holds one organization.
@@ -278,7 +280,14 @@ async fn name_organization(
         .push_bind(") AND org_id = ", scope.org()?)
         .push_bind(" AND delete_at = ", 0_i64)
         .push(" RETURNING id");
-    match scope.fetch_optional(sql).await? {
+    // A name is one workspace's among those the organization has in use: an
+    // organization that was given another workspace of that name before anybody signed
+    // up keeps it, and the name is to be another.
+    match scope
+        .fetch_optional(sql)
+        .await
+        .map_err(crate::org_admin::name_taken)?
+    {
         Some(row) => row.id(0),
         None => Err(StoreError::Corrupt {
             column: "default_workspace_id",
