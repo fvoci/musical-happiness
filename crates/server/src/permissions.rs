@@ -77,12 +77,18 @@ pub const fn allows_in_workspace(actor: Actor, permission: WorkspacePermission) 
     }
 }
 
-/// Whether a user who may do `grant` on a board invites guests to it: whoever adds
-/// members to the board (its admins, and the administrators of its workspace), while
-/// the workspace lets guests be invited to its boards.
+/// Whether a user who may do `grant` on a board of `scope` invites guests to it:
+/// whoever adds members to the board (its admins, and the administrators of its
+/// workspace), while the workspace lets guests be invited to its boards. A template
+/// takes no guests.
 #[must_use]
-pub const fn invites_guests(grant: Grant, workspace: &Workspace) -> bool {
-    workspace.guest_invitations && grant.allows(BoardPermission::ManageBoardRoles)
+pub const fn invites_guests(grant: Grant, scope: BoardScope, workspace: &Workspace) -> bool {
+    match scope {
+        BoardScope::InvitedOnly | BoardScope::Open => {
+            workspace.guest_invitations && grant.allows(BoardPermission::ManageBoardRoles)
+        }
+        BoardScope::BuiltIn | BoardScope::InvitedOnlyTemplate | BoardScope::OpenTemplate => false,
+    }
 }
 
 /// Who a board is there for, besides its members.

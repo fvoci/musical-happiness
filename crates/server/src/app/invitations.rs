@@ -15,12 +15,12 @@ use fvoci_model::{
 };
 use fvoci_store::{Acceptor, NewLink, StoreError};
 
-use super::App;
 use super::auth::account_error;
+use super::{App, BoardAccess};
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::AppError;
-use crate::permissions::{self, Actor, WorkspacePermission};
+use crate::permissions::{self, Actor, BoardScope, WorkspacePermission};
 
 /// Who accepts a link.
 #[derive(Debug, Clone, Copy)]
@@ -156,8 +156,8 @@ impl App {
 
     /// Turns the invitations of guests to the boards of the workspace on or off, on
     /// behalf of the user, and returns the workspace. Turned off, the links that invite
-    /// guests let nobody in, and turned on again those that have not ended do. The
-    /// caller has asked whether the user may.
+    /// guests are revoked with it, and stay so when it is turned on again; who is a
+    /// guest already stays one. The caller has asked whether the user may.
     ///
     /// # Errors
     ///
@@ -187,31 +187,34 @@ impl App {
         }
     }
 
-    /// Whether the user invites guests to the board, a board of the workspace that is
-    /// no template: what making a link for a guest takes, and what such a link needs
-    /// of its maker for as long as it is to let anybody in.
+    /// What the user is to a board of the workspace, and whether they invite guests to
+    /// it (`permissions::invites_guests`): what making a link for a guest takes, and
+    /// what such a link needs of its maker for as long as it is to let anybody in.
+    /// `None` for no such board in the workspace.
     ///
     /// # Errors
     ///
     /// Returns the store's error if a fact cannot be read.
-    pub async fn may_invite_guests(
+    pub async fn guest_inviter(
         &self,
         user_id: &str,
         workspace_id: &str,
         board_id: &str,
-    ) -> Result<bool, AppError> {
+    ) -> Result<Option<(BoardAccess, bool)>, AppError> {
         let Some(access) = self.board_access(user_id, board_id).await? else {
-            return Ok(false);
+            return Ok(None);
         };
-        if access.board.workspace_id != workspace_id || access.board.is_template {
-            return Ok(false);
+        if access.board.workspace_id != workspace_id {
+            return Ok(None);
         }
         let workspace = match self.store().get_workspace(workspace_id).await {
             Ok(workspace) => workspace,
-            Err(error) if error.is_not_found() => return Ok(false),
+            Err(error) if error.is_not_found() => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        Ok(permissions::invites_guests(access.grant, &workspace))
+        let invites =
+            permissions::invites_guests(access.grant, BoardScope::of(&access.board), &workspace);
+        Ok(Some((access, invites)))
     }
 
     /// The live link `token` is of, with the application behind the wall of the
@@ -246,18 +249,16 @@ impl App {
     /// maker lost. A link for members is a workspace administrator's; one for a guest
     /// is of who adds members to its board, while the workspace invites guests.
     async fn inviter_may_still_invite(&self, invitation: &Invitation) -> Result<bool, AppError> {
-        let inviter = self
-            .actor(&invitation.created_by, &invitation.workspace_id)
-            .await?;
+        let (maker, workspace_id) = (&invitation.created_by, &invitation.workspace_id);
         match (invitation.role, &invitation.board_id) {
             (WorkspaceRole::Member, _) => Ok(permissions::allows_in_workspace(
-                inviter,
+                self.actor(maker, workspace_id).await?,
                 WorkspacePermission::InviteMembers,
             )),
-            (WorkspaceRole::Guest, Some(board_id)) => {
-                self.may_invite_guests(&invitation.created_by, &invitation.workspace_id, board_id)
-                    .await
-            }
+            (WorkspaceRole::Guest, Some(board_id)) => Ok(self
+                .guest_inviter(maker, workspace_id, board_id)
+                .await?
+                .is_some_and(|(_, invites)| invites)),
             (WorkspaceRole::Guest, None) | (WorkspaceRole::Admin, _) => Ok(false),
         }
     }

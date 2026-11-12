@@ -1,9 +1,10 @@
 //! Invitations: the links that let somebody into a workspace.
 //!
 //! The routes under a workspace make, list and revoke its links. The routes that look
-//! at one and accept one name no workspace: whoever comes with a link knows its token and nothing else, and where
-//! the token leads is the server's to find out. A token is sent in a body, never in
-//! an address, and is answered once, by the request that makes its link.
+//! at one and accept one name no workspace: whoever comes with a link knows its token
+//! and nothing else, and where the token leads is the server's to find out. A token
+//! is sent to the API in a body, never in an address, and is answered once, by the
+//! request that makes its link.
 
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
@@ -128,11 +129,11 @@ async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r
         );
     }
     // A board the user does not see, and one of another workspace, is not there.
-    let access = ws
+    let (access, invites) = ws
         .app
-        .board_access(&ws.session.user_id, board_id)
+        .guest_inviter(&ws.session.user_id, &ws.workspace_id, board_id)
         .await?
-        .filter(|access| access.board.workspace_id == ws.workspace_id && access.grant.sees())
+        .filter(|(access, _)| access.grant.sees())
         .ok_or_else(|| AppError::not_found("board"))?;
     if access.board.is_template {
         return Err(
@@ -145,11 +146,7 @@ async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r
             "only who adds the members of the board invites guests to it",
         ));
     }
-    if !ws
-        .app
-        .may_invite_guests(&ws.session.user_id, &ws.workspace_id, board_id)
-        .await?
-    {
+    if !invites {
         return Err(AppError::forbidden(
             "guests are not invited to the boards of this workspace",
         ));
@@ -159,8 +156,10 @@ async fn guest_of<'r>(ws: &Ws, request: &'r NewInvitation) -> Result<Inviting<'r
 
 /// The invitations of a workspace
 ///
-/// The links into the workspace that still let somebody in: not ended, not used as
-/// often as they may be, not revoked. Its administrators get all of them, anybody else
+/// The links into the workspace that are not ended, not used as often as they may be
+/// and not revoked. One of them may let nobody in all the same, while who made it may
+/// not invite as they did: it is listed, so that it can be revoked. Its
+/// administrators get all of them, anybody else
 /// who works there the links they made themselves. No link comes with its token, which
 /// was told when it was made. The newest first.
 ///
@@ -221,9 +220,9 @@ async fn handle_revoke_invitation(ws: Ws, Path(place): Path<InvitationPlace>) ->
 /// Let guests be invited, or not
 ///
 /// Turns on or off whether guests are invited to the boards of the workspace, and
-/// answers the workspace. While it is off no link for a guest is made, and those that
-/// were made let nobody in; turned on again, the ones that have not ended do. Who is
-/// a guest already stays one. Only the workspace's administrators: anybody else who
+/// answers the workspace. Turning it off revokes the links that invite guests, which
+/// do not come back when it is turned on again, and while it is off none is made.
+/// Who is a guest already stays one. Only the workspace's administrators: anybody else who
 /// works there is refused (403).
 ///
 /// A guest of the workspace is told that it is not there (404).

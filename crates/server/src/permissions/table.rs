@@ -785,7 +785,8 @@ fn the_work_of_a_workspace() {
 
 /// Guests are invited to a board by who adds its members: its admins, and the
 /// administrators of its workspace, on a board they have no role on too. Nobody
-/// invites one while the workspace does not let guests be invited.
+/// invites one while the workspace does not let guests be invited, and nobody to a
+/// template.
 #[test]
 fn who_invites_guests_to_a_board() {
     use super::invites_guests;
@@ -848,13 +849,21 @@ fn who_invites_guests_to_a_board() {
         for scope in [InvitedOnly, Open] {
             let granted = grant(actor, BoardFacts { scope, role });
             assert_eq!(
-                invites_guests(granted, &workspace(true)),
+                invites_guests(granted, scope, &workspace(true)),
                 invites,
                 "{case}, on a board that is {scope:?}"
             );
             assert!(
-                !invites_guests(granted, &workspace(false)),
+                !invites_guests(granted, scope, &workspace(false)),
                 "{case}: nobody while the workspace invites no guests"
+            );
+        }
+        // A template takes no guests, whoever asks.
+        for scope in [InvitedOnlyTemplate, OpenTemplate, BuiltIn] {
+            let granted = grant(actor, BoardFacts { scope, role });
+            assert!(
+                !invites_guests(granted, scope, &workspace(true)),
+                "{case}, on a template that is {scope:?}"
             );
         }
     }

@@ -1823,9 +1823,9 @@ export interface paths {
         /**
          * Let guests be invited, or not
          * @description Turns on or off whether guests are invited to the boards of the workspace, and
-         *     answers the workspace. While it is off no link for a guest is made, and those that
-         *     were made let nobody in; turned on again, the ones that have not ended do. Who is
-         *     a guest already stays one. Only the workspace's administrators: anybody else who
+         *     answers the workspace. Turning it off revokes the links that invite guests, which
+         *     do not come back when it is turned on again, and while it is off none is made.
+         *     Who is a guest already stays one. Only the workspace's administrators: anybody else who
          *     works there is refused (403).
          *
          *     A guest of the workspace is told that it is not there (404).
@@ -1847,8 +1847,10 @@ export interface paths {
         };
         /**
          * The invitations of a workspace
-         * @description The links into the workspace that still let somebody in: not ended, not used as
-         *     often as they may be, not revoked. Its administrators get all of them, anybody else
+         * @description The links into the workspace that are not ended, not used as often as they may be
+         *     and not revoked. One of them may let nobody in all the same, while who made it may
+         *     not invite as they did: it is listed, so that it can be revoked. Its
+         *     administrators get all of them, anybody else
          *     who works there the links they made themselves. No link comes with its token, which
          *     was told when it was made. The newest first.
          *

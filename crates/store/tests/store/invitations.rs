@@ -410,3 +410,77 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
 
     test.teardown().await;
 }
+
+/// Somebody who comes into a workspace anew as the guest of one board holds no role
+/// from an earlier time there on another: not on a board that is there, and not on one
+/// that comes back from the trash.
+#[tokio::test]
+async fn a_guest_who_comes_back_holds_no_role_from_before() {
+    let test = common::setup().await;
+    let admin = common::user(&test, "admin").await;
+    let returning = common::user(&test, "returning").await;
+    let boards = common::create_test_boards(&test, &test.workspace_id, &admin, 3).await;
+    let (stays, goes, invited_to) = (&boards[0].id, &boards[1].id, &boards[2].id);
+    for (board_id, user_id) in [(stays, &returning), (goes, &returning), (goes, &admin)] {
+        let member = BoardMember {
+            board_id: board_id.clone(),
+            user_id: user_id.clone(),
+            ..BoardMember::default()
+        }
+        .with_role(Some(BoardRole::Admin));
+        test.add_member(&member)
+            .await
+            .expect("a member of the board");
+    }
+    // They leave the workspace, with their roles left on its boards, and one of the
+    // boards goes to the trash.
+    test.execute_unchecked(&format!(
+        "DELETE FROM workspace_members WHERE user_id = '{returning}'"
+    ))
+    .await
+    .expect("the member leaves");
+    test.delete_board(goes, &admin)
+        .await
+        .expect("the board goes to the trash");
+
+    link(
+        &test,
+        &admin,
+        "back",
+        Some((invited_to, BoardRole::Viewer)),
+        Some(1),
+    )
+    .await;
+    test.accept_invitation("back", Acceptor::Account(&returning), NOW)
+        .await
+        .expect("the acceptance is stored")
+        .expect("the link is live");
+    assert_eq!(
+        role_in_the_workspace(&test, &returning).await,
+        Some(WorkspaceRole::Guest)
+    );
+    test.undelete_board(goes, &admin)
+        .await
+        .expect("the board comes back");
+
+    let role = async |board_id: &str, user_id: &str| {
+        test.get_member_for_board(board_id, user_id)
+            .await
+            .ok()
+            .and_then(|member| member.role())
+    };
+    assert_eq!(role(invited_to, &returning).await, Some(BoardRole::Viewer));
+    assert_eq!(
+        role(stays, &returning).await,
+        None,
+        "a board that was there"
+    );
+    assert_eq!(role(goes, &returning).await, None, "a board that came back");
+    assert_eq!(
+        role(goes, &admin).await,
+        Some(BoardRole::Admin),
+        "who stayed comes back with the board"
+    );
+
+    test.teardown().await;
+}

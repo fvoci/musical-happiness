@@ -4,7 +4,7 @@
 //! ([`Tenant::Org`](crate::Tenant::Org)). SQLite has no policy that would keep the
 //! workspaces of the system organization out of an answer.
 
-use fvoci_model::{Board, BoardType, GuestInvitationsChange, Workspace};
+use fvoci_model::{Board, BoardType, GuestInvitationsChange, Workspace, WorkspaceRole};
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
@@ -31,7 +31,9 @@ impl Store {
     }
 
     /// Turns the invitations of guests to the boards of a workspace on or off, records
-    /// who did it, and returns the workspace as it is then.
+    /// who did it, and returns the workspace as it is then. Turned off, the links that
+    /// invite guests to its boards are revoked with it, in one step: they do not come
+    /// back when it is turned on again.
     ///
     /// # Errors
     ///
@@ -43,11 +45,21 @@ impl Store {
         change: GuestInvitationsChange,
         modified_by: &str,
     ) -> Result<Workspace, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
+            let now = now_millis();
+            if !change.enabled {
+                let mut sql = scope.sql("UPDATE invitations SET revoked_at = ");
+                sql.bind(now.max(1))
+                    .push_bind(" WHERE workspace_id = ", Id(workspace_id))
+                    .push_bind(" AND org_id = ", scope.org()?)
+                    .push_bind(" AND role = ", WorkspaceRole::Guest.as_str())
+                    .push_bind(" AND revoked_at = ", 0_i64);
+                scope.execute(sql).await?;
+            }
             let mut sql = scope.sql("UPDATE workspaces SET guest_invitations = ");
             sql.bind(change.enabled)
                 .push_bind(", modified_by = ", OptId(modified_by))
-                .push_bind(", update_at = ", now_millis())
+                .push_bind(", update_at = ", now)
                 .push_bind(" WHERE id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?)
                 .push_bind(" AND delete_at = ", 0_i64)

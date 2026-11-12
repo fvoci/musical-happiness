@@ -190,10 +190,10 @@
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "an invitation makes a member of the workspace",
+      "detail": "an invitation makes a member or a guest",
       "errors": [
         {
-          "detail": "an invitation makes a member of the workspace",
+          "detail": "an invitation makes a member or a guest",
           "pointer": "/role",
           "reason": "invalid"
         }

@@ -7426,7 +7426,7 @@
     },
     "/api/v1/w/{workspaceId}/guest-invitations": {
       "put": {
-        "description": "Turns on or off whether guests are invited to the boards of the workspace, and\nanswers the workspace. While it is off no link for a guest is made, and those that\nwere made let nobody in; turned on again, the ones that have not ended do. Who is\na guest already stays one. Only the workspace's administrators: anybody else who\nworks there is refused (403).\n\nA guest of the workspace is told that it is not there (404).",
+        "description": "Turns on or off whether guests are invited to the boards of the workspace, and\nanswers the workspace. Turning it off revokes the links that invite guests, which\ndo not come back when it is turned on again, and while it is off none is made.\nWho is a guest already stays one. Only the workspace's administrators: anybody else who\nworks there is refused (403).\n\nA guest of the workspace is told that it is not there (404).",
         "operationId": "setGuestInvitations",
         "parameters": [
           {
@@ -7479,7 +7479,7 @@
     },
     "/api/v1/w/{workspaceId}/invitations": {
       "get": {
-        "description": "The links into the workspace that still let somebody in: not ended, not used as\noften as they may be, not revoked. Its administrators get all of them, anybody else\nwho works there the links they made themselves. No link comes with its token, which\nwas told when it was made. The newest first.\n\nA guest of the workspace is told that it is not there (404).",
+        "description": "The links into the workspace that are not ended, not used as often as they may be\nand not revoked. One of them may let nobody in all the same, while who made it may\nnot invite as they did: it is listed, so that it can be revoked. Its\nadministrators get all of them, anybody else\nwho works there the links they made themselves. No link comes with its token, which\nwas told when it was made. The newest first.\n\nA guest of the workspace is told that it is not there (404).",
         "operationId": "getInvitations",
         "parameters": [
           {

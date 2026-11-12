@@ -400,6 +400,33 @@ fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
 }
 
 /// Reads a JSON column of the trash into the type it was written from.
+/// Takes a user out of the memberships that the boards of a workspace in the trash
+/// would come back with: for somebody who comes into the workspace anew, on one board,
+/// and is not to find the roles of an earlier time there on a board that is restored.
+pub(crate) async fn forget_member_of_deleted_boards(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
+    sql.bind(Id(workspace_id));
+    for row in scope.fetch_all(sql).await? {
+        let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
+        if members.iter().all(|member| member.user_id != user_id) {
+            continue;
+        }
+        let kept: Vec<BoardMember> = members
+            .into_iter()
+            .filter(|member| member.user_id != user_id)
+            .collect();
+        let mut sql = scope.sql("UPDATE deleted_boards SET members = ");
+        sql.bind(Param::json(&kept)?)
+            .push_bind(" WHERE id = ", Id(&row.id(0)?));
+        scope.execute(sql).await?;
+    }
+    Ok(())
+}
+
 fn from_json<T: DeserializeOwned>(
     row: &Row,
     index: usize,

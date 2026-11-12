@@ -14,9 +14,10 @@ use fvoci_model::{BoardMember, BoardRole, Invitation, OrgRole, User, WorkspaceRo
 
 use crate::Store;
 use crate::accounts::{self, Which};
-use crate::boards::{find_member, save_member};
+use crate::boards::{find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
+use crate::trash;
 use crate::users::InstanceRole;
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
@@ -214,8 +215,9 @@ impl Store {
     ///   there stays what they are.
     /// - A guest's link makes the account a member of its board, in its role: who was
     ///   no member of the workspace becomes a guest of it, and holds no other role on
-    ///   its boards; who was one stays what they are in it, and keeps a higher role
-    ///   they have on the board.
+    ///   its boards, those in the trash too; who was one stays what they are in it, and
+    ///   keeps a higher role they have on the board. It lets nobody in while its
+    ///   workspace invites no guests, or once its board is gone.
     ///
     /// # Errors
     ///
@@ -230,7 +232,30 @@ impl Store {
         now: i64,
     ) -> Result<Option<Accepted>, StoreError> {
         self.transaction(async |scope| {
+            // The board of a guest's link is held first, as every write of a board's
+            // members holds it and as its deletion does, which takes the link along:
+            // in that order nothing waits for what waits for it, and the role the
+            // acceptor has on the board is still the one that was read when theirs is
+            // written.
+            let sql = select_live_by_token(scope, token_hash, now)?;
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Ok(None);
+            };
+            if let Some(board_id) = invitation_from_row(&row)?.board_id
+                && !lock_board(scope, &board_id).await?
+            {
+                return Ok(None);
+            }
+            // The link itself, held against the other acceptances of it: read again,
+            // it is live still, and its workspace still invites guests if it is for one.
             let mut sql = select_live_by_token(scope, token_hash, now)?;
+            sql.push_bind(" AND (i.role <> ", WorkspaceRole::Guest.as_str())
+                .push_bind(
+                    " OR EXISTS (SELECT 1 FROM workspaces AS t WHERE t.id = i.workspace_id \
+                     AND t.guest_invitations = ",
+                    true,
+                )
+                .push("))");
             if scope.dialect() == Dialect::Postgres {
                 sql.push(" FOR UPDATE OF i");
             }
@@ -333,6 +358,8 @@ async fn let_in_as_guest(
             )
             .push(")");
         scope.execute(sql).await?;
+        // Nor by a board of it that comes back from the trash with its members.
+        trash::forget_member_of_deleted_boards(scope, workspace_id, user_id).await?;
     }
     let joined = accounts::join_workspace(
         scope,
