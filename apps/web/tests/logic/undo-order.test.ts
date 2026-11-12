@@ -370,25 +370,60 @@ describe('a gesture of several changes', () => {
     expect(manager.redoDescription).toBe('a');
   });
 
-  it('stays one step when undos were asked for after a change made between its own', async () => {
+  it('drops undos asked for meanwhile when it goes on after a change made between its own', async () => {
+    // A drop (the view, then the status) and a change of the status made while the drop waits.
     const manager = new UndoManager();
-    const values: string[] = [];
-    const gate = held();
-    await adding(manager, values, 'before');
+    let view = 'unmoved';
+    let status = 'todo';
+    const setting = (value: string, groupId?: string, write?: Promise<void>) => {
+      const was = status;
+      return manager.perform(
+        async () => {
+          status = value;
+          await write;
+        },
+        async () => {
+          status = was;
+        },
+        `status ${value}`,
+        groupId,
+      );
+    };
+    const viewWrite = held();
+    const statusWrite = held();
     const gesture = manager.group(async (groupId) => {
-      await adding(manager, values, 'a', groupId);
-      await gate.promise;
-      await adding(manager, values, 'b', groupId);
+      await manager.perform(
+        async () => {
+          view = 'moved';
+          await viewWrite.promise;
+        },
+        async () => {
+          view = 'unmoved';
+        },
+        'move',
+        groupId,
+      );
+      await setting('done', groupId);
     });
-    await adding(manager, values, 'between');
-    // Asked for while the gesture is under way: "between", then the whole gesture.
+    const changing = setting('doing', undefined, statusWrite.promise);
+    // Asked of the change of the person, then of the drop.
     const first = manager.undo();
     const second = manager.undo();
-    gate.answer();
-    await Promise.all([gesture, first, second]);
-    expect(values).toEqual(['before']);
-    expect(manager.undoDescription).toBe('before');
-    expect(manager.redoDescription).toBe('a');
+    viewWrite.answer();
+    await gesture;
+    statusWrite.answer();
+    await Promise.all([changing, first, second]);
+    // The rest of the drop came after them: they were dropped, and nothing was written over it.
+    expect([view, status]).toEqual(['moved', 'done']);
+    expect(manager.undoDescription).toBe('status done');
+
+    const undone: (string | undefined)[] = [];
+    while (manager.canUndo) {
+      undone.push(manager.undoDescription);
+      await manager.undo();
+    }
+    expect(undone).toEqual(['status done', 'status doing', 'move']);
+    expect([view, status]).toEqual(['unmoved', 'todo']);
   });
 
   it('goes on in a step after a change made between its own: undo goes in the order they were made', async () => {

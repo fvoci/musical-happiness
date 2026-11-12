@@ -43,7 +43,7 @@ import { CardStore } from './card.svelte.ts';
 import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
-import { boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
+import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -145,7 +145,7 @@ export class BoardStore {
   readonly #lastComments = lastCommentsOf(this);
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
-  /** What takes changes back, made right when a write under way fails (inverses.ts). */
+  readonly #boardWrites = new PendingWrites<Board>();
   readonly #cardInverses = new Inverses<CardPatch>('updatedProperties', 'deletedProperties');
   readonly #viewInverses = new Inverses<BlockPatch>('updatedFields', 'deletedFields');
   readonly #boardInverses = new Inverses<BoardPatch>('updatedProperties', 'deletedProperties');
@@ -307,7 +307,7 @@ export class BoardStore {
           void this.load();
           break;
         }
-        if (!this.board || change.board.updateAt >= this.board.updateAt) this.board = change.board;
+        if (this.#boardWrites.receive(change.board)) this.#takeBoard(change.board);
         break;
       case 'boardDeleted':
         // An open board may only have been closed to the reader (taken off
@@ -372,7 +372,7 @@ export class BoardStore {
       ]);
       // A newer reading has begun meanwhile: it is the one that counts.
       if (reading !== this.#refreshing) return;
-      if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
+      if (this.#boardWrites.receive(board)) this.#takeBoard(board);
       this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
       const shown = this.cards;
       const read = cards.map((card) => this.#lastComments.settle(card, heard));
@@ -435,8 +435,8 @@ export class BoardStore {
   }
 
   /** Runs a gesture whose changes, made with the group it is given, are one step of undo. */
-  inOneStep<T>(gesture: (groupId: string) => Promise<T>): Promise<T> {
-    return this.workspace.undo.group(gesture);
+  inOneStep<T>(gesture: (groupId: string) => Promise<T>, placedAtOnce = false): Promise<T> {
+    return this.workspace.undo.group(gesture, placedAtOnce);
   }
 
   // -------------------------------------------------------------- cards
@@ -685,15 +685,22 @@ export class BoardStore {
   async #sendBoardPatch(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
     if (!this.board) return;
     this.board = applyBoardPatch(this.board, patch);
+    this.#boardWrites.begin(this.boardId);
+    let answer: Board | undefined;
     try {
-      const answer = await this.#boardInverses.write(this.boardId, patch, reverse, () =>
+      answer = await this.#boardInverses.write(this.boardId, patch, reverse, () =>
         this.#backend.patchBoard(this.boardId, patch),
       );
-      if (answer.updateAt >= this.board.updateAt) this.board = answer;
-    } catch (error) {
-      this.board = applyBoardPatch(this.board, reverse);
-      throw error;
+    } finally {
+      const latest = this.#boardWrites.end(this.boardId, answer);
+      if (latest) this.#takeBoard(latest);
+      else if (!answer) this.board = applyBoardPatch(this.board, reverse);
     }
+  }
+
+  /** As `take` (write.ts) does for cards and views. */
+  #takeBoard(board: Board): void {
+    if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
   }
 
   /**
@@ -749,14 +756,8 @@ export class BoardStore {
   }
 
   /** Makes a person of the workspace a member. Somebody who is a member already keeps their role. */
-  async addMember(userId: string, role: BoardRole): Promise<void> {
-    try {
-      const member = await this.#backend.addMember(this.boardId, userId, role);
-      this.members = [...this.members.filter((one) => one.userId !== userId), member];
-      void this.workspace.learnUsers([userId]);
-    } catch (error) {
-      this.workspace.report('save', error);
-    }
+  addMember(userId: string, role: BoardRole): Promise<void> {
+    return addMemberTo(this, userId, role);
   }
 
   async setMemberRole(userId: string, role: BoardRole): Promise<void> {

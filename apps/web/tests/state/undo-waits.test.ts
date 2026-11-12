@@ -5,13 +5,13 @@
  * while an undo waits drops it; a gesture of several writes is one step
  * from its start.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createBoardView } from '$lib/logic/wire.ts';
 import { BackendError } from '$lib/state/index.ts';
 import type { MemoryBackend } from '$lib/state/memory/backend.ts';
 
-import { openFirstBoard, STATUS } from './support.ts';
+import { openFirstBoard, settle, STATUS } from './support.ts';
 
 const LATE = 400;
 
@@ -230,6 +230,47 @@ describe('a change made while an undo or redo that fails is written (found by a 
   });
 });
 
+describe('a change of the board made while its undo is refused', () => {
+  it('stays on the screen, and is undone to the value stored', async () => {
+    const { board, backend, workspace } = await openFirstBoard();
+    const title = (): string | undefined => board.board?.title;
+    const stored = async (): Promise<string> => (await backend.board(board.boardId)).title;
+    const before = title();
+    await board.changeBoard((current) => ({ ...current, title: 'One' }));
+    let release = (): void => undefined;
+    let entered = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const patchBoard = backend.patchBoard.bind(backend);
+    backend.patchBoard = async () => {
+      backend.patchBoard = patchBoard;
+      entered();
+      await gate;
+      throw new BackendError(503);
+    };
+    try {
+      const undoing = workspace.undoLast();
+      await started;
+      // Answered before the refusal of the undo.
+      await board.changeBoard((current) => ({ ...current, title: 'Two' }));
+      release();
+      await undoing;
+      expect([await stored(), title()]).toEqual(['Two', 'Two']);
+
+      await workspace.undoLast();
+      expect([await stored(), title()]).toEqual(['One', 'One']);
+      expect(before).not.toBe('One');
+    } finally {
+      release();
+      workspace.close();
+    }
+  });
+});
+
 describe('an undo that waits while the reader moves on (found by a review of 042ff43)', () => {
   it.each(['card', 'board'])('is carried out after its %s was closed', async (closed) => {
     const { board, backend, workspace } = await openFirstBoard();
@@ -282,6 +323,91 @@ describe('an undo that waits while the reader moves on (found by a review of 042
       expect(saved.fields.properties[STATUS]).toBe('done');
       expect(board.card(card.id)?.fields.properties[STATUS]).toBe('done');
       expect(workspace.problems).toEqual([]);
+    } finally {
+      held.release();
+      workspace.close();
+    }
+  });
+});
+
+/** Holds the next reading of a card until `release`; `started` settles when it is asked. */
+function holdNextCardRead(backend: MemoryBackend) {
+  let release = (): void => undefined;
+  let entered = (): void => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const read = backend.card.bind(backend);
+  backend.card = async (...args) => {
+    backend.card = read;
+    entered();
+    await gate;
+    return read(...args);
+  };
+  return { release, started };
+}
+
+describe('a duplicate, which reads its card before it writes (found by a review of 042ff43)', () => {
+  it('is what an undo asked for during the reading takes back, not the change before it', async () => {
+    const { board, backend, workspace } = await openFirstBoard();
+    const card = board.realCards.find((one) => one.title === 'Alpha');
+    if (!card) throw new Error('missing card');
+    await board.setCardTitle(card.id, 'One');
+    const before = (await backend.cards(board.boardId)).length;
+    const held = holdNextCardRead(backend);
+    try {
+      const copying = board.duplicateCard(card.id);
+      await held.started;
+      const undoing = workspace.undoLast();
+      await settle();
+      held.release();
+      await Promise.all([copying, undoing]);
+
+      expect((await backend.card(board.boardId, card.id)).title).toBe('One');
+      expect((await backend.cards(board.boardId)).length).toBe(before);
+    } finally {
+      held.release();
+      workspace.close();
+    }
+  });
+
+  it('made late is not in the history of another workspace entered meanwhile', async () => {
+    const { board, backend, workspace } = await openFirstBoard();
+    const card = board.realCards.find((one) => one.title === 'Alpha');
+    if (!card) throw new Error('missing card');
+    const other = { id: 'other-workspace', title: 'Other' };
+    workspace.workspaces = [...workspace.workspaces, other];
+    const users = backend.users.bind(backend);
+    const boards = backend.boards.bind(backend);
+    const categories = backend.categories.bind(backend);
+    vi.spyOn(backend, 'users').mockImplementation((id) =>
+      id === other.id ? Promise.resolve([]) : users(id),
+    );
+    vi.spyOn(backend, 'boards').mockImplementation((id) =>
+      id === other.id ? Promise.resolve([]) : boards(id),
+    );
+    vi.spyOn(backend, 'categories').mockImplementation((id) =>
+      id === other.id ? Promise.resolve([]) : categories(id),
+    );
+    const held = holdNextCardRead(backend);
+    try {
+      const copying = board.duplicateCard(card.id);
+      await held.started;
+      await workspace.enter(other.id);
+      expect(workspace.canUndo).toBe(false);
+      held.release();
+      const copy = await copying;
+
+      expect(workspace.info?.id).toBe(other.id);
+      expect(workspace.canUndo).toBe(false);
+      await workspace.undoLast();
+      // Made in the workspace left or not, the undo of the one entered does not delete it.
+      if (copy) {
+        expect((await backend.cards(board.boardId)).some((one) => one.id === copy.id)).toBe(true);
+      }
     } finally {
       held.release();
       workspace.close();

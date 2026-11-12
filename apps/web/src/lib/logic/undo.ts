@@ -22,7 +22,9 @@
  * Changes that share a `groupId` are one step. A gesture whose changes are
  * made one after the other (each waiting for the one before) runs inside
  * `group`: its step is in place from its first change, and an undo asked
- * for meanwhile waits for the end of the gesture.
+ * for meanwhile waits for the end of the gesture. A change of the person
+ * made in the middle of a gesture comes between: the rest of the gesture is
+ * a step after it.
  *
  * `redo` and `undo` must not perform changes themselves.
  */
@@ -151,11 +153,13 @@ export class UndoManager {
 
   /**
    * Runs a gesture whose changes (performed with the `groupId` it is given)
-   * are one step, in place from the first of them. An undo asked for while
-   * the gesture is under way waits for its end. A gesture that changes
-   * nothing leaves the history as it was.
+   * are one step, in place from the first of them; with `placedAtOnce`, from
+   * its start (a gesture that reads before it changes anything: an undo
+   * asked for during the reading is of it, and it is of the history it was
+   * begun in). An undo asked for while the gesture is under way waits for
+   * its end. A gesture that changes nothing leaves the history as it was.
    */
-  async group<T>(gesture: (groupId: string) => Promise<T>): Promise<T> {
+  async group<T>(gesture: (groupId: string) => Promise<T>, placedAtOnce = false): Promise<T> {
     groupCounter += 1;
     const groupId = `group-${groupCounter}`;
     const over = deferred();
@@ -166,6 +170,10 @@ export class UndoManager {
       history: this.#history,
     };
     this.#gestures.set(groupId, record);
+    if (placedAtOnce) {
+      this.#begin(record, groupId, false);
+      this.onStateDidChange?.();
+    }
     try {
       return await gesture(groupId);
     } finally {
@@ -228,34 +236,36 @@ export class UndoManager {
       : groupId !== undefined && last?.groupId === groupId
         ? last
         : undefined;
-    if (!entry) {
-      // A gesture begun in a history since cleared is of that history: its step is in none.
-      entry =
-        gesture && gesture.history !== this.#history
-          ? detached(groupId)
-          : this.#push(groupId, isDiscardable);
-      if (gesture) {
-        gesture.entry = entry;
-        gesture.entries.push(entry);
-        entry.gesture = gesture;
-      }
-    }
+    entry ??= gesture
+      ? this.#begin(gesture, groupId, isDiscardable)
+      : this.#push(groupId, isDiscardable);
     entry.steps.push(step);
     this.onStateDidChange?.();
     return entry;
   }
 
+  /** A new step of `gesture`. */
+  #begin(gesture: Gesture, groupId: string | undefined, isDiscardable: boolean): Entry {
+    // A gesture begun in a history since cleared is of that history: its step is in none.
+    const entry =
+      gesture.history !== this.#history ? detached(groupId) : this.#push(groupId, isDiscardable);
+    gesture.entry = entry;
+    gesture.entries.push(entry);
+    entry.gesture = gesture;
+    return entry;
+  }
+
   /**
    * The step a gesture's next change joins: its own, unless a change of the
-   * person was made after it and no undo or redo waits. That change came between, so the gesture goes
+   * person was made after it. The rest is then a new change, after that one,
+   * and drops the undos and redos waiting as a new change does: they were
+   * asked of steps in another order, and carried out over it they would
+   * write values that were never there. That change came between, so the gesture goes
    * on in a new step after it: undo and redo then go in the order the
    * changes were made.
    */
   #continued(gesture: Gesture): Entry | undefined {
     const { entry } = gesture;
-    // Undos asked for meanwhile were asked of the gesture as one step: it stays one, so
-    // that they take all of it back (a new step would drop them, as a new change does).
-    if (this.#waiting > 0) return entry;
     const at = entry ? this.#entries.indexOf(entry) : -1;
     return at !== -1 && at < this.#entries.length - 1 ? undefined : entry;
   }

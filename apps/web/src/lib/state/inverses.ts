@@ -10,7 +10,9 @@
  *
  * A patch is plain members and one map of values with the list of the keys
  * it clears (`updatedProperties` and `deletedProperties` of a card,
- * `updatedFields` and `deletedFields` of a view). Patches are changed in
+ * `updatedFields` and `deletedFields` of a view). A list member (the
+ * property definitions of a board) is compared whole: one that changed only
+ * some of what the failed write did is left as it is. Patches are changed in
  * place: the undo of a step holds the very object.
  */
 
@@ -72,7 +74,7 @@ export class Inverses<P extends object> {
         for (const name of value as string[]) {
           if (this.#list(later).includes(name)) this.#restore(later, name, replaced);
         }
-      } else if (value !== undefined && same(later[key], value)) {
+      } else if (!isEmpty(value) && same(later[key], value)) {
         later[key] = replaced[key];
       }
     }
@@ -98,6 +100,12 @@ export class Inverses<P extends object> {
   #list(patch: Patch): string[] {
     return (patch[this.#deleted] as string[] | undefined) ?? [];
   }
+}
+
+/** Says nothing: no value it showed to take back to (an empty list of a board's properties). */
+function isEmpty(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length === 0;
+  return value === undefined;
 }
 
 function same(first: unknown, second: unknown): boolean {

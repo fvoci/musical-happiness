@@ -69,7 +69,39 @@ describe('a write that fails', () => {
     await failing;
     expect([before.title, other.title, different.title]).toEqual(['Shown', 'Shown', 'Else']);
     // Nothing is kept once no write is under way.
-    await inverses.write('v', { title: 'X' }, { title: 'Y' }, refused).catch(() => undefined);
+    await inverses.write('v', { title: 'Else' }, { title: 'Y' }, refused).catch(() => undefined);
     expect(different.title).toBe('Else');
+  });
+
+  it('does not take an empty list of a board for one that says something', async () => {
+    const inverses = new Inverses<Record<string, unknown>>(
+      'updatedProperties',
+      'deletedProperties',
+    );
+    const property = { id: 'p', name: 'Gone', type: 'text', options: [] };
+    let fail = (): void => undefined;
+    const failing = inverses
+      .write(
+        'b',
+        { updatedCardProperties: [], deletedCardProperties: ['p'] },
+        { updatedCardProperties: [property], deletedCardProperties: [] },
+        () =>
+          new Promise((_resolve, reject) => {
+            fail = () => {
+              reject(new Error('refused'));
+            };
+          }),
+      )
+      .catch(() => undefined);
+    // The undo of a change of the title, made while the deletion was written.
+    const later = { title: 'Before', updatedCardProperties: [], deletedCardProperties: [] };
+    inverses.keep('b', later);
+    fail();
+    await failing;
+    expect(later).toEqual({
+      title: 'Before',
+      updatedCardProperties: [],
+      deletedCardProperties: [],
+    });
   });
 });

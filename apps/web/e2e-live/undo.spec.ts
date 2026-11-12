@@ -85,6 +85,8 @@ for (const action of ['undo', 'redo'] as const) {
       await expect.poll(savedTitle).toBe('Two');
       release();
       await expect(undo).not.toHaveAttribute('aria-busy', 'true');
+      // The refused write does not take what was changed over it off the screen.
+      await expect(title).toHaveValue('Two');
 
       const written = page.waitForResponse(
         (response) => response.url().endsWith(path) && response.request().method() === 'PATCH',
