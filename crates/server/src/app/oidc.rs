@@ -176,16 +176,15 @@ impl App {
         let kept = existing
             .as_ref()
             .map(|existing| (existing.auto_join, existing.enabled));
-        let read_update_at = existing.as_ref().map(|existing| existing.update_at);
         let sealed_client_secret = match settings.client_secret.as_deref() {
             // The secret stays with the client it was given for: one that went on to
             // another issuer or client would be sent to it.
-            None => match existing {
+            None => match &existing {
                 Some(existing)
                     if existing.issuer == settings.issuer
                         && existing.client_id == settings.client_id =>
                 {
-                    existing.sealed_client_secret
+                    existing.sealed_client_secret.clone()
                 }
                 Some(existing) if !existing.sealed_client_secret.is_empty() => {
                     let mut refused = Refusals::new();
@@ -223,7 +222,7 @@ impl App {
                     create_at: 0,
                     update_at: 0,
                 },
-                read_update_at,
+                existing.as_ref(),
             )
             .await?
             // Changed by another request since it was read here: what was kept from it

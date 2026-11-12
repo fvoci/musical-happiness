@@ -141,15 +141,16 @@ impl Store {
     }
 
     /// Stores the provider of the handle's organization, in place of the one it has, if
-    /// that one is still as it was read: last changed at `read_update_at`, or none for
-    /// `None`; and returns it as stored. `None` if it changed or was removed meanwhile,
+    /// that one is still the one read, `read` (the same provider, last changed at the
+    /// same time), or there is still none for `None`; and returns it as stored. `None` if it changed or was removed meanwhile,
     /// and nothing is stored: what was decided from it (the secret kept, the settings
     /// kept) is to be decided again. A provider whose issuer and client stay keeps its
     /// identifier and the time it was first set; one with another issuer or client is
     /// another provider, under a new identifier, and the sign-ins under way through the
     /// one before end with it. `provider.id`, `org_id` and the times are the store's;
-    /// the time of a change is always later than that of the one before, so that a
-    /// reading names one state of the provider.
+    /// the time of a change of a provider is always later than that of the one before,
+    /// and a provider removed and set again is another, so that a reading names one
+    /// state of the provider.
     ///
     /// # Errors
     ///
@@ -158,10 +159,10 @@ impl Store {
     pub async fn put_oidc_provider_as_read(
         &self,
         provider: &StoredProvider,
-        read_update_at: Option<i64>,
+        read: Option<&StoredProvider>,
     ) -> Result<Option<StoredProvider>, StoreError> {
-        self.put_provider(provider, AsRead::LastChangedAt(read_update_at))
-            .await
+        let read = read.map(|read| (read.id.clone(), read.update_at));
+        self.put_provider(provider, AsRead::Was(read)).await
     }
 
     async fn put_provider(
@@ -171,20 +172,20 @@ impl Store {
     ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
-            let mut sql = scope.sql("SELECT update_at FROM oidc_providers WHERE org_id = ");
+            let mut sql = scope.sql("SELECT id, update_at FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
-            let now_update_at = match scope.fetch_optional(sql).await? {
-                Some(row) => Some(row.int(0)?),
+            let there = match scope.fetch_optional(sql).await? {
+                Some(row) => Some((row.id(0)?, row.int(1)?)),
                 None => None,
             };
-            if let AsRead::LastChangedAt(read_update_at) = as_read
-                && now_update_at != read_update_at
+            if let AsRead::Was(read) = &as_read
+                && there != *read
             {
                 return Ok(None);
             }
             // Later than the change before, also within one millisecond or when the
-            // clock went back: no two states of the provider have one time.
-            let now = now_update_at.map_or(now_millis(), |before| {
+            // clock went back: no two states of one provider have one time.
+            let now = there.as_ref().map_or_else(now_millis, |(_, before)| {
                 now_millis().max(before.saturating_add(1))
             });
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
@@ -225,7 +226,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
-    /// [`StoreError::Database`] if the statement fails.
+    /// [`StoreError::Database`] if a statement fails.
     pub async fn delete_oidc_provider(&self) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
@@ -444,12 +445,12 @@ async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), Stor
 }
 
 /// What a provider that is replaced must still be.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum AsRead {
     /// Anything.
     Whatever,
-    /// Last changed at this time, or none for `None`.
-    LastChangedAt(Option<i64>),
+    /// The provider of this identifier, last changed at this time; or none for `None`.
+    Was(Option<(String, i64)>),
 }
 
 /// The account a sign-in through a provider ends in.

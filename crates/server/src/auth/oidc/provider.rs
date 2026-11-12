@@ -349,22 +349,19 @@ pub fn verify_id_token(
     if claims.sub.is_empty() {
         return Err(invalid("no subject"));
     }
-    // `OpenID Connect Core 1.0`, 2: a subject is at most 255 ASCII characters; an address
-    // at most what an account's may be. Longer, they are no token's of a provider.
+    // `OpenID Connect Core 1.0`, 2: a subject is at most 255 ASCII characters. Longer,
+    // it is no token's of a provider (and would not fit the key it is kept under).
     if claims.sub.len() > MAXIMUM_SUBJECT_BYTES {
         return Err(invalid("subject longer than 255 bytes"));
-    }
-    if claims
-        .email
-        .as_ref()
-        .is_some_and(|email| email.len() > MAXIMUM_EMAIL_BYTES)
-    {
-        return Err(invalid("email address longer than an account's may be"));
     }
     Ok(IdClaims {
         issuer: claims.iss,
         subject: claims.sub,
-        email: claims.email,
+        // An address longer than an account's may be is none: it is kept nowhere, and a
+        // newcomer without one is refused as one without an address.
+        email: claims
+            .email
+            .filter(|email| email.trim().len() <= MAXIMUM_EMAIL_BYTES),
         email_verified: claims.email_verified,
         name: claims.name,
         preferred_username: claims.preferred_username,

@@ -159,19 +159,23 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         .expect("none was there, as read");
     // Read by one request; changed by another meanwhile, within the same millisecond
     // as often as not: the time of the change is later all the same.
-    let read = none_read.update_at;
     let later = test
         .put_oidc_provider(&provider("second", "a secret"))
         .await
         .expect("changed");
-    assert!(later.update_at > read, "{} after {read}", later.update_at);
+    assert!(
+        later.update_at > none_read.update_at,
+        "{} after {}",
+        later.update_at,
+        none_read.update_at
+    );
     let stale = test
-        .put_oidc_provider_as_read(&provider("second", ""), Some(read))
+        .put_oidc_provider_as_read(&provider("second", ""), Some(&none_read))
         .await
         .expect("asked");
     let stored = test.oidc_provider().await.expect("read").expect("stored");
     let fresh = test
-        .put_oidc_provider_as_read(&provider("third", ""), Some(later.update_at))
+        .put_oidc_provider_as_read(&provider("third", ""), Some(&later))
         .await
         .expect("asked");
     let none_stale = test
@@ -192,8 +196,11 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
     assert!(none_stale.is_none(), "one was there, not none");
 }
 
-/// A provider removed while a change of it was being decided does not come back: the
-/// change, made from the reading before the removal, is not stored.
+/// A provider removed after a change of it was read does not come back: the change,
+/// decided from the reading before the removal, is not stored; nor when the provider was
+/// set again meanwhile, at whatever time, as it is another. (That a removal and a
+/// change are one after the other, not interleaved, is the lock's; this test runs them
+/// one after the other.)
 #[tokio::test]
 async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
     let test = common::setup().await;
@@ -208,18 +215,27 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         create_at: 0,
         update_at: 0,
     };
-    let read = test
-        .put_oidc_provider(&provider)
-        .await
-        .expect("stored")
-        .update_at;
+    let read = test.put_oidc_provider(&provider).await.expect("stored");
     assert!(test.delete_oidc_provider().await.expect("removed"));
     let change = test
-        .put_oidc_provider_as_read(&provider, Some(read))
+        .put_oidc_provider_as_read(&provider, Some(&read))
         .await
         .expect("asked");
     let after = test.oidc_provider().await.expect("read");
+    // Set again, by another request; the reading of the one removed has, at worst,
+    // the time of the new one (the same millisecond, or the clock went back).
+    let again = test.put_oidc_provider(&provider).await.expect("set again");
+    let of_the_removed = StoredProvider {
+        update_at: again.update_at,
+        ..read.clone()
+    };
+    let change_again = test
+        .put_oidc_provider_as_read(&provider, Some(&of_the_removed))
+        .await
+        .expect("asked");
     test.teardown().await;
     assert!(change.is_none(), "{change:?}");
     assert!(after.is_none(), "{after:?}");
+    assert_ne!(again.id, read.id, "another provider");
+    assert!(change_again.is_none(), "{change_again:?}");
 }
