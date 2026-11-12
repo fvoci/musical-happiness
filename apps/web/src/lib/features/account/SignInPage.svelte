@@ -197,13 +197,14 @@
     working = true;
     problem = undefined;
     try {
+      // Started, the browser is leaving for the provider: the page stays busy,
+      // so that a second press starts no second sign-in in place of this one.
       await onOidcStart(orgId);
     } catch (error) {
       problem =
         isBackendError(error) && error.reason === 'oidc_unavailable'
           ? m.account_oidc_failed()
           : problemOf(error);
-    } finally {
       working = false;
     }
   }

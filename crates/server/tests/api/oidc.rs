@@ -1214,8 +1214,8 @@ async fn an_organization_not_in_use_lets_nobody_in() {
 }
 
 /// Sign-ins are counted against the address they come from, as logins are: past the
-/// limit, a start is sent back to the sign-in page as `rate-limited`, the name the page
-/// knows.
+/// limit, a start is answered 429, the problem `rate-limited`, which the page tells as
+/// too many tries.
 #[tokio::test]
 async fn too_many_sign_ins_from_one_address_are_refused() {
     fn with_few_sign_ins(config: &mut Configuration) {

@@ -44,6 +44,11 @@ export class ServerRequests implements TrashReads {
     return options.organization ?? undefined;
   }
 
+  /**
+   * Starts a sign-in through the organization's provider, as a request of this
+   * page (which another site's page cannot send): the address to send the
+   * browser to. The cookie that ties the sign-in to this browser comes with it.
+   */
   async startOidc(orgId: string): Promise<string> {
     const started = await this.#http.request<Schemas['OidcStart']>(
       '/api/v1/auth/oidc/start',

@@ -364,31 +364,13 @@ impl Store {
         .await
     }
 
-    /// Makes a user a member of the handle's organization and of its default
-    /// workspace, as a member, unless the user is a member of the organization already.
-    /// Says whether the user joined.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
-    /// [`StoreError::Database`] if a statement fails.
-    #[cfg(any(test, feature = "test-util"))]
-    pub async fn join_organization_through_oidc(&self, user_id: &str) -> Result<bool, StoreError> {
-        self.transaction(async |scope| {
-            if is_member(scope, user_id).await? {
-                return Ok(false);
-            }
-            members::join_organization_unless_member(scope, user_id).await
-        })
-        .await
-    }
-
     /// Whether the user is a member of the handle's organization.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if the query fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn is_organization_member(&self, user_id: &str) -> Result<bool, StoreError> {
         self.with_conn(async |scope| is_member(scope, user_id).await)
             .await

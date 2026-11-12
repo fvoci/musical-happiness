@@ -276,28 +276,33 @@ impl App {
                 .admit_registration(address, Instant::now())
                 .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?,
         );
-        self.start(org_id)
+        // What is in the way is the provider's (409); the store's failures are the
+        // server's own (500).
+        let unavailable = || {
+            AppError::conflict("no sign-in through the organization's provider can start now")
+                .with_reason(Reason::OidcUnavailable)
+        };
+        if !self
+            .is_organization_in_use(org_id)
             .await
-            .map_err(|LoginFailure::Reason(reason)| {
-                AppError::conflict("no sign-in through the organization's provider can start now")
-                    .with_reason(reason)
-            })
-    }
-
-    async fn start(&self, org_id: &str) -> Result<StartedLogin, LoginFailure> {
-        let unavailable = LoginFailure::Reason(Reason::OidcUnavailable);
-        self.organization_in_use(org_id).await?;
-        let org = self.enter_org_for_sign_in(org_id).ok_or(unavailable)?;
+            .map_err(|error| AppError::from(error).context("reading the organization"))?
+        {
+            return Err(unavailable());
+        }
+        let org = self.enter_org_for_sign_in(org_id).ok_or_else(unavailable)?;
         let stored = org
             .store()
             .oidc_provider()
             .await
-            .map_err(|error| logged(&error, "reading the provider"))?
+            .map_err(|error| AppError::from(error).context("reading the provider"))?
             .filter(|stored| stored.enabled)
-            .ok_or(unavailable)?;
+            .ok_or_else(unavailable)?;
         let discovery = provider::discover(self.oidc_fetcher(), &stored.issuer)
             .await
-            .map_err(|error| provider_failure(&error, Reason::OidcUnavailable))?;
+            .map_err(|error| {
+                provider_failure(&error, Reason::OidcUnavailable);
+                unavailable()
+            })?;
 
         let now = now_millis();
         if let Err(error) = self.store().delete_ended_oidc_login_flows(now).await {
@@ -317,10 +322,11 @@ impl App {
                 expires_at: now.saturating_add(LOGIN_FLOW_LIFETIME_MILLIS),
             })
             .await
-            .map_err(|error| logged(&error, "storing a sign-in"))?;
+            .map_err(|error| AppError::from(error).context("storing a sign-in"))?;
 
         let mut url = reqwest::Url::parse(&discovery.authorization_endpoint).map_err(|_| {
-            provider_failure(&ProviderError::EndpointNotHttps, Reason::OidcUnavailable)
+            provider_failure(&ProviderError::EndpointNotHttps, Reason::OidcUnavailable);
+            unavailable()
         })?;
         url.query_pairs_mut()
             .append_pair("response_type", "code")
@@ -399,7 +405,13 @@ impl App {
             return Err(Reason::OidcTokenRefused.into());
         }
         let unavailable = LoginFailure::Reason(Reason::OidcUnavailable);
-        self.organization_in_use(&flow.org_id).await?;
+        if !self
+            .is_organization_in_use(&flow.org_id)
+            .await
+            .map_err(|error| logged(&error, "reading the organization"))?
+        {
+            return Err(unavailable);
+        }
         let org = self
             .enter_org_for_sign_in(&flow.org_id)
             .ok_or(unavailable)?;
@@ -431,17 +443,17 @@ impl App {
         Ok(FinishedLogin { token })
     }
 
-    /// Refuses a sign-in for an organization that is not in use, or is the system's.
-    async fn organization_in_use(&self, org_id: &str) -> Result<(), LoginFailure> {
+    /// Whether `org_id` names an organization in use that is not the system's: none
+    /// other is signed in to.
+    async fn is_organization_in_use(&self, org_id: &str) -> Result<bool, StoreError> {
         if !fvoci_model::is_id(org_id) {
-            return Err(Reason::OidcUnavailable.into());
+            return Ok(false);
         }
-        self.store()
+        Ok(self
+            .store()
             .login_organization(Some(org_id))
-            .await
-            .map_err(|error| logged(&error, "reading the organization"))?
-            .map(|_| ())
-            .ok_or(Reason::OidcUnavailable.into())
+            .await?
+            .is_some())
     }
 
     /// The client secret of a provider, opened; `None` for a client without one.

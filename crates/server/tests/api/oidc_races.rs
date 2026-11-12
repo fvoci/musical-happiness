@@ -99,21 +99,123 @@ enum Change {
     Disable,
     Delete,
     CloseJoining,
+    /// Given another client: another provider, under a new identifier.
+    Replace,
+}
+
+/// Who comes back while the provider changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Who {
+    /// Somebody with no account yet.
+    Newcomer,
+    /// The account of the identity, a member of the organization.
+    Member,
+    /// The account of the identity, which left the organization.
+    FormerMember,
+}
+
+/// Makes the account of the fake provider's person by a whole sign-in, and takes it
+/// out of the organization again if it is to be no member.
+async fn known_account(ts: &TestServer, fake: &FakeProvider, org_id: &str, who: Who) {
+    let callback = callback_for(ts, fake, org_id).await;
+    let (_, signed_in) = ts.app.finish_oidc_login(&callback, "the first time").await;
+    signed_in.expect("the account is made");
+    if who == Who::FormerMember {
+        for table in ["workspace_members", "organization_members"] {
+            ts.app
+                .store()
+                .system()
+                .execute_unchecked(&format!(
+                    "DELETE FROM {table} WHERE user_id IN (SELECT user_id FROM user_identities)"
+                ))
+                .await
+                .expect("the account leaves");
+        }
+    }
+}
+
+/// Makes the administrator's change of the provider, through the API.
+async fn change_provider(ts: &TestServer, fake: &FakeProvider, org_id: &str, change: Change) {
+    let path = format!("/org/{org_id}/oidc");
+    match change {
+        Change::Delete => {
+            let deleted = ts.client.delete(&path).await;
+            assert_eq!(
+                deleted.status,
+                reqwest::StatusCode::NO_CONTENT,
+                "the provider is deleted"
+            );
+            ts.client.get(&path).await.check_not_found();
+        }
+        Change::Replace => {
+            let replaced: OidcProvider = ts
+                .client
+                .put(
+                    &path,
+                    &json!({
+                        "issuer": fake.issuer,
+                        "clientId": "another-client",
+                        "clientSecret": "another secret",
+                    }),
+                )
+                .await
+                .ok_json();
+            assert_eq!(
+                replaced.client_id, "another-client",
+                "the provider was replaced"
+            );
+        }
+        Change::Disable | Change::CloseJoining => {
+            let changed: OidcProvider = ts
+                .client
+                .put(
+                    &path,
+                    &json!({
+                        "issuer": fake.issuer,
+                        "clientId": CLIENT_ID,
+                        "enabled": !matches!(change, Change::Disable),
+                        "autoJoin": !matches!(change, Change::CloseJoining),
+                    }),
+                )
+                .await
+                .ok_json();
+            assert_eq!(
+                changed.enabled,
+                !matches!(change, Change::Disable),
+                "the enabled flag was updated"
+            );
+            assert_eq!(
+                changed.auto_join,
+                !matches!(change, Change::CloseJoining),
+                "the auto-join flag was updated"
+            );
+        }
+    }
 }
 
 /// Pause only this callback after its token request reaches the real fake provider.
 /// The administrator's HTTP request then completes before verification and joining
 /// continue. No production code, clock or provider response is replaced.
-async fn changed_provider_refuses_pending_callback(change: Change) {
+async fn changed_provider_refuses_pending_callback(change: Change, who: Who) {
     let fake = FakeProvider::start().await;
     let (ts, org_id) = server_for(&fake).await;
+    if who != Who::Newcomer {
+        known_account(&ts, &fake, &org_id, who).await;
+    }
     let callback = callback_for(&ts, &fake, &org_id).await;
+    let exchanged_before = fake.token_requests();
     let users_before = ts
         .app
         .store()
         .count_rows("users")
         .await
         .expect("users counted");
+    let members_before = ts
+        .app
+        .store()
+        .count_rows("organization_members")
+        .await
+        .expect("members counted");
     let (_, outcome) = {
         let finishing = ts.app.finish_oidc_login(&callback, "independent review");
         tokio::pin!(finishing);
@@ -121,7 +223,7 @@ async fn changed_provider_refuses_pending_callback(change: Change) {
             tokio::select! {
                 biased;
                 () = async {
-                    while fake.token_requests() == 0 {
+                    while fake.token_requests() == exchanged_before {
                         tokio::task::yield_now().await;
                     }
                 } => {}
@@ -130,43 +232,7 @@ async fn changed_provider_refuses_pending_callback(change: Change) {
         })
         .await
         .expect("the callback reaches the token exchange");
-        let path = format!("/org/{org_id}/oidc");
-        match change {
-            Change::Delete => {
-                let deleted = ts.client.delete(&path).await;
-                assert_eq!(
-                    deleted.status,
-                    reqwest::StatusCode::NO_CONTENT,
-                    "the provider is deleted"
-                );
-                ts.client.get(&path).await.check_not_found();
-            }
-            Change::Disable | Change::CloseJoining => {
-                let changed: OidcProvider = ts
-                    .client
-                    .put(
-                        &path,
-                        &json!({
-                            "issuer": fake.issuer,
-                            "clientId": CLIENT_ID,
-                            "enabled": !matches!(change, Change::Disable),
-                            "autoJoin": !matches!(change, Change::CloseJoining),
-                        }),
-                    )
-                    .await
-                    .ok_json();
-                assert_eq!(
-                    changed.enabled,
-                    !matches!(change, Change::Disable),
-                    "the enabled flag was updated"
-                );
-                assert_eq!(
-                    changed.auto_join,
-                    !matches!(change, Change::CloseJoining),
-                    "the auto-join flag was updated"
-                );
-            }
-        }
+        change_provider(&ts, &fake, &org_id, change).await;
         tokio::time::timeout(Duration::from_secs(10), finishing)
             .await
             .expect("the callback finishes")
@@ -186,10 +252,16 @@ async fn changed_provider_refuses_pending_callback(change: Change) {
         .count_rows("users")
         .await
         .expect("users counted");
+    let members_after = ts
+        .app
+        .store()
+        .count_rows("organization_members")
+        .await
+        .expect("members counted");
     ts.teardown().await;
     fake.stop();
     let expected = match change {
-        Change::Disable | Change::Delete => Reason::OidcUnavailable,
+        Change::Disable | Change::Delete | Change::Replace => Reason::OidcUnavailable,
         Change::CloseJoining => Reason::OidcJoinClosed,
     };
     assert_eq!(
@@ -198,22 +270,34 @@ async fn changed_provider_refuses_pending_callback(change: Change) {
         "{change:?} completed before the callback finished, but users changed from {users_before} to {users_after}, live session: {live_session}",
     );
     assert_eq!(users_after, users_before, "no newcomer after {change:?}");
+    assert_eq!(
+        members_after, members_before,
+        "no new member after {change:?}"
+    );
     assert!(!live_session, "no session after {change:?}");
 }
 
 #[tokio::test]
 async fn disabling_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Disable).await;
+    changed_provider_refuses_pending_callback(Change::Disable, Who::Newcomer).await;
+    changed_provider_refuses_pending_callback(Change::Disable, Who::Member).await;
 }
 
 #[tokio::test]
 async fn deleting_a_provider_during_token_exchange_prevents_a_new_session() {
-    changed_provider_refuses_pending_callback(Change::Delete).await;
+    changed_provider_refuses_pending_callback(Change::Delete, Who::Newcomer).await;
+}
+
+#[tokio::test]
+async fn replacing_a_provider_during_token_exchange_prevents_a_new_session() {
+    changed_provider_refuses_pending_callback(Change::Replace, Who::Newcomer).await;
+    changed_provider_refuses_pending_callback(Change::Replace, Who::Member).await;
 }
 
 #[tokio::test]
 async fn closing_auto_join_during_token_exchange_prevents_a_new_member() {
-    changed_provider_refuses_pending_callback(Change::CloseJoining).await;
+    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::Newcomer).await;
+    changed_provider_refuses_pending_callback(Change::CloseJoining, Who::FormerMember).await;
 }
 
 #[tokio::test]
