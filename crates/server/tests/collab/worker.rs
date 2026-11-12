@@ -460,6 +460,80 @@ async fn the_cost_of_a_request_and_of_held_documents_is_measured() {
     worker.end().await;
 }
 
+/// The time the worker takes over updates: a thousand small ones into one document
+/// (without the log), and one of 60 KiB into a document whose body is near the limit
+/// of a body; printed for the report and for the limit of an update.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn the_cost_of_taking_updates_is_measured() {
+    let worker = roomy();
+    let (generation, state) = worker
+        .call(None, &open_body(1, &paragraphs(&["measured"])))
+        .await
+        .expect("opened");
+    let Answer::Opened {
+        state: Some(state), ..
+    } = state
+    else {
+        panic!("a document made from a body comes with its state: {state:?}");
+    };
+    let editor = Editor::join(101, &state);
+    let take = |update: Vec<u8>, doc: u64| Request::Take { doc, update };
+    let began = Instant::now();
+    let mut slowest = Duration::ZERO;
+    for n in 0..1_000 {
+        let update = editor.append_paragraph(&format!("line {n}"));
+        let one = Instant::now();
+        worker
+            .call(Some(generation), &take(update, 1))
+            .await
+            .expect("taken");
+        slowest = slowest.max(one.elapsed());
+    }
+    let small = began.elapsed();
+
+    let line = "w".repeat(1000);
+    let texts: Vec<&str> = (0..960).map(|_| line.as_str()).collect();
+    let (_, opened) = worker
+        .call(Some(generation), &open_body(2, &paragraphs(&texts)))
+        .await
+        .expect("opened");
+    let Answer::Opened {
+        state: Some(state),
+        state_bytes,
+    } = opened
+    else {
+        panic!("a document made from a body comes with its state: {opened:?}");
+    };
+    let editor = Editor::join(102, &state);
+    let update = editor.append_paragraph(&"v".repeat(60 * 1024));
+    let large_bytes = update.len();
+    let began = Instant::now();
+    let answered = worker.call(Some(generation), &take(update, 2)).await;
+    let large = began.elapsed();
+    assert_eq!(
+        refusal(answered),
+        Refusal::BodyTooLarge,
+        "past the limit of a body"
+    );
+    // An editor that holds the document without the refused update.
+    let editor = Editor::join(103, &state);
+    let update = editor.append_paragraph(&"u".repeat(20 * 1024));
+    let began = Instant::now();
+    worker
+        .call(Some(generation), &take(update, 2))
+        .await
+        .expect("taken");
+    let near = began.elapsed();
+    report(&format!(
+        "1000 updates taken by the worker in {small:?} ({:?} each, the slowest {slowest:?}); \
+         into a document of {state_bytes} bytes (960 paragraphs): an update of {large_bytes} \
+         bytes refused in {large:?}, one of 20 KiB taken in {near:?}",
+        small / 1_000
+    ));
+    worker.end().await;
+}
+
 #[cfg(target_os = "linux")]
 fn resident_kib(pid: u32) -> u64 {
     let status = std::fs::read_to_string(format!("/proc/{pid}/status")).expect("its status");

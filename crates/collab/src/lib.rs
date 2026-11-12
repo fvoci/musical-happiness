@@ -158,6 +158,22 @@ pub mod testing {
             self.doc.transact().encode_diff_v1(&before)
         }
 
+        /// Deletes the last paragraph, or whatever is last, and gives the update of it.
+        #[must_use]
+        pub fn delete_last(&self) -> Vec<u8> {
+            use yrs::{ReadTxn as _, XmlFragment as _};
+            let before = self.doc.transact().state_vector();
+            let root = self.doc.get_or_insert_xml_fragment(crate::FIELD);
+            {
+                let mut txn = self.doc.transact_mut();
+                let len = root.len(&txn);
+                if len > 0 {
+                    root.remove_range(&mut txn, len - 1, 1);
+                }
+            }
+            self.doc.transact().encode_diff_v1(&before)
+        }
+
         /// The state vector of what the editor holds, version 1.
         #[must_use]
         pub fn state_vector(&self) -> Vec<u8> {
