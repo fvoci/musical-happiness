@@ -398,10 +398,10 @@ impl Store {
 impl Store {
     /// Takes the sign-in under way whose `state` has the digest `state_hash`, if the
     /// browser that comes back with it has the digest `browser_hash` of the one that
-    /// started it: it is removed, ended or not, so that it comes back once. `None` if
-    /// there is none of that browser, or it ended before `now`; one of another browser
-    /// stays. The sign-in names its organization: the request that comes back from the
-    /// provider does not.
+    /// started it: it is removed, ended or not, so that it comes back once; whether it
+    /// ended (`expires_at`) is the caller's to see. `None` if there is none of that
+    /// browser; one of another browser stays. The sign-in names its organization: the
+    /// request that comes back from the provider does not.
     ///
     /// # Errors
     ///
@@ -410,7 +410,6 @@ impl Store {
         &self,
         state_hash: &str,
         browser_hash: &str,
-        now: i64,
     ) -> Result<Option<LoginFlow>, StoreError> {
         self.system()
             .with_conn(async |scope| {
@@ -424,8 +423,7 @@ impl Store {
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };
-                let flow = flow_from_row(&row)?;
-                Ok((flow.expires_at > now).then_some(flow))
+                flow_from_row(&row).map(Some)
             })
             .await
     }

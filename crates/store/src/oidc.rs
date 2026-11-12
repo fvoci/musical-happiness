@@ -134,6 +134,33 @@ impl Store {
         &self,
         provider: &StoredProvider,
     ) -> Result<StoredProvider, StoreError> {
+        self.put_provider(provider, AsRead::Whatever)
+            .await?
+            .ok_or(StoreError::NoRows)
+    }
+
+    /// Stores the provider as [`Store::put_oidc_provider`] does, if the organization's
+    /// provider is still as it was read: last changed at `read_update_at`, or none for
+    /// `None`. `None` if it changed meanwhile, and nothing is stored: what was decided
+    /// from it (the secret kept, the settings kept) is to be decided again.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::put_oidc_provider`].
+    pub async fn put_oidc_provider_as_read(
+        &self,
+        provider: &StoredProvider,
+        read_update_at: Option<i64>,
+    ) -> Result<Option<StoredProvider>, StoreError> {
+        self.put_provider(provider, AsRead::LastChangedAt(read_update_at))
+            .await
+    }
+
+    async fn put_provider(
+        &self,
+        provider: &StoredProvider,
+        as_read: AsRead,
+    ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             let now = now_millis();
             // Two at once for one organization, one after the other: on PostgreSQL the
@@ -143,6 +170,17 @@ impl Store {
                 let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
                 sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
                 scope.fetch_optional(sql).await?;
+            }
+            if let AsRead::LastChangedAt(read_update_at) = as_read {
+                let mut sql = scope.sql("SELECT update_at FROM oidc_providers WHERE org_id = ");
+                sql.bind(scope.org()?);
+                let now_update_at = match scope.fetch_optional(sql).await? {
+                    Some(row) => Some(row.int(0)?),
+                    None => None,
+                };
+                if now_update_at != read_update_at {
+                    return Ok(None);
+                }
             }
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?)
@@ -171,7 +209,7 @@ impl Store {
                 )
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
-            provider_from_row(&row)
+            provider_from_row(&row).map(Some)
         })
         .await
     }
@@ -384,6 +422,15 @@ impl Store {
         self.with_conn(async |scope| is_member(scope, user_id).await)
             .await
     }
+}
+
+/// What a provider that is replaced must still be.
+#[derive(Debug, Clone, Copy)]
+enum AsRead {
+    /// Anything.
+    Whatever,
+    /// Last changed at this time, or none for `None`.
+    LastChangedAt(Option<i64>),
 }
 
 /// The account a sign-in through a provider ends in.

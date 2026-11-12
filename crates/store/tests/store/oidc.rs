@@ -134,3 +134,63 @@ async fn concurrent_oidc_joins_of_one_account_both_succeed() {
     assert_eq!(rows, 1, "one organization membership");
     assert_eq!(sessions, 2, "a session for each sign-in");
 }
+
+/// A change of the provider decided from what was read is stored only if the provider
+/// is still as it was read: another change meanwhile makes it read again. Without one,
+/// it is stored.
+#[tokio::test]
+async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
+    let test = common::setup().await;
+    let provider = |client_id: &str, secret: &str| StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: "https://idp.example.com".to_owned(),
+        client_id: client_id.to_owned(),
+        sealed_client_secret: secret.to_owned(),
+        auto_join: true,
+        enabled: true,
+        create_at: 0,
+        update_at: 0,
+    };
+    let none_read = test
+        .put_oidc_provider_as_read(&provider("first", ""), None)
+        .await
+        .expect("stored")
+        .expect("none was there, as read");
+    // Read by one request; changed by another meanwhile.
+    let read = none_read.update_at;
+    let later = loop {
+        let changed = test
+            .put_oidc_provider(&provider("second", "a secret"))
+            .await
+            .expect("changed");
+        if changed.update_at != read {
+            break changed;
+        }
+    };
+    let stale = test
+        .put_oidc_provider_as_read(&provider("second", ""), Some(read))
+        .await
+        .expect("asked");
+    let stored = test.oidc_provider().await.expect("read").expect("stored");
+    let fresh = test
+        .put_oidc_provider_as_read(&provider("third", ""), Some(later.update_at))
+        .await
+        .expect("asked");
+    let none_stale = test
+        .put_oidc_provider_as_read(&provider("fourth", ""), None)
+        .await
+        .expect("asked");
+    test.teardown().await;
+    assert!(stale.is_none(), "not stored from an old reading: {stale:?}");
+    assert_eq!(
+        (
+            stored.client_id.as_str(),
+            stored.sealed_client_secret.as_str()
+        ),
+        ("second", "a secret"),
+        "the change meanwhile stays"
+    );
+    assert!(fresh.is_some(), "stored from the reading of what is there");
+    assert!(none_stale.is_none(), "one was there, not none");
+}

@@ -14,7 +14,7 @@ use fvoci_server::error::Reason;
 use serde_json::json;
 
 use crate::common::{Setup, TestServer};
-use crate::fake_oidc::{self, CLIENT_ID, CLIENT_SECRET, FakeProvider};
+use crate::fake_oidc::{self, AnswerIssuer, CLIENT_ID, CLIENT_SECRET, FakeProvider};
 
 fn configure(config: &mut Configuration) {
     config.secret_key = Some(
@@ -90,10 +90,10 @@ async fn callback_for(ts: &TestServer, fake: &FakeProvider, org_id: &str) -> Cal
         code: get("code"),
         browser_secret: started.browser_secret,
         error: None,
-        provider_id: url
+        org_id: url
             .path_segments()
             .and_then(|mut segments| segments.next_back())
-            .expect("the provider's own address")
+            .expect("the organization's own address")
             .to_owned(),
         issuer: None,
     }
@@ -397,18 +397,8 @@ async fn a_start_with_a_forged_host_keeps_the_configured_callback_address() {
         .expect("the callback address")
         .1
         .into_owned();
-    let provider_id = ts
-        .app
-        .store()
-        .for_org(&org_id)
-        .expect("the organization")
-        .oidc_provider()
-        .await
-        .expect("read")
-        .expect("stored")
-        .id;
     let expected = format!(
-        "{}/api/v1/auth/oidc/callback/{provider_id}",
+        "{}/api/v1/auth/oidc/callback/{org_id}",
         ts.app.config().server_root.trim_end_matches('/')
     );
     ts.teardown().await;
@@ -493,7 +483,7 @@ async fn flows(ts: &TestServer, org_id: &str) -> i64 {
 }
 
 /// An answer of one provider handed to another is no sign-in: a return to the address of
-/// another provider than the one the sign-in was started with, or that says another
+/// another organization than the one the sign-in was started for, or that says another
 /// issuer answered (RFC 9207), is refused before its code is exchanged anywhere. So an
 /// administrator of one organization cannot route another organization's code through
 /// a provider of theirs.
@@ -503,7 +493,7 @@ async fn an_answer_of_one_provider_is_not_taken_for_another() {
     let (ts, org_id) = server_for(&fake).await;
     let mut outcomes = Vec::new();
     for change in [
-        |callback: &mut Callback| callback.provider_id = fvoci_model::new_id(),
+        |callback: &mut Callback| callback.org_id = fvoci_model::new_id(),
         |callback: &mut Callback| callback.issuer = Some("https://elsewhere.example".to_owned()),
     ] {
         let mut callback = callback_for(&ts, &fake, &org_id).await;
@@ -559,4 +549,35 @@ async fn another_browser_does_not_end_a_sign_in() {
         finished.is_ok(),
         "the browser that started it ends it: {finished:?}"
     );
+}
+
+/// A provider that says it names who answered (RFC 9207) must: a return without `iss`
+/// from it is refused before its code is exchanged; with its own issuer it goes through.
+#[tokio::test]
+async fn a_provider_that_promises_iss_must_send_it() {
+    let fake = FakeProvider::start().await;
+    let (ts, org_id) = server_for(&fake).await;
+    fake.answer_issuer(AnswerIssuer::Promises);
+    let callback = callback_for(&ts, &fake, &org_id).await;
+    let exchanged_before = fake.token_requests();
+    let (_, missing) = ts
+        .app
+        .finish_oidc_login(&callback, "a returning browser")
+        .await;
+    let exchanged = fake.token_requests() - exchanged_before;
+    fake.answer_issuer(AnswerIssuer::Says);
+    let mut callback = callback_for(&ts, &fake, &org_id).await;
+    callback.issuer = Some(fake.issuer.clone());
+    let (_, said) = ts
+        .app
+        .finish_oidc_login(&callback, "a returning browser")
+        .await;
+    ts.teardown().await;
+    fake.stop();
+    assert_eq!(
+        (missing.err(), exchanged),
+        (Some(LoginFailure::Reason(Reason::OidcStateInvalid)), 0),
+        "refused, and no code exchanged"
+    );
+    assert!(said.is_ok(), "{said:?}");
 }

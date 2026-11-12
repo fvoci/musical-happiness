@@ -178,7 +178,7 @@ impl Browser {
             .to_owned();
         assert!(
             path.starts_with("/api/v1/auth/oidc/callback/"),
-            "back to the one address: {path}"
+            "back to the organization's address: {path}"
         );
         Ok(Returning { path, cookie })
     }
@@ -1317,6 +1317,28 @@ async fn what_a_change_leaves_out_stays() {
         rotated.redirect_uri, closed.redirect_uri,
         "the same provider"
     );
+    // Another client is another provider; the address to register stays the
+    // organization's, and what was left out stays too.
+    let other: OidcProvider = ts
+        .client
+        .put(
+            &path,
+            &json!({ "issuer": fake.issuer, "clientId": "another-client", "clientSecret": "s" }),
+        )
+        .await
+        .ok_json();
+    assert_eq!(
+        other.redirect_uri, closed.redirect_uri,
+        "the organization's address"
+    );
+    assert!(
+        other
+            .redirect_uri
+            .ends_with(&format!("/api/v1/auth/oidc/callback/{org_id}")),
+        "{}",
+        other.redirect_uri
+    );
+    assert!(!other.auto_join && !other.enabled, "{other:?}");
 
     let unnamed = reqwest::Client::new()
         .post(format!("{}/api/v1/auth/oidc/start", ts.base_url))

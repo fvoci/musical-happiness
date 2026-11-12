@@ -27,8 +27,8 @@ use crate::auth::oidc::provider::{
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, Reason};
 
-/// The path, under the server's address, that a provider sends a browser back to: one
-/// for every organization.
+/// The path, under the server's address, below which a provider sends a browser back:
+/// each organization has an address of its own there, `…/callback/{orgId}`.
 pub const CALLBACK_PATH: &str = "/api/v1/auth/oidc/callback";
 
 /// How long a sign-in may take from its start to its return, in milliseconds.
@@ -90,9 +90,9 @@ pub struct Callback {
     pub error: Option<String>,
     /// The secret of the browser's cookie.
     pub browser_secret: String,
-    /// The provider the address it came back to names: each provider has an address of
-    /// its own (`…/callback/{providerId}`).
-    pub provider_id: String,
+    /// The organization the address it came back to names: each organization has an
+    /// address of its own (`…/callback/{orgId}`).
+    pub org_id: String,
     /// The `iss` parameter (RFC 9207): the issuer that answered, if it says.
     pub issuer: Option<String>,
 }
@@ -119,13 +119,14 @@ impl std::fmt::Debug for FinishedLogin {
 }
 
 impl App {
-    /// The address the provider `provider_id` sends a browser back to: from the
-    /// server's own address (`serverRoot`), never from what a request says its host is.
-    /// Each provider has its own, so that what one provider sends back is never taken
-    /// for another's (a mix-up of providers).
-    pub fn oidc_redirect_uri(&self, provider_id: &str) -> String {
+    /// The address the provider of the organization `org_id` sends a browser back to:
+    /// from the server's own address (`serverRoot`), never from what a request says its
+    /// host is. Each organization has its own, so that what one organization's provider
+    /// sends back is never taken for another's (a mix-up of providers); it is known
+    /// before the provider is set, and stays when the provider is changed.
+    pub fn oidc_redirect_uri(&self, org_id: &str) -> String {
         format!(
-            "{}{CALLBACK_PATH}/{provider_id}",
+            "{}{CALLBACK_PATH}/{org_id}",
             self.config().server_root.trim_end_matches('/')
         )
     }
@@ -175,6 +176,7 @@ impl App {
         let kept = existing
             .as_ref()
             .map(|existing| (existing.auto_join, existing.enabled));
+        let read_update_at = existing.as_ref().map(|existing| existing.update_at);
         let sealed_client_secret = match settings.client_secret.as_deref() {
             // The secret stays with the client it was given for: one that went on to
             // another issuer or client would be sent to it.
@@ -204,22 +206,31 @@ impl App {
         };
         let stored = self
             .store()
-            .put_oidc_provider(&StoredProvider {
-                id: String::new(),
-                org_id: org_id.to_owned(),
-                issuer: settings.issuer.clone(),
-                client_id: settings.client_id.clone(),
-                sealed_client_secret,
-                // Left out, what is stored stays, as the secret does; on for a new one.
-                auto_join: settings
-                    .auto_join
-                    .or(kept.map(|kept| kept.0))
-                    .unwrap_or(true),
-                enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
-                create_at: 0,
-                update_at: 0,
-            })
-            .await?;
+            .put_oidc_provider_as_read(
+                &StoredProvider {
+                    id: String::new(),
+                    org_id: org_id.to_owned(),
+                    issuer: settings.issuer.clone(),
+                    client_id: settings.client_id.clone(),
+                    sealed_client_secret,
+                    // Left out, what is stored stays, as the secret does, also for another
+                    // client; on when the organization has none.
+                    auto_join: settings
+                        .auto_join
+                        .or(kept.map(|kept| kept.0))
+                        .unwrap_or(true),
+                    enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
+                    create_at: 0,
+                    update_at: 0,
+                },
+                read_update_at,
+            )
+            .await?
+            // Changed by another request since it was read here: what was kept from it
+            // may be kept no more.
+            .ok_or_else(|| {
+                AppError::conflict("the provider was changed meanwhile; read it and try again")
+            })?;
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
         Ok(self.provider_view(&stored))
     }
@@ -244,7 +255,7 @@ impl App {
             has_client_secret: !stored.sealed_client_secret.is_empty(),
             auto_join: stored.auto_join,
             enabled: stored.enabled,
-            redirect_uri: self.oidc_redirect_uri(&stored.id),
+            redirect_uri: self.oidc_redirect_uri(&stored.org_id),
             create_at: stored.create_at,
             update_at: stored.update_at,
         }
@@ -330,7 +341,7 @@ impl App {
         url.query_pairs_mut()
             .append_pair("response_type", "code")
             .append_pair("client_id", &stored.client_id)
-            .append_pair("redirect_uri", &self.oidc_redirect_uri(&stored.id))
+            .append_pair("redirect_uri", &self.oidc_redirect_uri(org_id))
             .append_pair("scope", SCOPES)
             .append_pair("state", &state)
             .append_pair("nonce", &nonce)
@@ -398,14 +409,13 @@ impl App {
         let state_hash = token_digest(&callback.state);
         let taken = self
             .store()
-            .take_oidc_login_flow(
-                &state_hash,
-                &token_digest(&callback.browser_secret),
-                now_millis(),
-            )
+            .take_oidc_login_flow(&state_hash, &token_digest(&callback.browser_secret))
             .await
             .map_err(|error| (None, logged(&error, "taking a sign-in")))?;
         if let Some(flow) = taken {
+            if flow.expires_at <= now_millis() {
+                return Err((Some(flow.org_id), invalid));
+            }
             return Ok(flow);
         }
         let org_id = self
@@ -425,10 +435,11 @@ impl App {
         callback: &Callback,
         user_agent: &str,
     ) -> Result<FinishedLogin, LoginFailure> {
-        // Came back to the address of another provider than the one it was started
-        // with: an answer of one provider handed to another. Nothing is exchanged.
-        if callback.provider_id != flow.provider_id {
-            tracing::info!(org_id = %flow.org_id, "a sign-in came back to the address of another provider");
+        // Came back to the address of another organization than the one it was started
+        // for: an answer of one organization's provider handed to another's. Nothing is
+        // exchanged.
+        if callback.org_id != flow.org_id {
+            tracing::info!(org_id = %flow.org_id, "a sign-in came back to the address of another organization");
             return Err(Reason::OidcStateInvalid.into());
         }
         if let Some(error) = &callback.error {
@@ -529,7 +540,7 @@ impl App {
         flow: &LoginFlow,
         code: &str,
     ) -> Result<IdClaims, LoginFailure> {
-        let redirect_uri = self.oidc_redirect_uri(&stored.id);
+        let redirect_uri = self.oidc_redirect_uri(&stored.org_id);
         let id_token = provider::exchange_code(
             self.oidc_fetcher(),
             discovery,
