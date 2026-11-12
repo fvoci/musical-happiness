@@ -16,6 +16,7 @@ import type {
   PropertyOption,
   PropertyTemplate,
   PropertyType,
+  PropertyValue,
 } from '$lib/logic/wire.ts';
 import { newUndoGroup, type BoardStore } from '$lib/state/index.ts';
 
@@ -91,20 +92,37 @@ export async function renameProperty(
 }
 
 /**
- * Changes the kind of a property as planned: the definition, then the views
- * that leaned on the old kind and the values that have to be rewritten or
- * removed.
+ * Changes the kind of a property as planned: the values the new kind cannot
+ * read are removed first, then the definition changes, then the views that
+ * leaned on the old kind and the values rewritten for the new one. Undo goes
+ * back the other way, so each value comes back under the kind it was
+ * written for: the server refuses a value of another kind (a text where a
+ * card relation is, a date where none is).
  */
 export async function changePropertyType(board: BoardStore, plan: TypeChangePlan): Promise<void> {
   const { template, values } = plan;
   const groupId = newUndoGroup();
+  const removed = [...values].filter(([, value]) => value === undefined).map(([cardId]) => cardId);
+  const before = new Map(
+    removed.map((cardId) => [cardId, board.card(cardId)?.fields.properties[template.id]]),
+  );
+  const setAll = (entries: Iterable<[string, PropertyValue | undefined]>) =>
+    Promise.all(
+      [...entries].map(([cardId, value]) =>
+        board.setCardProperty(cardId, template.id, value, groupId),
+      ),
+    );
+  await setAll(removed.map((cardId) => [cardId, undefined]));
   await board.changeBoard(
     withTemplate(template.id, () => template),
     'changePropertyType',
     groupId,
   );
-  // Refused: the views and the values stay as they are.
-  if (templateOf(board, template.id)?.type !== template.type) return;
+  // Refused: the views stay as they are, and the values come back.
+  if (templateOf(board, template.id)?.type !== template.type) {
+    await setAll(before);
+    return;
+  }
   await Promise.all([
     ...board.views.map((view) =>
       board.changeView(
@@ -114,9 +132,7 @@ export async function changePropertyType(board: BoardStore, plan: TypeChangePlan
         groupId,
       ),
     ),
-    ...[...values].map(([cardId, value]) =>
-      board.setCardProperty(cardId, template.id, value, groupId),
-    ),
+    setAll([...values].filter(([, value]) => value !== undefined)),
   ]);
 }
 

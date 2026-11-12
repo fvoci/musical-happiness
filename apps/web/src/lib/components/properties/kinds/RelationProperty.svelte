@@ -10,9 +10,10 @@
   for a card the value named before, whether it is in the trash or gone.)
 
   The card itself cannot be picked, a card is picked once, and no more than
-  RELATION_LIMIT are named, the hidden ones counted, as the server counts
-  them (a value that names more, written some other way, keeps them all
-  until the reader takes some out). The list shows the
+  RELATION_LIMIT are picked (a value that names more, written some other
+  way, keeps them all until the reader takes some out). The server counts
+  the hidden ones too: what is written keeps of them only as many as leave
+  the picked ones within the limit, the first named first. The list shows the
   picked cards first, then the others by title, at most LIST_LIMIT at a
   time, so that a board of thousands of cards does not draw thousands of
   rows: typing narrows it.
@@ -88,9 +89,7 @@
 
   /** The picked cards that are there, in the order they were picked; never the card itself. */
   const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
-  /** The named cards that are not there (deleted): kept in what is written. */
-  const hidden = $derived(ids.filter((id) => id !== cardId && !cards.has(id)));
-  const full = $derived(shown.length + hidden.length >= RELATION_LIMIT);
+  const full = $derived(shown.length >= RELATION_LIMIT);
 
   /**
    * The cards that can be picked, by title, each with the text it is found
@@ -167,12 +166,15 @@
   const onLoop = (id: string): boolean => excluded?.has(id) ?? false;
 
   /**
-   * Writes the value: the picked cards that are there and the hidden ones, in
-   * the order they were named, each once, never the card itself.
+   * Writes the value: the picked cards that are there and, as far as the
+   * limit leaves room, the hidden ones, in the order they were named, each
+   * once, never the card itself.
    */
   function write(next: readonly string[]): void {
     const picked = new Set(next.filter((id) => id !== cardId && cards.has(id)));
-    const kept = ids.filter((id) => id !== cardId && (!cards.has(id) || picked.has(id)));
+    const hidden = [...new Set(ids.filter((id) => id !== cardId && !cards.has(id)))];
+    const room = new Set(hidden.slice(0, Math.max(RELATION_LIMIT - picked.size, 0)));
+    const kept = ids.filter((id) => picked.has(id) || room.has(id));
     onChange?.([...new Set([...kept, ...picked])]);
   }
 

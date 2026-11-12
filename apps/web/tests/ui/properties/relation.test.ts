@@ -161,18 +161,17 @@ describe('a relation property, opened', () => {
     expect(onChange).toHaveBeenLastCalledWith(['card-gone']);
   });
 
-  it(`counts the cards that are not there toward the ${String(RELATION_LIMIT)}`, async () => {
+  it(`keeps the cards that are not there only as far as the ${String(RELATION_LIMIT)} leave room`, async () => {
     const many = cardsOf(
       Object.fromEntries(
         Array.from({ length: RELATION_LIMIT }, (_, at) => [`c${String(at)}`, `Card ${String(at)}`]),
       ),
     );
-    const named = ['gone', ...[...many.keys()].slice(0, RELATION_LIMIT - 1)];
-    const { onChange } = mount('relation', named, { cards: many });
+    const gone = Array.from({ length: RELATION_LIMIT }, (_, at) => `gone-${String(at)}`);
+    const { onChange } = mount('relation', gone, { cards: many });
     await fireEvent.click(button());
-    await type(search(), `Card ${String(RELATION_LIMIT - 1)}`);
-    expect(rows()).toEqual([]);
-    expect(onChange).not.toHaveBeenCalled();
+    await fireEvent.click(within(list()).getByRole('option', { name: 'Card 0' }));
+    expect(onChange).toHaveBeenLastCalledWith([...gone.slice(0, RELATION_LIMIT - 1), 'c0']);
   });
 
   it(`picks no more than ${String(RELATION_LIMIT)} cards, and says so`, async () => {

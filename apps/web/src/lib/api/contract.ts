@@ -346,7 +346,8 @@ export interface paths {
          * @description The server chooses the identifier, the creator and the times. For editors.
          *
          *     The value of a card relation property (of the `type` `relation`) is `null` or a list
-         *     of other cards of the board, in the trash or not, each once, at most 50. Any other is
+         *     of other cards of the board, in the trash or not, each once, at most 50 (a value over
+         *     it from before may be written with fewer of its cards, not with another). Any other is
          *     400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,
          *     `relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board
          *     that is no card) or `relation_card_not_found`: no card of that identifier on the

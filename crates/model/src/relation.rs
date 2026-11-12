@@ -7,6 +7,7 @@
 //! ([`RelationProblem::NotACard`], [`RelationProblem::CardNotFound`]).
 
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 
 use serde_json::Value;
 use thiserror::Error;
@@ -28,7 +29,8 @@ pub enum RelationProblem {
     ToItself,
     /// The value names a card twice.
     Repeated,
-    /// The value names more than [`RELATION_LIMIT`] cards.
+    /// The value names more than [`RELATION_LIMIT`] cards, and one the value it replaces
+    /// did not name.
     TooMany,
     /// The value names a block of the board that is no card.
     NotACard,
@@ -91,18 +93,20 @@ pub fn relation_property_ids(definitions: &[JsonMap]) -> HashSet<&str> {
 
 /// Checks a relation value of the card `card_id` that a write gives it, and returns the
 /// identifiers it names (none for `null`). `had` is what the value it replaces named: a
-/// value stored before the rules that names more than [`RELATION_LIMIT`] may lose cards
-/// one at a time, and is refused once it names one it did not.
+/// value over [`RELATION_LIMIT`], stored before the rules, may be written again with
+/// any of its cards left out or in another order, and is refused once it names one it
+/// did not.
 ///
 /// # Errors
 ///
 /// Returns the [`RelationError`] of the first rule the value breaks: no list of
-/// strings, more than [`RELATION_LIMIT`] identifiers, the card itself, one twice.
-pub fn check_relation_value<'v>(
+/// strings, more than [`RELATION_LIMIT`] identifiers with one `had` lacks, the card
+/// itself, one twice.
+pub fn check_relation_value<'v, S: BuildHasher>(
     card_id: &str,
     property: &str,
     value: &'v Value,
-    had: &HashSet<&str>,
+    had: &HashSet<&str, S>,
 ) -> Result<Vec<&'v str>, RelationError> {
     let refuse = |problem| Err(RelationError::new(property, problem));
     let items = match value {
@@ -251,20 +255,16 @@ mod tests {
             problem_of(&ids(RELATION_LIMIT + 1)),
             Some(RelationProblem::TooMany)
         );
-        let stored = ids(RELATION_LIMIT + 2);
-        let stored: Vec<&str> = stored
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
+        let stored: Vec<String> = (0..RELATION_LIMIT + 2)
+            .map(|index| format!("c{index}"))
             .collect();
-        let had: HashSet<&str> = stored.iter().copied().collect();
+        let had: HashSet<&str> = stored.iter().map(String::as_str).collect();
         let fewer = json!(stored[1..]);
         assert!(
             check_relation_value("me", "rel", &fewer, &had).is_ok(),
             "a value over the limit from before the rules may lose cards"
         );
-        let other = json!([&stored[2..], &["new"]].concat());
+        let other = json!([&stored[2..], &["new".to_owned()]].concat());
         assert_eq!(
             check_relation_value("me", "rel", &other, &had).map_err(|error| error.problem),
             Err(RelationProblem::TooMany),

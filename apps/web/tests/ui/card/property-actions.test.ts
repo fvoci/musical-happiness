@@ -160,6 +160,22 @@ describe('changing the kind of a property', () => {
     expect(STATUS in cardNamed('Alpha').fields.properties).toBe(false);
   });
 
+  it('removes the values first, so that one undo brings them back under the old kind', async () => {
+    const { board, backend, workspace, definition, cardNamed } = await open();
+    const template = definition(STATUS);
+    if (!template) throw new Error('no status');
+    for (const kind of ['relation', 'date'] as const) {
+      await changePropertyType(board, planTypeChange(template, kind, board.cards));
+      expect(definition(STATUS)?.type).toBe(kind);
+      expect(STATUS in cardNamed('Alpha').fields.properties).toBe(false);
+      await workspace.undoLast();
+      expect(definition(STATUS)?.type).toBe('select');
+      const alpha = await backend.card(board.boardId, cardNamed('Alpha').id);
+      expect(alpha.fields.properties[STATUS]).toBe('todo');
+      expect(workspace.canUndo).toBe(false);
+    }
+  });
+
   it('takes the views off what they wrote for the old kind', async () => {
     const { board, view, definition } = await open();
     expect(view.fields.groupById).toBe(STATUS);
@@ -180,6 +196,12 @@ describe('changing the kind of a property', () => {
     expect(definition(STATUS)?.type).toBe('select');
     expect(board.view(view.id)?.fields.groupById).toBe(STATUS);
     expect(cardNamed('Alpha').fields.properties[STATUS]).toBe('todo');
+
+    backend.failNext('patchBoard', new BackendError(403));
+    await changePropertyType(board, planTypeChange(template, 'relation', board.cards));
+    expect(definition(STATUS)?.type).toBe('select');
+    const alpha = await backend.card(board.boardId, cardNamed('Alpha').id);
+    expect(alpha.fields.properties[STATUS]).toBe('todo');
   });
 });
 

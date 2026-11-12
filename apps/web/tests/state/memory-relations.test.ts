@@ -97,3 +97,69 @@ describe('a copy of a board', () => {
     expect(byTitle('Second')?.fields.properties[RELATION]).toEqual([byTitle('First')?.id]);
   });
 });
+
+describe('a relation value stored before the rules', () => {
+  /** A card whose value names itself, a card twice, and a card that never was, as an older server kept it. */
+  async function stale() {
+    const made = await relatedBoard();
+    const { world, card } = made;
+    const [first, second] = [await card('First'), await card('Second')];
+    const many = Array.from({ length: RELATION_LIMIT }, (_, at) => `old-${String(at)}`);
+    const stored = world.blocks.get(first);
+    if (!stored) throw new Error('no card');
+    stored.fields = {
+      ...stored.fields,
+      properties: { [RELATION]: [first, 'never-was', 'never-was', ...many], note: 'before' },
+    };
+    return { ...made, first, second, many };
+  }
+
+  it('does not stop a write that leaves it alone', async () => {
+    const { backend, boardId, first } = await stale();
+    const patched = await backend.patchCard(boardId, first, {
+      title: 'Renamed',
+      updatedProperties: { note: 'after' },
+    });
+    expect(patched.fields.properties.note).toBe('after');
+  });
+
+  it('may lose cards over the limit, and not ask again for what it named', async () => {
+    const { backend, boardId, first, second, many } = await stale();
+    const write = (value: string[]) =>
+      backend.patchCard(boardId, first, { updatedProperties: { [RELATION]: value } });
+    const error = await write(['never-was', ...many, second]).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BackendError);
+    expect(error).toMatchObject({
+      reason: 'relation_too_many',
+      limit: RELATION_LIMIT,
+      errors: [{ pointer: '/updatedProperties', reason: 'relation_too_many' }],
+    });
+    expect(await reasonOf(write(['never-was', ...many]))).toBeUndefined();
+    expect(await reasonOf(write(['never-was', second]))).toBeUndefined();
+    expect(await reasonOf(write(['never-was', second, 'not-either']))).toBe(
+      'relation_card_not_found',
+    );
+  });
+
+  it('is made one a write takes in a copy of the board', async () => {
+    const { backend, boardId, workspaceId } = await stale();
+    const copy = await backend.duplicateBoard(boardId, false, workspaceId);
+    const cards = await backend.cards(copy.id);
+    expect(cards.find((each) => each.title === 'First')?.fields.properties[RELATION]).toEqual([]);
+  });
+});
+
+describe('a new card', () => {
+  it('is refused at the member its values are in', async () => {
+    const { backend, boardId } = await relatedBoard();
+    const error = await backend
+      .createCard(boardId, { title: 'New', properties: { [RELATION]: ['nope'] } })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      status: 400,
+      reason: 'relation_card_not_found',
+      type: '/problems/relation-card-not-found',
+      errors: [{ pointer: '/properties', reason: 'relation_card_not_found' }],
+    });
+  });
+});

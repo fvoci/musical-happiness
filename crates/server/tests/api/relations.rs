@@ -477,7 +477,7 @@ async fn a_value_stored_before_the_rules_does_not_stop_other_changes() {
         "relation_repeated",
         "/updatedProperties",
     );
-    // Over the limit it may lose cards, one at a time, and not take in another.
+    // Over the limit it may lose cards, and not take in another.
     check_refused(
         &patch_relation(
             &th.client,

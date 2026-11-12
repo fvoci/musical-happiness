@@ -19,6 +19,7 @@
 import type { CalendarDate } from './dates.ts';
 import { propertyBehavior } from './properties.ts';
 import {
+  cardProperties,
   cardProperty,
   parseRelationValue,
   RELATION_LIMIT,
@@ -45,7 +46,7 @@ export function valuesOfCopy(
   templates: readonly PropertyTemplate[],
   cardIds: ReadonlySet<string>,
 ): Record<string, PropertyValue> {
-  const values = { ...card.fields.properties };
+  const values = { ...cardProperties(card) };
   for (const template of templates) {
     if (template.type !== 'relation' || values[template.id] === undefined) continue;
     values[template.id] = parseRelationValue(values[template.id])
