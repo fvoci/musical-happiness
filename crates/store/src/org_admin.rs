@@ -548,16 +548,18 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
     })
 }
 
-/// Reads the handle's organization and holds its row to the end of the transaction:
-/// the changes of who administers it and of its workspaces are made one at a time. On
-/// SQLite a transaction that writes holds the whole database.
+/// Holds the handle's organization's row ([`hold_organization_row`]) and reads it:
+/// [`StoreError::NotFound`] if it is not in use. A job that must also work on an
+/// organization no longer in use, as emptying its trash does, holds the row alone.
 pub(crate) async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
     hold_organization_row(scope).await?;
     organization(scope).await
 }
 
-/// Holds the handle's organization's row as [`lock_organization`] does, whether the
-/// organization is in use or not.
+/// Holds the handle's organization's row to the end of the transaction, whether it is
+/// in use or not: the changes of who administers it, of its workspaces and of the
+/// boards they hold, are made one at a time. On SQLite a transaction that writes holds
+/// the whole database.
 async fn hold_organization_row(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
     sql.bind(scope.org()?);

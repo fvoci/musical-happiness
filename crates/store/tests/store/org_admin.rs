@@ -77,6 +77,17 @@ fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
     }
 }
 
+/// Puts the test's organization out of use (`delete_at` other than 0), or back in use.
+async fn set_org_deleted(test: &TestStore, delete_at: i64) {
+    let statement = format!(
+        "UPDATE organizations SET delete_at = {delete_at} WHERE id = '{}'",
+        test.org_id
+    );
+    test.execute_unchecked(&statement)
+        .await
+        .expect("the organization's use changes");
+}
+
 /// What the workspace's audit log says, as `(action, actor, subject)`.
 async fn log_of(store: &Store, workspace_id: &str) -> Vec<(AuditAction, String, String)> {
     store
@@ -162,6 +173,8 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
         "trashed later than the cutoff"
     );
 
+    // Also of an organization no longer in use, whose trash is still emptied.
+    set_org_deleted(&test, 5).await;
     let Purged {
         records,
         files: mut gone,
@@ -169,6 +182,7 @@ async fn a_workspace_in_the_trash_goes_for_good_as_its_boards_do() {
         .purge_workspace(&doomed, i64::MAX)
         .await
         .expect("the workspace is purged");
+    set_org_deleted(&test, 0).await;
     gone.sort_by(|a, b| a.path.cmp(&b.path));
     assert_eq!(gone, files, "the files of both of its boards");
     assert_eq!(records, 2, "its two boards");
