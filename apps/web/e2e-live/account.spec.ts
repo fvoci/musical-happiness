@@ -7,6 +7,7 @@ import { expect, test } from '@playwright/test';
 import { boardLink } from '../e2e/shell.support.ts';
 
 import {
+  boardPath,
   invitation,
   makeBoard,
   person,
@@ -191,7 +192,7 @@ test('a session that ends on an open board, and somebody else signs in on that p
   await api.dispose();
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await signInOnPage(page, owner);
   await expect(page.getByText('Secret step')).toBeVisible();
   // Something to undo, in this session.

@@ -876,7 +876,7 @@ describe('archives', () => {
     if (!source) throw new Error('unexpected seed');
     const archive = await workspace.exportBoard(source.id);
     expect(archive?.name).toMatch(/^archive-\d{4}-\d{2}-\d{2}\.boardarchive$/);
-    expect(workspace.transfers).toMatchObject([{ kind: 'export', finished: true }]);
+    expect(workspace.transfers.list).toMatchObject([{ kind: 'export', finished: true }]);
     const before = workspace.boards.length;
     const imported = await workspace.importArchive(
       new File([archive?.bytes ?? ''], archive?.name ?? 'a'),
@@ -900,11 +900,11 @@ describe('archives', () => {
     backend.latency = 20;
     const first = workspace.exportWorkspace();
     const again = workspace.exportWorkspace();
-    expect(workspace.transfers).toHaveLength(1);
+    expect(workspace.transfers.list).toHaveLength(1);
     expect(await again).toBeUndefined();
-    workspace.dismissTransfer(workspace.transfers[0]?.id ?? 0);
+    workspace.transfers.dismiss(workspace.transfers.list[0]?.id ?? 0);
     expect(await first).toBeUndefined();
-    expect(workspace.transfers).toEqual([]);
+    expect(workspace.transfers.list).toEqual([]);
     expect(workspace.problems).toEqual([]);
     backend.latency = 0;
     expect(await workspace.exportBoard(board.id)).toBeDefined();
@@ -916,7 +916,7 @@ describe('archives', () => {
     const before = workspace.boards.length;
     expect(await workspace.importArchive(new File(['hello'], 'notes.txt'))).toBe(false);
     expect(workspace.problems).toMatchObject([{ action: 'import', error: { status: 400 } }]);
-    expect(workspace.transfers).toEqual([]);
+    expect(workspace.transfers.list).toEqual([]);
     await settle();
     expect(workspace.boards).toHaveLength(before);
   });

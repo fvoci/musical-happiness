@@ -7,13 +7,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -48,10 +49,10 @@ test('a category made elsewhere shows in the sidebar of every tab of its user', 
   const second = await context.newPage();
   const errors = [...watchErrors(first), ...watchErrors(second)];
   const listening = Promise.all([subscribed(first), subscribed(second)]);
-  await first.goto(`/board/${board.boardId}/${board.viewId}`);
+  await first.goto(boardPath(board, board.viewId));
   await signInOnPage(first, owner);
   // The same browser: the second tab has the session too.
-  await second.goto(`/board/${board.boardId}/${board.viewId}`);
+  await second.goto(boardPath(board, board.viewId));
   await expect(second.getByTestId('board-page')).toBeVisible();
   await listening;
 
@@ -82,9 +83,9 @@ test('signing out in one tab ends the session of the other, which asks to sign i
   const second = await context.newPage();
   const errors = [...watchErrors(first), ...watchErrors(second)];
   const listening = Promise.all([subscribed(first), subscribed(second)]);
-  await first.goto(`/board/${board.boardId}/${board.viewId}`);
+  await first.goto(boardPath(board, board.viewId));
   await signInOnPage(first, owner);
-  await second.goto(`/board/${board.boardId}/${board.viewId}`);
+  await second.goto(boardPath(board, board.viewId));
   await expect(second.getByTestId('board-page')).toBeVisible();
   await listening;
 

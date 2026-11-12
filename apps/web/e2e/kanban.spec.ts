@@ -10,6 +10,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { ON_A_CARD, placeOf, viewIdOf } from './address.ts';
 import {
   announcer,
   boardPage,
@@ -98,7 +99,7 @@ test.describe('columns and cards', () => {
     await card(page, 'Define project scope').click();
     await expect(dialog(page)).toBeVisible();
     await expect(dialog(page)).toContainText('Define project scope');
-    await expect(page).toHaveURL(/\/board\/[^/]+\/[^/]+\/[^/]+$/);
+    await expect(page).toHaveURL(ON_A_CARD);
     await page.goBack();
     await expect(dialog(page)).toBeHidden();
 
@@ -536,7 +537,7 @@ test.describe('a sorted view', () => {
     expect(after).toHaveLength(4);
     expect(after.filter((title) => title !== 'Review API design')).toEqual(before);
     // Where the card stands is where the board store's order of the view puts it.
-    const expected = await page.evaluate(() => {
+    const expected = await page.evaluate((id) => {
       const { workspace } = (
         window as unknown as {
           fvociDev: {
@@ -550,9 +551,8 @@ test.describe('a sorted view', () => {
           };
         }
       ).fvociDev;
-      const id = location.pathname.split('/')[3] ?? '';
       return workspace.board.cardsOf(workspace.board.view(id)).map((shown) => shown.title);
-    });
+    }, viewIdOf(page.url()));
     expect(after).toEqual(expected.filter((title) => after.includes(title)));
   });
 
@@ -639,7 +639,8 @@ test.describe('the menu of a card', () => {
     await cardMenu(page, 'Define project scope', 'copy-link');
     await expect(page.getByTestId('link-copied').filter({ hasText: 'Copied!' })).toHaveCount(1);
     const copied = await page.evaluate(() => document.body.dataset.copied ?? '');
-    expect(copied).toMatch(/^http.*\/board\/[^/]+\/[^/]+\/[^/]+$/);
+    expect(copied).toMatch(/^http/);
+    expect(copied).toMatch(ON_A_CARD);
     // The address opens the card.
     await page.goto(copied);
     await expect(dialog(page)).toContainText('Define project scope');
@@ -755,7 +756,7 @@ test.describe('a pane that fits one column', () => {
     await openView(page, info, ...TASKS);
     await fitPane(page, NARROW);
     // Enough cards in a column for it to scroll.
-    await page.evaluate(async () => {
+    await page.evaluate(async (boardId) => {
       const { backend } = (
         window as unknown as {
           fvociDev: {
@@ -770,7 +771,6 @@ test.describe('a pane that fits one column', () => {
           };
         }
       ).fvociDev;
-      const boardId = location.pathname.split('/')[2] ?? '';
       const model = (await backend.cards(boardId)).find(
         (shown) => shown.title === 'Define project scope',
       );
@@ -780,7 +780,7 @@ test.describe('a pane that fits one column', () => {
           properties: model?.fields.properties,
         });
       }
-    });
+    }, placeOf(page.url()).boardId);
     await expect(column(page, 'In Progress').locator('[data-card]')).toHaveCount(16);
 
     const tabs = page.getByTestId('column-tabs');

@@ -11,13 +11,14 @@ import { closeSync, ftruncateSync, openSync, readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -58,7 +59,7 @@ test('a file of two parts is attached on the server and downloads as the same by
   });
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}/${cardId}`);
+  await page.goto(boardPath(board, board.viewId, cardId));
   await signInOnPage(page, owner);
   const section = page.getByTestId('card-attachments');
   await expect(section).toBeVisible();
@@ -113,7 +114,7 @@ test('a file over the server’s limit is refused before it is sent, and says th
   });
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}/${cardId}`);
+  await page.goto(boardPath(board, board.viewId, cardId));
   await signInOnPage(page, owner);
   // A file one byte over the limit, with no bytes written (a sparse file).
   const video = testInfo.outputPath('video.bin');

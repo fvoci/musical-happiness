@@ -14,6 +14,7 @@
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
@@ -93,8 +94,7 @@ async function find(page: Page, board: string, card: string): Promise<Place> {
   );
 }
 
-const addressOf = (place: Place): string =>
-  `/board/${place.boardId}/${place.viewId}/${place.cardId}`;
+const addressOf = (place: Place): string => boardPath(place.boardId, place.viewId, place.cardId);
 
 /** Opens a card by its address and waits until its body, attachments and comments are there. */
 async function openCard(page: Page, board: string, card: string): Promise<Place> {
@@ -245,7 +245,7 @@ test('closing: Escape and the button for a panel or a dialog, the arrow for a fu
 }, testInfo) => {
   const stage = STAGE_OF_PROJECT[testInfo.project.name] ?? 'expanded';
   const place = await openTaskCard(page);
-  const board = new RegExp(`/board/${place.boardId}/${place.viewId}$`);
+  const board = viewAddress(place.boardId, place.viewId);
 
   await page.getByTestId(stage === 'compact' ? 'card-back' : 'card-close').click();
   await expect(dialog(page)).toBeHidden();
@@ -807,7 +807,7 @@ test('another card is shown in the same dialog', async ({ page }) => {
   // "Duplicate" makes a copy and shows it in place of this card.
   await cardMenu(page, 'duplicate');
   await expect(page).not.toHaveURL(new RegExp(`${place.cardId}$`));
-  await expect(page).toHaveURL(/\/board\/[^/]+\/[^/]+\/[^/]+$/);
+  await expect(page).toHaveURL(ON_A_CARD);
   await expect(dialog(page)).toHaveAttribute('data-kept', 'yes');
   await expect(page.getByTestId('card-title')).toHaveValue('Identify dependencies');
   // The copy has the body and none of the comments.
@@ -1114,7 +1114,7 @@ test('on a board the reader may only look at, nothing can be changed', async ({ 
 test('a card that is not there says so and can be closed', async ({ page }, testInfo) => {
   const stage = STAGE_OF_PROJECT[testInfo.project.name] ?? 'expanded';
   const place = await find(page, 'Project Tasks', 'Identify dependencies');
-  await page.goto(`/board/${place.boardId}/${place.viewId}/no-such-card`);
+  await page.goto(boardPath(place.boardId, place.viewId, 'no-such-card'));
   const missing = page.getByTestId('card-missing');
   await expect(missing.getByRole('alert')).toHaveText(
     "This card doesn't exist or is inaccessible.",
@@ -1123,7 +1123,7 @@ test('a card that is not there says so and can be closed', async ({ page }, test
   await expect(page.getByTestId(stage === 'compact' ? 'card-back' : 'card-close')).toBeVisible();
   await missing.getByRole('button', { name: 'Close' }).click();
   await expect(dialog(page)).toBeHidden();
-  await expect(page).toHaveURL(new RegExp(`/board/${place.boardId}/${place.viewId}$`));
+  await expect(page).toHaveURL(viewAddress(place.boardId, place.viewId));
 });
 
 test('somebody else deletes the card while it is open: the same notice', async ({ page }) => {
@@ -1156,7 +1156,7 @@ test('the menu deletes the card without asking, the card closes, and undo brings
   await expect(page.getByTestId('confirm-dialog')).toBeHidden();
   await expect(dialog(page)).toBeHidden();
   await expect(onBoard).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`/board/${place.boardId}/${place.viewId}$`));
+  await expect(page).toHaveURL(viewAddress(place.boardId, place.viewId));
 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(onBoard).toHaveCount(1);

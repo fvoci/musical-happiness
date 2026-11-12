@@ -7,6 +7,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { viewIdOf } from './address.ts';
 import {
   bar,
   dayScale,
@@ -159,13 +160,12 @@ test('the counts above the chart say what they count in words, on a narrow page 
 
 test('a bar of a grouped chart says its group', async ({ page }, info) => {
   await openGantt(page, info);
-  await page.evaluate(async () => {
+  await page.evaluate(async (viewId) => {
     const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
     const found = store.board.cardProperties.find((each) => each.type === 'select');
-    const viewId = /\/board\/[^/]+\/([^/]+)/.exec(location.pathname)?.[1] ?? '';
     if (!found) throw new Error('no select property');
     await store.setViewFields(viewId, { groupById: found.id });
-  });
+  }, viewIdOf(page.url()));
   const heading = gantt(page).locator('[data-group]').first();
   await expect(heading).toBeVisible();
   // Each bar ends by naming the heading it is under.
