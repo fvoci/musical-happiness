@@ -41,6 +41,10 @@ pub(crate) struct Layer {
     /// The accessors and fields through which other code holds this layer: `.store()`
     /// and `.store` are the database, whatever the type is called where they are used.
     handles: &'static [&'static str],
+    /// What the layer may name of what is in no layer (the standard library and
+    /// [`NO_LAYER`]): `None` for all of it, else only these paths and what is under
+    /// them. A module `tests` names what it needs.
+    unlayered: Option<&'static [&'static str]>,
 }
 
 impl Layer {
@@ -61,8 +65,12 @@ impl Layer {
 ///   the store: a number of the database reaches it through the logic. Serving the
 ///   metrics and measuring requests are HTTP's.
 /// * **collab** is the body of a card as a Y document, without input or output. Only
-///   the logic asks it, and only it names `yrs`: bytes from outside are read there,
-///   after its scan, and nowhere else.
+///   the logic and the worker ask it, and only it names `yrs`: bytes from outside are
+///   read there, after its scan, and nowhere else.
+/// * **worker** is the process the server starts to hold those documents, so that
+///   the Y library never runs in the server's own process. It names the documents and
+///   its frames on a pipe, and of the rest only what its entry lists: no file, socket,
+///   database, process or runtime. The logic starts it and speaks its frames.
 ///
 /// A module of the server that is not listed under another layer is HTTP: the one that
 /// may do least with the data.
@@ -94,12 +102,14 @@ pub(crate) const LAYERS: &[Layer] = &[
         ],
         may_use: &["logic", "metrics", "model"],
         handles: &[],
+        unlayered: None,
     },
     Layer {
         name: "logic",
         owns: &[
             "fvoci_server::app",
             "fvoci_server::auth",
+            "fvoci_server::collab",
             "fvoci_server::config",
             "fvoci_server::error",
             "fvoci_server::permissions",
@@ -107,32 +117,61 @@ pub(crate) const LAYERS: &[Layer] = &[
             "fvoci_server::storage",
             "fvoci_server::webhook",
         ],
-        may_use: &["metrics", "collab", "store", "model"],
+        may_use: &["metrics", "collab", "worker", "store", "model"],
         handles: &[],
+        unlayered: None,
+    },
+    Layer {
+        name: "worker",
+        owns: &["fvoci_server::collab_worker"],
+        may_use: &["collab", "model"],
+        handles: &[],
+        unlayered: Some(&[
+            "std::collections",
+            "std::env::args_os",
+            "std::io",
+            "std::thread::sleep",
+            "std::time::Duration",
+            "serde_json",
+            "thiserror",
+        ]),
     },
     Layer {
         name: "collab",
         owns: &["fvoci_collab", "yrs"],
         may_use: &["model"],
         handles: &[],
+        // What the worker runs: no file, socket, process, thread or runtime here either.
+        unlayered: Some(&[
+            "std::collections",
+            "std::fmt",
+            "std::io::Result",
+            "std::io::Write",
+            "std::sync::Arc",
+            "serde_json",
+            "thiserror",
+        ]),
     },
     Layer {
         name: "metrics",
         owns: &["fvoci_server::metrics", "prometheus"],
         may_use: &[],
         handles: &[],
+        unlayered: None,
     },
     Layer {
         name: "store",
         owns: &["fvoci_store"],
         may_use: &["model"],
         handles: &["store"],
+        unlayered: None,
     },
     Layer {
         name: "model",
         owns: &["fvoci_model"],
         may_use: &[],
         handles: &[],
+        unlayered: None,
     },
 ];
 
@@ -161,6 +200,7 @@ pub(crate) const NO_LAYER: &[&str] = &[
     "flate2",
     "futures_util",
     "getrandom",
+    "libc",
     "jsonwebtoken",
     "md_5",
     "object_store",
@@ -181,6 +221,12 @@ pub(crate) const NO_LAYER: &[&str] = &[
     "uuid",
     "zip",
 ];
+
+/// The crates of the language, which are in no layer.
+const UNLAYERED_ROOTS: [&str; 3] = ["std", "core", "alloc"];
+
+/// What a use of something in no layer that a layer may not name is said to name.
+const NO_LAYER_NAME: &str = "no layer";
 
 /// The file of the uses that break the rule and are still there.
 pub(crate) const EXCEPTIONS: &str = "xtask/exceptions/layers.txt";
@@ -401,6 +447,22 @@ impl Sources {
         })
     }
 
+    /// What is in no layer that `from` may not name and `path` leads to, with the path
+    /// as it is there: for a layer that names only what its entry lists of it.
+    fn unlisted_by(&self, from: &Layer, path: &str) -> Option<(&'static str, String)> {
+        let listed = from.unlayered?;
+        self.reached(path)
+            .into_iter()
+            .find(|form| {
+                let root = form.split("::").next().unwrap_or(form);
+                let unlayered = UNLAYERED_ROOTS.contains(&root) || NO_LAYER.contains(&root);
+                unlayered
+                    && layer_of(form).is_none()
+                    && !listed.iter().any(|allowed| is_within(form, allowed))
+            })
+            .map(|form| (NO_LAYER_NAME, form))
+    }
+
     /// Every use that breaks the rule.
     fn violations(&self) -> Vec<Violation> {
         let mut violations = Vec::new();
@@ -410,13 +472,25 @@ impl Sources {
                     continue;
                 };
                 let broken = match &reference.target {
-                    Target::Path { path, .. } => self
-                        .readings(reference)
-                        .iter()
-                        .find_map(|reading| self.broken_by(from, reading))
-                        .or_else(|| handle_by_path(from, path)),
+                    Target::Path { path, .. } => {
+                        let readings = self.readings(reference);
+                        readings
+                            .iter()
+                            .find_map(|reading| self.broken_by(from, reading))
+                            .or_else(|| handle_by_path(from, path))
+                            .map(|(to, named)| (to.name, named))
+                            .or_else(|| {
+                                // A module of tests is not run by what the list is for.
+                                let in_tests =
+                                    reference.module.split("::").any(|name| name == "tests");
+                                readings
+                                    .iter()
+                                    .filter(|_| !in_tests)
+                                    .find_map(|reading| self.unlisted_by(from, reading))
+                            })
+                    }
                     Target::Handle { name, written } => {
-                        handle_layer(from, name).map(|to| (to, written.clone()))
+                        handle_layer(from, name).map(|to| (to.name, written.clone()))
                     }
                     Target::Included => None,
                 };
@@ -425,7 +499,7 @@ impl Sources {
                         file: file.clone(),
                         line: reference.line,
                         from: from.name,
-                        to: to.name,
+                        to,
                         named,
                     });
                 }

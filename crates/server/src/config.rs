@@ -20,6 +20,7 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 /// so every single valid block fits. Requests of the web app measured below 1 kB.
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
+pub mod collab;
 mod keys;
 mod scrapes;
 mod secret_key;
@@ -264,6 +265,9 @@ pub struct Configuration {
     /// How long a request waits for that turn before it is told to try again, in
     /// seconds.
     pub password_hash_queue_seconds: u64,
+    /// The keys `collab_*` (editing a body together).
+    #[serde(flatten)]
+    pub collab: collab::CollabSettings,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -327,6 +331,7 @@ impl Default for Configuration {
             password_hash_concurrency: 4,
             password_hash_queue: 16,
             password_hash_queue_seconds: 5,
+            collab: collab::CollabSettings::default(),
             skip_template_init: false,
         }
     }
@@ -411,6 +416,7 @@ impl std::fmt::Debug for Configuration {
                 "password_hash_queue_seconds",
                 &self.password_hash_queue_seconds,
             )
+            .field("collab", &self.collab)
             .finish_non_exhaustive()
     }
 }
@@ -661,7 +667,7 @@ impl Configuration {
             Some(_) => bail!("filess3config must be a JSON object"),
         }
 
-        for (key, kind) in ENV_KEYS {
+        for (key, kind) in ENV_KEYS.into_iter().chain(collab::ENV_KEYS) {
             let name = env_name(key);
             if let Some(text) = env(&name)
                 && !scrapes::is_unset_token(key, &text)
@@ -793,7 +799,7 @@ impl Configuration {
         if self.export_stall_seconds == 0 {
             bail!("export_stall_seconds must be at least 1");
         }
-        Ok(())
+        self.collab.check()
     }
 
     /// Checks that the configuration only asks for what this server supports.

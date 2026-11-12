@@ -1128,6 +1128,8 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
     }
     for module in [
         "auth",
+        "collab",
+        "collab_worker",
         "config",
         "error",
         "metrics",
@@ -1141,8 +1143,8 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
     write(
         &root,
         "crates/server/src/lib.rs",
-        "pub mod api; pub mod app; mod auth; mod config; mod error; mod metrics; mod permissions; \
-         mod scheduler; mod storage; mod webhook;",
+        "pub mod api; pub mod app; mod auth; mod collab; mod collab_worker; mod config; mod error; \
+         mod metrics; mod permissions; mod scheduler; mod storage; mod webhook;",
     );
     let exact = "crates/server/src/api/mod.rs .store().purge 1\n\
                  crates/server/src/app.rs axum::response::Response 1\n";
@@ -1174,8 +1176,8 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
     write(
         &root,
         "crates/server/src/lib.rs",
-        "pub mod api; pub mod app; mod auth; mod config; mod error; mod metrics; mod permissions; \
-         mod scheduler; mod storage; mod webhook;",
+        "pub mod api; pub mod app; mod auth; mod collab; mod collab_worker; mod config; mod error; \
+         mod metrics; mod permissions; mod scheduler; mod storage; mod webhook;",
     );
     run(&root).expect("the module is back");
     write(
@@ -1193,4 +1195,68 @@ fn the_step_holds_a_workspace_to_the_list_on_disk() {
     );
     run(&root).expect_err("and the step fails for it");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The worker names the documents and its frames, and of what is in no layer only what
+/// its entry lists: no file, socket, database, process or runtime.
+#[test]
+fn the_worker_names_only_the_documents_and_what_its_entry_lists() {
+    let module = "fvoci_server::collab_worker::serve";
+    assert_eq!(
+        broken(
+            module,
+            "use std::io::{self, Read};\nuse std::collections::HashMap;\n\
+             use fvoci_collab::BodyDoc;\nuse fvoci_model::Body;\n\
+             fn f() { let _ = io::stdin(); std::thread::sleep(std::time::Duration::ZERO); }",
+        ),
+        Vec::<String>::new(),
+        "what it is for"
+    );
+    assert_eq!(
+        broken(
+            module,
+            "use std::net::TcpStream;\nuse std::fs;\nuse tokio::net::TcpListener;\n\
+             fn f() { let _ = std::process::Command::new(\"sh\"); let _ = fs::read(\"x\"); }",
+        ),
+        [
+            "worker>no layer std::net::TcpStream",
+            "worker>no layer std::fs",
+            "worker>no layer tokio::net::TcpListener",
+            "worker>no layer std::process::Command::new",
+            "worker>no layer std::fs::read",
+        ],
+        "a socket, a file, a runtime and a process"
+    );
+    assert_eq!(
+        broken(
+            module,
+            "use fvoci_store::Store;\nfn f(app: &App) { app.store(); }"
+        ),
+        ["worker>store fvoci_store::Store", "worker>store .store()"],
+        "the database"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_server::app::x",
+            "use std::fs;\nuse fvoci_server::collab_worker::wire::Request;"
+        ),
+        Vec::<String>::new(),
+        "the logic names files and the worker's frames"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_server::collab_worker::serve::tests",
+            "use std::fs;\nfn f() { let _ = fs::read(\"x\"); }"
+        ),
+        Vec::<String>::new(),
+        "its tests read files"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_collab::scan",
+            "fn f() { let _ = std::net::TcpStream::connect(\"x\"); }"
+        ),
+        ["collab>no layer std::net::TcpStream::connect"],
+        "what the worker runs of the documents opens no socket either"
+    );
 }

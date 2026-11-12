@@ -258,6 +258,12 @@ fn describe_reason(reason: Reason) -> &'static str {
         | Reason::RelationTooMany
         | Reason::RelationNotACard
         | Reason::RelationCardNotFound => describe_relation(reason).unwrap_or_default(),
+        Reason::UpdateRefused
+        | Reason::UpdateOutOfStep
+        | Reason::UpdateTooLarge
+        | Reason::DocumentTooLarge
+        | Reason::TooManyDocuments
+        | Reason::DocumentUnavailable => describe_editing_together(reason),
     }
 }
 
@@ -294,6 +300,46 @@ fn describe_relation(reason: Reason) -> Option<&'static str> {
         }
         _ => return None,
     })
+}
+
+/// What the reasons of a body edited together mean.
+fn describe_editing_together(reason: Reason) -> &'static str {
+    match reason {
+        Reason::UpdateRefused => {
+            "Status 400. The document of a card's body that is edited together does not take \
+             the update: it is no update, writes outside the body, or would leave a document \
+             that is no body. The document is as it was."
+        }
+        Reason::UpdateOutOfStep => {
+            "Status 409. The update builds on changes the document of the body does not \
+             have: the editor that made it holds another document, or one that was made \
+             again. Load the document again and make the change there."
+        }
+        Reason::UpdateTooLarge => {
+            "Status 413. The update is larger than the server takes (setting \
+             `collab_update_bytes`); `limit` is the limit in bytes. Send the change in \
+             smaller updates."
+        }
+        Reason::DocumentTooLarge => {
+            "Status 413. With the update the document of the body, or the body, would be \
+             larger than it may be (setting `collab_state_bytes`, and the limit of a body); \
+             `limit` is the limit in bytes."
+        }
+        Reason::TooManyDocuments => {
+            "Status 503. The server holds as many documents of bodies being edited as it \
+             may (settings `collab_workers`, `collab_documents_per_worker`, \
+             `collab_worker_memory_bytes`). Try again when others are closed."
+        }
+        Reason::DocumentUnavailable => {
+            "Status 503. The document of the body cannot be worked on for now: the process \
+             that holds the documents ended or did not answer in time, which drops what was \
+             under way, or did so again and again with this document, which is closed for \
+             a while; or a write of the card's whole body came while what its editors typed \
+             could not be written to the card first, and was not done. The document is as \
+             it was stored before. Try again later."
+        }
+        other => unreachable!("{other:?} is no reason of editing together"),
+    }
 }
 
 /// The descriptions of the reasons of signing in through a provider.
