@@ -10,15 +10,20 @@ use serde_json::{Value, json};
 
 const STATE_BYTES: u64 = 8 * 1024 * 1024;
 
+fn limits(documents: u64) -> Limits {
+    Limits {
+        update_bytes: 64 * 1024,
+        state_bytes: STATE_BYTES,
+        body_bytes: 1024 * 1024,
+        documents,
+        held_bytes: 128 * 1024 * 1024,
+    }
+}
+
 fn worker(timeout: Duration, documents: u64) -> Worker {
     Worker::new(WorkerSettings {
         command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
-        limits: Limits {
-            update_bytes: 64 * 1024,
-            state_bytes: STATE_BYTES,
-            body_bytes: 1024 * 1024,
-            documents,
-        },
+        limits: limits(documents),
         timeout,
         memory_bytes: 1024 * 1024 * 1024,
     })
@@ -140,8 +145,8 @@ async fn two_editors_that_write_at_once_converge_through_the_worker() {
     worker.end().await;
 }
 
-/// What a worker that dies leaves: the request that was under way fails, the
-/// documents it held are gone, and the next request starts another worker.
+/// What a worker that dies leaves: it is reaped, the documents it held are gone, and
+/// the next request starts another worker.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_worker_that_is_killed_is_started_again_without_its_documents() {
@@ -152,12 +157,15 @@ async fn a_worker_that_is_killed_is_started_again_without_its_documents() {
         .expect("opened");
     let first = worker.pid().await.expect("a worker runs");
     signal(first, "KILL");
-    let died = worker.call(Some(generation), &Request::State(1)).await;
-    assert!(
-        matches!(died, Err(CallError::Died(Death::Broken(_)))),
-        "the request under way: {died:?}"
-    );
-    assert!(!is_alive(first), "no zombie is left of it");
+    // The worker's task notices the death while nobody asks anything, and reaps it.
+    let began = Instant::now();
+    while is_alive(first) {
+        assert!(
+            began.elapsed() < Duration::from_secs(5),
+            "no zombie is left of it"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     let lost = worker.call(Some(generation), &Request::State(1)).await;
     assert_eq!(lost, Err(CallError::Lost), "its documents are gone");
     let (again, _) = worker
@@ -198,28 +206,105 @@ async fn a_worker_that_takes_too_long_is_killed_and_the_request_fails() {
     worker.end().await;
 }
 
-/// A call that is given up while the worker works leaves the pipes out of step: the
-/// next call starts another worker instead of reading the answer of the one before.
+/// A caller that gives up waiting leaves the worker to finish the request: the next
+/// request is answered by the same worker, with its own answer.
 #[tokio::test]
-async fn a_call_given_up_half_way_does_not_put_the_answers_out_of_step() {
+async fn a_call_given_up_half_way_neither_kills_the_worker_nor_puts_the_answers_out_of_step() {
     let worker = roomy();
+    let (generation, _) = worker
+        .call(None, &open_body(1, &paragraphs(&["before"])))
+        .await
+        .expect("opened");
+    let first = worker.pid().await.expect("a worker runs");
     let given_up = tokio::time::timeout(
-        Duration::from_millis(200),
-        worker.call(None, &Request::Stall(2_000)),
+        Duration::from_millis(100),
+        worker.call(None, &Request::Stall(500)),
     )
     .await;
     assert!(given_up.is_err(), "given up");
-    let first = worker.pid().await.expect("a worker runs");
-    let (generation, answer) = worker
-        .call(None, &open_body(1, &paragraphs(&["after"])))
-        .await
-        .expect("opened in another worker");
-    assert!(matches!(answer, Answer::Opened { .. }), "{answer:?}");
-    assert_ne!(worker.pid().await, Some(first));
     assert_eq!(
         body_of(&worker, generation, 1).await,
-        paragraphs(&["after"])
+        paragraphs(&["before"]),
+        "the same worker, and the answer to this request"
     );
+    assert_eq!(worker.pid().await, Some(first));
+    worker.end().await;
+}
+
+/// A request larger than a frame is refused before it is sent, and the worker lives.
+#[tokio::test]
+async fn a_request_larger_than_a_frame_is_refused_without_harm_to_the_worker() {
+    let worker = roomy();
+    let (generation, _) = worker
+        .call(None, &open_body(1, &paragraphs(&["kept"])))
+        .await
+        .expect("opened");
+    let first = worker.pid().await;
+    let past_a_frame = usize::try_from(STATE_BYTES).expect("small") + 2048;
+    let huge = worker
+        .call(
+            Some(generation),
+            &Request::Take {
+                doc: 1,
+                update: vec![0; past_a_frame],
+            },
+        )
+        .await;
+    assert_eq!(refusal(huge), Refusal::UpdateTooLarge);
+    let stored = worker
+        .call(
+            None,
+            &Request::Open {
+                doc: 2,
+                source: Source::State(vec![0; past_a_frame]),
+            },
+        )
+        .await;
+    assert_eq!(refusal(stored), Refusal::DocumentTooLarge);
+    assert_eq!(worker.pid().await, first, "the same worker");
+    assert_eq!(body_of(&worker, generation, 1).await, paragraphs(&["kept"]));
+    worker.end().await;
+}
+
+/// A worker holds the states of its documents within the bytes it is given for them.
+#[tokio::test]
+async fn a_worker_holds_no_more_bytes_of_documents_than_it_may() {
+    let texts: Vec<String> = (0..100)
+        .map(|line| format!("line {line} of a body"))
+        .collect();
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let body = paragraphs(&texts);
+    let probe = roomy();
+    let (_, opened) = probe
+        .call(None, &open_body(1, &body))
+        .await
+        .expect("opened");
+    probe.end().await;
+    let Answer::Opened { state_bytes, .. } = opened else {
+        panic!("{opened:?}");
+    };
+    let worker = Worker::new(WorkerSettings {
+        command: WorkerCommand::of_executable(env!("CARGO_BIN_EXE_fvoci-server").into()),
+        limits: Limits {
+            held_bytes: state_bytes * 2,
+            ..limits(100)
+        },
+        timeout: Duration::from_secs(10),
+        memory_bytes: 1024 * 1024 * 1024,
+    });
+    for doc in 1..=2 {
+        worker
+            .call(None, &open_body(doc, &body))
+            .await
+            .expect("within");
+    }
+    let third = worker.call(None, &open_body(3, &body)).await;
+    assert_eq!(refusal(third), Refusal::TooManyDocuments, "past the bytes");
+    worker.call(None, &Request::Close(1)).await.expect("closed");
+    worker
+        .call(None, &open_body(3, &body))
+        .await
+        .expect("room again once one is closed");
     worker.end().await;
 }
 

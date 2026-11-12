@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+#[cfg(feature = "test-util")]
 use std::time::Duration;
 
 use fvoci_collab::{BodyDoc, TakeError, UpdateError, UpdateLimits};
@@ -16,6 +17,7 @@ use super::wire::{
 const CONFIGURE_FRAME_BYTES: u64 = 64;
 
 /// The longest stall a request may ask for.
+#[cfg(feature = "test-util")]
 const LONGEST_STALL: Duration = Duration::from_mins(10);
 
 /// Answers the requests of `input` on `output`, in order, until `input` ends.
@@ -55,7 +57,16 @@ fn malformed() -> FrameError {
 struct Worker {
     limits: Limits,
     update_limits: UpdateLimits,
-    docs: HashMap<DocNumber, BodyDoc>,
+    docs: HashMap<DocNumber, Held>,
+    /// The bytes of the states of all of them.
+    held_bytes: u64,
+}
+
+/// A document and the size of its state.
+#[derive(Debug)]
+struct Held {
+    doc: BodyDoc,
+    state_bytes: u64,
 }
 
 impl Worker {
@@ -69,6 +80,7 @@ impl Worker {
                 body_bytes: size(limits.body_bytes),
             },
             docs: HashMap::new(),
+            held_bytes: 0,
         }
     }
 
@@ -84,8 +96,8 @@ impl Worker {
                     .doc(doc)?
                     .take(&update, &self.update_limits)
                     .map_err(|error| take_refused(&error))?;
-                let state_bytes = size_of(&changed.doc.state());
-                self.docs.insert(doc, changed.doc);
+                let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
+                self.hold(doc, changed.doc, state_bytes)?;
                 Ok(Answer::Taken {
                     repair: changed.repair.update,
                     state_bytes,
@@ -106,9 +118,12 @@ impl Worker {
                 Ok(Answer::Body(body.map(|body| json_of(&body))))
             }
             Request::Close(doc) => {
-                self.docs.remove(&doc);
+                if let Some(held) = self.docs.remove(&doc) {
+                    self.held_bytes = self.held_bytes.saturating_sub(held.state_bytes);
+                }
                 Ok(Answer::Done)
             }
+            #[cfg(feature = "test-util")]
             Request::Stall(millis) => {
                 std::thread::sleep(Duration::from_millis(millis).min(LONGEST_STALL));
                 Ok(Answer::Done)
@@ -119,7 +134,33 @@ impl Worker {
     fn doc(&self, doc: DocNumber) -> Result<&BodyDoc, Refused> {
         self.docs
             .get(&doc)
+            .map(|held| &held.doc)
             .ok_or_else(|| refused(Refusal::UnknownDocument, "no document is open under it"))
+    }
+
+    /// Holds `held` under `doc`, in place of what was held there, if the states of all
+    /// the documents stay within [`Limits::held_bytes`].
+    fn hold(&mut self, doc: DocNumber, held: BodyDoc, state_bytes: u64) -> Result<(), Refused> {
+        let before = self.docs.get(&doc).map_or(0, |held| held.state_bytes);
+        let after = self
+            .held_bytes
+            .saturating_sub(before)
+            .saturating_add(state_bytes);
+        if after > self.limits.held_bytes {
+            return Err(refused(
+                Refusal::TooManyDocuments,
+                "the worker holds as many bytes of documents as it may",
+            ));
+        }
+        self.held_bytes = after;
+        self.docs.insert(
+            doc,
+            Held {
+                doc: held,
+                state_bytes,
+            },
+        );
+        Ok(())
     }
 
     fn open(&mut self, doc: DocNumber, source: Source) -> Response {
@@ -160,8 +201,8 @@ impl Worker {
                 (made, (Some(state), state_bytes))
             }
         };
-        self.docs.insert(doc, opened);
         let (state, state_bytes) = state;
+        self.hold(doc, opened, state_bytes)?;
         Ok(Answer::Opened { state, state_bytes })
     }
 }
@@ -207,6 +248,7 @@ mod tests {
         state_bytes: 4096,
         body_bytes: 4096,
         documents: 1,
+        held_bytes: 1 << 20,
     };
 
     /// The answers of a worker to `requests`, the configuration of [`LIMITS`] first.

@@ -1243,4 +1243,20 @@ fn the_worker_names_only_the_documents_and_what_its_entry_lists() {
         Vec::<String>::new(),
         "the logic names files and the worker's frames"
     );
+    assert_eq!(
+        broken(
+            "fvoci_server::collab_worker::serve::tests",
+            "use std::fs;\nfn f() { let _ = fs::read(\"x\"); }"
+        ),
+        Vec::<String>::new(),
+        "its tests read files"
+    );
+    assert_eq!(
+        broken(
+            "fvoci_collab::scan",
+            "fn f() { let _ = std::net::TcpStream::connect(\"x\"); }"
+        ),
+        ["collab>no layer std::net::TcpStream::connect"],
+        "what the worker runs of the documents opens no socket either"
+    );
 }

@@ -27,6 +27,8 @@ pub struct Changed {
     pub doc: BodyDoc,
     /// Its body, and what a repair deleted to make it one ([`Repair`]).
     pub repair: Repair,
+    /// The size of its state ([`BodyDoc::state`]), in bytes.
+    pub state_bytes: usize,
 }
 
 impl Default for BodyDoc {
@@ -108,6 +110,7 @@ impl From<crate::Taken> for Changed {
         Self {
             doc: BodyDoc { doc: taken.doc },
             repair: taken.repair,
+            state_bytes: taken.state_bytes,
         }
     }
 }

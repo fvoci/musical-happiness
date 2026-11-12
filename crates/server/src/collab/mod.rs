@@ -10,9 +10,6 @@ pub mod worker;
 /// executable does nothing else then: no configuration, runtime or log.
 #[must_use]
 pub fn run_as_worker() -> Option<anyhow::Result<()>> {
-    let argument = std::env::args_os().nth(1)?;
-    (argument == crate::collab_worker::WORKER_ARGUMENT).then(|| {
-        crate::collab_worker::run()
-            .map_err(|error| anyhow::anyhow!("the collab worker ended: {error}"))
-    })
+    crate::collab_worker::run_if_started_as_worker()
+        .map(|ended| ended.map_err(|error| anyhow::anyhow!("the collab worker ended: {error}")))
 }

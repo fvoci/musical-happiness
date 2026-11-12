@@ -43,7 +43,7 @@ pub(crate) struct Layer {
     handles: &'static [&'static str],
     /// What the layer may name of what is in no layer (the standard library and
     /// [`NO_LAYER`]): `None` for all of it, else only these paths and what is under
-    /// them.
+    /// them. A module `tests` names what it needs.
     unlayered: Option<&'static [&'static str]>,
 }
 
@@ -128,6 +128,7 @@ pub(crate) const LAYERS: &[Layer] = &[
         handles: &[],
         unlayered: Some(&[
             "std::collections",
+            "std::env::args_os",
             "std::io",
             "std::thread::sleep",
             "std::time::Duration",
@@ -140,7 +141,16 @@ pub(crate) const LAYERS: &[Layer] = &[
         owns: &["fvoci_collab", "yrs"],
         may_use: &["model"],
         handles: &[],
-        unlayered: None,
+        // What the worker runs: no file, socket, process, thread or runtime here either.
+        unlayered: Some(&[
+            "std::collections",
+            "std::fmt",
+            "std::io::Result",
+            "std::io::Write",
+            "std::sync::Arc",
+            "serde_json",
+            "thiserror",
+        ]),
     },
     Layer {
         name: "metrics",
@@ -468,8 +478,12 @@ impl Sources {
                             .or_else(|| handle_by_path(from, path))
                             .map(|(to, named)| (to.name, named))
                             .or_else(|| {
+                                // A module of tests is not run by what the list is for.
+                                let in_tests =
+                                    reference.module.split("::").any(|name| name == "tests");
                                 readings
                                     .iter()
+                                    .filter(|_| !in_tests)
                                     .find_map(|reading| self.unlisted_by(from, reading))
                             })
                     }

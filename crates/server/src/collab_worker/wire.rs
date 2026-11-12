@@ -20,6 +20,10 @@ pub struct Limits {
     pub body_bytes: u64,
     /// How many documents the worker holds at once.
     pub documents: u64,
+    /// The bytes of the states of all the documents the worker holds, together: what
+    /// keeps its memory within its limit, as a document in memory takes more than its
+    /// state and an update makes a copy of it.
+    pub held_bytes: u64,
 }
 
 impl Limits {
@@ -84,15 +88,15 @@ pub enum Request {
     /// Forgets a document.
     Close(DocNumber),
     /// Answers after the given milliseconds, for the tests of a worker that takes too
-    /// long.
+    /// long. Built with the feature `test-util` only.
+    #[cfg(feature = "test-util")]
     Stall(u64),
 }
 
 /// What the worker answers a request it did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Answer {
-    /// Done, with nothing to say ([`Request::Configure`], [`Request::Close`],
-    /// [`Request::Stall`]).
+    /// Done, with nothing to say: to a configuration, a closing or a stall.
     Done,
     /// A document is open.
     Opened {
@@ -133,7 +137,7 @@ pub enum Refusal {
     NoBody,
     /// The body would be larger than the limit.
     BodyTooLarge,
-    /// The worker holds as many documents as it may.
+    /// The worker holds as many documents, or as many bytes of them, as it may.
     TooManyDocuments,
     /// No document is open under the number, or one already is.
     UnknownDocument,
@@ -175,6 +179,7 @@ impl Request {
                     limits.state_bytes,
                     limits.body_bytes,
                     limits.documents,
+                    limits.held_bytes,
                 ] {
                     out.number(number);
                 }
@@ -204,6 +209,7 @@ impl Request {
             Self::Close(doc) => {
                 out.tag(8).number(*doc);
             }
+            #[cfg(feature = "test-util")]
             Self::Stall(millis) => {
                 out.tag(9).number(*millis);
             }
@@ -224,6 +230,7 @@ impl Request {
                 state_bytes: input.number()?,
                 body_bytes: input.number()?,
                 documents: input.number()?,
+                held_bytes: input.number()?,
             }),
             2 => {
                 let doc = input.number()?;
@@ -246,6 +253,7 @@ impl Request {
             6 => Self::State(input.number()?),
             7 => Self::Body(input.number()?),
             8 => Self::Close(input.number()?),
+            #[cfg(feature = "test-util")]
             9 => Self::Stall(input.number()?),
             _ => return Err(input.malformed()),
         };
@@ -257,19 +265,55 @@ impl Request {
 /// The tag of a refusal, after which come its reason and message.
 const REFUSED: u8 = 0x7f;
 
-/// The reasons of refusals, by their byte.
-const REFUSALS: [Refusal; 10] = [
-    Refusal::UpdateTooLarge,
-    Refusal::Unreadable,
-    Refusal::MissingChanges,
-    Refusal::Unappliable,
-    Refusal::DocumentTooLarge,
-    Refusal::NoBody,
-    Refusal::BodyTooLarge,
-    Refusal::TooManyDocuments,
-    Refusal::UnknownDocument,
-    Refusal::OutOfOrder,
-];
+impl Refusal {
+    /// Every refusal, for the tests of its byte.
+    #[cfg(test)]
+    const ALL: [Self; 10] = [
+        Self::UpdateTooLarge,
+        Self::Unreadable,
+        Self::MissingChanges,
+        Self::Unappliable,
+        Self::DocumentTooLarge,
+        Self::NoBody,
+        Self::BodyTooLarge,
+        Self::TooManyDocuments,
+        Self::UnknownDocument,
+        Self::OutOfOrder,
+    ];
+
+    /// The byte of the refusal in an answer.
+    fn byte(self) -> u8 {
+        match self {
+            Self::UpdateTooLarge => 0,
+            Self::Unreadable => 1,
+            Self::MissingChanges => 2,
+            Self::Unappliable => 3,
+            Self::DocumentTooLarge => 4,
+            Self::NoBody => 5,
+            Self::BodyTooLarge => 6,
+            Self::TooManyDocuments => 7,
+            Self::UnknownDocument => 8,
+            Self::OutOfOrder => 9,
+        }
+    }
+
+    /// The refusal of a byte in an answer.
+    fn of_byte(byte: u8) -> Option<Self> {
+        Some(match byte {
+            0 => Self::UpdateTooLarge,
+            1 => Self::Unreadable,
+            2 => Self::MissingChanges,
+            3 => Self::Unappliable,
+            4 => Self::DocumentTooLarge,
+            5 => Self::NoBody,
+            6 => Self::BodyTooLarge,
+            7 => Self::TooManyDocuments,
+            8 => Self::UnknownDocument,
+            9 => Self::OutOfOrder,
+            _ => return None,
+        })
+    }
+}
 
 /// The bytes of an answer.
 #[must_use]
@@ -295,13 +339,8 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
             out.tag(5).optional(body.as_deref());
         }
         Err(refused) => {
-            let reason = REFUSALS
-                .iter()
-                .position(|known| *known == refused.refusal)
-                .and_then(|index| u8::try_from(index).ok())
-                .unwrap_or(u8::MAX);
             out.tag(REFUSED)
-                .tag(reason)
+                .tag(refused.refusal.byte())
                 .bytes(refused.message.as_bytes());
         }
     }
@@ -328,9 +367,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
         4 => Ok(Answer::Bytes(input.bytes()?)),
         5 => Ok(Answer::Body(input.optional()?)),
         REFUSED => {
-            let refusal = *REFUSALS
-                .get(usize::from(input.tag()?))
-                .ok_or_else(|| input.malformed())?;
+            let refusal = Refusal::of_byte(input.tag()?).ok_or_else(|| input.malformed())?;
             let message = String::from_utf8_lossy(&input.bytes()?).into_owned();
             Err(Refused { refusal, message })
         }
@@ -438,6 +475,7 @@ mod tests {
                 state_bytes: 2,
                 body_bytes: 3,
                 documents: 4,
+                held_bytes: 5,
             }),
             Request::Open {
                 doc: 7,
@@ -463,7 +501,6 @@ mod tests {
             Request::State(4),
             Request::Body(5),
             Request::Close(6),
-            Request::Stall(10),
         ];
         for request in requests {
             assert_eq!(
@@ -494,7 +531,7 @@ mod tests {
             Ok(Answer::Body(Some(b"{}".to_vec()))),
             Ok(Answer::Body(None)),
         ];
-        responses.extend(REFUSALS.iter().map(|refusal| {
+        responses.extend(Refusal::ALL.iter().map(|refusal| {
             Err(Refused {
                 refusal: *refusal,
                 message: "why".to_owned(),

@@ -11,7 +11,8 @@ use serde::Deserialize;
 pub struct CollabSettings {
     /// How many worker processes hold the documents. 1 to 64.
     pub collab_workers: u32,
-    /// How many documents one worker holds at once. At least 1.
+    /// How many documents one worker holds at once. At least 1. A worker also holds no
+    /// more of their states, together, than an eighth of `collab_worker_memory_bytes`.
     pub collab_documents_per_worker: u32,
     /// The largest document, in bytes of its stored state. 2 MiB to 1 GiB.
     pub collab_state_bytes: u64,
@@ -48,6 +49,12 @@ pub(super) const MOST_STATE_BYTES: u64 = 1024 * 1024 * 1024;
 /// with the copies an update makes of it.
 pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 
+/// How many bytes of a worker's memory every byte of the states of its documents
+/// takes: a document in memory is larger than its state, and an update makes a copy of
+/// it and reads its state again. A worker holds states of `collab_worker_memory_bytes`
+/// divided by this, together.
+pub(super) const MEMORY_PER_STATE_BYTE: u64 = 8;
+
 impl Default for CollabSettings {
     fn default() -> Self {
         Self {
@@ -62,6 +69,12 @@ impl Default for CollabSettings {
 }
 
 impl CollabSettings {
+    /// The bytes of the states of all its documents a worker may hold together.
+    #[must_use]
+    pub fn held_bytes(&self) -> u64 {
+        self.collab_worker_memory_bytes / MEMORY_PER_STATE_BYTE
+    }
+
     /// Checks the settings against their ranges.
     ///
     /// # Errors
@@ -92,6 +105,14 @@ impl CollabSettings {
         }
         if self.collab_worker_timeout_ms == 0 {
             bail!("collab_worker_timeout_ms must be at least 1");
+        }
+        if self.collab_worker_memory_bytes / MEMORY_PER_STATE_BYTE < self.collab_state_bytes {
+            bail!(
+                "collab_worker_memory_bytes must be at least {MEMORY_PER_STATE_BYTE} times \
+                 collab_state_bytes ({}), not {}",
+                self.collab_state_bytes,
+                self.collab_worker_memory_bytes
+            );
         }
         if self.collab_worker_memory_bytes < LEAST_WORKER_MEMORY_BYTES {
             bail!(

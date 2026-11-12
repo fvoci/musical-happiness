@@ -2,6 +2,12 @@
 //! request at a time, and killed and started again when it dies, breaks a frame or
 //! takes longer than the time limit.
 //!
+//! The process is held by a task of its own, which takes the requests in turn from a
+//! queue and answers each on a channel of its caller's. A caller that gives up waiting
+//! leaves the task to finish the request, so that the next one is not answered with
+//! what was meant for it; and the task reaps a worker that dies while nobody asks
+//! anything.
+//!
 //! Every start is a new generation. What a worker held is gone with it: a request
 //! about a document opened in an earlier generation is not sent ([`CallError::Lost`]),
 //! and whoever holds the document opens it again from what it stored. A worker that
@@ -10,17 +16,20 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Instant, sleep_until, timeout};
 
 use crate::collab_worker::WORKER_ARGUMENT;
 use crate::collab_worker::frame::{HEADER_BYTES, header, length_of};
-use crate::collab_worker::wire::{Answer, Limits, Refused, Request, decode_response};
+use crate::collab_worker::wire::{
+    Answer, Limits, Refusal, Refused, Request, Response, decode_response,
+};
 
 /// The longest wait before a worker that keeps dying is started again.
 pub const LONGEST_RESTART_WAIT: Duration = Duration::from_secs(10);
@@ -31,6 +40,9 @@ const FIRST_RESTART_WAIT: Duration = Duration::from_millis(100);
 
 /// How long a worker that is asked to end is given before it is killed.
 const END_WAIT: Duration = Duration::from_secs(2);
+
+/// How many requests may wait for the worker before a caller waits to put one in.
+const QUEUE: usize = 256;
 
 /// How a worker process is started: a program and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +99,8 @@ pub enum CallError {
     /// No worker could be started.
     #[error("no worker could be started: {0}")]
     Unavailable(String),
-    /// The worker refused the request.
+    /// The worker refused the request, or it was refused before it was sent: it is
+    /// larger than a frame.
     #[error(transparent)]
     Refused(#[from] Refused),
 }
@@ -104,15 +117,104 @@ pub enum Death {
     Broken(String),
 }
 
-/// A worker process and what the server knows of it.
+/// A worker process and the task that holds it. Dropping it ends the task, and with it
+/// the process.
 #[derive(Debug)]
 pub struct Worker {
-    settings: WorkerSettings,
-    state: Mutex<State>,
+    settings: Arc<WorkerSettings>,
+    queue: OnceLock<mpsc::Sender<Job>>,
 }
 
+/// What the task of a worker is asked.
+#[derive(Debug)]
+enum Job {
+    Call {
+        generation: Option<u64>,
+        frame: Vec<u8>,
+        answer: oneshot::Sender<Result<(u64, Answer), CallError>>,
+    },
+    Pid(oneshot::Sender<Option<u32>>),
+    End(oneshot::Sender<()>),
+}
+
+impl Worker {
+    /// A worker that is started when it is first asked something. Its task begins
+    /// then, on the runtime of the caller.
+    pub fn new(settings: WorkerSettings) -> Self {
+        Self {
+            settings: Arc::new(settings),
+            queue: OnceLock::new(),
+        }
+    }
+
+    /// The queue of the task, which is begun on first use.
+    fn queue(&self) -> &mpsc::Sender<Job> {
+        self.queue.get_or_init(|| {
+            let (queue, jobs) = mpsc::channel(QUEUE);
+            tokio::spawn(hold(Arc::clone(&self.settings), jobs));
+            queue
+        })
+    }
+
+    async fn ask<T>(&self, job: impl FnOnce(oneshot::Sender<T>) -> Job) -> Option<T> {
+        let (answer, answered) = oneshot::channel();
+        self.queue().send(job(answer)).await.ok()?;
+        answered.await.ok()
+    }
+
+    /// Sends a request and waits for its answer, starting a worker first if none
+    /// runs. `generation` is that of the worker that opened the document the request
+    /// is about; `None` for a request that is about no open document. Gives the
+    /// generation of the worker that answered.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CallError::Lost`] if the worker of `generation` is gone,
+    /// [`CallError::Refused`] if the worker refused the request or it is larger than
+    /// a frame, and [`CallError::Died`] or [`CallError::Unavailable`] if it got no
+    /// answer.
+    pub async fn call(
+        &self,
+        generation: Option<u64>,
+        request: &Request,
+    ) -> Result<(u64, Answer), CallError> {
+        let frame = request.encode();
+        if header(frame.len(), self.settings.limits.frame_bytes()).is_err() {
+            let refusal = if matches!(request, Request::Open { .. }) {
+                Refusal::DocumentTooLarge
+            } else {
+                Refusal::UpdateTooLarge
+            };
+            return Err(CallError::Refused(Refused {
+                refusal,
+                message: "the request is larger than a frame".to_owned(),
+            }));
+        }
+        self.ask(|answer| Job::Call {
+            generation,
+            frame,
+            answer,
+        })
+        .await
+        .unwrap_or_else(|| Err(CallError::Unavailable("the worker's task ended".to_owned())))
+    }
+
+    /// The process identifier of the running worker, if one runs.
+    pub async fn pid(&self) -> Option<u32> {
+        self.ask(Job::Pid).await.flatten()
+    }
+
+    /// Ends the worker: closes its input, which ends it, and kills it if it does not
+    /// end in time. The next request starts another.
+    pub async fn end(&self) {
+        let _ = self.ask(Job::End).await;
+    }
+}
+
+/// What the task of a worker knows.
 #[derive(Debug)]
 struct State {
+    settings: Arc<WorkerSettings>,
     running: Option<Running>,
     /// The generation of the running worker, or of the next one if none runs.
     generation: u64,
@@ -127,66 +229,75 @@ struct Running {
     child: Child,
     input: ChildStdin,
     output: BufReader<ChildStdout>,
-    /// A request was sent and its answer not read to the end: the call was given up
-    /// half way, and the pipes are out of step.
-    in_exchange: bool,
 }
 
-impl Worker {
-    /// A worker that is started when it is first asked something.
-    pub fn new(settings: WorkerSettings) -> Self {
-        Self {
-            settings,
-            state: Mutex::new(State {
-                running: None,
-                generation: 0,
-                deaths: 0,
-                next_start: Instant::now(),
-            }),
+/// The task of a worker: takes the jobs in turn until every handle is dropped, and
+/// reaps a worker that dies between them.
+async fn hold(settings: Arc<WorkerSettings>, mut jobs: mpsc::Receiver<Job>) {
+    let mut state = State {
+        settings,
+        running: None,
+        generation: 0,
+        deaths: 0,
+        next_start: Instant::now(),
+    };
+    loop {
+        let job = match state.running.as_mut() {
+            Some(running) => tokio::select! {
+                job = jobs.recv() => job,
+                status = running.child.wait() => {
+                    let death = Death::Broken(format!("it ended by itself: {status:?}"));
+                    state.bury(&death).await;
+                    continue;
+                }
+            },
+            None => jobs.recv().await,
+        };
+        let Some(job) = job else { break };
+        match job {
+            Job::Call {
+                generation,
+                frame,
+                answer,
+            } => {
+                let answered = state.call(generation, &frame).await;
+                let _ = answer.send(answered);
+            }
+            Job::Pid(answer) => {
+                let pid = state
+                    .running
+                    .as_ref()
+                    .and_then(|running| running.child.id());
+                let _ = answer.send(pid);
+            }
+            Job::End(answer) => {
+                state.end().await;
+                let _ = answer.send(());
+            }
         }
     }
+    state.end().await;
+}
 
-    /// Sends a request and waits for its answer, starting a worker first if none
-    /// runs. `generation` is that of the worker that opened the document the request
-    /// is about; `None` for a request that is about no open document. Gives the
-    /// generation of the worker that answered.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CallError::Lost`] if the worker of `generation` is gone,
-    /// [`CallError::Refused`] if the worker refused the request, and
-    /// [`CallError::Died`] or [`CallError::Unavailable`] if it got no answer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no worker runs after one was started, which would be a defect.
-    pub async fn call(
-        &self,
+impl State {
+    async fn call(
+        &mut self,
         generation: Option<u64>,
-        request: &Request,
+        frame: &[u8],
     ) -> Result<(u64, Answer), CallError> {
-        let mut state = self.state.lock().await;
-        if state
-            .running
-            .as_ref()
-            .is_some_and(|running| running.in_exchange)
-        {
-            let death = Death::Broken("a request was given up half way".to_owned());
-            self.bury(&mut state, &death).await;
-        }
-        if generation.is_some_and(|generation| generation != state.generation) {
+        if generation.is_some_and(|generation| generation != self.generation) {
             return Err(CallError::Lost);
         }
-        let generation = state.generation;
-        if state.running.is_none() {
-            state.running = Some(self.start(&mut state).await?);
+        let generation = self.generation;
+        if self.running.is_none() {
+            self.running = Some(self.start().await?);
         }
         let limit = self.settings.limits.frame_bytes();
-        let running = state.running.as_mut().expect("a worker runs");
-        let answered = timeout(self.settings.timeout, running.exchange(request, limit)).await;
+        let running = self.running.as_mut().expect("a worker runs");
+        let answered = timeout(self.settings.timeout, running.exchange(frame, limit)).await;
         let death = match answered {
             Ok(Ok(response)) => {
-                state.deaths = 0;
+                self.deaths = 0;
                 return response
                     .map(|answer| (generation, answer))
                     .map_err(CallError::Refused);
@@ -194,46 +305,24 @@ impl Worker {
             Ok(Err(broken)) => Death::Broken(broken),
             Err(_) => Death::TimedOut,
         };
-        self.bury(&mut state, &death).await;
+        self.bury(&death).await;
         Err(CallError::Died(death))
-    }
-
-    /// The process identifier of the running worker, if one runs.
-    pub async fn pid(&self) -> Option<u32> {
-        let state = self.state.lock().await;
-        state
-            .running
-            .as_ref()
-            .and_then(|running| running.child.id())
-    }
-
-    /// Ends the worker: closes its input, which ends it, and kills it if it does not
-    /// end in time.
-    pub async fn end(&self) {
-        let mut state = self.state.lock().await;
-        if let Some(mut running) = state.running.take() {
-            drop(running.input);
-            if timeout(END_WAIT, running.child.wait()).await.is_err() {
-                let _ = running.child.kill().await;
-            }
-            state.generation += 1;
-        }
     }
 
     /// Starts a worker and gives it its limits, after the wait that the deaths before
     /// it call for.
-    async fn start(&self, state: &mut State) -> Result<Running, CallError> {
-        sleep_until(state.next_start).await;
-        let started = self.spawn().map_err(|error| error.to_string());
+    async fn start(&mut self) -> Result<Running, CallError> {
+        sleep_until(self.next_start).await;
+        let started = spawn(&self.settings).map_err(|error| error.to_string());
         let mut running = match started {
             Ok(running) => running,
             Err(error) => {
-                Self::count_death(state);
+                self.count_death();
                 tracing::error!(%error, "cannot start a collab worker");
                 return Err(CallError::Unavailable(error));
             }
         };
-        let configure = Request::Configure(self.settings.limits);
+        let configure = Request::Configure(self.settings.limits).encode();
         let limit = self.settings.limits.frame_bytes();
         let configured = timeout(self.settings.timeout, running.exchange(&configure, limit)).await;
         match configured {
@@ -243,7 +332,7 @@ impl Worker {
             }
             other => {
                 let _ = running.child.kill().await;
-                Self::count_death(state);
+                self.count_death();
                 let error = format!("the worker did not take its limits: {other:?}");
                 tracing::error!(%error, "cannot start a collab worker");
                 Err(CallError::Unavailable(error))
@@ -251,47 +340,58 @@ impl Worker {
         }
     }
 
-    fn spawn(&self) -> std::io::Result<Running> {
-        let WorkerCommand { program, args } = &self.settings.command;
-        let mut command = Command::new(program);
-        command
-            .args(args)
-            // The worker needs nothing from the environment, which may hold the
-            // database's password.
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true);
-        #[cfg(unix)]
-        super::child::limit(&mut command, self.settings.memory_bytes);
-        let mut child = command.spawn()?;
-        let input = child.stdin.take().ok_or_else(no_pipe)?;
-        let output = child.stdout.take().ok_or_else(no_pipe)?;
-        Ok(Running {
-            child,
-            input,
-            output: BufReader::new(output),
-            in_exchange: false,
-        })
-    }
-
     /// Kills the running worker and waits for its end, so that it leaves no zombie;
     /// what it held is gone with it.
-    async fn bury(&self, state: &mut State, death: &Death) {
-        if let Some(mut running) = state.running.take() {
+    async fn bury(&mut self, death: &Death) {
+        self.generation += 1;
+        self.count_death();
+        if let Some(mut running) = self.running.take() {
             let _ = running.child.start_kill();
             let status = running.child.wait().await;
             tracing::warn!(%death, ?status, "a collab worker died; the next request starts another");
         }
-        state.generation += 1;
-        Self::count_death(state);
     }
 
-    fn count_death(state: &mut State) {
-        state.deaths = state.deaths.saturating_add(1);
-        state.next_start = Instant::now() + restart_wait(state.deaths);
+    /// Ends the running worker: closes its input and kills it if it does not end in
+    /// time.
+    async fn end(&mut self) {
+        if let Some(mut running) = self.running.take() {
+            self.generation += 1;
+            drop(running.input);
+            if timeout(END_WAIT, running.child.wait()).await.is_err() {
+                let _ = running.child.kill().await;
+            }
+        }
     }
+
+    fn count_death(&mut self) {
+        self.deaths = self.deaths.saturating_add(1);
+        self.next_start = Instant::now() + restart_wait(self.deaths);
+    }
+}
+
+fn spawn(settings: &WorkerSettings) -> std::io::Result<Running> {
+    let WorkerCommand { program, args } = &settings.command;
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        // The worker needs nothing from the environment, which may hold the
+        // database's password.
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true);
+    #[cfg(unix)]
+    super::child::limit(&mut command, settings.memory_bytes);
+    let mut child = command.spawn()?;
+    let input = child.stdin.take().ok_or_else(no_pipe)?;
+    let output = child.stdout.take().ok_or_else(no_pipe)?;
+    Ok(Running {
+        child,
+        input,
+        output: BufReader::new(output),
+    })
 }
 
 fn no_pipe() -> std::io::Error {
@@ -312,17 +412,11 @@ fn restart_wait(deaths: u32) -> Duration {
 
 impl Running {
     /// Writes a request and reads its answer.
-    async fn exchange(
-        &mut self,
-        request: &Request,
-        limit: u64,
-    ) -> Result<Result<Answer, Refused>, String> {
-        self.in_exchange = true;
-        let payload = request.encode();
-        let head = header(payload.len(), limit).map_err(|error| error.to_string())?;
+    async fn exchange(&mut self, frame: &[u8], limit: u64) -> Result<Response, String> {
+        let head = header(frame.len(), limit).map_err(|error| error.to_string())?;
         let write = async {
             self.input.write_all(&head).await?;
-            self.input.write_all(&payload).await?;
+            self.input.write_all(frame).await?;
             self.input.flush().await
         };
         write
@@ -339,7 +433,6 @@ impl Running {
             .read_exact(&mut answer)
             .await
             .map_err(|error| format!("cannot read an answer: {error}"))?;
-        self.in_exchange = false;
         decode_response(&answer).map_err(|error| error.to_string())
     }
 }

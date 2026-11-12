@@ -22,6 +22,14 @@ pub use serve::serve;
 /// The first argument that starts the executable as the worker.
 pub const WORKER_ARGUMENT: &str = "collab-worker";
 
+/// Runs the executable as the worker if its first argument is [`WORKER_ARGUMENT`]:
+/// `None` if it is not, else how the worker ended ([`run`]).
+#[must_use]
+pub fn run_if_started_as_worker() -> Option<Result<(), frame::FrameError>> {
+    let argument = std::env::args_os().nth(1)?;
+    (argument == WORKER_ARGUMENT).then(run)
+}
+
 /// Runs the worker on the standard input and output. Ends when the server closes the
 /// input; fails if a frame is broken, which the server sees as the worker's death.
 ///
