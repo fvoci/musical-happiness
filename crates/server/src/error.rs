@@ -247,6 +247,14 @@ reasons! {
     RelationNotACard => "relation_not_a_card", "Card relation names no card";
     /// A card relation names a card that is not on the board.
     RelationCardNotFound => "relation_card_not_found", "Card relation names a card not on the board";
+    /// Another workspace in use of the organization has the name.
+    WorkspaceNameTaken => "workspace_name_taken", "Workspace name taken";
+    /// The organization's default workspace is not deleted.
+    DefaultWorkspace => "default_workspace", "Default workspace";
+    /// The change would leave the organization without an administrator.
+    LastOrgAdmin => "last_org_admin", "Last administrator of the organization";
+    /// The organization has turned its public links off.
+    PublicLinksOff => "public_links_off", "Public links turned off";
 }
 
 impl Reason {

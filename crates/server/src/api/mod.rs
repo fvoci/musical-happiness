@@ -21,6 +21,7 @@ mod members;
 mod oidc;
 mod onboarding;
 mod org;
+mod org_admin;
 mod search;
 mod session;
 mod sharing;
@@ -105,6 +106,7 @@ fn routes() -> Routes {
         .merge(members::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
+        .merge(org_admin::routes())
         .merge(search::routes())
         .merge(sharing::routes())
         .merge(subscriptions::routes())

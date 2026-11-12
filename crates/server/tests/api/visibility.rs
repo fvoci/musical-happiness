@@ -761,6 +761,46 @@ async fn without_a_session_nothing_is_told_either() {
     hidden.th.teardown().await;
 }
 
+/// The routes of the organization and of a workspace's audit log that name something,
+/// asked of the organization's administrator; `{}` stands for what is asked about.
+fn organization_requests(org: &str) -> Vec<(Method, String, Value)> {
+    vec![
+        (Method::GET, "/w/{}/audit".to_owned(), Value::Null),
+        (Method::GET, "/org/{}".to_owned(), Value::Null),
+        (Method::GET, "/org/{}/workspaces".to_owned(), Value::Null),
+        (
+            Method::PATCH,
+            format!("/org/{org}/workspaces/{{}}"),
+            json!({"name": "x"}),
+        ),
+        (
+            Method::DELETE,
+            format!("/org/{org}/workspaces/{{}}"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/org/{org}/workspaces/{{}}/restore"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/org/{org}/workspaces/{{}}/join"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/org/{org}/workspaces/{{}}/leave"),
+            Value::Null,
+        ),
+        (
+            Method::PUT,
+            format!("/org/{org}/members/{{}}/role"),
+            json!({"role": "admin"}),
+        ),
+    ]
+}
+
 /// Text that is no identifier answers as an identifier of nothing, also where the asker
 /// is allowed everything: on their own board, in their own workspace, about themselves. An
 /// identifier column takes no such text, and no route may let that show: not as a 500,
@@ -778,9 +818,16 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
     let card = &hidden.card[0];
     let category = &hidden.category[0];
     let workspace = TEST_WORKSPACE_ID;
+    let workspaces: Vec<fvoci_model::UserWorkspace> =
+        owner.get("/users/me/workspaces").await.ok_json();
+    // The owner administers the organization.
+    let org = &workspaces
+        .first()
+        .expect("the owner is in a workspace")
+        .org_id;
 
     // `{}` stands for the identifier that is asked about.
-    let requests: Vec<(Method, String, Value)> = vec![
+    let mut requests: Vec<(Method, String, Value)> = vec![
         (Method::GET, "/w/{}".to_owned(), Value::Null),
         (Method::GET, "/w/{}/boards".to_owned(), Value::Null),
         (Method::GET, "/w/{}/templates".to_owned(), Value::Null),
@@ -903,6 +950,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
             json!({"blockType": "card", "blockId": "{}", "subscriberType": "user", "subscriberId": me}),
         ),
     ];
+    requests.extend(organization_requests(org));
 
     let unknown = new_id();
     for (method, path, body) in requests {

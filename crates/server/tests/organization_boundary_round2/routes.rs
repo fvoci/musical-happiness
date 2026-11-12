@@ -22,6 +22,7 @@ const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "/archive/export", "exportWorkspaceArchive"),
     ("POST", "/archive/import", "importArchive"),
     ("POST", "/archive/uploads", "createImportUpload"),
+    ("GET", "/audit", "getWorkspaceAudit"),
     ("GET", "/boards", "getWorkspaceBoards"),
     ("GET", "/boards/search?q=secret", "searchWorkspaceBoards"),
     ("GET", "/categories", "getCategories"),

@@ -91,7 +91,7 @@ pub enum StoreError {
     #[error("{0:?} is not a place of the file storage")]
     InvalidPath(String),
 
-    /// A user cannot be stored because another one has what must be one user's alone.
+    /// A row cannot be stored because another one has what must be one row's alone.
     #[error("{0} is taken")]
     Conflict(Taken),
 
@@ -153,6 +153,8 @@ pub enum Taken {
     Email,
     /// The subject of an issuer: another account is the one its provider vouches for.
     Identity,
+    /// The name of a workspace: another workspace in use of the organization has it.
+    WorkspaceName,
 }
 
 impl std::fmt::Display for Taken {
@@ -161,6 +163,7 @@ impl std::fmt::Display for Taken {
             Self::Username => "the user name",
             Self::Email => "the email address",
             Self::Identity => "the identity at the provider",
+            Self::WorkspaceName => "the name of the workspace",
         })
     }
 }
