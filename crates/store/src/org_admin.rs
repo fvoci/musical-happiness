@@ -155,6 +155,7 @@ impl Store {
         role: OrgRole,
         actor_id: &str,
     ) -> Result<OrgRoleChange, StoreError> {
+        let shared = self.is_the_only_organization().await?;
         self.transaction(async |scope| {
             // The instance's row first, as a change of who administers the instance
             // takes it: the two are one role for now (`members::follow_instance_role`).
@@ -169,11 +170,12 @@ impl Store {
             if current == OrgRole::Admin && !another_admin(scope, user_id).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
-            // The organization's administrators are the instance's for now
+            // The administrators of the only organization are the instance's for now
             // (`members::follow_instance_role`): who becomes one administers the
             // instance, and who stops does not, or they would make themselves, or
-            // anybody, its administrator again past this log.
-            if !users::follow_org_role(scope, user_id, role).await? {
+            // anybody, its administrator again past this log. Of one of several
+            // organizations, no: the instance's administrator reaches the others.
+            if shared && !users::follow_org_role(scope, user_id, role).await? {
                 return Ok(OrgRoleChange::LastAdmin);
             }
             let mut sql = scope.sql("UPDATE organization_members SET role = ");
@@ -193,6 +195,21 @@ impl Store {
             Ok(OrgRoleChange::Done)
         })
         .await
+    }
+
+    /// Whether the handle's organization is the only one in use, besides the system's.
+    /// Asked outside its wall, which hides the others; a sign-up between the question
+    /// and the change it decides is not guarded against.
+    async fn is_the_only_organization(&self) -> Result<bool, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
+                sql.bind(false)
+                    .push_bind(" AND delete_at = ", 0_i64)
+                    .push(" LIMIT 2");
+                Ok(scope.fetch_all(sql).await?.len() == 1)
+            })
+            .await
     }
 
     /// Every workspace of the handle's organization, in use or in the trash, the oldest

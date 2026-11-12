@@ -22,14 +22,20 @@
 
   let status = $state<'loading' | 'ready' | 'failed'>('loading');
   let records = $state.raw<AuditRecord[]>([]);
+  /** The latest reading: an answer to an earlier one (another workspace's) is dropped. */
+  let turn = 0;
 
   async function read(id: string): Promise<void> {
+    turn += 1;
+    const mine = turn;
     status = 'loading';
     try {
-      records = await readRecords(id);
+      const read = await readRecords(id);
+      if (mine !== turn) return;
+      records = read;
       status = 'ready';
     } catch {
-      status = 'failed';
+      if (mine === turn) status = 'failed';
     }
   }
 

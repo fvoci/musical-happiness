@@ -6,8 +6,8 @@ use fvoci_model::{
     AuditAction, Board, BoardMember, BoardType, FileInfo, OrgRole, Workspace, WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AuditEntry, AuditPlace, InstanceRole, Joining, LooseState, OrgRoleChange, Paging, Purged,
-    Store, StoreError, Taken, WorkspaceTrashing,
+    AuditEntry, AuditPlace, DbType, InstanceRole, Joining, LooseState, OrgRoleChange, Paging,
+    Purged, Store, StoreError, Taken, Tenant, WorkspaceTrashing,
 };
 
 use crate::common::{self, TestStore};
@@ -546,6 +546,65 @@ async fn the_roles_on_boards_go_back_to_what_they_were_when_one_joined() {
     test.teardown().await;
 }
 
+/// A board deleted while one was joined keeps in the trash what they held when they
+/// joined, and no more: one they raised their role on comes back with the role they had,
+/// and one they made comes back without them.
+#[tokio::test]
+async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let owner = org_member(&test, "owner", OrgRole::Member).await;
+    let workspace = named_workspace(&test, "Work", &admin).await;
+    for user in [&admin, &owner] {
+        test.add_workspace_member(&workspace, user, WorkspaceRole::Member)
+            .await
+            .expect("a member");
+    }
+    let read = private_board(&test, &workspace, &owner).await;
+    let as_viewer = BoardMember {
+        board_id: read.clone(),
+        user_id: admin.clone(),
+        scheme_viewer: true,
+        ..BoardMember::default()
+    };
+    test.add_member(&as_viewer).await.expect("a viewer of it");
+
+    test.join_workspace_as_org_admin(&workspace, &admin)
+        .await
+        .expect("joined");
+    test.change_member(&BoardMember {
+        scheme_admin: true,
+        ..as_viewer.clone()
+    })
+    .await
+    .expect("the admin raises their own role");
+    let made = private_board(&test, &workspace, &admin).await;
+    for board in [&read, &made] {
+        test.delete_board(board, &admin).await.expect("deleted");
+    }
+    test.leave_workspace_as_org_admin(&workspace, &admin)
+        .await
+        .expect("left");
+    for board in [&read, &made] {
+        test.undelete_board(board, &owner).await.expect("restored");
+    }
+
+    let held = test
+        .get_member_for_board(&read, &admin)
+        .await
+        .expect("the role they had comes back");
+    assert!(
+        held.scheme_viewer && !held.scheme_admin,
+        "a viewer again: {held:?}"
+    );
+    let error = test
+        .get_member_for_board(&made, &admin)
+        .await
+        .expect_err("the board made meanwhile is not theirs");
+    assert!(error.is_not_found(), "{error:?}");
+    test.teardown().await;
+}
+
 /// A change of the organization is made by its administrator alone, also one whose
 /// request was let in before they stopped being one; and a role on a board is given as
 /// its manager only by who still administers the workspace.
@@ -627,5 +686,30 @@ async fn the_instance_and_the_organization_keep_one_administration() {
         ],
         "both changes are recorded, the newest first"
     );
+    test.teardown().await;
+}
+
+/// Of one of several organizations, an administrator is not the instance's: who is made
+/// one administers that organization alone, as the instance's administrator reaches the
+/// others.
+#[tokio::test]
+async fn an_administrator_of_one_of_several_organizations_is_not_the_instances() {
+    // An SQLite database holds one organization.
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let admin = org_member(&test, "admin", OrgRole::Admin).await;
+    let member = org_member(&test, "member", OrgRole::Member).await;
+    common::organization(&test.scoped(Tenant::Unset), "Another").await;
+
+    assert_eq!(
+        test.set_org_role(&member, OrgRole::Admin, &admin)
+            .await
+            .expect("asked"),
+        OrgRoleChange::Done
+    );
+    let made = test.get_user_by_id(&member).await.expect("the user");
+    assert!(!made.is_admin, "no administrator of the instance");
     test.teardown().await;
 }

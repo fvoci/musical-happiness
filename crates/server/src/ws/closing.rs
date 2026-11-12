@@ -1,5 +1,6 @@
 //! Ending what connections hear: closing them when what let them in is over, and
-//! stopping them following a workspace their user is no member of any more.
+//! stopping them following a workspace their user is no member of any more, or one in
+//! the trash.
 
 use crate::metrics::Disconnect;
 
@@ -89,6 +90,22 @@ impl Hub {
                     .retain(|workspace| *workspace != workspace_id);
             }
             remove_from(&mut listeners.by_workspace, &workspace_id, id);
+        }
+    }
+
+    /// Stops every connection following the workspace. For when it goes to the trash:
+    /// it is there for nobody, and who follows it once it is restored asks again.
+    pub fn stop_following_workspace(&self, workspace_id: &str) {
+        let mut listeners = self.listeners();
+        let Some(ids) = listeners.by_workspace.remove(workspace_id) else {
+            return;
+        };
+        for id in ids {
+            if let Some(listener) = listeners.by_id.get_mut(&id) {
+                listener
+                    .workspaces
+                    .retain(|workspace| workspace != workspace_id);
+            }
         }
     }
 }

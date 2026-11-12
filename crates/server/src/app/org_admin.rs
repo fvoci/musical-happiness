@@ -284,6 +284,7 @@ impl App {
         known_workspace(workspace_id)?;
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
+                self.ws().stop_following_workspace(workspace_id);
                 self.close_shared_readers(Some(workspace_id)).await?;
                 Ok(())
             }

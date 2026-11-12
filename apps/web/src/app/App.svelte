@@ -180,11 +180,10 @@
     );
   });
 
-  /** The screen of the organization the address names, read anew for each. */
+  /** The organization the address names; the screen's state is made anew only when it changes. */
+  const orgId = $derived(router.route.orgId);
   const orgAdmin = $derived(
-    organizations && router.route.orgId
-      ? new OrgAdmin(organizations, router.route.orgId)
-      : undefined,
+    organizations && orgId ? new OrgAdmin(organizations, orgId) : undefined,
   );
   $effect(() => {
     // Once the reader is signed in: before that the organization is not there for them.

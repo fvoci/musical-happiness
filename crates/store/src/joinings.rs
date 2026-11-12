@@ -5,9 +5,10 @@
 //! (a member of a board they could not read, an admin of one they read, a member of an
 //! open board, the maker of a new one) goes with the joining.
 
+use fvoci_model::BoardMember;
 use serde::{Deserialize, Serialize};
 
-use crate::db::{Id, Scope};
+use crate::db::{Id, Param, Scope};
 use crate::error::StoreError;
 
 /// One role on a board as it was held: the board, and the flags of the membership
@@ -70,6 +71,7 @@ pub(crate) async fn give_back_roles(
         .bind(Id(workspace_id))
         .push(")");
     scope.execute(sql).await?;
+    give_back_roles_in_the_trash(scope, workspace_id, user_id, &held).await?;
     for HeldRole(board_id, [admin, editor, commenter, viewer]) in held {
         let mut sql = scope.sql(
             "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
@@ -83,6 +85,50 @@ pub(crate) async fn give_back_roles(
             .push_bind(" FROM boards WHERE id = ", Id(&board_id))
             .push_bind(" AND workspace_id = ", Id(workspace_id));
         scope.execute(sql).await?;
+    }
+    Ok(())
+}
+
+/// Gives the user back, on each board of the workspace in the trash, the membership
+/// they held when they joined, and no other: a board deleted while they were joined
+/// comes back without what they made themselves on it.
+async fn give_back_roles_in_the_trash(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+    held: &[HeldRole],
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
+    sql.bind(Id(workspace_id)).push(" ORDER BY id");
+    let rows = scope.fetch_all(sql).await?;
+    for row in &rows {
+        let board_id = row.id(0)?;
+        let mut members: Vec<BoardMember> = serde_json::from_value(row.json(1, "members")?)
+            .map_err(|error| StoreError::Corrupt {
+                column: "members",
+                reason: error.to_string(),
+            })?;
+        let before = members.clone();
+        members.retain(|member| member.user_id != user_id);
+        if let Some(HeldRole(_, [admin, editor, commenter, viewer])) =
+            held.iter().find(|role| role.0 == board_id)
+        {
+            members.push(BoardMember {
+                board_id: board_id.clone(),
+                user_id: user_id.to_owned(),
+                scheme_admin: *admin,
+                scheme_editor: *editor,
+                scheme_commenter: *commenter,
+                scheme_viewer: *viewer,
+                ..BoardMember::default()
+            });
+        }
+        if members != before {
+            let mut sql = scope.sql("UPDATE deleted_boards SET members = ");
+            sql.bind(Param::json(&members)?)
+                .push_bind(" WHERE id = ", Id(&board_id));
+            scope.execute(sql).await?;
+        }
     }
     Ok(())
 }
