@@ -88,8 +88,19 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
             body = OidcStart,
             headers(("Set-Cookie" = String, description = "The cookie of the sign-in.")),
         ),
-        (status = 409, description = "No provider that is on, or it cannot be reached.", body = Problem),
-        (status = 429, description = "Too many sign-ins from this address.", body = Problem),
+        (
+            status = 409,
+            description = "No provider that is on, or it cannot be reached.",
+            body = Problem,
+            content_type = "application/problem+json",
+        ),
+        (
+            status = 429,
+            description = "Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait.",
+            body = Problem,
+            content_type = "application/problem+json",
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
     ),
 )]
 async fn handle_start(
