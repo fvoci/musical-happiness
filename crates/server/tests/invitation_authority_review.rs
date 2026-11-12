@@ -99,7 +99,7 @@ fn member_path(user_id: &str) -> String {
 async fn private_board(client: &Client, title: &str) -> Board {
     client
         .post(
-            &format!("/w/{}/boards", ROOT_WORKSPACE_ID),
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
             &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
         )
         .await

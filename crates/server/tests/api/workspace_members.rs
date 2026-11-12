@@ -52,7 +52,7 @@ async fn role_of(client: &Client) -> Option<WorkspaceRole> {
 async fn private_board(client: &Client, title: &str) -> Board {
     client
         .post(
-            &format!("/w/{}/boards", ROOT_WORKSPACE_ID),
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
             &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
         )
         .await
@@ -509,7 +509,7 @@ async fn the_sidebar_of_a_guest_has_the_boards_they_are_on_and_no_other() {
     let open: Board = th
         .client
         .post(
-            &format!("/w/{}/boards", ROOT_WORKSPACE_ID),
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
             &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": "Open, never joined"}),
         )
         .await

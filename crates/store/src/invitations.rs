@@ -8,17 +8,22 @@
 //!
 //! A link lets somebody in while it is live: not revoked, not ended, and not used as
 //! often as it may be. Whether who made it may still invite is the server's to ask,
-//! of what the store answers about that user as about any other.
+//! of what the store answers about that user as about any other; an acceptance is
+//! stored only if the maker is still what the server found them to be then
+//! ([`Inviter`]).
 
-use fvoci_model::{BoardMember, BoardRole, Invitation, OrgRole, User, WorkspaceRole, new_id};
+use fvoci_model::{
+    AuditAction, BoardMember, BoardRole, Invitation, OrgRole, User, WorkspaceRole, new_id,
+};
 
-use crate::Store;
 use crate::accounts::{self, Which};
+use crate::audit::{self, AuditEntry};
 use crate::boards::{find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::trash::{self, TrashedRoles};
 use crate::users::InstanceRole;
+use crate::{Standing, Store};
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
 const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
@@ -54,6 +59,52 @@ pub enum Acceptor<'a> {
     Account(&'a str),
     /// A new account, stored with the acceptance and updated to what was stored.
     NewAccount(&'a mut User),
+}
+
+/// Who made a link, as the server found them when it found that their link lets
+/// somebody in still. The acceptance is stored only if they are that when it is
+/// written.
+#[derive(Debug, Clone, Copy)]
+pub struct Inviter<'a> {
+    /// Their role in the link's workspace and, for a guest's link, their membership of
+    /// its board.
+    pub standing: Standing<'a>,
+    /// What they are to the board of a guest's link.
+    pub of_board: InviterOfBoard,
+}
+
+/// What the maker of a guest's link is to its board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InviterOfBoard {
+    /// On it, or the link is for members and has no board.
+    Member,
+    /// An administrator of the workspace who manages the board and does not read it:
+    /// whom their link puts on the board is recorded in the audit log, as whom they
+    /// add to it themselves is.
+    ManagerOnly,
+}
+
+/// What became of the acceptance of a link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Acceptance {
+    /// Somebody was let in.
+    Accepted(Accepted),
+    /// There is no such live link: nothing was stored.
+    Unavailable,
+    /// The maker of the link is not what [`Inviter`] says: nothing was stored. Whether
+    /// the link lets anybody in still is to be asked again.
+    InviterChanged,
+}
+
+impl Acceptance {
+    /// Where somebody was let in, if anybody was.
+    #[must_use]
+    pub fn accepted(self) -> Option<Accepted> {
+        match self {
+            Self::Accepted(accepted) => Some(accepted),
+            Self::Unavailable | Self::InviterChanged => None,
+        }
+    }
 }
 
 /// Where an accepted link let somebody in.
@@ -213,9 +264,14 @@ impl Store {
     }
 
     /// Lets `acceptor` in by the live link of the handle's organization whose token
-    /// has the digest `token_hash`, in one transaction, and counts the use: `None` if
-    /// there is no such link at `now`, and nothing is stored then. Acceptances at once
-    /// of one link wait for each other, so that it is used no more often than it may be.
+    /// has the digest `token_hash`, in one transaction, and counts the use; nothing is
+    /// stored if there is no such link at `now`. Acceptances at once of one link wait
+    /// for each other, so that it is used no more often than it may be.
+    ///
+    /// The maker of the link is looked at again once the link is held, after whatever
+    /// this waited for: if they are not what `inviter` says (taken out of the workspace
+    /// meanwhile, say), nothing is stored. Their membership of the workspace is held
+    /// from then to the end, so that who takes them out waits for this.
     ///
     /// - A member's link makes the account a member of the organization and of the
     ///   workspace: who was a guest of the workspace becomes a member, and who works
@@ -237,7 +293,8 @@ impl Store {
         token_hash: &str,
         acceptor: Acceptor<'_>,
         now: i64,
-    ) -> Result<Option<Accepted>, StoreError> {
+        inviter: Inviter<'_>,
+    ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
             // The board of a guest's link is held first, as every write of a board's
             // members holds it and as its deletion does, which takes the link along:
@@ -246,12 +303,12 @@ impl Store {
             // written.
             let sql = select_live_by_token(scope, token_hash, now)?;
             let Some(row) = scope.fetch_optional(sql).await? else {
-                return Ok(None);
+                return Ok(Acceptance::Unavailable);
             };
             if let Some(board_id) = invitation_from_row(&row)?.board_id
                 && !lock_board(scope, &board_id).await?
             {
-                return Ok(None);
+                return Ok(Acceptance::Unavailable);
             }
             // The link itself, held against the other acceptances of it: read again,
             // it is live still, and its workspace still invites guests if it is for one.
@@ -267,9 +324,12 @@ impl Store {
                 sql.push(" FOR UPDATE OF i");
             }
             let Some(row) = scope.fetch_optional(sql).await? else {
-                return Ok(None);
+                return Ok(Acceptance::Unavailable);
             };
             let link = invitation_from_row(&row)?;
+            if !inviter_still(scope, &link, inviter.standing).await? {
+                return Ok(Acceptance::InviterChanged);
+            }
             let user_id = match acceptor {
                 Acceptor::Account(user_id) => user_id.to_owned(),
                 Acceptor::NewAccount(user) => {
@@ -284,13 +344,26 @@ impl Store {
                     let_in_as_member(scope, &link.workspace_id, &user_id).await?
                 }
                 (WorkspaceRole::Guest, Some(board_id), Some(board_role)) => {
-                    let invited = BoardMember {
+                    let guest = BoardMember {
                         board_id: board_id.clone(),
                         user_id: user_id.clone(),
                         ..BoardMember::default()
                     }
                     .with_role(Some(board_role));
-                    let_in_as_guest(scope, &link.workspace_id, invited).await?
+                    let let_in = let_in_as_guest(scope, &link.workspace_id, guest).await?;
+                    // Whom a manager who does not read the board puts on it is on the
+                    // record, by a link as by adding them.
+                    if let_in.onto_board && inviter.of_board == InviterOfBoard::ManagerOnly {
+                        let entry = AuditEntry::new(
+                            &link.workspace_id,
+                            &link.created_by,
+                            AuditAction::AddedToBoard,
+                            board_id,
+                        )
+                        .with_subject(&user_id);
+                        audit::record_entry(scope, &entry).await?;
+                    }
+                    let_in.changed
                 }
                 _ => {
                     return Err(StoreError::Corrupt {
@@ -306,7 +379,7 @@ impl Store {
                     .push_bind(" AND org_id = ", scope.org()?);
                 scope.execute(sql).await?;
             }
-            Ok(Some(Accepted {
+            Ok(Acceptance::Accepted(Accepted {
                 user_id,
                 workspace_id: link.workspace_id,
                 board_id: link.board_id,
@@ -346,14 +419,68 @@ async fn let_in_as_member(
     Ok(joined_org || joined || raised)
 }
 
+/// Whether the maker of the link is still what the server found them to be: the same
+/// in the link's workspace, and the same on the board of a guest's link, which the
+/// acceptance holds already. Read with the link held, and their membership of the
+/// workspace is held from here on: who takes them out, or makes them something else
+/// there, waits for the acceptance. The boards of the trash are held before the
+/// membership, as whoever changes a membership has them.
+async fn inviter_still(
+    scope: &mut Scope<'_>,
+    link: &Invitation,
+    found: Standing<'_>,
+) -> Result<bool, StoreError> {
+    if found.user_id != link.created_by {
+        return Ok(false);
+    }
+    trash::hold_deleted_boards(scope, &link.workspace_id).await?;
+    let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(&link.workspace_id))
+        .push_bind(" AND user_id = ", Id(&link.created_by));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE");
+    }
+    let role =
+        match scope.fetch_optional(sql).await? {
+            Some(row) => Some(row.text(0)?.parse::<WorkspaceRole>().map_err(|error| {
+                StoreError::Corrupt {
+                    column: "role",
+                    reason: error.to_string(),
+                }
+            })?),
+            None => None,
+        };
+    let member = match &link.board_id {
+        Some(board_id) => find_member(scope, board_id, &link.created_by).await?,
+        None => None,
+    };
+    let flags = |member: &BoardMember| {
+        [
+            member.scheme_admin,
+            member.scheme_editor,
+            member.scheme_commenter,
+            member.scheme_viewer,
+        ]
+    };
+    Ok(role == found.workspace_role && member.as_ref().map(flags) == found.member.map(flags))
+}
+
+/// What letting a guest in changed.
+struct GuestLetIn {
+    /// Whether anything changed: the acceptance counts as a use of the link then.
+    changed: bool,
+    /// Whether the user was given a role on the board they did not have.
+    onto_board: bool,
+}
+
 /// Makes the user of `invited` a member of its board, in its role or the higher one
 /// they have there, and a guest of the workspace if they are no member of it; says
-/// whether anything changed.
+/// what changed.
 async fn let_in_as_guest(
     scope: &mut Scope<'_>,
     workspace_id: &str,
     invited: BoardMember,
-) -> Result<bool, StoreError> {
+) -> Result<GuestLetIn, StoreError> {
     let user_id = &invited.user_id;
     // Who comes into the workspace as a guest is on the board of the link and on no
     // other: a role left on a board of it from an earlier time there opens nothing
@@ -375,10 +502,16 @@ async fn let_in_as_guest(
         .await?
         .and_then(|member| member.role());
     if held >= invited.role() {
-        return Ok(joined);
+        return Ok(GuestLetIn {
+            changed: joined,
+            onto_board: false,
+        });
     }
     save_member(scope, &invited).await?;
-    Ok(true)
+    Ok(GuestLetIn {
+        changed: true,
+        onto_board: true,
+    })
 }
 
 /// Takes from a user who is no member of the workspace the roles left on its boards,

@@ -138,21 +138,50 @@ fn identify(mut response: Response, request_id: &str, base_path: &str) -> Respon
     response
 }
 
-/// Where the page of an invitation is, under whatever path the server is served at.
-/// What follows it in an address is the token of the invitation.
-const INVITATION_PAGE: &str = "/invite/";
+/// The part of an address that names the page of an invitation, under whatever path
+/// the server is served at. What follows it is the token of the invitation.
+const INVITATION_PAGE: &[u8] = b"invite";
 
 /// The path of a request as the log has it: the address of the page of an invitation
 /// carries the invitation's token, a credential, which the log leaves out. No other
 /// address of the server has that part.
+///
+/// The page is told as the app tells it, by the part of the path as it reads once its
+/// escapes are undone (`/%69nvite/…` is the page as `/invite/…` is), in any letter
+/// case: an address that is taken for the page once too often loses what follows it
+/// in the log, and no more.
 fn logged_path(path: &str) -> String {
-    match path.find(INVITATION_PAGE) {
-        Some(at) => {
-            let page = path.get(..at + INVITATION_PAGE.len()).unwrap_or(path);
-            format!("{page}<token>")
+    let mut start = 0;
+    for part in path.split('/') {
+        let end = start + part.len();
+        if end < path.len() && unescaped(part).eq_ignore_ascii_case(INVITATION_PAGE) {
+            let page = path.get(..end).unwrap_or(path);
+            return format!("{page}/<token>");
         }
-        None => path.to_owned(),
+        start = end + 1;
     }
+    path.to_owned()
+}
+
+/// A part of a path with its percent escapes undone; what is no escape stays as it is.
+fn unescaped(part: &str) -> Vec<u8> {
+    let bytes = part.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        let escaped = (byte == b'%')
+            .then(|| part.get(at + 1..at + 3))
+            .flatten()
+            .and_then(|digits| u8::from_str_radix(digits, 16).ok());
+        if let Some(escaped) = escaped {
+            out.push(escaped);
+            at += 3;
+        } else {
+            out.push(byte);
+            at += 1;
+        }
+    }
+    out
 }
 
 /// Answers with the standard 500 when a handler panics, instead of dropping the
@@ -220,6 +249,14 @@ mod tests {
             ("/invite/secret/more", "/invite/<token>"),
             ("/invite/", "/invite/<token>"),
             ("/invite", "/invite"),
+            // As the app reads the address: with its escapes undone.
+            ("/%69nvite/secret-token", "/%69nvite/<token>"),
+            ("/base/inv%69te/secret-token", "/base/inv%69te/<token>"),
+            ("/INVITE/secret-token", "/INVITE/<token>"),
+            ("/invite//secret-token", "/invite/<token>"),
+            ("/%invite/not-a-token", "/%invite/not-a-token"),
+            ("/inv%2Fite/not-a-token", "/inv%2Fite/not-a-token"),
+            ("/invited/people", "/invited/people"),
             ("/api/v1/invitations/accept", "/api/v1/invitations/accept"),
             ("/w/1/boards/2", "/w/1/boards/2"),
         ] {

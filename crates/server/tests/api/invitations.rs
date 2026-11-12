@@ -181,7 +181,7 @@ async fn two_organizations() -> TwoOrganizations {
 async fn open_board(client: &Client, workspace_id: &str) -> Board {
     let board: Board = client
         .post(
-            &format!("/w/{}/boards", workspace_id),
+            &format!("/w/{workspace_id}/boards"),
             &json!({"workspaceId": workspace_id, "type": "O", "title": "Open"}),
         )
         .await
@@ -603,7 +603,7 @@ async fn a_link_that_lets_nobody_in_answers_as_no_link_at_all() {
 async fn private_board(client: &Client, title: &str) -> Board {
     client
         .post(
-            &format!("/w/{}/boards", ROOT_WORKSPACE_ID),
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
             &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
         )
         .await
@@ -673,7 +673,7 @@ async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
     let template: Board = th
         .client2
         .post(
-            &format!("/w/{}/boards", ROOT_WORKSPACE_ID),
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
             &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "A template", "isTemplate": true}),
         )
         .await
@@ -1204,6 +1204,111 @@ async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
         of_the_link(&th, &again.id, "uses").await,
         ["0"],
         "nothing to give"
+    );
+
+    th.teardown().await;
+}
+
+/// A workspace's administrator who manages a board and does not read it puts nobody on
+/// it off the record: whoever accepts their link for a guest is recorded as added to
+/// the board by them, as whom they add themselves is. A link of somebody who is on the
+/// board is not recorded, and neither is an acceptance that gives no role on it.
+#[tokio::test]
+async fn a_guest_let_in_by_a_manager_who_does_not_read_the_board_is_on_the_record() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (manager_id, member_id) = (th.client.me().await.id, th.client2.me().await.id);
+    let board = private_board(&th.client2, "Not the administrator's").await;
+    th.client
+        .get(&format!(
+            "/w/{}/boards/{}/cards",
+            board.workspace_id, board.id
+        ))
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    let records = async || {
+        th.app
+            .store()
+            .get_audit_log(ROOT_WORKSPACE_ID)
+            .await
+            .expect("the audit log is read")
+            .into_iter()
+            .map(|entry| {
+                (
+                    entry.actor_id,
+                    entry.action,
+                    entry.target_id,
+                    entry.subject_id,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let accept = async |link: &Invitation, username: &str| -> String {
+        let token = link.token.as_deref().expect("the token of a new link");
+        th.anonymous()
+            .post(
+                "/invitations/accept",
+                &json!({"token": token, "account": account(username)}),
+            )
+            .await
+            .check_ok();
+        th.login(username, PASSWORD).await.me().await.id
+    };
+
+    // By a link of who is on the board: nothing to record.
+    let by_a_member = guest_link(&th.client2, &board.id).await;
+    accept(&by_a_member, "asked-by-a-member").await;
+    assert_eq!(records().await, [], "a member's guest is not recorded");
+
+    // By a link of the administrator, who is not: recorded when it is accepted, not
+    // when it is made.
+    let by_the_manager = guest_link(&th.client, &board.id).await;
+    assert_eq!(by_the_manager.created_by, manager_id);
+    assert_eq!(records().await, [], "a link alone puts nobody on the board");
+    let guest_id = accept(&by_the_manager, "asked-by-the-manager").await;
+    assert_eq!(
+        records().await,
+        [(
+            manager_id.clone(),
+            fvoci_model::AuditAction::AddedToBoard,
+            board.id.clone(),
+            guest_id.clone(),
+        )]
+    );
+    // The guest is on the board; the administrator still does not read it.
+    let members = th
+        .app
+        .store()
+        .get_members_for_board(&board.id)
+        .await
+        .expect("the members of the board");
+    assert!(
+        members.iter().any(|member| member.user_id == guest_id),
+        "{members:?}"
+    );
+    assert!(
+        members.iter().all(|member| member.user_id != manager_id),
+        "{members:?}"
+    );
+    assert!(
+        members.iter().any(|member| member.user_id == member_id),
+        "{members:?}"
+    );
+
+    // Who has the role already is given none: another link of the administrator's,
+    // accepted by the same guest, adds no record.
+    let again = guest_link(&th.client, &board.id).await;
+    let guest = th.login("asked-by-the-manager", PASSWORD).await;
+    guest
+        .post(
+            "/invitations/accept",
+            &json!({"token": again.token.as_deref().expect("a token")}),
+        )
+        .await
+        .check_ok();
+    assert_eq!(
+        records().await.len(),
+        1,
+        "nothing was given, nothing recorded"
     );
 
     th.teardown().await;

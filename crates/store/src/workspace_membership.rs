@@ -6,8 +6,15 @@
 //! leaves a workspace, and who becomes a guest of it, stops being an admin of its
 //! boards; a board that would be left without an admin by that passes to who made the
 //! change. The locks are taken in one order, as every write of a board's members takes
-//! them: the workspace, the boards, the membership of the workspace. Every statement
-//! names the organization itself: the handle's.
+//! them: the organization (as every change of who administers what has it,
+//! `org_admin::hold_organization_row`), the workspace, the boards, those of the trash,
+//! the membership of the workspace. Every statement names the organization itself: the
+//! handle's.
+//!
+//! The boards are held before the membership, and so they are listed before it is
+//! held: a board the user made, or was put on, while the locks were waited for is not
+//! among them. With everything held the list is read again, and if it has grown the
+//! transaction is given up and made anew, in the same order, with the board in it.
 
 use std::collections::BTreeSet;
 
@@ -18,8 +25,12 @@ use crate::audit::{self, AuditEntry};
 use crate::boards::{delete_member, find_member, lock_board, save_member};
 use crate::db::{Dialect, Id, Row, Scope};
 use crate::error::StoreError;
-use crate::members;
 use crate::trash::{self, TrashedRoles};
+use crate::{members, org_admin};
+
+/// How often a change is made anew because the user came onto another board while its
+/// locks were waited for.
+const ATTEMPTS: usize = 4;
 
 /// What became of a change to who is in a workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +48,9 @@ pub enum MembershipChange {
     RoleIs(WorkspaceRole),
     /// It would leave the workspace without an administrator.
     LastAdmin,
+    /// The user came onto another board of the workspace every time the change was
+    /// tried: nothing was changed.
+    Unsettled,
 }
 
 impl Store {
@@ -113,62 +127,17 @@ impl Store {
         (from, to): (WorkspaceRole, WorkspaceRole),
         by: &str,
     ) -> Result<MembershipChange, StoreError> {
-        self.transaction(async |scope| {
-            if !hold_workspace(scope, workspace_id).await? {
-                return Ok(MembershipChange::NotAMember);
-            }
-            // The boards before the membership, as every write of a board's members
-            // has them; those in the trash too, as a restore has them.
-            let boards = if to == WorkspaceRole::Guest {
-                let boards = hold_boards_of(scope, workspace_id, user_id).await?;
-                trash::hold_deleted_boards(scope, workspace_id).await?;
-                boards
-            } else {
-                Vec::new()
-            };
-            match held_role(scope, workspace_id, user_id).await? {
-                None => return Ok(MembershipChange::NotAMember),
-                Some(current) if current != from => {
-                    return Ok(MembershipChange::RoleIs(current));
-                }
-                Some(_) => {}
-            }
-            if from == WorkspaceRole::Admin
-                && to != WorkspaceRole::Admin
-                && is_only_administrator(scope, workspace_id, user_id).await?
-            {
-                return Ok(MembershipChange::LastAdmin);
-            }
-            let mut taken_over = Vec::new();
-            if to == WorkspaceRole::Guest {
-                taken_over = hand_over(scope, workspace_id, &boards, user_id, by).await?;
-                let mut sql = scope.sql("UPDATE board_members SET scheme_admin = ");
-                sql.bind(false)
-                    .push_bind(", scheme_editor = ", true)
-                    .push_bind(" WHERE user_id = ", Id(user_id))
-                    .push_bind(" AND scheme_admin = ", true)
-                    .push_bind(
-                        " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
-                        Id(workspace_id),
-                    )
-                    .push(")");
-                scope.execute(sql).await?;
-                trash::change_member_of_deleted_boards(
-                    scope,
-                    workspace_id,
-                    user_id,
-                    TrashedRoles::NoMoreThanEditor,
-                )
+        for _ in 0..ATTEMPTS {
+            let attempt = self
+                .transaction(async |scope| {
+                    change_role(scope, workspace_id, user_id, (from, to), by).await
+                })
                 .await?;
+            if let Some(change) = attempt {
+                return Ok(change);
             }
-            let mut sql = scope.sql("UPDATE workspace_members SET role = ");
-            sql.bind(to.as_str())
-                .push_bind(" WHERE workspace_id = ", Id(workspace_id))
-                .push_bind(" AND user_id = ", Id(user_id));
-            scope.execute(sql).await?;
-            Ok(MembershipChange::Done { taken_over })
-        })
-        .await
+        }
+        Ok(MembershipChange::Unsettled)
     }
 
     /// Removes a member from a workspace, on behalf of `by`, unless that would leave
@@ -189,49 +158,135 @@ impl Store {
         user_id: &str,
         by: &str,
     ) -> Result<MembershipChange, StoreError> {
-        self.transaction(async |scope| {
-            if !hold_workspace(scope, workspace_id).await? {
-                return Ok(MembershipChange::NotAMember);
+        for _ in 0..ATTEMPTS {
+            let attempt = self
+                .transaction(async |scope| remove(scope, workspace_id, user_id, by).await)
+                .await?;
+            if let Some(change) = attempt {
+                return Ok(change);
             }
-            let boards = hold_boards_of(scope, workspace_id, user_id).await?;
-            trash::hold_deleted_boards(scope, workspace_id).await?;
-            let Some(current) = held_role(scope, workspace_id, user_id).await? else {
-                return Ok(MembershipChange::NotAMember);
-            };
-            if current == WorkspaceRole::Admin
-                && is_only_administrator(scope, workspace_id, user_id).await?
-            {
-                return Ok(MembershipChange::LastAdmin);
-            }
-            let taken_over = hand_over(scope, workspace_id, &boards, user_id, by).await?;
-            for board_id in &boards {
-                delete_member(scope, board_id, user_id).await?;
-            }
-            // A role stored on a board that was not held: one that was made, or that
-            // the user was added to, while this waited.
-            let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
-            sql.bind(Id(user_id))
-                .push_bind(
-                    " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
-                    Id(workspace_id),
-                )
-                .push(")");
-            scope.execute(sql).await?;
-            trash::change_member_of_deleted_boards(
-                scope,
-                workspace_id,
-                user_id,
-                TrashedRoles::Forget,
-            )
-            .await?;
-            let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
-            sql.bind(Id(workspace_id))
-                .push_bind(" AND user_id = ", Id(user_id));
-            scope.execute(sql).await?;
-            Ok(MembershipChange::Done { taken_over })
-        })
-        .await
+        }
+        Ok(MembershipChange::Unsettled)
     }
+}
+
+/// One try at [`Store::change_workspace_role`], in its transaction: `None` if the user
+/// came onto another board while the locks were waited for, and nothing was written.
+async fn change_role(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+    (from, to): (WorkspaceRole, WorkspaceRole),
+    by: &str,
+) -> Result<Option<MembershipChange>, StoreError> {
+    org_admin::hold_organization_row(scope).await?;
+    if !hold_workspace(scope, workspace_id).await? {
+        return Ok(Some(MembershipChange::NotAMember));
+    }
+    // The boards before the membership, as every write of a board's members has them;
+    // those in the trash too, as a restore has them.
+    let boards = if to == WorkspaceRole::Guest {
+        let boards = hold_boards_of(scope, workspace_id, user_id).await?;
+        trash::hold_deleted_boards(scope, workspace_id).await?;
+        boards
+    } else {
+        Vec::new()
+    };
+    match held_role(scope, workspace_id, user_id).await? {
+        None => return Ok(Some(MembershipChange::NotAMember)),
+        Some(current) if current != from => {
+            return Ok(Some(MembershipChange::RoleIs(current)));
+        }
+        Some(_) => {}
+    }
+    if to == WorkspaceRole::Guest
+        && !holds_every_board_of(scope, workspace_id, user_id, &boards).await?
+    {
+        return Ok(None);
+    }
+    if from == WorkspaceRole::Admin
+        && to != WorkspaceRole::Admin
+        && is_only_administrator(scope, workspace_id, user_id).await?
+    {
+        return Ok(Some(MembershipChange::LastAdmin));
+    }
+    let mut taken_over = Vec::new();
+    if to == WorkspaceRole::Guest {
+        taken_over = hand_over(scope, workspace_id, &boards, user_id, by).await?;
+        let mut sql = scope.sql("UPDATE board_members SET scheme_admin = ");
+        sql.bind(false)
+            .push_bind(", scheme_editor = ", true)
+            .push_bind(" WHERE user_id = ", Id(user_id))
+            .push_bind(" AND scheme_admin = ", true)
+            .push_bind(
+                " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
+                Id(workspace_id),
+            )
+            .push(")");
+        scope.execute(sql).await?;
+        trash::change_member_of_deleted_boards(
+            scope,
+            workspace_id,
+            user_id,
+            TrashedRoles::NoMoreThanEditor,
+        )
+        .await?;
+    }
+    let mut sql = scope.sql("UPDATE workspace_members SET role = ");
+    sql.bind(to.as_str())
+        .push_bind(" WHERE workspace_id = ", Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id));
+    scope.execute(sql).await?;
+    Ok(Some(MembershipChange::Done { taken_over }))
+}
+
+/// One try at [`Store::remove_workspace_member`], in its transaction: `None` if the
+/// user came onto another board while the locks were waited for, and nothing was
+/// written.
+async fn remove(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+    by: &str,
+) -> Result<Option<MembershipChange>, StoreError> {
+    org_admin::hold_organization_row(scope).await?;
+    if !hold_workspace(scope, workspace_id).await? {
+        return Ok(Some(MembershipChange::NotAMember));
+    }
+    let boards = hold_boards_of(scope, workspace_id, user_id).await?;
+    trash::hold_deleted_boards(scope, workspace_id).await?;
+    let Some(current) = held_role(scope, workspace_id, user_id).await? else {
+        return Ok(Some(MembershipChange::NotAMember));
+    };
+    if !holds_every_board_of(scope, workspace_id, user_id, &boards).await? {
+        return Ok(None);
+    }
+    if current == WorkspaceRole::Admin
+        && is_only_administrator(scope, workspace_id, user_id).await?
+    {
+        return Ok(Some(MembershipChange::LastAdmin));
+    }
+    let taken_over = hand_over(scope, workspace_id, &boards, user_id, by).await?;
+    for board_id in &boards {
+        delete_member(scope, board_id, user_id).await?;
+    }
+    // A role stored on a board that was not held: one stored since the boards were
+    // last listed.
+    let mut sql = scope.sql("DELETE FROM board_members WHERE user_id = ");
+    sql.bind(Id(user_id))
+        .push_bind(
+            " AND board_id IN (SELECT id FROM boards WHERE workspace_id = ",
+            Id(workspace_id),
+        )
+        .push(")");
+    scope.execute(sql).await?;
+    trash::change_member_of_deleted_boards(scope, workspace_id, user_id, TrashedRoles::Forget)
+        .await?;
+    let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id));
+    scope.execute(sql).await?;
+    Ok(Some(MembershipChange::Done { taken_over }))
 }
 
 /// The members of a workspace `t` of an organization; the workspace's identifier and
@@ -302,6 +357,29 @@ async fn hold_boards_of(
         }
     }
     Ok(held)
+}
+
+/// Whether every board of the workspace the user has a role on is among `held`: read
+/// once their membership is held too, it tells of a board they made, or were put on,
+/// while the locks were waited for.
+async fn holds_every_board_of(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+    held: &[String],
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql(
+        "SELECT bm.board_id FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
+         WHERE b.workspace_id = ",
+    );
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND bm.user_id = ", Id(user_id));
+    for row in scope.fetch_all(sql).await? {
+        if !held.contains(&row.id(0)?) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// What the user is in the workspace, held against whoever counts them among the

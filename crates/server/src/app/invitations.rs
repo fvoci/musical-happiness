@@ -4,16 +4,18 @@
 //! The token of a link is made here, told once to who makes the link, and kept as its
 //! digest. A link lets somebody in while it is live (`fvoci_store::Store::live_invitation`)
 //! and while who made it may still invite: that is asked anew every time the link is
-//! used, of the facts every other check reads (`App::actor`).
+//! used, of the facts every other check reads (`App::actor`), and an acceptance is
+//! stored only if the maker is still what was found then, where it is written
+//! (`fvoci_store::Inviter`).
 
 use std::net::IpAddr;
 
 use fvoci_model::{
-    AcceptedInvitation, BoardRole, GUEST_INVITATION_USES, GuestInvitationsChange,
+    AcceptedInvitation, BoardMember, BoardRole, GUEST_INVITATION_USES, GuestInvitationsChange,
     INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount, Workspace,
     WorkspaceRole,
 };
-use fvoci_store::{Acceptor, NewLink, StoreError};
+use fvoci_store::{Acceptance, Acceptor, Inviter, InviterOfBoard, NewLink, Standing, StoreError};
 
 use super::auth::account_error;
 use super::{App, BoardAccess};
@@ -21,6 +23,20 @@ use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::AppError;
 use crate::permissions::{self, Actor, BoardScope, WorkspacePermission};
+
+/// How often an acceptance is tried against a maker of the link who is changed
+/// meanwhile.
+const ATTEMPTS: usize = 3;
+
+/// What the maker of a link was found to be when their link was found to let somebody
+/// in: what the acceptance holds them to (`fvoci_store::Inviter`).
+#[derive(Debug)]
+struct Maker {
+    workspace_role: Option<WorkspaceRole>,
+    /// Their membership of the board of a guest's link.
+    member: Option<BoardMember>,
+    of_board: InviterOfBoard,
+}
 
 /// Who accepts a link.
 #[derive(Debug, Clone, Copy)]
@@ -221,7 +237,10 @@ impl App {
     /// link's organization; `None` if the token is of no link that lets anybody in:
     /// no link at all, one that ended, was used up or revoked, or one whose maker may
     /// no longer invite.
-    async fn usable_invitation(&self, token: &str) -> Result<Option<(Self, Invitation)>, AppError> {
+    async fn usable_invitation(
+        &self,
+        token: &str,
+    ) -> Result<Option<(Self, Invitation, Maker)>, AppError> {
         let token_hash = token_digest(token);
         let now = now_millis();
         let Some(org_id) = self
@@ -239,27 +258,48 @@ impl App {
         let Some(invitation) = app.store().live_invitation(&token_hash, now).await? else {
             return Ok(None);
         };
-        if !app.inviter_may_still_invite(&invitation).await? {
+        let Some(maker) = app.inviter_who_may_still_invite(&invitation).await? else {
             return Ok(None);
-        }
-        Ok(Some((app, invitation)))
+        };
+        Ok(Some((app, invitation, maker)))
     }
 
-    /// Whether who made the link may make it now: a link outlives nothing that its
-    /// maker lost. A link for members is a workspace administrator's; one for a guest
-    /// is of who adds members to its board, while the workspace invites guests.
-    async fn inviter_may_still_invite(&self, invitation: &Invitation) -> Result<bool, AppError> {
+    /// Who made the link, as they are now, if they may make it now: a link outlives
+    /// nothing that its maker lost. A link for members is a workspace administrator's;
+    /// one for a guest is of who adds members to its board, while the workspace invites
+    /// guests.
+    async fn inviter_who_may_still_invite(
+        &self,
+        invitation: &Invitation,
+    ) -> Result<Option<Maker>, AppError> {
         let (maker, workspace_id) = (&invitation.created_by, &invitation.workspace_id);
         match (invitation.role, &invitation.board_id) {
-            (WorkspaceRole::Member, _) => Ok(permissions::allows_in_workspace(
-                self.actor(maker, workspace_id).await?,
-                WorkspacePermission::InviteMembers,
-            )),
+            (WorkspaceRole::Member, _) => {
+                let actor = self.actor(maker, workspace_id).await?;
+                let invites =
+                    permissions::allows_in_workspace(actor, WorkspacePermission::InviteMembers);
+                Ok(invites.then_some(Maker {
+                    workspace_role: actor.workspace,
+                    member: None,
+                    of_board: InviterOfBoard::Member,
+                }))
+            }
             (WorkspaceRole::Guest, Some(board_id)) => Ok(self
                 .guest_inviter(maker, workspace_id, board_id)
                 .await?
-                .is_some_and(|(_, invites)| invites)),
-            (WorkspaceRole::Guest, None) | (WorkspaceRole::Admin, _) => Ok(false),
+                .filter(|(_, invites)| *invites)
+                .map(|(access, _)| Maker {
+                    workspace_role: access.actor.workspace,
+                    // A manager who does not read the board puts nobody on it off the
+                    // record, by a link as little as by adding them.
+                    of_board: if access.grant.manages_only() {
+                        InviterOfBoard::ManagerOnly
+                    } else {
+                        InviterOfBoard::Member
+                    },
+                    member: access.member,
+                })),
+            (WorkspaceRole::Guest, None) | (WorkspaceRole::Admin, _) => Ok(None),
         }
     }
 
@@ -280,7 +320,7 @@ impl App {
         address: Option<IpAddr>,
     ) -> Result<InvitationPreview, AppError> {
         let _attempt = self.admit_registration(address)?;
-        let Some((app, invitation)) = self.usable_invitation(token).await? else {
+        let Some((app, invitation, _)) = self.usable_invitation(token).await? else {
             return Err(AppError::invitation_unavailable());
         };
         let workspace = app.workspace(&invitation.workspace_id).await?;
@@ -312,6 +352,10 @@ impl App {
     /// counting of the use. An account that has all the link gives already is let in
     /// again, and uses nothing of the link.
     ///
+    /// The maker of the link is looked at again where the acceptance is written, once
+    /// the link is held: a link whose maker was taken out of the workspace while the
+    /// acceptance waited lets nobody in, as a look at it says by then.
+    ///
     /// `address` is where the request comes from: acceptances are counted against it
     /// as registrations are, and one of an address is under way at a time.
     ///
@@ -328,27 +372,51 @@ impl App {
         address: Option<IpAddr>,
     ) -> Result<AcceptedInvitation, AppError> {
         let _attempt = self.admit_registration(address)?;
-        let Some((app, _)) = self.usable_invitation(token).await? else {
+        let mut new_user = None;
+        let mut settled = None;
+        for _ in 0..ATTEMPTS {
+            let Some((app, invitation, maker)) = self.usable_invitation(token).await? else {
+                return Err(AppError::invitation_unavailable());
+            };
+            // Only now, for a link that is there, is a password hashed, and once.
+            let acceptor = match accepting {
+                Accepting::SignedIn { user_id } => Acceptor::Account(user_id),
+                Accepting::NewAccount(account) => match &mut new_user {
+                    Some(user) => Acceptor::NewAccount(user),
+                    empty => Acceptor::NewAccount(empty.insert(app.new_account(account).await?)),
+                },
+            };
+            let inviter = Inviter {
+                standing: Standing {
+                    user_id: &invitation.created_by,
+                    workspace_role: maker.workspace_role,
+                    member: maker.member.as_ref(),
+                },
+                of_board: maker.of_board,
+            };
+            let acceptance = app
+                .store()
+                .accept_invitation(&token_digest(token), acceptor, now_millis(), inviter)
+                .await
+                .map_err(|error| match error {
+                    error @ StoreError::Conflict(_) => account_error(error),
+                    error => AppError::from(error).context("unable to accept an invitation"),
+                })?;
+            match acceptance {
+                Acceptance::Accepted(accepted) => {
+                    settled = Some((app, accepted));
+                    break;
+                }
+                // Ended, used up or revoked since it was read.
+                Acceptance::Unavailable => return Err(AppError::invitation_unavailable()),
+                // Whether the maker may still invite is asked again, of what they are now.
+                Acceptance::InviterChanged => {}
+            }
+        }
+        // Its maker was changed every time it was tried: as good as no link.
+        let Some((app, accepted)) = settled else {
             return Err(AppError::invitation_unavailable());
         };
-        // Only now, for a link that is there, is a password hashed.
-        let mut new_user = None;
-        let acceptor = match accepting {
-            Accepting::SignedIn { user_id } => Acceptor::Account(user_id),
-            Accepting::NewAccount(account) => {
-                Acceptor::NewAccount(new_user.insert(app.new_account(account).await?))
-            }
-        };
-        let accepted = app
-            .store()
-            .accept_invitation(&token_digest(token), acceptor, now_millis())
-            .await
-            .map_err(|error| match error {
-                error @ StoreError::Conflict(_) => account_error(error),
-                error => AppError::from(error).context("unable to accept an invitation"),
-            })?
-            // Ended, used up or revoked since it was read.
-            .ok_or_else(AppError::invitation_unavailable)?;
         if new_user.is_some() {
             self.metrics().registered();
         }

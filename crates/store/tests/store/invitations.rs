@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use fvoci_model::{BoardMember, BoardRole, Invitation, User, WorkspaceRole, new_id};
-use fvoci_store::{Acceptor, NewLink, Store, StoreError};
+use fvoci_store::{
+    Accepted, Acceptor, Inviter, InviterOfBoard, NewLink, Standing, Store, StoreError,
+};
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
 
@@ -42,6 +44,49 @@ async fn link(
     })
     .await
     .expect("the link is stored")
+}
+
+/// Accepts the link as the server does: its maker is held to what the store says of
+/// them when the acceptance is asked for.
+async fn accept(
+    store: &Store,
+    token_hash: &str,
+    acceptor: Acceptor<'_>,
+    now: i64,
+) -> Result<Option<Accepted>, StoreError> {
+    let link = store.live_invitation(token_hash, now).await?;
+    let (maker, workspace_id, board_id) = match &link {
+        Some(link) => (
+            link.created_by.as_str(),
+            link.workspace_id.as_str(),
+            link.board_id.as_deref(),
+        ),
+        None => ("", "", None),
+    };
+    let workspace_role = store
+        .resolve_workspace(maker, workspace_id)
+        .await?
+        .map(|access| access.workspace_role);
+    let member = match board_id {
+        Some(board_id) => match store.get_member_for_board(board_id, maker).await {
+            Ok(member) => Some(member),
+            Err(error) if error.is_not_found() => None,
+            Err(error) => return Err(error),
+        },
+        None => None,
+    };
+    let inviter = Inviter {
+        standing: Standing {
+            user_id: maker,
+            workspace_role,
+            member: member.as_ref(),
+        },
+        of_board: InviterOfBoard::Member,
+    };
+    Ok(store
+        .accept_invitation(token_hash, acceptor, now, inviter)
+        .await?
+        .accepted())
 }
 
 /// What `user_id` is in the workspace of the test; `None` for nobody there.
@@ -202,7 +247,7 @@ async fn of_many_who_accept_a_link_for_one_at_once_one_gets_in() {
                 } else {
                     Acceptor::NewAccount(&mut user)
                 };
-                let accepted = store.accept_invitation("one", acceptor, NOW).await;
+                let accepted = accept(&store, "one", acceptor, NOW).await;
                 (user.id.clone(), index % 2 == 1, accepted)
             });
         }
@@ -266,8 +311,7 @@ async fn a_link_for_members_counts_everyone_it_lets_in_once() {
         let store: Store = test.store.clone();
         racers.spawn(async move {
             let mut user = newcomer(&format!("member{index}"));
-            let accepted = store
-                .accept_invitation("many", Acceptor::NewAccount(&mut user), NOW)
+            let accepted = accept(&store, "many", Acceptor::NewAccount(&mut user), NOW)
                 .await
                 .expect("the acceptance is stored")
                 .expect("the link is live");
@@ -285,8 +329,7 @@ async fn a_link_for_members_counts_everyone_it_lets_in_once() {
     }
     // Again, and by who administers the workspace: nothing changes, nothing is used.
     for user_id in [&members[0], &admin] {
-        let again = test
-            .accept_invitation("many", Acceptor::Account(user_id), NOW)
+        let again = accept(&test, "many", Acceptor::Account(user_id), NOW)
             .await
             .expect("the acceptance is read")
             .expect("the link is live");
@@ -300,8 +343,7 @@ async fn a_link_for_members_counts_everyone_it_lets_in_once() {
     );
     // An ended link lets nobody in, and stores no account for who came with one.
     let mut late = newcomer("late");
-    let refused = test
-        .accept_invitation("many", Acceptor::NewAccount(&mut late), LATER)
+    let refused = accept(&test, "many", Acceptor::NewAccount(&mut late), LATER)
         .await
         .expect("the acceptance is read");
     assert_eq!(refused, None);
@@ -343,8 +385,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
     test.add_member(&as_admin)
         .await
         .expect("the administrator of the board");
-    let unchanged = test
-        .accept_invitation("guest", Acceptor::Account(&admin), NOW)
+    let unchanged = accept(&test, "guest", Acceptor::Account(&admin), NOW)
         .await
         .expect("the acceptance is read")
         .expect("the link is live");
@@ -359,8 +400,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
     assert_eq!(uses_of(&test, "guest").await, Some(0));
 
     // A member of the workspace accepts it: on the board, and still a member.
-    let joined = test
-        .accept_invitation("guest", Acceptor::Account(&member), NOW)
+    let joined = accept(&test, "guest", Acceptor::Account(&member), NOW)
         .await
         .expect("the acceptance is stored")
         .expect("the link is live");
@@ -382,7 +422,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
     )
     .await;
     let mut outsider = newcomer("outsider");
-    test.accept_invitation("second", Acceptor::NewAccount(&mut outsider), NOW)
+    accept(&test, "second", Acceptor::NewAccount(&mut outsider), NOW)
         .await
         .expect("the acceptance is stored")
         .expect("the link is live");
@@ -396,8 +436,7 @@ async fn a_link_raises_what_somebody_is_and_never_lowers_it() {
         None,
         "on the board of the link only"
     );
-    let raised = test
-        .accept_invitation("members", Acceptor::Account(&outsider.id), NOW)
+    let raised = accept(&test, "members", Acceptor::Account(&outsider.id), NOW)
         .await
         .expect("the acceptance is stored")
         .expect("the link is live");
@@ -451,7 +490,7 @@ async fn a_guest_who_comes_back_holds_no_role_from_before() {
         Some(1),
     )
     .await;
-    test.accept_invitation("back", Acceptor::Account(&returning), NOW)
+    accept(&test, "back", Acceptor::Account(&returning), NOW)
         .await
         .expect("the acceptance is stored")
         .expect("the link is live");

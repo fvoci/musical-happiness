@@ -171,7 +171,9 @@ impl App {
                 Ok(())
             }
             MembershipChange::NotAMember => Err(no_such_member()),
-            MembershipChange::RoleIs(_) => Err(AppError::conflict(CHANGED_MEANWHILE)),
+            MembershipChange::RoleIs(_) | MembershipChange::Unsettled => {
+                Err(AppError::conflict(CHANGED_MEANWHILE))
+            }
             MembershipChange::LastAdmin => {
                 Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin))
             }
