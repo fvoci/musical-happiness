@@ -626,3 +626,99 @@ async fn the_last_identity_of_an_account_without_a_password_is_not_removed() {
     assert_eq!(not_theirs, Unlinked::NotTied);
     assert_eq!(changed, Unlinked::AccountChanged);
 }
+
+/// Two accounts link one identity at once: it is tied to one of them, the other is
+/// told it is taken, and neither transaction is left half done. A provider that is
+/// switched off ties nothing.
+#[tokio::test]
+async fn one_identity_linked_by_two_accounts_at_once_is_tied_to_one() {
+    let test = common::setup().await;
+    let provider = test
+        .put_oidc_provider(&provider_that(Enforcement::Off))
+        .await
+        .expect("stored");
+    let mut rounds = Vec::new();
+    for round in 0..8 {
+        let subject = format!("contested-{round}");
+        let mut linking = Vec::new();
+        let mut users = Vec::new();
+        for name in ["first", "second"] {
+            let user = common::user(&test, &format!("{name}-{round}")).await;
+            let digest = format!("digest-{name}-{round}");
+            let session = session_of(&test, &user, &digest).await;
+            let (store, provider_id, subject) =
+                (test.store.clone(), provider.id.clone(), subject.clone());
+            users.push(user);
+            linking.push(tokio::spawn(async move {
+                let link = LinkingSession {
+                    session_id: &session.id,
+                    token_digest: &digest,
+                    now: 1_500,
+                    idle_since: 0,
+                };
+                let identity = Identity {
+                    issuer: "https://idp.example.com",
+                    subject: &subject,
+                };
+                store
+                    .finish_oidc_link(&provider_id, link, identity, "")
+                    .await
+            }));
+        }
+        let mut outcomes = Vec::new();
+        for link in linking {
+            outcomes.push(link.await.expect("joined").expect("asked"));
+        }
+        let mut tied = Vec::new();
+        for user in &users {
+            tied.push(test.identities_of_user(user).await.expect("read").len());
+        }
+        rounds.push((outcomes, tied, users));
+    }
+    let mut off = provider_that(Enforcement::Off);
+    off.enabled = false;
+    test.put_oidc_provider(&off).await.expect("switched off");
+    let user = common::user(&test, "late").await;
+    let session = session_of(&test, &user, "late digest").await;
+    let switched_off = test
+        .finish_oidc_link(
+            &provider.id,
+            LinkingSession {
+                session_id: &session.id,
+                token_digest: "late digest",
+                now: 1_500,
+                idle_since: 0,
+            },
+            Identity {
+                issuer: "https://idp.example.com",
+                subject: "late",
+            },
+            "",
+        )
+        .await
+        .expect("asked");
+    test.teardown().await;
+
+    for (round, (outcomes, tied, users)) in rounds.into_iter().enumerate() {
+        let winners: Vec<&String> = outcomes
+            .iter()
+            .filter_map(|outcome| outcome.as_ref().ok())
+            .map(|linked| &linked.user_id)
+            .collect();
+        assert_eq!(
+            winners.len(),
+            1,
+            "round {round}: one of the two: {outcomes:?}"
+        );
+        assert!(
+            outcomes.contains(&Err(LinkRefusal::IdentityTaken)),
+            "round {round}: the other is told it is taken: {outcomes:?}"
+        );
+        let expected: Vec<usize> = users
+            .iter()
+            .map(|user| usize::from(winners[0] == user))
+            .collect();
+        assert_eq!(tied, expected, "round {round}: tied to the one alone");
+    }
+    assert_eq!(switched_off, Err(LinkRefusal::ProviderGone));
+}

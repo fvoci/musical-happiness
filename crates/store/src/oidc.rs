@@ -10,7 +10,7 @@ use fvoci_model::{LinkedIdentity, Session, User, new_id};
 
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
-use crate::error::{StoreError, Taken};
+use crate::error::StoreError;
 use crate::users::{InstanceRole, insert_user_row};
 use crate::{members, sessions};
 
@@ -533,29 +533,31 @@ impl Store {
                 return Ok(Err(LinkRefusal::SessionEnded));
             };
             let user_id = row.id(0)?;
+            // Tied unless it is somebody's already, in one statement: of two links of
+            // one identity at once the second waits for the first and ties nothing, and
+            // the transaction goes on to read whose it is.
+            let mut sql = scope.sql(
+                "INSERT INTO user_identities (issuer, subject, user_id, email, create_at) VALUES (",
+            );
+            sql.bind(identity.issuer)
+                .push_bind(", ", identity.subject)
+                .push_bind(", ", Id(&user_id))
+                .push_bind(", ", provider_email)
+                .push_bind(", ", now_millis())
+                .push(") ON CONFLICT (issuer, subject) DO NOTHING");
+            let newly = scope.execute(sql).await? > 0;
             let mut sql = scope.sql("SELECT user_id FROM user_identities WHERE issuer = ");
             sql.bind(identity.issuer)
                 .push_bind(" AND subject = ", identity.subject);
-            if let Some(row) = scope.fetch_optional(sql).await? {
-                return Ok(if row.id(0)? == user_id {
-                    Ok(Linked {
-                        user_id,
-                        newly: false,
-                    })
-                } else {
-                    Err(LinkRefusal::IdentityTaken)
-                });
-            }
-            match insert_identity(scope, identity, &user_id, provider_email, now_millis()).await {
-                Ok(()) => Ok(Ok(Linked {
-                    user_id,
-                    newly: true,
-                })),
-                // Tied a moment ago by another return: to whom is not asked again in
-                // a transaction that failed. Nothing of this one is stored.
-                Err(StoreError::Conflict(Taken::Identity)) => Ok(Err(LinkRefusal::IdentityTaken)),
-                Err(error) => Err(error),
-            }
+            let owner = match scope.fetch_optional(sql).await? {
+                Some(row) => row.id(0)?,
+                None => return Err(StoreError::NoRows),
+            };
+            Ok(if owner == user_id {
+                Ok(Linked { user_id, newly })
+            } else {
+                Err(LinkRefusal::IdentityTaken)
+            })
         })
         .await
     }
@@ -590,12 +592,16 @@ impl Store {
             }
             let mut sql = scope.sql("SELECT issuer, subject FROM user_identities WHERE user_id = ");
             sql.bind(Id(user_id));
-            let tied = scope.fetch_all(sql).await?;
-            let mut is_tied = false;
-            for row in &tied {
-                is_tied |= row.text(0)? == identity.issuer && row.text(1)? == identity.subject;
-            }
-            if !is_tied {
+            let tied: Vec<(String, String)> = scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| Ok((row.text(0)?, row.text(1)?)))
+                .collect::<Result<_, StoreError>>()?;
+            if !tied
+                .iter()
+                .any(|(issuer, subject)| issuer == identity.issuer && subject == identity.subject)
+            {
                 return Ok(Unlinked::NotTied);
             }
             if password_hash.is_empty() && tied.len() == 1 {

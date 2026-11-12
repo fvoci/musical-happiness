@@ -63,8 +63,9 @@ export interface paths {
          *     the organization has no provider that is on, or it cannot be reached; 429 when
          *     this address made too many sign-ins of late.
          *
-         *     With `linkPassword` in the body the sign-in links: it needs a session (401 without),
-         *     whose account's password that is, and when the browser comes back, who the provider
+         *     With `linkPassword` in the body the sign-in links: it needs the session of the
+         *     browser's cookie (401 without; a bearer token does not do, as the browser comes back
+         *     with its cookie), whose account's password that is, and when the browser comes back, who the provider
          *     vouches for is tied to that account in place of signing in (`getMyIdentities`);
          *     after that the provider signs in to the account. No account is made and none is
          *     joined to another: an identity that is another account's is refused
@@ -72,7 +73,9 @@ export interface paths {
          *     the session it was started from (`oidc_state_invalid` otherwise). A wrong password
          *     is 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a
          *     wrong one of `changePassword` is; an account without a password is 409 with the
-         *     reason `password_not_set`. The session need not open the organization.
+         *     reason `password_not_set`. The session need not open the organization. A body with
+         *     another member, or a `linkPassword` that is no text, is 400 naming it: what was
+         *     meant to link does not sign in instead.
          */
         post: operations["startOidcLogin"];
         delete?: never;
@@ -3334,12 +3337,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description To the web app, signed in, or to the login page. */
+            /** @description To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page. */
             303: {
                 headers: {
                     /** @description Where the browser goes. */
                     Location?: string;
-                    /** @description The session cookie, and the cookie of the sign-in cleared. */
+                    /** @description The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared. */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
@@ -3367,9 +3370,9 @@ export interface operations {
             cookie?: never;
         };
         /** @description May be left out, to sign in. */
-        requestBody: {
+        requestBody?: {
             content: {
-                "application/json": components["schemas"]["OidcStartRequest"];
+                "application/json": components["schemas"]["OidcStartRequest"] | null;
             };
         };
         responses: {

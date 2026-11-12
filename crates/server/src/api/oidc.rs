@@ -11,20 +11,21 @@
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, RawQuery, State};
 use axum::http::header::{LOCATION, SET_COOKIE};
-use axum::http::{Extensions, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use fvoci_model::{LoginOptions, OidcStart, OidcStartRequest, Problem};
+use fvoci_model::{
+    LoginOptions, OidcStart, OidcStartRequest, Problem, RefusalReason, Refusals, shown_name,
+};
 
 use super::auth::{address_of, user_agent};
 use super::contract::params::{
     CallbackOrg, LoginOrg, OidcCode, OidcError, OidcIssuer, OidcState, StartOrg,
 };
 use super::contract::tag;
-use super::session::session_of;
-use super::{ApiResult, decode_object, json_response, query_param};
+use super::{ApiResult, decode_json, json_object, json_response, query_param};
 use crate::app::{App, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure};
 use crate::auth::token::{Credential, Https, cookie_value, query_value};
 use crate::client_address::ClientAddress;
@@ -80,8 +81,9 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 /// the organization has no provider that is on, or it cannot be reached; 429 when
 /// this address made too many sign-ins of late.
 ///
-/// With `linkPassword` in the body the sign-in links: it needs a session (401 without),
-/// whose account's password that is, and when the browser comes back, who the provider
+/// With `linkPassword` in the body the sign-in links: it needs the session of the
+/// browser's cookie (401 without; a bearer token does not do, as the browser comes back
+/// with its cookie), whose account's password that is, and when the browser comes back, who the provider
 /// vouches for is tied to that account in place of signing in (`getMyIdentities`);
 /// after that the provider signs in to the account. No account is made and none is
 /// joined to another: an identity that is another account's is refused
@@ -89,7 +91,9 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 /// the session it was started from (`oidc_state_invalid` otherwise). A wrong password
 /// is 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a
 /// wrong one of `changePassword` is; an account without a password is 409 with the
-/// reason `password_not_set`. The session need not open the organization.
+/// reason `password_not_set`. The session need not open the organization. A body with
+/// another member, or a `linkPassword` that is no text, is 400 naming it: what was
+/// meant to link does not sign in instead.
 #[utoipa::path(
     post,
     path = "/auth/oidc/start",
@@ -97,7 +101,7 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
     tag = tag::AUTH,
     params(StartOrg),
     request_body(
-        content = OidcStartRequest,
+        content = Option<OidcStartRequest>,
         description = "May be left out, to sign in.",
     ),
     security(()),
@@ -140,19 +144,23 @@ async fn handle_start(
     if org_id.is_empty() {
         return Err(AppError::bad_request("the query parameter org is required"));
     }
-    let request: OidcStartRequest = if body.is_empty() {
-        OidcStartRequest::default()
-    } else {
-        decode_object(&body)?
-    };
     let address = address_of(client);
-    let started = match &request.link_password {
+    let started = match link_password(&body)? {
         None => app.start_oidc_login(&org_id, address).await?,
         Some(password) => {
             // Linking is the account's own doing, with a session of it, whatever
-            // organization that session opens.
-            let session = session_of(&app, &headers, &Extensions::new()).await?;
-            app.start_oidc_link(&org_id, &session, password, address)
+            // organization that session opens: the session of the browser's cookie,
+            // which is the one the browser comes back with.
+            let token = match app.authenticator().session_cookie().credential(&headers) {
+                Some(Credential::Cookie(token)) => token,
+                Some(Credential::Bearer(_)) | None => {
+                    return Err(AppError::unauthorized(
+                        "linking needs the session of the browser's cookie",
+                    ));
+                }
+            };
+            let session = app.authenticator().find_session(&token).await?;
+            app.start_oidc_link(&org_id, &session, &password, address)
                 .await?
         }
     };
@@ -198,10 +206,10 @@ async fn handle_start(
     security(()),
     responses((
         status = 303,
-        description = "To the web app, signed in, or to the login page.",
+        description = "To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page.",
         headers(
             ("Location" = String, description = "Where the browser goes."),
-            ("Set-Cookie" = String, description = "The session cookie, and the cookie of the sign-in cleared."),
+            ("Set-Cookie" = String, description = "The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared."),
         ),
     )),
 )]
@@ -244,6 +252,39 @@ async fn handle_callback(
         .headers_mut()
         .append(SET_COOKIE, flow_cookie(&app, "", 0));
     Ok(response)
+}
+
+/// The password of a request to start a sign-in that links; `None` for a body that is
+/// left out or has no members, which starts a sign-in.
+///
+/// # Errors
+///
+/// Returns 400 naming the member for a `linkPassword` that is no text (`null` too) and
+/// for any other member: a request that was meant to link must not sign in instead,
+/// into whatever account the provider vouches for.
+fn link_password(body: &Bytes) -> Result<Option<String>, AppError> {
+    if body.is_empty() {
+        return Ok(None);
+    }
+    let mut password = None;
+    let mut refused = Refusals::new();
+    for (name, value) in json_object(decode_json(body)?)? {
+        match (name.as_str(), value) {
+            ("linkPassword", serde_json::Value::String(text)) => password = Some(text),
+            ("linkPassword", _) => refused.refuse(
+                "linkPassword",
+                RefusalReason::Invalid,
+                "linkPassword must be a string",
+            ),
+            (other, _) => refused.refuse(
+                other,
+                RefusalReason::Unknown,
+                format!("there is no member {:?}", shown_name(other)),
+            ),
+        }
+    }
+    refused.into_result()?;
+    Ok(password)
 }
 
 /// A redirect to `location`, which the server made: always a valid header value.

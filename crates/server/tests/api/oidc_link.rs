@@ -268,13 +268,41 @@ async fn a_link_is_started_with_a_session_and_the_accounts_password() {
         "{problem}"
     );
 
+    // What was meant to link does not sign in instead: a password that is no text,
+    // or a member the request does not have, is refused, and so is a bearer token,
+    // which is not what the browser comes back with.
+    for (body, at) in [
+        (json!({ "linkPassword": null }), "/linkPassword"),
+        (json!({ "linkPassword": 7 }), "/linkPassword"),
+        (json!({ "linkpassword": PASSWORD }), "/linkpassword"),
+    ] {
+        let malformed = ts
+            .client
+            .post(&format!("/auth/oidc/start?org={org_id}"), &body)
+            .await;
+        malformed.check_bad_request();
+        assert_eq!(malformed.refused_at(), at, "{body}");
+    }
+    ts.client
+        .post(
+            &format!("/auth/oidc/start?org={org_id}"),
+            &json!({ "linkPassword": PASSWORD }),
+        )
+        .await
+        .check_unauthorized();
+    // No body, and one without members, start a sign-in, as they did.
+    ts.anonymous()
+        .post(&format!("/auth/oidc/start?org={org_id}"), &json!({}))
+        .await
+        .check_ok();
+
     // An account made by the provider has no password to confirm with.
     let newcomer = through_provider(&ts, &fake, &org_id, "subject-of-a-newcomer").await;
     let no_password = linker.ask(&org_id, Some(&newcomer.token), PASSWORD).await;
     assert_eq!(no_password.status(), StatusCode::CONFLICT);
     let problem: serde_json::Value = no_password.json().await.expect("a problem");
     assert_eq!(problem["reason"], "password_not_set", "{problem}");
-    assert_eq!(flows(&ts).await, 0, "no sign-in was started");
+    assert_eq!(flows(&ts).await, 1, "but for the one that was to sign in");
     ts.teardown().await;
     fake.stop();
 }
@@ -344,11 +372,180 @@ async fn a_link_ends_only_in_the_browser_and_the_session_that_started_it() {
         .await;
     assert_eq!(ended, invalid, "the session ended");
 
-    assert_eq!(identities(&ts.client).await, []);
+    // After an administrator set the account's password, which ends its sessions.
+    let reset = ts.login(USER1_USERNAME, PASSWORD).await;
+    let returning = linker.go_to_provider(&org_id, &reset.token).await;
+    ts.app
+        .reset_user_password(USER1_USERNAME, PASSWORD)
+        .await
+        .expect("the password is set");
+    let ended = linker
+        .come_back(&returning, Some(&returning.flow), Some(&reset.token))
+        .await;
+    assert_eq!(ended, invalid, "the sessions were ended");
+    // The sessions of the test's clients went with it.
+    let mine = &ts.login(USER1_USERNAME, PASSWORD).await.token;
+    // After the provider was switched off while the person was at it.
+    let returning = linker.go_to_provider(&org_id, mine).await;
+    let admin = ts.client_with_token(mine);
+    let settings = |enabled: bool| {
+        json!({
+            "issuer": fake.issuer, "clientId": crate::fake_oidc::CLIENT_ID, "enabled": enabled,
+        })
+    };
+    admin
+        .put(&format!("/org/{org_id}/oidc"), &settings(false))
+        .await
+        .check_ok();
+    let ended = linker
+        .come_back(&returning, Some(&returning.flow), Some(mine))
+        .await;
+    assert_eq!(ended, Ended::Refused("oidc-unavailable".to_owned()));
+    admin
+        .put(&format!("/org/{org_id}/oidc"), &settings(true))
+        .await
+        .check_ok();
+
+    assert_eq!(identities(&admin).await, []);
     assert_eq!(identities(&ts.client2).await, []);
     // And as it is meant, it links.
     assert_eq!(linker.link(&org_id, mine).await, Ended::Linked);
-    assert_eq!(identities(&ts.client).await.len(), 1);
+    assert_eq!(identities(&admin).await.len(), 1);
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// The session a link was started from changes its password meanwhile: it goes on
+/// under a new token, which the browser has, and the link ends well with that one and
+/// not with the token before; the account's other sessions end, and their links with
+/// them.
+#[tokio::test]
+async fn a_link_follows_its_session_through_a_change_of_the_password() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    fake.sign_in_as(Person::new("subject-of-user2", "user2@sample.com"));
+    let linker = Linker::new(&ts, &fake);
+    let invalid = Ended::Refused("oidc-state-invalid".to_owned());
+    let other = ts.login(crate::common::USER2_USERNAME, PASSWORD).await;
+
+    let of_the_other = linker.go_to_provider(&org_id, &other.token).await;
+    let returning = linker.go_to_provider(&org_id, &ts.client2.token).await;
+    let before = linker.go_to_provider(&org_id, &ts.client2.token).await;
+    let changed = ts
+        .client2
+        .post(
+            "/users/me/password",
+            &json!({ "oldPassword": PASSWORD, "newPassword": "another password" }),
+        )
+        .await;
+    changed.check_no_content();
+    let renewed = changed.session_cookie().expect("the session's new token");
+
+    let ended = linker
+        .come_back(&of_the_other, Some(&of_the_other.flow), Some(&other.token))
+        .await;
+    assert_eq!(ended, invalid, "the account's other session ended");
+    let ended = linker
+        .come_back(&before, Some(&before.flow), Some(&ts.client2.token))
+        .await;
+    assert_eq!(ended, invalid, "the token before is no session's");
+    let ended = linker
+        .come_back(&returning, Some(&returning.flow), Some(&renewed))
+        .await;
+    assert_eq!(
+        ended,
+        Ended::Linked,
+        "the session went on, and its link with it"
+    );
+    assert_eq!(identities(&ts.client_with_token(&renewed)).await.len(), 1);
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A wrong password of a link or of a removal is counted with the failed logins to the
+/// account: who holds a session does not get to guess at the password through either.
+#[tokio::test]
+async fn the_password_is_not_guessed_at_through_linking_or_removing() {
+    let fake = FakeProvider::start().await;
+    let ts = crate::common::Setup::native()
+        .trusting_oidc_provider(&fake.certificate_der)
+        .configure(crate::oidc::with_key_and_private_addresses)
+        .configure(|config| {
+            config.login_pair_free_failures = 2;
+            config.login_pair_base_delay_seconds = 30;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let linker = Linker::new(&ts, &fake);
+    fake.sign_in_as(Person::new("subject-of-user1", "user1@sample.com"));
+    assert_eq!(linker.link(&org_id, &ts.client.token).await, Ended::Linked);
+    let mine = identities(&ts.client).await.remove(0);
+
+    let wrong = linker
+        .ask(&org_id, Some(&ts.client.token), "a wrong guess")
+        .await;
+    assert_eq!(wrong.status(), StatusCode::BAD_REQUEST);
+    for _ in 0..2 {
+        unlink(&ts.client, &mine, "a wrong guess")
+            .await
+            .check_bad_request();
+    }
+    // One too many, by either way, and for the right password and a login too.
+    let limited = linker
+        .ask(&org_id, Some(&ts.client.token), "a wrong guess")
+        .await;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    unlink(&ts.client, &mine, PASSWORD)
+        .await
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
+    let mut login = ts.anonymous();
+    login
+        .login(USER1_USERNAME, PASSWORD)
+        .await
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(identities(&ts.client).await, [mine], "nothing was removed");
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// A link ties an identity and does nothing else: through the provider of an
+/// organization the account is no member of, it joins nobody to that organization,
+/// though a sign-in through that provider would.
+#[tokio::test]
+async fn a_link_joins_no_organization() {
+    use fvoci_store::DbType;
+    use fvoci_store::testing::db_type_of_the_tests;
+    if db_type_of_the_tests() != DbType::Postgres {
+        // An SQLite database holds one organization.
+        return;
+    }
+    let fake = FakeProvider::start().await;
+    let crate::sso::Two { ts, theirs, .. } = crate::sso::two_organizations(&fake).await;
+    let user2: User = ts.client2.me().await;
+    let their_store = ts.app.store().for_org(&theirs).expect("an identifier");
+    let is_member = async || {
+        their_store
+            .is_organization_member(&user2.id)
+            .await
+            .expect("read")
+    };
+    assert!(!is_member().await, "user2 is of ours alone");
+
+    fake.sign_in_as(Person::new("subject-of-user2", "user2@sample.com"));
+    let linker = Linker::new(&ts, &fake);
+    assert_eq!(linker.link(&theirs, &ts.client2.token).await, Ended::Linked);
+    assert_eq!(identities(&ts.client2).await.len(), 1, "tied");
+    assert!(!is_member().await, "and joined to nothing");
+    // The sign-in through their provider is what joins, where they let newcomers in.
+    let through = through_provider(&ts, &fake, &theirs, "subject-of-user2").await;
+    assert_eq!(through.me().await.id, user2.id, "the same account");
+    assert!(is_member().await, "joined by signing in");
     ts.teardown().await;
     fake.stop();
 }
@@ -376,7 +573,7 @@ async fn an_identity_is_removed_with_the_password_and_the_last_way_in_stays() {
         .delete_json("/users/me/identities", &json!({ "issuer": mine.issuer }))
         .await;
     incomplete.check_bad_request();
-    assert_eq!(incomplete.refused_places(), ["/subject", "/password"]);
+    assert_eq!(incomplete.refused_places(), ["/subject"]);
     // Not user2's: as one that is nobody's.
     let not_theirs = unlink(&ts.client2, &mine, PASSWORD).await;
     let nobodys = unlink(
@@ -389,6 +586,7 @@ async fn an_identity_is_removed_with_the_password_and_the_last_way_in_stays() {
     )
     .await;
     not_theirs.check_not_found();
+    nobodys.check_not_found();
     assert_eq!(not_theirs.error_message(), nobodys.error_message());
     assert_eq!(
         identities(&ts.client).await,
@@ -400,9 +598,12 @@ async fn an_identity_is_removed_with_the_password_and_the_last_way_in_stays() {
     // it has no password to confirm removing either with.
     let newcomer = through_provider(&ts, &fake, &org_id, "subject-of-a-newcomer").await;
     let only = identities(&newcomer).await.remove(0);
-    let last = unlink(&newcomer, &only, PASSWORD).await;
-    last.check_status(StatusCode::CONFLICT);
-    assert_eq!(last.error_reason(), "last_sign_in");
+    // Whatever is sent for the password it does not have.
+    for password in [PASSWORD, ""] {
+        let last = unlink(&newcomer, &only, password).await;
+        last.check_status(StatusCode::CONFLICT);
+        assert_eq!(last.error_reason(), "last_sign_in");
+    }
     ts.app
         .store()
         .add_identity(

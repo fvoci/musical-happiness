@@ -510,6 +510,12 @@ impl App {
             tracing::info!(org_id = %flow.org_id, "a sign-in came back with another issuer than its provider's");
             return Err(Reason::OidcStateInvalid.into());
         }
+        // A link that comes back without a session ends here, before the provider is
+        // asked for anything: which session it is, is asked where the link is stored.
+        if flow.link_session_id.is_some() && callback.session_token.is_none() {
+            tracing::info!(org_id = %flow.org_id, "a sign-in to link came back without a session");
+            return Err(Reason::OidcStateInvalid.into());
+        }
         let claims = self
             .checked_claims(&discovery, &stored, secret.as_deref(), flow, &callback.code)
             .await?;

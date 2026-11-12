@@ -196,18 +196,15 @@ pub struct UnlinkRequest {
 }
 
 impl UnlinkRequest {
-    /// Checks that every member is there.
+    /// Checks that the identity is named. The password is the account's to judge: an
+    /// account without one is told so, whatever is sent.
     ///
     /// # Errors
     ///
-    /// Returns every member that is empty.
+    /// Returns `issuer` and `subject` if they are empty.
     pub fn validate(&self) -> Result<(), Refusals> {
         let mut refused = Refusals::new();
-        for (name, value) in [
-            ("issuer", &self.issuer),
-            ("subject", &self.subject),
-            ("password", &self.password),
-        ] {
+        for (name, value) in [("issuer", &self.issuer), ("subject", &self.subject)] {
             if value.is_empty() {
                 refused.refuse(name, RefusalReason::Required, format!("{name} is required"));
             }
