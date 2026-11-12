@@ -186,12 +186,12 @@ async fn templates_come_oldest_first() {
 async fn memberships_come_by_identifier() {
     let test = common::setup().await;
     let store = &test.store;
-    let workspace_id = common::workspace(store).await;
     let users = [
         common::user(store, "user c").await,
         common::user(store, "user a").await,
         common::user(store, "user b").await,
     ];
+    let workspace_id = common::workspace_of(store, &[&users[0]]).await;
     let open = || Board {
         board_type: BoardType::Open,
         ..Board::default()

@@ -140,8 +140,8 @@ impl TwoBoards {
 )]
 async fn create_boards_and_blocks() {
     let test = common::setup().await;
-    let workspace_id = common::workspace(&test).await;
     let user_id = common::user(&test, "user").await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
 
     let stored = test
         .get_boards_for_user_and_workspace(&user_id, &workspace_id, PublicBoards::Include)

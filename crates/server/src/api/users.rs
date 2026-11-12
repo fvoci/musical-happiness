@@ -164,7 +164,8 @@ async fn handle_patch_me(
 
 /// The boards the user is a member of
 ///
-/// The user's memberships, with the roles of each. By the identifier of the board.
+/// The user's memberships, with the roles of each, of the boards of the workspaces the
+/// user is a member of. By the identifier of the board.
 #[utoipa::path(
     get,
     path = "/users/me/memberships",

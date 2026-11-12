@@ -1150,7 +1150,7 @@ async fn deleting_a_user_row_takes_what_is_theirs_alone_with_it() {
     let store = &test.store;
     let owner = common::user(store, "owner").await;
     let leaver = common::user(store, "leaver").await;
-    let workspace_id = common::workspace(store).await;
+    let workspace_id = common::workspace_of(store, &[&owner, &leaver]).await;
     let boards = common::create_test_boards(store, &workspace_id, &owner, 1).await;
     let mut blocks = vec![card_on(&boards[0].id)];
     common::insert_blocks(store, &mut blocks, &owner).await;

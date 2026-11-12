@@ -341,7 +341,7 @@ impl Store {
             };
             if current.scheme_admin
                 && !member.scheme_admin
-                && is_only_admin(scope, &member.board_id, &member.user_id).await?
+                && members::is_only_admin(scope, &member.board_id, &member.user_id).await?
             {
                 return Ok(MemberChange::LastAdmin);
             }
@@ -372,7 +372,7 @@ impl Store {
             let Some(current) = find_member(scope, board_id, user_id).await? else {
                 return Ok(MemberChange::NotAMember);
             };
-            if current.scheme_admin && is_only_admin(scope, board_id, user_id).await? {
+            if current.scheme_admin && members::is_only_admin(scope, board_id, user_id).await? {
                 return Ok(MemberChange::LastAdmin);
             }
             delete_member(scope, board_id, user_id).await?;
@@ -410,7 +410,8 @@ impl Store {
     }
 
     /// Returns a user's memberships, by the identifier of the board: the boards in the
-    /// order they were made in.
+    /// order they were made in. A membership of a board of a workspace the user is no
+    /// member of any more is left out.
     ///
     /// # Errors
     ///
@@ -610,7 +611,8 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
 
 /// Starts the query for the boards a user can reach: `SELECT DISTINCT` over boards joined
 /// with their memberships, without templates, narrowed to the user's boards and, if
-/// asked for, the open ones where the user works. More `AND` conditions on `b` may follow.
+/// asked for, the open ones where the user works. A membership counts while the user is a
+/// member of the board's workspace. More `AND` conditions on `b` may follow.
 fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: PublicBoards) -> Sql {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
@@ -622,7 +624,7 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
         PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
         PublicBoards::Exclude => sql.push(" AND ("),
     };
-    sql.push_bind("bm.user_id = ", Id(user_id)).push(")");
+    members::push_own_membership_in_workspace(&mut sql, user_id).push(")");
     sql
 }
 
@@ -860,8 +862,8 @@ pub(crate) async fn get_members_for_user(
     user_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.user_id = ", Id(user_id))
-        .push(" ORDER BY bm.board_id");
+    sql.push(" JOIN boards AS b ON b.id = bm.board_id WHERE ");
+    members::push_own_membership_in_workspace(&mut sql, user_id).push(" ORDER BY bm.board_id");
     fetch_members(scope, sql).await
 }
 
@@ -961,20 +963,6 @@ pub(crate) async fn lock_boards<'a>(
         lock_board(scope, board_id).await?;
     }
     Ok(())
-}
-
-/// Whether no other member of the board than the user is an administrator.
-async fn is_only_admin(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    user_id: &str,
-) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT 1 FROM board_members WHERE board_id = ");
-    sql.bind(Id(board_id))
-        .push_bind(" AND user_id <> ", Id(user_id))
-        .push_bind(" AND scheme_admin = ", true)
-        .push(" LIMIT 1");
-    Ok(scope.fetch_optional(sql).await?.is_none())
 }
 
 pub(crate) async fn delete_member(

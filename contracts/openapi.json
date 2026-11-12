@@ -5369,7 +5369,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each. By the identifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of. By the identifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
@@ -5712,11 +5712,11 @@
     },
     "/api/v1/w/{workspaceId}/archive/export": {
       "get": {
-        "description": "An archive of all boards of the workspace that `getWorkspaceBoards` lists for the\nuser, offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. A workspace that is not there, that the user is not in, or that\nis of another organization than the server's, is not refused: its archive has no\nboards.",
+        "description": "An archive of all boards of the workspace that `getWorkspaceBoards` lists for the\nuser, offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. 404 unless the user is a member of the workspace; a guest's\narchive has the boards they were invited to.",
         "operationId": "exportWorkspaceArchive",
         "parameters": [
           {
-            "description": "The identifier of the workspace. A workspace that is not there, that the user is not in, or that is of another organization than the server's, is not refused: its archive has no boards.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,

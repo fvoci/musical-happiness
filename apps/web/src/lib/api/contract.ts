@@ -1112,7 +1112,8 @@ export interface paths {
         };
         /**
          * The boards the user is a member of
-         * @description The user's memberships, with the roles of each. By the identifier of the board.
+         * @description The user's memberships, with the roles of each, of the boards of the workspaces the
+         *     user is a member of. By the identifier of the board.
          */
         get: operations["getMyMemberships"];
         put?: never;
@@ -1272,9 +1273,8 @@ export interface paths {
          * Export the boards of a workspace
          * @description An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
          *     user, offered as a download with its length, in the format of `exportBoardArchive`,
-         *     and under its limits. A workspace that is not there, that the user is not in, or that
-         *     is of another organization than the server's, is not refused: its archive has no
-         *     boards.
+         *     and under its limits. 404 unless the user is a member of the workspace; a guest's
+         *     archive has the boards they were invited to.
          */
         get: operations["exportWorkspaceArchive"];
         put?: never;
@@ -5165,7 +5165,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. A workspace that is not there, that the user is not in, or that is of another organization than the server's, is not refused: its archive has no boards. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;

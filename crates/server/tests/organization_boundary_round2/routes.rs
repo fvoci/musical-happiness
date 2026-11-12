@@ -145,10 +145,11 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             hidden.status == StatusCode::OK
                 && answer(&hidden).1 == json!([])
                 && absent.status == StatusCode::NOT_FOUND
-        } else if *operation == "exportWorkspaceArchive" {
-            hidden.status == absent.status
-                && hidden.status == StatusCode::OK
-                && archive_entries(&hidden.body) == archive_entries(&absent.body)
+        } else if *operation == "exportWorkspaceArchive" && asker == Asker::Guest {
+            // The guest's archive has the boards the guest is on, none here.
+            hidden.status == StatusCode::OK
+                && archive_entries(&hidden.body).len() == 1
+                && absent.status == StatusCode::NOT_FOUND
         } else {
             answer(&hidden) == answer(&absent) && hidden.status == StatusCode::NOT_FOUND
         };
@@ -206,9 +207,8 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
 
 /// Every route under `/w/{workspaceId}` answers for a workspace the asker is not in, a
 /// workspace of another organization, and a workspace the asker is a guest of as for one
-/// that does not exist; but `getWorkspaceBoards`, which lets a guest see the boards the
-/// guest is on, and `exportWorkspaceArchive`, whose archive of such a workspace has no
-/// boards.
+/// that does not exist; but `getWorkspaceBoards` and `exportWorkspaceArchive`, which let a
+/// guest see and export the boards the guest is on.
 #[tokio::test]
 async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
     let ts = Setup::native().start().await.init_basic().await;

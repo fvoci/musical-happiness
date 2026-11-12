@@ -601,11 +601,11 @@ async fn an_open_board_of_a_workspace_the_user_is_not_in_is_not_there() {
         names.sort();
         names
     };
-    assert_eq!(
-        exported(HIDDEN_WORKSPACE_ID).await,
-        ["version.json"],
-        "the archive of the hidden workspace holds none of its boards"
-    );
+    // A workspace the user is no member of exports nothing: it is not there.
+    ts.client
+        .get(&format!("/w/{HIDDEN_WORKSPACE_ID}/archive/export"))
+        .await
+        .check_not_found();
 
     // To who works in the workspace, the board is found and is in the archive.
     ts.app

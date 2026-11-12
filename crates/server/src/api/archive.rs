@@ -8,7 +8,6 @@ use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{Session, UploadPurpose};
-use fvoci_store::PublicBoards;
 use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
@@ -16,7 +15,7 @@ use utoipa_axum::routes;
 
 use super::body::decode_object;
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, ExportedWorkspaceId, WorkspaceId};
+use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::workspace::Ws;
 use super::{ApiResult, RequiredSession, no_content};
@@ -131,15 +130,14 @@ async fn handle_export_board(
 ///
 /// An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
 /// user, offered as a download with its length, in the format of `exportBoardArchive`,
-/// and under its limits. A workspace that is not there, that the user is not in, or that
-/// is of another organization than the server's, is not refused: its archive has no
-/// boards.
+/// and under its limits. 404 unless the user is a member of the workspace; a guest's
+/// archive has the boards they were invited to.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/archive/export",
     operation_id = "exportWorkspaceArchive",
     tag = tag::ARCHIVES,
-    params(ExportedWorkspaceId),
+    params(MemberWorkspaceId),
     responses((
         status = 200,
         description = "The archive.",
@@ -157,24 +155,15 @@ async fn handle_export_workspace(
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
-    let user_id = &session.user_id;
-    let public = if user_is_guest(&app, user_id).await? {
-        PublicBoards::Exclude
-    } else {
-        PublicBoards::Include
-    };
+    let ws = Ws::enter(&app, session, workspace_id).await?;
+    let (app, user_id) = (&ws.app, &ws.session.user_id);
     let boards = app
-        .boards_for_user_and_workspace(user_id, &workspace_id, public)
+        .workspace_boards(user_id, &ws.workspace_id, ws.role)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
     let slot = app.start_export(user_id)?;
-    let archive = app.export_archive(&workspace_id, &ids).await?;
-    Ok(archive_response(
-        &app,
-        archive,
-        slot,
-        breaker_of(connection),
-    ))
+    let archive = app.export_archive(&ws.workspace_id, &ids).await?;
+    Ok(archive_response(app, archive, slot, breaker_of(connection)))
 }
 
 /// Import an archive
