@@ -4,6 +4,16 @@
 use anyhow::bail;
 use serde::Deserialize;
 
+/// The variables of the environment of these keys ([`super::ENV_KEYS`]).
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 6] = [
+    ("collab_workers", super::EnvKind::Number),
+    ("collab_documents_per_worker", super::EnvKind::Number),
+    ("collab_state_bytes", super::EnvKind::Number),
+    ("collab_update_bytes", super::EnvKind::Number),
+    ("collab_worker_timeout_ms", super::EnvKind::Number),
+    ("collab_worker_memory_bytes", super::EnvKind::Number),
+];
+
 /// The keys `collab_*` of the configuration, at its top level.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]

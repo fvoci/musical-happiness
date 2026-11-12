@@ -14,7 +14,8 @@ use fvoci_model::{
 use fvoci_server::app::App;
 use fvoci_server::auth::secret::new_secret;
 use fvoci_server::collab::worker::WorkerCommand;
-use fvoci_server::config::{CollabSettings, Configuration};
+use fvoci_server::config::Configuration;
+use fvoci_server::config::collab::CollabSettings;
 use fvoci_server::{Server, TlsFiles};
 use fvoci_store::testing::TestDatabase;
 use fvoci_store::{SharingChange, Store};

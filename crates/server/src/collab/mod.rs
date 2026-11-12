@@ -45,7 +45,7 @@ use tokio::sync::broadcast;
 
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, Limits, Refusal, Refused, Request};
-use crate::config::CollabSettings;
+use crate::config::collab::CollabSettings;
 use crate::error::AppError;
 use place::{Held, Slot};
 use worker::{Worker, WorkerCommand, WorkerSettings};
