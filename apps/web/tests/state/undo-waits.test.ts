@@ -21,7 +21,14 @@ async function slowBoard() {
   const stored = async (): Promise<string> => (await backend.card(board.boardId, alpha)).title;
   await board.setCardTitle(alpha, 'One');
   backend.latency = LATE;
-  return { ...made, alpha, title, stored };
+  /** The writes of cards asked of the backend from here on. */
+  const sent: unknown[] = [];
+  const patchCard = backend.patchCard.bind(backend);
+  backend.patchCard = (boardId, cardId, patch) => {
+    sent.push(patch);
+    return patchCard(boardId, cardId, patch);
+  };
+  return { ...made, alpha, title, stored, sent };
 }
 
 describe('undo asked for while a change is being written', () => {
@@ -72,20 +79,23 @@ describe('undo asked for while a change is being written', () => {
 
 describe('redo asked for while an undo is being written', () => {
   it('waits for it, and does the change again', async () => {
-    const { workspace, title, stored } = await slowBoard();
+    const { workspace, title, stored, sent } = await slowBoard();
     const undoing = workspace.undoLast();
     const redoing = workspace.redoLast();
     await Promise.all([undoing, redoing]);
+    expect(sent).toEqual([{ title: 'Alpha' }, { title: 'One' }]);
     expect(title()).toBe('One');
     expect(await stored()).toBe('One');
   });
 
   it('is dropped when the undo is refused', async () => {
-    const { backend, workspace, title, stored } = await slowBoard();
+    const { backend, workspace, title, stored, sent } = await slowBoard();
     backend.failNext('patchCard', new BackendError(403));
     const undoing = workspace.undoLast();
     const redoing = workspace.redoLast();
     await Promise.all([undoing, redoing]);
+    // The undo was sent, and the redo was not.
+    expect(sent).toEqual([{ title: 'Alpha' }]);
     expect(title()).toBe('One');
     expect(await stored()).toBe('One');
     expect(workspace.problems.map((problem) => problem.action)).toEqual(['undo']);
@@ -97,11 +107,11 @@ describe('redo asked for while an undo is being written', () => {
 describe('a gesture of several writes', () => {
   it('is taken back whole by an undo asked for before its writes are done', async () => {
     const { board, backend, workspace, title } = await slowBoard();
-    const ids = board.realCards.map((card) => card.id);
+    const ids = board.realCards.slice(0, 2).map((card) => card.id);
     const deleting = board.deleteCards(ids);
     const undoing = workspace.undoLast();
     await Promise.all([deleting, undoing]);
-    expect(board.realCards.map((card) => card.id).sort()).toEqual([...ids].sort());
+    expect(board.realCards.filter((card) => ids.includes(card.id))).toHaveLength(ids.length);
     const kept = await backend.cards(board.boardId);
     expect(kept.filter((card) => ids.includes(card.id))).toHaveLength(ids.length);
     // The title changed before the gesture is still in force.

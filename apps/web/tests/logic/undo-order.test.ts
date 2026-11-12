@@ -209,21 +209,57 @@ describe('undo while a change is being written', () => {
     expect(shown()).toBe('one');
   });
 
-  it('still carries out the undo of a new change when an undo before it fails', async () => {
+  it('keeps a step whose undo failed after a new change in force, before that change', async () => {
     const { manager, change, answer, refuse, flush, writes } = setup();
     void change('one');
     await answer();
     const first = manager.undo().catch((error: unknown) => error);
-    await flush(); // the undo of "one" is being written
+    await flush(); // the undo of "one" is being written, and shows
     void change('two');
     const second = manager.undo();
     await refuse(); // the undo of "one"
     expect(await first).toEqual(new Error('refused'));
-    await answer(); // "two"; its undo is sent
-    expect(writes).toHaveLength(1);
-    await answer();
+    // "one" is in force again, before "two"; the undo asked for after the failure is dropped.
     await second;
+    await answer(); // "two"
+    expect(writes).toHaveLength(0);
+    expect(manager.canUndo).toBe(true);
+    expect(manager.canRedo).toBe(false);
+    const third = manager.undo(); // "two"
+    await answer();
+    await third;
+    const fourth = manager.undo(); // "one"
+    await answer();
+    await fourth;
     expect(manager.canUndo).toBe(false);
+  });
+
+  it('forgets a step whose redo failed after a new change: what is in force is that change', async () => {
+    const { manager, change, answer, refuse, flush } = setup();
+    void change('one');
+    await answer();
+    await Promise.all([manager.undo(), answer()]);
+    const redone = manager.redo().catch((error: unknown) => error);
+    await flush(); // the redo of "one" is being written, and shows
+    void change('two');
+    await refuse(); // the redo of "one"
+    expect(await redone).toEqual(new Error('refused'));
+    await answer(); // "two"
+    expect(manager.canUndo).toBe(true);
+    expect(manager.canRedo).toBe(false);
+    await Promise.all([manager.undo(), answer()]);
+    expect(manager.canUndo).toBe(false);
+  });
+
+  it('keeps an undo that waits when a gesture changes nothing', async () => {
+    const { manager, change, answer, saved } = setup();
+    void change('one');
+    const undone = manager.undo();
+    await manager.group(async () => undefined);
+    await answer(); // "one"
+    await answer(); // its undo
+    await undone;
+    expect(saved()).toBe('start');
     expect(manager.canRedo).toBe(true);
   });
 

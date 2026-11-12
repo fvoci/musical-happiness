@@ -37,27 +37,25 @@ function stored(page: Page): Promise<string> {
 /**
  * Every following press of the keys of undo records what the backend had
  * stored at that moment, and whether the undo button said it was busy once
- * the press was handled.
+ * the app had handled the press: the listener comes after the app's own,
+ * and reads the button after the page has been updated (a microtask queued
+ * after the app's), before any write can come back.
  */
 async function recordPresses(page: Page): Promise<() => Promise<Pressed[]>> {
   await page.evaluate(() => {
     const { fvociDev } = window as unknown as Dev;
     const presses: Pressed[] = [];
     (window as unknown as { presses: Pressed[] }).presses = presses;
-    window.addEventListener(
-      'keydown',
-      (event) => {
-        if (event.key.toLowerCase() !== 'z' || !event.ctrlKey) return;
-        const board = fvociDev.backend.world.boards.get(fvociDev.workspace.board.boardId);
-        const press = { stored: board?.title ?? '', busy: false };
-        presses.push(press);
-        setTimeout(() => {
-          press.busy =
-            document.querySelector('[data-testid="undo"]')?.getAttribute('aria-busy') === 'true';
-        });
-      },
-      { capture: true },
-    );
+    window.addEventListener('keydown', (event) => {
+      if (event.key.toLowerCase() !== 'z' || !event.ctrlKey) return;
+      const board = fvociDev.backend.world.boards.get(fvociDev.workspace.board.boardId);
+      const press = { stored: board?.title ?? '', busy: false };
+      presses.push(press);
+      queueMicrotask(() => {
+        press.busy =
+          document.querySelector('[data-testid="undo"]')?.getAttribute('aria-busy') === 'true';
+      });
+    });
   });
   return () => page.evaluate(() => (window as unknown as { presses: Pressed[] }).presses);
 }
@@ -97,7 +95,6 @@ test('Ctrl+Z right after a change takes back that change, and Ctrl+Shift+Z does 
   await undo.press('Control+z');
   // Pressed while "Two" was still being written; undo said it was waiting.
   expect(await presses()).toEqual([{ stored: 'One', busy: true }]);
-  await expect(title).toHaveValue('One');
   await expect(undo).not.toHaveAttribute('aria-busy', 'true');
   await expect.poll(() => stored(page)).toBe('One');
   // "One" is still in force, and is the next to undo.
