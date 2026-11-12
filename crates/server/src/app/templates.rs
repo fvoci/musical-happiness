@@ -6,7 +6,7 @@
 //! database has none or an older version of them.
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardType, BoardsAndBlocks, renew_boards_and_blocks_ids,
+    Block, BlockType, Board, BoardType, BoardsAndBlocks, WorkspaceRole, renew_boards_and_blocks_ids,
 };
 use fvoci_store::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, Tenant};
 use serde::Deserialize;
@@ -230,7 +230,9 @@ impl App {
         Ok(true)
     }
 
-    /// Returns the template boards of a workspace, for the templates route and onboarding.
+    /// Returns the template boards of a workspace, for the templates route and onboarding:
+    /// for an administrator of the workspace (`role`) every one of it, for anybody else
+    /// those that are open or that the user is a member of; and the built-in ones.
     ///
     /// # Errors
     ///
@@ -239,11 +241,17 @@ impl App {
         &self,
         workspace_id: &str,
         user_id: &str,
+        role: WorkspaceRole,
     ) -> Result<Vec<Board>, AppError> {
-        let mut boards = self
-            .store()
-            .get_template_boards(workspace_id, user_id)
-            .await?;
+        let mut boards = if role == WorkspaceRole::Admin {
+            self.store()
+                .get_templates_of_workspace(workspace_id)
+                .await?
+        } else {
+            self.store()
+                .get_template_boards(workspace_id, user_id)
+                .await?
+        };
         boards.extend(self.store().get_builtin_templates().await?);
         Ok(boards)
     }

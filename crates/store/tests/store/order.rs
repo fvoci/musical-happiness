@@ -15,7 +15,7 @@ use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardSearchField, BoardType, Category, SubscriberType,
     Subscription, User, WorkspaceRole, new_id,
 };
-use fvoci_store::{Paging, PublicBoards, Reach, Sight, Store};
+use fvoci_store::{Looking, Paging, PublicBoards, Reach, Sight, Store};
 
 use crate::common::{self, TestStore};
 
@@ -283,6 +283,7 @@ async fn users_come_oldest_first() {
         seer_id: &first,
         workspace_id: &workspace_id,
         reach: Reach::Workspace,
+        looking: Looking::AmongPeople,
     };
     let found = store
         .search_users_in_sight(sight, "order-")

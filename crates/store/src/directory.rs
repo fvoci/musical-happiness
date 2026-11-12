@@ -74,8 +74,20 @@ pub enum Reach {
     SharedBoards,
 }
 
+/// What a user looks at other users for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Looking {
+    /// Among the people: a list, a search, the candidates of a mention. Only who is in
+    /// the workspace now.
+    AmongPeople,
+    /// By name: the users named by their identifiers, to show who wrote what. Who left
+    /// the workspace too, where they wrote on a board the seer reads.
+    ByName,
+}
+
 /// The users one user sees: in one workspace, as far as [`Reach`] goes, or across every
-/// workspace they are in. The user sees themselves.
+/// workspace they are in; and for what ([`Looking`]). The user sees themselves. The
+/// rule is the server's `permissions::sees_person`; this is its form in SQL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sight<'a> {
     /// In the workspace, which the seer is a member of (the caller has asked).
@@ -86,9 +98,12 @@ pub enum Sight<'a> {
         workspace_id: &'a str,
         /// How far the seer sees in it.
         reach: Reach,
+        /// What for.
+        looking: Looking,
     },
-    /// Anywhere: who shares with the seer a workspace the seer works in (is no guest
-    /// of), or a board of a workspace the seer is a member of.
+    /// Anywhere, by name: who shares with the seer a workspace the seer works in (is no
+    /// guest of), or a board of a workspace both are members of, or wrote on a board
+    /// the seer reads.
     Anywhere {
         /// The user who looks.
         seer_id: &'a str,
@@ -102,6 +117,7 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             seer_id,
             workspace_id,
             reach,
+            looking,
         } => {
             // The seer is a member of the workspace, which the store asks too.
             sql.push(
@@ -110,21 +126,27 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             .bind(Id(workspace_id))
             .push_bind(" AND seer.user_id = ", Id(seer_id))
             .push_bind(") AND (id = ", Id(seer_id))
+            // On a board of the workspace with the seer, and in the workspace still.
             .push(
                 " OR id IN (SELECT other.user_id FROM board_members AS mine \
                  JOIN boards AS b ON b.id = mine.board_id \
                  JOIN board_members AS other ON other.board_id = mine.board_id \
+                 JOIN workspace_members AS them \
+                 ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                  WHERE mine.user_id = ",
             )
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
             .push(ROLES_HELD)
-            .push(&scope.same_organization(&[("mine", "b"), ("other", "b")]))
+            .push(&scope.same_organization(&[("mine", "b"), ("other", "b"), ("them", "b")]))
             .push(")");
             if reach == Reach::Workspace {
                 sql.push(" OR id IN (SELECT wm.user_id FROM workspace_members AS wm WHERE wm.workspace_id = ")
                     .bind(Id(workspace_id))
                     .push(")");
+            }
+            if looking == Looking::ByName {
+                push_writer(sql, scope, seer_id, Some((workspace_id, reach)));
             }
             sql.push(")");
         }
@@ -148,6 +170,8 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
                      JOIN board_members AS other ON other.board_id = mine.board_id \
+                     JOIN workspace_members AS them \
+                     ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                      WHERE mine.user_id = ",
                 )
                 .bind(Id(seer_id))
@@ -158,10 +182,50 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                     ("b", "t"),
                     ("me", "t"),
                     ("other", "b"),
+                    ("them", "b"),
                 ]))
-                .push("))");
+                .push(")");
+            push_writer(sql, scope, seer_id, None);
+            sql.push(")");
         }
     }
+}
+
+/// Pushes `OR` the condition that the user `id` created or last changed a block of a
+/// board the seer reads: one they hold a role on, or an open one of a workspace they
+/// work in; of the workspace `within` names, as far as its [`Reach`] goes, or of any
+/// workspace in use the seer is a member of.
+fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(&str, Reach)>) {
+    sql.push(
+        " OR EXISTS (SELECT 1 FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
+         JOIN workspace_members AS me ON me.workspace_id = b.workspace_id \
+         JOIN workspaces AS t ON t.id = b.workspace_id \
+         JOIN organizations AS o ON o.id = t.org_id \
+         WHERE (bl.created_by = users.id OR bl.modified_by = users.id) AND me.user_id = ",
+    )
+    .bind(Id(seer_id))
+    .push(IN_USE)
+    .push(&scope.same_organization(&[("bl", "b"), ("b", "t"), ("me", "t")]));
+    let open_where_seer_works = match within {
+        Some((workspace_id, reach)) => {
+            sql.push_bind(" AND b.workspace_id = ", Id(workspace_id));
+            reach == Reach::Workspace
+        }
+        None => true,
+    };
+    sql.push(
+        " AND (EXISTS (SELECT 1 FROM board_members AS mine WHERE mine.board_id = b.id \
+         AND mine.user_id = me.user_id AND (mine.scheme_admin OR mine.scheme_editor \
+         OR mine.scheme_commenter OR mine.scheme_viewer)",
+    )
+    .push(&scope.same_organization(&[("mine", "b")]))
+    .push(")");
+    if open_where_seer_works {
+        sql.push_bind(" OR (b.type = ", "O")
+            .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
+            .push(")");
+    }
+    sql.push("))");
 }
 
 impl Store {

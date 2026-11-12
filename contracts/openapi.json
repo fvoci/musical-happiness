@@ -3961,7 +3961,7 @@
     },
     "/api/v1/boards/{boardId}/members": {
       "get": {
-        "description": "For the board's members and the workspace's administrators. By the identifier of\nthe user: a membership has no time of its own, so this is not the order in which the\nusers came to the board.",
+        "description": "For the board's members and the workspace's administrators. Who left the workspace\nis not listed, whatever role they had on the board. By the identifier of the user: a\nmembership has no time of its own, so this is not the order in which the users came\nto the board.",
         "operationId": "getMembers",
         "parameters": [
           {

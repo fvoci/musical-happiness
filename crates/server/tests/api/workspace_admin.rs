@@ -354,7 +354,8 @@ async fn a_workspace_admin_who_joins_an_open_board_is_not_recorded() {
 }
 
 #[tokio::test]
-async fn a_workspace_admin_lists_no_template_they_only_manage_and_adding_no_role_is_not_recorded() {
+async fn a_workspace_admin_lists_a_template_they_only_manage_by_name_and_adding_no_role_is_not_recorded()
+ {
     let th = Setup::native().start().await.init_basic().await;
     let admin = workspace_admin(&th).await;
     let template: Board = th
@@ -385,9 +386,14 @@ async fn a_workspace_admin_lists_no_template_they_only_manage_and_adding_no_role
         .expect("the log is read");
     th.teardown().await;
 
-    assert!(
-        templates.iter().all(|listed| listed.id != template.id),
-        "{templates:?}"
+    // Listed to be managed, with its name only (as_managed).
+    let listed = templates
+        .iter()
+        .find(|listed| listed.id == template.id)
+        .expect("the administrator lists the template");
+    assert_eq!(
+        (listed.title.as_str(), listed.description.as_str()),
+        ("Template", "")
     );
     assert!(recorded.is_empty(), "{recorded:?}");
 }

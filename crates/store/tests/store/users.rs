@@ -10,8 +10,8 @@ use fvoci_model::{
     WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AdminChange, BlockFilter, DbType, InstanceRole, Preference, Reach, Sight, Store, StoreError,
-    Taken,
+    AdminChange, BlockFilter, DbType, InstanceRole, Looking, Preference, Reach, Sight, Store,
+    StoreError, Taken,
 };
 use serde_json::{Value, json};
 
@@ -731,6 +731,7 @@ async fn a_search_of_users_matches_substrings_of_the_user_name() {
         seer_id: &seer,
         workspace_id: &workspace_id,
         reach: Reach::Workspace,
+        looking: Looking::AmongPeople,
     };
     let let_in = async |user: User| {
         store

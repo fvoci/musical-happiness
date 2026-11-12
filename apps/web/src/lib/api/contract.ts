@@ -521,9 +521,10 @@ export interface paths {
         };
         /**
          * The members of a board
-         * @description For the board's members and the workspace's administrators. By the identifier of
-         *     the user: a membership has no time of its own, so this is not the order in which the
-         *     users came to the board.
+         * @description For the board's members and the workspace's administrators. Who left the workspace
+         *     is not listed, whatever role they had on the board. By the identifier of the user: a
+         *     membership has no time of its own, so this is not the order in which the users came
+         *     to the board.
          */
         get: operations["getMembers"];
         put?: never;

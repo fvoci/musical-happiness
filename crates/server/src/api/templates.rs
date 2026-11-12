@@ -11,7 +11,7 @@ use super::contract::tag;
 
 use super::workspace::WorksIn;
 use super::{ApiResult, json_response, user_is_guest};
-use crate::app::App;
+use crate::app::{App, as_managed};
 use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -36,12 +36,16 @@ async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
         return Err(AppError::forbidden("access denied to templates"));
     }
 
-    let boards = app.template_boards(workspace_id, user_id).await?;
+    let boards = app.template_boards(workspace_id, user_id, ws.role).await?;
     let mut results: Vec<Board> = Vec::with_capacity(boards.len());
     for board in boards {
-        // A template is listed to be used: to who reads it, not to who only manages it.
-        if app.board_grant(user_id, &board.id).await?.reads() {
+        // Whole to who reads it; to the workspace's administrators who only manage it,
+        // its name, as getBoard gives it (`as_managed`).
+        let grant = app.board_grant(user_id, &board.id).await?;
+        if grant.reads() {
             results.push(board);
+        } else if grant.manages_only() {
+            results.push(as_managed(board));
         }
     }
     tracing::debug!(workspace_id, boards_count = results.len(), "GetTemplates");

@@ -65,9 +65,10 @@ fn require_holdable(workspace_role: WorkspaceRole, member: &BoardMember) -> Resu
 
 /// The members of a board
 ///
-/// For the board's members and the workspace's administrators. By the identifier of
-/// the user: a membership has no time of its own, so this is not the order in which the
-/// users came to the board.
+/// For the board's members and the workspace's administrators. Who left the workspace
+/// is not listed, whatever role they had on the board. By the identifier of the user: a
+/// membership has no time of its own, so this is not the order in which the users came
+/// to the board.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/members",
@@ -90,7 +91,9 @@ async fn handle_get_members_for_board(
     )
     .await?;
 
-    Ok(json_response(&app.members_for_board(&board_id).await?))
+    Ok(json_response(
+        &app.present_members_for_board(&board_id).await?,
+    ))
 }
 
 /// Make a user a member of a board

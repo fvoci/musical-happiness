@@ -514,6 +514,19 @@ impl App {
         Ok(self.store().get_members_for_board(board_id).await?)
     }
 
+    /// Returns the members of a board who are in its workspace now, as the board's member
+    /// list shows them: who left the workspace is listed nowhere, whatever role is left.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the members cannot be read.
+    pub async fn present_members_for_board(
+        &self,
+        board_id: &str,
+    ) -> Result<Vec<BoardMember>, AppError> {
+        Ok(self.store().get_present_members_for_board(board_id).await?)
+    }
+
     /// Makes a user a member of a board with the roles of `member`, files the board
     /// under the user's default category unless it is a template, and tells the board's
     /// members.

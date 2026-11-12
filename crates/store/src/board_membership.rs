@@ -4,12 +4,38 @@ use fvoci_model::BoardMember;
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::boards::{MemberChange, find_member, hold_board, lock_board, save_member};
+use crate::boards::{
+    MemberChange, fetch_members, find_member, hold_board, lock_board, save_member, select_members,
+};
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
 use crate::members;
 
 impl Store {
+    /// Returns the members of a board who are members of its workspace now, by the
+    /// identifier of the user: who left it keeps a membership that opens nothing, and
+    /// is not listed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_present_members_for_board(
+        &self,
+        board_id: &str,
+    ) -> Result<Vec<BoardMember>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = select_members(scope);
+            sql.push(
+                " JOIN boards AS b ON b.id = bm.board_id JOIN workspace_members AS wm \
+                 ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id",
+            )
+            .push_bind(" WHERE bm.board_id = ", Id(board_id))
+            .push(" ORDER BY bm.user_id");
+            fetch_members(scope, sql).await
+        })
+        .await
+    }
+
     /// Replaces the scheme flags of a membership, unless that would leave the board
     /// without an administrator.
     ///

@@ -10,7 +10,7 @@
 //! sentence of what the product promises.
 
 use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, WorkspaceRole};
-use fvoci_store::Reach;
+use fvoci_store::{Looking, Reach};
 
 #[cfg(test)]
 mod table;
@@ -281,6 +281,53 @@ pub fn comment_permission(
         BoardPermission::CommentBoardCards
     } else {
         BoardPermission::ManageOthersComments
+    }
+}
+
+/// What is known of one user (the person) for another who looks at them in a
+/// workspace the seer is a member of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Person {
+    /// The seer.
+    Themselves,
+    /// A member of the workspace now.
+    Member {
+        /// The two hold roles on a board of the workspace.
+        shares_a_board: bool,
+        /// The person created or last changed a card, block or comment of a board the
+        /// seer reads.
+        wrote_where_seer_reads: bool,
+    },
+    /// No member of the workspace: who left it, with what they wrote and any role
+    /// left on its boards, or never was in it.
+    Outside {
+        /// As for a member.
+        wrote_where_seer_reads: bool,
+    },
+}
+
+/// Whether the seer, `seer` in the workspace, sees the person, `looking` for what:
+/// whoever works there sees its members, a guest the members who share a board with it.
+/// Who left the workspace is seen by name only, and only where they wrote on a board
+/// the seer reads, so that what they wrote keeps its author; a role left on a board
+/// shows nobody. The store's queries of people are this rule in SQL
+/// (`fvoci_store::Sight`).
+#[must_use]
+pub const fn sees_person(seer: WorkspaceRole, person: Person, looking: Looking) -> bool {
+    let by_name = matches!(looking, Looking::ByName);
+    match person {
+        Person::Themselves => true,
+        Person::Member {
+            shares_a_board,
+            wrote_where_seer_reads,
+        } => {
+            !matches!(seer, WorkspaceRole::Guest)
+                || shares_a_board
+                || (by_name && wrote_where_seer_reads)
+        }
+        Person::Outside {
+            wrote_where_seer_reads,
+        } => by_name && wrote_where_seer_reads,
     }
 }
 

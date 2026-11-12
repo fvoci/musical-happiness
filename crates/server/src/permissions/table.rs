@@ -652,3 +652,102 @@ fn a_comment_is_brought_back_by_who_may_undo_its_deletion() {
         );
     }
 }
+
+/// Who sees whom: whoever works in the workspace its members, a guest the members it
+/// shares a board with; who left is seen by name only, where they wrote on a board the
+/// seer reads, and a role left on a board shows nobody. `(case, seer, person, among
+/// people, by name)`.
+#[test]
+fn who_sees_whom_of_the_people() {
+    use fvoci_store::Looking;
+
+    use super::{Person, sees_person};
+    const MEMBER: WorkspaceRole = WorkspaceRole::Member;
+    const GUEST: WorkspaceRole = WorkspaceRole::Guest;
+    let member = |shares_a_board, wrote_where_seer_reads| Person::Member {
+        shares_a_board,
+        wrote_where_seer_reads,
+    };
+    let outside = |wrote_where_seer_reads| Person::Outside {
+        wrote_where_seer_reads,
+    };
+    let rows = [
+        ("oneself", MEMBER, Person::Themselves, true, true),
+        ("a guest itself", GUEST, Person::Themselves, true, true),
+        (
+            "a member of the workspace",
+            MEMBER,
+            member(false, false),
+            true,
+            true,
+        ),
+        (
+            "an admin sees the members",
+            WorkspaceRole::Admin,
+            member(false, false),
+            true,
+            true,
+        ),
+        (
+            "a guest: a member it shares no board with",
+            GUEST,
+            member(false, false),
+            false,
+            false,
+        ),
+        (
+            "a guest: a member on its board",
+            GUEST,
+            member(true, false),
+            true,
+            true,
+        ),
+        (
+            "a guest: a member who wrote on its board",
+            GUEST,
+            member(false, true),
+            false,
+            true,
+        ),
+        // A role left on a board after leaving the workspace shows nobody: the
+        // person is outside, and the role is no fact of the rule.
+        (
+            "who left, with a role left on a board",
+            MEMBER,
+            outside(false),
+            false,
+            false,
+        ),
+        (
+            "who left and wrote on a board read",
+            MEMBER,
+            outside(true),
+            false,
+            true,
+        ),
+        (
+            "who left and wrote, to a guest who reads it",
+            GUEST,
+            outside(true),
+            false,
+            true,
+        ),
+        (
+            "who left and wrote nothing the guest reads",
+            GUEST,
+            outside(false),
+            false,
+            false,
+        ),
+    ];
+    for (case, seer, person, among, by_name) in rows {
+        assert_eq!(
+            (
+                sees_person(seer, person, Looking::AmongPeople),
+                sees_person(seer, person, Looking::ByName)
+            ),
+            (among, by_name),
+            "{case}"
+        );
+    }
+}

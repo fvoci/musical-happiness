@@ -4,7 +4,7 @@
 
 use fvoci_model::{BoardMember, BoardType, User, WorkspaceRole};
 use reqwest::StatusCode;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::boards::{member, new_board};
 use crate::common::{
@@ -133,8 +133,11 @@ async fn a_guest_sees_who_is_on_its_boards() {
     assert_eq!(names(&third_from_root), ["third"]);
 }
 
+/// Who left a workspace keeps the author of what they wrote: they are named to who
+/// reads it, and found by nobody; a role they still have on a board shows nobody
+/// (user decision of O4).
 #[tokio::test]
-async fn who_left_a_workspace_is_still_seen_on_the_boards_they_are_on() {
+async fn who_left_a_workspace_is_named_where_they_wrote_and_found_nowhere() {
     let th = Setup::native().start().await.init_basic().await;
     let leaver = th.client2.me().await.id;
     let board: fvoci_model::Board = th
@@ -149,6 +152,13 @@ async fn who_left_a_workspace_is_still_seen_on_the_boards_they_are_on() {
         })
         .await
         .check_ok();
+    th.client2
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &json!({"title": "Mine"}),
+        )
+        .await
+        .check_created();
     for workspace_id in [ROOT_WORKSPACE_ID, TEST_WORKSPACE_ID] {
         th.app
             .store()
@@ -160,10 +170,21 @@ async fn who_left_a_workspace_is_still_seen_on_the_boards_they_are_on() {
             .expect("the second user leaves every workspace");
     }
 
-    // The first user still reads the board, whose members name the leaver.
+    // The first user reads the board, where the leaver wrote a card.
     let by_id: Vec<User> = th
         .client
         .post(&format!("/w/{TEST_WORKSPACE_ID}/users"), &[&leaver])
+        .await
+        .ok_json();
+    let profile = th.client.get(&format!("/users/{leaver}")).await;
+    let found: Vec<User> = th
+        .client
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/users?search=user2"))
+        .await
+        .ok_json();
+    let members: Vec<BoardMember> = th
+        .client
+        .get(&format!("/boards/{}/members", board.id))
         .await
         .ok_json();
     // The leaver sees nobody but themselves.
@@ -172,7 +193,13 @@ async fn who_left_a_workspace_is_still_seen_on_the_boards_they_are_on() {
     let themselves = th.client2.get(&format!("/users/{leaver}")).await;
     th.teardown().await;
 
-    assert_eq!(names(&by_id), ["user2"], "the board's member is named");
+    assert_eq!(names(&by_id), ["user2"], "the card's author is named");
+    profile.check_ok();
+    assert!(found.is_empty(), "nobody finds who left: {found:?}");
+    assert!(
+        members.iter().all(|member| member.user_id != leaver),
+        "the board's members leave out who left: {members:?}"
+    );
     seen_by_leaver.check_not_found();
     themselves.check_ok();
 }

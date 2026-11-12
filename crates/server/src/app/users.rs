@@ -1,7 +1,7 @@
 //! Users and their preferences.
 
 use fvoci_model::{User, UserPreferencesPatch, UserSettings, UserSettingsPatch, WorkspaceRole};
-use fvoci_store::{AdminChange, InstanceRole, Preference, Sight};
+use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
 use super::App;
 use crate::error::{AppError, Reason};
@@ -71,9 +71,10 @@ impl App {
             .await
     }
 
-    /// The users with the given identifiers that the user `seer_id` sees anywhere
-    /// (`Sight::Anywhere`): who shares a workspace the seer works in, or a board of a
-    /// workspace the seer is in, and the seer. Oldest account first.
+    /// The users with the given identifiers that the user `seer_id` sees anywhere by
+    /// name (`Sight::Anywhere`, `permissions::sees_person`): who shares a workspace the
+    /// seer works in, or a board of a workspace both are in, or wrote on a board the
+    /// seer reads, and the seer. Oldest account first.
     ///
     /// # Errors
     ///
@@ -93,7 +94,8 @@ impl App {
     }
 
     /// The users with the given identifiers that the user `seer_id`, in `role` in the
-    /// workspace, sees there (`permissions::people_reach`). Oldest account first.
+    /// workspace, sees there by name (`permissions::sees_person`): also who left it and
+    /// wrote on a board the seer reads. Oldest account first.
     ///
     /// # Errors
     ///
@@ -112,6 +114,7 @@ impl App {
             seer_id,
             workspace_id,
             reach: permissions::people_reach(role),
+            looking: Looking::ByName,
         };
         Ok(self.store().get_users_in_sight(sight, user_ids).await?)
     }
@@ -129,8 +132,9 @@ impl App {
         Ok(self.store().get_user_by_id(user_id).await?.is_guest)
     }
 
-    /// The users the user `seer_id`, in `role` in the workspace, sees there whose login
-    /// name or display name matches `search_query`: at most ten, oldest account first.
+    /// The users the user `seer_id`, in `role` in the workspace, sees among its people
+    /// (`permissions::sees_person`: members of it now) whose login name or display name
+    /// matches `search_query`: at most ten, oldest account first.
     ///
     /// # Errors
     ///
@@ -146,6 +150,7 @@ impl App {
             seer_id,
             workspace_id,
             reach: permissions::people_reach(role),
+            looking: Looking::AmongPeople,
         };
         Ok(self
             .store()

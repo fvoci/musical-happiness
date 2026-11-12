@@ -204,7 +204,7 @@ async fn an_imported_archive_names_the_imported_cards() {
     archive.check_ok();
     import(&th.client, TEST_WORKSPACE_ID, &archive.body)
         .await
-        .check_no_content();
+        .check_ok();
     let boards: Vec<Board> = th
         .client
         .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))

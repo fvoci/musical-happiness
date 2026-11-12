@@ -192,29 +192,6 @@ impl Store {
         .await
     }
 
-    /// Returns every board of a workspace, whoever is a member of it, oldest first:
-    /// what the workspace's administrators list. Templates are left out.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_boards_of_workspace(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {} FROM boards AS b WHERE b.is_template = ",
-                board_select_list("b.")
-            ));
-            sql.bind(false)
-                .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-                .push(OLDEST_BOARD_FIRST);
-            fetch_boards(scope, sql).await
-        })
-        .await
-    }
-
     /// Returns the boards of a workspace with the given identifiers, oldest first.
     ///
     /// # Errors
@@ -400,27 +377,6 @@ impl Store {
         .await
     }
 
-    /// Returns the boards of a workspace whose title matches a search term and that are open
-    /// or private with the user as a member, oldest first. Templates are left out.
-    ///
-    /// An empty `term` matches every board; otherwise the title must contain every
-    /// space-separated word of the term, ignoring case.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_boards_for_user_in_workspace(
-        &self,
-        workspace_id: &str,
-        term: &str,
-        user_id: &str,
-    ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| {
-            search_boards_for_user_in_workspace(scope, workspace_id, term, user_id).await
-        })
-        .await
-    }
-
     /// Returns the templates of a workspace that are open or that the user is a member of,
     /// oldest first. The built-in templates are not among them.
     ///
@@ -461,7 +417,7 @@ impl Store {
 
 /// The select list of a board, in the order [`board_from_row`] reads it. `alias` is
 /// empty or a table alias followed by a dot.
-fn board_select_list(alias: &str) -> String {
+pub(crate) fn board_select_list(alias: &str) -> String {
     format!(
         "{alias}id, {alias}workspace_id, {alias}created_by, {alias}modified_by, {alias}type, \
          {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
@@ -476,7 +432,10 @@ fn select_boards(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!("SELECT {} FROM boards", board_select_list("")))
 }
 
-async fn fetch_boards(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<Board>, StoreError> {
+pub(crate) async fn fetch_boards(
+    scope: &mut Scope<'_>,
+    sql: Sql,
+) -> Result<Vec<Board>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
@@ -761,14 +720,17 @@ pub(crate) async fn patch_board(
 }
 
 /// Starts the query for memberships.
-fn select_members(scope: &Scope<'_>) -> Sql {
+pub(crate) fn select_members(scope: &Scope<'_>) -> Sql {
     scope.sql(
         "SELECT bm.board_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
          bm.scheme_commenter, bm.scheme_viewer FROM board_members AS bm",
     )
 }
 
-async fn fetch_members(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<BoardMember>, StoreError> {
+pub(crate) async fn fetch_members(
+    scope: &mut Scope<'_>,
+    sql: Sql,
+) -> Result<Vec<BoardMember>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
@@ -949,7 +911,7 @@ fn title_has_words(title: &str, term: &str) -> bool {
 }
 
 /// Keeps the boards whose title has the words of `term`; an empty term keeps all.
-fn with_title_words(mut boards: Vec<Board>, term: &str) -> Vec<Board> {
+pub(crate) fn with_title_words(mut boards: Vec<Board>, term: &str) -> Vec<Board> {
     if !term.is_empty() {
         boards.retain(|board| title_has_words(&board.title, term));
     }
@@ -992,27 +954,6 @@ pub(crate) async fn search_boards_for_user(
         BoardSearchField::Title => with_title_words(boards, term),
         BoardSearchField::PropertyName => boards,
     })
-}
-
-pub(crate) async fn search_boards_for_user_in_workspace(
-    scope: &mut Scope<'_>,
-    workspace_id: &str,
-    term: &str,
-    user_id: &str,
-) -> Result<Vec<Board>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
-         WHERE b.is_template = ",
-        board_select_list("b.")
-    ));
-    sql.bind(false)
-        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-        .push_bind(" AND (b.type = ", BoardType::Open.as_str())
-        .push_bind(" OR (b.type = ", BoardType::Private.as_str())
-        .push_bind(" AND bm.user_id = ", Id(user_id))
-        .push("))");
-    sql.push(OLDEST_BOARD_FIRST);
-    Ok(with_title_words(fetch_boards(scope, sql).await?, term))
 }
 
 pub(crate) async fn get_template_boards(
