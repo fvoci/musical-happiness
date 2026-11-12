@@ -354,7 +354,7 @@ impl Collab {
 
     /// Writes the body of every open document and closes them, and ends the workers:
     /// for a server that stops. `app` is any handle of the server: each document is
-    /// written as its card's organization. What is not done within [`END_WAIT`] (a
+    /// written as its card's organization. What is not done within five seconds (a
     /// write of a whole body that holds a card, a database that does not answer) is
     /// left: the log holds it, and the next start writes it.
     pub async fn end(&self, app: &App) {
