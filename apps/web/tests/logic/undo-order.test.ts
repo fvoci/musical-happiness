@@ -216,22 +216,45 @@ describe('undo while a change is being written', () => {
     const first = manager.undo().catch((error: unknown) => error);
     await flush(); // the undo of "one" is being written, and shows
     void change('two');
-    const second = manager.undo();
+    const second = manager.undo(); // "two", asked for while the undo of "one" is written
     await refuse(); // the undo of "one"
     expect(await first).toEqual(new Error('refused'));
-    // "one" is in force again, before "two"; the undo asked for after the failure is dropped.
+    // "one" is in force again, before "two"; the undo of "two" still holds.
+    expect(manager.canUndo).toBe(true);
+    expect(manager.canRedo).toBe(true);
+    await answer(); // "two"; its undo is sent
+    expect(writes).toHaveLength(1);
+    await answer();
     await second;
-    await answer(); // "two"
+    const third = manager.undo(); // "one"
+    await answer();
+    await third;
+    expect(manager.canUndo).toBe(false);
+    expect(manager.redoDescription).toBe(undefined);
+    expect(manager.canRedo).toBe(true);
+  });
+
+  it('carries out one undo at a time, also after a change made meanwhile let the queue go', async () => {
+    const { manager, change, answer, answerAt, refuse, flush, writes } = setup();
+    void change('w');
+    await answer();
+    void change('x');
+    await answer();
+    const first = manager.undo().catch((error: unknown) => error); // "x"
+    await flush(); // the undo of "x" is being written
+    void change('c'); // takes the place of "x" in the history
+    const second = manager.undo(); // "c"
+    const third = manager.undo(); // "w"
+    await answerAt(1); // "c"
+    // The undo of "c" waits for the undo of "x" to be over: nothing more is sent.
+    expect(writes).toHaveLength(1);
+    await refuse(); // the undo of "x": "x" stays in force, before "c"
+    expect(await first).toEqual(new Error('refused'));
+    // The undo of "w" was asked for without knowing that "x" stays: both are dropped.
+    await Promise.all([second, third]);
     expect(writes).toHaveLength(0);
     expect(manager.canUndo).toBe(true);
     expect(manager.canRedo).toBe(false);
-    const third = manager.undo(); // "two"
-    await answer();
-    await third;
-    const fourth = manager.undo(); // "one"
-    await answer();
-    await fourth;
-    expect(manager.canUndo).toBe(false);
   });
 
   it('forgets a step whose redo failed after a new change: what is in force is that change', async () => {

@@ -72,6 +72,8 @@ export class UndoManager {
   readonly #gestures = new Map<string, Gesture>();
   /** The turn the next undo or redo waits for. */
   #queue: Promise<unknown> = Promise.resolve();
+  /** The undo or redo being carried out: the next one begins after it, also once the queue let go. */
+  #carried: Promise<unknown> = Promise.resolve();
   /** Undos and redos asked for and not yet over. */
   #waiting = 0;
   /** Raised when what is asked for is dropped: by a new change, a failure, `clear`. */
@@ -277,12 +279,16 @@ export class UndoManager {
       if (!current()) return;
       // Waits for the writes of the step, or for being dropped (a write may never end).
       await Promise.race([settled(entry), dropped]);
+      if (!current()) return;
+      // One undo or redo at a time, in the order asked for: two writes of one thing never cross.
+      await this.#carried;
       const at = this.#entries.indexOf(entry);
       // Dropped, or every change of the step was refused.
       if (!current() || at === -1) return;
       this.#inForce = action === 'undo' ? at - 1 : at;
       const carrying = this.#carryOut(entry, action);
       entry.carrying = carrying.catch(() => undefined);
+      this.#carried = entry.carrying;
       try {
         await carrying;
       } finally {
@@ -325,7 +331,8 @@ export class UndoManager {
   /**
    * An undo or redo of `entry` failed with its first `done` changes in force
    * and the rest not. The step is split there and the history made to say
-   * what is in force; the undos and redos asked for after it are dropped.
+   * what is in force; the undos and redos asked for after it are dropped,
+   * unless the step was undone and a newer change has taken its place.
    */
   #failed(entry: Entry, done: number): void {
     const piece = (steps: Step[]): Entry => ({
@@ -340,14 +347,19 @@ export class UndoManager {
     const notInForce = piece(entry.steps.slice(done));
     const at = this.#entries.indexOf(entry);
     if (at === -1) {
-      // A change made while it was undone took its place: what is still in force goes before it.
-      const host = this.#entries.findIndex((other) => other.cut.includes(entry));
-      const holder = this.#entries[host];
-      if (!holder) return;
-      holder.cut = holder.cut.map((other) => (other === entry ? notInForce : other));
-      if (inForce.steps.length > 0) {
-        this.#entries.splice(host, 0, inForce);
-        if (host <= this.#inForce) this.#inForce += 1;
+      // A change made while it was undone took its place (perhaps in what it cut in
+      // turn): what is still in force goes before the step of the history that holds it.
+      if (inForce.steps.length === 0) return;
+      const host = this.#entries.findIndex((other) => replaceCut(other, entry, notInForce));
+      if (host === -1) return;
+      this.#entries.splice(host, 0, inForce);
+      if (host <= this.#inForce) this.#inForce += 1;
+      // Undos asked for down to the newer change still hold; one asked for below it did not
+      // know that this step stays.
+      if (this.#index >= host - 1) {
+        this.#index += 1;
+        this.onStateDidChange?.();
+        return;
       }
     } else if (this.#inForce > at) {
       // A change made while it was redone comes after it: what is not in force is gone.
@@ -362,6 +374,16 @@ export class UndoManager {
     this.#drop();
     this.onStateDidChange?.();
   }
+}
+
+/** Puts `by` in place of `entry` in what `holder` cut, however deep; whether it was there. */
+function replaceCut(holder: Entry, entry: Entry, by: Entry): boolean {
+  const at = holder.cut.indexOf(entry);
+  if (at !== -1) {
+    holder.cut[at] = by;
+    return true;
+  }
+  return holder.cut.some((other) => replaceCut(other, entry, by));
 }
 
 /** Calls `run` now, turning a throw into a rejection. */
