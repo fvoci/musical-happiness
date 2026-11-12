@@ -43,17 +43,29 @@ describe('reading an address', () => {
       viewId: 'v',
       cardId: 'c',
       readToken: 'tok',
+      shared: true,
     });
     expect(parseRoute('/shared/b', '', '?r=a%2Fb')).toEqual({
       ...none,
       boardId: 'b',
       readToken: 'a/b',
+      shared: true,
     });
     // Without a token, or with more than a card, it is no address of the app's.
     expect(parseRoute('/shared/b', '').unknown).toBe(true);
     expect(parseRoute('/shared/b', '', '?r=').unknown).toBe(true);
     expect(parseRoute('/shared', '', '?r=t').unknown).toBe(true);
     expect(parseRoute('/shared/b/v/c/x', '', '?r=t').unknown).toBe(true);
+    // Each is still under `/shared`: the reader's screen says not found, not the app.
+    for (const [path, search] of [
+      ['/shared/b', ''],
+      ['/shared/b', '?r='],
+      ['/shared', '?r=t'],
+      ['/shared/b/v/c/x', '?r=t'],
+    ] as const) {
+      expect(parseRoute(path, '', search).shared).toBe(true);
+    }
+    expect(parseRoute('/w/t', '').shared).toBeUndefined();
   });
 
   it('writes a public link under the base path, the token in the query', () => {

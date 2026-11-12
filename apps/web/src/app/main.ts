@@ -29,7 +29,8 @@ loadFontFaces(locale);
 const router = new Router(readBasePath(document));
 router.listen();
 
-// A board's public link is read without the app around it, signed in or not.
-export default router.route.readToken === undefined
-  ? mount(App, { target, props: { router } })
-  : mount(SharedApp, { target, props: { router } });
+// A board's public link is read without the app around it, signed in or not;
+// so is an address under `/shared` that is no whole link (not found there).
+export default router.route.shared
+  ? mount(SharedApp, { target, props: { router } })
+  : mount(App, { target, props: { router } });

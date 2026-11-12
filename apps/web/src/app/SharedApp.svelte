@@ -75,7 +75,7 @@
     {/if}
   </header>
   <main class="@container/pane flex min-h-0 min-w-0 flex-1 flex-col" {@attach pane.attach}>
-    {#if !router.route.boardId}
+    {#if !router.route.boardId || !router.route.readToken}
       <NotFound {router} />
     {:else if unstarted}
       <div class="grid h-full place-items-center p-6 text-center">

@@ -27,6 +27,11 @@ export interface Route {
   cardId: string | undefined;
   /** The read token of a public link: the board is read by it alone, with no workspace. */
   readToken?: string;
+  /**
+   * The address is under `/shared`, a public link's, whether it is a whole one
+   * or not: the reader's screen shows it, never the app.
+   */
+  shared?: true;
   /** The address is not one of the app's. */
   unknown: boolean;
 }
@@ -85,9 +90,17 @@ function sharedRoute(segments: string[], search: string): Route {
   const [boardId, viewId, cardId, ...rest] = segments;
   const readToken = new URLSearchParams(search).get('r');
   if (boardId === undefined || readToken === null || readToken === '' || rest.length > 0) {
-    return { ...NOWHERE, unknown: true };
+    return { ...NOWHERE, unknown: true, shared: true };
   }
-  return { workspaceId: undefined, boardId, viewId, cardId, readToken, unknown: false };
+  return {
+    workspaceId: undefined,
+    boardId,
+    viewId,
+    cardId,
+    readToken,
+    unknown: false,
+    shared: true,
+  };
 }
 
 /**
@@ -101,7 +114,7 @@ function settled(route: Partial<Route>): Route {
   const viewId = (boardId && route.viewId) || undefined;
   const cardId = (viewId && route.cardId) || undefined;
   if (readToken && boardId)
-    return { workspaceId, boardId, viewId, cardId, readToken, unknown: false };
+    return { workspaceId, boardId, viewId, cardId, readToken, unknown: false, shared: true };
   return { workspaceId, boardId, viewId, cardId, unknown: false };
 }
 
@@ -153,6 +166,7 @@ export class Router {
         next.viewId === now.viewId &&
         next.cardId === now.cardId &&
         next.readToken === now.readToken &&
+        next.shared === now.shared &&
         next.unknown === now.unknown
       ) {
         return;
@@ -188,7 +202,7 @@ export class Router {
     const next = settled(route);
     const path = routePath(next, this.basePath);
     // Between a public link and the app the page starts anew: each is a page of its own.
-    if (Boolean(next.readToken) !== Boolean(this.route.readToken)) {
+    if (Boolean(next.shared) !== Boolean(this.route.shared)) {
       window.location.assign(path);
       return;
     }
