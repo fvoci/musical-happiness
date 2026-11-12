@@ -1046,6 +1046,21 @@ async fn an_address_a_provider_gave_is_still_free_to_register() {
         ts.client_with_token(again.token()).me().await.id,
         squatter.id
     );
+    // An account that is deleted is nobody's to sign in to and link: its address
+    // refuses a newcomer no more (a registration still, as an address once used).
+    ts.app
+        .store()
+        .system()
+        .execute_unchecked(&format!(
+            "UPDATE users SET delete_at = 1 WHERE id = '{}'",
+            owner.id
+        ))
+        .await
+        .expect("the account is marked deleted");
+    fake.sign_in_as(Person::new("subject-late", address));
+    let late = browser.sign_in(&org_id).await;
+    let late = ts.client_with_token(late.token()).me().await;
+    assert!(![&squatter.id, &other.id, &owner.id].contains(&&late.id));
     ts.teardown().await;
     fake.stop();
 }

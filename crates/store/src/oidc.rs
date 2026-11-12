@@ -283,11 +283,13 @@ impl Store {
     }
 
     /// The email addresses the providers gave for an account, one for each identity of
-    /// it, oldest first: their word, checked by nobody.
+    /// it, oldest first: their word, checked by nobody. For tests: nothing shows them
+    /// yet, and what does is to mark them as unchecked.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn provider_emails(&self, user_id: &str) -> Result<Vec<String>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("SELECT email FROM user_identities WHERE user_id = ");

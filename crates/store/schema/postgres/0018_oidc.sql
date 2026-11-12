@@ -71,7 +71,8 @@ CREATE TABLE user_identities (
     subject TEXT NOT NULL,
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     -- The email address the provider gave at the first sign-in, as it gave it: its word,
-    -- checked by nobody; empty for none. No key: two providers may give the same.
+    -- checked by nobody, and not changed by later sign-ins; empty for none. No key: two
+    -- providers may give the same.
     email TEXT NOT NULL,
     create_at BIGINT NOT NULL,
     PRIMARY KEY (issuer, subject)
