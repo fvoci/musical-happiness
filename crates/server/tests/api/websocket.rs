@@ -18,17 +18,17 @@ use crate::common::{
 };
 
 /// How long to wait for a message that should arrive.
-const PATIENCE: Duration = Duration::from_secs(5);
+pub(crate) const PATIENCE: Duration = Duration::from_secs(5);
 /// How long to wait before deciding that a message does not arrive.
-const QUIET: Duration = Duration::from_millis(300);
+pub(crate) const QUIET: Duration = Duration::from_millis(300);
 
-struct Socket {
+pub(crate) struct Socket {
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
 }
 
 /// What a socket yields next.
 #[derive(Debug, PartialEq)]
-enum Event {
+pub(crate) enum Event {
     Json(Value),
     Ping,
     Closed,
@@ -38,25 +38,25 @@ enum Event {
 impl Socket {
     /// A connection without a session, as a page opens one that nobody is signed in
     /// on.
-    async fn connect(th: &TestServer) -> Self {
+    pub(crate) async fn connect(th: &TestServer) -> Self {
         let stream = th.anonymous().as_browser().connect_websocket().await;
         Self { stream }
     }
 
     /// A connection of the client's session: whose it is is settled by the handshake.
-    async fn connect_as(client: &Client) -> Self {
+    pub(crate) async fn connect_as(client: &Client) -> Self {
         let stream = client.connect_websocket().await;
         Self { stream }
     }
 
-    async fn send(&mut self, command: Value) {
+    pub(crate) async fn send(&mut self, command: Value) {
         self.stream
             .send(Message::Text(command.to_string().into()))
             .await
             .expect("the command is sent");
     }
 
-    async fn next(&mut self, wait: Duration) -> Event {
+    pub(crate) async fn next(&mut self, wait: Duration) -> Event {
         loop {
             match tokio::time::timeout(wait, self.stream.next()).await {
                 Err(_) => return Event::Nothing,
@@ -71,7 +71,7 @@ impl Socket {
     }
 
     /// The next JSON message, skipping pings.
-    async fn next_json(&mut self, wait: Duration) -> Option<Value> {
+    pub(crate) async fn next_json(&mut self, wait: Duration) -> Option<Value> {
         loop {
             match self.next(wait).await {
                 Event::Json(value) => return Some(value),
@@ -82,7 +82,7 @@ impl Socket {
     }
 }
 
-fn category(workspace_id: &str, user_id: &str, name: &str) -> Category {
+pub(crate) fn category(workspace_id: &str, user_id: &str, name: &str) -> Category {
     Category {
         id: new_id(),
         name: name.to_owned(),
@@ -94,7 +94,7 @@ fn category(workspace_id: &str, user_id: &str, name: &str) -> Category {
 
 /// Subscribes an authenticated socket to a workspace and waits until the server has done it.
 /// Commands have no acknowledgement, so the wait is for a broadcast to come through.
-async fn subscribe_to_workspace(
+pub(crate) async fn subscribe_to_workspace(
     th: &TestServer,
     socket: &mut Socket,
     workspace_id: &str,
@@ -589,7 +589,10 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
 }
 
 /// A board, a card on it, and the read token the board is shared under.
-async fn shared_board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block, String) {
+pub(crate) async fn shared_board_with_a_card(
+    th: &TestServer,
+    user_id: &str,
+) -> (Board, Block, String) {
     let mut board = Board {
         id: new_id(),
         workspace_id: ROOT_WORKSPACE_ID.to_owned(),
@@ -623,7 +626,7 @@ async fn follow_block(th: &TestServer, block: &Block, read_token: &str) -> (Sock
 }
 
 /// [`follow_block`] on the given connection.
-async fn follow_block_on(
+pub(crate) async fn follow_block_on(
     th: &TestServer,
     mut reader: Socket,
     block: &Block,

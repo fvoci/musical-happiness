@@ -25,6 +25,7 @@ use crate::auth::now_millis;
 use crate::auth::oidc::provider::{
     self, Client, Discovery, Expected, Grant, IdClaims, ProviderError,
 };
+use crate::auth::sealed::SecretKey;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, Reason};
 
@@ -189,33 +190,7 @@ impl App {
         let kept = existing
             .as_ref()
             .map(|existing| (existing.auto_join, existing.enabled));
-        let sealed_client_secret = match settings.client_secret.as_deref() {
-            // The secret stays with the client it was given for: one that went on to
-            // another issuer or client would be sent to it.
-            None => match &existing {
-                Some(existing)
-                    if existing.issuer == settings.issuer
-                        && existing.client_id == settings.client_id =>
-                {
-                    existing.sealed_client_secret.clone()
-                }
-                Some(existing) if !existing.sealed_client_secret.is_empty() => {
-                    let mut refused = Refusals::new();
-                    refused.refuse(
-                        "clientSecret",
-                        RefusalReason::Required,
-                        "clientSecret is required with another issuer or client",
-                    );
-                    return Err(refused.into());
-                }
-                _ => String::new(),
-            },
-            Some("") => String::new(),
-            Some(secret) => key.seal(
-                secret,
-                &secret_context(org_id, &settings.issuer, &settings.client_id),
-            ),
-        };
+        let sealed_client_secret = sealed_secret(key, org_id, settings, existing.as_ref())?;
         let next = StoredProvider {
             id: String::new(),
             org_id: org_id.to_owned(),
@@ -252,6 +227,14 @@ impl App {
             })?;
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
         sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
+        if stored.sso_required {
+            // What a connection follows was asked when it subscribed: those of the
+            // sessions this shuts out are closed. Also when it was on already: closing
+            // again what a failure left open costs nothing.
+            self.ws()
+                .close_sessions_closed_out(org_id, &stored.id)
+                .await;
+        }
         Ok(self.provider_view(&stored))
     }
 
@@ -747,6 +730,48 @@ impl App {
         tracing::warn!("no free user name was found for a new account");
         Err(Reason::OidcUnavailable.into())
     }
+}
+
+/// The client secret to store with the settings, sealed for the organization: the one
+/// given; or, left out, the stored one while the issuer and the client stay.
+///
+/// # Errors
+///
+/// Returns 400 naming `clientSecret` if it is left out for another issuer or client
+/// while one is stored: the stored secret is the old client's.
+fn sealed_secret(
+    key: &SecretKey,
+    org_id: &str,
+    settings: &OidcProviderSettings,
+    existing: Option<&StoredProvider>,
+) -> Result<String, AppError> {
+    Ok(match settings.client_secret.as_deref() {
+        // The secret stays with the client it was given for: one that went on to
+        // another issuer or client would be sent to it.
+        None => match existing {
+            Some(existing)
+                if existing.issuer == settings.issuer
+                    && existing.client_id == settings.client_id =>
+            {
+                existing.sealed_client_secret.clone()
+            }
+            Some(existing) if !existing.sealed_client_secret.is_empty() => {
+                let mut refused = Refusals::new();
+                refused.refuse(
+                    "clientSecret",
+                    RefusalReason::Required,
+                    "clientSecret is required with another issuer or client",
+                );
+                return Err(refused.into());
+            }
+            _ => String::new(),
+        },
+        Some("") => String::new(),
+        Some(secret) => key.seal(
+            secret,
+            &secret_context(org_id, &settings.issuer, &settings.client_id),
+        ),
+    })
 }
 
 /// The failure of a sign-in that the store refused at its end, logged.

@@ -168,6 +168,9 @@ struct Listener {
     user_id: String,
     /// The session the handshake came with; empty for a connection without one.
     session_id: String,
+    /// The provider that session was made through; `None` for a password, and without
+    /// a session.
+    login_provider: Option<String>,
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
     closed: CancellationToken,
@@ -183,6 +186,9 @@ struct Listener {
 #[derive(Debug, Default)]
 struct Listeners {
     next_id: ListenerId,
+    /// How often an organization began to take only its provider's sessions
+    /// (`subscribe.rs`).
+    walls_raised: u64,
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
@@ -286,14 +292,8 @@ impl Hub {
         let (outbox, mut inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
-        let (user_id, session_id, token) = match identity {
-            Some(identity) => (
-                identity.session.user_id,
-                identity.session.id,
-                Some(identity.token),
-            ),
-            None => (String::new(), String::new(), None),
-        };
+        let who = subscribe::Who::of(identity);
+        let token = who.token;
 
         let id = {
             let mut listeners = self.listeners();
@@ -302,8 +302,9 @@ impl Hub {
             listeners.by_id.insert(
                 id,
                 Listener {
-                    user_id,
-                    session_id,
+                    user_id: who.user_id,
+                    session_id: who.session_id,
+                    login_provider: who.login_provider,
                     outbox,
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),
@@ -493,21 +494,7 @@ impl Hub {
     async fn handle(&self, id: ListenerId, command: Command) -> bool {
         match command.action.as_str() {
             "SUBSCRIBE_BLOCKS" | "UNSUBSCRIBE_BLOCKS" => {
-                let Some(board_id) = self.board_of_read_token(&command).await else {
-                    tracing::error!(action = %command.action, "websocket: rejected an invalid read token");
-                    return true;
-                };
-                let mut listeners = self.listeners();
-                if command.action == "SUBSCRIBE_BLOCKS" {
-                    subscribe_to_blocks(&mut listeners, id, &command.block_ids);
-                    if let Some(listener) = listeners.by_id.get_mut(&id)
-                        && !listener.shared_boards.contains(&board_id)
-                    {
-                        listener.shared_boards.push(board_id);
-                    }
-                } else {
-                    unsubscribe_from_blocks(&mut listeners, id, &command.block_ids);
-                }
+                self.follow_blocks(id, &command).await;
                 return true;
             }
             _ => {}
@@ -525,14 +512,7 @@ impl Hub {
         }
 
         match command.action.as_str() {
-            "SUBSCRIBE_WORKSPACE" => {
-                let workspace = &command.workspace_id;
-                if self.audience.is_in_workspace(&user_id, workspace).await {
-                    subscribe_to_workspace(&mut self.listeners(), id, &command.workspace_id);
-                } else {
-                    tracing::error!(workspace_id = %command.workspace_id, user_id, "websocket: no workspace access");
-                }
-            }
+            "SUBSCRIBE_WORKSPACE" => self.follow_workspace(id, &command.workspace_id).await,
             "UNSUBSCRIBE_WORKSPACE" => {
                 let mut listeners = self.listeners();
                 if let Some(listener) = listeners.by_id.get_mut(&id) {
@@ -996,6 +976,8 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
         remove_from(&mut listeners.by_block, block_id, id);
     }
 }
+
+mod subscribe;
 
 /// Ports of `server/ws/server_test.go`, on the listener table.
 #[cfg(test)]

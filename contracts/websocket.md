@@ -40,6 +40,7 @@
 - JSON이 아니거나, 멤버의 타입이 틀리거나(`workspaceId`가 수, `blockIds`가 목록이 아님 등), `action`을 모르면 그 명령만 무시하고 연결은 그대로다.
 - `SUBSCRIBE_WORKSPACE`는 그 워크스페이스에서 일하는 사용자(손님이 아닌 구성원)의 것만 받아들이고, 그 밖의 것은 무시한다. 워크스페이스 ID는 `GET /api/v1/users/me/workspaces`에 있다.
 - `blockIds`가 빈 목록이면 보드를 정할 수 없어 읽기 토큰이 맞지 않는 것으로 친다.
+- 비밀번호를 받지 않는 조직(공급자의 `ssoRequired`)의 워크스페이스는 그 공급자로 만든 세션의 연결만 구독한다. 다른 세션의 `SUBSCRIBE_WORKSPACE`는 무시한다(HTTP의 401 `sso_required`에 해당한다. `getMyWorkspaces`의 `ssoRequired`가 미리 알려 준다). 그런 세션의 연결은 그 조직의 보드를 읽기 토큰으로도 따라가지 못한다(`SUBSCRIBE_BLOCKS` 무시). 세션 없는 연결은 전과 같이 따라간다. 조직이 `ssoRequired`를 켜면, 그 조직에 속한 사용자의 연결 가운데 그 공급자로 만들지 않은 세션의 것을 서버가 닫는다.
 
 ## 3. 서버가 보내는 메시지
 

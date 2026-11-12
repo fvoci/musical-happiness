@@ -15,7 +15,7 @@ use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, Person};
 use crate::oidc::{Browser, org_of, server_for, set_provider, with_key_and_private_addresses};
 
 /// The subject `user1` has at the fake providers of these tests.
-const ADMIN_SUBJECT: &str = "subject-of-user1";
+pub(crate) const ADMIN_SUBJECT: &str = "subject-of-user1";
 
 /// Ties what `fake` vouches for under `subject` to the account of `client`'s user, as
 /// linking does.
@@ -63,13 +63,13 @@ pub(crate) async fn admin_through_provider(
 
 /// Whether an organization takes a password.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Passwords {
+pub(crate) enum Passwords {
     Taken,
     Refused,
 }
 
 /// Sets `ssoRequired` of the organization's provider, the fake one, as `client`.
-async fn require_sso(
+pub(crate) async fn require_sso(
     client: &Client,
     org_id: &str,
     fake: &FakeProvider,
@@ -723,16 +723,16 @@ async fn a_public_link_stays_open_and_reads_the_same_for_a_session_that_opens_no
 }
 
 /// The two organizations of [`two_organizations`], and `user1` in both.
-struct Two {
-    ts: TestServer,
-    ours: String,
-    theirs: String,
-    their_workspace: String,
+pub(crate) struct Two {
+    pub(crate) ts: TestServer,
+    pub(crate) ours: String,
+    pub(crate) theirs: String,
+    pub(crate) their_workspace: String,
 }
 
 /// A server with a second organization, which `user1` administers too, both with the
 /// fake provider as theirs.
-async fn two_organizations(fake: &FakeProvider) -> Two {
+pub(crate) async fn two_organizations(fake: &FakeProvider) -> Two {
     use fvoci_model::{OrgRole, Workspace, WorkspaceRole};
     use fvoci_server::app::secret_context;
     use fvoci_store::StoredProvider;

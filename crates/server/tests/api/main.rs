@@ -55,6 +55,7 @@ mod sharing;
 mod sidebar;
 mod sidebar_messages;
 mod sso;
+mod sso_websocket;
 mod subscriptions;
 mod system;
 mod templates;

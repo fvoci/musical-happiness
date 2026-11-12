@@ -9,6 +9,7 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
         Listener {
             user_id: user_id.to_owned(),
             session_id: String::new(),
+            login_provider: None,
             outbox,
             closed: CancellationToken::new(),
             closed_because: Arc::default(),
