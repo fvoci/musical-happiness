@@ -39,7 +39,10 @@ async fn workspace_admin(th: &TestServer) -> String {
 async fn private_board_with_a_card(th: &TestServer) -> (Board, String) {
     let board: Board = th
         .client
-        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Private"))
+        .create_board(&Board {
+            description: "The plan".to_owned(),
+            ..new_board(TEST_WORKSPACE_ID, BoardType::Private, "Private")
+        })
         .await
         .created_json();
     let card = th
@@ -142,11 +145,20 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
         .expect("the log is read");
     th.teardown().await;
 
-    assert!(
-        listed.iter().any(|listed| listed.id == board.id),
-        "{listed:?}"
+    let listed = listed
+        .iter()
+        .find(|listed| listed.id == board.id)
+        .expect("the board is listed");
+    assert_eq!(
+        (listed.title.as_str(), listed.description.as_str()),
+        ("Private", "")
     );
     seen.check_ok();
+    assert_eq!(
+        seen.value()["description"],
+        json!(""),
+        "its description is content"
+    );
     members.check_ok();
     assert!(hidden.is_empty(), "content reached:\n{}", hidden.join("\n"));
     added.check_ok();
@@ -158,6 +170,7 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
         "{in_the_trash:?}"
     );
     restored.check_ok();
+    assert_eq!(restored.value()["description"], json!(""));
     assert!(
         recorded.is_empty(),
         "nothing the admin did is recorded: {recorded:?}"
@@ -233,4 +246,109 @@ async fn a_member_who_is_no_admin_neither_lists_nor_manages_a_private_board() {
     );
     assert_eq!(answer(&members), answer(&missing));
     deleted.check_not_found();
+}
+
+/// The names of the entries of the workspace's archive as the client exports it.
+async fn exported(client: &Client) -> Vec<String> {
+    let archive = client
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/archive/export"))
+        .await;
+    archive.check_ok();
+    let archive =
+        zip::ZipArchive::new(std::io::Cursor::new(archive.body)).expect("the export is an archive");
+    archive
+        .file_names()
+        .filter_map(Result::ok)
+        .map(|name| name.to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_workspace_admin_who_gives_a_membership_without_a_role_a_role_is_recorded() {
+    let th = Setup::native().start().await.init_basic().await;
+    let admin = workspace_admin(&th).await;
+    let (board, card_id) = private_board_with_a_card(&th).await;
+    // A membership without a role, as a board's admin leaves who they take every role
+    // from: it opens nothing, the archive of the workspace neither.
+    th.app
+        .store()
+        .save_member(&member(&board.id, &admin))
+        .await
+        .expect("a membership without a role");
+    let before = th.client2.get(&format!("/cards/{card_id}")).await;
+    let archived = exported(&th.client2).await;
+
+    let raised = th
+        .client2
+        .put(
+            &format!("/boards/{}/members/{admin}", board.id),
+            &json!({"schemeViewer": true}),
+        )
+        .await;
+    let after = th.client2.get(&format!("/cards/{card_id}")).await;
+    let recorded = th
+        .app
+        .store()
+        .get_audit_log(TEST_WORKSPACE_ID)
+        .await
+        .expect("the log is read");
+    th.teardown().await;
+
+    before.check_not_found();
+    assert!(
+        archived.iter().all(|name| !name.contains(&board.id)),
+        "{archived:?}"
+    );
+    raised.check_ok();
+    after.check_ok();
+    let recorded: Vec<_> = recorded
+        .iter()
+        .map(|entry| {
+            (
+                entry.action,
+                entry.actor_id.as_str(),
+                entry.target_id.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        recorded,
+        [(
+            AuditAction::SelfAddedToBoard,
+            admin.as_str(),
+            board.id.as_str()
+        )]
+    );
+}
+
+#[tokio::test]
+async fn a_workspace_admin_who_joins_an_open_board_is_not_recorded() {
+    let th = Setup::native().start().await.init_basic().await;
+    let admin = workspace_admin(&th).await;
+    let board: Board = th
+        .client
+        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
+        .await
+        .created_json();
+
+    let added = th
+        .client2
+        .add_member(&BoardMember {
+            scheme_viewer: true,
+            ..member(&board.id, &admin)
+        })
+        .await;
+    let recorded = th
+        .app
+        .store()
+        .get_audit_log(TEST_WORKSPACE_ID)
+        .await
+        .expect("the log is read");
+    th.teardown().await;
+
+    added.check_ok();
+    assert!(
+        recorded.is_empty(),
+        "an open board is read by joining it: {recorded:?}"
+    );
 }

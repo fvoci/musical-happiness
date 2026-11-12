@@ -11,7 +11,7 @@ use super::contract::params::{BoardId, UserId};
 use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response, no_content};
-use super::{decode_object, refusal, require_board_permission, user_is_guest};
+use super::{decode_object, refusal, require_board_permission, require_granted, user_is_guest};
 use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::permissions::{self, BoardPermission};
@@ -184,9 +184,8 @@ async fn handle_add_member(
     // A workspace's administrator who makes themselves a member of a board they could
     // not read, and so comes to read it, is recorded doing so. The board was there a
     // moment ago; if it is not any more, there is nothing to be a member of.
-    let added = if request.user_id == *user_id && !grant.reads() {
-        app.add_self_to_board_recorded(&member, &board.workspace_id)
-            .await?
+    let added = if request.user_id == *user_id && grant.manages_only() {
+        app.add_self_to_board_recorded(&member).await?
     } else {
         app.add_member_to_board(&member).await?
     };
@@ -307,14 +306,12 @@ async fn handle_update_member(
     Path((board_id, member_user_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    require_board_permission(
-        &app,
-        &session.user_id,
-        &board_id,
+    let grant = app.board_grant(&session.user_id, &board_id).await?;
+    require_granted(
+        grant,
         BoardPermission::ManageBoardRoles,
         MODIFY_MEMBERS_DENIED,
-    )
-    .await?;
+    )?;
     // The board may be deleted between the two lookups; then it is gone for everybody.
     let target = app
         .board_access(&member_user_id, &board_id)
@@ -329,7 +326,14 @@ async fn handle_update_member(
     };
     require_holdable(workspace_role, &member)?;
 
-    match app.update_board_member(&member).await? {
+    // A workspace's administrator who gives themselves a role on a board they could not
+    // read is recorded doing so, as one who adds themselves.
+    let updated = if member.user_id == session.user_id && grant.manages_only() {
+        app.update_self_on_board_recorded(&member).await?
+    } else {
+        app.update_board_member(&member).await?
+    };
+    match updated {
         Some(updated) => Ok(json_response(&updated)),
         None => Err(AppError::not_found("member")),
     }

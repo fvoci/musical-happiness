@@ -227,7 +227,15 @@ impl Grant {
     /// manages it and asks for its content.
     #[must_use]
     pub const fn hides(self, permission: BoardPermission) -> bool {
-        !self.sees() || (self.0 & MANAGES_ONLY != 0 && permission.is_content())
+        !self.sees() || (self.manages_only() && permission.is_content())
+    }
+
+    /// Whether the user sees the board only to manage it: an administrator of the
+    /// workspace who reads none of it. What is on it, and what the board says of itself
+    /// beyond its name and kind, is not for them.
+    #[must_use]
+    pub const fn manages_only(self) -> bool {
+        self.0 & MANAGES_ONLY != 0
     }
 
     /// Whether the user reads what is on the board: refused something reached through
@@ -309,7 +317,7 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
         DeleteBoard, JoinBoard, ListMembers, ManageBoardRoles, SeeBoard, ViewBoard,
     };
     if facts.scope == BoardScope::BuiltIn {
-        return Grant::of(&[SeeBoard, ViewBoard]);
+        return Grant::of(&[SeeBoard, ViewBoard, ListMembers]);
     }
     let Some(workspace_role) = actor.workspace else {
         return Grant::NONE;
@@ -319,7 +327,7 @@ pub fn grant(actor: Actor, facts: BoardFacts) -> Grant {
     });
     let as_worker = match (actor.works_there(), facts.scope) {
         (true, BoardScope::Open) => Grant::of(&[SeeBoard, JoinBoard]),
-        (true, BoardScope::OpenTemplate) => Grant::of(&[SeeBoard, ViewBoard]),
+        (true, BoardScope::OpenTemplate) => Grant::of(&[SeeBoard, ViewBoard, ListMembers]),
         _ => Grant::NONE,
     };
     let as_manager = if workspace_role == WorkspaceRole::Admin {

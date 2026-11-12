@@ -160,3 +160,13 @@ impl App {
         }))
     }
 }
+
+/// The board as who only manages it sees it ([`Grant::manages_only`]): its name, kind
+/// and times, without its description and properties, which are its content.
+#[must_use]
+pub fn as_managed(mut board: Board) -> Board {
+    board.description.clear();
+    board.properties.clear();
+    board.card_properties.clear();
+    board
+}

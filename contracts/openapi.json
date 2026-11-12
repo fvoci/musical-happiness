@@ -2626,7 +2626,7 @@
     },
     "/api/v1/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches\nthe term: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
+        "description": "The boards the user reads (a member of them, or open where the user works), whose title matches\nthe term: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
         "operationId": "searchBoards",
         "parameters": [
           {
@@ -4338,7 +4338,7 @@
     },
     "/api/v1/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted;\nto anybody who was no member there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted,\nand for the workspace's administrators (who, if they were no member, get it without\nits description and properties); to anybody else there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {
@@ -5924,7 +5924,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches\nthe term as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The\nworkspace of the path is not part of the search: the boards of every workspace are\nsearched. A `field` that is neither is 400. Oldest first.",
+        "description": "The boards the user reads (a member of them, or open where the user works), whose title matches\nthe term as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The\nworkspace of the path is not part of the search: the boards of every workspace are\nsearched. A `field` that is neither is 400. Oldest first.",
         "operationId": "searchWorkspaceBoards",
         "parameters": [
           {

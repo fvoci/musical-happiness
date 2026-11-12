@@ -1,10 +1,12 @@
 //! Workspaces: which a user is a member of, the way into one, and the workspaces of the
 //! organization the routes that name no workspace in their path work in.
 
+use std::collections::HashSet;
+
 use fvoci_model::{Board, OrgRole, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
-use super::App;
+use super::{App, as_managed};
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
@@ -126,7 +128,8 @@ impl App {
     }
 
     /// The boards of a workspace as the user lists them: an administrator of the
-    /// workspace every board of it, whoever else those the user reads
+    /// workspace every board of it, those they do not read without their description and
+    /// properties ([`as_managed`]); whoever else those the user reads
     /// ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
     ///
     /// The handle is the one a member entered the workspace with
@@ -141,11 +144,25 @@ impl App {
         workspace_id: &str,
         role: WorkspaceRole,
     ) -> Result<Vec<Board>, AppError> {
-        if role == WorkspaceRole::Admin {
-            return Ok(self.store().get_boards_of_workspace(workspace_id).await?);
+        let readable = self
+            .readable_workspace_boards(user_id, workspace_id, role)
+            .await?;
+        if role != WorkspaceRole::Admin {
+            return Ok(readable);
         }
-        self.readable_workspace_boards(user_id, workspace_id, role)
-            .await
+        // What the administrator does not read is listed as who only manages it sees it.
+        let read: HashSet<String> = readable.into_iter().map(|board| board.id).collect();
+        let every = self.store().get_boards_of_workspace(workspace_id).await?;
+        Ok(every
+            .into_iter()
+            .map(|board| {
+                if read.contains(&board.id) {
+                    board
+                } else {
+                    as_managed(board)
+                }
+            })
+            .collect())
     }
 
     /// The boards of a workspace that the user is a member of and, unless the user is a

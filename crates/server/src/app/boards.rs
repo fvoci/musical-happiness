@@ -544,25 +544,18 @@ impl App {
     pub async fn add_self_to_board_recorded(
         &self,
         member: &BoardMember,
-        workspace_id: &str,
     ) -> Result<Option<BoardMember>, AppError> {
-        let entry = AuditEntry {
-            workspace_id: workspace_id.to_owned(),
-            actor_id: member.user_id.clone(),
-            action: AuditAction::SelfAddedToBoard,
-            target_id: member.board_id.clone(),
-            create_at: 0,
-        };
-        self.add_member_to_board_recorded(member, Some(&entry))
+        self.add_member_to_board_recorded(member, Some(AuditAction::SelfAddedToBoard))
             .await
     }
 
     /// Adds a member as [`App::add_member_to_board`] does and, if the membership is new
-    /// and `entry` is given, records it in the audit log in the same step.
+    /// and `action` is given, records the user doing it in the audit log in the same
+    /// step.
     async fn add_member_to_board_recorded(
         &self,
         member: &BoardMember,
-        entry: Option<&AuditEntry>,
+        action: Option<AuditAction>,
     ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
@@ -572,8 +565,11 @@ impl App {
 
         // Added unless already there, in one step: of two requests that add the same
         // user at once, the second finds the membership the first made.
-        let existing = match entry {
-            Some(entry) => self.store().add_member_recorded(member, entry).await?,
+        let existing = match action {
+            Some(action) => {
+                let entry = audit_entry(&board, member, action);
+                self.store().add_member_recorded(member, &entry).await?
+            }
             None => self.store().add_member(member).await?,
         };
         if let Some(existing) = existing {
@@ -649,6 +645,30 @@ impl App {
         &self,
         member: &BoardMember,
     ) -> Result<Option<BoardMember>, AppError> {
+        self.update_board_member_recorded(member, None).await
+    }
+
+    /// Gives a user, who manages the board without reading it, roles on it as
+    /// [`App::update_board_member`] does and records in the organization's audit log in
+    /// the same step that they gave them to themselves.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::update_board_member`]; a record that cannot be written is the store's
+    /// error, and the membership is not changed then.
+    pub async fn update_self_on_board_recorded(
+        &self,
+        member: &BoardMember,
+    ) -> Result<Option<BoardMember>, AppError> {
+        self.update_board_member_recorded(member, Some(AuditAction::SelfAddedToBoard))
+            .await
+    }
+
+    async fn update_board_member_recorded(
+        &self,
+        member: &BoardMember,
+        action: Option<AuditAction>,
+    ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
             Err(error) if error.is_not_found() => return Ok(None),
@@ -657,7 +677,14 @@ impl App {
         // A board keeps at least one admin. Whether this change would take the last one
         // away is decided where the change is written, so that two admins who step down
         // at once do not both pass.
-        match self.store().change_member(member).await? {
+        let change = match action {
+            Some(action) => {
+                let entry = audit_entry(&board, member, action);
+                self.store().change_member_recorded(member, &entry).await?
+            }
+            None => self.store().change_member(member).await?,
+        };
+        match change {
             MemberChange::Done => {}
             MemberChange::NotAMember => return Ok(None),
             MemberChange::LastAdmin => {
@@ -710,5 +737,16 @@ impl App {
                 .await;
         });
         Ok(())
+    }
+}
+
+/// The record of a user doing `action` to their own membership of the board.
+fn audit_entry(board: &Board, member: &BoardMember, action: AuditAction) -> AuditEntry {
+    AuditEntry {
+        workspace_id: board.workspace_id.clone(),
+        actor_id: member.user_id.clone(),
+        action,
+        target_id: board.id.clone(),
+        create_at: 0,
     }
 }

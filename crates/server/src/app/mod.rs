@@ -39,7 +39,7 @@ mod uploads;
 mod users;
 mod workspaces;
 
-pub use access::{BoardAccess, DeletedBoardAccess};
+pub use access::{BoardAccess, DeletedBoardAccess, as_managed};
 pub use audience::Audience;
 pub use auth::Admission;
 pub use blocks::ChangeNotification;

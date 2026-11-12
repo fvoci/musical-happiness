@@ -22,6 +22,10 @@ pub(crate) fn push_open_boards_at_work<'sql>(sql: &'sql mut Sql, user_id: &str) 
         .push(")) OR ")
 }
 
+/// The condition that the membership `bm` has a role: one without opens nothing.
+pub(crate) const BM_HAS_A_ROLE: &str =
+    " AND (bm.scheme_admin OR bm.scheme_editor OR bm.scheme_commenter OR bm.scheme_viewer)";
+
 /// Pushes the condition that the membership `bm` is the user's and that the user is
 /// still a member of the board's workspace `b`, a guest too: a role left on a board after
 /// leaving its workspace finds nothing.

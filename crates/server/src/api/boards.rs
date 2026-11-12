@@ -20,7 +20,7 @@ use super::{
     duplicate_as, json_object, require_board_permission, require_granted, require_workspace_access,
     require_workspace_in_body, user_is_guest,
 };
-use crate::app::App;
+use crate::app::{App, as_managed};
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, Grant};
 
@@ -183,10 +183,16 @@ async fn handle_get_board(
         if !app.is_board_reader(user_id, &board_id).await? {
             board.hide_people();
         }
-    } else if !app.board_grant(user_id, &board_id).await?.sees() {
+    } else {
         // Without the token, an open board is for whoever works in its workspace, a
-        // private one for its members.
-        return Err(AppError::not_found("board"));
+        // private one for its members, and its name for the workspace's administrators.
+        let grant = app.board_grant(user_id, &board_id).await?;
+        if !grant.sees() {
+            return Err(AppError::not_found("board"));
+        }
+        if grant.manages_only() {
+            board = as_managed(board);
+        }
     }
     Ok(json_response(&board))
 }
@@ -393,8 +399,9 @@ async fn handle_duplicate_board(
 /// category and place, hidden or not) or in the default category if that one was
 /// deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
 /// `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-/// the deletion and stay ended. For who was an admin of the board when it was deleted;
-/// to anybody who was no member there is no such board.
+/// the deletion and stay ended. For who was an admin of the board when it was deleted,
+/// and for the workspace's administrators (who, if they were no member, get it without
+/// its description and properties); to anybody else there is no such board.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/undelete",
@@ -422,5 +429,8 @@ async fn handle_undelete_board(
     )?;
 
     let board = app.undelete_board(&board_id, &session.user_id).await?;
+    if grant.manages_only() {
+        return Ok(json_response(&as_managed(board)));
+    }
     Ok(json_response(&board))
 }

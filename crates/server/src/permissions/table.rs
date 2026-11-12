@@ -36,8 +36,6 @@ const ADMIN: &[BoardPermission] = &[
     ManageOthersComments,
 ];
 const NOTHING: &[BoardPermission] = &[];
-/// What a template is to who may read it without a role on it: to read and copy.
-const READ_ONLY: &[BoardPermission] = &[SeeBoard, ViewBoard];
 /// What a workspace's administrator does with a board they have no role on.
 const MANAGE: &[BoardPermission] = &[SeeBoard, ListMembers, ManageBoardRoles, DeleteBoard];
 
@@ -159,7 +157,7 @@ const ROWS: &[Row] = &[
         MEMBER,
         OpenTemplate,
         None,
-        READ_ONLY,
+        VIEWER,
     ),
     row(
         "a member: no invited-only template",
@@ -181,21 +179,21 @@ const ROWS: &[Row] = &[
         MEMBER,
         BuiltIn,
         None,
-        READ_ONLY,
+        VIEWER,
     ),
     row(
         "a guest reads a built-in template",
         GUEST,
         BuiltIn,
         None,
-        READ_ONLY,
+        VIEWER,
     ),
     row(
         "a stranger reads a built-in template",
         STRANGER,
         BuiltIn,
         None,
-        READ_ONLY,
+        VIEWER,
     ),
     // A guest sees the boards they were invited to, one by one, as no more than an editor.
     row("a guest: no open board", GUEST, Open, None, NOTHING),
@@ -316,7 +314,7 @@ const ROWS: &[Row] = &[
         WORKSPACE_ADMIN,
         BuiltIn,
         None,
-        READ_ONLY,
+        VIEWER,
     ),
     // An organization's administrator manages the organization; a workspace they are no
     // member of is not there for them.

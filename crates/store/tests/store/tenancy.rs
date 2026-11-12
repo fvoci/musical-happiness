@@ -11,8 +11,8 @@ use fvoci_model::{
 };
 use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{
-    DbType, InstanceRole, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharingChange, Store, StoreError,
-    Tenant,
+    AuditAction, AuditEntry, DbType, InstanceRole, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID,
+    SharingChange, Store, StoreError, Tenant,
 };
 use sqlx::Connection as _;
 
@@ -443,9 +443,10 @@ async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &s
 }
 
 /// Stores, through `store`, something in every table of an organization: a workspace, a
-/// board with a member, a card and a comment whose text was changed, files, sharing, a
-/// subscription, a category with the board in it, an upload with a part, an object
-/// being written, and a board and a card in the trash. The user is made through `store`
+/// board with a member and the record of a change of its roles, a card and a comment
+/// whose text was changed, files, sharing, a subscription, a category with the board in
+/// it, an upload with a part, an object being written, and a board and a card in the
+/// trash. The user is made through `store`
 /// too, and so joins its organization. Returns the identifiers of the card that went to
 /// the trash and of the user.
 async fn something_in_every_table(store: &Store, username: &str) -> (String, String) {
@@ -470,6 +471,23 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         })
         .await
         .expect("a member is stored");
+    let as_viewer = BoardMember {
+        board_id: board_id.clone(),
+        user_id: user_id.clone(),
+        scheme_viewer: true,
+        ..BoardMember::default()
+    };
+    let entry = AuditEntry {
+        workspace_id: board.workspace_id.clone(),
+        actor_id: user_id.clone(),
+        action: AuditAction::SelfAddedToBoard,
+        target_id: board_id.clone(),
+        create_at: 0,
+    };
+    store
+        .change_member_recorded(&as_viewer, &entry)
+        .await
+        .expect("a change of roles is recorded");
     store
         .set_sharing(&board_id, SharingChange::On, &new_id(), &user_id)
         .await

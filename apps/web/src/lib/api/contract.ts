@@ -75,7 +75,7 @@ export interface paths {
         };
         /**
          * Search the boards
-         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         * @description The boards the user reads (a member of them, or open where the user works), whose title matches
          *     the term: a title matches if every word of the term, as spaces divide it, is somewhere
          *     in it, whatever the case of the letters (of every letter, not only ASCII). Templates
          *     are never found. `%` and `_` are characters like any other. Oldest first.
@@ -658,8 +658,9 @@ export interface paths {
          *     category and place, hidden or not) or in the default category if that one was
          *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
          *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-         *     the deletion and stay ended. For who was an admin of the board when it was deleted;
-         *     to anybody who was no member there is no such board.
+         *     the deletion and stay ended. For who was an admin of the board when it was deleted,
+         *     and for the workspace's administrators (who, if they were no member, get it without
+         *     its description and properties); to anybody else there is no such board.
          */
         post: operations["undeleteBoard"];
         delete?: never;
@@ -1401,7 +1402,7 @@ export interface paths {
         };
         /**
          * Search the boards, asked through a workspace
-         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         * @description The boards the user reads (a member of them, or open where the user works), whose title matches
          *     the term as `searchBoards` matches it, or with `field=property_name` those whose own
          *     `properties` have a member of exactly that name, whatever its value (`null` too). The
          *     workspace of the path is not part of the search: the boards of every workspace are

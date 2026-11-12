@@ -303,35 +303,6 @@ impl Store {
         .await
     }
 
-    /// Replaces the scheme flags of a membership, unless that would leave the board
-    /// without an administrator.
-    ///
-    /// The check and the write are one step: of two administrators who give up the role
-    /// at once, one is refused.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn change_member(&self, member: &BoardMember) -> Result<MemberChange, StoreError> {
-        self.transaction(async |scope| {
-            if !lock_board(scope, &member.board_id).await? {
-                return Ok(MemberChange::NotAMember);
-            }
-            let Some(current) = find_member(scope, &member.board_id, &member.user_id).await? else {
-                return Ok(MemberChange::NotAMember);
-            };
-            if current.scheme_admin
-                && !member.scheme_admin
-                && members::is_only_admin(scope, &member.board_id, &member.user_id).await?
-            {
-                return Ok(MemberChange::LastAdmin);
-            }
-            save_member(scope, member).await?;
-            Ok(MemberChange::Done)
-        })
-        .await
-    }
-
     /// Removes a user from a board and ends the user's subscriptions to the blocks of
     /// the board, unless that would leave the board without an administrator.
     ///
@@ -593,7 +564,7 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
 /// Starts the query for the boards a user can reach: `SELECT DISTINCT` over boards joined
 /// with their memberships, without templates, narrowed to the user's boards and, if
 /// asked for, the open ones where the user works. A membership counts while the user is a
-/// member of the board's workspace. More `AND` conditions on `b` may follow.
+/// member of the board's workspace, and if it has a role. More `AND` conditions on `b` may follow.
 fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: PublicBoards) -> Sql {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
@@ -605,7 +576,9 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
         PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
         PublicBoards::Exclude => sql.push(" AND ("),
     };
-    members::push_own_membership_in_workspace(&mut sql, user_id).push(")");
+    members::push_own_membership_in_workspace(&mut sql, user_id)
+        .push(members::BM_HAS_A_ROLE)
+        .push(")");
     sql
 }
 

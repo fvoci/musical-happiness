@@ -4,11 +4,48 @@ use fvoci_model::BoardMember;
 
 use crate::Store;
 use crate::audit::{self, AuditEntry};
-use crate::boards::{find_member, hold_board};
+use crate::boards::{MemberChange, find_member, hold_board, lock_board, save_member};
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
+use crate::members;
 
 impl Store {
+    /// Replaces the scheme flags of a membership, unless that would leave the board
+    /// without an administrator.
+    ///
+    /// The check and the write are one step: of two administrators who give up the role
+    /// at once, one is refused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn change_member(&self, member: &BoardMember) -> Result<MemberChange, StoreError> {
+        self.transaction(async |scope| change_member(scope, member).await)
+            .await
+    }
+
+    /// Replaces the scheme flags of a membership as [`Store::change_member`] does and, if
+    /// it is changed, records `entry` with it, in one step.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::change_member`], and [`StoreError::Database`] if the record cannot be
+    /// written; the membership is not changed then.
+    pub async fn change_member_recorded(
+        &self,
+        member: &BoardMember,
+        entry: &AuditEntry,
+    ) -> Result<MemberChange, StoreError> {
+        self.transaction(async |scope| {
+            let change = change_member(scope, member).await?;
+            if change == MemberChange::Done {
+                audit::record(scope, entry).await?;
+            }
+            Ok(change)
+        })
+        .await
+    }
+
     /// Makes a user a member of a board unless they are one already, and says which it
     /// was: `None` if the membership is new, the membership as it stands if there was
     /// one. Two requests that add the same user at once end in one membership, the one
@@ -78,4 +115,24 @@ async fn add_member(
         return Ok(None);
     }
     find_member(scope, &member.board_id, &member.user_id).await
+}
+
+async fn change_member(
+    scope: &mut Scope<'_>,
+    member: &BoardMember,
+) -> Result<MemberChange, StoreError> {
+    if !lock_board(scope, &member.board_id).await? {
+        return Ok(MemberChange::NotAMember);
+    }
+    let Some(current) = find_member(scope, &member.board_id, &member.user_id).await? else {
+        return Ok(MemberChange::NotAMember);
+    };
+    if current.scheme_admin
+        && !member.scheme_admin
+        && members::is_only_admin(scope, &member.board_id, &member.user_id).await?
+    {
+        return Ok(MemberChange::LastAdmin);
+    }
+    save_member(scope, member).await?;
+    Ok(MemberChange::Done)
 }
