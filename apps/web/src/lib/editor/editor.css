@@ -319,7 +319,7 @@ span.doc-embed-problem {
   text-align: start;
   border-color: var(--border);
 }
-/* In the editor the picture belongs to the source above it. */
+/* Read-only, the picture follows the source it stands in for. */
 .doc-body pre + .doc-diagram {
   margin-top: 0.25em;
 }

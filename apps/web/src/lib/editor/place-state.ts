@@ -1,0 +1,262 @@
+/**
+ * The state of the editing place (editing-place.ts): which block's place is
+ * open, kept beside the document and never in it, and the transactions that
+ * open and close it. Closing a formula's place on purpose is what writes its
+ * source; a place that only goes away writes nothing.
+ */
+import type { Node as DocumentNode, ResolvedPos } from '@tiptap/pm/model';
+import { closeHistory } from '@tiptap/pm/history';
+import {
+  NodeSelection,
+  PluginKey,
+  Selection,
+  TextSelection,
+  type EditorState,
+  type Transaction,
+} from '@tiptap/pm/state';
+import type { Decoration, EditorView } from '@tiptap/pm/view';
+
+import { DIAGRAM_LANGUAGE } from './schema.ts';
+
+/** A diagram, a block formula, or a block formula that is still being written. */
+export type PlaceKind = 'diagram' | 'formula' | 'new-formula';
+
+/** What a block formula holds in its own field, which may differ from the document (empty). */
+export interface Draft {
+  /** The source as written, trimmed. Set by whoever holds the field. */
+  value: () => string;
+}
+
+/** The place of a formula that is not in the document yet, drawn on its empty line. */
+export interface NewFormulaPanel extends Draft {
+  dom: HTMLElement;
+  focus: () => void;
+}
+
+export interface Place {
+  kind: PlaceKind;
+  /** Where the block starts: the diagram, the formula, or the empty line a new formula goes into. */
+  pos: number;
+  /** For a new formula: its place, which the document does not hold yet. */
+  panel?: NewFormulaPanel;
+  /** For a formula: its field, set by its node view while the place is open. */
+  draft?: Draft;
+}
+
+type Meta = { open: Place } | { close: true };
+
+export const placeKey = new PluginKey<Place | null>('editingPlace');
+
+export const isDiagramNode = (node: DocumentNode | null | undefined): boolean =>
+  node?.type.name === 'codeBlock' && node.attrs.language === DIAGRAM_LANGUAGE;
+
+const isEmptyParagraph = (node: DocumentNode | null | undefined): boolean =>
+  node?.type.name === 'paragraph' && node.content.size === 0;
+
+/** Whether the node at a place is still the kind of block the place is for. */
+function fits(kind: PlaceKind, node: DocumentNode | null | undefined): boolean {
+  if (kind === 'diagram') return isDiagramNode(node);
+  if (kind === 'formula') return node?.type.name === 'blockMath';
+  return isEmptyParagraph(node);
+}
+
+/** The place that is open, or null. */
+export const placeOf = (state: EditorState): Place | null => placeKey.getState(state) ?? null;
+
+/** Whether the selection belongs to the open place: inside its block, or on it. */
+function selectionStays(place: Place, state: EditorState): boolean {
+  const node = state.doc.nodeAt(place.pos);
+  if (!node) return false;
+  const { from, to, anchor } = state.selection;
+  if (place.kind === 'formula')
+    return state.selection instanceof NodeSelection && from === place.pos;
+  const inside = (at: number): boolean => at > place.pos && at < place.pos + node.nodeSize;
+  // A diagram's source stays in sight while a selection that starts in it is drawn out of it
+  // (Shift and an arrow, a drag); a new line that leaves it is no new line.
+  if (place.kind === 'diagram') return inside(anchor);
+  return inside(from) && inside(to);
+}
+
+/** The diagram whose source the position is in, when that diagram is closed. */
+export function closedDiagramAt(state: EditorState, $position: ResolvedPos): number | undefined {
+  if (!isDiagramNode($position.parent) || $position.depth === 0) return undefined;
+  const pos = $position.before();
+  const place = placeOf(state);
+  return place?.kind === 'diagram' && place.pos === pos ? undefined : pos;
+}
+
+export function nextPlace(value: Place | null, tr: Transaction, state: EditorState): Place | null {
+  const meta = tr.getMeta(placeKey) as Meta | undefined;
+  if (meta && 'close' in meta) return null;
+  let place = meta?.open ?? value;
+  if (!place) return null;
+  if (!meta) {
+    const mapped = tr.mapping.mapResult(place.pos, 1);
+    if (mapped.deleted) return null;
+    if (mapped.pos !== place.pos) place = { ...place, pos: mapped.pos };
+  }
+  if (!fits(place.kind, state.doc.nodeAt(place.pos))) return null;
+  return selectionStays(place, state) ? place : null;
+}
+
+/**
+ * What a formula's place leaves in the document when it is closed on
+ * purpose: what its field holds, as one step of undo of its own. A formula
+ * closed empty is removed; a new one that was written goes in place of its
+ * empty line. Gives the position of the formula, if there is one.
+ */
+function finishFormula(tr: Transaction, place: Place): number | undefined {
+  const written = (place.panel ?? place.draft)?.value() ?? '';
+  const node = tr.doc.nodeAt(place.pos);
+  if (!node) return undefined;
+  const { pos } = place;
+  if (place.kind === 'formula') {
+    if (written === String(node.attrs.latex)) return pos;
+    closeHistory(tr);
+    if (written === '') {
+      tr.delete(pos, pos + node.nodeSize);
+      return undefined;
+    }
+    tr.setNodeAttribute(pos, 'latex', written);
+    return pos;
+  }
+  const formula =
+    written === '' ? undefined : tr.doc.type.schema.nodes.blockMath?.create({ latex: written });
+  if (!formula || !isEmptyParagraph(node)) return undefined;
+  closeHistory(tr);
+  tr.replaceWith(pos, pos + node.nodeSize, formula);
+  // Somewhere to go on writing when the formula ends what holds it.
+  if (tr.doc.resolve(pos + formula.nodeSize).nodeAfter === null) {
+    const paragraph = tr.doc.type.schema.nodes.paragraph?.create();
+    if (paragraph) tr.insert(pos + formula.nodeSize, paragraph);
+  }
+  return pos;
+}
+
+/**
+ * A selection drawn from outside into the hidden source of a closed diagram
+ * (Shift and an arrow) takes the whole diagram in, and does not end in text
+ * that cannot be seen, where typing would replace part of it.
+ */
+function reachOver(state: EditorState): Transaction | null {
+  const { $anchor, $head } = state.selection;
+  const pos = closedDiagramAt(state, $head);
+  if (pos === undefined || closedDiagramAt(state, $anchor) === pos) return null;
+  const node = state.doc.nodeAt(pos);
+  if (!node) return null;
+  const forward = $anchor.pos < pos;
+  const beyond = state.doc.resolve(forward ? pos + node.nodeSize : pos);
+  // The first place for text past the diagram; with none, the selection stays as it was.
+  const past = Selection.findFrom(beyond, forward ? 1 : -1, true);
+  return past
+    ? state.tr.setSelection(TextSelection.create(state.doc, $anchor.pos, past.head))
+    : null;
+}
+
+/**
+ * Whether the block at `pos` is the line the cursor was in, made a diagram by
+ * typing its fence (three backticks and the language): not a diagram that was
+ * already there, nor one that a new document or a paste brought.
+ */
+function madeHere(transactions: readonly Transaction[], before: EditorState, pos: number): boolean {
+  const { $from } = before.selection;
+  if ($from.depth === 0 || $from.parent.type.name !== 'paragraph') return false;
+  if (!/^(?:```|~~~)/.test($from.parent.textContent)) return false;
+  let at = $from.before();
+  for (const tr of transactions) {
+    const mapped = tr.mapping.mapResult(at, 1);
+    if (mapped.deletedAcross) return false;
+    at = mapped.pos;
+  }
+  return at === pos;
+}
+
+/**
+ * The cursor never rests in the source of a closed diagram: it selects the
+ * diagram instead. A diagram that has just been made, empty, opens.
+ */
+export function keepOutOfClosed(
+  transactions: readonly Transaction[],
+  before: EditorState,
+  state: EditorState,
+): Transaction | null {
+  const { selection } = state;
+  if (!(selection instanceof TextSelection)) return null;
+  const pos = closedDiagramAt(state, selection.$from);
+  if (!selection.$to.sameParent(selection.$from)) return reachOver(state);
+  if (pos === undefined) return null;
+  const node = state.doc.nodeAt(pos);
+  if (!node) return null;
+  if (madeHere(transactions, before, pos) && node.content.size === 0)
+    return state.tr.setMeta(placeKey, { open: { kind: 'diagram', pos } });
+  return state.tr.setSelection(NodeSelection.create(state.doc, pos));
+}
+
+/**
+ * Opens the place of the block at `pos`: a diagram's with the cursor at the
+ * end of its source, a formula's with the focus in its field.
+ */
+export function openPlace(view: EditorView, pos: number): boolean {
+  const node = view.state.doc.nodeAt(pos);
+  if (!view.editable || !node) return false;
+  if (isDiagramNode(node)) {
+    const tr = view.state.tr.setMeta(placeKey, { open: { kind: 'diagram', pos } });
+    tr.setSelection(TextSelection.create(tr.doc, pos + node.nodeSize - 1));
+    view.dispatch(tr.scrollIntoView());
+    view.focus();
+    return true;
+  }
+  if (node.type.name !== 'blockMath') return false;
+  const latex = String(node.attrs.latex);
+  // Until the formula's field says otherwise, what it holds is the stored source.
+  const place: Place = { kind: 'formula', pos, draft: { value: () => latex } };
+  const tr = view.state.tr.setMeta(placeKey, { open: place });
+  view.dispatch(tr.setSelection(NodeSelection.create(tr.doc, pos)).scrollIntoView());
+  return true;
+}
+
+/**
+ * Closes the place that is open, on purpose: a formula keeps what its field
+ * holds. With `focusBlock` (a key, its button) the block is selected and the
+ * editor takes the focus; without (a press or the focus elsewhere), the
+ * selection and the focus are left to what was pressed. A place that only
+ * goes away (its block is deleted, the document replaced, the editor made
+ * read-only) is dropped instead (`dropPlace`): nothing is written then.
+ */
+export function closePlace(view: EditorView, focusBlock: boolean): void {
+  const place = placeOf(view.state);
+  if (!place) return;
+  const tr = view.state.tr.setMeta(placeKey, { close: true });
+  const at = place.kind === 'diagram' ? place.pos : finishFormula(tr, place);
+  if (focusBlock) {
+    if (at !== undefined) tr.setSelection(NodeSelection.create(tr.doc, at));
+    else if (place.kind === 'formula')
+      tr.setSelection(Selection.near(tr.doc.resolve(Math.min(place.pos, tr.doc.content.size))));
+  }
+  view.dispatch(tr);
+  if (focusBlock) view.focus();
+}
+
+/** Closes the place that is open and writes nothing: what a field holds is given up. */
+export function dropPlace(view: EditorView): void {
+  if (placeOf(view.state)) view.dispatch(view.state.tr.setMeta(placeKey, { close: true }));
+}
+
+/** Opens the place of a new formula on the empty line at `pos`, as part of `tr`. */
+export function openNewFormula(tr: Transaction, pos: number, panel: NewFormulaPanel): void {
+  tr.setMeta(placeKey, { open: { kind: 'new-formula', pos, panel } });
+}
+
+/** Whether a key closes the place: Escape, or Ctrl+Enter or Cmd+Enter. Never one an input method is composing with. */
+export const closesPlace = (event: KeyboardEvent): boolean =>
+  !event.isComposing &&
+  (event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey)));
+
+/** The open place a node view's decorations carry, if they carry one. */
+export function placeIn(decorations: readonly Decoration[]): Place | undefined {
+  for (const decoration of decorations) {
+    const spec = decoration.spec as { place?: Place };
+    if (spec.place) return spec.place;
+  }
+  return undefined;
+}

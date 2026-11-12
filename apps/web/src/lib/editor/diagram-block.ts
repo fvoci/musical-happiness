@@ -26,7 +26,15 @@ import { m } from '$lib/i18n/paraglide/messages.js';
 import type { DiagramResult } from './diagram.ts';
 import { diagramKind } from './diagram-kind.ts';
 import { DIAGRAM_REDRAW_DELAY, diagramProblem, onLookChange } from './embeds.ts';
-import { closePlace, closesPlace, isDiagramNode, openPlace, placeIn } from './editing-place.ts';
+import {
+  closePlace,
+  closesPlace,
+  isDiagramNode,
+  openPlace,
+  placeEditButton,
+  placeFooter,
+  placeIn,
+} from './editing-place.ts';
 
 type Shown = 'pending' | 'drawn' | 'error' | 'empty';
 type DiagramFailed = Extract<DiagramResult, { ok: false }>;
@@ -66,7 +74,6 @@ class DiagramView implements NodeView {
   readonly #getPos: () => number | undefined;
   readonly #figure: HTMLElement;
   readonly #problem: HTMLElement;
-  readonly #editButton: HTMLButtonElement;
   readonly #stopWatching: () => void;
   #source: string;
   #open = false;
@@ -103,15 +110,6 @@ class DiagramView implements NodeView {
 
     this.dom = element(page, 'div', { class: 'doc-diagram-block' });
     this.#figure = element(page, 'div', { class: 'doc-diagram', contenteditable: 'false' });
-    this.#editButton = element(page, 'button', {
-      type: 'button',
-      class: 'doc-diagram-edit',
-      contenteditable: 'false',
-      tabindex: '-1',
-      // The picture itself says it can be pressed; this is the same press for the eye.
-      'aria-hidden': 'true',
-    });
-    this.#editButton.append(page.createTextNode(m.editor_place_edit()));
     const source = element(page, 'pre', { class: 'doc-diagram-source' });
     this.contentDOM = element(page, 'code', { class: 'language-mermaid' });
     source.append(this.contentDOM);
@@ -131,20 +129,31 @@ class DiagramView implements NodeView {
         closePlace(this.#view, true);
       }
     });
-    this.dom.append(this.#figure, this.#editButton, source, this.#problem, footer);
+    this.dom.append(
+      this.#figure,
+      placeEditButton(page, () => {
+        this.#press();
+      }),
+      source,
+      this.#problem,
+      footer,
+    );
 
-    const open = (event: Event): void => {
+    this.#figure.addEventListener('click', (event) => {
       event.preventDefault();
-      const pos = this.#getPos();
-      if (pos !== undefined && !this.#open) openPlace(this.#view, pos);
-    };
-    this.#figure.addEventListener('click', open);
-    this.#editButton.addEventListener('click', open);
+      this.#press();
+    });
     this.#stopWatching = onLookChange(page, () => {
       this.#schedule(0);
     });
     this.refresh();
     this.#schedule(0);
+  }
+
+  /** A press on the picture or its button: the place opens. */
+  #press(): void {
+    const pos = this.#getPos();
+    if (pos !== undefined && !this.#open) openPlace(this.#view, pos);
   }
 
   update(node: DocumentNode, decorations: readonly Decoration[]): boolean {
@@ -288,22 +297,6 @@ class DiagramView implements NodeView {
       figure.setAttribute('aria-describedby', notice.id);
     } else figure.removeAttribute('aria-describedby');
   }
-}
-
-/** The line under a source that is being changed: how to close, and a button that does. */
-export function placeFooter(
-  page: Document,
-  done: () => void,
-  hint = m.editor_place_hint(),
-): HTMLElement {
-  const footer = element(page, 'div', { class: 'doc-place-footer', contenteditable: 'false' });
-  const text = element(page, 'p', { class: 'doc-place-hint' });
-  text.append(page.createTextNode(hint));
-  const button = element(page, 'button', { type: 'button', 'data-action': 'done' });
-  button.append(page.createTextNode(m.ui_done()));
-  button.addEventListener('click', done);
-  footer.append(text, button);
-  return footer;
 }
 
 /** The diagrams of each editor, to be told when it turns editable or read-only. */

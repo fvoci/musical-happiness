@@ -164,6 +164,36 @@ describe('a closed diagram', () => {
   });
 });
 
+describe('the keys beside a closed diagram', () => {
+  it('select it with Backspace from the line under it and Delete from the line over it, joining nothing', () => {
+    const target = create(BODY);
+    const after = AT + (target.state.doc.nodeAt(AT)?.nodeSize ?? 0);
+    target.view.dispatch(
+      target.state.tr.setSelection(TextSelection.create(target.state.doc, after + 1)),
+    );
+    expect(press(target, { key: 'Backspace' })).toBe(true);
+    expect(target.state.selection).toBeInstanceOf(NodeSelection);
+    expect(target.state.selection.from).toBe(AT);
+    target.view.dispatch(
+      target.state.tr.setSelection(TextSelection.create(target.state.doc, AT - 1)),
+    );
+    expect(press(target, { key: 'Delete' })).toBe(true);
+    expect(target.state.selection.from).toBe(AT);
+    expect(stored(target)).toEqual(BODY);
+    expect(isOpen(target)).toBe(false);
+  });
+
+  it('take the whole diagram into a selection drawn into it, not part of its hidden source', () => {
+    const target = create(BODY);
+    target.view.dispatch(
+      target.state.tr.setSelection(TextSelection.create(target.state.doc, 3, AT + 4)),
+    );
+    const { selection } = target.state;
+    expect(selection.from).toBe(3);
+    expect(selection.to).toBeGreaterThan(AT + (target.state.doc.nodeAt(AT)?.nodeSize ?? 0));
+  });
+});
+
 describe('opening and closing the place', () => {
   it('opens on a press of the picture, with the cursor at the end of the source', () => {
     const target = create(BODY);
@@ -320,6 +350,22 @@ describe('editing the source', () => {
         paragraph(text('after')),
       ),
     );
+  });
+
+  it('makes a new line of Shift+Enter too, and stays open while a selection is drawn out of it', () => {
+    const target = create(BODY);
+    figure(target).click();
+    press(target, { key: 'Enter', shiftKey: true });
+    expect(stored(target)).toEqual(
+      doc(paragraph(text('before')), code('mermaid', `${FLOW}\n`), paragraph(text('after'))),
+    );
+    const { from } = target.state.selection;
+    target.view.dispatch(
+      target.state.tr.setSelection(
+        TextSelection.create(target.state.doc, from, target.state.doc.content.size - 1),
+      ),
+    );
+    expect(isOpen(target)).toBe(true);
   });
 
   it('shows no source while the first picture is being drawn', async () => {

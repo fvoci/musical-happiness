@@ -21,12 +21,13 @@ import type { Decoration, NodeView } from '@tiptap/pm/view';
 
 import { m } from '$lib/i18n/paraglide/messages.js';
 
-import { placeFooter } from './diagram-block.ts';
 import { mathSlotAttributes } from './drawing.ts';
 import {
   closePlace,
   closesPlace,
   openPlace,
+  placeEditButton,
+  placeFooter,
   placeIn,
   type NewFormulaPanel,
   type Place,
@@ -115,14 +116,25 @@ function placeBox(page: Document, editor: Editor, field: HTMLTextAreaElement) {
   return { box, problem };
 }
 
+let lastId = 0;
+
 class FormulaView implements NodeView {
   readonly dom: HTMLElement;
   readonly #editor: Editor;
   readonly #getPos: () => number | undefined;
   #slot: HTMLElement;
+  readonly #hint: HTMLElement;
   #latex: string;
   #place: Place | undefined;
-  #panel: { box: HTMLElement; field: HTMLTextAreaElement; problem: HTMLElement } | undefined;
+  #panel:
+    | {
+        box: HTMLElement;
+        field: HTMLTextAreaElement;
+        problem: HTMLElement;
+        /** Whether the field was written in since the place opened. */
+        written: () => boolean;
+      }
+    | undefined;
   /** Counts drawings, so that only the newest one is shown. */
   #drawn = 0;
 
@@ -139,7 +151,13 @@ class FormulaView implements NodeView {
     this.dom = page.createElement('div');
     this.dom.setAttribute('class', 'doc-math-block');
     this.#slot = formulaSlot(page, this.#latex);
-    this.dom.append(this.#slot);
+    // For the eye, the same press as on the formula; for the ear, its description says so.
+    const hint = page.createElement('span');
+    hint.id = `doc-math-block-${(lastId += 1)}-hint`;
+    hint.setAttribute('class', 'doc-announce');
+    hint.append(page.createTextNode(m.editor_math_press()));
+    this.#hint = hint;
+    this.dom.append(this.#slot, placeEditButton(page, this.#open), hint);
     this.#show();
     this.#setPlace(placeIn(decorations));
   }
@@ -152,6 +170,7 @@ class FormulaView implements NodeView {
   /** Puts in a new element for the drawing, in place of the one there. */
   #replaceSlot(slot: HTMLElement): void {
     slot.addEventListener('click', this.#open);
+    if (this.#editor.isEditable) slot.setAttribute('aria-describedby', this.#hint.id);
     this.#slot.replaceWith(slot);
     this.#slot = slot;
   }
@@ -184,16 +203,20 @@ class FormulaView implements NodeView {
     this.#place = place;
     if (place && !this.#panel) {
       const page = this.dom.ownerDocument;
-      const field = sourceField(page, this.#latex);
+      // A place already open (this view was made again) keeps what its field held.
+      const held = place.draft?.value() ?? this.#latex;
+      const field = sourceField(page, held);
       const { box, problem } = placeBox(page, this.#editor, field);
+      let written = held !== this.#latex;
       field.addEventListener('input', () => {
+        written = true;
         this.#edited(field.value);
       });
       this.dom.append(box);
-      this.#panel = { box, field, problem };
+      this.#panel = { box, field, problem, written: () => written };
       this.dom.setAttribute('data-open', '');
       // What is wrong with the source is said under the field from the start.
-      void this.#preview(this.#latex);
+      void this.#preview(held);
     } else if (!place && this.#panel) {
       this.#panel.box.remove();
       this.#panel = undefined;
@@ -201,9 +224,12 @@ class FormulaView implements NodeView {
       this.#show();
     }
     if (place?.draft && this.#panel) {
-      const { field } = this.#panel;
-      // What closing the place keeps: the field, which may be empty while the document is not.
-      place.draft.value = () => field.value.trim().slice(0, MAX_LATEX);
+      const { field, written } = this.#panel;
+      const stored = this.#latex;
+      // What closing the place keeps: the field once it was written in (it may be empty while
+      // the document is not); until then the stored source, exactly, so that only opening and
+      // closing changes nothing.
+      place.draft.value = () => (written() ? field.value.trim().slice(0, MAX_LATEX) : stored);
     }
   }
 
@@ -214,6 +240,7 @@ class FormulaView implements NodeView {
       // Nothing to draw: the last drawing stays, dimmed, until the field says more.
       this.#drawn += 1;
       this.#slot.toggleAttribute('data-stale', true);
+      this.#panel?.problem.replaceChildren();
       return;
     }
     void this.#preview(latex);
@@ -231,8 +258,8 @@ class FormulaView implements NodeView {
     if (place !== this.#place) this.#setPlace(place);
     if (changed && this.#panel) {
       // Changed from elsewhere while open: the field follows, unless it was written in.
-      const { field } = this.#panel;
-      if (field.value.trim() === before) {
+      const { field, written } = this.#panel;
+      if (!written() && field.value === before) {
         field.value = latex;
         void this.#preview(latex);
       }

@@ -48,7 +48,8 @@
  *     adds its picture only once the body is in the page (`drawEmbeds`).
  * 12. A formula on a line of its own inside an element of its own in the
  *     editor (`doc-math-block`), which also holds the place where its source
- *     is changed; only the formula in it is compared.
+ *     is changed and how to change it; only the formula in it is compared,
+ *     without the description that points to that.
  *
  * On both sides:
  *
@@ -185,6 +186,8 @@ function shapeOf(node: Node, side: 'editor' | 'view'): Shape | undefined {
     leaveOut('block formula around its drawing');
     const formula = node.querySelector(':scope > .doc-math');
     if (!formula) throw new Error('a block formula without its drawing');
+    // Its description (how to edit it) points into the holder.
+    formula.removeAttribute('aria-describedby');
     return shapeOf(formula, side);
   }
   const without = ofEditor ? leftOutNode(node) : undefined;

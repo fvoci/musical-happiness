@@ -21,6 +21,7 @@
 }
 /* Room for the picture while it is being drawn, so that the page does not jump twice. */
 .doc-body .doc-diagram-block > .doc-diagram[data-state='pending'] {
+  display: block;
   min-height: 6em;
 }
 .doc-body .doc-diagram-block > .doc-diagram[data-state='empty']:empty {
@@ -39,6 +40,10 @@
 .doc-body .doc-diagram-block > .doc-diagram[data-state='empty'] {
   border: 1px dashed var(--input-border);
 }
+/* Where nothing can be written, an empty diagram is nothing, as in the read-only view. */
+.ProseMirror[contenteditable='false'] .doc-diagram-block > .doc-diagram[data-state='empty'] {
+  display: none;
+}
 
 /* Where it can be edited, the picture says so when pointed at or selected. */
 .ProseMirror[contenteditable='true'] .doc-diagram-block:not([data-open]) > .doc-diagram {
@@ -52,7 +57,8 @@
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
-.doc-diagram-edit {
+.doc-place-edit {
+  cursor: pointer;
   position: absolute;
   top: 0.5em;
   inset-inline-end: 0.5em;
@@ -66,10 +72,11 @@
   opacity: 0;
   pointer-events: none;
 }
-.ProseMirror[contenteditable='true'] .doc-diagram-block:not([data-open]):hover > .doc-diagram-edit,
+.ProseMirror[contenteditable='true'] .doc-diagram-block:not([data-open]):hover > .doc-place-edit,
+.ProseMirror[contenteditable='true'] .doc-math-block:not([data-open]):hover > .doc-place-edit,
 .ProseMirror[contenteditable='true']
-  .doc-diagram-block.ProseMirror-selectednode
-  > .doc-diagram-edit {
+  :is(.doc-diagram-block, .doc-math-block).ProseMirror-selectednode:not([data-open])
+  > .doc-place-edit {
   opacity: 1;
   pointer-events: auto;
 }

@@ -238,6 +238,7 @@ describe('what the read-only view is made of', () => {
       'src/lib/editor/math-editing.ts',
       'src/lib/editor/diagram-block.ts',
       'src/lib/editor/editing-place.ts',
+      'src/lib/editor/place-state.ts',
       'src/lib/editor/math-block.ts',
       'src/lib/editor/suggestion-list.ts',
       'src/lib/editor/uploads.ts',

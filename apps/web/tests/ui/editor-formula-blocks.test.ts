@@ -112,8 +112,35 @@ describe('a block formula', () => {
     expect(field().value).toBe('x^2');
     expect(document.activeElement).toBe(field());
     // Under the drawing, inside the body: no box floating over the page.
-    expect(block(target).querySelector(':scope > .doc-math + .doc-place')).not.toBeNull();
+    const place = block(target).querySelector(':scope > .doc-place');
+    expect(place).not.toBeNull();
+    expect(formula(target).compareDocumentPosition(place as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(document.querySelector('.doc-math-editing')).toBeNull();
+  });
+
+  it('changes nothing by opening and closing, whatever the stored source looks like', () => {
+    for (const latex of ['x^2\n', ' y ']) {
+      const target = create(doc(mathBlock(latex)));
+      formula(target).click();
+      pressIn(field(), { key: 'Escape' });
+      expect(stored(target)).toEqual(doc(mathBlock(latex)));
+      expect(updates).toBe(0);
+      target.destroy();
+    }
+  });
+
+  it('is described as what can be pressed to edit it, and offers its button for the eye', () => {
+    const target = create(BODY);
+    const described = formula(target).getAttribute('aria-describedby');
+    expect(described && document.getElementById(described)?.textContent).toBe(
+      'Press it, or Enter while it is selected, to edit.',
+    );
+    const edit = block(target).querySelector<HTMLElement>('.doc-place-edit');
+    expect(edit?.getAttribute('aria-hidden')).toBe('true');
+    edit?.click();
+    expect(isOpen(target)).toBe(true);
   });
 
   it('opens on Enter while selected, and closes on Escape or Ctrl+Enter back on the block', () => {
