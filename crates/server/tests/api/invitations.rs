@@ -595,3 +595,521 @@ async fn a_link_that_lets_nobody_in_answers_as_no_link_at_all() {
 
     th.teardown().await;
 }
+
+/// Makes a board for the invited only in the root workspace, as `client`, who is its
+/// admin.
+async fn private_board(client: &Client, title: &str) -> Board {
+    client
+        .post(
+            "/boards",
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": title}),
+        )
+        .await
+        .created_json()
+}
+
+/// Asks for a link that invites a guest to the board, in `role` if one is named.
+async fn ask_for_a_guest_link(client: &Client, board_id: &str, role: Option<&str>) -> ApiResponse {
+    let mut body = json!({"role": "guest", "boardId": board_id});
+    if let Some(role) = role {
+        body["boardRole"] = json!(role);
+    }
+    client
+        .post(&format!("/w/{ROOT_WORKSPACE_ID}/invitations"), &body)
+        .await
+}
+
+/// Makes a link that invites a guest to the board, as an editor.
+async fn guest_link(client: &Client, board_id: &str) -> Invitation {
+    ask_for_a_guest_link(client, board_id, None)
+        .await
+        .created_json()
+}
+
+async fn role_in_the_root_workspace(client: &Client) -> Option<fvoci_model::WorkspaceRole> {
+    let workspaces: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+    workspaces
+        .iter()
+        .find(|workspace| workspace.id == ROOT_WORKSPACE_ID)
+        .map(|workspace| workspace.role)
+}
+
+/// The links of the root workspace as `client` is answered them, by identifier.
+async fn listed(client: &Client) -> Vec<String> {
+    let answer = client
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/invitations"))
+        .await;
+    answer.check_ok();
+    assert!(
+        !answer.text().contains("\"token\""),
+        "no link is listed with its token: {}",
+        answer.text()
+    );
+    answer
+        .json::<Vec<Invitation>>()
+        .into_iter()
+        .map(|link| link.id)
+        .collect()
+}
+
+/// Who adds the members of a board invites a guest to it, and nobody else does: the
+/// refusals say what the user may know of the board, and no more.
+#[tokio::test]
+async fn who_adds_the_members_of_a_board_asks_a_guest_to_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let third = th.add_user("third").await;
+    let board = private_board(&th.client2, "Plans").await;
+    let hidden = private_board(&th.client, "Not theirs").await;
+    let elsewhere: Board = th
+        .client2
+        .post(
+            "/boards",
+            &json!({"workspaceId": crate::common::TEST_WORKSPACE_ID, "type": "P", "title": "Elsewhere"}),
+        )
+        .await
+        .created_json();
+    let template: Board = th
+        .client2
+        .post(
+            "/boards",
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "A template", "isTemplate": true}),
+        )
+        .await
+        .created_json();
+    let before = links(&th).await;
+
+    // What the request says.
+    let no_board = th
+        .client2
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/invitations"),
+            &json!({"role": "guest"}),
+        )
+        .await;
+    no_board.check_bad_request();
+    assert_eq!(no_board.refused_at(), "/boardId");
+    let too_much = ask_for_a_guest_link(&th.client2, &board.id, Some("admin")).await;
+    too_much.check_bad_request();
+    assert_eq!(too_much.refused_at(), "/boardRole");
+    let to_a_template = ask_for_a_guest_link(&th.client2, &template.id, None).await;
+    to_a_template.check_bad_request();
+    assert_eq!(to_a_template.refused_at(), "/boardId");
+
+    // A board the user does not see, and one of another workspace, is not there.
+    let absent = said(&ask_for_a_guest_link(&th.client2, crate::common::UNKNOWN_ID, None).await);
+    assert_eq!(absent.0, StatusCode::NOT_FOUND);
+    for (case, client, board_id) in [
+        ("a board for the invited, to who is not", &third, &board.id),
+        ("another's board for the invited", &th.client2, &hidden.id),
+        ("a board of another workspace", &th.client2, &elsewhere.id),
+    ] {
+        let refused = said(&ask_for_a_guest_link(client, board_id, None).await);
+        assert_eq!(refused, absent, "{case}");
+    }
+    // Who is on the board and does not add its members is refused.
+    th.client2
+        .add_member(&fvoci_model::BoardMember {
+            board_id: board.id.clone(),
+            user_id: third.me().await.id,
+            scheme_editor: true,
+            ..fvoci_model::BoardMember::default()
+        })
+        .await
+        .check_ok();
+    ask_for_a_guest_link(&third, &board.id, None)
+        .await
+        .check_error(
+            StatusCode::FORBIDDEN,
+            "only who adds the members of the board invites guests to it",
+        );
+    assert_eq!(links(&th).await, before, "a refused request makes no link");
+
+    // An admin of the board, who is no administrator of the workspace; and an
+    // administrator of the workspace, who is not on the board.
+    let link = guest_link(&th.client2, &board.id).await;
+    assert_eq!(link.role, fvoci_model::WorkspaceRole::Guest);
+    assert_eq!(link.board_id.as_deref(), Some(board.id.as_str()));
+    assert_eq!(
+        link.board_role,
+        Some(fvoci_model::BoardRole::Editor),
+        "unless said"
+    );
+    assert_eq!((link.max_uses, link.uses), (Some(1), 0), "for one person");
+    assert_eq!(link.expires_at - link.create_at, INVITATION_LIFETIME_MILLIS);
+    assert_eq!(link.token.as_ref().map(String::len), Some(43));
+    let by_the_administrator: Invitation =
+        ask_for_a_guest_link(&th.client, &board.id, Some("viewer"))
+            .await
+            .created_json();
+    assert_eq!(
+        by_the_administrator.board_role,
+        Some(fvoci_model::BoardRole::Viewer)
+    );
+
+    th.teardown().await;
+}
+
+/// Whoever accepts a link for a guest is on its board and a guest of the workspace: the
+/// board and nothing else of it, and no member of its organization. The link lets one
+/// in, and then answers as no link at all.
+#[tokio::test]
+async fn a_guest_comes_in_by_a_link_onto_one_board() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = private_board(&th.client2, "Plans").await;
+    let other = private_board(&th.client2, "Not for guests").await;
+    let link = guest_link(&th.client2, &board.id).await;
+    let token = link.token.clone().expect("the token of a new link");
+    let inviter = th.client2.me().await;
+
+    let preview = th
+        .anonymous()
+        .post("/invitations/preview", &json!({"token": token}))
+        .await;
+    preview.check_ok();
+    assert_eq!(
+        preview.value(),
+        json!({"workspaceName": ORG_NAME, "inviterName": inviter.username, "boardTitle": "Plans"})
+    );
+    let members_of_the_organization = async || {
+        th.app
+            .store()
+            .system()
+            .count_rows("organization_members")
+            .await
+            .expect("the members are counted")
+    };
+    let before = members_of_the_organization().await;
+
+    let accepted = th
+        .anonymous()
+        .post(
+            "/invitations/accept",
+            &json!({"token": token, "account": account("visitor")}),
+        )
+        .await;
+    accepted.check_ok();
+    assert_eq!(
+        accepted.value(),
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id})
+    );
+    let visitor = th.login("visitor", PASSWORD).await;
+    assert_eq!(
+        role_in_the_root_workspace(&visitor).await,
+        Some(fvoci_model::WorkspaceRole::Guest)
+    );
+    assert_eq!(
+        members_of_the_organization().await,
+        before,
+        "a guest is no member of the organization"
+    );
+    visitor
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .check_ok();
+    let member: fvoci_model::BoardMember = visitor
+        .get(&format!("/boards/{}/members", board.id))
+        .await
+        .ok_json::<Vec<fvoci_model::BoardMember>>()
+        .into_iter()
+        .find(|member| member.user_id != inviter.id)
+        .expect("the guest is a member of the board");
+    assert!(member.scheme_editor && !member.scheme_admin, "{member:?}");
+    visitor
+        .get(&format!("/boards/{}", other.id))
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    let boards: Vec<Board> = visitor
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
+        .await
+        .ok_json();
+    let titles: Vec<&str> = boards.iter().map(|board| board.title.as_str()).collect();
+    assert_eq!(titles, ["Plans"], "the board of the link and no other");
+
+    // Used once, the link is as no link at all, to whoever asks and however.
+    let no_link = said(
+        &th.anonymous()
+            .post("/invitations/preview", &json!({"token": "no-such-link"}))
+            .await,
+    );
+    assert_eq!(no_link.0, StatusCode::NOT_FOUND);
+    let again = [
+        th.anonymous()
+            .post("/invitations/preview", &json!({"token": token}))
+            .await,
+        th.anonymous()
+            .post(
+                "/invitations/accept",
+                &json!({"token": token, "account": account("second")}),
+            )
+            .await,
+        th.client
+            .post("/invitations/accept", &json!({"token": token}))
+            .await,
+        // Not even who it let in is let in again: it is nobody's any more.
+        visitor
+            .post("/invitations/accept", &json!({"token": token}))
+            .await,
+    ];
+    for answer in &again {
+        assert_eq!(said(answer), no_link, "used up");
+    }
+    assert_eq!(of_the_link(&th, &link.id, "uses").await, ["1"]);
+
+    th.teardown().await;
+}
+
+/// The links of a workspace are listed and revoked by its administrators, and by
+/// anybody else their own; revoked, a link answers as no link at all.
+#[tokio::test]
+async fn links_are_listed_and_revoked_by_who_made_them_and_by_the_administrators() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = private_board(&th.client2, "Plans").await;
+    let invitations = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
+    let already = listed(&th.client).await;
+
+    let for_members = member_link(&th.client).await;
+    let theirs = guest_link(&th.client2, &board.id).await;
+    let another = guest_link(&th.client2, &board.id).await;
+    let mut expected = vec![
+        another.id.clone(),
+        theirs.id.clone(),
+        for_members.id.clone(),
+    ];
+    expected.extend(already.clone());
+    assert_eq!(
+        listed(&th.client).await,
+        expected,
+        "all of them, the newest first"
+    );
+    assert_eq!(
+        listed(&th.client2).await,
+        [another.id.clone(), theirs.id.clone()],
+        "their own"
+    );
+    th.anonymous().get(&invitations).await.check_unauthorized();
+
+    // A link that is not theirs to revoke answers as one that is not there.
+    let revoke =
+        async |client: &Client, id: &str| client.delete(&format!("{invitations}/{id}")).await;
+    let absent = said(&revoke(&th.client2, crate::common::UNKNOWN_ID).await);
+    assert_eq!(absent.0, StatusCode::NOT_FOUND);
+    for id in [for_members.id.as_str(), "no identifier"] {
+        assert_eq!(said(&revoke(&th.client2, id).await), absent, "{id}");
+    }
+    assert_eq!(listed(&th.client).await, expected, "nothing was revoked");
+
+    // Their own, and any by an administrator.
+    revoke(&th.client2, &theirs.id).await.check_no_content();
+    assert_eq!(said(&revoke(&th.client2, &theirs.id).await), absent, "once");
+    revoke(&th.client, &another.id).await.check_no_content();
+    revoke(&th.client, &for_members.id).await.check_no_content();
+    assert_eq!(listed(&th.client).await, already);
+    assert_eq!(listed(&th.client2).await, Vec::<String>::new());
+
+    // Revoked, each lets nobody in and shows nothing.
+    let no_link = said(
+        &th.anonymous()
+            .post("/invitations/preview", &json!({"token": "no-such-link"}))
+            .await,
+    );
+    for link in [&for_members, &theirs, &another] {
+        let token = link.token.as_deref().expect("a token");
+        let looked = th
+            .anonymous()
+            .post("/invitations/preview", &json!({"token": token}))
+            .await;
+        let accepted = th
+            .anonymous()
+            .post(
+                "/invitations/accept",
+                &json!({"token": token, "account": account("late")}),
+            )
+            .await;
+        assert_eq!(said(&looked), no_link);
+        assert_eq!(said(&accepted), no_link);
+    }
+
+    th.teardown().await;
+}
+
+/// A link for a guest lets nobody in from the moment who made it could not make it:
+/// the workspace stops inviting guests, the maker stops adding the board's members,
+/// or the board goes.
+#[tokio::test]
+async fn a_link_for_a_guest_lets_in_while_its_maker_may_still_invite() {
+    let th = Setup::native().start().await.init_basic().await;
+    let third = th.add_user("third").await;
+    let board = private_board(&th.client2, "Plans").await;
+    let link = guest_link(&th.client2, &board.id).await;
+    let look = async || {
+        th.anonymous()
+            .post("/invitations/preview", &json!({"token": link.token}))
+            .await
+            .status
+    };
+    assert_eq!(look().await, StatusCode::OK);
+
+    // The workspace's administrators say whether guests are invited, and nobody else.
+    let switch = format!("/w/{ROOT_WORKSPACE_ID}/guest-invitations");
+    th.client2
+        .put(&switch, &json!({"enabled": false}))
+        .await
+        .check_error(
+            StatusCode::FORBIDDEN,
+            "only the administrators of the workspace say whether guests are invited",
+        );
+    assert_eq!(look().await, StatusCode::OK);
+    let off = th.client.put(&switch, &json!({"enabled": false})).await;
+    off.check_ok();
+    assert_eq!(off.value()["guestInvitations"], json!(false));
+    assert_eq!(look().await, StatusCode::NOT_FOUND, "switched off");
+    for client in [&th.client, &th.client2] {
+        ask_for_a_guest_link(client, &board.id, None)
+            .await
+            .check_error(
+                StatusCode::FORBIDDEN,
+                "guests are not invited to the boards of this workspace",
+            );
+    }
+    // Members are invited as before.
+    member_link(&th.client).await;
+    th.client
+        .put(&switch, &json!({"enabled": true}))
+        .await
+        .check_ok();
+    assert_eq!(look().await, StatusCode::OK, "switched on again");
+
+    // The maker hands the board to somebody else and stays as an editor.
+    let as_member = |user_id: &str, admin: bool| fvoci_model::BoardMember {
+        board_id: board.id.clone(),
+        user_id: user_id.to_owned(),
+        scheme_admin: admin,
+        scheme_editor: !admin,
+        ..fvoci_model::BoardMember::default()
+    };
+    let third_id = third.me().await.id;
+    let maker_id = th.client2.me().await.id;
+    th.client2
+        .add_member(&as_member(&third_id, true))
+        .await
+        .check_ok();
+    third
+        .put(
+            &format!("/boards/{}/members/{maker_id}", board.id),
+            &as_member(&maker_id, false),
+        )
+        .await
+        .check_ok();
+    assert_eq!(look().await, StatusCode::NOT_FOUND, "no admin of the board");
+    third
+        .put(
+            &format!("/boards/{}/members/{maker_id}", board.id),
+            &as_member(&maker_id, true),
+        )
+        .await
+        .check_ok();
+    assert_eq!(look().await, StatusCode::OK, "an admin of the board again");
+
+    // The board goes to the trash, and its links with it.
+    th.client2
+        .delete(&format!("/boards/{}", board.id))
+        .await
+        .check_no_content();
+    assert_eq!(look().await, StatusCode::NOT_FOUND, "no board");
+    assert_eq!(listed(&th.client2).await, Vec::<String>::new());
+
+    th.teardown().await;
+}
+
+/// A link raises what somebody is in the workspace and never lowers it: a member who
+/// accepts a guest's link is on the board and a member still, a guest who accepts a
+/// members' link is a member with the boards they were on, and who has all a link
+/// gives uses nothing of it.
+#[tokio::test]
+async fn a_link_never_lowers_what_somebody_is_in_the_workspace() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = private_board(&th.client, "Plans").await;
+    let role_on_the_board = async |client: &Client| -> Option<fvoci_model::BoardRole> {
+        let user_id = client.me().await.id;
+        th.client
+            .get(&format!("/boards/{}/members", board.id))
+            .await
+            .ok_json::<Vec<fvoci_model::BoardMember>>()
+            .into_iter()
+            .find(|member| member.user_id == user_id)
+            .and_then(|member| member.role())
+    };
+
+    // The admin of the board accepts a link to it as a viewer: nothing changes, and
+    // the link is still there for somebody else.
+    let as_viewer: Invitation = ask_for_a_guest_link(&th.client, &board.id, Some("viewer"))
+        .await
+        .created_json();
+    let accept = async |client: &Client, link: &Invitation| {
+        client
+            .post("/invitations/accept", &json!({"token": link.token}))
+            .await
+    };
+    accept(&th.client, &as_viewer).await.check_ok();
+    assert_eq!(
+        role_on_the_board(&th.client).await,
+        Some(fvoci_model::BoardRole::Admin)
+    );
+    assert_eq!(of_the_link(&th, &as_viewer.id, "uses").await, ["0"]);
+
+    // A member of the workspace accepts it: on the board, a member still.
+    let accepted = accept(&th.client2, &as_viewer).await;
+    accepted.check_ok();
+    assert_eq!(
+        accepted.value(),
+        json!({"workspaceId": ROOT_WORKSPACE_ID, "boardId": board.id})
+    );
+    assert_eq!(
+        role_in_the_root_workspace(&th.client2).await,
+        Some(fvoci_model::WorkspaceRole::Member)
+    );
+    assert_eq!(
+        role_on_the_board(&th.client2).await,
+        Some(fvoci_model::BoardRole::Viewer)
+    );
+
+    // A guest of the board accepts a link for members: a member, with the board.
+    let as_editor = guest_link(&th.client, &board.id).await;
+    th.anonymous()
+        .post(
+            "/invitations/accept",
+            &json!({"token": as_editor.token, "account": account("visitor")}),
+        )
+        .await
+        .check_ok();
+    let visitor = th.login("visitor", PASSWORD).await;
+    assert_eq!(
+        role_in_the_root_workspace(&visitor).await,
+        Some(fvoci_model::WorkspaceRole::Guest)
+    );
+    let for_members = member_link(&th.client).await;
+    accept(&visitor, &for_members).await.check_ok();
+    assert_eq!(
+        role_in_the_root_workspace(&visitor).await,
+        Some(fvoci_model::WorkspaceRole::Member)
+    );
+    assert_eq!(
+        role_on_the_board(&visitor).await,
+        Some(fvoci_model::BoardRole::Editor)
+    );
+    assert_eq!(of_the_link(&th, &for_members.id, "uses").await, ["1"]);
+    // And a guest's link after that does not make them a guest again.
+    let again = guest_link(&th.client, &board.id).await;
+    accept(&visitor, &again).await.check_ok();
+    assert_eq!(
+        role_in_the_root_workspace(&visitor).await,
+        Some(fvoci_model::WorkspaceRole::Member)
+    );
+    assert_eq!(
+        of_the_link(&th, &again.id, "uses").await,
+        ["0"],
+        "nothing to give"
+    );
+
+    th.teardown().await;
+}

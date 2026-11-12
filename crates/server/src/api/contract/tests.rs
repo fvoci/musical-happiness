@@ -500,6 +500,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getDeletedCards",
         "The last deleted first; the pages cut that order",
     ),
+    ("getInvitations", "The newest first"),
     ("getMembers", "By the identifier of the user"),
     ("getMyMemberships", "By the identifier of the board"),
     ("getMyWorkspaces", "the oldest workspace first"),

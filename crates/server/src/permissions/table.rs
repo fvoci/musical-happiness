@@ -753,13 +753,13 @@ fn who_sees_whom_of_the_people() {
 }
 
 /// What a member of a workspace does in it beside its boards: its administrators invite
-/// its members, and nobody else does. `(case, actor, what they may do)`; a permission a
+/// its members and say whether guests are invited, and nobody else does. `(case, actor, what they may do)`; a permission a
 /// row does not name is one the user does not have.
 #[test]
 fn the_work_of_a_workspace() {
-    use super::WorkspacePermission::{self, InviteMembers};
+    use super::WorkspacePermission::{self, InviteMembers, SwitchGuestInvitations};
     use super::allows_in_workspace;
-    const ADMINISTERS: &[WorkspacePermission] = &[InviteMembers];
+    const ADMINISTERS: &[WorkspacePermission] = &[InviteMembers, SwitchGuestInvitations];
     let rows: [(&str, Actor, &[WorkspacePermission]); 8] = [
         ("a workspace admin", WORKSPACE_ADMIN, ADMINISTERS),
         ("a member", MEMBER, &[]),
@@ -780,6 +780,83 @@ fn the_work_of_a_workspace() {
             .filter(|permission| allows_in_workspace(actor, *permission))
             .collect();
         assert_eq!(got, allowed, "{case}");
+    }
+}
+
+/// Guests are invited to a board by who adds its members: its admins, and the
+/// administrators of its workspace, on a board they have no role on too. Nobody
+/// invites one while the workspace does not let guests be invited.
+#[test]
+fn who_invites_guests_to_a_board() {
+    use super::invites_guests;
+    let workspace = |guest_invitations| fvoci_model::Workspace {
+        guest_invitations,
+        ..fvoci_model::Workspace::default()
+    };
+    let rows = [
+        (
+            "an admin of the board",
+            MEMBER,
+            Some(BoardRole::Admin),
+            true,
+        ),
+        (
+            "an editor of the board",
+            MEMBER,
+            Some(BoardRole::Editor),
+            false,
+        ),
+        (
+            "a member of the workspace who is not on it",
+            MEMBER,
+            None,
+            false,
+        ),
+        (
+            "a workspace admin who is not on it",
+            WORKSPACE_ADMIN,
+            None,
+            true,
+        ),
+        (
+            "a workspace admin who views it",
+            WORKSPACE_ADMIN,
+            Some(BoardRole::Viewer),
+            true,
+        ),
+        (
+            "a guest who edits it",
+            GUEST,
+            Some(BoardRole::Editor),
+            false,
+        ),
+        (
+            "a guest with a role above a guest's left on it",
+            GUEST,
+            Some(BoardRole::Admin),
+            false,
+        ),
+        (
+            "who was removed, its admin once",
+            REMOVED,
+            Some(BoardRole::Admin),
+            false,
+        ),
+        ("a stranger", STRANGER, None, false),
+    ];
+    for (case, actor, role, invites) in rows {
+        for scope in [InvitedOnly, Open] {
+            let granted = grant(actor, BoardFacts { scope, role });
+            assert_eq!(
+                invites_guests(granted, &workspace(true)),
+                invites,
+                "{case}, on a board that is {scope:?}"
+            );
+            assert!(
+                !invites_guests(granted, &workspace(false)),
+                "{case}: nobody while the workspace invites no guests"
+            );
+        }
     }
 }
 

@@ -9,7 +9,7 @@
 //! The table of `permissions/table.rs` pins every rule of this file, one row per
 //! sentence of what the product promises.
 
-use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, WorkspaceRole};
+use fvoci_model::{Board, BoardMember, BoardRole, BoardType, OrgRole, Workspace, WorkspaceRole};
 use fvoci_store::{Looking, Reach};
 
 #[cfg(test)]
@@ -55,22 +55,34 @@ pub enum WorkspacePermission {
     /// Make a link that lets somebody in as a member of the workspace, and see and
     /// revoke the links others made.
     InviteMembers,
+    /// Turn on and off whether the admins of the workspace's boards invite guests to
+    /// them.
+    SwitchGuestInvitations,
 }
 
 impl WorkspacePermission {
     /// Every permission, in the order of the declaration.
-    pub const ALL: [Self; 1] = [Self::InviteMembers];
+    pub const ALL: [Self; 2] = [Self::InviteMembers, Self::SwitchGuestInvitations];
 }
 
 /// Whether the user may do this in the workspace: its administrators invite its
-/// members. What the user is in the organization adds nothing.
+/// members and say whether guests are invited. What the user is in the organization
+/// adds nothing.
 #[must_use]
 pub const fn allows_in_workspace(actor: Actor, permission: WorkspacePermission) -> bool {
     match permission {
-        WorkspacePermission::InviteMembers => {
+        WorkspacePermission::InviteMembers | WorkspacePermission::SwitchGuestInvitations => {
             matches!(actor.workspace, Some(WorkspaceRole::Admin))
         }
     }
+}
+
+/// Whether a user who may do `grant` on a board invites guests to it: whoever adds
+/// members to the board (its admins, and the administrators of its workspace), while
+/// the workspace lets guests be invited to its boards.
+#[must_use]
+pub const fn invites_guests(grant: Grant, workspace: &Workspace) -> bool {
+    workspace.guest_invitations && grant.allows(BoardPermission::ManageBoardRoles)
 }
 
 /// Who a board is there for, besides its members.

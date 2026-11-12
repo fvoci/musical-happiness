@@ -4,7 +4,7 @@
 //! ([`Tenant::Org`](crate::Tenant::Org)). SQLite has no policy that would keep the
 //! workspaces of the system organization out of an answer.
 
-use fvoci_model::{Board, BoardType, Workspace};
+use fvoci_model::{Board, BoardType, GuestInvitationsChange, Workspace};
 
 use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
@@ -26,6 +26,37 @@ impl Store {
         self.with_conn(async |scope| {
             let org = scope.org()?;
             insert_workspace(scope, workspace, org).await
+        })
+        .await
+    }
+
+    /// Turns the invitations of guests to the boards of a workspace on or off, records
+    /// who did it, and returns the workspace as it is then.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if the organization has no such workspace in
+    /// use.
+    pub async fn set_guest_invitations(
+        &self,
+        workspace_id: &str,
+        change: GuestInvitationsChange,
+        modified_by: &str,
+    ) -> Result<Workspace, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE workspaces SET guest_invitations = ");
+            sql.bind(change.enabled)
+                .push_bind(", modified_by = ", OptId(modified_by))
+                .push_bind(", update_at = ", now_millis())
+                .push_bind(" WHERE id = ", Id(workspace_id))
+                .push_bind(" AND org_id = ", scope.org()?)
+                .push_bind(" AND delete_at = ", 0_i64)
+                .push(&format!(" RETURNING {WORKSPACE_COLUMNS}"));
+            let row = scope
+                .fetch_optional(sql)
+                .await?
+                .ok_or_else(workspace_not_found)?;
+            workspace_from_row(&row)
         })
         .await
     }

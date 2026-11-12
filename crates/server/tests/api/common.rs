@@ -439,7 +439,7 @@ impl TestServer {
             .first()
             .expect("the root workspace has an administrator to invite on behalf of");
         self.app
-            .invite_members(&workspace.id, inviter)
+            .invite(&workspace.id, inviter, fvoci_server::app::Inviting::Members)
             .await
             .expect("a link for members is made")
             .token

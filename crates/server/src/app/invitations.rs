@@ -9,7 +9,8 @@
 use std::net::IpAddr;
 
 use fvoci_model::{
-    AcceptedInvitation, INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount,
+    AcceptedInvitation, BoardRole, GUEST_INVITATION_USES, GuestInvitationsChange,
+    INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount, Workspace,
     WorkspaceRole,
 };
 use fvoci_store::{Acceptor, NewLink, StoreError};
@@ -19,7 +20,7 @@ use super::auth::account_error;
 use crate::auth::now_millis;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::AppError;
-use crate::permissions::{self, WorkspacePermission};
+use crate::permissions::{self, Actor, WorkspacePermission};
 
 /// Who accepts a link.
 #[derive(Debug, Clone, Copy)]
@@ -34,35 +35,61 @@ pub enum Accepting<'a> {
     NewAccount(&'a NewAccount),
 }
 
+/// What a new link is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Inviting<'a> {
+    /// Members of the workspace: the link is used as often as it is until it ends.
+    Members,
+    /// A guest of one board of the workspace, in a role on it: the link is used once.
+    Guest {
+        /// The board.
+        board_id: &'a str,
+        /// The guest's role on the board.
+        role: BoardRole,
+    },
+}
+
 impl App {
-    /// Makes a link that lets whoever accepts it into the workspace as a member, for
-    /// seven days and as often as it is used, and returns it with its token: the one
-    /// time the token is told. The handle is the one the user entered the workspace
-    /// with, and the caller has asked whether they may invite.
+    /// Makes a link that lets whoever accepts it into the workspace, for seven days,
+    /// and returns it with its token: the one time the token is told. The handle is
+    /// the one the user entered the workspace with, and the caller has asked whether
+    /// they may invite so.
     ///
     /// # Errors
     ///
-    /// Returns a 404 if the workspace is not in use, and the store's error if the link
-    /// cannot be stored.
-    pub async fn invite_members(
+    /// Returns a 404 if the workspace is not in use or has no such board to invite a
+    /// guest to, and the store's error if the link cannot be stored.
+    pub async fn invite(
         &self,
         workspace_id: &str,
         created_by: &str,
+        inviting: Inviting<'_>,
     ) -> Result<Invitation, AppError> {
         let token = new_secret();
         let now = now_millis();
+        let (guest_of, max_uses) = match inviting {
+            Inviting::Members => (None, None),
+            Inviting::Guest { board_id, role } => {
+                (Some((board_id, role)), Some(GUEST_INVITATION_USES))
+            }
+        };
         let link = NewLink {
             workspace_id,
-            guest_of: None,
+            guest_of,
             token_hash: &token_digest(&token),
             created_by,
             now,
             expires_at: now.saturating_add(INVITATION_LIFETIME_MILLIS),
-            max_uses: None,
+            max_uses,
         };
         let mut invitation = match self.store().create_invitation(&link).await {
             Ok(invitation) => invitation,
-            Err(error) if error.is_not_found() => return Err(AppError::not_found("workspace")),
+            Err(error) if error.is_not_found() => {
+                return Err(AppError::not_found(match inviting {
+                    Inviting::Members => "workspace",
+                    Inviting::Guest { .. } => "board",
+                }));
+            }
             Err(error) => {
                 return Err(AppError::from(error).context("unable to store an invitation"));
             }
@@ -70,11 +97,121 @@ impl App {
         tracing::info!(
             invitation_id = %invitation.id,
             workspace_id,
+            board_id = invitation.board_id.as_deref().unwrap_or_default(),
             user_id = created_by,
-            "a link for members was made"
+            role = invitation.role.as_str(),
+            "a link was made"
         );
         invitation.token = Some(token);
         Ok(invitation)
+    }
+
+    /// The live links into the workspace that the user sees: all of them for who
+    /// invites its members, their own for anybody else. The newest first, and none
+    /// with its token.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the links cannot be read.
+    pub async fn invitations(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        actor: Actor,
+    ) -> Result<Vec<Invitation>, AppError> {
+        let own = (!sees_every_link(actor)).then_some(user_id);
+        Ok(self
+            .store()
+            .live_invitations(workspace_id, own, now_millis())
+            .await?)
+    }
+
+    /// Revokes a live link into the workspace: any of them for who invites its
+    /// members, one of their own for anybody else. The link lets nobody in from then
+    /// on.
+    ///
+    /// # Errors
+    ///
+    /// Returns one and the same 404 if there is no such live link, or it is not the
+    /// user's to revoke.
+    pub async fn revoke_invitation(
+        &self,
+        workspace_id: &str,
+        invitation_id: &str,
+        user_id: &str,
+        actor: Actor,
+    ) -> Result<(), AppError> {
+        let own = (!sees_every_link(actor)).then_some(user_id);
+        let revoked = fvoci_model::is_id(invitation_id)
+            && self
+                .store()
+                .revoke_invitation(workspace_id, invitation_id, own, now_millis())
+                .await?;
+        if !revoked {
+            return Err(AppError::not_found("invitation"));
+        }
+        tracing::info!(invitation_id, workspace_id, user_id, "a link was revoked");
+        Ok(())
+    }
+
+    /// Turns the invitations of guests to the boards of the workspace on or off, on
+    /// behalf of the user, and returns the workspace. Turned off, the links that invite
+    /// guests let nobody in, and turned on again those that have not ended do. The
+    /// caller has asked whether the user may.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 404 if the workspace is not in use.
+    pub async fn set_guest_invitations(
+        &self,
+        workspace_id: &str,
+        change: GuestInvitationsChange,
+        user_id: &str,
+    ) -> Result<Workspace, AppError> {
+        match self
+            .store()
+            .set_guest_invitations(workspace_id, change, user_id)
+            .await
+        {
+            Ok(workspace) => {
+                tracing::info!(
+                    workspace_id,
+                    user_id,
+                    enabled = change.enabled,
+                    "the invitations of guests were switched"
+                );
+                Ok(workspace)
+            }
+            Err(error) if error.is_not_found() => Err(AppError::not_found("workspace")),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Whether the user invites guests to the board, a board of the workspace that is
+    /// no template: what making a link for a guest takes, and what such a link needs
+    /// of its maker for as long as it is to let anybody in.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if a fact cannot be read.
+    pub async fn may_invite_guests(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+        board_id: &str,
+    ) -> Result<bool, AppError> {
+        let Some(access) = self.board_access(user_id, board_id).await? else {
+            return Ok(false);
+        };
+        if access.board.workspace_id != workspace_id || access.board.is_template {
+            return Ok(false);
+        }
+        let workspace = match self.store().get_workspace(workspace_id).await {
+            Ok(workspace) => workspace,
+            Err(error) if error.is_not_found() => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        Ok(permissions::invites_guests(access.grant, &workspace))
     }
 
     /// The live link `token` is of, with the application behind the wall of the
@@ -106,21 +243,28 @@ impl App {
     }
 
     /// Whether who made the link may make it now: a link outlives nothing that its
-    /// maker lost. A link for members is a workspace administrator's.
+    /// maker lost. A link for members is a workspace administrator's; one for a guest
+    /// is of who adds members to its board, while the workspace invites guests.
     async fn inviter_may_still_invite(&self, invitation: &Invitation) -> Result<bool, AppError> {
         let inviter = self
             .actor(&invitation.created_by, &invitation.workspace_id)
             .await?;
-        Ok(match invitation.role {
-            WorkspaceRole::Member => {
-                permissions::allows_in_workspace(inviter, WorkspacePermission::InviteMembers)
+        match (invitation.role, &invitation.board_id) {
+            (WorkspaceRole::Member, _) => Ok(permissions::allows_in_workspace(
+                inviter,
+                WorkspacePermission::InviteMembers,
+            )),
+            (WorkspaceRole::Guest, Some(board_id)) => {
+                self.may_invite_guests(&invitation.created_by, &invitation.workspace_id, board_id)
+                    .await
             }
-            WorkspaceRole::Admin | WorkspaceRole::Guest => false,
-        })
+            (WorkspaceRole::Guest, None) | (WorkspaceRole::Admin, _) => Ok(false),
+        }
     }
 
     /// What the link `token` is of shows to whoever holds it, signed in or not: the name
-    /// of the workspace it leads into and of who made it, and nothing else of either.
+    /// of the workspace it leads into and of who made it, for a guest the title of the
+    /// board, and nothing else of any of them.
     ///
     /// `address` is where the request comes from: a look at a link is counted against
     /// it as an acceptance is, so that tokens are not tried without end.
@@ -140,6 +284,17 @@ impl App {
         };
         let workspace = app.workspace(&invitation.workspace_id).await?;
         let inviter = app.user(&invitation.created_by).await?;
+        let board_title = match &invitation.board_id {
+            Some(board_id) => match app.store().get_board(board_id).await {
+                Ok(board) => Some(board.title),
+                // Gone since the link was read: with it the link.
+                Err(error) if error.is_not_found() => {
+                    return Err(AppError::invitation_unavailable());
+                }
+                Err(error) => return Err(error.into()),
+            },
+            None => None,
+        };
         Ok(InvitationPreview {
             workspace_name: workspace.title,
             inviter_name: if inviter.display_name.is_empty() {
@@ -147,7 +302,7 @@ impl App {
             } else {
                 inviter.display_name
             },
-            board_title: None,
+            board_title,
         })
     }
 
@@ -208,4 +363,10 @@ impl App {
             board_id: accepted.board_id,
         })
     }
+}
+
+/// Whether the user sees and revokes every link into a workspace, and not their own
+/// alone: who invites its members.
+const fn sees_every_link(actor: Actor) -> bool {
+    permissions::allows_in_workspace(actor, WorkspacePermission::InviteMembers)
 }

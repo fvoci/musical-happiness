@@ -50,7 +50,10 @@ const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ),
     ("PUT", "/category-order", "reorderCategories"),
     ("POST", "/onboard", "onboard"),
+    ("PUT", "/guest-invitations", "setGuestInvitations"),
+    ("GET", "/invitations", "getInvitations"),
     ("POST", "/invitations", "createInvitation"),
+    ("DELETE", "/invitations/{invitation}", "revokeInvitation"),
     ("GET", "/templates", "getTemplates"),
     ("GET", "/trash/boards", "getDeletedBoards"),
     ("GET", "/users", "getWorkspaceUsers"),
@@ -116,7 +119,8 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
     for (method, suffix, operation) in WORKSPACE_ROUTES {
         let suffix = suffix
             .replace("{category}", UNKNOWN_ID)
-            .replace("{board}", UNKNOWN_ID);
+            .replace("{board}", UNKNOWN_ID)
+            .replace("{invitation}", UNKNOWN_ID);
         let body = |workspace: &str| match *operation {
             "createCategory" => {
                 json!({"name": "mine", "userId": user_id, "workspaceId": workspace})

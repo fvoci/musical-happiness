@@ -30,6 +30,13 @@ pub struct Workspace {
     pub guest_invitations: bool,
 }
 
+/// A request to turn the invitations of guests to a workspace's boards on or off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
+pub struct GuestInvitationsChange {
+    /// Whether the admins of the workspace's boards may invite guests to them.
+    pub enabled: bool,
+}
+
 impl Default for Workspace {
     /// A workspace with nothing set, in which guests may be invited.
     fn default() -> Self {

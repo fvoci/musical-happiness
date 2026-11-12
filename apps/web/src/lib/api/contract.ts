@@ -860,8 +860,12 @@ export interface paths {
          *
          *     A member's link makes the account a member of the workspace and of its
          *     organization; who is a guest of the workspace becomes a member, and who works there
-         *     already stays what they are. The account is made, the membership stored and the use
-         *     of the link counted together or not at all.
+         *     already stays what they are. A guest's link puts the account on its board, in the
+         *     link's role or the higher one the account has there: who is no member of the
+         *     workspace becomes a guest of it (and no member of its organization), and who is one
+         *     stays what they are in it. The answer names the board then (`boardId`). The account
+         *     is made, the membership stored and the use of the link counted together or not at
+         *     all, and an acceptance that changes nothing uses nothing of the link.
          *
          *     A token that lets nobody in is 404 with the reason `invitation_unavailable`,
          *     whatever is wrong with it: there is no such link, it ended, it was used as often as
@@ -888,7 +892,8 @@ export interface paths {
          * Look at an invitation
          * @description What the link of `token` shows to whoever holds it, before they accept it and
          *     whether they are signed in or not: the name of the workspace it leads into and the
-         *     name of who made it (the name they are shown by, or their login name).
+         *     name of who made it (the name they are shown by, or their login name), and for a
+         *     guest's link the title of the board (`boardTitle`).
          *
          *     A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
          *     `acceptInvitation` answers it and whatever is wrong with it. Requests are counted
@@ -1807,7 +1812,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/guest-invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Let guests be invited, or not
+         * @description Turns on or off whether guests are invited to the boards of the workspace, and
+         *     answers the workspace. While it is off no link for a guest is made, and those that
+         *     were made let nobody in; turned on again, the ones that have not ended do. Who is
+         *     a guest already stays one. Only the workspace's administrators: anybody else who
+         *     works there is refused (403).
+         *
+         *     A guest of the workspace is told that it is not there (404).
+         */
+        put: operations["setGuestInvitations"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The invitations of a workspace
+         * @description The links into the workspace that still let somebody in: not ended, not used as
+         *     often as they may be, not revoked. Its administrators get all of them, anybody else
+         *     who works there the links they made themselves. No link comes with its token, which
+         *     was told when it was made. The newest first.
+         *
+         *     A guest of the workspace is told that it is not there (404).
+         */
+        get: operations["getInvitations"];
+        put?: never;
+        /**
+         * Make an invitation
+         * @description Makes a link that lets whoever accepts it into the workspace, and answers it with
+         *     its `token`: the one time the token is told, as the server keeps its digest only. A
+         *     link ends seven days after it was made, or when it is revoked, and lets nobody in
+         *     from the moment who made it could no longer make it.
+         *
+         *     With the `role` `member` the link makes members of the workspace, as often as it is
+         *     used, and names no board. Only the workspace's administrators make one: anybody
+         *     else who works there is refused (403). Whoever accepts it becomes a member of the
+         *     workspace's organization too.
+         *
+         *     With the `role` `guest` the link lets one person, once, onto the board `boardId` of
+         *     the workspace, in the role `boardRole` (`viewer`, `commenter` or `editor`; an editor
+         *     if left out): a guest of the workspace, who sees that board and nothing else of it.
+         *     Who adds members to the board makes one (its admins, and the workspace's
+         *     administrators), while the workspace lets guests be invited
+         *     (`setGuestInvitations`); anybody else who sees the board is refused (403), and a
+         *     board the user does not see, or of another workspace, is not there (404). A
+         *     template takes no guests (400).
+         *
+         *     A guest of the workspace is told that it is not there (404).
+         */
+        post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/invitations/{invitationId}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1816,19 +1895,17 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        post?: never;
         /**
-         * Make an invitation
-         * @description Makes a link that lets whoever accepts it into the workspace, and answers it with
-         *     its `token`: the one time the token is told, as the server keeps its digest only. A
-         *     link ends seven days after it was made, or when it is revoked.
+         * Revoke an invitation
+         * @description The link lets nobody in from now on. The workspace's administrators revoke any link
+         *     into it, anybody else who works there the links they made themselves. A link that
+         *     is not there, that no longer lets anybody in, or that is not the user's to revoke
+         *     is 404, the same for each.
          *
-         *     With the `role` `member` the link makes members of the workspace, as often as it is
-         *     used. Only the workspace's administrators make one: anybody else who works there is
-         *     refused (403), and a guest of the workspace is told that it is not there (404).
-         *     Whoever accepts it becomes a member of the workspace's organization too.
+         *     A guest of the workspace is told that it is not there (404).
          */
-        post: operations["createInvitation"];
-        delete?: never;
+        delete: operations["revokeInvitation"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2480,6 +2557,11 @@ export interface components {
              * @description The size of the file in bytes.
              */
             size: number;
+        };
+        /** @description A request to turn the invitations of guests to a workspace's boards on or off. */
+        GuestInvitationsChange: {
+            /** @description Whether the admins of the workspace's boards may invite guests to them. */
+            enabled: boolean;
         };
         /**
          * @description How the hours of a day are written. The names are those of the browsers' `Intl`.
@@ -6392,6 +6474,74 @@ export interface operations {
             };
         };
     };
+    setGuestInvitations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuestInvitationsChange"];
+            };
+        };
+        responses: {
+            /** @description The workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getInvitations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     createInvitation: {
         parameters: {
             query?: never;
@@ -6416,6 +6566,38 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Invitation"];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revokeInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+                /** @description The identifier of the invitation, as making it and the list answer it. It is not the link's token. */
+                invitationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitation is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
