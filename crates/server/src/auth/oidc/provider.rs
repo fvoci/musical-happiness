@@ -242,7 +242,7 @@ pub struct IdClaims {
     pub issuer: String,
     /// The subject: who the person is at the issuer.
     pub subject: String,
-    /// The email address, if the token has one.
+    /// The email address, if the token has one no longer than an account's may be.
     pub email: Option<String>,
     /// Whether the provider says it checked the address; `None` if it does not say.
     pub email_verified: Option<bool>,

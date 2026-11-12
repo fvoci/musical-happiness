@@ -136,8 +136,9 @@ async fn concurrent_oidc_joins_of_one_account_both_succeed() {
 }
 
 /// A change of the provider decided from what was read is stored only if the provider
-/// is still as it was read: another change meanwhile makes it read again. Without one,
-/// it is stored.
+/// is still as it was read: another change of the same provider meanwhile (its secret,
+/// within the same millisecond as often as not) makes it read again. Without one, it is
+/// stored.
 #[tokio::test]
 async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
     let test = common::setup().await;
@@ -160,9 +161,10 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
     // Read by one request; changed by another meanwhile, within the same millisecond
     // as often as not: the time of the change is later all the same.
     let later = test
-        .put_oidc_provider(&provider("second", "a secret"))
+        .put_oidc_provider(&provider("first", "a secret"))
         .await
         .expect("changed");
+    assert_eq!(later.id, none_read.id, "the same provider");
     assert!(
         later.update_at > none_read.update_at,
         "{} after {}",
@@ -170,7 +172,7 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         none_read.update_at
     );
     let stale = test
-        .put_oidc_provider_as_read(&provider("second", ""), Some(&none_read))
+        .put_oidc_provider_as_read(&provider("first", ""), Some(&none_read))
         .await
         .expect("asked");
     let stored = test.oidc_provider().await.expect("read").expect("stored");
@@ -189,7 +191,7 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
             stored.client_id.as_str(),
             stored.sealed_client_secret.as_str()
         ),
-        ("second", "a secret"),
+        ("first", "a secret"),
         "the change meanwhile stays"
     );
     assert!(fresh.is_some(), "stored from the reading of what is there");

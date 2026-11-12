@@ -142,9 +142,9 @@ impl Store {
 
     /// Stores the provider of the handle's organization, in place of the one it has, if
     /// that one is still the one read, `read` (the same provider, last changed at the
-    /// same time), or there is still none for `None`; and returns it as stored. `None` if it changed or was removed meanwhile,
-    /// and nothing is stored: what was decided from it (the secret kept, the settings
-    /// kept) is to be decided again. A provider whose issuer and client stay keeps its
+    /// same time), or there is still none for `None`; and returns it as stored. `None`
+    /// if it changed or was removed meanwhile, and nothing is stored: what was decided
+    /// from it (the secret kept, the settings kept) is to be decided again. A provider whose issuer and client stay keeps its
     /// identifier and the time it was first set; one with another issuer or client is
     /// another provider, under a new identifier, and the sign-ins under way through the
     /// one before end with it. `provider.id`, `org_id` and the times are the store's;

@@ -1356,7 +1356,7 @@ async fn what_a_change_leaves_out_stays() {
 /// longer than an account's may be is none: a newcomer with it is refused as one without
 /// an address, and somebody known signs in whatever address comes.
 #[tokio::test]
-async fn a_subject_or_an_address_too_long_is_refused() {
+async fn a_subject_too_long_is_refused_and_an_address_too_long_is_none() {
     let fake = FakeProvider::start().await;
     let ts = server_for(&fake).await;
     let org_id = org_of(&ts).await;
