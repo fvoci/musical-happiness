@@ -72,6 +72,15 @@ pub enum Request {
         /// The update, version 1.
         update: Vec<u8>,
     },
+    /// Takes again an update the server logged when the document took it before: with
+    /// no limit of the size of an update or of the state (what was taken is taken),
+    /// only the worker's memory.
+    Retake {
+        /// The document.
+        doc: DocNumber,
+        /// The update, version 1.
+        update: Vec<u8>,
+    },
     /// The state vector of a document.
     StateVector(DocNumber),
     /// What a document has that a holder of a state vector has not.
@@ -112,6 +121,8 @@ pub enum Answer {
         repair: Option<Vec<u8>>,
         /// The size of the document's state now.
         state_bytes: u64,
+        /// The files the images of its body show now, by their stored names.
+        images: Vec<String>,
     },
     /// Bytes: a state vector, a diff or a state.
     Bytes(Vec<u8>),
@@ -194,6 +205,9 @@ impl Request {
             Self::Take { doc, update } => {
                 out.tag(3).number(*doc).bytes(update);
             }
+            Self::Retake { doc, update } => {
+                out.tag(10).number(*doc).bytes(update);
+            }
             Self::StateVector(doc) => {
                 out.tag(4).number(*doc);
             }
@@ -242,6 +256,10 @@ impl Request {
                 Self::Open { doc, source }
             }
             3 => Self::Take {
+                doc: input.number()?,
+                update: input.bytes()?,
+            },
+            10 => Self::Retake {
                 doc: input.number()?,
                 update: input.bytes()?,
             },
@@ -329,8 +347,12 @@ pub fn encode_response(response: &Response) -> Vec<u8> {
         Ok(Answer::Taken {
             repair,
             state_bytes,
+            images,
         }) => {
-            out.tag(3).optional(repair.as_deref()).number(*state_bytes);
+            out.tag(3)
+                .optional(repair.as_deref())
+                .number(*state_bytes)
+                .names(images);
         }
         Ok(Answer::Bytes(bytes)) => {
             out.tag(4).bytes(bytes);
@@ -363,6 +385,7 @@ pub fn decode_response(bytes: &[u8]) -> Result<Response, Malformed> {
         3 => Ok(Answer::Taken {
             repair: input.optional()?,
             state_bytes: input.number()?,
+            images: input.names()?,
         }),
         4 => Ok(Answer::Bytes(input.bytes()?)),
         5 => Ok(Answer::Body(input.optional()?)),
@@ -403,6 +426,14 @@ impl Writer {
             None => self.tag(0),
             Some(bytes) => self.tag(1).bytes(bytes),
         }
+    }
+
+    fn names(&mut self, names: &[String]) -> &mut Self {
+        self.number(u64::try_from(names.len()).unwrap_or(u64::MAX));
+        for name in names {
+            self.bytes(name.as_bytes());
+        }
+        self
     }
 }
 
@@ -454,6 +485,21 @@ impl<'frame> Reader<'frame> {
         }
     }
 
+    /// Names, as text; their count held to what is left (each takes eight bytes at
+    /// least) before anything is made for them.
+    fn names(&mut self) -> Result<Vec<String>, Malformed> {
+        let count = usize::try_from(self.number()?).map_err(|_| self.malformed())?;
+        if count > self.rest.len() / 8 {
+            return Err(self.malformed());
+        }
+        let mut names = Vec::with_capacity(count);
+        for _ in 0..count {
+            let name = String::from_utf8(self.bytes()?).map_err(|_| self.malformed())?;
+            names.push(name);
+        }
+        Ok(names)
+    }
+
     fn end(&self) -> Result<(), Malformed> {
         if self.rest.is_empty() {
             Ok(())
@@ -493,6 +539,10 @@ mod tests {
                 doc: 1,
                 update: vec![0, 0],
             },
+            Request::Retake {
+                doc: 1,
+                update: vec![0, 1],
+            },
             Request::StateVector(2),
             Request::Diff {
                 doc: 3,
@@ -526,6 +576,12 @@ mod tests {
             Ok(Answer::Taken {
                 repair: None,
                 state_bytes: 3,
+                images: Vec::new(),
+            }),
+            Ok(Answer::Taken {
+                repair: Some(vec![6]),
+                state_bytes: 4,
+                images: vec!["7a.png".to_owned(), "7b.png".to_owned()],
             }),
             Ok(Answer::Bytes(vec![4, 5])),
             Ok(Answer::Body(Some(b"{}".to_vec()))),

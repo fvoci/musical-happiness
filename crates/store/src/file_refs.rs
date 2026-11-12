@@ -172,6 +172,67 @@ async fn hold_new_images(
     }
 }
 
+/// Has a block show the files of `names` too, before a write of its body does: those
+/// it does not show yet are asked of its board and held as [`NewImages::Recorded`]
+/// holds them, then put down as shown and their marks taken away. For the images of a
+/// body edited together, whose updates are logged a little before the body is written
+/// ([`crate::Store::append_body_updates`]); the write puts down what the body shows in
+/// place of these.
+pub(crate) async fn show_images(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    names: &[String],
+) -> Result<(), StoreError> {
+    let block = crate::blocks::get_block(scope, block_id).await?;
+    let mut sql = scope.sql("SELECT name FROM file_refs WHERE block_id = ");
+    sql.bind(Id(block_id));
+    let shown = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.text(0))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let new: Vec<String> = names
+        .iter()
+        .filter(|name| !shown.contains(*name))
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    let mut sql = scope.sql("SELECT name FROM file_info WHERE board_id = ");
+    sql.bind(Id(&block.board_id))
+        .push(" AND name IN (")
+        .bind_list(new.iter().map(String::as_str))
+        .push(")");
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR KEY SHARE");
+    }
+    let recorded = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.text(0))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if !new.iter().all(|name| recorded.contains(name)) {
+        return Err(StoreError::InvalidBlock {
+            id: block.id,
+            source: BlockError::ImageWithoutFile,
+        });
+    }
+    for name in &new {
+        let mut sql = scope.sql("INSERT INTO file_refs (block_id, board_id, name) VALUES (");
+        sql.bind(Id(&block.id))
+            .push_bind(", ", Id(&block.board_id))
+            .push_bind(", ", name.as_str())
+            .push(")");
+        scope.execute(sql).await?;
+    }
+    mark(scope, Some((&block.board_id, &new))).await
+}
+
 /// Forgets what the blocks that are gone for good showed: neither on a board nor in the
 /// trash of the organization of the row.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {

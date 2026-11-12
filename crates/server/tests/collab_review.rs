@@ -9,6 +9,7 @@ use fvoci_collab::BodyDoc;
 use fvoci_collab::testing::Editor;
 use fvoci_model::{BoardType, Body, Card, FileInfo, new_id};
 use fvoci_server::app::App;
+use fvoci_server::collab::Collab;
 use fvoci_server::error::{AppError, Reason};
 use serde_json::{Value, json};
 
@@ -18,6 +19,12 @@ fn paragraph(text: &str) -> Value {
     json!({"type": "doc", "content": [
         {"type": "paragraph", "content": [{"type": "text", "text": text}]}
     ]})
+}
+
+/// An editor that loads a card's document, and which making of the document it loaded.
+async fn joined(collab: &Collab, app: &App, card_id: &str, client: u64) -> (Editor, i64) {
+    let loaded = collab.open(app, card_id).await.expect("opened");
+    (Editor::join(client, &loaded.state), loaded.epoch)
 }
 
 async fn editing(th: &TestServer, body: Value) -> (App, Card, String, String) {
@@ -48,7 +55,7 @@ async fn an_update_from_an_empty_replaced_document_is_out_of_step() {
     let th = Setup::native().start().await.init_basic().await;
     let (app, card, user1, _) = editing(&th, Value::Null).await;
     let collab = app.collab();
-    let editor = Editor::join(101, &collab.open(&app, &card.id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &app, &card.id, 101).await;
     let delayed = editor.append_paragraph("before the replacement");
     th.client
         .patch(
@@ -57,7 +64,9 @@ async fn an_update_from_an_empty_replaced_document_is_out_of_step() {
         )
         .await
         .check_ok();
-    let taken = collab.take(&app, &card.id, &user1, &delayed).await;
+    let taken = collab
+        .take(&app, &card.id, editor_epoch, &user1, &delayed)
+        .await;
     let logged = app
         .store()
         .get_body_doc(&card.id)
@@ -80,11 +89,17 @@ async fn recovery_after_folding_preserves_the_last_writer() {
     let th = Setup::native().start().await.init_basic().await;
     let (app, card, user1, user2) = editing(&th, paragraph("first")).await;
     let collab = app.collab();
-    let editor = Editor::join(102, &collab.open(&app, &card.id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &app, &card.id, 102).await;
     for index in 0..200 {
         let writer = if index == 199 { &user2 } else { &user1 };
         collab
-            .take(&app, &card.id, writer, &editor.append_paragraph("kept"))
+            .take(
+                &app,
+                &card.id,
+                editor_epoch,
+                writer,
+                &editor.append_paragraph("kept"),
+            )
             .await
             .expect("taken");
     }
@@ -133,10 +148,10 @@ async fn lowering_the_update_limit_does_not_erase_acknowledged_edits() {
     let mut th = Setup::native().start().await.init_basic().await;
     let (app, card, user1, _) = editing(&th, paragraph("first")).await;
     let collab = app.collab();
-    let editor = Editor::join(101, &collab.open(&app, &card.id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &app, &card.id, 101).await;
     let update = editor.append_paragraph(&"kept".repeat(10 * 1024));
     collab
-        .take(&app, &card.id, &user1, &update)
+        .take(&app, &card.id, editor_epoch, &user1, &update)
         .await
         .expect("acknowledged");
     let stored = app
@@ -161,10 +176,7 @@ async fn lowering_the_update_limit_does_not_erase_acknowledged_edits() {
         .expect("membership read")
         .expect("member");
     let app = entered.app;
-    let reopened = Editor::join(
-        102,
-        &app.collab().open(&app, &card.id).await.expect("reopened"),
-    );
+    let (reopened, _) = joined(app.collab(), &app, &card.id, 102).await;
     let wanted = editor.body();
     let actual = reopened.body();
     let stored = app
@@ -210,10 +222,10 @@ async fn a_logged_image_keeps_its_file_before_projection() {
     .expect("valid body")
     .expect("an image");
     let collab = app.collab();
-    collab.open(&app, &card.id).await.expect("opened");
+    let epoch = collab.open(&app, &card.id).await.expect("opened").epoch;
     let update = BodyDoc::from_body(Some(&body)).state();
     collab
-        .take(&app, &card.id, &user1, &update)
+        .take(&app, &card.id, epoch, &user1, &update)
         .await
         .expect("image accepted and logged");
     let collected = app

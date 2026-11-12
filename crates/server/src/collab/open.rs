@@ -59,6 +59,7 @@ impl Collab {
             worker,
             generation,
             number,
+            epoch: 1,
             state_seq: 0,
             log_end: 0,
             written_seq: 0,
@@ -75,11 +76,14 @@ impl Collab {
 
     /// A stored document, with the updates logged after its state taken again.
     ///
-    /// A document that cannot be opened so is made again from its card's body when its
-    /// card holds all of it, or when the limits refuse what is stored for good (they
-    /// were lowered since it was stored): the updates the card does not hold are then
-    /// dropped, and that is logged. Otherwise (a worker that is full or ended, the
-    /// store) the open fails, and the next one tries again.
+    /// What was stored and logged is taken again whatever the limits are now: what was
+    /// taken is taken (a document past the limit of a state is written to its card and
+    /// made again from it once it is open). A document that cannot be opened so is made
+    /// again from its card's body when its card holds all of it, or when what is stored
+    /// cannot be read (bytes that are no update, or that build on what is not there):
+    /// the updates the card does not hold are then dropped, and that is logged.
+    /// Otherwise (a worker that is full or ended, the store) the open fails, and the
+    /// next one tries again.
     async fn reopen(
         &self,
         app: &App,
@@ -94,13 +98,19 @@ impl Collab {
             // Not open yet: no generation is 0.
             generation: 0,
             number,
+            epoch: stored.epoch,
             state_seq: stored.state_seq,
             log_end: stored.log_end,
             written_seq: stored.projected_seq,
             body_digest: stored.body_digest,
             state_bytes: 0,
             made_bytes: 0,
-            last_writer: block.modified_by.clone(),
+            // Who sent the last update logged, which the fold of the log keeps.
+            last_writer: if stored.last_writer.is_empty() {
+                block.modified_by.clone()
+            } else {
+                stored.last_writer
+            },
             first_unwritten: unwritten.then(Instant::now),
             last_update: Instant::now(),
             writing_scheduled: false,
@@ -118,7 +128,7 @@ impl Collab {
             if unwritten {
                 tracing::error!(
                     card_id = block.id,
-                    "the limits refuse what is stored of a document; it is made again from its card, without the updates the card does not hold"
+                    "what is stored of a document cannot be read; it is made again from its card, without the updates the card does not hold"
                 );
             } else {
                 tracing::error!(
@@ -203,7 +213,7 @@ impl Collab {
                 .await?;
         }
         for update in updates {
-            let request = Request::Take {
+            let request = Request::Retake {
                 doc: open.number,
                 update: update.bytes,
             };
@@ -308,7 +318,7 @@ pub(super) fn unexpected(answer: &Answer) -> AppError {
     AppError::internal(format_args!("the worker answered with {answer:?}"))
 }
 
-/// Whether an open failed because the limits refuse what is stored, which no later try
+/// Whether an open failed because what is stored cannot be read, which no later try
 /// changes.
 fn refused_for_good(failed: &Opening) -> bool {
     let Opening::Refused(error) = failed else {
@@ -316,11 +326,6 @@ fn refused_for_good(failed: &Opening) -> bool {
     };
     matches!(
         error.reason(),
-        Some(
-            Reason::UpdateTooLarge
-                | Reason::DocumentTooLarge
-                | Reason::UpdateRefused
-                | Reason::UpdateOutOfStep
-        )
+        Some(Reason::UpdateRefused | Reason::UpdateOutOfStep)
     )
 }

@@ -515,7 +515,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .await
         .expect("a document is stored");
     store
-        .append_body_updates(&edited.id, &[(b"an update", user_id.as_str())])
+        .append_body_updates(&edited.id, &[(b"an update", user_id.as_str())], &[])
         .await
         .expect("an update is logged");
     // The trash: a card of the live board, and a whole board.

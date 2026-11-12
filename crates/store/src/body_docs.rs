@@ -14,6 +14,7 @@ use crate::Store;
 use crate::blocks;
 use crate::db::{Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
+use crate::file_refs;
 
 /// A stored document and the updates it took after its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,11 @@ pub struct StoredDoc {
     /// The digest of the block's body as it was when the document's body was last the
     /// same: a body that is not that any more was written without the document.
     pub body_digest: Vec<u8>,
+    /// Which making of the document it is: 1 for the first, one more each time it is
+    /// made again ([`Store::remake_body_doc`]).
+    pub epoch: i64,
+    /// The user whose editor sent the last update logged; empty for none.
+    pub last_writer: String,
     /// The updates after `state_seq`, in the order they were taken.
     pub updates: Vec<LoggedUpdate>,
 }
@@ -58,8 +64,8 @@ impl Store {
     pub async fn get_body_doc(&self, block_id: &str) -> Result<Option<StoredDoc>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
-                "SELECT state, state_seq, log_end, projected_seq, body_digest FROM body_docs \
-                 WHERE block_id = ",
+                "SELECT state, state_seq, log_end, projected_seq, body_digest, epoch, \
+                 last_writer FROM body_docs WHERE block_id = ",
             );
             sql.bind(Id(block_id));
             let Some(row) = scope.fetch_optional(sql).await? else {
@@ -84,6 +90,8 @@ impl Store {
                 log_end: row.int(2)?,
                 projected_seq: row.int(3)?,
                 body_digest: row.bytes(4)?,
+                epoch: row.int(5)?,
+                last_writer: row.id(6)?,
                 updates,
             }))
         })
@@ -108,12 +116,13 @@ impl Store {
             let now = now_millis();
             let mut sql = scope.sql(
                 "INSERT INTO body_docs (block_id, state, state_seq, log_end, projected_seq, \
-                 body_digest, create_at, update_at) VALUES (",
+                 body_digest, epoch, create_at, update_at) VALUES (",
             );
             sql.bind(Id(block_id))
                 .push_bind(", ", Param::Bytes(state.to_vec()))
                 .push(", 0, 0, 0")
                 .push_bind(", ", Param::Bytes(body_digest.to_vec()))
+                .push(", 1")
                 .push_bind(", ", now)
                 .push_bind(", ", now)
                 .push(")");
@@ -125,21 +134,33 @@ impl Store {
 
     /// Logs updates a block's document took, in order and all or none, and gives
     /// their numbers. Each comes with the user whose editor sent it; empty for the
-    /// server's own.
+    /// server's own. `images` are the files the images of the document's body show
+    /// with them: those the block does not show yet are asked of its board and held as
+    /// a write of its body holds them ([`crate::NewImages::Recorded`]), and the block
+    /// shows them from now on, so that the files are not collected before the body is
+    /// written to it.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if the block has no document.
+    /// Returns [`StoreError::NotFound`] if the block, or its document, is not there,
+    /// and [`StoreError::InvalidBlock`] if its board has no file of an image.
     pub async fn append_body_updates(
         &self,
         block_id: &str,
         updates: &[(&[u8], &str)],
+        images: &[String],
     ) -> Result<Vec<i64>, StoreError> {
         self.transaction(async |scope| {
+            if !images.is_empty() {
+                file_refs::show_images(scope, block_id, images).await?;
+            }
             let now = now_millis();
             let mut seqs = Vec::with_capacity(updates.len());
             for (bytes, written_by) in updates {
                 let mut sql = scope.sql("UPDATE body_docs SET log_end = log_end + 1");
+                if !written_by.is_empty() {
+                    sql.push_bind(", last_writer = ", OptId(written_by));
+                }
                 sql.push_bind(", update_at = ", now)
                     .push_bind(" WHERE block_id = ", Id(block_id))
                     .push(" RETURNING log_end");
@@ -197,8 +218,8 @@ impl Store {
     }
 
     /// Replaces a block's document with one made again from the body the block holds,
-    /// whose digest is `body_digest`: the log is emptied, and the numbers of updates go
-    /// on after the last one.
+    /// whose digest is `body_digest`: the log is emptied, the numbers of updates go on
+    /// after the last one, and its epoch, which this gives, is one more.
     ///
     /// # Errors
     ///
@@ -208,21 +229,24 @@ impl Store {
         block_id: &str,
         state: &[u8],
         body_digest: &[u8],
-    ) -> Result<(), StoreError> {
+    ) -> Result<i64, StoreError> {
         self.transaction(async |scope| {
             let mut sql = scope.sql("UPDATE body_docs SET state = ");
             sql.bind(Param::Bytes(state.to_vec()))
-                .push(", state_seq = log_end, projected_seq = log_end")
+                .push(", state_seq = log_end, projected_seq = log_end, epoch = epoch + 1")
                 .push_bind(", body_digest = ", Param::Bytes(body_digest.to_vec()))
                 .push_bind(", update_at = ", now_millis())
-                .push_bind(" WHERE block_id = ", Id(block_id));
-            if scope.execute(sql).await? == 0 {
-                return Err(no_doc(block_id));
-            }
+                .push_bind(" WHERE block_id = ", Id(block_id))
+                .push(" RETURNING epoch");
+            let epoch = scope
+                .fetch_optional(sql)
+                .await?
+                .ok_or_else(|| no_doc(block_id))?
+                .int(0)?;
             let mut sql = scope.sql("DELETE FROM body_updates WHERE block_id = ");
             sql.bind(Id(block_id));
             scope.execute(sql).await?;
-            Ok(())
+            Ok(epoch)
         })
         .await
     }

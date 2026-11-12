@@ -1,12 +1,11 @@
 //! A card's body written whole while its document holds what editors typed: the
 //! editors' updates are never written over, nor is a body written past the document.
 
-use fvoci_collab::testing::Editor;
 use fvoci_server::collab::{DocChange, DocEvent};
 use serde_json::{Value, json};
 use tokio::sync::broadcast::Receiver;
 
-use crate::collab::{body_of, card, editing};
+use crate::collab::{body_of, card, editing, joined};
 use crate::common::Setup;
 
 fn paragraphs(texts: &[&str]) -> Value {
@@ -36,11 +35,12 @@ async fn a_title_written_while_a_body_is_written_keeps_what_the_editors_typed() 
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab().clone();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(&collab, &e.app, &e.card_id, 101).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -81,11 +81,12 @@ async fn a_body_written_while_a_body_is_written_is_not_written_over() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab().clone();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(&collab, &e.app, &e.card_id, 101).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -124,7 +125,7 @@ async fn a_body_written_while_a_body_is_written_is_not_written_over() {
         "not written over"
     );
     assert!(told(&mut events, &e.card_id, DocChange::Replaced));
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(&collab, &e.app, &e.card_id, 102).await;
     assert_eq!(again.body().map(|body| body.document().clone()), Some(past));
     th.teardown().await;
 }
@@ -137,11 +138,12 @@ async fn a_body_written_whole_over_a_log_not_written_yet_is_refused_until_read_a
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -173,7 +175,7 @@ async fn a_body_written_whole_over_a_log_not_written_yet_is_refused_until_read_a
         .patch(&path, &json!({"body": whole, "readAt": read.update_at}))
         .await
         .check_ok();
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(
         again.body().map(|body| body.document().clone()),
         Some(whole)
@@ -190,12 +192,13 @@ async fn a_batch_that_writes_a_body_whole_meets_the_open_document() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     let read_before = card(&th.client, &e.card_id).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -219,7 +222,7 @@ async fn a_batch_that_writes_a_body_whole_meets_the_open_document() {
         .await
         .check_no_content();
     assert!(told(&mut events, &e.card_id, DocChange::Replaced));
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(
         again.body().map(|body| body.document().clone()),
         Some(whole)
@@ -244,18 +247,13 @@ async fn a_batch_writes_the_body_of_the_card_its_patch_is_for() {
         )
         .await
         .created_json();
-    let editor = Editor::join(
-        101,
-        &collab
-            .open(&older.app, &older.card_id)
-            .await
-            .expect("opened"),
-    );
+    let (editor, editor_epoch) = joined(collab, &older.app, &older.card_id, 101).await;
     let read_before = card(&th.client, &older.card_id).await;
     collab
         .take(
             &older.app,
             &older.card_id,
+            editor_epoch,
             &older.user1,
             &editor.append_paragraph("typed"),
         )
@@ -289,12 +287,13 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     let read_before = card(&th.client, &e.card_id).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -319,7 +318,7 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
         .await
         .check_ok();
     assert!(told(&mut events, &e.card_id, DocChange::Replaced));
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(
         again.body().map(|body| body.document().clone()),
         Some(whole)
@@ -327,29 +326,38 @@ async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
     th.teardown().await;
 }
 
-/// A document whose log holds an update the limits refuse now (they were lowered while
-/// the server was down) and that the card does not hold is made again from the card:
-/// it opens, and the card's body can be written whole, instead of being refused for
-/// good. The event names the card's organization.
+/// A document whose state is past a limit of a state lowered while the server was down
+/// opens with all it took: its body, with the update the card did not hold yet, is
+/// written to the card first, and it is made again from that body, which the room is
+/// told, for the card's organization.
 #[tokio::test]
-async fn a_log_the_lowered_limits_refuse_gives_way_to_the_card() {
+async fn a_document_past_a_lowered_state_limit_is_written_before_it_is_made_again() {
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
-    collab
-        .take(
-            &e.app,
-            &e.card_id,
-            &e.user1,
-            &editor.append_paragraph(&"l".repeat(40 * 1024)),
-        )
-        .await
-        .expect("taken");
+    let (editor, epoch) = joined(collab, &e.app, &e.card_id, 101).await;
+    let line = "d".repeat(60 * 1024);
+    let take = async |update: Vec<u8>| {
+        collab
+            .take(&e.app, &e.card_id, epoch, &e.user1, &update)
+            .await
+            .expect("taken")
+    };
+    // What is deleted stays in the state: past 2 MiB, under the 6 MiB of a remake.
+    for _ in 0..40 {
+        take(editor.append_paragraph(&line)).await;
+        take(editor.delete_last()).await;
+    }
+    take(editor.append_paragraph("the last word")).await;
+    let wanted = editor.body().map(|body| body.document().clone());
+    assert_ne!(
+        body_of(&card(&th.client, &e.card_id).await),
+        wanted,
+        "not written yet"
+    );
     let card_id = e.card_id.clone();
-    let held = body_of(&card(&th.client, &card_id).await);
     let mut th = th;
-    th.config.collab.collab_update_bytes = 32 * 1024;
+    th.config.collab.collab_state_bytes = 2 * 1024 * 1024;
     let th = th
         .killed_and_started_again(async |app| app.collab().abandon().await)
         .await;
@@ -359,28 +367,27 @@ async fn a_log_the_lowered_limits_refuse_gives_way_to_the_card() {
     };
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
-    assert_eq!(
-        again.body().map(|body| body.document().clone()),
-        held,
-        "the card's body"
-    );
-    let read = card(&th.client, &e.card_id).await;
-    let whole = paragraphs(&["written whole"]);
-    th.client
-        .patch(
-            &format!("/cards/{}", e.card_id),
-            &json!({"body": whole, "readAt": read.update_at}),
-        )
+    let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
+    assert_eq!(again.body().map(|body| body.document().clone()), wanted);
+    assert_eq!(body_of(&card(&th.client, &e.card_id).await), wanted);
+    let stored = e
+        .app
+        .store()
+        .get_body_doc(&e.card_id)
         .await
-        .check_ok();
-    // The start may have made the document again from the card as well (Remade).
-    let replaced = std::iter::from_fn(|| events.try_recv().ok())
-        .find(|event| event.change == DocChange::Replaced)
-        .expect("the room is told");
-    assert_eq!(
-        (replaced.tenant, replaced.card_id),
-        (e.app.store().tenant(), e.card_id.clone())
+        .expect("read")
+        .expect("a document");
+    assert!(
+        stored.state.len() < 1024 * 1024,
+        "made again: {} bytes",
+        stored.state.len()
     );
+    assert_eq!(stored.epoch, again_epoch);
+    // The start may have opened it first, and told before the subscription.
+    if let Some(remade) = std::iter::from_fn(|| events.try_recv().ok())
+        .find(|event| event.change == DocChange::Remade)
+    {
+        assert_eq!(remade.tenant, e.app.store().tenant());
+    }
     th.teardown().await;
 }

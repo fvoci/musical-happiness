@@ -30,6 +30,13 @@ CREATE TABLE body_docs (
     -- same (the keys of each object in order, no space); of nothing for no body. A body that is
     -- other than that by the time the document is opened was written without it.
     body_digest BYTEA NOT NULL,
+    -- Which making of the document it is: 1 for the first, and one more each time it
+    -- is made again from its block's body. An editor's update made against another is
+    -- out of step.
+    epoch BIGINT NOT NULL,
+    -- The user whose editor sent the last update logged, which writes the body to the
+    -- block as theirs (the log may be folded before); NULL for none.
+    last_writer UUID,
     create_at BIGINT NOT NULL,
     update_at BIGINT NOT NULL,
     org_id UUID NOT NULL DEFAULT (NULLIF(current_setting('fvoci.org', true), ''))::uuid,

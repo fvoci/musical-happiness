@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use fvoci_collab::testing::Editor;
 use fvoci_model::{BoardType, Card};
 use fvoci_server::app::App;
-use fvoci_server::collab::DocChange;
+use fvoci_server::collab::{Collab, DocChange};
 use serde_json::{Value, json};
 
 use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
@@ -54,6 +54,17 @@ pub(crate) async fn editing(th: &TestServer, body: &Value) -> Editing {
     }
 }
 
+/// An editor that loads a card's document, and which making of the document it loaded.
+pub(crate) async fn joined(
+    collab: &Collab,
+    app: &App,
+    card_id: &str,
+    client: u64,
+) -> (Editor, i64) {
+    let loaded = collab.open(app, card_id).await.expect("opened");
+    (Editor::join(client, &loaded.state), loaded.epoch)
+}
+
 pub(crate) async fn card(client: &Client, card_id: &str) -> Card {
     client.get(&format!("/cards/{card_id}")).await.ok_json()
 }
@@ -70,13 +81,13 @@ async fn two_editors_converge_and_the_card_is_given_their_body() {
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
-    let state = collab.open(&e.app, &e.card_id).await.expect("opened");
-    let one = Editor::join(101, &state);
-    let other = Editor::join(102, &state);
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let one = Editor::join(101, &loaded.state);
+    let other = Editor::join(102, &loaded.state);
     let from_one = one.append_paragraph("one");
     let from_other = other.append_paragraph("other");
     let taken = collab
-        .take(&e.app, &e.card_id, &e.user1, &from_one)
+        .take(&e.app, &e.card_id, loaded.epoch, &e.user1, &from_one)
         .await
         .expect("taken");
     assert_eq!(
@@ -84,14 +95,14 @@ async fn two_editors_converge_and_the_card_is_given_their_body() {
         (1, true, false)
     );
     let taken = collab
-        .take(&e.app, &e.card_id, &e.user2, &from_other)
+        .take(&e.app, &e.card_id, loaded.epoch, &e.user2, &from_other)
         .await
         .expect("taken");
     assert_eq!(taken.seq, 2, "logged after the first");
     for editor in [&one, &other] {
         let vector = editor.state_vector();
         let missing = collab
-            .diff(&e.app, &e.card_id, &vector)
+            .diff(&e.app, &e.card_id, loaded.epoch, &vector)
             .await
             .expect("what it is missing");
         editor.receive(&missing);
@@ -138,11 +149,12 @@ async fn the_body_is_written_a_little_after_the_last_update() {
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("later"),
         )
@@ -167,10 +179,16 @@ async fn a_server_killed_before_it_wrote_a_body_writes_it_when_it_starts_again()
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     for line in ["one", "two", "three"] {
         collab
-            .take(&e.app, &e.card_id, &e.user1, &editor.append_paragraph(line))
+            .take(
+                &e.app,
+                &e.card_id,
+                editor_epoch,
+                &e.user1,
+                &editor.append_paragraph(line),
+            )
             .await
             .expect("taken");
     }
@@ -202,7 +220,8 @@ async fn a_server_killed_before_it_wrote_a_body_writes_it_when_it_starts_again()
             .collab()
             .open(&e.app, &e.card_id)
             .await
-            .expect("opened"),
+            .expect("opened")
+            .state,
     );
     assert_eq!(again.body().map(|body| body.document().clone()), wanted);
     th.teardown().await;
@@ -216,11 +235,12 @@ async fn a_body_written_past_a_closed_document_makes_it_again() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -235,8 +255,8 @@ async fn a_body_written_past_a_closed_document_makes_it_again() {
         )
         .await
         .check_ok();
-    let state = collab.open(&e.app, &e.card_id).await.expect("opened");
-    let fresh = Editor::join(104, &state);
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let fresh = Editor::join(104, &loaded.state);
     assert_eq!(
         fresh.body().map(|body| body.document().clone()),
         Some(paragraphs(&["written whole"]))
@@ -248,7 +268,7 @@ async fn a_body_written_past_a_closed_document_makes_it_again() {
     );
     let made_before = editor.append_paragraph("against the old one");
     let refused = collab
-        .take(&e.app, &e.card_id, &e.user1, &made_before)
+        .take(&e.app, &e.card_id, editor_epoch, &e.user1, &made_before)
         .await
         .expect_err("made against the document before");
     assert_eq!(
@@ -265,12 +285,13 @@ async fn a_take_given_up_half_way_is_done_whole() {
     let th = Setup::native().start().await.init_basic().await;
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     let given_up = tokio::time::timeout(
         Duration::ZERO,
         collab.take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("left"),
         ),
@@ -278,7 +299,7 @@ async fn a_take_given_up_half_way_is_done_whole() {
     .await;
     assert!(given_up.is_err(), "given up before it was done");
     let wanted = editor.body().map(|body| body.document().clone());
-    let held = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (held, _) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(
         held.body().map(|body| body.document().clone()),
         wanted,
@@ -291,7 +312,7 @@ async fn a_take_given_up_half_way_is_done_whole() {
         "written"
     );
     collab.abandon().await;
-    let again = Editor::join(103, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(collab, &e.app, &e.card_id, 103).await;
     assert_eq!(
         again.body().map(|body| body.document().clone()),
         wanted,
@@ -325,12 +346,13 @@ async fn a_body_written_whole_makes_the_open_document_that_body() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     let read_before = card(&th.client, &e.card_id).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -363,7 +385,7 @@ async fn a_body_written_whole_makes_the_open_document_that_body() {
         body_of(&card(&th.client, &e.card_id).await),
         Some(whole.clone())
     );
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(
         again.body().map(|body| body.document().clone()),
         Some(whole.clone())
@@ -372,6 +394,7 @@ async fn a_body_written_whole_makes_the_open_document_that_body() {
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("late"),
         )
@@ -394,7 +417,13 @@ async fn a_body_written_whole_makes_the_open_document_that_body() {
         "the log is folded into the document made again"
     );
     collab
-        .take(&e.app, &e.card_id, &e.user1, &again.append_paragraph("on"))
+        .take(
+            &e.app,
+            &e.card_id,
+            again_epoch,
+            &e.user1,
+            &again.append_paragraph("on"),
+        )
         .await
         .expect("an editor that loaded it again goes on");
     collab.close(&e.app, &e.card_id).await.expect("closed");
@@ -414,11 +443,12 @@ async fn a_body_written_past_an_open_document_is_not_written_over() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("typed"),
         )
@@ -453,7 +483,7 @@ async fn a_body_written_past_an_open_document_is_not_written_over() {
         "not written over"
     );
     assert!(told(&mut events, &e.card_id, DocChange::Replaced));
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(
         again.body().map(|body| body.document().clone()),
         Some(whole)

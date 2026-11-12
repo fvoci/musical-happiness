@@ -45,6 +45,15 @@ pub(super) fn refused(refused: &Refused, limits: &Limits) -> AppError {
     error.context(format_args!("the worker refused it: {refused}"))
 }
 
+/// The error of a request made against another making of the document than the one
+/// there is.
+pub(super) fn out_of_step() -> AppError {
+    AppError::conflict(
+        "the document was made again since the editor loaded it; load the document again",
+    )
+    .with_reason(Reason::UpdateOutOfStep)
+}
+
 /// The error of a document that cannot be worked on for now.
 pub(super) fn unavailable() -> AppError {
     AppError::service_unavailable("the document cannot be worked on for now; try again later")

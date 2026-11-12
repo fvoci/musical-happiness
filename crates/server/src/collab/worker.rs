@@ -24,6 +24,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Instant, sleep_until, timeout};
+use tokio_util::sync::CancellationToken;
 
 use crate::collab_worker::WORKER_ARGUMENT;
 use crate::collab_worker::frame::{HEADER_BYTES, header, length_of};
@@ -130,6 +131,8 @@ pub enum Death {
 pub struct Worker {
     settings: Arc<WorkerSettings>,
     queue: OnceLock<mpsc::Sender<Job>>,
+    /// Cancelled when the worker is to end now, whatever request it is on.
+    stopped: CancellationToken,
 }
 
 /// What the task of a worker is asked.
@@ -151,6 +154,7 @@ impl Worker {
         Self {
             settings: Arc::new(settings),
             queue: OnceLock::new(),
+            stopped: CancellationToken::new(),
         }
     }
 
@@ -158,7 +162,7 @@ impl Worker {
     fn queue(&self) -> &mpsc::Sender<Job> {
         self.queue.get_or_init(|| {
             let (queue, jobs) = mpsc::channel(QUEUE);
-            tokio::spawn(hold(Arc::clone(&self.settings), jobs));
+            tokio::spawn(hold(Arc::clone(&self.settings), jobs, self.stopped.clone()));
             queue
         })
     }
@@ -216,12 +220,22 @@ impl Worker {
     pub async fn end(&self) {
         let _ = self.ask(Job::End).await;
     }
+
+    /// Ends the worker now: the request it is on, if any, ends as a death, and so do
+    /// those after it, without a worker; and the worker is killed. For a server that
+    /// stops and cannot wait.
+    pub async fn end_now(&self) {
+        self.stopped.cancel();
+        self.end().await;
+    }
 }
 
 /// What the task of a worker knows.
 #[derive(Debug)]
 struct State {
     settings: Arc<WorkerSettings>,
+    /// The worker is to end now ([`Worker::end_now`]).
+    stopped: CancellationToken,
     running: Option<Running>,
     /// The generation of the running worker, or of the next one if none runs.
     generation: u64,
@@ -240,9 +254,14 @@ struct Running {
 
 /// The task of a worker: takes the jobs in turn until every handle is dropped, and
 /// reaps a worker that dies between them.
-async fn hold(settings: Arc<WorkerSettings>, mut jobs: mpsc::Receiver<Job>) {
+async fn hold(
+    settings: Arc<WorkerSettings>,
+    mut jobs: mpsc::Receiver<Job>,
+    stopped: CancellationToken,
+) {
     let mut state = State {
         settings,
+        stopped,
         running: None,
         generation: 0,
         deaths: 0,
@@ -305,13 +324,19 @@ impl State {
         if generation.is_some_and(|generation| generation != self.generation) {
             return Err(CallError::Lost);
         }
+        if self.stopped.is_cancelled() {
+            return Err(CallError::Unavailable("the worker was ended".to_owned()));
+        }
         let generation = self.generation;
         if self.running.is_none() {
             self.running = Some(self.start().await?);
         }
         let limit = self.settings.limits.frame_bytes();
         let running = self.running.as_mut().expect("a worker runs");
-        let answered = timeout(self.settings.timeout, running.exchange(frame, limit)).await;
+        let answered = tokio::select! {
+            answered = timeout(self.settings.timeout, running.exchange(frame, limit)) => answered,
+            () = self.stopped.cancelled() => Ok(Err("the worker was ended under it".to_owned())),
+        };
         let death = match answered {
             Ok(Ok(response)) => {
                 self.deaths = 0;

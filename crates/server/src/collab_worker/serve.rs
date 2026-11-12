@@ -91,18 +91,8 @@ impl Worker {
                 "the worker is configured once",
             )),
             Request::Open { doc, source } => self.open(doc, source),
-            Request::Take { doc, update } => {
-                let changed = self
-                    .doc(doc)?
-                    .take(&update, &self.update_limits)
-                    .map_err(|error| take_refused(&error))?;
-                let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
-                self.hold(doc, changed.doc, state_bytes)?;
-                Ok(Answer::Taken {
-                    repair: changed.repair.update,
-                    state_bytes,
-                })
-            }
+            Request::Take { doc, update } => self.take(doc, &update, self.update_limits),
+            Request::Retake { doc, update } => self.take(doc, &update, self.logged_limits()),
             Request::StateVector(doc) => Ok(Answer::Bytes(self.doc(doc)?.state_vector())),
             Request::Diff { doc, state_vector } => self
                 .doc(doc)?
@@ -128,6 +118,38 @@ impl Worker {
                 std::thread::sleep(Duration::from_millis(millis).min(LONGEST_STALL));
                 Ok(Answer::Done)
             }
+        }
+    }
+
+    /// Takes an update into a document within `limits`.
+    fn take(&mut self, doc: DocNumber, update: &[u8], limits: UpdateLimits) -> Response {
+        let changed = self
+            .doc(doc)?
+            .take(update, &limits)
+            .map_err(|error| take_refused(&error))?;
+        let state_bytes = u64::try_from(changed.state_bytes).unwrap_or(u64::MAX);
+        let images = changed
+            .repair
+            .body
+            .as_ref()
+            .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default();
+        self.hold(doc, changed.doc, state_bytes)?;
+        Ok(Answer::Taken {
+            repair: changed.repair.update,
+            state_bytes,
+            images,
+        })
+    }
+
+    /// The limits of what the server stored and logged before: an update and a state
+    /// as large as the worker's memory for documents, a body as large as a body may be.
+    fn logged_limits(&self) -> UpdateLimits {
+        let held = usize::try_from(self.limits.held_bytes).unwrap_or(usize::MAX);
+        UpdateLimits {
+            update_bytes: held,
+            state_bytes: held,
+            body_bytes: self.update_limits.body_bytes,
         }
     }
 
@@ -178,7 +200,8 @@ impl Worker {
         }
         let (opened, state) = match source {
             Source::State(stored) => {
-                let changed = BodyDoc::from_state(&stored, &self.update_limits)
+                // What the server stored is opened whatever the limits are now.
+                let changed = BodyDoc::from_state(&stored, &self.logged_limits())
                     .map_err(|error| take_refused(&error))?;
                 let repaired = (changed.repair.deleted > 0).then(|| changed.doc.state());
                 let state_bytes = size_of(repaired.as_deref().unwrap_or(&stored));

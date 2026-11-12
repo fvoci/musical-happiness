@@ -102,6 +102,17 @@ struct Inner {
     projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
+/// A document as an editor loads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Loaded {
+    /// The whole document, as a version 1 update.
+    pub state: Vec<u8>,
+    /// Which making of the document it is: what the editor sends with its updates and
+    /// its state vectors. One more each time the document is made again.
+    pub epoch: i64,
+}
+
 /// An update a document took.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -212,21 +223,30 @@ impl Collab {
         })?
     }
 
-    /// The whole document of a card's body, as a version 1 update, opened if it is not
-    /// open: from what is stored, or made from the card's body the first time.
+    /// The whole document of a card's body, as a version 1 update, and which making of
+    /// it it is; opened if it is not open: from what is stored, or made from the card's
+    /// body the first time. An editor sends the epoch with what it asks after
+    /// ([`Collab::take`], [`Collab::diff`]): a document made again since
+    /// ([`DocChange::Remade`], [`DocChange::Replaced`]) refuses it as out of step.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if `app` reaches no card of that identifier, the
     /// reasons of [`crate::error::Reason`] for the document (too many open,
     /// unavailable), and the store's errors.
-    pub async fn open(&self, app: &App, card_id: &str) -> Result<Vec<u8>, AppError> {
+    pub async fn open(&self, app: &App, card_id: &str) -> Result<Loaded, AppError> {
         self.on_slot(
             app,
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                bytes(collab.ask(app, card_id, slot, Request::State).await?)
+                let state = bytes(collab.ask(app, card_id, slot, Request::State).await?)?;
+                let epoch = slot
+                    .open
+                    .as_ref()
+                    .map(|open| open.epoch)
+                    .ok_or_else(refusals::unavailable)?;
+                Ok(Loaded { state, epoch })
             },
         )
         .await
@@ -249,17 +269,18 @@ impl Collab {
         .await
     }
 
-    /// What a card's document has that a holder of `state_vector` has not, as a version
-    /// 1 update.
+    /// What a card's document, of `epoch`, has that a holder of `state_vector` has not,
+    /// as a version 1 update.
     ///
     /// # Errors
     ///
-    /// As [`Collab::open`], and a refusal (`update_refused`) for bytes that are no state
-    /// vector.
+    /// As [`Collab::open`], `update_out_of_step` if the document is not of `epoch` any
+    /// more, and a refusal (`update_refused`) for bytes that are no state vector.
     pub async fn diff(
         &self,
         app: &App,
         card_id: &str,
+        epoch: i64,
         state_vector: &[u8],
     ) -> Result<Vec<u8>, AppError> {
         self.held_to_update_bytes(state_vector)?;
@@ -273,26 +294,32 @@ impl Collab {
                     doc,
                     state_vector: state_vector.clone(),
                 };
-                bytes(collab.ask(app, card_id, slot, request).await?)
+                collab.at_epoch(app, card_id, slot, epoch).await?;
+                let diff = bytes(collab.ask(app, card_id, slot, request).await?)?;
+                place::still_at_epoch(slot, epoch)?;
+                Ok(diff)
             },
         )
         .await
     }
 
-    /// Takes an editor's update into a card's document, by `user_id`, and logs it; what
-    /// comes back may be sent to the other editors, the update first and then the
-    /// repair. Opens the document if it is not open.
+    /// Takes an editor's update, made against the document of `epoch`, into a card's
+    /// document, by `user_id`, and logs it; what comes back may be sent to the other
+    /// editors, the update first and then the repair. Opens the document if it is not
+    /// open.
     ///
     /// # Errors
     ///
     /// As [`Collab::open`], and the refusals of an update (`update_refused`,
-    /// `update_out_of_step`, `update_too_large`, `document_too_large`). A refused update
-    /// is in neither the document nor the log. So is one under way when the worker
-    /// ended (`document_unavailable`).
+    /// `update_out_of_step`, also for a document that is not of `epoch` any more,
+    /// `update_too_large`, `document_too_large`). A refused update is in neither the
+    /// document nor the log. So is one under way when the worker ended
+    /// (`document_unavailable`).
     pub async fn take(
         &self,
         app: &App,
         card_id: &str,
+        epoch: i64,
         user_id: &str,
         update: &[u8],
     ) -> Result<Taken, AppError> {
@@ -303,7 +330,9 @@ impl Collab {
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                collab.take_in(app, card_id, slot, &user_id, &update).await
+                collab
+                    .take_in(app, card_id, slot, epoch, &user_id, &update)
+                    .await
             },
         )
         .await
@@ -377,8 +406,15 @@ impl Collab {
                 break;
             }
         }
+        // A worker on a request past the wait is ended under it: what it did not write
+        // is in the log.
         for worker in &self.inner.workers {
-            worker.end().await;
+            if tokio::time::timeout_at(deadline, worker.end())
+                .await
+                .is_err()
+            {
+                worker.end_now().await;
+            }
         }
     }
 

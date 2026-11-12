@@ -7,7 +7,7 @@ use fvoci_collab::testing::Editor;
 use fvoci_server::collab::DocChange;
 use serde_json::{Value, json};
 
-use crate::collab::{body_of, card, editing};
+use crate::collab::{body_of, card, editing, joined};
 use crate::common::Setup;
 
 fn paragraphs(texts: &[&str]) -> Value {
@@ -44,9 +44,9 @@ async fn a_thousand_updates_are_folded_into_the_state_and_the_document_stays_the
         .expect("opened");
     let first_open = began.elapsed();
     let began = Instant::now();
-    let state = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
     let opened = began.elapsed();
-    let editor = Editor::join(101, &state);
+    let editor = Editor::join(101, &loaded.state);
     let stored = async || {
         let stored = e
             .app
@@ -65,7 +65,7 @@ async fn a_thousand_updates_are_folded_into_the_state_and_the_document_stays_the
             editor.append_paragraph(&format!("line {n}"))
         };
         collab
-            .take(&e.app, &e.card_id, &e.user1, &update)
+            .take(&e.app, &e.card_id, loaded.epoch, &e.user1, &update)
             .await
             .expect("taken");
         if n + 1 == 450 {
@@ -91,7 +91,7 @@ async fn a_thousand_updates_are_folded_into_the_state_and_the_document_stays_the
     assert_eq!(stored().await, (1000, 1050, 50), "folded at the thousandth");
 
     collab.abandon().await;
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(
         again.body().map(|body| body.document().clone()),
         wanted,
@@ -117,35 +117,10 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
     let e = editing(&th, &paragraphs(&["kept"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let state = collab.open(&e.app, &e.card_id).await.expect("opened");
-    let editor = Editor::join(101, &state);
-    let idle = Editor::join(105, &state);
-    let line = "z".repeat(60 * 1024);
-    let mut remade = None;
-    for round in 0..60 {
-        let added = collab
-            .take(
-                &e.app,
-                &e.card_id,
-                &e.user1,
-                &editor.append_paragraph(&line),
-            )
-            .await
-            .expect("taken");
-        if added.remade {
-            remade = Some(round);
-            break;
-        }
-        let deleted = collab
-            .take(&e.app, &e.card_id, &e.user1, &editor.delete_last())
-            .await
-            .expect("taken");
-        if deleted.remade {
-            remade = Some(round);
-            break;
-        }
-    }
-    let round = remade.expect("made again before the state reached its limit");
+    let loaded = collab.open(&e.app, &e.card_id).await.expect("opened");
+    let editor = Editor::join(101, &loaded.state);
+    let idle = Editor::join(105, &loaded.state);
+    let round = rounds_until_remade(&e, &editor, loaded.epoch).await;
     // Each round leaves 60 KiB deleted in the state: three quarters of 2 MiB is reached
     // in the twenty-sixth.
     assert!(
@@ -179,14 +154,20 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
         wanted,
         "written"
     );
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(again.body().map(|body| body.document().clone()), wanted);
     for (late, who) in [
         (&editor, "the editor that wrote"),
         (&idle, "an editor that did not"),
     ] {
         let refused = collab
-            .take(&e.app, &e.card_id, &e.user1, &late.append_paragraph("late"))
+            .take(
+                &e.app,
+                &e.card_id,
+                loaded.epoch,
+                &e.user1,
+                &late.append_paragraph("late"),
+            )
             .await
             .expect_err("made against the document before");
         assert_eq!(
@@ -197,10 +178,49 @@ async fn a_document_near_its_limit_is_made_again_from_its_body() {
     }
     for line in ["on", "and on", "and further"] {
         let taken = collab
-            .take(&e.app, &e.card_id, &e.user1, &again.append_paragraph(line))
+            .take(
+                &e.app,
+                &e.card_id,
+                again_epoch,
+                &e.user1,
+                &again.append_paragraph(line),
+            )
             .await
             .expect("an editor that loaded it again goes on");
         assert!(!taken.remade, "not made again at every update");
     }
     th.teardown().await;
+}
+
+/// Adds a paragraph of 60 KiB and deletes it again, round after round, until the
+/// document is made again; the round it was.
+async fn rounds_until_remade(e: &crate::collab::Editing, editor: &Editor, epoch: i64) -> usize {
+    let collab = e.app.collab();
+    let line = "z".repeat(60 * 1024);
+    let mut remade = None;
+    for round in 0..60 {
+        let added = collab
+            .take(
+                &e.app,
+                &e.card_id,
+                epoch,
+                &e.user1,
+                &editor.append_paragraph(&line),
+            )
+            .await
+            .expect("taken");
+        if added.remade {
+            remade = Some(round);
+            break;
+        }
+        let deleted = collab
+            .take(&e.app, &e.card_id, epoch, &e.user1, &editor.delete_last())
+            .await
+            .expect("taken");
+        if deleted.remade {
+            remade = Some(round);
+            break;
+        }
+    }
+    remade.expect("made again before the state reached its limit")
 }

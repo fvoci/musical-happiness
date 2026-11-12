@@ -6,7 +6,7 @@ use fvoci_server::collab::DocChange;
 use fvoci_server::error::{AppError, Reason};
 use serde_json::{Value, json};
 
-use crate::collab::{Editing, body_of, card, editing};
+use crate::collab::{Editing, body_of, card, editing, joined};
 use crate::common::{Setup, TestServer};
 
 fn paragraphs(texts: &[&str]) -> Value {
@@ -55,10 +55,16 @@ async fn a_killed_worker_leaves_the_server_answering_and_the_document_opens_agai
     let e = editing(&th, &paragraphs(&["first"])).await;
     let collab = e.app.collab();
     let mut events = collab.subscribe();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     for line in ["one", "two"] {
         collab
-            .take(&e.app, &e.card_id, &e.user1, &editor.append_paragraph(line))
+            .take(
+                &e.app,
+                &e.card_id,
+                editor_epoch,
+                &e.user1,
+                &editor.append_paragraph(line),
+            )
             .await
             .expect("taken");
     }
@@ -73,7 +79,7 @@ async fn a_killed_worker_leaves_the_server_answering_and_the_document_opens_agai
 
     let read = card(&th.client, &e.card_id).await;
     assert_eq!(read.id, e.card_id, "the server answers");
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, again_epoch) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(again.body().map(|body| body.document().clone()), wanted);
     assert_ne!(worker_pid(&e).await, killed, "another worker");
     let event = events.try_recv().expect("an event");
@@ -85,6 +91,7 @@ async fn a_killed_worker_leaves_the_server_answering_and_the_document_opens_agai
         .take(
             &e.app,
             &e.card_id,
+            again_epoch,
             &e.user1,
             &again.append_paragraph("three"),
         )
@@ -108,11 +115,12 @@ async fn a_request_past_the_time_limit_ends_the_worker_and_is_refused() {
     let e = editing(&th, &paragraphs(&["first"])).await;
     let other = editing(&th, &paragraphs(&["elsewhere"])).await;
     let collab = e.app.collab();
-    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (editor, editor_epoch) = joined(collab, &e.app, &e.card_id, 101).await;
     collab
         .take(
             &e.app,
             &e.card_id,
+            editor_epoch,
             &e.user1,
             &editor.append_paragraph("one"),
         )
@@ -128,7 +136,7 @@ async fn a_request_past_the_time_limit_ends_the_worker_and_is_refused() {
     assert_eq!(reason_of(&stalled), Some("document_unavailable"));
     let read = card(&th.client, &e.card_id).await;
     assert_eq!(read.id, e.card_id, "the server answers");
-    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let (again, _) = joined(collab, &e.app, &e.card_id, 102).await;
     assert_eq!(again.body().map(|body| body.document().clone()), wanted);
     assert_ne!(worker_pid(&e).await, before, "another worker");
     // Closed and opened again, it remembers the death.
@@ -166,7 +174,7 @@ async fn what_is_past_the_limits_of_a_document_is_refused() {
     let second = editing(&th, &paragraphs(&["second"])).await;
     let third = editing(&th, &paragraphs(&["third"])).await;
     let collab = first.app.collab();
-    let state = collab
+    let loaded = collab
         .open(&first.app, &first.card_id)
         .await
         .expect("opened");
@@ -188,21 +196,33 @@ async fn what_is_past_the_limits_of_a_document_is_refused() {
         .await
         .expect("room for it once another is closed");
 
-    let editor = Editor::join(101, &state);
+    let editor = Editor::join(101, &loaded.state);
     let large = editor.append_paragraph(&"x".repeat(65 * 1024));
     let refused = collab
-        .take(&first.app, &first.card_id, &first.user1, &large)
+        .take(
+            &first.app,
+            &first.card_id,
+            loaded.epoch,
+            &first.user1,
+            &large,
+        )
         .await
         .expect_err("larger than an update may be");
     assert_eq!(reason_of(&refused), Some("update_too_large"));
 
-    let editor = Editor::join(102, &state);
+    let editor = Editor::join(102, &loaded.state);
     let mut refused = None;
     let mut taken = 0;
     for _ in 0..40 {
         let update = editor.append_paragraph(&"y".repeat(60 * 1024));
         match collab
-            .take(&first.app, &first.card_id, &first.user1, &update)
+            .take(
+                &first.app,
+                &first.card_id,
+                loaded.epoch,
+                &first.user1,
+                &update,
+            )
             .await
         {
             Ok(_) => taken += 1,
@@ -219,13 +239,7 @@ async fn what_is_past_the_limits_of_a_document_is_refused() {
         .await
         .expect("the body that was taken is written");
     // Opened again from its stored state and log.
-    let held = Editor::join(
-        103,
-        &collab
-            .open(&first.app, &first.card_id)
-            .await
-            .expect("opened"),
-    );
+    let (held, _) = joined(collab, &first.app, &first.card_id, 103).await;
     let body = held.body().expect("a body");
     let paragraphs = body.document()["content"].as_array().map_or(0, Vec::len);
     assert_eq!(

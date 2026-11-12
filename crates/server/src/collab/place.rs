@@ -63,6 +63,8 @@ pub(super) struct OpenDoc {
     pub(super) worker: usize,
     pub(super) generation: u64,
     pub(super) number: DocNumber,
+    /// Which making of the document it is ([`super::Loaded::epoch`]).
+    pub(super) epoch: i64,
     /// The last update its stored state holds.
     pub(super) state_seq: i64,
     /// The last update logged.
@@ -250,7 +252,14 @@ impl Collab {
         }
         let error = match self.open_stored(app, card_id).await {
             Ok(open) => {
+                let past_limit = open.state_bytes > self.inner.limits.state_bytes;
                 slot.open = Some(open);
+                if past_limit {
+                    // Stored or logged under a larger limit: its body is written to the
+                    // card, and it is made again from that.
+                    // Boxed: the remake asks the open document, through here.
+                    Box::pin(self.remake_and_tell(app, card_id, slot)).await;
+                }
                 return Ok(());
             }
             Err(Opening::Refused(error)) => error,
@@ -261,6 +270,23 @@ impl Collab {
         };
         self.retire(slot);
         Err(error)
+    }
+
+    /// Opens the document if it is not open, and refuses a request made against
+    /// another making of it than `epoch` (`update_out_of_step`).
+    ///
+    /// # Errors
+    ///
+    /// As [`Collab::ensure_open`], and `update_out_of_step`.
+    pub(super) async fn at_epoch(
+        &self,
+        app: &App,
+        card_id: &str,
+        slot: &mut Held,
+        epoch: i64,
+    ) -> Result<(), AppError> {
+        self.ensure_open(app, card_id, slot).await?;
+        still_at_epoch(slot, epoch)
     }
 
     /// Forgets a document whose worker is gone.
@@ -320,5 +346,20 @@ impl From<AppError> for Opening {
 impl From<fvoci_store::StoreError> for Opening {
     fn from(error: fvoci_store::StoreError) -> Self {
         Self::Refused(error.into())
+    }
+}
+
+/// Refuses a request made against another making of the document than `epoch`: one the
+/// document was made again under while the request was asked (a worker that ended,
+/// whose document was opened again from a card written past it).
+///
+/// # Errors
+///
+/// Returns `update_out_of_step`.
+pub(super) fn still_at_epoch(slot: &Slot, epoch: i64) -> Result<(), AppError> {
+    if slot.open.as_ref().is_some_and(|open| open.epoch == epoch) {
+        Ok(())
+    } else {
+        Err(refusals::out_of_step())
     }
 }

@@ -28,6 +28,7 @@ impl Collab {
         app: &App,
         card_id: &str,
         slot: &mut Held,
+        epoch: i64,
         user_id: &str,
         update: &[u8],
     ) -> Result<Taken, AppError> {
@@ -35,6 +36,7 @@ impl Collab {
             doc,
             update: update.to_vec(),
         };
+        self.at_epoch(app, card_id, slot, epoch).await?;
         let answer = match self.ask(app, card_id, slot, request).await {
             Ok(answer) => answer,
             Err(refused) => {
@@ -42,22 +44,42 @@ impl Collab {
                 return Err(refused);
             }
         };
-        let (repair, state_bytes) = match answer {
+        let (repair, state_bytes, images) = match answer {
             Answer::Taken {
                 repair,
                 state_bytes,
-            } => (repair, state_bytes),
+                images,
+            } => (repair, state_bytes, images),
             other => return Err(unexpected(&other)),
         };
+        if super::place::still_at_epoch(slot, epoch).is_err() {
+            // Made again while the update was asked (a worker that ended, and a card
+            // written past the document): the new document took an update made against
+            // the one before, which is not logged, so it is closed.
+            self.forget(slot).await;
+            return Err(super::refusals::out_of_step());
+        }
         let mut entries: Vec<(&[u8], &str)> = vec![(update, user_id)];
         if let Some(repair) = &repair {
             entries.push((repair, ""));
         }
-        let seqs = match app.store().append_body_updates(card_id, &entries).await {
+        let logged = app
+            .store()
+            .append_body_updates(card_id, &entries, &images)
+            .await;
+        let seqs = match logged {
             Ok(seqs) => seqs,
             Err(error) => {
+                // Taken by the worker and not logged: the document is opened again as
+                // it is stored.
                 self.forget(slot).await;
-                return Err(error.into());
+                return Err(match error {
+                    StoreError::InvalidBlock { .. } => AppError::bad_request(
+                        "the update shows an image whose file the board does not have",
+                    )
+                    .with_reason(Reason::UpdateRefused),
+                    other => other.into(),
+                });
             }
         };
         let open = slot.open.as_mut().expect("the document is open");
@@ -126,7 +148,7 @@ impl Collab {
     /// Makes the document again from its body and tells the room, unless that failed
     /// a little before (it is tried again after [`REMAKE_RETRY`]); whether it was made
     /// again. A document that could not be made again is closed: the store holds it.
-    async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
+    pub(super) async fn remake_and_tell(&self, app: &App, card_id: &str, slot: &mut Held) -> bool {
         if slot
             .remake_failed_at
             .is_some_and(|at| at.elapsed() < REMAKE_RETRY)
@@ -233,7 +255,8 @@ impl Collab {
         open.generation = generation;
         open.number = number;
         let digest = digest_of(body);
-        app.store()
+        open.epoch = app
+            .store()
             .remake_body_doc(card_id, &state, &digest)
             .await?;
         open.state_seq = open.log_end;
