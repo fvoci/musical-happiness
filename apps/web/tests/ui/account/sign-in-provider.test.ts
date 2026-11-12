@@ -19,8 +19,8 @@ function mount(address: string, found: LoginOrganization | undefined) {
   const organizationOf = vi.fn(async (_orgId: string | undefined) => found);
   render(SignInPage, {
     props: {
-      onSignIn: async () => {},
-      onRegister: async () => {},
+      onSignIn: vi.fn(() => Promise.resolve()),
+      onRegister: vi.fn(() => Promise.resolve()),
       organizationOf,
       oidcStartUrl: (orgId: string) => `/api/v1/auth/oidc/start?org=${orgId}`,
     },
@@ -54,7 +54,9 @@ describe('the provider of the organization on the sign-in page', () => {
       name: 'Acme',
       oidc: false,
     });
-    await vi.waitFor(() => expect(organizationOf).toHaveBeenCalled());
+    await vi.waitFor(() => {
+      expect(organizationOf).toHaveBeenCalled();
+    });
     expect(screen.queryByTestId('oidc-continue')).toBeNull();
   });
 
