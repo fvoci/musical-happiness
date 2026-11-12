@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { routePath } from '../../../src/app/router.svelte.ts';
 import BoardIcon from '$lib/features/shell/BoardIcon.svelte';
 import BoardTitle from '$lib/features/shell/BoardTitle.svelte';
 import SettingChoice from '$lib/features/shell/SettingChoice.svelte';
@@ -210,7 +211,8 @@ describe('the sidebar over a workspace', () => {
       props: {
         workspace,
         boardId: first?.id,
-        boardHref: (board: BoardPlace) => `/w/${board.workspaceId}/boards/${board.id}`,
+        boardHref: (board: BoardPlace) =>
+          routePath({ workspaceId: board.workspaceId, boardId: board.id }, ''),
         beside: true,
         ...handlers,
       },
@@ -238,7 +240,10 @@ describe('the sidebar over a workspace', () => {
     const first = workspace.sidebar[0]?.boards[0];
     const link = screen.getByRole('link', { name: first?.title });
     expect(link).toHaveAttribute('aria-current', 'page');
-    expect(link).toHaveAttribute('href', `/w/${workspace.info?.id}/boards/${first?.id}`);
+    expect(link).toHaveAttribute(
+      'href',
+      routePath({ workspaceId: workspace.info?.id, boardId: first?.id }, ''),
+    );
     expect(screen.getAllByRole('link').filter((one) => one.hasAttribute('aria-current'))).toEqual([
       link,
     ]);

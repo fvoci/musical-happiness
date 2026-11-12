@@ -20,6 +20,6 @@ file 903 src/lib/logic/wire.ts
 file 866 src/lib/state/board.svelte.ts
 file 529 src/lib/state/card.svelte.ts
 file 1170 src/lib/state/memory/backend.ts
-file 834 src/lib/state/workspace.svelte.ts
+file 835 src/lib/state/workspace.svelte.ts
 function 223 src/lib/state/memory/seed.ts seedWorld
 function 139 src/lib/state/memory/seed.ts seedWorld/forEach()

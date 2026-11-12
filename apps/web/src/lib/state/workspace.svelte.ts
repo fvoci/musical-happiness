@@ -190,10 +190,11 @@ export class Workspace {
    */
   async enter(workspaceId: string): Promise<void> {
     if (this.asked === workspaceId && this.entered !== 'failed') return;
+    const turn = this.#entering + 1;
     try {
       await this.#enter(workspaceId);
     } catch (error) {
-      if (this.asked !== workspaceId) return;
+      if (turn !== this.#entering) return;
       this.entered = 'failed';
       this.report('load', error);
     }

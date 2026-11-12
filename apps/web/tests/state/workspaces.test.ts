@@ -165,6 +165,38 @@ describe('entering another workspace', () => {
     expect(workspace.categories).toEqual([]);
   });
 
+  it('says an entry failed, and enters on being asked again', async () => {
+    const { workspace, readBoards } = twoWorkspaces();
+    await workspace.load();
+    readBoards.mockRejectedValueOnce(new BackendError(500));
+    await workspace.enter(OTHER.id);
+    expect(workspace.entered).toBe('failed');
+    expect(workspace.problems).toHaveLength(1);
+    await workspace.enter(OTHER.id);
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.info).toEqual(OTHER);
+  });
+
+  it('does not let a late failure of an entry undo a later one of the same workspace', async () => {
+    const { workspace, first, readBoards } = twoWorkspaces();
+    await workspace.load();
+    let fail: (error: unknown) => void = () => undefined;
+    readBoards.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          fail = reject;
+        }),
+    );
+    const slow = workspace.enter(OTHER.id);
+    await workspace.enter(first.id);
+    await workspace.enter(OTHER.id);
+    fail(new BackendError(500));
+    await slow;
+    expect(workspace.entered).toBe('ready');
+    expect(workspace.info).toEqual(OTHER);
+    expect(workspace.problems).toEqual([]);
+  });
+
   it('counts the latest of two entries that overlap', async () => {
     const { workspace, first, readBoards } = twoWorkspaces();
     await workspace.load();

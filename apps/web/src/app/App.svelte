@@ -250,8 +250,16 @@
         <p class="text-muted-foreground">{m.app_no_boards()}</p>
       </div>
     {:else if here && workspace.entered === 'failed'}
-      <div class="grid h-full place-items-center p-6 text-center">
-        <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+      <div class="grid h-full place-items-center p-6 text-center" data-testid="enter-failed">
+        <div>
+          <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+          <Button
+            class="mt-4 roomy:min-h-touch"
+            onclick={() => {
+              if (router.route.workspaceId) void workspace?.enter(router.route.workspaceId);
+            }}>{m.app_retry()}</Button
+          >
+        </div>
       </div>
     {:else if !shown}
       <div class="grid h-full place-items-center p-6">

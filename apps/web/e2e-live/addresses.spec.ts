@@ -220,6 +220,9 @@ test('the workspace kept on this browser is each person’s own', async ({ page,
   const there = await makeBoard(api, { title: 'Away board', workspaceId: second });
   await api.dispose();
   const other = await readerWithBoard(base);
+  // The other works in the second workspace too: a kept workspace that was not
+  // their own choice would take them there.
+  joinWorkspace(base, other.who, second);
 
   await page.goto(boardPath(there));
   await signInOnPage(page, who);
