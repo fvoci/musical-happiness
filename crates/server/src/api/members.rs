@@ -182,9 +182,12 @@ async fn handle_add_member(
     };
     require_holdable(target_role, &member)?;
     // A workspace's administrator who makes themselves a member of a board they could
-    // not read, and so comes to read it, is recorded doing so. The board was there a
+    // not read, with a role, and so comes to read it, is recorded doing so. The board was there a
     // moment ago; if it is not any more, there is nothing to be a member of.
-    let added = if request.user_id == *user_id && grant.manages_only() {
+    let added = if request.user_id == *user_id
+        && grant.manages_only()
+        && permissions::role_of(&member).is_some()
+    {
         app.add_self_to_board_recorded(&member).await?
     } else {
         app.add_member_to_board(&member).await?
@@ -328,7 +331,10 @@ async fn handle_update_member(
 
     // A workspace's administrator who gives themselves a role on a board they could not
     // read is recorded doing so, as one who adds themselves.
-    let updated = if member.user_id == session.user_id && grant.manages_only() {
+    let updated = if member.user_id == session.user_id
+        && grant.manages_only()
+        && permissions::role_of(&member).is_some()
+    {
         app.update_self_on_board_recorded(&member).await?
     } else {
         app.update_board_member(&member).await?

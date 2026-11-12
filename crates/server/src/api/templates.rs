@@ -39,7 +39,8 @@ async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
     let boards = app.template_boards(workspace_id, user_id).await?;
     let mut results: Vec<Board> = Vec::with_capacity(boards.len());
     for board in boards {
-        if app.board_grant(user_id, &board.id).await?.sees() {
+        // A template is listed to be used: to who reads it, not to who only manages it.
+        if app.board_grant(user_id, &board.id).await?.reads() {
             results.push(board);
         }
     }

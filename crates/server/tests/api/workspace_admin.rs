@@ -352,3 +352,42 @@ async fn a_workspace_admin_who_joins_an_open_board_is_not_recorded() {
         "an open board is read by joining it: {recorded:?}"
     );
 }
+
+#[tokio::test]
+async fn a_workspace_admin_lists_no_template_they_only_manage_and_adding_no_role_is_not_recorded() {
+    let th = Setup::native().start().await.init_basic().await;
+    let admin = workspace_admin(&th).await;
+    let template: Board = th
+        .client
+        .create_board(&Board {
+            is_template: true,
+            description: "How we plan".to_owned(),
+            ..new_board(TEST_WORKSPACE_ID, BoardType::Private, "Template")
+        })
+        .await
+        .created_json();
+
+    // A membership without a role opens nothing, and is not recorded.
+    th.client2
+        .add_member(&member(&template.id, &admin))
+        .await
+        .check_ok();
+    let templates: Vec<Board> = th
+        .client2
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/templates"))
+        .await
+        .ok_json();
+    let recorded = th
+        .app
+        .store()
+        .get_audit_log(TEST_WORKSPACE_ID)
+        .await
+        .expect("the log is read");
+    th.teardown().await;
+
+    assert!(
+        templates.iter().all(|listed| listed.id != template.id),
+        "{templates:?}"
+    );
+    assert!(recorded.is_empty(), "{recorded:?}");
+}

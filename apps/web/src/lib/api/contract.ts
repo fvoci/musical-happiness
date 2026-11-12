@@ -75,7 +75,7 @@ export interface paths {
         };
         /**
          * Search the boards
-         * @description The boards the user reads (a member of them, or open where the user works), whose title matches
+         * @description The boards the user finds (a member of them, or open where the user works), whose title matches
          *     the term: a title matches if every word of the term, as spaces divide it, is somewhere
          *     in it, whatever the case of the letters (of every letter, not only ASCII). Templates
          *     are never found. `%` and `_` are characters like any other. Oldest first.
@@ -1288,8 +1288,9 @@ export interface paths {
         };
         /**
          * Export the boards of a workspace
-         * @description An archive of the boards of the workspace that the user reads (a member of them, or
-         *     an open board for who works in the workspace), offered as a download with its length, in the format of `exportBoardArchive`,
+         * @description An archive of the boards of the workspace that the user is a member of with a role,
+         *     and of its open boards for who works in the workspace (also those they have not
+         *     joined), offered as a download with its length, in the format of `exportBoardArchive`,
          *     and under its limits. 404 unless the user is a member of the workspace; a guest's
          *     archive has the boards they were invited to.
          */
@@ -1407,7 +1408,7 @@ export interface paths {
         };
         /**
          * Search the boards, asked through a workspace
-         * @description The boards the user reads (a member of them, or open where the user works), whose title matches
+         * @description The boards the user finds (a member of them, or open where the user works), whose title matches
          *     the term as `searchBoards` matches it, or with `field=property_name` those whose own
          *     `properties` have a member of exactly that name, whatever its value (`null` too). The
          *     workspace of the path is not part of the search: the boards of every workspace are

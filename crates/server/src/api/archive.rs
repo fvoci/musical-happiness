@@ -138,8 +138,9 @@ async fn handle_export_board(
 
 /// Export the boards of a workspace
 ///
-/// An archive of the boards of the workspace that the user reads (a member of them, or
-/// an open board for who works in the workspace), offered as a download with its length, in the format of `exportBoardArchive`,
+/// An archive of the boards of the workspace that the user is a member of with a role,
+/// and of its open boards for who works in the workspace (also those they have not
+/// joined), offered as a download with its length, in the format of `exportBoardArchive`,
 /// and under its limits. 404 unless the user is a member of the workspace; a guest's
 /// archive has the boards they were invited to.
 #[utoipa::path(

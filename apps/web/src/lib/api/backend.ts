@@ -68,6 +68,7 @@ import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
 import { ServerRequests } from './requests.ts';
+import { seenUsers } from './seen-users.ts';
 import { importInParts, uploadInParts } from './upload.ts';
 
 /**
@@ -146,14 +147,13 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
-    const ids = [...new Set(userIds)];
-    if (ids.length === 0) return [];
-    const users = await this.#http.request<Schemas['User'][]>(
-      '/api/v1/w/{workspaceId}/users',
-      { workspaceId },
-      { method: 'POST', json: ids },
-    );
-    return users.map(userOf);
+    const ask = (json: string[]) =>
+      this.#http.request<Schemas['User'][]>(
+        '/api/v1/w/{workspaceId}/users',
+        { workspaceId },
+        { method: 'POST', json },
+      );
+    return (await seenUsers([...new Set(userIds)], ask)).map(userOf);
   }
 
   async settings(): Promise<AccountSettings> {

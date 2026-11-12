@@ -2640,7 +2640,7 @@
     },
     "/api/v1/boards/search": {
       "get": {
-        "description": "The boards the user reads (a member of them, or open where the user works), whose title matches\nthe term: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
+        "description": "The boards the user finds (a member of them, or open where the user works), whose title matches\nthe term: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
         "operationId": "searchBoards",
         "parameters": [
           {
@@ -5732,7 +5732,7 @@
     },
     "/api/v1/w/{workspaceId}/archive/export": {
       "get": {
-        "description": "An archive of the boards of the workspace that the user reads (a member of them, or\nan open board for who works in the workspace), offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. 404 unless the user is a member of the workspace; a guest's\narchive has the boards they were invited to.",
+        "description": "An archive of the boards of the workspace that the user is a member of with a role,\nand of its open boards for who works in the workspace (also those they have not\njoined), offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. 404 unless the user is a member of the workspace; a guest's\narchive has the boards they were invited to.",
         "operationId": "exportWorkspaceArchive",
         "parameters": [
           {
@@ -5945,7 +5945,7 @@
     },
     "/api/v1/w/{workspaceId}/boards/search": {
       "get": {
-        "description": "The boards the user reads (a member of them, or open where the user works), whose title matches\nthe term as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The\nworkspace of the path is not part of the search: the boards of every workspace are\nsearched. A `field` that is neither is 400. Oldest first.",
+        "description": "The boards the user finds (a member of them, or open where the user works), whose title matches\nthe term as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The\nworkspace of the path is not part of the search: the boards of every workspace are\nsearched. A `field` that is neither is 400. Oldest first.",
         "operationId": "searchWorkspaceBoards",
         "parameters": [
           {

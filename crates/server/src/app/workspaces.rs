@@ -129,8 +129,8 @@ impl App {
 
     /// The boards of a workspace as the user lists them: an administrator of the
     /// workspace every board of it, those they do not read without their description and
-    /// properties ([`as_managed`]); whoever else those the user reads
-    /// ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
+    /// properties ([`as_managed`]); whoever else those they are a member of and the open
+    /// ones ([`App::readable_workspace_boards`]). Templates are left out. Oldest first.
     ///
     /// The handle is the one a member entered the workspace with
     /// ([`App::enter_workspace`]).
