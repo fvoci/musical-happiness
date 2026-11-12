@@ -4,8 +4,20 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
-use crate::block::Block;
+use crate::block::{Block, BlockType};
 use crate::id::new_id;
+use crate::relation::RelationProperties;
+
+/// What becomes of an identifier in a card relation value that names no card among the
+/// blocks whose identifiers are renewed ([`renew_block_ids`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnmatchedRelation {
+    /// It stays: a request may name the cards that are on the board already, and the
+    /// store checks what it names.
+    Kept,
+    /// It goes: a copy names the copies of the cards it copies, and no other card.
+    Dropped,
+}
 
 /// Gives every block a new identifier while keeping references between them intact.
 ///
@@ -16,10 +28,29 @@ use crate::id::new_id;
 ///
 /// Fields of an unexpected JSON type are left untouched. A block that comes without an
 /// identifier gets one like any other, and an empty `parent_id` or `board_id` stays
-/// empty.
+/// empty. Card relation values are left as they are; [`renew_block_ids`] renames them.
 pub fn generate_block_ids(blocks: &mut [Block]) {
+    renew_block_ids(blocks, &RelationProperties::new(), UnmatchedRelation::Kept);
+}
+
+/// Does what [`generate_block_ids`] does and renames the cards that card relation
+/// values name, too: the values of the `relations` of each card's board. An identifier
+/// in such a value that is a card among `blocks` gets that card's new identifier; one
+/// that is not is kept or dropped as `unmatched` says; kept, an identifier of another
+/// block among them is renamed too, so that the store can tell what it names.
+pub fn renew_block_ids(
+    blocks: &mut [Block],
+    relations: &RelationProperties,
+    unmatched: UnmatchedRelation,
+) {
+    let cards: HashSet<&str> = blocks
+        .iter()
+        .filter(|block| block.block_type == BlockType::Card)
+        .map(|block| block.id.as_str())
+        .collect();
     let mut referenced: HashSet<&str> = HashSet::new();
     for block in blocks.iter() {
+        referenced.extend(related_ids(block, relations));
         referenced.insert(&block.board_id);
         referenced.insert(&block.parent_id);
         // A view's card order names cards that nothing else may refer to: a card whose
@@ -67,6 +98,9 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
         })
         .collect();
 
+    let cards: HashSet<String> = cards.into_iter().map(str::to_owned).collect();
+    rename_all_relations(blocks, relations, &renamed, &cards, unmatched);
+
     let renamed_or_same = |id: &mut String| {
         if let Some(new) = renamed.get(id.as_str()) {
             id.clone_from(new);
@@ -98,6 +132,79 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
         if let Some(Value::String(template_id)) = block.fields.get_mut("defaultTemplateId") {
             renamed_or_same(template_id);
         }
+    }
+}
+
+/// Renames what the relation values of the cards among `blocks` name ([`renew_block_ids`]):
+/// `renamed` holds the new identifiers, and `cards` the old ones of the cards.
+fn rename_all_relations(
+    blocks: &mut [Block],
+    relations: &RelationProperties,
+    renamed: &HashMap<String, String>,
+    cards: &HashSet<String>,
+    unmatched: UnmatchedRelation,
+) {
+    for block in blocks.iter_mut() {
+        rename_relations(block, relations, |id| match (renamed.get(id), unmatched) {
+            (Some(new), UnmatchedRelation::Kept) => Some(new.clone()),
+            (Some(new), UnmatchedRelation::Dropped) if cards.contains(id) => Some(new.clone()),
+            (None, UnmatchedRelation::Kept) => Some(id.to_owned()),
+            (_, UnmatchedRelation::Dropped) => None,
+        });
+    }
+}
+
+/// The identifiers the relation values of a card name.
+fn related_ids<'b>(block: &'b Block, relations: &RelationProperties) -> Vec<&'b str> {
+    let (Some(properties), Some(Value::Object(values))) = (
+        relations.of(&block.board_id),
+        block.fields.get("properties"),
+    ) else {
+        return Vec::new();
+    };
+    if block.block_type != BlockType::Card {
+        return Vec::new();
+    }
+    properties
+        .iter()
+        .filter_map(|property| values.get(property).and_then(Value::as_array))
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
+/// Puts in each relation value of a card, for each identifier in it, what `rename` gives
+/// for it, and leaves the identifiers it gives nothing for out. Other items stay.
+fn rename_relations(
+    block: &mut Block,
+    relations: &RelationProperties,
+    rename: impl Fn(&str) -> Option<String>,
+) {
+    let Some(properties) = relations.of(&block.board_id) else {
+        return;
+    };
+    if block.block_type != BlockType::Card {
+        return;
+    }
+    let Some(Value::Object(values)) = block.fields.get_mut("properties") else {
+        return;
+    };
+    for property in properties {
+        let Some(Value::Array(items)) = values.get_mut(property) else {
+            continue;
+        };
+        items.retain_mut(|item| {
+            let Value::String(id) = item else {
+                return true;
+            };
+            match rename(id) {
+                Some(new) => {
+                    *id = new;
+                    true
+                }
+                None => false,
+            }
+        });
     }
 }
 

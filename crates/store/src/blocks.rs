@@ -9,12 +9,13 @@ use std::collections::{BTreeMap, HashSet};
 
 use fvoci_model::{
     BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
-    TaskCount, generate_block_ids, validate_card_property_kinds,
+    TaskCount, generate_block_ids,
 };
 use serde_json::Value;
 
 use crate::Store;
 use crate::boards;
+use crate::card_values::{self, NamedCards};
 use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
@@ -488,8 +489,16 @@ impl Store {
             copies.push(root);
             copies.extend(children);
             generate_block_ids(&mut copies);
+            // A copy on the same board names the cards its source named.
             if let Some(board) = boards::find_board(scope, board_id).await? {
-                clear_copied_values(&mut copies, &board.card_properties);
+                card_values::clear_copied_values(&mut copies, &board.card_properties);
+                card_values::keep_cards_of_board(
+                    scope,
+                    &mut copies,
+                    board_id,
+                    &board.card_properties,
+                )
+                .await?;
             }
             insert_blocks(scope, &mut copies, user_id).await?;
             Ok(copies)
@@ -648,17 +657,19 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    insert_block_at(scope, block, user_id, None).await
+    let named = insert_block_at(scope, block, user_id, None).await?;
+    card_values::check_named_cards(scope, &named).await
 }
 
 /// Stores a block as created or changed at `at`, or now, once its board is held, if
-/// that is `None`.
+/// that is `None`. Returns the cards its relation values newly name, which the caller
+/// asks for once the write is stored ([`card_values::check_named_cards`]).
 async fn insert_block_at(
     scope: &mut Scope<'_>,
     block: &mut Block,
     user_id: &str,
     at: Option<i64>,
-) -> Result<(), StoreError> {
+) -> Result<Vec<NamedCards>, StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
         source,
@@ -694,7 +705,7 @@ async fn insert_block_at(
 
     let existing = find_block(scope, &block.id).await?;
     comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
-    check_written_kinds(scope, block, existing.as_ref()).await?;
+    let named = card_values::check_written(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
         // Every change of a block moves its `updateAt` on, also within one millisecond
         // and when the clock steps back: a writer that read the block before this
@@ -733,59 +744,14 @@ async fn insert_block_at(
             } else {
                 existing.edited_at
             };
-        file_refs::refresh(scope, block).await
+        file_refs::refresh(scope, block).await?;
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         block.edited_at = 0;
-        insert_block_row(scope, block).await
+        insert_block_row(scope, block).await?;
     }
-}
-
-/// Checks that the values a write gives a card fit the kinds of the board's properties
-/// (`docs/s6-design.md` 5.7): a date value for a date property, and none for another.
-/// Only the values the write changes are checked; one that a change of the definitions
-/// left behind stays until it is written.
-async fn check_written_kinds(
-    scope: &mut Scope<'_>,
-    block: &Block,
-    existing: Option<&Block>,
-) -> Result<(), StoreError> {
-    let Some(Value::Object(values)) = block.fields.get("properties") else {
-        return Ok(());
-    };
-    let before = existing
-        .and_then(|existing| existing.fields.get("properties"))
-        .and_then(Value::as_object);
-    let written: fvoci_model::JsonMap = values
-        .iter()
-        .filter(|(id, value)| before.and_then(|before| before.get(*id)) != Some(*value))
-        .map(|(id, value)| (id.clone(), value.clone()))
-        .collect();
-    if written.is_empty() {
-        return Ok(());
-    }
-    let Some(board) = boards::find_board(scope, &block.board_id).await? else {
-        return Ok(());
-    };
-    validate_card_property_kinds(&written, &board.card_properties).map_err(|error| {
-        StoreError::InvalidBlock {
-            id: block.id.clone(),
-            source: BlockError::from(error),
-        }
-    })
-}
-
-/// Clears what copied blocks can no longer be stored with: malformed fields
-/// ([`Block::drop_malformed_fields`]), and the values of cards that no longer fit their
-/// board's definitions, as [`fvoci_model::clear_values_of_another_kind`] does.
-pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[fvoci_model::JsonMap]) {
-    for block in blocks {
-        block.drop_malformed_fields();
-        if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
-            fvoci_model::clear_values_of_another_kind(values, definitions);
-        }
-    }
+    Ok(named)
 }
 
 /// Inserts a block row with every column as `block` has it. For a new block, and for
@@ -863,10 +829,13 @@ pub(crate) async fn insert_blocks(
     // decide the order they are listed in. With one time it is that of their
     // identifiers, which whoever made them made in the order that is meant.
     let now = now_millis();
+    // What relation values name is asked for once all are stored: two new cards may
+    // name each other.
+    let mut named = Vec::new();
     for index in parents_first(blocks) {
-        insert_block_at(scope, &mut blocks[index], user_id, Some(now)).await?;
+        named.extend(insert_block_at(scope, &mut blocks[index], user_id, Some(now)).await?);
     }
-    Ok(())
+    card_values::check_named_cards(scope, &named).await
 }
 
 /// The positions of the blocks in an order in which every block comes after its parent,

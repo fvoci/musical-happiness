@@ -10,6 +10,7 @@ use fvoci_model::{
 use crate::Store;
 use crate::blocks::{self, BlockFilter, DuplicateAs};
 use crate::boards;
+use crate::card_values;
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
 use crate::file_info;
@@ -300,7 +301,7 @@ pub(crate) async fn duplicate_board(
         .into_iter()
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
-    blocks::clear_copied_values(&mut blocks, &board.card_properties);
+    card_values::clear_copied_values(&mut blocks, &board.card_properties);
 
     // A board without blocks, or with comments only, is copied as a board without
     // blocks. The original refuses it, because it regenerates the identifiers with the

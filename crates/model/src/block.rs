@@ -10,6 +10,7 @@ use thiserror::Error;
 use crate::JsonMap;
 use crate::body::{Body, BodyChange};
 use crate::card_property::{CardPropertyError, PersonProperties, validate_block_properties};
+use crate::relation::RelationError;
 use crate::serde_util::null_as_default;
 
 /// Maximum number of characters in a block title.
@@ -202,6 +203,10 @@ pub enum BlockError {
     /// The `properties` among the fields are not well-formed card property values.
     #[error(transparent)]
     InvalidCardProperties(#[from] CardPropertyError),
+    /// A card relation value names what it may not name
+    /// ([`crate::check_relation_value`]), or a block that is no card of the board.
+    #[error(transparent)]
+    InvalidRelation(#[from] RelationError),
     /// A block that is neither a card nor a comment has a body.
     #[error("only a card or a comment has a body")]
     BodyNotAllowed,

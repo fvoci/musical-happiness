@@ -13,6 +13,7 @@ use super::contract::bodies::NewCard;
 use super::contract::params::{BoardId, CardId, DisableNotify, Page, PerPage, Preview, ReadToken};
 use super::contract::tag;
 
+use super::blocks::BLOCK_FIELDS;
 use super::change_notification;
 use super::{
     ApiResult, OptionalSession, RequiredSession, TRUE, by_read_token, created, json_response,
@@ -96,6 +97,15 @@ async fn card_with_permission(
 /// Make a card
 ///
 /// The server chooses the identifier, the creator and the times. For editors.
+///
+/// The value of a card relation property (of the `type` `relation`) is `null` or a list
+/// of other cards of the board, in the trash or not, each once, at most 50. Any other is
+/// 400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,
+/// `relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board
+/// that is no card) or `relation_card_not_found`: no card of that identifier on the
+/// board, which is also the answer for a card of another board. Every write of a card
+/// checks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it
+/// changes, and does not ask again for a card that a value named before.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/cards",
@@ -139,9 +149,11 @@ async fn handle_create_card(
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
 
+    // What the store refuses of the card's values it names as the block's `fields`.
     let card = app
         .create_card(card, &board_id, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| error.moved(BLOCK_FIELDS, "/properties"))?;
     tracing::debug!(board_id, card_id = %card.id, user_id, "CreateCard");
     Ok(created(&card))
 }
@@ -267,7 +279,8 @@ async fn handle_patch_card(
 
     let patched = app
         .patch_card(&patch, &card.id, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| error.moved(BLOCK_FIELDS, "/updatedProperties"))?;
     tracing::debug!(board_id = %patched.board_id, card_id = %patched.id, user_id, "PatchCard");
     Ok(json_response(&patched))
 }

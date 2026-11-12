@@ -9,6 +9,7 @@
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod card_values;
 mod categories;
 mod category_boards;
 mod comment_places;

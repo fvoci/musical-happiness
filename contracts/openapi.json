@@ -1785,6 +1785,36 @@
             "reason": "server_imports_busy",
             "title": "The server is busy importing",
             "type": "/problems/server-imports-busy"
+          },
+          {
+            "reason": "relation_not_a_list",
+            "title": "Card relation that is no list",
+            "type": "/problems/relation-not-a-list"
+          },
+          {
+            "reason": "relation_to_itself",
+            "title": "Card relation to the card itself",
+            "type": "/problems/relation-to-itself"
+          },
+          {
+            "reason": "relation_repeated",
+            "title": "Card named twice in a relation",
+            "type": "/problems/relation-repeated"
+          },
+          {
+            "reason": "relation_too_many",
+            "title": "Card relation names too many cards",
+            "type": "/problems/relation-too-many"
+          },
+          {
+            "reason": "relation_not_a_card",
+            "title": "Card relation names no card",
+            "type": "/problems/relation-not-a-card"
+          },
+          {
+            "reason": "relation_card_not_found",
+            "title": "Card relation names a card not on the board",
+            "type": "/problems/relation-card-not-found"
           }
         ]
       },
@@ -3480,7 +3510,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50; any other is\n400 with a reason `relation_*` (`/problems`). A card of another board is answered as\nnone. A patch checks the values it changes, and does not ask again for a card that a\nvalue named before.",
         "operationId": "createCard",
         "parameters": [
           {

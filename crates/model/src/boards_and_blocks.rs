@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::block::{Block, BlockPatch};
-use crate::block_ids::generate_block_ids;
+use crate::block_ids::{UnmatchedRelation, renew_block_ids};
 use crate::board::{Board, BoardPatch};
 use crate::id::new_id;
+use crate::relation::RelationProperties;
 use crate::serde_util::null_as_default;
 
 /// Reasons a boards-and-blocks request is rejected.
@@ -172,7 +173,7 @@ pub fn generate_boards_and_blocks_ids(
     boards_and_blocks: BoardsAndBlocks,
 ) -> Result<BoardsAndBlocks, BoardsAndBlocksError> {
     boards_and_blocks.validate()?;
-    Ok(renew_boards_and_blocks_ids(boards_and_blocks))
+    Ok(renew_ids(boards_and_blocks, UnmatchedRelation::Kept))
 }
 
 /// Gives every board and block a new identifier, keeping blocks attached to their boards
@@ -181,9 +182,17 @@ pub fn generate_boards_and_blocks_ids(
 ///
 /// Blocks come back grouped by board, in the order of `boards`. A block of a board that
 /// is not among `boards` is left out. A block that named its board as its parent comes
-/// back without a parent.
+/// back without a parent. A card relation value names the copies of the cards it named
+/// that are among `blocks`, and no other card.
 #[must_use]
 pub fn renew_boards_and_blocks_ids(boards_and_blocks: BoardsAndBlocks) -> BoardsAndBlocks {
+    renew_ids(boards_and_blocks, UnmatchedRelation::Dropped)
+}
+
+/// Gives every board and block a new identifier, as the two functions above say; a card
+/// relation value names the cards among the blocks by their new identifiers, and what
+/// else it names is kept or dropped as `unmatched` says.
+fn renew_ids(boards_and_blocks: BoardsAndBlocks, unmatched: UnmatchedRelation) -> BoardsAndBlocks {
     let BoardsAndBlocks { mut boards, blocks } = boards_and_blocks;
 
     let mut blocks_by_board: HashMap<String, Vec<Block>> = HashMap::new();
@@ -212,7 +221,11 @@ pub fn renew_boards_and_blocks_ids(boards_and_blocks: BoardsAndBlocks) -> Boards
         }
         board.id = new_board_id;
     }
-    generate_block_ids(&mut blocks);
+    let mut relations = RelationProperties::new();
+    for board in &boards {
+        relations.add_board(&board.id, &board.card_properties);
+    }
+    renew_block_ids(&mut blocks, &relations, unmatched);
 
     BoardsAndBlocks { boards, blocks }
 }

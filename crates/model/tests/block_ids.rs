@@ -353,3 +353,59 @@ fn generate_block_ids_takes_no_identifier_as_no_reference() {
             .all(|block| !block.id.is_empty() && block.id != "named")
     );
 }
+
+fn card(id: &str, board_id: &str, related: Value) -> Block {
+    Block {
+        block_type: fvoci_model::BlockType::Card,
+        fields: fields(json!({"properties": {"rel": related, "text": ["a", "b"]}})),
+        ..block(id, board_id, board_id)
+    }
+}
+
+fn related(block: &Block) -> &Value {
+    &block.fields["properties"]["rel"]
+}
+
+/// A card relation names the new identifiers of the cards renewed with it; what else it
+/// names a request keeps and a copy drops. Another property's values are no references.
+#[test]
+fn renew_block_ids_renames_what_card_relations_name() {
+    use fvoci_model::{RelationProperties, UnmatchedRelation, renew_block_ids};
+
+    let relations =
+        RelationProperties::of_board("board", &[fields(json!({"id": "rel", "type": "relation"}))]);
+    let view = Block {
+        block_type: fvoci_model::BlockType::View,
+        ..block("view", "board", "board")
+    };
+    let given = vec![
+        card("a", "board", json!(["b", "outside", "view", 3])),
+        card("b", "board", json!(["a"])),
+        view,
+        card("elsewhere", "other", json!(["a"])),
+    ];
+
+    let mut kept = given.clone();
+    renew_block_ids(&mut kept, &relations, UnmatchedRelation::Kept);
+    assert_eq!(
+        related(&kept[0]),
+        &json!([kept[1].id, "outside", kept[2].id, 3]),
+        "a request keeps what it names outside, and renames any block of its own"
+    );
+    assert_eq!(related(&kept[1]), &json!([kept[0].id]));
+    assert_eq!(
+        related(&kept[3]),
+        &json!(["a"]),
+        "a board without relations has its values as they are"
+    );
+    assert_eq!(kept[0].fields["properties"]["text"], json!(["a", "b"]));
+
+    let mut copied = given;
+    renew_block_ids(&mut copied, &relations, UnmatchedRelation::Dropped);
+    assert_eq!(
+        related(&copied[0]),
+        &json!([copied[1].id, 3]),
+        "a copy names the copies of the cards and nothing else"
+    );
+    assert_eq!(related(&copied[1]), &json!([copied[0].id]));
+}

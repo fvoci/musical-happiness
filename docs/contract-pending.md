@@ -205,7 +205,7 @@
   - `UPDATE_BLOCK`이 싣는 블록은 1절의 본문(`body`)을 함께 싣는다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.
   - 모든 조작의 `default` 응답이 `application/problem+json`의 `Problem`(RFC 9457)이다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다. 거절된 입력은 `errors`에 자리(`pointer`, `parameter`, `header`)와 함께 온다.
-  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`, `export_running`, `server_exports_busy`, `import_running`, `server_imports_busy`.
+  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`, `export_running`, `server_exports_busy`, `import_running`, `server_imports_busy`, 카드 관계 값의 `relation_*` 여섯(`createCard`의 설명).
   - 429와 `Retry-After`는 `login`, `register`, `changePassword`에, 412와 416은 `getFile`에 따로 적었다. 모두 같은 `Problem`이다.
 - **관리자 소켓의 라우트**(`/api/v1/admin/...`). 로컬 유닉스 소켓에서만 받는다. 계약에 없다.
 - **Prometheus 지표**(`/metrics`). API와 다른 리스너(`prometheusaddress`)에서만 낸다. API의 리스너에는 없다(`docs/configuration.md`의 "키: 지표").

@@ -344,6 +344,12 @@ export interface paths {
         /**
          * Make a card
          * @description The server chooses the identifier, the creator and the times. For editors.
+         *
+         *     The value of a card relation property (of the `type` `relation`) is `null` or a list
+         *     of other cards of the board, in the trash or not, each once, at most 50; any other is
+         *     400 with a reason `relation_*` (`/problems`). A card of another board is answered as
+         *     none. A patch checks the values it changes, and does not ask again for a card that a
+         *     value named before.
          */
         post: operations["createCard"];
         delete?: never;
