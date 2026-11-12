@@ -89,6 +89,19 @@ function setup() {
   };
 }
 
+/** A change that adds `value` to `values`, as a step of `manager` (of a gesture, with `groupId`). */
+function adding(manager: UndoManager, values: string[], value: string, groupId?: string) {
+  return manager.perform(
+    async () => {
+      values.push(value);
+    },
+    async () => {
+      values.splice(values.indexOf(value), 1);
+    },
+    value,
+    groupId,
+  );
+}
 describe('undo while a change is being written', () => {
   it('takes back that change once it is written, not the one before', async () => {
     const { manager, change, answer, shown, saved, writes } = setup();
@@ -338,20 +351,6 @@ describe('redo while an undo is being written', () => {
 });
 
 describe('a gesture of several changes', () => {
-  /** A change that adds `value` to `values`, as a step of `manager` (of a gesture, with `groupId`). */
-  function adding(manager: UndoManager, values: string[], value: string, groupId?: string) {
-    return manager.perform(
-      async () => {
-        values.push(value);
-      },
-      async () => {
-        values.splice(values.indexOf(value), 1);
-      },
-      value,
-      groupId,
-    );
-  }
-
   it('is one step from its start, and an undo asked for meanwhile waits for all of it', async () => {
     const manager = new UndoManager();
     const values: string[] = [];
@@ -606,5 +605,43 @@ describe('changes refused one after the other (found by a review of 042ff43)', (
 
     expect(manager.undoDescription).toBe('original');
     expect(manager.canRedo).toBe(false);
+  });
+
+  it('keeps two gestures placed at once in the order asked, and an undo asked meanwhile for the last', async () => {
+    // Two duplicates, each reading its card before it makes the copy.
+    const manager = new UndoManager();
+    const values: string[] = [];
+    const reads = [held(), held()];
+    const copying = ['x', 'y'].map((value, at) =>
+      manager.group(async (groupId) => {
+        await reads[at]?.promise;
+        await adding(manager, values, value, groupId);
+      }, true),
+    );
+    const undone = manager.undo();
+    reads[0]?.answer();
+    await copying[0];
+    reads[1]?.answer();
+    await Promise.all([...copying, undone]);
+    expect(values).toEqual(['x']);
+    expect(manager.undoDescription).toBe('x');
+    expect(manager.redoDescription).toBe('y');
+  });
+
+  it('leaves no step of a gesture placed at once that changed nothing, and gives back what could be redone', async () => {
+    const manager = new UndoManager();
+    const values: string[] = [];
+    await adding(manager, values, 'a');
+    await manager.undo();
+    const read = held();
+    const copying = manager.group(async (groupId) => {
+      await read.promise;
+      await adding(manager, values, 'never', groupId);
+    }, true);
+    expect(manager.canRedo).toBe(false);
+    read.refuse();
+    await copying.catch(() => undefined);
+    expect(manager.canUndo).toBe(false);
+    expect(manager.redoDescription).toBe('a');
   });
 });

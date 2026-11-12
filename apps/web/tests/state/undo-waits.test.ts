@@ -404,10 +404,9 @@ describe('a duplicate, which reads its card before it writes (found by a review 
       expect(workspace.info?.id).toBe(other.id);
       expect(workspace.canUndo).toBe(false);
       await workspace.undoLast();
-      // Made in the workspace left or not, the undo of the one entered does not delete it.
-      if (copy) {
-        expect((await backend.cards(board.boardId)).some((one) => one.id === copy.id)).toBe(true);
-      }
+      // Made in the workspace left, the undo of the one entered does not delete it.
+      expect(copy).toBeDefined();
+      expect((await backend.cards(board.boardId)).some((one) => one.id === copy?.id)).toBe(true);
     } finally {
       held.release();
       workspace.close();

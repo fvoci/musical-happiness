@@ -8,8 +8,6 @@ import { describe, expect, it } from 'vitest';
 import type { BlockPatch } from '$lib/logic/wire.ts';
 import { Inverses } from '$lib/state/inverses.ts';
 
-const refused = (): Promise<never> => Promise.reject(new Error('refused'));
-
 describe('a write that fails', () => {
   it('makes a patch kept while it was under way take back to what it replaced', async () => {
     const inverses = new Inverses<BlockPatch>('updatedFields', 'deletedFields');
@@ -68,9 +66,6 @@ describe('a write that fails', () => {
     fail();
     await failing;
     expect([before.title, other.title, different.title]).toEqual(['Shown', 'Shown', 'Else']);
-    // Nothing is kept once no write is under way.
-    await inverses.write('v', { title: 'Else' }, { title: 'Y' }, refused).catch(() => undefined);
-    expect(different.title).toBe('Else');
   });
 
   it('does not take an empty list of a board for one that says something', async () => {

@@ -257,17 +257,19 @@ export class UndoManager {
 
   /**
    * The step a gesture's next change joins: its own, unless a change of the
-   * person was made after it. The rest is then a new change, after that one,
-   * and drops the undos and redos waiting as a new change does: they were
-   * asked of steps in another order, and carried out over it they would
-   * write values that were never there. That change came between, so the gesture goes
-   * on in a new step after it: undo and redo then go in the order the
-   * changes were made.
+   * person was made after it (a step of another gesture that has changed
+   * nothing yet is none). That change came between: the rest of the gesture
+   * is a new change after it, so that undo and redo go in the order the
+   * changes were made, and it drops the undos and redos waiting as a new
+   * change does (asked of the steps in another order, carried out over it
+   * they would write values that never were).
    */
   #continued(gesture: Gesture): Entry | undefined {
     const { entry } = gesture;
     const at = entry ? this.#entries.indexOf(entry) : -1;
-    return at !== -1 && at < this.#entries.length - 1 ? undefined : entry;
+    if (at === -1) return entry;
+    const between = this.#entries.slice(at + 1);
+    return between.some((other) => other.steps.length > 0 || !other.gesture) ? undefined : entry;
   }
 
   /**
