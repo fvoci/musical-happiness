@@ -5,13 +5,19 @@ use anyhow::bail;
 use serde::Deserialize;
 
 /// The variables of the environment of these keys ([`super::ENV_KEYS`]).
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 6] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 12] = [
     ("collab_workers", super::EnvKind::Number),
     ("collab_documents_per_worker", super::EnvKind::Number),
     ("collab_state_bytes", super::EnvKind::Number),
     ("collab_update_bytes", super::EnvKind::Number),
     ("collab_worker_timeout_ms", super::EnvKind::Number),
     ("collab_worker_memory_bytes", super::EnvKind::Number),
+    ("collab_recheck_seconds", super::EnvKind::Number),
+    ("collab_documents_per_connection", super::EnvKind::Number),
+    ("collab_connections_per_document", super::EnvKind::Number),
+    ("collab_connections_per_user", super::EnvKind::Number),
+    ("collab_frames_per_second", super::EnvKind::Number),
+    ("collab_queue_messages", super::EnvKind::Number),
 ];
 
 /// The keys `collab_*` of the configuration, at its top level.
@@ -35,6 +41,23 @@ pub struct CollabSettings {
     /// The address space a worker may take, in bytes, where the system limits it
     /// (Unix). At least 256 MiB.
     pub collab_worker_memory_bytes: u64,
+    /// How often, in seconds, the server asks again whether each connection in the
+    /// room of a body may be there, and how. 1 to 3600.
+    pub collab_recheck_seconds: u64,
+    /// In how many rooms one websocket connection may be at once. 1 to 1024.
+    pub collab_documents_per_connection: u32,
+    /// How many websocket connections may be in the room of one body. 1 to 10000.
+    pub collab_connections_per_document: u32,
+    /// How many of the websocket connections in the room of one body may be one
+    /// user's. 1 to 10000.
+    pub collab_connections_per_user: u32,
+    /// How many frames of the rooms one websocket connection may send in a second,
+    /// and at once after a pause; a `JOIN_DOC` and a sync step 1 count as five. 10
+    /// to 1000000.
+    pub collab_frames_per_second: u32,
+    /// How many messages of the rooms may wait for one websocket connection. 16 to
+    /// 65536.
+    pub collab_queue_messages: u32,
     /// How a worker is started; `None` for this executable. Not a configuration file
     /// key: the tests, whose executable is no server, set it.
     #[serde(skip)]
@@ -63,6 +86,18 @@ pub(super) const MOST_STATE_BYTES: u64 = 1024 * 1024 * 1024;
 /// with the copies an update makes of it.
 pub(super) const LEAST_WORKER_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 
+/// The least `collab_frames_per_second`: a connection comes into a room (which
+/// counts as five) and writes at once.
+pub(super) const LEAST_FRAMES_PER_SECOND: u32 = 10;
+
+/// The least `collab_queue_messages`: a connection in the eight rooms of the default
+/// is sent each document anew (two messages a room) with none of them put out.
+pub(super) const LEAST_QUEUE_MESSAGES: u32 = 16;
+
+/// The most `collab_recheck_seconds`: an hour. A room that asks less often lets who
+/// was taken off a board write on for longer than anybody would expect.
+pub(super) const MOST_RECHECK_SECONDS: u64 = 3600;
+
 /// How many bytes of a worker's memory every byte of the states of its documents
 /// takes: a document in memory is larger than its state, and an update makes a copy of
 /// it and reads its state again. A worker holds states of `collab_worker_memory_bytes`
@@ -78,6 +113,12 @@ impl Default for CollabSettings {
             collab_update_bytes: DEFAULT_UPDATE_BYTES,
             collab_worker_timeout_ms: 10_000,
             collab_worker_memory_bytes: 1024 * 1024 * 1024,
+            collab_recheck_seconds: 30,
+            collab_documents_per_connection: 8,
+            collab_connections_per_document: 50,
+            collab_connections_per_user: 5,
+            collab_frames_per_second: 50,
+            collab_queue_messages: 512,
             worker_command: None,
         }
     }
@@ -129,6 +170,47 @@ impl CollabSettings {
                 self.collab_worker_memory_bytes
             );
         }
+        if !(1..=MOST_RECHECK_SECONDS).contains(&self.collab_recheck_seconds) {
+            bail!(
+                "collab_recheck_seconds must be 1 to {MOST_RECHECK_SECONDS}, not {}",
+                self.collab_recheck_seconds
+            );
+        }
+        for (key, value, range) in [
+            (
+                "collab_documents_per_connection",
+                self.collab_documents_per_connection,
+                1..=1024,
+            ),
+            (
+                "collab_connections_per_document",
+                self.collab_connections_per_document,
+                1..=10_000,
+            ),
+            (
+                "collab_connections_per_user",
+                self.collab_connections_per_user,
+                1..=10_000,
+            ),
+            (
+                "collab_frames_per_second",
+                self.collab_frames_per_second,
+                LEAST_FRAMES_PER_SECOND..=1_000_000,
+            ),
+            (
+                "collab_queue_messages",
+                self.collab_queue_messages,
+                LEAST_QUEUE_MESSAGES..=65_536,
+            ),
+        ] {
+            if !range.contains(&value) {
+                bail!(
+                    "{key} must be {} to {}, not {value}",
+                    range.start(),
+                    range.end()
+                );
+            }
+        }
         if self.collab_worker_memory_bytes < LEAST_WORKER_MEMORY_BYTES {
             bail!(
                 "collab_worker_memory_bytes must be at least {LEAST_WORKER_MEMORY_BYTES}, not {}",
@@ -178,6 +260,61 @@ mod tests {
         refused(
             |s| s.collab_worker_memory_bytes = LEAST_WORKER_MEMORY_BYTES - 1,
             "collab_worker_memory_bytes",
+        );
+        refused(|s| s.collab_recheck_seconds = 0, "collab_recheck_seconds");
+    }
+
+    #[test]
+    fn the_bounds_of_the_rooms_are_checked() {
+        let refused = |change: fn(&mut CollabSettings), key: &str| {
+            let mut settings = CollabSettings::default();
+            change(&mut settings);
+            let error = settings.check().expect_err(key).to_string();
+            assert!(error.contains(key), "{error}");
+        };
+        refused(
+            |s| s.collab_documents_per_connection = 0,
+            "collab_documents_per_connection",
+        );
+        refused(
+            |s| s.collab_documents_per_connection = 1025,
+            "collab_documents_per_connection",
+        );
+        refused(
+            |s| s.collab_connections_per_document = 0,
+            "collab_connections_per_document",
+        );
+        refused(
+            |s| s.collab_connections_per_document = 10_001,
+            "collab_connections_per_document",
+        );
+        refused(
+            |s| s.collab_connections_per_user = 0,
+            "collab_connections_per_user",
+        );
+        refused(
+            |s| s.collab_connections_per_user = 10_001,
+            "collab_connections_per_user",
+        );
+        refused(
+            |s| s.collab_frames_per_second = LEAST_FRAMES_PER_SECOND - 1,
+            "collab_frames_per_second",
+        );
+        refused(
+            |s| s.collab_frames_per_second = 1_000_001,
+            "collab_frames_per_second",
+        );
+        refused(
+            |s| s.collab_queue_messages = LEAST_QUEUE_MESSAGES - 1,
+            "collab_queue_messages",
+        );
+        refused(
+            |s| s.collab_queue_messages = 65_537,
+            "collab_queue_messages",
+        );
+        refused(
+            |s| s.collab_recheck_seconds = MOST_RECHECK_SECONDS + 1,
+            "collab_recheck_seconds",
         );
     }
 }

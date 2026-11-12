@@ -8,7 +8,7 @@ use fvoci_model::{Block, BlockPatch, BlockType};
 
 use super::place::Held;
 use super::upkeep::digest_of;
-use super::{Collab, refusals};
+use super::{Collab, DocChange, refusals};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -108,6 +108,14 @@ impl Collab {
                 self.forget(&mut slot).await;
             } else if written.is_ok() && slot.open.is_some() {
                 self.after_whole(app, &card_id, &mut slot).await;
+                self.retire(&mut slot);
+                continue;
+            }
+            // Not open (its worker ended over it, or it was opened here for its log
+            // alone), with a room all the same: the room holds the document before
+            // the write, and is told to open it anew.
+            if written.is_ok() && self.has_room(app, &card_id) {
+                self.tell(app, &card_id, DocChange::Closed);
             }
             self.retire(&mut slot);
         }
@@ -143,6 +151,7 @@ impl Collab {
             Err(error) => {
                 tracing::error!(%error, card_id, "cannot read a card written whole; its document is closed");
                 self.forget(slot).await;
+                self.tell(app, card_id, DocChange::Closed);
                 return;
             }
         };
@@ -154,7 +163,9 @@ impl Collab {
             return;
         }
         if let Err(error) = self.replaced(app, card_id, slot, body.as_ref()).await {
+            // Closed by the failure: the room is told, and opens it from the card.
             tracing::error!(%error, card_id, "cannot make a document again from a body written whole");
+            self.tell(app, card_id, DocChange::Closed);
         }
     }
 }

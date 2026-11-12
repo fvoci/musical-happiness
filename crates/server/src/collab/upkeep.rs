@@ -63,6 +63,8 @@ impl Collab {
         if let Some(repair) = &repair {
             entries.push((repair, ""));
         }
+        #[cfg(feature = "test-util")]
+        self.paused_before_log().await;
         let logged = app
             .store()
             .append_body_updates(card_id, &entries, &images)

@@ -27,7 +27,7 @@ async fn worker_pid(e: &Editing) -> u32 {
 }
 
 #[cfg(unix)]
-fn kill(pid: u32) {
+pub(crate) fn kill(pid: u32) {
     let status = std::process::Command::new("kill")
         .args(["-KILL", &pid.to_string()])
         .status()
