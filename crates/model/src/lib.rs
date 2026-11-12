@@ -28,6 +28,7 @@ mod oidc;
 mod organization;
 mod problem;
 mod refusal;
+mod relation;
 mod serde_util;
 mod settings;
 mod sharing;
@@ -47,7 +48,7 @@ pub use block::{
     BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, PropertyChanges, TYPE_SHOWN_CHARS,
     stamp_modification_metadata,
 };
-pub use block_ids::generate_block_ids;
+pub use block_ids::{UnmatchedRelation, generate_block_ids, renew_block_ids};
 pub use board::{
     Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
     MinimumRole, ParseBoardSearchFieldError,
@@ -85,6 +86,10 @@ pub use oidc::{
 pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
+pub use relation::{
+    RELATION_LIMIT, RELATION_PROPERTY_TYPE, RelationError, RelationProblem, RelationProperties,
+    check_relation_value, relation_property_ids, tidy_copied_relations,
+};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
     ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,

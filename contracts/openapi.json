@@ -1985,6 +1985,36 @@
             "reason": "oidc_join_closed",
             "title": "Organization closed to newcomers",
             "type": "/problems/oidc-join-closed"
+          },
+          {
+            "reason": "relation_not_a_list",
+            "title": "Card relation that is no list",
+            "type": "/problems/relation-not-a-list"
+          },
+          {
+            "reason": "relation_to_itself",
+            "title": "Card relation to the card itself",
+            "type": "/problems/relation-to-itself"
+          },
+          {
+            "reason": "relation_repeated",
+            "title": "Card named twice in a relation",
+            "type": "/problems/relation-repeated"
+          },
+          {
+            "reason": "relation_too_many",
+            "title": "Card relation names too many cards",
+            "type": "/problems/relation-too-many"
+          },
+          {
+            "reason": "relation_not_a_card",
+            "title": "Card relation names no card",
+            "type": "/problems/relation-not-a-card"
+          },
+          {
+            "reason": "relation_card_not_found",
+            "title": "Card relation names a card not on the board",
+            "type": "/problems/relation-card-not-found"
           }
         ]
       },
@@ -3835,7 +3865,7 @@
         ]
       },
       "post": {
-        "description": "The server chooses the identifier, the creator and the times. For editors.",
+        "description": "The server chooses the identifier, the creator and the times. For editors.\n\nThe value of a card relation property (of the `type` `relation`) is `null` or a list\nof other cards of the board, in the trash or not, each once, at most 50 (a value over\nit from before may be written with fewer of its cards, not with another). Any other is\n400 with the reason `relation_not_a_list`, `relation_to_itself`, `relation_repeated`,\n`relation_too_many` (with the `limit`), `relation_not_a_card` (a block of the board\nthat is no card) or `relation_card_not_found`: no card of that identifier on the\nboard, which is also the answer for a card of another board. Every write of a card\nchecks so (`patchCard`, the block routes, `createBoardsAndBlocks`) the values it\nchanges, and does not ask again for a card that a value named before.",
         "operationId": "createCard",
         "parameters": [
           {
@@ -4825,7 +4855,7 @@
         ]
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card.",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card. The relation values it changes are checked as `createCard` says.",
         "operationId": "patchCard",
         "parameters": [
           {

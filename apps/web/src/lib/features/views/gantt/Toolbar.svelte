@@ -12,7 +12,8 @@
   buttons that go to the next such card. Where no card with a bar is on a
   loop, the cards on one without a date are counted instead (a loop of
   them alone was shown nowhere): the button opens their list, which marks
-  them. One that has the
+  them. Where cards with a bar are counted, "No date" bears the mark of a
+  loop and says how many of its cards are on one. One that has the
   focus when its count comes to nothing stays until the focus leaves it, and
   a change of the counts is said to a screen reader.
 
@@ -49,6 +50,8 @@
     onzoom: (zoom: GanttZoom) => void;
     /** How many cards have no date, whether their list is open, and what opens it. */
     undated: number;
+    /** Of those, how many are on a loop and not counted by "On a loop": "No date" says so. */
+    undatedLoops?: number;
     undatedOpen: boolean;
     onundated: () => void;
     /** "No date" itself, for the focus to come back to. Bindable. */
@@ -68,6 +71,7 @@
     zoom,
     onzoom,
     undated,
+    undatedLoops = 0,
     undatedOpen,
     onundated,
     undatedButton = $bindable(null),
@@ -193,7 +197,9 @@
   <Button
     bind:ref={undatedButton}
     variant="ghost"
-    aria-label={m.calendar_undated_count({ count: undated })}
+    aria-label={undatedLoops > 0
+      ? m.gantt_undated_loops({ count: undated, loops: undatedLoops })
+      : m.calendar_undated_count({ count: undated })}
     aria-expanded={undatedOpen}
     data-testid="gantt-undated"
     data-card={undatedCard}
@@ -202,6 +208,9 @@
   >
     <CalendarOffIcon />
     <span class="hidden @columns/pane:inline">{m.calendar_undated()}</span>
+    {#if undatedLoops > 0}
+      <RepeatIcon data-mark="loop" class="text-destructive" />
+    {/if}
     <span
       class="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-muted px-1 text-[0.6875rem] leading-none font-semibold ring-1 ring-input-border"
     >

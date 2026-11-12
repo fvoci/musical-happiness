@@ -28,7 +28,8 @@ function watch(page: Page) {
     urls,
     // The formula library, its style sheet and its fonts.
     formulas: () => matching(/katex/i),
-    diagrams: () => matching(/mermaid/i),
+    // Not a folder that only happens to have the word in its name (a checkout called `web-mermaid`).
+    diagrams: () => matching(/(?<![\w-])mermaid/i),
     emoji: () => matching(/editor\/emoji\//),
     fonts: () =>
       matching(/KaTeX_[\w-]+\.(woff2?|ttf|otf)/).map((url) => url.split('/').pop()?.split('?')[0]),
@@ -264,26 +265,26 @@ test.describe('formulas', () => {
     }
   });
 
-  test('`$$` and a space opens the box for a block formula; the preview follows the source', async ({
+  test('`$$` and a space opens the place of a block formula on its line; the preview follows the source', async ({
     page,
   }) => {
     await open(page);
     const editor = editorOf(page);
     await editor.click();
     await editor.pressSequentially('$$ ');
-    const box = page.getByRole('dialog', { name: 'Edit formula' });
+    // In the flow of the body, on the line the formula will take: no box over the page.
+    const box = editor.locator('p > .doc-place-new');
     const field = box.getByRole('textbox', { name: 'LaTeX source' });
     await expect(field).toBeFocused();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await stored(page)).toBeNull();
 
     await field.pressSequentially('\\frac{a}{');
-    await expect(box.locator('.doc-math-preview [role="note"]')).toHaveText(
-      'This formula cannot be drawn.',
-    );
+    await expect(box.locator('.doc-place-problem')).toHaveText('This formula cannot be drawn.');
     await field.pressSequentially('b}');
     await expect(box.locator('.doc-math-preview .katex-html')).toBeVisible();
-    await expect(box.locator('.doc-math-preview [role="note"]')).toHaveCount(0);
-    // Enter is a new line in a block formula; Ctrl+Enter applies.
+    await expect(box.locator('.doc-place-problem')).toBeEmpty();
+    // Enter is a new line in a block formula; Ctrl+Enter closes the place.
     await field.press('Enter');
     await expect(box).toBeVisible();
     await field.press('Backspace');
@@ -294,8 +295,10 @@ test.describe('formulas', () => {
       type: 'doc',
       content: [{ type: 'blockMath', attrs: { latex: '\\frac{a}{b}' } }, { type: 'paragraph' }],
     });
-    // The cursor is back in the text, behind the formula.
+    // The formula is selected and the editor has the focus; the line behind it is one arrow away.
     await expect(editor).toBeFocused();
+    await expect(editor.locator('.doc-math-block')).toHaveClass(/ProseMirror-selectednode/);
+    await page.keyboard.press('ArrowDown');
     await page.keyboard.type('뒤');
     await expect(viewOf(page).locator('p')).toHaveText('뒤');
     await expect(viewOf(page).locator('div.doc-math[data-state="drawn"]')).toHaveCount(1);
@@ -388,9 +391,7 @@ test.describe('formulas', () => {
 });
 
 test.describe('diagrams', () => {
-  test('the view shows the picture in place of the source; the editor shows both', async ({
-    page,
-  }) => {
+  test('the view and the editor show the picture in place of the source', async ({ page }) => {
     await open(page);
     await load(page, 'diagrams');
 
@@ -409,23 +410,34 @@ test.describe('diagrams', () => {
 
     const editor = editorOf(page);
     await expect(editor.locator('.doc-diagram[data-state="drawn"]')).toHaveCount(4);
-    await expect(editor.locator('pre:has(code.language-mermaid):visible')).toHaveCount(6);
+    // Every source is the text of its block, out of sight until its place is opened;
+    // the one that could not be drawn shows a copy where its picture would be.
+    await expect(editor.locator('pre:has(code.language-mermaid)')).toHaveCount(6);
+    await expect(editor.locator('pre:has(code.language-mermaid):visible')).toHaveCount(0);
+    await expect(editor.locator('.doc-diagram-copy:visible')).toHaveCount(1);
+    await expect(editor.locator('pre:has(code.language-ts)')).toBeVisible();
     await expect(editor.locator('.doc-diagram > svg').first()).toContainText('시작');
     await expect(editor.locator('.doc-diagram > svg').first()).toBeVisible();
   });
 
-  test('a diagram that cannot be read keeps its source and says why; an empty one says nothing', async ({
+  test('a diagram that cannot be read keeps its source and says why; an empty one says it is empty, where it can be written', async ({
     page,
   }) => {
     await open(page);
     await load(page, 'diagrams');
-    for (const body of [editorOf(page), viewOf(page)]) {
+    for (const [where, body] of [
+      ['editor', editorOf(page)],
+      ['view', viewOf(page)],
+    ] as const) {
       const failed = body.locator('.doc-diagram[data-state="error"]');
       await expect(failed).toHaveCount(1);
       await expect(failed.getByRole('note')).toHaveText('This diagram cannot be drawn.');
       await expect(failed.locator('.doc-embed-detail')).toContainText('Parse error');
-      await expect(body.locator('.doc-diagram[data-state="empty"]')).toHaveCount(1);
-      await expect(body.locator('.doc-diagram[data-state="empty"]')).toBeHidden();
+      const empty = body.locator('.doc-diagram[data-state="empty"]');
+      await expect(empty).toHaveCount(1);
+      if (where === 'view') await expect(empty).toBeHidden();
+      // In the editor it can be pressed to be written.
+      else await expect(empty).toHaveText('Empty diagram');
     }
     await expect(viewOf(page).locator('pre:has(code)', { hasText: 'A --> --> B' })).toBeVisible();
   });

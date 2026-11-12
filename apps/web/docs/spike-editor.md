@@ -504,11 +504,11 @@ type RenderedBody =
 | 무엇                                                                         | 어디                                                                                                       |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 제품 부품(편집기)과 그 인자의 타입                                           | `src/lib/editor/BodyEditor.svelte`, `body-editor.ts`                                                       |
-| 수식 노드 둘, 입력 규칙, 원문 상자                                           | `src/lib/editor/math-nodes.ts`, `math-editing.ts`                                                          |
+| 수식 노드 둘, 입력 규칙, 원문 상자, 블록 수식의 편집 자리                    | `src/lib/editor/math-nodes.ts`, `math-editing.ts`, `math-block.ts`                                         |
 | 수식을 그리는 곳(KaTeX를 늦게 받는다, 옵션과 한도)                           | `src/lib/editor/math.ts`, 스타일시트 사본 `katex.css`(도구 `tools/math/katex-css.ts`가 만든다)             |
 | 다이어그램을 그리는 곳(Mermaid를 늦게 받는다, 옵션, 원문 단계의 거절)        | `src/lib/editor/diagram.ts`                                                                                |
 | 그린 SVG를 허용한 것만으로 다시 만드는 걸러 내기                             | `src/lib/editor/safe-svg.ts`                                                                               |
-| 본문에서 수식과 다이어그램의 자리를 찾아 그리기(표시기와 편집기가 같이 쓴다) | `src/lib/editor/embeds.ts`, 편집 중의 그림은 `diagram-preview.ts`                                          |
+| 본문에서 수식과 다이어그램의 자리를 찾아 그리기(표시기와 편집기가 같이 쓴다) | `src/lib/editor/embeds.ts`, 편집기의 다이어그램과 편집 자리는 `diagram-block.ts`, `editing-place.ts`       |
 | 이모지: 콜론 규칙, 찾기, 자료                                                | `src/lib/editor/emoji-trigger.ts`, `emoji.ts`, `emoji/en.json`·`ko.json`(도구 `tools/emoji/build.ts`)      |
 | 자동 완성 목록(사람, 이모지), 이미지 올리기의 자리 표시                      | `src/lib/editor/suggestion-list.ts`, `uploads.ts`                                                          |
 | ELK 배치 엔진의 자리에 넣는 빈 모듈                                          | `src/lib/editor/no-elk.ts`, `vite.config.ts`의 `resolve.alias`                                             |
@@ -559,7 +559,7 @@ type RenderedBody =
 
 `renderBody`와 편집기의 노드 뷰가 똑같이 이 요소를 만들고, `embeds.ts`가 KaTeX를 받아 그 안에 그린다. 그리기 전과 그릴 수 없을 때는 원문이 코드 모양으로 보인다. 그릴 수 없으면 원문 뒤에 안내 문구(`role="note"`)가 붙는다. 그리면 `data-state="drawn"`, `role="math"`, `aria-label`(원문)이 붙는다.
 
-**입력**: `$x^2$`(닫는 `$`를 칠 때), 한 줄 전체가 `$$…$$`, 빈 줄에서 `$$`와 공백(원문 상자가 열린다). `$5 and $10`, `US$5$`, `\$x$`는 글자로 남는다. **고치기**: 수식을 누르거나 선택한 채 Enter. 상자에 원문과 미리보기가 있고, Enter(블록은 Ctrl+Enter)로 적용, Esc로 취소, 비우면 수식을 지운다. 입력기 조합 중의 키는 명령으로 보지 않는다.
+**입력**: `$x^2$`(닫는 `$`를 칠 때), 한 줄 전체가 `$$…$$`, 빈 줄에서 `$$`와 공백(그 줄에 블록 수식의 편집 자리가 열린다). `$5 and $10`, `US$5$`, `\$x$`는 글자로 남는다. **고치기**: 수식을 누르거나 선택한 채 Enter. 줄 안의 수식은 상자에 원문과 미리보기가 있고 Enter로 적용, Esc로 취소한다. 블록 수식은 다이어그램처럼 수식 아래에 편집 자리가 열리고, Esc·Ctrl+Enter로 닫을 때 고친 것이 본문의 실행 취소 한 단계로 들어간다. 비우면(닫으면) 수식을 지운다. 입력기 조합 중의 키는 명령으로 보지 않는다.
 
 **KaTeX에 준 옵션과 근거**(0.19.1. 문서는 저장소 태그 `v0.19.1`의 `docs/security.md`와 `docs/options.md`, 소스는 패키지의 `src/Settings.ts`, `src/domTree.ts`, `katex.ts`):
 
@@ -602,7 +602,7 @@ type RenderedBody =
 
 ### 다이어그램
 
-언어가 `mermaid`인 코드 블록이다. 표시기는 그림으로 원문을 대신하고(원문은 숨기되 페이지에 남는다), 편집기는 원문 아래에 그림을 둔다. 그리기 전과 그릴 수 없을 때는 원문이 보이고, 그릴 수 없으면 안내와 라이브러리의 오류 글(글자로)이 붙는다.
+언어가 `mermaid`인 코드 블록이다. 표시기와 편집기 모두 그림으로 원문을 대신한다(원문은 숨기되 페이지에 남는다). 편집기에서는 그림을 누르거나 선택한 채 Enter로 그림 아래에 원문을 열어 고친다(`docs/decisions.md`의 29). 그리기 전과 그릴 수 없을 때는 원문이 보이고, 그릴 수 없으면 안내와 라이브러리의 오류 글(글자로)이 붙는다.
 
 원문은 한 사용자가 쓰고 다른 사용자의 화면에서 그려진다. 방어는 네 겹이고, 겹마다 혼자서도 막게 했다(`diagram.ts`의 머리말).
 
@@ -763,25 +763,25 @@ WOFF2만 싣는 방법: KaTeX의 스타일시트는 글꼴마다 WOFF2·WOFF·TT
 
 ### 테스트
 
-| 파일                                                    | 환경     | 건수     | 무엇                                                                                     |
-| ------------------------------------------------------- | -------- | -------- | ---------------------------------------------------------------------------------------- |
-| `tests/editor/schema.test.ts`                           | node     | 83       | 수식 노드의 검증(자리, 한도, UTF-16 경계), 평문, 판 2                                    |
-| `tests/editor/emoji.test.ts`                            | node     | 49       | 콜론 규칙, 실제 목록에서 찾기(영어·한국어), 목록과 KaTeX 스타일시트가 최신인가           |
-| `tests/editor/render-imports.test.ts`                   | node     | 11       | 표시기의 가져오기 그래프, 늦게 받기, 문자열을 요소로 바꾸는 API의 예외 한 곳             |
-| `tests/ui/body-safe-svg.test.ts`                        | jsdom    | 88       | 걸러 내기                                                                                |
-| `tests/ui/body-math.test.ts`                            | jsdom    | 35       | 표시기의 수식(진짜 KaTeX), 적대적인 수식, 받지 않는 경우                                 |
-| `tests/ui/body-compare.test.ts`                         | jsdom    | 86       | 편집기와 표시기의 비교                                                                   |
-| `tests/ui/editor-formulas.test.ts`                      | jsdom    | 50       | 입력 규칙, 원문 상자, 붙여넣기, 편집 중의 다이어그램, 이모지 목록이 불리는 때            |
-| `tests/ui/editor-component.test.ts`                     | jsdom    | 16       | 제품 부품: 읽는 때, 알리는 것, 거절, 읽기 전용, 이름, 올리기, 스타일시트를 넣지 않는다   |
-| `spikes/editor/embeds.spec.ts`                          | Chromium | 22       | 받는 시점, 이모지(한글 뒤, 한국어 찾기), 수식 입력과 고치기, 다이어그램, 두 화면, 올리기 |
-| `spikes/editor/attacks.spec.ts`                         | Chromium | 62       | 위 "공격 문자열 테스트"(데스크톱 프로젝트에서만 돈다)                                    |
-| 기존 `editor.spec.ts`, `view.spec.ts`, `window.spec.ts` | Chromium | 10, 4, 3 | 제품 부품으로 바꾼 스파이크 화면에서 그대로 통과                                         |
+| 파일                                                                                           | 환경     | 건수     | 무엇                                                                                     |
+| ---------------------------------------------------------------------------------------------- | -------- | -------- | ---------------------------------------------------------------------------------------- |
+| `tests/editor/schema.test.ts`                                                                  | node     | 83       | 수식 노드의 검증(자리, 한도, UTF-16 경계), 평문, 판 2                                    |
+| `tests/editor/emoji.test.ts`                                                                   | node     | 49       | 콜론 규칙, 실제 목록에서 찾기(영어·한국어), 목록과 KaTeX 스타일시트가 최신인가           |
+| `tests/editor/render-imports.test.ts`                                                          | node     | 11       | 표시기의 가져오기 그래프, 늦게 받기, 문자열을 요소로 바꾸는 API의 예외 한 곳             |
+| `tests/ui/body-safe-svg.test.ts`                                                               | jsdom    | 88       | 걸러 내기                                                                                |
+| `tests/ui/body-math.test.ts`                                                                   | jsdom    | 35       | 표시기의 수식(진짜 KaTeX), 적대적인 수식, 받지 않는 경우                                 |
+| `tests/ui/body-compare.test.ts`                                                                | jsdom    | 86       | 편집기와 표시기의 비교                                                                   |
+| `tests/ui/editor-formulas.test.ts`, `editor-diagrams.test.ts`, `editor-formula-blocks.test.ts` | jsdom    | 76       | 입력 규칙, 원문 상자, 붙여넣기, 다이어그램의 편집 자리, 이모지 목록이 불리는 때          |
+| `tests/ui/editor-component.test.ts`                                                            | jsdom    | 16       | 제품 부품: 읽는 때, 알리는 것, 거절, 읽기 전용, 이름, 올리기, 스타일시트를 넣지 않는다   |
+| `spikes/editor/embeds.spec.ts`                                                                 | Chromium | 22       | 받는 시점, 이모지(한글 뒤, 한국어 찾기), 수식 입력과 고치기, 다이어그램, 두 화면, 올리기 |
+| `spikes/editor/attacks.spec.ts`                                                                | Chromium | 62       | 위 "공격 문자열 테스트"(데스크톱 프로젝트에서만 돈다)                                    |
+| 기존 `editor.spec.ts`, `view.spec.ts`, `window.spec.ts`                                        | Chromium | 10, 4, 3 | 제품 부품으로 바꾼 스파이크 화면에서 그대로 통과                                         |
 
 ### 확인하지 못한 것
 
 - **실제 한글 입력기.** 테스트는 글자를 직접 넣는다. 조합 중에 콜론 목록과 `$…$` 규칙이 어떻게 구는지, 조합 중의 Enter가 목록에서 무엇을 고르는지는 실제 입력기로 봐야 한다. 원문 상자는 조합 중의 키를 명령으로 보지 않게 했지만(`isComposing`) 실제 입력기로 확인하지는 못했다.
 - **Firefox, Safari, 실제 모바일 기기.** Chromium headless만 돌렸다. 특히: 입력 규칙의 정규식이 뒤돌아보기(lookbehind)와 유니코드 속성을 쓴다(Safari 16.4 이상). 토큰 색을 읽는 캔버스가 oklch를 받는지(받지 못하면 `neutral` 테마로 물러나게 했지만 그 길을 실제로 타 보지 못했다). 깊은 수식의 배치 시간과 한도(200)는 Chromium에서 잰 것이다. Firefox는 바깥 SVG의 채움(`fill: url(다른 문서#…)`)을 받아 올 수 있는데, 걸러 내기가 `#이름` 밖의 `url()`을 모두 지우므로 영향이 없을 것으로 보지만 돌려 보지 못했다.
-- **화면 낭독기.** 수식의 `role="math"`와 `aria-label`(원문), 다이어그램의 `role="img"`, 자동 완성 목록의 `aria-activedescendant`, 원문 상자의 `role="dialog"`가 실제로 어떻게 읽히는지 듣지 못했다. 다이어그램의 접근성 이름은 "다이어그램"뿐이다(내용은 숨긴 원문에 있다).
+- **화면 낭독기.** 수식의 `role="math"`와 `aria-label`(원문), 다이어그램의 이름(종류와 "누르면 고칩니다"), 자동 완성 목록의 `aria-activedescendant`, 줄 안 수식의 원문 상자의 `role="dialog"`가 실제로 어떻게 읽히는지 듣지 못했다. 다이어그램의 접근성 이름은 종류까지다(내용은 숨긴 원문에 있다).
 - **엄격한 콘텐츠 보안 정책 아래의 동작.** 정책이 아직 없어 돌려 보지 못했다. 소스로 본 것: 편집기와 수식은 스크립트가 넣는 스타일시트를 쓰지 않는다. 다이어그램은 그린 SVG 안의 `<style>`이 막힌다(색을 잃는다). Mermaid 자신도 그리는 동안 `<style>` 요소를 만든다.
 - **Mermaid가 그리는 동안의 페이지.** 라이브러리는 글자 크기를 재려고 실제 페이지 안(화면 밖에 둔 자리)에 그린다. 걸러 내기는 그 뒤의 일이다. 그리는 동안의 요청은 테스트한 공격들에서는 없었지만, 라이브러리의 새 판이 그리는 중에 무엇을 받아 오는 문법을 더하면 테스트에 없는 한 새어 나갈 수 있다. 판을 올릴 때 공격 문자열 테스트를 돌리고 새 문법을 본다. 더 단단한 길은 라이브러리를 자기 정책(`default-src 'none'`)을 가진 별도 문서에서 돌리는 것이다(하지 않았다: 글자 크기를 재려면 앱의 글꼴이 그 문서에도 있어야 한다).
 - **다이어그램 종류 전부의 모양.** 스무 종류가 우리 설정에서 그려지는 것은 한 번 확인했다(`foreignObject`는 여정에서만 나오고 그 옆의 `<text>`가 대신 그려진다). 종류마다 토큰 색으로 읽기 좋은지는 흐름도·시퀀스·파이만 눈으로 봤다. dagre 배치로 바꾼 뒤의 모양은 흐름도만 봤다.

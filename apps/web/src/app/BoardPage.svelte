@@ -18,7 +18,7 @@
   import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
-  import { newCardMaker, type Workspace } from '$lib/state/index.ts';
+  import { newCardMaker, whileHere, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import NotFound from './NotFound.svelte';
@@ -87,7 +87,7 @@
       view.fields.filter,
       board.board.cardProperties,
     );
-    const card = await board.createCard({ properties });
+    const card = await whileHere(board, () => board.createCard({ properties }));
     if (card) openCard(card.id);
   }
 </script>

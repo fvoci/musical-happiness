@@ -25,7 +25,13 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
-  import { boardTrash, type Category, type Trash, type Workspace } from '$lib/state/index.ts';
+  import {
+    boardTrash,
+    whileHere,
+    type Category,
+    type Trash,
+    type Workspace,
+  } from '$lib/state/index.ts';
   import { Input } from '$lib/ui/input/index.js';
 
   import { BoardSearch } from './board-search.svelte.ts';
@@ -123,11 +129,22 @@
   const titleOf = (board: Board): string => board.title || m['Sidebar.untitled-board']();
 
   async function deleteBoard(board: Board): Promise<void> {
-    await workspace.deleteBoard(board.id);
+    const here = await whileHere(workspace, async () => {
+      await workspace.deleteBoard(board.id);
+      return true;
+    });
     // The page showed the board that is gone: show the first one that is left.
-    if (board.id !== boardId || workspace.boards.some((left) => left.id === board.id)) return;
+    if (!here || board.id !== boardId || workspace.boards.some((left) => left.id === board.id)) {
+      return;
+    }
     const next = workspace.sidebar.flatMap((entry) => entry.boards)[0];
     if (next) onOpenBoard(next);
+  }
+
+  /** Makes a template of the board and opens it, to be changed there. */
+  async function templateFromBoard(boardId: string): Promise<void> {
+    const made = await whileHere(workspace, () => workspace.createTemplateFromBoard(boardId));
+    if (made) onOpenBoard(made);
   }
 
   function confirmed(): void {
@@ -211,6 +228,7 @@
       asked = { kind: 'category', category };
       askOpen = true;
     }}
+    onTemplateFromBoard={(id: string) => void templateFromBoard(id)}
     onDeleteBoard={(board: Board) => {
       asked = { kind: 'board', board };
       askOpen = true;

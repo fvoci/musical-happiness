@@ -296,13 +296,14 @@ span.doc-embed-problem {
 }
 
 /*
- * A diagram: the picture drawn from a code block, right behind that block.
- * Read-only, the block itself is hidden once the picture is there.
+ * A diagram: the picture drawn from a code block, in the place of that block
+ * (read-only, the block is hidden once the picture is there; the editor's is
+ * in editing-place.css). A picture has no frame; what went wrong has.
  */
 .doc-body .doc-diagram {
   overflow-x: auto;
   text-align: center;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   padding: 0.75em;
 }
@@ -316,8 +317,9 @@ span.doc-embed-problem {
 }
 .doc-body .doc-diagram[data-state='error'] {
   text-align: start;
+  border-color: var(--border);
 }
-/* In the editor the picture belongs to the source above it. */
+/* Read-only, the picture follows the source it stands in for. */
 .doc-body pre + .doc-diagram {
   margin-top: 0.25em;
 }

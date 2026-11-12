@@ -112,6 +112,14 @@ export function boardPatches(next: Board, prev: Board): [BoardPatch, BoardPatch]
   return createPatchesFromBoards(next, prev);
 }
 
+export function isEmptyBoardPatch(patch: BoardPatch): boolean {
+  return Object.values(patch).every((value: unknown) => {
+    if (Array.isArray(value)) return value.length === 0;
+    if (typeof value === 'object' && value !== null) return Object.keys(value).length === 0;
+    return value === undefined;
+  });
+}
+
 export function applyBoardPatch(board: Board, patch: BoardPatch): Board {
   let cardProperties = board.cardProperties.map((template) => ({
     ...template,

@@ -16,11 +16,13 @@ import {
   edgesOutOfOrderByDays,
   isOutOfOrder,
   relationEdges,
+  valuesOfCopy,
   type Days,
   type RelationEdge,
 } from '$lib/logic/dependencies.ts';
 import {
   createCard,
+  RELATION_LIMIT,
   setCardProperty,
   type Card,
   type PropertyTemplate,
@@ -240,5 +242,26 @@ describe('dates out of order', () => {
       edge('a', 'b'),
       edge('b', 'c'),
     ]);
+  });
+});
+
+describe('the values of a copy of a card', () => {
+  const RELATION: PropertyTemplate = { id: AFTER, name: 'After', type: 'relation', options: [] };
+
+  it('name the cards that are there, each once, not the card copied, at most the limit', () => {
+    const source = card('source', ['a', 'gone', 'source', 'a', 'b']);
+    setCardProperty(source, 'text', ['x', 'x']);
+    const there = new Set(['source', 'a', 'b']);
+    expect(valuesOfCopy(source, [RELATION, DUE], there)).toEqual({
+      [AFTER]: ['a', 'b'],
+      text: ['x', 'x'],
+    });
+    const many = Array.from({ length: RELATION_LIMIT + 5 }, (_, at) => `c${String(at)}`);
+    const crowded = valuesOfCopy(card('source', many), [RELATION], new Set(many));
+    expect(crowded[AFTER]).toEqual(many.slice(0, RELATION_LIMIT));
+  });
+
+  it('leave a card without a relation value as it is', () => {
+    expect(valuesOfCopy(card('source'), [RELATION], new Set())).toEqual({});
   });
 });

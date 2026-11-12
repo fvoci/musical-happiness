@@ -5,9 +5,9 @@
  */
 import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
-import { BackendError, Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
+import { BackendError, whileHere, Workspace, type WorkspaceInfo } from '$lib/state/index.ts';
 
-import { settle, setup, type Setup } from './support.ts';
+import { settle, setup, SMALL, type Setup } from './support.ts';
 
 const OTHER: WorkspaceInfo = { id: 'other-workspace', title: 'Other' };
 
@@ -250,5 +250,93 @@ describe('a board of another workspace', () => {
     await backend.patchBoard(board.id, { title: 'Moved' });
     await settle();
     expect(workspace.boards.find((one) => one.id === board.id)?.title).not.toBe('Moved');
+  });
+});
+
+describe('entering another workspace while an undo or redo of the one left is written', () => {
+  // Found by a review of web-o3 (its tests/state/workspace-review.test.ts).
+  for (const action of ['undo', 'redo'] as const) {
+    it(`keeps the new workspace's history empty when the ${action} is answered late`, async () => {
+      const { workspace, backend } = twoWorkspaces();
+      await workspace.load();
+      const board = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+      if (!board) throw new Error('no board');
+      await workspace.hideBoard(board.id);
+      if (action === 'redo') await workspace.undoLast();
+
+      let answer = (): void => undefined;
+      const pending = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const writing = vi.spyOn(backend, 'setBoardHidden').mockReturnValueOnce(pending);
+      const applying = action === 'undo' ? workspace.undoLast() : workspace.redoLast();
+      // Entered once the write has begun: the undo or redo is being carried out, not waiting.
+      await vi.waitFor(() => {
+        expect(writing).toHaveBeenCalled();
+      });
+      await workspace.enter(OTHER.id);
+      expect(workspace.info).toEqual(OTHER);
+      expect(workspace.canUndo).toBe(false);
+      expect(workspace.canRedo).toBe(false);
+
+      answer();
+      await applying;
+      expect(workspace.canUndo).toBe(false);
+      expect(workspace.canRedo).toBe(false);
+      workspace.close();
+    });
+  }
+});
+
+describe('an answer that would take the reader somewhere', () => {
+  it('is handed on while the reader is still in the workspace it was asked in', async () => {
+    const { workspace } = twoWorkspaces();
+    await workspace.load();
+    const made = await whileHere(workspace, () => workspace.createBoard({ title: 'Here' }));
+    expect(made?.title).toBe('Here');
+  });
+
+  it('is not handed on once the reader entered another workspace; what it made is there', async () => {
+    const { workspace, backend, first } = twoWorkspaces();
+    await workspace.load();
+    backend.latency = 20;
+    const making = whileHere(workspace, () => workspace.createBoard({ title: 'Left behind' }));
+    await workspace.enter(OTHER.id);
+    expect(await making).toBeUndefined();
+    backend.latency = 0;
+    await workspace.enter(first.id);
+    expect(workspace.boards.map((board) => board.title)).toContain('Left behind');
+  });
+
+  it('is not handed on to one who went to another workspace and came back', async () => {
+    const { workspace, backend, first } = twoWorkspaces();
+    await workspace.load();
+    backend.latency = 20;
+    const making = whileHere(workspace, () => workspace.createBoard({ title: 'Asked before' }));
+    await workspace.enter(OTHER.id);
+    await workspace.enter(first.id);
+    expect(await making).toBeUndefined();
+  });
+
+  it('of a board, is not handed on once another board is open', async () => {
+    const { workspace, backend } = twoWorkspaces(setup([SMALL, { ...SMALL, key: 'small-2' }]));
+    await workspace.load();
+    const [one, two] = workspace.sidebar.flatMap((entry) => entry.boards);
+    if (!one || !two) throw new Error('the seed has fewer than two boards');
+    const store = await workspace.openBoard(one.id);
+    backend.latency = 20;
+    const making = whileHere(store, () => store.createCard({}));
+    await workspace.openBoard(two.id);
+    expect(await making).toBeUndefined();
+  });
+
+  it('of a board, is handed on while that board is open', async () => {
+    const { workspace } = twoWorkspaces();
+    await workspace.load();
+    const [one] = workspace.sidebar.flatMap((entry) => entry.boards);
+    if (!one) throw new Error('the seed has no board');
+    const store = await workspace.openBoard(one.id);
+    const card = await whileHere(store, () => store.createCard({ title: 'Kept' }));
+    expect(card?.title).toBe('Kept');
   });
 });

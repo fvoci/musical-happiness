@@ -78,9 +78,8 @@
   /** Said to a screen reader once a card has moved. */
   let announced = $state('');
   /**
-   * Moves being written: until the backend has answered one is not yet
-   * a step that undo takes back. Said as settling (`data-settling`), as a
-   * board says a drop that is being written.
+   * Moves being written: said as settling (`data-settling`) until the
+   * backend has answered, as a board says a drop that is being written.
    */
   let writing = $state(0);
   let box = $state<HTMLElement | null>(null);

@@ -69,6 +69,8 @@
     onRenameCategory: (category: Category) => void;
     onDeleteCategory: (category: Category) => void;
     onDeleteBoard: (board: Board) => void;
+    /** Makes a template of the board, to be changed on its page. */
+    onTemplateFromBoard: (boardId: string) => void;
   }
 
   let {
@@ -84,6 +86,7 @@
     onRenameCategory,
     onDeleteCategory,
     onDeleteBoard,
+    onTemplateFromBoard,
   }: Props = $props();
 
   const uid = $props.id();
@@ -231,12 +234,6 @@
     if (archive) saveBlob(archive.bytes, archive.name);
   }
 
-  /** Makes a template of the board and opens it, to be changed there. */
-  async function templateFrom(boardId: string): Promise<void> {
-    const made = await workspace.createTemplateFromBoard(boardId);
-    if (made) onOpenBoard(made);
-  }
-
   function boardActions(board: Board, home: Category): MenuAction[] {
     const moves = workspace.sidebar
       .filter((entry) => entry.category.id !== home.id)
@@ -262,7 +259,9 @@
         id: 'template-from-board',
         label: m['Sidebar.template-from-board'](),
         icon: LayoutTemplateIcon,
-        run: () => void templateFrom(board.id),
+        run: () => {
+          onTemplateFromBoard(board.id);
+        },
       },
       {
         id: 'hide',

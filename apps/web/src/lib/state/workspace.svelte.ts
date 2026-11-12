@@ -92,10 +92,11 @@ export class Workspace {
   /** The board that is open, if one is. */
   board = $state.raw<BoardStore | undefined>(undefined);
 
-  /** Undo and redo of what the reader did in this visit. */
+  /** Undo and redo of what the reader did in this visit, and whether one waits (`busy`). */
   readonly undo = new UndoManager();
   canUndo = $state(false);
   canRedo = $state(false);
+  undoBusy = $state(false);
 
   /** The sidebar: categories and their boards, in the order to show them. */
   readonly sidebar = $derived<SidebarCategory[]>(
@@ -127,6 +128,7 @@ export class Workspace {
     this.undo.onStateDidChange = () => {
       this.canUndo = this.undo.canUndo;
       this.canRedo = this.undo.canRedo;
+      this.undoBusy = this.undo.busy;
     };
   }
 
@@ -212,7 +214,7 @@ export class Workspace {
       this.entered = 'missing';
       return;
     }
-    this.info = workspace;
+    this.info = { ...workspace }; // Each entry its own: a way back is not "still there".
     this.entered = 'loading';
     this.backend.enter?.(workspace.id);
     const read = await readWorkspace(this.backend, workspace.id);
@@ -816,7 +818,6 @@ export class Workspace {
   // --------------------------------------------------------------- undo
 
   async undoLast(): Promise<void> {
-    if (!this.undo.canUndo) return;
     try {
       await this.undo.undo();
     } catch (error) {
@@ -825,7 +826,6 @@ export class Workspace {
   }
 
   async redoLast(): Promise<void> {
-    if (!this.undo.canRedo) return;
     try {
       await this.undo.redo();
     } catch (error) {

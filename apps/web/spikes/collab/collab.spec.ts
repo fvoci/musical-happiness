@@ -852,7 +852,9 @@ test('the nodes of our own and a diagram go from one editor to the other and bac
   );
   await expect(b.locator('img[data-file-id="file-a.png"]')).toHaveCount(1);
   // The diagram library arrives on its own, which takes a while on a busy machine.
-  await expect(b.locator('.doc-diagram[data-diagram] svg')).toHaveCount(1, { timeout: 60_000 });
+  await expect(b.locator('.doc-diagram-block .doc-diagram svg')).toHaveCount(1, {
+    timeout: 60_000,
+  });
 
   // And a change of an attribute alone comes back.
   await page.evaluate(() => {
