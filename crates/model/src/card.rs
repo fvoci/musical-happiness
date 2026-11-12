@@ -109,8 +109,8 @@ pub struct Card {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CardPreview {
-    /// The file the body's first image shows (`getFile` gives it, also with the board's
-    /// read token); empty if the body has no image.
+    /// The file the body's first image shows (`getFile` gives it, and `getSharedFile` to
+    /// the holder of the board's link); empty if the body has no image.
     pub image_file_id: String,
     /// The beginning of the body's text: its plain text as it is searched (a line per
     /// paragraph, heading, code block and formula block, separated by `\n`; a formula

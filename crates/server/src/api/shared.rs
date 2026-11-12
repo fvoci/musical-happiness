@@ -8,8 +8,9 @@
 //! the people of a view's filter, and the mentions of a body are emptied.
 //!
 //! A token that opens nothing, a board that is not shared and a board in the trash
-//! answer alike, 404. Each such answer counts against the client's address
-//! (`App::shared_reads`), so that tokens cannot be guessed at speed.
+//! answer alike, 404. Each such answer, and a read that fails before its token is
+//! looked at, counts against the client's address (`App::shared_reads`), so that
+//! tokens cannot be guessed at speed.
 
 use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery};
@@ -82,9 +83,9 @@ impl FromRequestParts<App> for SharedBoard {
         };
         let token = query_param(parts.uri.query(), READ_TOKEN);
         let Some(app) = app.enter_shared_board(&board_id, &token).await? else {
-            app.shared_reads().failed(address);
             return Err(not_shared());
         };
+        app.shared_reads().opened(address);
         Ok(Self { app, board_id })
     }
 }
@@ -110,9 +111,9 @@ impl SharedBoard {
 ///
 /// The board whose read token the request has; no session is needed, and one that
 /// comes along is not looked at. Who made the board or changed it last is not told
-/// (`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is empty). 404 unless the token is the board's and the
-/// board is shared and not in the trash; 429 for an address that has had many such
-/// answers within a minute.
+/// (`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is
+/// empty). 404 unless the token is the board's and the board is shared and not in the
+/// trash; 429 for an address that has had many such answers within a minute.
 #[utoipa::path(
     get,
     path = "/shared/{boardId}",

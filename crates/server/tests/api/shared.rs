@@ -65,15 +65,7 @@ async fn fixture() -> Fixture {
         )
         .await
         .check_created();
-    let file = reqwest::multipart::Part::bytes(b"the shared file".to_vec()).file_name("a.txt");
-    let uploaded: Value = Client::send(
-        ts.client
-            .request(Method::POST, &format!("/boards/{}/files", board.id))
-            .multipart(reqwest::multipart::Form::new().part("file", file)),
-    )
-    .await
-    .created_json();
-    let file_id = uploaded["fileId"].as_str().expect("a file").to_owned();
+    let file_id = upload(&ts.client, &board.id).await;
     let sharing: Sharing = ts
         .client
         .post(
@@ -95,6 +87,19 @@ async fn fixture() -> Fixture {
         token: sharing.token,
         people,
     }
+}
+
+/// Uploads a file to the board and returns its identifier.
+async fn upload(client: &Client, board_id: &str) -> String {
+    let file = reqwest::multipart::Part::bytes(b"the shared file".to_vec()).file_name("a.txt");
+    let uploaded: Value = Client::send(
+        client
+            .request(Method::POST, &format!("/boards/{board_id}/files"))
+            .multipart(reqwest::multipart::Form::new().part("file", file)),
+    )
+    .await
+    .created_json();
+    uploaded["fileId"].as_str().expect("a file").to_owned()
 }
 
 /// The paths under `/shared` that read the board, each with the token.
@@ -198,13 +203,25 @@ async fn a_shared_board_is_not_there_without_its_token() {
     {
         assert_eq!(not_there(path.clone()).await, absent, "{path}");
     }
-    // Another board's file, with this board's token.
-    let file = not_there(format!(
-        "/shared/{}/files/{}?readToken={}",
-        f.board.id, "7abcdefabcdefabcdefabcdefab.txt", f.token
-    ))
-    .await;
-    assert_eq!(file.0, StatusCode::NOT_FOUND);
+    // Another board's file, with this board's token, is a file that is not there.
+    let other: Board =
+        f.ts.client
+            .post(
+                "/boards",
+                &json!({"workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Other"}),
+            )
+            .await
+            .created_json();
+    let others_file = upload(&f.ts.client, &other.id).await;
+    let file_path = |file_id: &str| {
+        format!(
+            "/shared/{}/files/{file_id}?readToken={}",
+            f.board.id, f.token
+        )
+    };
+    let missing = not_there(file_path("7abcdefabcdefabcdefabcdefab.txt")).await;
+    assert_eq!(missing.0, StatusCode::NOT_FOUND);
+    assert_eq!(not_there(file_path(&others_file)).await, missing);
 
     f.ts.client
         .post(

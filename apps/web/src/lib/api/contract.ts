@@ -1025,9 +1025,9 @@ export interface paths {
          * A shared board
          * @description The board whose read token the request has; no session is needed, and one that
          *     comes along is not looked at. Who made the board or changed it last is not told
-         *     (`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is empty). 404 unless the token is the board's and the
-         *     board is shared and not in the trash; 429 for an address that has had many such
-         *     answers within a minute.
+         *     (`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is
+         *     empty). 404 unless the token is the board's and the board is shared and not in the
+         *     trash; 429 for an address that has had many such answers within a minute.
          */
         get: operations["getSharedBoard"];
         put?: never;
@@ -2301,8 +2301,8 @@ export interface components {
         /** @description What a gallery shows of a card's body. */
         CardPreview: {
             /**
-             * @description The file the body's first image shows (`getFile` gives it, also with the board's
-             *     read token); empty if the body has no image.
+             * @description The file the body's first image shows (`getFile` gives it, and `getSharedFile` to
+             *     the holder of the board's link); empty if the body has no image.
              */
             imageFileId: string;
             /**

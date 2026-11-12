@@ -38,7 +38,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card or a comment; `null` for a block without one. Only those two\nhave one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads with a read token alone gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
+                "description": "The body of a card or a comment; `null` for a block without one. Only those two\nhave one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads it by the board's link gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
               },
               {
                 "type": "null"
@@ -651,7 +651,7 @@
         "description": "What a gallery shows of a card's body.",
         "properties": {
           "imageFileId": {
-            "description": "The file the body's first image shows (`getFile` gives it, also with the board's\nread token); empty if the body has no image.",
+            "description": "The file the body's first image shows (`getFile` gives it, and `getSharedFile` to\nthe holder of the board's link); empty if the body has no image.",
             "type": "string"
           },
           "text": {
@@ -5334,7 +5334,7 @@
     },
     "/api/v1/shared/{boardId}": {
       "get": {
-        "description": "The board whose read token the request has; no session is needed, and one that\ncomes along is not looked at. Who made the board or changed it last is not told\n(`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is empty). 404 unless the token is the board's and the\nboard is shared and not in the trash; 429 for an address that has had many such\nanswers within a minute.",
+        "description": "The board whose read token the request has; no session is needed, and one that\ncomes along is not looked at. Who made the board or changed it last is not told\n(`createdBy` and `modifiedBy` are empty), nor its workspace (`workspaceId` is\nempty). 404 unless the token is the board's and the board is shared and not in the\ntrash; 429 for an address that has had many such answers within a minute.",
         "operationId": "getSharedBoard",
         "parameters": [
           {

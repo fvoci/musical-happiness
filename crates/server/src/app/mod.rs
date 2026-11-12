@@ -456,17 +456,6 @@ impl App {
         })
     }
 
-    /// Returns whether the user may read the board. Who reads a shared board by its
-    /// read token and may not is told no user's identifier (`Board::hide_people`,
-    /// `Block::hide_people`).
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if a fact of the board cannot be read.
-    pub async fn is_board_reader(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-        Ok(self.board_grant(user_id, board_id).await?.reads())
-    }
-
     /// The part of the configuration the web app needs.
     pub fn client_config(&self) -> ClientConfig {
         let config = self.config();
