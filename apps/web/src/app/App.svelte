@@ -187,7 +187,8 @@
       : undefined,
   );
   $effect(() => {
-    void orgAdmin?.load();
+    // Once the reader is signed in: before that the organization is not there for them.
+    if (workspace?.status === 'ready') void orgAdmin?.load();
   });
 
   const openBoard = (board: BoardPlace): void => {

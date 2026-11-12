@@ -1,7 +1,7 @@
 /**
  * The organization's administration on the server (`/org/{orgId}/…`) and the
- * audit log of a workspace (`/w/{workspaceId}/audit`). Lists are read as one
- * page of the most the server gives (200).
+ * audit log of a workspace (`/w/{workspaceId}/audit`). The members are read
+ * whole; a record list is its newest page of the most the server gives (200).
  */
 import { isBackendError } from '../state/backend.ts';
 import type {
@@ -56,12 +56,18 @@ export class ServerOrganizations implements Organizations {
     );
   }
 
-  members(orgId: string): Promise<OrgMember[]> {
-    return this.#http.request<Schemas['OrgMember'][]>(
-      '/api/v1/org/{orgId}/members',
-      { orgId },
-      { query: PAGE },
-    );
+  /** Every member, a page after another until one is not full. */
+  async members(orgId: string): Promise<OrgMember[]> {
+    const members: OrgMember[] = [];
+    for (let page = 0; ; page += 1) {
+      const one = await this.#http.request<Schemas['OrgMember'][]>(
+        '/api/v1/org/{orgId}/members',
+        { orgId },
+        { query: { page, perPage: PAGE.perPage } },
+      );
+      members.push(...one);
+      if (one.length < PAGE.perPage) return members;
+    }
   }
 
   async setRole(orgId: string, userId: string, role: OrgRole): Promise<void> {

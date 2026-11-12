@@ -15,13 +15,14 @@
   import type { OrgMember } from '$lib/state/organization.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
+  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
 
   import OrgWorkspaces from './OrgWorkspaces.svelte';
 
   interface Props {
     admin: OrgAdmin;
     locale: string;
-    /** The reader, whose own role is changed only with a warning-free button too. */
+    /** The reader: stepping down from administering the organization is asked first. */
     meId: string | undefined;
     homeHref: string;
     workspaceHref: (workspaceId: string) => string;
@@ -36,6 +37,8 @@
     not_found: m.org_refused_not_found,
     failed: m.org_refused_failed,
   };
+
+  let stepDownOpen = $state(false);
 
   const named = (member: OrgMember): string =>
     member.displayName ? `${member.displayName} (@${member.username})` : `@${member.username}`;
@@ -64,8 +67,16 @@
 
   {#if admin.status === 'loading'}
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
-  {:else if admin.status !== 'ready'}
-    <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+  {:else if admin.status === 'missing'}
+    <!-- Not theirs to administer: never, or no longer (stepped down, or made a member). -->
+    <p class="text-muted-foreground" role="alert" data-testid="org-missing">{m.org_missing()}</p>
+  {:else if admin.status === 'failed'}
+    <div>
+      <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+      <Button class="mt-4 roomy:min-h-touch" onclick={() => void admin.load()}
+        >{m.app_retry()}</Button
+      >
+    </div>
   {:else}
     {#if admin.refusal}
       <p
@@ -95,8 +106,16 @@
               size="sm"
               variant="outline"
               disabled={admin.busy}
-              onclick={() =>
-                void admin.setRole(member.userId, member.role === 'admin' ? 'member' : 'admin')}
+              aria-label={member.role === 'admin'
+                ? member.userId === meId
+                  ? m.org_step_down()
+                  : m.org_make_member_named({ name: named(member) })
+                : m.org_make_admin_named({ name: named(member) })}
+              onclick={() => {
+                if (member.userId === meId) stepDownOpen = true;
+                else
+                  void admin.setRole(member.userId, member.role === 'admin' ? 'member' : 'admin');
+              }}
             >
               {member.role === 'admin'
                 ? member.userId === meId
@@ -116,12 +135,15 @@
           <span class="block">{m.org_public_links()}</span>
           <span class="block text-xs text-muted-foreground">{m.org_public_links_hint()}</span>
         </span>
-        <Switch
-          checked={admin.organization?.publicLinks ?? true}
-          disabled={admin.busy}
-          data-testid="org-public-links"
-          onCheckedChange={(on: boolean) => void admin.setPublicLinks(on)}
-        />
+        <!-- Drawn anew with what the server has after each change: a refused one flips back. -->
+        {#key admin.organization}
+          <Switch
+            checked={admin.organization?.publicLinks ?? true}
+            disabled={admin.busy}
+            data-testid="org-public-links"
+            onCheckedChange={(on: boolean) => void admin.setPublicLinks(on)}
+          />
+        {/key}
       </label>
     </section>
 
@@ -131,3 +153,14 @@
     </section>
   {/if}
 </main>
+
+<ConfirmDialog
+  bind:open={stepDownOpen}
+  title={m.org_step_down_title()}
+  description={m.org_step_down_info()}
+  confirmLabel={m.org_step_down()}
+  destructive
+  onConfirm={() => {
+    if (meId) void admin.setRole(meId, 'member');
+  }}
+/>

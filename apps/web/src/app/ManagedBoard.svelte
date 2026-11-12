@@ -7,6 +7,8 @@
   Anything else not there is `NotFound`.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
+
   import ShareDialog from '$lib/features/shell/ShareDialog.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { joinManaged, readManagedOnly } from '$lib/state/managed-board.ts';
@@ -16,8 +18,15 @@
   import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
 
-  let { workspace, board, router }: { workspace: Workspace; board: BoardStore; router: Router } =
-    $props();
+  interface Props {
+    workspace: Workspace;
+    board: BoardStore;
+    router: Router;
+    /** The board is joined and shown: the page takes the focus, where the button was. */
+    onJoined: () => void;
+  }
+
+  let { workspace, board, router, onJoined }: Props = $props();
 
   let managed = $state<'asking' | 'yes' | 'no'>('asking');
   let joining = $state(false);
@@ -27,7 +36,8 @@
   $effect(() => {
     const store = board;
     managed = 'asking';
-    void readManagedOnly(store).then(
+    // What the reading looks at besides the store is not what this waits for.
+    void untrack(() => readManagedOnly(store)).then(
       (yes) => {
         if (store === board) managed = yes ? 'yes' : 'no';
       },
@@ -40,8 +50,9 @@
   async function join(): Promise<void> {
     if (joining) return;
     joining = true;
-    await joinManaged(board);
+    const joined = await joinManaged(board);
     joining = false;
+    if (joined) onJoined();
   }
 </script>
 

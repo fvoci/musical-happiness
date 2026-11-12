@@ -918,5 +918,16 @@
   "audit_public_links_enabled": "{actor} 님이 공개 링크를 켰습니다",
   "app_board_managed_hint": "이 보드의 구성원이 아닙니다. 참여하면 내용을 볼 수 있고, 참여한 일은 구성원 모두에게 보입니다.",
   "app_board_managed_join": "참여",
-  "app_board_managed_members": "구성원 관리"
+  "app_board_managed_members": "구성원 관리",
+  "org_missing": "관리하는 조직이 아닙니다.",
+  "org_step_down_title": "관리자에서 내려갈까요?",
+  "org_step_down_info": "더 이상 조직을 관리하지 않고, 관리자로 참여한 워크스페이스에서도 모두 빠집니다.",
+  "org_make_admin_named": "{name} 님을 관리자로 만들기",
+  "org_make_member_named": "{name} 님을 구성원으로 만들기",
+  "org_join_named": "{name}에 관리자로 참여",
+  "org_leave_named": "{name}에서 떠나기",
+  "org_rename_named": "{name}의 이름 바꾸기",
+  "org_delete_named": "{name} 지우기",
+  "org_restore_named": "{name} 되살리기",
+  "shell_switch_workspace_from": "워크스페이스 바꾸기: {name}"
 }

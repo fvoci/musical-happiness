@@ -41,7 +41,9 @@
       {...props}
       type="button"
       data-testid="workspace-switcher"
-      aria-label={m.shell_switch_workspace()}
+      aria-label={m.shell_switch_workspace_from({
+        name: titleOf(workspaces.find((workspace) => workspace.id === current)),
+      })}
       class="flex min-h-8 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-left hover:bg-sidebar-accent roomy:min-h-touch"
     >
       <span class="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">

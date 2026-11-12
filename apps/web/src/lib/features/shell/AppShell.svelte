@@ -109,6 +109,8 @@
   let panel = $state<HTMLElement | null>(null);
   let settingsOpen = $state(false);
   let recordsOpen = $state(false);
+  /** The reader works in the workspace shown (no guest of it): its records are theirs to read. */
+  const worksHere = $derived(workspace.workspaces.some((one) => one.id === workspace.info?.id));
 
   // Where the page has no drawer (the sidebar is fixed, or folded on an
   // expanded page) an open one is over, and stays so.
@@ -356,7 +358,7 @@
   {onChooseLanguage}
   {onSignOut}
   {onChangePassword}
-  onOpenRecords={readRecords
+  onOpenRecords={readRecords && worksHere
     ? () => {
         settingsOpen = false;
         recordsOpen = true;

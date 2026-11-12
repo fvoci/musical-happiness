@@ -21,9 +21,10 @@ export async function readManagedOnly(store: BoardStore): Promise<boolean> {
       boardOfWorkspace(backend, store.boardId, store.workspace.info?.id),
       backend.members(store.boardId),
     ]);
-    if (board.type !== 'P') return false;
+    if (board.type !== 'P' || board.isTemplate) return false;
     store.board = board;
     store.members = members;
+    void store.workspace.learnUsers(members.map((member) => member.userId));
     return true;
   } catch (error) {
     if (isBackendError(error) && (error.status === 404 || error.status === 403)) return false;
@@ -41,6 +42,8 @@ export async function joinManaged(store: BoardStore): Promise<boolean> {
     store.workspace.report('save', error);
     return false;
   }
+  // Left meanwhile (another board is open): this one is not read for nobody.
+  if (store.workspace.board !== store) return false;
   await store.load();
   return store.status === 'ready';
 }

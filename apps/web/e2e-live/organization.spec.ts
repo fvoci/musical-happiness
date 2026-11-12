@@ -55,10 +55,10 @@ test('the organization’s administrator makes a workspace, joins it, switches t
   await screen.getByTestId('new-workspace-name').fill(name);
   await screen.getByRole('button', { name: 'Create', exact: true }).click();
   const row = screen.locator(`[data-testid="org-workspace"][data-name="${name}"]`);
-  await expect(row).toContainText('0 members');
-  await row.getByRole('button', { name: 'Join as administrator' }).click();
+  await expect(row).toContainText('Members: 0');
+  await row.getByRole('button', { name: `Join ${name} as administrator` }).click();
   await expect(row).toContainText('you joined as administrator');
-  await expect(row.getByRole('button', { name: 'Leave' })).toBeVisible();
+  await expect(row.getByRole('button', { name: `Leave ${name}` })).toBeVisible();
   await expect(screen.getByTestId('org-records').locator('[data-action]').first()).toHaveAttribute(
     'data-action',
     'workspace_created',

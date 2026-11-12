@@ -98,7 +98,14 @@
   </div>
 {:else if board.missing}
   <!-- Not there, or there to be managed only: ManagedBoard tells which. -->
-  <ManagedBoard {workspace} {board} {router} />
+  <ManagedBoard
+    {workspace}
+    {board}
+    {router}
+    onJoined={() => {
+      void tick().then(() => page?.focus());
+    }}
+  />
 {:else if board.joinable && board.board}
   <div class="grid h-full place-items-center p-6 text-center" data-testid="board-join">
     <div class="flex max-w-md flex-col items-center gap-3">
