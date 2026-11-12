@@ -568,6 +568,10 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
         ..BoardMember::default()
     };
     test.add_member(&as_viewer).await.expect("a viewer of it");
+    let theirs_before = private_board(&test, &workspace, &admin).await;
+    test.delete_board(&theirs_before, &admin)
+        .await
+        .expect("deleted before the joining");
 
     test.join_workspace_as_org_admin(&workspace, &admin)
         .await
@@ -585,9 +589,14 @@ async fn a_board_deleted_while_one_was_joined_comes_back_as_it_was_for_them() {
     test.leave_workspace_as_org_admin(&workspace, &admin)
         .await
         .expect("left");
-    for board in [&read, &made] {
+    for board in [&read, &made, &theirs_before] {
         test.undelete_board(board, &owner).await.expect("restored");
     }
+    let kept = test
+        .get_member_for_board(&theirs_before, &admin)
+        .await
+        .expect("a board of theirs from before stays theirs");
+    assert!(kept.scheme_admin, "its admin still: {kept:?}");
 
     let held = test
         .get_member_for_board(&read, &admin)
@@ -691,7 +700,7 @@ async fn the_instance_and_the_organization_keep_one_administration() {
 
 /// Of one of several organizations, an administrator is not the instance's: who is made
 /// one administers that organization alone, as the instance's administrator reaches the
-/// others.
+/// others. Who stops administering it stops administering the instance.
 #[tokio::test]
 async fn an_administrator_of_one_of_several_organizations_is_not_the_instances() {
     // An SQLite database holds one organization.
@@ -701,6 +710,7 @@ async fn an_administrator_of_one_of_several_organizations_is_not_the_instances()
     let test = common::setup().await;
     let admin = org_member(&test, "admin", OrgRole::Admin).await;
     let member = org_member(&test, "member", OrgRole::Member).await;
+    let second = org_member(&test, "second", OrgRole::Admin).await;
     common::organization(&test.scoped(Tenant::Unset), "Another").await;
 
     assert_eq!(
@@ -711,5 +721,16 @@ async fn an_administrator_of_one_of_several_organizations_is_not_the_instances()
     );
     let made = test.get_user_by_id(&member).await.expect("the user");
     assert!(!made.is_admin, "no administrator of the instance");
+    assert_eq!(
+        test.set_org_role(&second, OrgRole::Member, &admin)
+            .await
+            .expect("asked"),
+        OrgRoleChange::Done
+    );
+    let stepped_down = test.get_user_by_id(&second).await.expect("the user");
+    assert!(
+        !stepped_down.is_admin,
+        "the instance's administrator no more"
+    );
     test.teardown().await;
 }

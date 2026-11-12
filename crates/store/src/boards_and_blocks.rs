@@ -16,6 +16,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::file_refs::NewImages;
 use crate::loose_objects;
+use crate::org_admin;
 use crate::trash;
 
 /// The key of the PostgreSQL advisory lock that the replacement of the built-in
@@ -263,6 +264,9 @@ pub(crate) async fn delete_boards_and_blocks(
     user_id: &str,
 ) -> Result<(), StoreError> {
     let board_ids: HashSet<&str> = request.boards.iter().map(String::as_str).collect();
+    // The organization's before the boards': with a joining that ends, whose roles on
+    // them are given back in the trash too (`joinings::give_back_roles`).
+    org_admin::lock_organization(scope).await?;
     boards::lock_boards(scope, board_ids.iter().copied()).await?;
 
     // Every listed block must be a block of one of the listed boards. That is all

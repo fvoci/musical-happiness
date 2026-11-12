@@ -29,6 +29,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::file_refs::{self, NewImages};
 use crate::loose_objects;
+use crate::org_admin;
 use crate::users;
 
 /// A block in the trash.
@@ -199,8 +200,12 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board.
     pub async fn delete_board(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
-        self.transaction(async |scope| delete_board(scope, board_id, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            // Before the board's: with a joining that ends (`joinings::give_back_roles`).
+            org_admin::lock_organization(scope).await?;
+            delete_board(scope, board_id, user_id).await
+        })
+        .await
     }
 
     /// Returns a board that is in the trash, with the memberships it had.
@@ -289,8 +294,12 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if no board of that identifier is in the trash.
     pub async fn undelete_board(&self, board_id: &str, user_id: &str) -> Result<Board, StoreError> {
-        self.transaction(async |scope| undelete_board(scope, board_id, user_id).await)
-            .await
+        self.transaction(async |scope| {
+            // Before the board's: with a joining that ends (`joinings::give_back_roles`).
+            org_admin::lock_organization(scope).await?;
+            undelete_board(scope, board_id, user_id).await
+        })
+        .await
     }
 
     /// Removes for good what was deleted before `deleted_before` (milliseconds since
@@ -430,7 +439,7 @@ fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
 }
 
 /// Reads a JSON column of the trash into the type it was written from.
-fn from_json<T: DeserializeOwned>(
+pub(crate) fn from_json<T: DeserializeOwned>(
     row: &Row,
     index: usize,
     column: &'static str,

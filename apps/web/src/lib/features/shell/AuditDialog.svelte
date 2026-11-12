@@ -22,26 +22,26 @@
 
   let status = $state<'loading' | 'ready' | 'failed'>('loading');
   let records = $state.raw<AuditRecord[]>([]);
-  /** The latest reading: an answer to an earlier one (another workspace's) is dropped. */
-  let turn = 0;
 
-  async function read(id: string): Promise<void> {
-    turn += 1;
-    const mine = turn;
-    status = 'loading';
-    try {
-      const read = await readRecords(id);
-      if (mine !== turn) return;
-      records = read;
-      status = 'ready';
-    } catch {
-      if (mine === turn) status = 'failed';
-    }
-  }
-
-  // Every opening reads them anew.
+  // Every opening reads them anew. An answer that comes after the dialog closed, or
+  // after it went to another workspace, is dropped.
   $effect(() => {
-    if (open && workspaceId) void read(workspaceId);
+    if (!open || !workspaceId) return;
+    let live = true;
+    status = 'loading';
+    readRecords(workspaceId).then(
+      (read) => {
+        if (!live) return;
+        records = read;
+        status = 'ready';
+      },
+      () => {
+        if (live) status = 'failed';
+      },
+    );
+    return () => {
+      live = false;
+    };
   });
 
   closeOnBack(

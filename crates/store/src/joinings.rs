@@ -10,14 +10,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::{Id, Param, Scope};
 use crate::error::StoreError;
+use crate::trash;
 
 /// One role on a board as it was held: the board, and the flags of the membership
 /// (admin, editor, commenter, viewer).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct HeldRole(String, [bool; 4]);
 
-/// The user's memberships of the boards of the workspace, as the text the joining keeps
-/// (`workspace_members.prior_board_roles`), by board.
+/// The user's memberships of the boards of the workspace, those in the trash among them,
+/// as the text the joining keeps (`workspace_members.prior_board_roles`), by board.
 pub(crate) async fn held_roles(
     scope: &mut Scope<'_>,
     workspace_id: &str,
@@ -31,7 +32,7 @@ pub(crate) async fn held_roles(
     sql.bind(Id(workspace_id))
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push(" ORDER BY bm.board_id");
-    let held: Vec<HeldRole> = scope
+    let mut held: Vec<HeldRole> = scope
         .fetch_all(sql)
         .await?
         .iter()
@@ -42,6 +43,11 @@ pub(crate) async fn held_roles(
             ))
         })
         .collect::<Result<_, StoreError>>()?;
+    for (board_id, members) in trashed_members(scope, workspace_id).await? {
+        if let Some(member) = members.iter().find(|member| member.user_id == user_id) {
+            held.push(HeldRole(board_id, flags_of(member)));
+        }
+    }
     serde_json::to_string(&held).map_err(|error| StoreError::Corrupt {
         column: "prior_board_roles",
         reason: error.to_string(),
@@ -98,21 +104,14 @@ async fn give_back_roles_in_the_trash(
     user_id: &str,
     held: &[HeldRole],
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
-    sql.bind(Id(workspace_id)).push(" ORDER BY id");
-    let rows = scope.fetch_all(sql).await?;
-    for row in &rows {
-        let board_id = row.id(0)?;
-        let mut members: Vec<BoardMember> = serde_json::from_value(row.json(1, "members")?)
-            .map_err(|error| StoreError::Corrupt {
-                column: "members",
-                reason: error.to_string(),
-            })?;
-        let before = members.clone();
+    for (board_id, mut members) in trashed_members(scope, workspace_id).await? {
+        let theirs = members.iter().find(|member| member.user_id == user_id);
+        let given_back = held.iter().find(|role| role.0 == board_id);
+        if theirs.map(flags_of) == given_back.map(|role| role.1) {
+            continue;
+        }
         members.retain(|member| member.user_id != user_id);
-        if let Some(HeldRole(_, [admin, editor, commenter, viewer])) =
-            held.iter().find(|role| role.0 == board_id)
-        {
+        if let Some(HeldRole(_, [admin, editor, commenter, viewer])) = given_back {
             members.push(BoardMember {
                 board_id: board_id.clone(),
                 user_id: user_id.to_owned(),
@@ -123,12 +122,35 @@ async fn give_back_roles_in_the_trash(
                 ..BoardMember::default()
             });
         }
-        if members != before {
-            let mut sql = scope.sql("UPDATE deleted_boards SET members = ");
-            sql.bind(Param::json(&members)?)
-                .push_bind(" WHERE id = ", Id(&board_id));
-            scope.execute(sql).await?;
-        }
+        let mut sql = scope.sql("UPDATE deleted_boards SET members = ");
+        sql.bind(Param::json(&members)?)
+            .push_bind(" WHERE id = ", Id(&board_id));
+        scope.execute(sql).await?;
     }
     Ok(())
+}
+
+/// The memberships kept with each board of the workspace in the trash, by board.
+async fn trashed_members(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+) -> Result<Vec<(String, Vec<BoardMember>)>, StoreError> {
+    let mut sql = scope.sql("SELECT id, members FROM deleted_boards WHERE workspace_id = ");
+    sql.bind(Id(workspace_id)).push(" ORDER BY id");
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| Ok((row.id(0)?, trash::from_json(row, 1, "members")?)))
+        .collect()
+}
+
+/// The flags of a membership as a held role keeps them.
+const fn flags_of(member: &BoardMember) -> [bool; 4] {
+    [
+        member.scheme_admin,
+        member.scheme_editor,
+        member.scheme_commenter,
+        member.scheme_viewer,
+    ]
 }

@@ -867,6 +867,12 @@ pub(crate) async fn follow_org_role(
 ) -> Result<bool, StoreError> {
     let is_admin = role == OrgRole::Admin;
     if !is_admin {
+        // Who does not administer the instance has nothing to stop.
+        let mut sql = scope.sql("SELECT 1 FROM users WHERE is_admin = ");
+        sql.bind(true).push_bind(" AND id = ", Id(user_id));
+        if scope.fetch_optional(sql).await?.is_none() {
+            return Ok(true);
+        }
         let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
         sql.bind(true)
             .push_bind(" AND id <> ", Id(user_id))

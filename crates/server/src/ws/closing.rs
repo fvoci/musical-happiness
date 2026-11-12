@@ -4,7 +4,7 @@
 
 use crate::metrics::Disconnect;
 
-use super::{Hub, Listener, ListenerId, remove_from};
+use super::{Hub, Listener, ListenerId, Listeners, remove_from};
 
 impl Hub {
     /// Closes every connection of the user. For when the user's sessions are ended: a
@@ -96,12 +96,18 @@ impl Hub {
     /// Stops every connection following the workspace. For when it goes to the trash:
     /// it is there for nobody, and who follows it once it is restored asks again.
     pub fn stop_following_workspace(&self, workspace_id: &str) {
-        let mut listeners = self.listeners();
-        let Some(ids) = listeners.by_workspace.remove(workspace_id) else {
+        self.listeners().stop_following_workspace(workspace_id);
+    }
+}
+
+impl Listeners {
+    /// Takes the workspace out of what every listener follows, and out of the index.
+    pub(super) fn stop_following_workspace(&mut self, workspace_id: &str) {
+        let Some(ids) = self.by_workspace.remove(workspace_id) else {
             return;
         };
         for id in ids {
-            if let Some(listener) = listeners.by_id.get_mut(&id) {
+            if let Some(listener) = self.by_id.get_mut(&id) {
                 listener
                     .workspaces
                     .retain(|workspace| workspace != workspace_id);

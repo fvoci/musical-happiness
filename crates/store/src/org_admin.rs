@@ -146,6 +146,10 @@ impl Store {
     /// Changes of roles, and joinings, are made one at a time in an organization: of
     /// two administrators who make each other members at once, one is refused.
     ///
+    /// Who is made an administrator of the only organization in use administers the
+    /// instance too; of one of several, the organization alone. Who stops administering
+    /// it stops administering the instance, unless they are its last administrator.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such organization in use.
@@ -155,7 +159,8 @@ impl Store {
         role: OrgRole,
         actor_id: &str,
     ) -> Result<OrgRoleChange, StoreError> {
-        let shared = self.is_the_only_organization().await?;
+        // Asked outside the organization's wall, which hides the others.
+        let only_org = self.login_organization(None).await?.is_some();
         self.transaction(async |scope| {
             // The instance's row first, as a change of who administers the instance
             // takes it: the two are one role for now (`members::follow_instance_role`).
@@ -172,10 +177,13 @@ impl Store {
             }
             // The administrators of the only organization are the instance's for now
             // (`members::follow_instance_role`): who becomes one administers the
-            // instance, and who stops does not, or they would make themselves, or
-            // anybody, its administrator again past this log. Of one of several
-            // organizations, no: the instance's administrator reaches the others.
-            if shared && !users::follow_org_role(scope, user_id, role).await? {
+            // instance. Of one of several organizations, no: the instance's
+            // administrator reaches the others. Who stops does not, either way, or
+            // they would make themselves, or anybody, its administrator again past
+            // this log.
+            if (only_org || role == OrgRole::Member)
+                && !users::follow_org_role(scope, user_id, role).await?
+            {
                 return Ok(OrgRoleChange::LastAdmin);
             }
             let mut sql = scope.sql("UPDATE organization_members SET role = ");
@@ -195,21 +203,6 @@ impl Store {
             Ok(OrgRoleChange::Done)
         })
         .await
-    }
-
-    /// Whether the handle's organization is the only one in use, besides the system's.
-    /// Asked outside its wall, which hides the others; a sign-up between the question
-    /// and the change it decides is not guarded against.
-    async fn is_the_only_organization(&self) -> Result<bool, StoreError> {
-        self.system()
-            .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT id FROM organizations WHERE is_system = ");
-                sql.bind(false)
-                    .push_bind(" AND delete_at = ", 0_i64)
-                    .push(" LIMIT 2");
-                Ok(scope.fetch_all(sql).await?.len() == 1)
-            })
-            .await
     }
 
     /// Every workspace of the handle's organization, in use or in the trash, the oldest
