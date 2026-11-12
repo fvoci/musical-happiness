@@ -49,21 +49,6 @@ impl Audience {
         }
     }
 
-    /// The provider a session of the user must be made through to open what is the
-    /// organization's (`Store::required_provider_for`): `None` if it takes a password
-    /// too, or the user has no place in it.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the query fails.
-    pub async fn required_provider_for(
-        &self,
-        user_id: &str,
-        org_id: &str,
-    ) -> Result<Option<String>, StoreError> {
-        self.store.required_provider_for(user_id, org_id).await
-    }
-
     /// The members of the board.
     ///
     /// # Errors

@@ -228,12 +228,7 @@ impl App {
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
         sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
         if stored.sso_required {
-            // What a connection follows was asked when it subscribed: those of the
-            // sessions this shuts out are closed. Also when it was on already: closing
-            // again what a failure left open costs nothing.
-            self.ws()
-                .close_sessions_closed_out(org_id, &stored.id)
-                .await;
+            self.close_connections_shut_out(&stored).await;
         }
         Ok(self.provider_view(&stored))
     }

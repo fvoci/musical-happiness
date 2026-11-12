@@ -512,7 +512,10 @@ impl Hub {
         }
 
         match command.action.as_str() {
-            "SUBSCRIBE_WORKSPACE" => self.follow_workspace(id, &command.workspace_id).await,
+            "SUBSCRIBE_WORKSPACE" => {
+                self.follow_workspace(id, &user_id, &command.workspace_id)
+                    .await;
+            }
             "UNSUBSCRIBE_WORKSPACE" => {
                 let mut listeners = self.listeners();
                 if let Some(listener) = listeners.by_id.get_mut(&id) {
@@ -563,8 +566,9 @@ impl Hub {
     /// parent, that a block changed.
     ///
     /// A listener of the block whose connection has no session, or whose user is no
-    /// member of the board who may read it, follows it by the read token alone and is
-    /// told no user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
+    /// member of the board who may read it, or whose session does not open the
+    /// workspace's organization, follows it by the read token alone and is told no
+    /// user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
     pub async fn broadcast_block_change(&self, workspace_id: &str, block: &Block) {
         let followers = self.block_followers(block);
         // Most changes happen with nobody listening; do not ask the store then.
@@ -583,10 +587,14 @@ impl Hub {
         // A connection that listens both as a board member and to the block itself
         // gets the message once per subscription.
         for (id, user_id) in followers {
+            // As a member of the board only while its session opens the organization.
             let reader = !user_id.is_empty()
                 && members
                     .iter()
-                    .any(|member| member.user_id == user_id && role_of(member).is_some());
+                    .any(|member| member.user_id == user_id && role_of(member).is_some())
+                && self
+                    .session_opens_workspace(id, &user_id, workspace_id)
+                    .await;
             if reader {
                 recipients.push(id);
             } else {

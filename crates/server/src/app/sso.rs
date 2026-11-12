@@ -192,6 +192,30 @@ impl App {
         Ok(())
     }
 
+    /// Closes the websocket connections that the handle's organization shuts out as it
+    /// takes only sessions made through `provider`: what a connection follows of a
+    /// workspace was asked when it subscribed. For after that is stored; also when it
+    /// was on already, which closes again what a failure may have left.
+    ///
+    /// If the organization's workspaces cannot be read, every connection of a session
+    /// made otherwise is closed, whatever it follows: the pages connect again, and are
+    /// asked then.
+    pub(crate) async fn close_connections_shut_out(&self, provider: &StoredProvider) {
+        match self.store().get_workspaces().await {
+            Ok(workspaces) => {
+                let ids: Vec<String> = workspaces
+                    .into_iter()
+                    .map(|workspace| workspace.id)
+                    .collect();
+                self.ws().close_sessions_closed_out(&ids, &provider.id);
+            }
+            Err(error) => {
+                tracing::warn!(%error, org_id = %provider.org_id, "unable to read the workspaces of an organization that takes no password");
+                self.ws().close_sessions_made_otherwise(&provider.id);
+            }
+        }
+    }
+
     /// Refuses a session that does not open what is the organization this handle
     /// stands in: the one of the routes that name no workspace, or the one of a board a
     /// read token opened. `Ok` for a session that opens it, and for a user who has no

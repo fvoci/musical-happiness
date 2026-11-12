@@ -3,13 +3,14 @@
 
 use std::time::Duration;
 
+use fvoci_model::{Block, new_id};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::fake_oidc::FakeProvider;
-use crate::oidc::{org_of, server_for, set_provider, with_key_and_private_addresses};
+use crate::oidc::{org_of, set_provider, with_key_and_private_addresses};
 use crate::sso::{
     ADMIN_SUBJECT, Passwords, Two, admin_through_provider, require_sso, through_provider, tie,
     two_organizations,
@@ -19,19 +20,32 @@ use crate::websocket::{
     subscribe_to_workspace,
 };
 
+/// How often a negative is asked before it is believed: about a second.
+const DOUBT: usize = 8;
+/// How often a positive is waited for: about `PATIENCE`.
+const HOPE: usize = 50;
+
 /// Asks to follow the workspace and says whether the connection then hears of it:
-/// commands have no acknowledgement, so a message for the user is sent until one
-/// arrives, or long enough to say that none does.
-async fn follows(th: &TestServer, socket: &mut Socket, workspace_id: &str, user_id: &str) -> bool {
+/// commands have no acknowledgement, so a message for the user is sent, `tries` times,
+/// until it arrives.
+async fn follows(
+    th: &TestServer,
+    socket: &mut Socket,
+    workspace_id: &str,
+    user_id: &str,
+    tries: usize,
+) -> bool {
     socket
         .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id}))
         .await;
-    let probe = category(workspace_id, user_id, "subscription probe");
-    for _ in 0..8 {
+    let probe = category(workspace_id, user_id, &format!("probe {}", new_id()));
+    for _ in 0..tries {
         th.app.ws().broadcast_category_change(&probe);
-        if socket.next_json(Duration::from_millis(100)).await.is_some() {
-            while socket.next_json(Duration::from_millis(150)).await.is_some() {}
-            return true;
+        while let Some(message) = socket.next_json(Duration::from_millis(100)).await {
+            if message["category"]["name"] == probe.name.as_str() {
+                while socket.next_json(Duration::from_millis(150)).await.is_some() {}
+                return true;
+            }
         }
     }
     false
@@ -48,81 +62,12 @@ async fn ends(socket: &mut Socket) -> bool {
     }
 }
 
-/// The connections of the sessions an organization shuts out end when it begins to
-/// take no password, and do not follow its workspaces again; the connection of the
-/// provider's session goes on, and hears what the others no longer do. Released, the
-/// organization is followed with a password again.
-#[tokio::test]
-async fn a_connection_follows_a_workspace_only_with_a_session_that_opens_it() {
-    let fake = FakeProvider::start().await;
-    let ts = server_for(&fake).await;
-    let org_id = org_of(&ts).await;
-    set_provider(&ts, &org_id, &fake).await;
-    let admin = admin_through_provider(&ts, &fake, &org_id).await;
-    let user1 = ts.client.me().await.id;
-    let user2 = ts.client2.me().await.id;
-    let mut with_password = Socket::connect_as(&ts.client).await;
-    let mut of_another = Socket::connect_as(&ts.client2).await;
-    let mut through = Socket::connect_as(&admin).await;
-    subscribe_to_workspace(&ts, &mut with_password, ROOT_WORKSPACE_ID, &user1).await;
-    subscribe_to_workspace(&ts, &mut of_another, ROOT_WORKSPACE_ID, &user2).await;
-    subscribe_to_workspace(&ts, &mut through, ROOT_WORKSPACE_ID, &user1).await;
-
-    require_sso(&admin, &org_id, &fake, Passwords::Refused)
-        .await
-        .check_ok();
-
-    assert!(ends(&mut with_password).await, "the connection is closed");
-    assert!(ends(&mut of_another).await, "the connection is closed");
-    // The one that stays hears of the workspace; a new one of the password does not.
-    let mut again = Socket::connect_as(&ts.client).await;
-    assert!(
-        !follows(&ts, &mut again, ROOT_WORKSPACE_ID, &user1).await,
-        "a password session follows nothing of the organization"
-    );
-    let probe = category(ROOT_WORKSPACE_ID, &user1, "for the provider's session");
-    while through.next_json(QUIET).await.is_some() {}
-    ts.app.ws().broadcast_category_change(&probe);
-    let heard = through.next_json(PATIENCE).await.expect("it is told");
-    assert_eq!(heard["category"]["name"], probe.name, "{heard}");
-    assert_eq!(again.next(QUIET).await, Event::Nothing);
-
-    require_sso(&admin, &org_id, &fake, Passwords::Taken)
-        .await
-        .check_ok();
-    assert!(
-        follows(&ts, &mut again, ROOT_WORKSPACE_ID, &user1).await,
-        "released, the same connection follows it"
-    );
-    ts.teardown().await;
-    fake.stop();
-}
-
-/// Whether a connection that asked to follow the block by the board's read token is
-/// told of a change of it.
-async fn is_told_of(th: &TestServer, socket: &mut Socket, block: &fvoci_model::Block) -> bool {
-    for _ in 0..8 {
-        th.app
-            .ws()
-            .broadcast_block_change(ROOT_WORKSPACE_ID, block)
-            .await;
-        if socket.next_json(Duration::from_millis(100)).await.is_some() {
-            while socket.next_json(Duration::from_millis(150)).await.is_some() {}
-            return true;
-        }
-    }
-    false
-}
-
-/// A board's public link is followed without a session as before, by a reader who is
-/// told nobody's identifier. A connection that comes with a session that does not open
-/// the board's organization follows no block by the token: the hub tells a member of
-/// the board who wrote a block, and that session is no member's there. One that did
-/// before ends with the others.
-#[tokio::test]
-async fn a_public_link_is_followed_by_readers_and_not_by_a_session_that_opens_nothing() {
-    let fake = FakeProvider::start().await;
+/// A server that reaches the fake provider, shares boards by link and keeps metrics,
+/// with its organization's provider set and the administrator's session made through
+/// it.
+async fn server(fake: &FakeProvider) -> (TestServer, String, Client) {
     let ts = Setup::local_mode()
+        .metrics_at("127.0.0.1:0")
         .trusting_oidc_provider(&fake.certificate_der)
         .configure(with_key_and_private_addresses)
         .start()
@@ -130,8 +75,105 @@ async fn a_public_link_is_followed_by_readers_and_not_by_a_session_that_opens_no
         .init_basic()
         .await;
     let org_id = org_of(&ts).await;
-    set_provider(&ts, &org_id, &fake).await;
-    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+    set_provider(&ts, &org_id, fake).await;
+    let admin = admin_through_provider(&ts, fake, &org_id).await;
+    (ts, org_id, admin)
+}
+
+/// The connections that follow a workspace with a session its organization shuts out
+/// end when it begins to take no password, counted as that, and do not follow the
+/// workspace again; the connection of the provider's session goes on, and hears what
+/// the others no longer do. Released, the organization is followed with a password
+/// again.
+#[tokio::test]
+async fn a_connection_follows_a_workspace_only_with_a_session_that_opens_it() {
+    use crate::metrics::{sample, scrape_until};
+
+    let fake = FakeProvider::start().await;
+    let (ts, org_id, admin) = server(&fake).await;
+    let user1 = ts.client.me().await.id;
+    let user2 = ts.client2.me().await.id;
+    let mut with_password = Socket::connect_as(&ts.client).await;
+    let mut of_user2 = Socket::connect_as(&ts.client2).await;
+    let mut through = Socket::connect_as(&admin).await;
+    let mut following_nothing = Socket::connect_as(&ts.client).await;
+    subscribe_to_workspace(&ts, &mut with_password, ROOT_WORKSPACE_ID, &user1).await;
+    subscribe_to_workspace(&ts, &mut of_user2, ROOT_WORKSPACE_ID, &user2).await;
+    subscribe_to_workspace(&ts, &mut through, ROOT_WORKSPACE_ID, &user1).await;
+
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+
+    assert!(ends(&mut with_password).await, "the password's is closed");
+    assert!(ends(&mut of_user2).await, "and another member's");
+    let closed = |body: &str| {
+        sample(
+            body,
+            "fvoci_websocket_disconnections_total",
+            &[("reason", "sso_required")],
+        )
+    };
+    let body = scrape_until(&ts, |body| closed(body) == Some(2.0)).await;
+    assert_eq!(closed(&body), Some(2.0), "the two, and for that: {body}");
+    // The one that followed nothing of the organization stays, and follows none now.
+    assert!(
+        !follows(
+            &ts,
+            &mut following_nothing,
+            ROOT_WORKSPACE_ID,
+            &user1,
+            DOUBT
+        )
+        .await,
+        "a password session follows nothing of the organization"
+    );
+    assert!(
+        follows(&ts, &mut through, ROOT_WORKSPACE_ID, &user1, HOPE).await,
+        "the provider's session goes on hearing of it"
+    );
+    assert_eq!(following_nothing.next(QUIET).await, Event::Nothing);
+
+    require_sso(&admin, &org_id, &fake, Passwords::Taken)
+        .await
+        .check_ok();
+    assert!(
+        follows(&ts, &mut following_nothing, ROOT_WORKSPACE_ID, &user1, HOPE).await,
+        "released, the same connection follows it"
+    );
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// What the connection is told of a change of the block, which it asked to follow by
+/// the board's read token.
+async fn told_of(th: &TestServer, socket: &mut Socket, block: &Block) -> Value {
+    // What it was told before is not the answer.
+    while socket.next_json(QUIET).await.is_some() {}
+    for _ in 0..HOPE {
+        th.app
+            .ws()
+            .broadcast_block_change(ROOT_WORKSPACE_ID, block)
+            .await;
+        while let Some(message) = socket.next_json(Duration::from_millis(100)).await {
+            if message["block"]["id"] == block.id.as_str() {
+                while socket.next_json(Duration::from_millis(150)).await.is_some() {}
+                return message;
+            }
+        }
+    }
+    panic!("the connection was never told of the block");
+}
+
+/// A board's public link is followed as before when its organization takes no
+/// password: by anybody, as a reader, who is told nobody's identifier. A member of the
+/// board who follows it so is told what a member is told only with a session that
+/// opens the organization; with another, also one that followed before, what a reader
+/// is. No such connection is closed: it follows no workspace.
+#[tokio::test]
+async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing() {
+    let fake = FakeProvider::start().await;
+    let (ts, org_id, admin) = server(&fake).await;
     let user1 = ts.client.me().await.id;
     let (_board, block, token) = shared_board_with_a_card(&ts, &user1).await;
     let subscription = json!({
@@ -149,37 +191,43 @@ async fn a_public_link_is_followed_by_readers_and_not_by_a_session_that_opens_no
         .await
         .check_ok();
 
-    assert!(ends(&mut with_password).await, "the connection is closed");
-    ts.app
-        .ws()
-        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
-        .await;
-    let read = reader.next_json(PATIENCE).await.expect("a reader is told");
-    assert_eq!(read["block"]["createdBy"], json!(""), "{read}");
-    while reader.next_json(QUIET).await.is_some() {}
-
+    let wrote = |message: Value| message["block"]["createdBy"].clone();
+    assert_eq!(wrote(told_of(&ts, &mut reader, &block).await), json!(""));
+    assert_eq!(
+        wrote(told_of(&ts, &mut with_password, &block).await),
+        json!(""),
+        "the member's password session, which followed before, reads as anybody now"
+    );
     let mut again = Socket::connect_as(&ts.client).await;
     again.send(subscription.clone()).await;
-    assert!(
-        !is_told_of(&ts, &mut again, &block).await,
-        "a password session is told nothing by the token"
+    assert_eq!(
+        wrote(told_of(&ts, &mut again, &block).await),
+        json!(""),
+        "and so does one that follows since"
     );
     let mut through = Socket::connect_as(&admin).await;
     through.send(subscription).await;
-    assert!(
-        is_told_of(&ts, &mut through, &block).await,
-        "the provider's session follows the link as a member does"
+    assert_eq!(
+        wrote(told_of(&ts, &mut through, &block).await),
+        json!(user1),
+        "the provider's session is told what a member is"
     );
-    assert!(
-        is_told_of(&ts, &mut reader, &block).await,
-        "and a reader goes on"
+
+    require_sso(&admin, &org_id, &fake, Passwords::Taken)
+        .await
+        .check_ok();
+    assert_eq!(
+        wrote(told_of(&ts, &mut with_password, &block).await),
+        json!(user1),
+        "released, the same connection is a member's again"
     );
     ts.teardown().await;
     fake.stop();
 }
 
 /// The session of another organization's provider follows nothing of an organization
-/// that takes no password, and goes on following its own.
+/// that takes no password, and goes on following its own; a connection that follows
+/// only another organization is left alone.
 #[tokio::test]
 async fn the_session_of_another_organizations_provider_follows_nothing() {
     if db_type_of_the_tests() != DbType::Postgres {
@@ -199,6 +247,8 @@ async fn the_session_of_another_organizations_provider_follows_nothing() {
     let user1 = ts.client.me().await.id;
     let mut theirs_before = Socket::connect_as(&through_theirs).await;
     subscribe_to_workspace(&ts, &mut theirs_before, ROOT_WORKSPACE_ID, &user1).await;
+    let mut only_theirs = Socket::connect_as(&ts.client).await;
+    subscribe_to_workspace(&ts, &mut only_theirs, &their_workspace, &user1).await;
 
     require_sso(&through_ours, &ours, &fake, Passwords::Refused)
         .await
@@ -207,17 +257,24 @@ async fn the_session_of_another_organizations_provider_follows_nothing() {
     assert!(ends(&mut theirs_before).await, "the connection is closed");
     let mut of_theirs = Socket::connect_as(&through_theirs).await;
     assert!(
-        !follows(&ts, &mut of_theirs, ROOT_WORKSPACE_ID, &user1).await,
+        !follows(&ts, &mut of_theirs, ROOT_WORKSPACE_ID, &user1, DOUBT).await,
         "not ours, with the session of their provider"
     );
     assert!(
-        follows(&ts, &mut of_theirs, &their_workspace, &user1).await,
+        follows(&ts, &mut of_theirs, &their_workspace, &user1, HOPE).await,
         "theirs, as before"
     );
-    let mut of_ours = Socket::connect_as(&through_ours).await;
-    assert!(follows(&ts, &mut of_ours, ROOT_WORKSPACE_ID, &user1).await);
     assert!(
-        follows(&ts, &mut of_ours, &their_workspace, &user1).await,
+        follows(&ts, &mut only_theirs, &their_workspace, &user1, HOPE).await,
+        "who followed theirs alone with a password still does"
+    );
+    let mut of_ours = Socket::connect_as(&through_ours).await;
+    assert!(
+        follows(&ts, &mut of_ours, ROOT_WORKSPACE_ID, &user1, HOPE).await,
+        "ours, with the session of our provider"
+    );
+    assert!(
+        follows(&ts, &mut of_ours, &their_workspace, &user1, HOPE).await,
         "theirs takes any session"
     );
     ts.teardown().await;
