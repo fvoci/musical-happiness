@@ -50,7 +50,7 @@ const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ),
     ("PUT", "/category-order", "reorderCategories"),
     ("POST", "/onboard", "onboard"),
-    ("POST", "/signup-token", "regenerateSignupToken"),
+    ("POST", "/invitations", "createInvitation"),
     ("GET", "/templates", "getTemplates"),
     ("GET", "/trash/boards", "getDeletedBoards"),
     ("GET", "/users", "getWorkspaceUsers"),

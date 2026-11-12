@@ -10,7 +10,6 @@ pub mod token;
 
 use fvoci_model::Session;
 use fvoci_store::Store;
-use subtle::ConstantTimeEq as _;
 
 use crate::config::Configuration;
 use crate::error::AppError;

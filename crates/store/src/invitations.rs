@@ -17,6 +17,7 @@ use crate::accounts::{self, Which};
 use crate::boards::{find_member, save_member};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
+use crate::users::InstanceRole;
 
 /// The columns of an invitation, in the order [`invitation_from_row`] reads them.
 const COLUMNS: &str = "id, workspace_id, role, board_id, board_role, created_by, create_at, \
@@ -82,10 +83,10 @@ impl Store {
                 }
                 None => (WorkspaceRole::Member, "", None),
             };
-            let mut sql = scope.sql(&format!(
+            let mut sql = scope.sql(
                 "INSERT INTO invitations (id, org_id, workspace_id, role, board_id, board_role, \
-                 token_hash, created_by, create_at, expires_at, max_uses) SELECT "
-            ));
+                 token_hash, created_by, create_at, expires_at, max_uses) SELECT ",
+            );
             sql.bind(Id(&new_id()))
                 .push(", t.org_id, t.id")
                 .push_bind(", ", role.as_str())
@@ -104,10 +105,7 @@ impl Store {
                     " AND EXISTS (SELECT 1 FROM boards AS b WHERE b.id = ",
                     Id(board_id),
                 )
-                .push_bind(
-                    " AND b.workspace_id = t.id AND b.is_template = ",
-                    false,
-                )
+                .push_bind(" AND b.workspace_id = t.id AND b.is_template = ", false)
                 .push(")");
             }
             sql.push(&format!(" RETURNING {COLUMNS}"));
@@ -240,7 +238,7 @@ impl Store {
             let user_id = match acceptor {
                 Acceptor::Account(user_id) => user_id.to_owned(),
                 Acceptor::NewAccount(user) => {
-                    accounts::insert_account(scope, user, false).await?;
+                    accounts::insert_account(scope, user, InstanceRole::User).await?;
                     user.id.clone()
                 }
             };

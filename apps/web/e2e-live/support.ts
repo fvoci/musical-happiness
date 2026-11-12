@@ -3,10 +3,10 @@
  * the API made beside the page (to set up what a test needs, or to change
  * something as another user).
  *
- * The first account of a server needs no invitation and becomes its
- * administrator; every account after it needs the workspace's invitation, which
- * only an administrator can read. `invitation()` makes that first account
- * once per run and reads the invitation with it.
+ * The first account of a server starts its organization and administers it; every
+ * account after it comes in by the link of an invitation, which an
+ * administrator of the organization makes. `invitation()` makes that first account
+ * if nobody has, and a link with it.
  */
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -67,35 +67,54 @@ async function ok(response: Awaited<ReturnType<APIRequestContext['get']>>, what:
 }
 
 export const ADMIN: Person = { username: 'admin', email: 'admin@example.test', password: PASSWORD };
+/** The name of the organization the administrator starts: the first account of the server. */
+export const ORG_NAME = 'Acme Robotics';
 let token: string | undefined;
 
-/** The workspace's invitation. Makes the administrator first if the server has nobody yet. */
+/**
+ * The token of a link that lets members into the administrator's organization; the
+ * link is used as often as there are accounts to make. Makes the
+ * administrator first if the server has nobody yet (the tests of the first
+ * use make it on the page, before any other test runs).
+ */
 export async function invitation(baseURL: string): Promise<string> {
   if (token !== undefined) return token;
   const api = await apiClient(baseURL);
-  // Once the server has an account, a registration without the invitation
-  // is refused (403) before anything else is looked at: the administrator
-  // is there already (made by an earlier worker of this run), and signs in.
-  const registered = await api.post('/api/v1/register', { data: ADMIN });
+  // Once the server has its first account, a registration is refused (403)
+  // before anything else is looked at: the administrator is there already,
+  // and signs in.
+  const registered = await api.post('/api/v1/register', {
+    data: { ...ADMIN, organizationName: ORG_NAME },
+  });
   if (!registered.ok() && registered.status() !== 403) await ok(registered, 'register admin');
   await ok(await api.post('/api/v1/login', { data: ADMIN }), 'login admin');
   const [workspace] = (await (
     await api.get('/api/v1/users/me/workspaces')
   ).json()) as Schemas['UserWorkspace'][];
-  const found = workspace
-    ? ((await (await api.get(`/api/v1/w/${workspace.id}`)).json()) as Schemas['Workspace'])
-    : undefined;
-  token = found?.signupToken;
+  if (!workspace) throw new Error('the administrator has no organization');
+  token = (await memberLink(api, workspace.id)).token ?? undefined;
   await api.dispose();
   if (!token) throw new Error('the administrator was given no invitation');
   return token;
 }
 
-/** Makes an account through the API. */
+/** Makes a link that lets members into an organization, as whoever `api` is signed in as. */
+export async function memberLink(
+  api: APIRequestContext,
+  workspaceId: string,
+): Promise<Schemas['Invitation']> {
+  const made = await api.post(`/api/v1/w/${workspaceId}/invitations`, {
+    data: { role: 'member' },
+  });
+  await ok(made, 'make a link for members');
+  return (await made.json()) as Schemas['Invitation'];
+}
+
+/** Makes an account through the API: a member of the administrator's organization. */
 export async function register(baseURL: string, who: Person): Promise<void> {
   const api = await apiClient(baseURL);
-  const answer = await api.post('/api/v1/register', {
-    data: { ...who, token: await invitation(baseURL) },
+  const answer = await api.post('/api/v1/invitations/accept', {
+    data: { token: await invitation(baseURL), account: who },
   });
   await ok(answer, `register ${who.username}`);
   await api.dispose();
@@ -301,19 +320,10 @@ export function addWorkspace(baseURL: string, who: Person, name: string): string
     const now = Date.now();
     database
       .prepare(
-        'INSERT INTO workspaces (id, signup_token, settings, modified_by, create_at, update_at, ' +
-          'org_id, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO workspaces (id, settings, modified_by, create_at, update_at, org_id, name) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(
-        id,
-        randomBytes(16).toString('hex'),
-        home.settings,
-        user.id,
-        now,
-        now,
-        home.org_id,
-        name,
-      );
+      .run(id, home.settings, user.id, now, now, home.org_id, name);
     database
       .prepare(
         'INSERT INTO workspace_members (workspace_id, user_id, role, create_at) VALUES (?, ?, ?, ?)',

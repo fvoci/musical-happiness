@@ -7,11 +7,16 @@
   none: the reader is taken to the one they were last in on this browser if
   it is still theirs, else to their first, the address put in place of the
   root's (`Workspace.firstChoice`, `last-workspace.ts`).
+
+  The link of an invitation (`/invite/<token>`) shows the page of the
+  invitation, to whoever is signed in and to whoever is not; where it lets
+  them in is then loaded afresh.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
 
   import { setFileUrlResolver } from '$lib/editor/files.ts';
+  import InvitePage from '$lib/features/account/InvitePage.svelte';
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import AppShell from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -20,9 +25,12 @@
     isBackendError,
     whileHere,
     Workspace,
+    type AcceptedInvitation,
     type Account,
+    type NewAccount,
     type Registration,
   } from '$lib/state/index.ts';
+  import { userDisplayName } from '$lib/logic/users.ts';
   import type { BoardPlace } from '$lib/logic/urls.ts';
   import { Button } from '$lib/ui/button/index.js';
 
@@ -117,9 +125,13 @@
     router.restart({});
   }
 
+  /** The token of the invitation the address is the link of, if it is one. */
+  const invitation = $derived(router.route.invitation);
+
   // The root address: to the workspace the reader starts in, in its place.
   $effect(() => {
     if (workspace?.status !== 'ready' || router.route.unknown || router.route.workspaceId) return;
+    if (invitation !== undefined) return;
     const chosen = workspace.firstChoice();
     if (chosen) router.go({ workspaceId: chosen }, { replace: true });
   });
@@ -165,6 +177,22 @@
       <p class="mt-2 text-muted-foreground" role="status">{m.app_loading()}</p>
     </div>
   </main>
+{:else if invitation !== undefined && account && workspace.status !== 'failed'}
+  {@const signedInAs = workspace.status === 'ready' ? workspace.me : undefined}
+  {@const accounts = account}
+  <InvitePage
+    token={invitation}
+    signedInAs={signedInAs && userDisplayName(signedInAs)}
+    preview={(token: string) => accounts.previewInvitation(token)}
+    accept={(token: string, made?: NewAccount) => accounts.acceptInvitation(token, made)}
+    onSignIn={(login: string, password: string) => accounts.signIn(login, password)}
+    onJoined={(accepted: AcceptedInvitation) => {
+      // Loaded afresh where the invitation let the reader in: what the page
+      // has in memory is of whoever was, or was not, signed in before.
+      router.restart({ workspaceId: accepted.workspaceId, boardId: accepted.boardId });
+    }}
+    homeHref={router.href({})}
+  />
 {:else if workspace.status === 'signedOut' && account}
   <SignInPage
     onSignIn={async (login: string, password: string) => {
@@ -213,8 +241,8 @@
       await account?.register(registration);
       registered = { username: registration.username, email: registration.email };
     }}
-    organizationOf={(orgId: string | undefined) =>
-      account?.loginOrganization(orgId) ?? Promise.resolve(undefined)}
+    optionsOf={(orgId: string | undefined) =>
+      account?.loginOptions(orgId) ?? Promise.resolve({ registrationOpen: true })}
     onOidcStart={async (orgId: string) => {
       if (!account) return;
       // Started by this page's own request; the browser then goes to the provider.

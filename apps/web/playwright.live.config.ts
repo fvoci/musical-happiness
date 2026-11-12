@@ -14,6 +14,8 @@ import { defineConfig, devices } from '@playwright/test';
  * the accounts and boards it needs, under names of its own.
  */
 const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
+/** The tests of the first use of a server (e2e-live/first-use.spec.ts). */
+const FIRST_USE = /first-use\.spec\.ts$/;
 
 export default defineConfig({
   testDir: 'e2e-live',
@@ -26,7 +28,17 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'desktop', use: { ...devices['Desktop Chrome'] } }],
+  // The tests of the first use start on a server that nobody has used: they
+  // run first, and make the administrator the others work beside.
+  projects: [
+    { name: 'first-use', testMatch: FIRST_USE, use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'desktop',
+      testIgnore: FIRST_USE,
+      dependencies: ['first-use'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
   webServer: {
     command: `node tools/live-server.ts ${PORT}`,
     // No `url` or `port`: on this host a connection to a closed port hangs

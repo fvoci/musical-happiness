@@ -7,6 +7,7 @@
 import { expect, test } from '@playwright/test';
 
 import {
+  ORG_NAME,
   ADMIN,
   boardPath,
   invitation,
@@ -46,7 +47,8 @@ test('a newcomer signs in through the provider and opens a board', async ({ page
   const errors = watchErrors(page);
   await page.goto('/');
   const button = page.getByTestId('oidc-continue');
-  await expect(button).toHaveText('Continue with single sign-on');
+  // Named after the organization, which has the name its first user gave it.
+  await expect(button).toHaveText(`Continue with ${ORG_NAME}`);
   await button.click();
   // Signed in: the app, wherever it opens, and not the sign-in page.
   await expect(page.getByTestId('app-shell')).toBeVisible();

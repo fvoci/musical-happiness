@@ -11,7 +11,7 @@
 //!   comes up again;
 //! * millisecond timestamps become `<ts>`;
 //! * the seconds to wait of a 429 (`retryAfter`, `Retry-After`) become `<seconds>`;
-//! * values of members named like secrets (`token`, `signupToken`) become `<secret>`, and
+//! * values of members named like secrets (`token`) become `<secret>`, and
 //!   the identifier of the request in an error body becomes `<request-id>`, in its
 //!   `instance` too.
 //!
@@ -39,7 +39,7 @@ pub(crate) const API: &str = "/api/v1";
 const PASSWORD: &str = "test-password";
 
 /// Members whose values are secrets and differ from run to run.
-const SECRET_KEYS: [&str; 3] = ["token", "signupToken", "signup_token"];
+const SECRET_KEYS: [&str; 1] = ["token"];
 
 /// The member of an error body that identifies the request; different in every run.
 const REQUEST_ID_KEY: &str = "requestId";
@@ -330,36 +330,44 @@ impl Http {
             .await
     }
 
-    /// Registers `user`, lets them into the second workspace of the test server, where
-    /// the users of the scenarios work as in the root workspace, and signs in. Returns the
-    /// session token.
-    pub(crate) async fn register(&self, user: &str, signup_token: &str) -> String {
-        let mut body = json!({
+    /// Makes the account of `user`, lets them into the second workspace of the test
+    /// server, where the users of the scenarios work as in the root workspace, and
+    /// signs in. Returns the session token. Without the token of a link (`""`) the user
+    /// registers and starts the organization, as the first user of the server does; with one
+    /// ([`Http::member_link`]) they accept the link.
+    pub(crate) async fn register(&self, user: &str, link: &str) -> String {
+        let account = json!({
             "username": user,
             "email": format!("{user}@example.com"),
             "password": PASSWORD,
         });
-        if !signup_token.is_empty() {
-            body["token"] = json!(signup_token);
-        }
+        let (path, body, expected) = if link.is_empty() {
+            let mut body = account;
+            body["organizationName"] = json!("The Firm");
+            ("register", body, 201)
+        } else {
+            let body = json!({"token": link, "account": account});
+            ("invitations/accept", body, 200)
+        };
         let reply = self
             .api(
                 Method::POST,
-                &format!("{API}/register"),
+                &format!("{API}/{path}"),
                 Payload::Json(body),
                 &Caller::Anonymous,
             )
             .await;
-        assert_eq!(reply.status, 201, "register {user}: {:?}", reply.body);
+        assert_eq!(reply.status, expected, "register {user}: {:?}", reply.body);
+        let token = self.login(user).await;
         self.store
             .add_workspace_member(
                 TEST_WORKSPACE_ID,
-                &reply.string("id"),
+                &self.user_id(&token).await,
                 WorkspaceRole::Member,
             )
             .await
             .expect("the user is let into the second workspace");
-        self.login(user).await
+        token
     }
 
     /// Signs `user` in and returns the session token.
@@ -377,16 +385,19 @@ impl Http {
         reply.session_token()
     }
 
-    /// The workspace's signup token, read as the holder of `token`.
-    pub(crate) async fn signup_token(&self, token: &str) -> String {
-        self.api(
-            Method::GET,
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}"),
-            Payload::None,
-            &Caller::Token(token.to_owned()),
-        )
-        .await
-        .string("signupToken")
+    /// The token of a new link that makes members of the root workspace, made by the
+    /// holder of `token`, who administers it.
+    pub(crate) async fn member_link(&self, token: &str) -> String {
+        let reply = self
+            .api(
+                Method::POST,
+                &format!("{API}/w/{ROOT_WORKSPACE_ID}/invitations"),
+                Payload::Json(json!({"role": "member"})),
+                &Caller::Token(token.to_owned()),
+            )
+            .await;
+        assert_eq!(reply.status, 201, "a link for members: {:?}", reply.body);
+        reply.string("token")
     }
 
     /// The identifier of the user who holds `token`.
@@ -498,18 +509,18 @@ impl Session {
         });
     }
 
-    /// Registers one user per name, unique to the scenario, with the workspace's signup
-    /// token, and returns the user names.
+    /// Makes the account of one user per name, unique to the scenario, by a link for
+    /// members that `root` makes, and returns the user names.
     pub(crate) async fn users<const N: usize>(
         &mut self,
         scenario: &str,
         names: [&str; N],
     ) -> [String; N] {
-        let signup_token = self.signup_token("root").await;
+        let link = self.member_link("root").await;
         let mut created = Vec::with_capacity(N);
         for name in names {
             let user = format!("{scenario}-{name}");
-            let token = self.http.register(&user, &signup_token).await;
+            let token = self.http.register(&user, &link).await;
             self.tokens.insert(user.clone(), token);
             created.push(user);
         }
@@ -518,9 +529,9 @@ impl Session {
             .unwrap_or_else(|_| unreachable!("one user is created per name"))
     }
 
-    /// The workspace's signup token, read as `user`. Not recorded.
-    pub(crate) async fn signup_token(&self, user: &str) -> String {
-        self.http.signup_token(self.token_of(user)).await
+    /// The token of a new link for members that `user` makes. Not recorded.
+    pub(crate) async fn member_link(&self, user: &str) -> String {
+        self.http.member_link(self.token_of(user)).await
     }
 
     /// The identifier of `user`. Not recorded.

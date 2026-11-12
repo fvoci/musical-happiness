@@ -97,19 +97,23 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 9] = [
+const NO_SESSION: [&str; 10] = [
     "finishOidcLogin",
     "getClientConfig",
     "getLoginOptions",
     "hello",
     "login",
     "ping",
+    "previewInvitation",
     "ready",
     "register",
     "startOidcLogin",
 ];
-/// The operations that are read with a session or with the read token of a board.
-const READ_TOKEN: [&str; 5] = [
+/// The operations that take a session and do without one: what is read with a session
+/// or with the read token of a board, and the acceptance of an invitation, which makes
+/// an account for whoever has none.
+const SESSION_OR_NONE: [&str; 6] = [
+    "acceptInvitation",
     "getBlocks",
     "getBoard",
     "getCards",
@@ -122,7 +126,7 @@ fn what_needs_no_session_says_so() {
     let text = document().expect("the document");
     let document: Value = serde_json::from_str(&text).expect("JSON");
     let mut no_session = Vec::new();
-    let mut read_token = Vec::new();
+    let mut session_or_none = Vec::new();
     for item in document["paths"].as_object().expect("paths").values() {
         for operation in item.as_object().expect("a path item").values() {
             let name = operation["operationId"].as_str().expect("a name");
@@ -130,7 +134,7 @@ fn what_needs_no_session_says_so() {
             if *security == json!([{}]) {
                 no_session.push(name);
             } else if *security == json!([{}, { "sessionCookie": [] }, { "bearerToken": [] }]) {
-                read_token.push(name);
+                session_or_none.push(name);
             } else {
                 assert_eq!(
                     *security,
@@ -141,14 +145,14 @@ fn what_needs_no_session_says_so() {
         }
     }
     no_session.sort_unstable();
-    read_token.sort_unstable();
+    session_or_none.sort_unstable();
     assert_eq!(
         no_session, NO_SESSION,
         "these need no session, and no others"
     );
     assert_eq!(
-        read_token, READ_TOKEN,
-        "these are read with a session or a read token, and no others"
+        session_or_none, SESSION_OR_NONE,
+        "these take a session and do without one, and no others"
     );
     assert_eq!(
         document["security"],

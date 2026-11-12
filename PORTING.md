@@ -92,7 +92,7 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 | 삭제와 복원 | 보드와 블록은 휴지통으로 옮기고 30일 뒤 영구히 지운다 | G |
 | 비밀번호와 토큰 | 비밀번호는 Argon2id로, 세션 토큰은 다이제스트로 저장한다 | G |
 | 세션 | `HttpOnly` 쿠키나 `Authorization: Bearer`로 전한다. 한가함 14일, 절대 90일에 끝난다 | G, H |
-| 관리자 | 처음 가입한 사용자가 관리자다. 가입 토큰은 관리자만 본다 | G |
+| 관리자 | 처음 가입한 사용자가 관리자다. 그 뒤의 사람은 초대 링크로 들어온다(가입 토큰은 없앴다) | G |
 | 공유 | 읽기 토큰은 서버가 만든다. 공유를 끄면 토큰을 지운다 | G |
 | 사용자 설정 | 계정의 표시 설정 여덟과, 한도가 있는 화면 상태의 주머니 | G |
 | 최소 역할 | 모든 보드에 있다. 참여와 추가가 그 역할을 준다 | G |
@@ -321,7 +321,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 |---|---|---|
 | 엔티티의 식별자(팀, 보드, 블록, 사용자, 카테고리, 카테고리-보드 행, 세션, 파일 기록)가 UUIDv7이다. 표기는 하이픈이 든 소문자 36자. PostgreSQL은 `uuid` 열, SQLite는 `TEXT`. 종류 접두사(`b…`, `c…`)는 없다 | 설계 3.2. 색인의 삽입 지역성. 순서의 뜻은 없다(정렬은 만든 시각으로 한다) | `fvoci_model::{new_id, is_id}`, `crates/store/src/db.rs`의 `Id`·`OptId`·`Row::id` |
 | **식별자가 아닌 글은 아무것도 가리키지 않는다.** 조회는 아무 줄도 찾지 못하고(그 라우트의 404), 그것을 저장하려는 쓰기는 400 `bad_request`다. 다른 표기의 UUID(대문자, 중괄호, 하이픈 없음)와 nil UUID(전부 0)도 식별자가 아니다 | 설계 2.3의 마지막 행. PostgreSQL의 `uuid` 열에 잘못된 값이 가지 않고, 두 DB의 답이 같다. 경로를 미리 거르는 미들웨어는 두지 않았다: 세션(401)보다 먼저 404가 나가면 검사 순서가 어긋난다. 대신 저장소가 막고, 테스트가 "없는 것"과 답이 같은지 라우트마다 비교한다 | `StoreError::InvalidId`, 테스트 `visibility::text_that_is_no_identifier_answers_as_an_identifier_of_nothing`(33개 요청 × 5가지 글), `visibility::what_a_user_cannot_see_…`(42개 요청에 세 번째 경우) |
-| 세션 토큰, 가입 토큰, 저장 파일 이름은 식별자 생성기를 쓰지 않는다. 운영체제 난수 256비트, base64url 43자 | 설계 3.3. UUIDv7은 앞이 시각이고 한 밀리초 안에서는 카운터가 이어진다 | `fvoci_server::auth::secret::new_secret` |
+| 세션 토큰, 초대의 토큰, 저장 파일 이름은 식별자 생성기를 쓰지 않는다. 운영체제 난수 256비트, base64url 43자 | 설계 3.3. UUIDv7은 앞이 시각이고 한 밀리초 안에서는 카운터가 이어진다 | `fvoci_server::auth::secret::new_secret` |
 | **워크스페이스(원본의 팀).** 루트 워크스페이스는 처음 시작할 때 UUIDv7으로 만들어진다(가장 오래된 워크스페이스가 루트다). 워크스페이스 `0`은 없다. `GET /w/{workspaceId}`는 그 워크스페이스만 답하고 다른 ID는 404다. 경로가 가리키는 워크스페이스에 사용자가 없으면 `/w/` 아래 라우트 전부가 404 `workspace not found`, 본문이 가리키면 400 `no such workspace`이다 | 설계의 결정 6(팀은 유지, 루트 팀도 UUIDv7). 보존한 quirk "`GET /teams/{아무 ID}`는 루트 팀을 답한다"가 닫혔다. 가입 토큰은 관리자만 본다(아래 "관리자에서 바뀐 것") | `App::{root_workspace, workspace}`, `api::workspace::{Ws, WorksIn}` |
 | **내장 템플릿은 표식 열로 구분한다.** `boards.is_builtin`(와이어 `isBuiltin`). 만든 사용자가 없는(`createdBy`가 빈) 템플릿이다. 시스템 조직의 워크스페이스에 속하고(`crates/store/src/directory.rs`의 고정 ID) 모든 워크스페이스에 제공된다: `GET /w/{workspaceId}/templates`가 그 워크스페이스의 템플릿과 내장 템플릿을 함께 답한다. `system`이라는 사용자와 내장 템플릿의 관리자 멤버십은 없다. 클라이언트가 보낸 `isBuiltin`은 무시한다. 사용자가 루트 워크스페이스에 만든 템플릿은 `trackingTemplateId`를 받지 않는다(전에는 팀 `0`의 템플릿이면 받았다) | 설계의 결정 6. 온보딩(S18)이 "시스템이 만든 보드"를 `createdBy`의 글자가 아니라 이 열로 본다 | `Store::{get_builtin_templates, remove_builtin_templates}`, `app/templates.rs` |
 | **채널이 없다.** 보드와 패치의 `channelId` 멤버, 채널 열, 채널 권한 검사가 없다. 패치에 `channelId`가 와도 무시한다 | 설계의 결정 4에서 이 단계로 미뤄 둔 것 | 모델 `Board`, `BoardPatch` |
@@ -350,7 +350,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | 로그인이 성공했는데 저장된 해시의 매개변수가 지금 기준과 다르면 새로 해시해 저장한다. 저장된 해시가 그사이 바뀌었으면(비밀번호 변경) 건드리지 않는다 | 기준을 올려도 사용자가 비밀번호를 다시 정하지 않아도 된다 | `App::login`, `Store::replace_password_hash`, 테스트 `users::a_login_renews_a_hash_made_with_other_parameters` |
 | 비밀번호의 길이: 최소 8**자**(유니코드 스칼라 수. 전에는 8바이트), 최대 1,024바이트. 가입, 변경, 관리자의 설정 모두 같은 규칙이다. 72바이트 제한과 그에 딸린 400, 64바이트 상한(`max-length`)은 없다. 한도를 넘는 비밀번호로 로그인하면 해시하지 않고 틀린 비밀번호와 같은 401이다 | 설계 3.4. bcrypt는 앞 72바이트만 봤다. 최대는 아주 긴 입력으로 해시 시간을 늘리는 것을 막는다 | `fvoci_model::check_new_password`, 테스트 `users::passwords_are_bounded_…`, `admin::socket::admin_set_password_applies_the_password_rules` |
 | 동시에 도는 해시는 4개다 | 설계의 결정 8. 해시 하나가 19 MiB를 쓴다. 대기열과 대기 시간은 I절에 있다 | `auth::hash_queue::HashQueue` |
-| **세션 토큰은 SHA-256 다이제스트로 저장한다**(`sessions.token_hash`, 유일). 토큰 자체는 로그인 응답으로 한 번 나가고 어디에도 저장되지 않는다. 가입 토큰과 공유 토큰은 평문이다 | 설계의 결정 9. DB나 백업을 읽은 것만으로는 세션을 쓸 수 없다. 토큰이 256비트 난수라 느린 해시는 필요 없다 | `auth::secret::token_digest`, `store/sessions.rs`, 테스트 `users::the_store_keeps_the_digest_…` |
+| **세션 토큰은 SHA-256 다이제스트로 저장한다**(`sessions.token_hash`, 유일). 토큰 자체는 로그인 응답으로 한 번 나가고 어디에도 저장되지 않는다. 초대의 토큰도 다이제스트로만 저장한다. 공유 토큰은 평문이다 | 설계의 결정 9. DB나 백업을 읽은 것만으로는 세션을 쓸 수 없다. 토큰이 256비트 난수라 느린 해시는 필요 없다 | `auth::secret::token_digest`, `store/sessions.rs`, 테스트 `users::the_store_keeps_the_digest_…` |
 | 세션 행이 `id, token_hash, user_id, created_at, last_used_at, expires_at, user_agent`다. `auth_service`, `props`는 없다. 만료 규칙과 기록 간격은 아래 "세션 수명"에 있다 | 설계 5.4의 행 모양을 한 번에 맞췄다 | 모델 `Session` |
 | **자기 비밀번호를 바꾸면 그 사용자의 다른 세션이 모두 끝난다.** 바꾼 세션은 남고 새 토큰을 받는다(H절). 다른 세션으로 인증한 WebSocket 연결도 닫는다 | 설계 5.4의 3번 (b). 비밀번호 변경과 세션 삭제가 한 트랜잭션이라 여기서 함께 했다 | `Store::change_user_password`, `Hub::close_other_sessions_of_user`, 테스트 `users::changing_the_password_ends_the_other_sessions_of_the_user` |
 | 가입·비밀번호 요청의 검증 오류가 `errors`에 칸의 자리를 싣는다(`/username`, `/email`, `/password`, `/oldPassword`, `/newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field`, `AppError::with_field` |
@@ -406,9 +406,9 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 |---|---|---|
 | **처음 가입한 사용자가 인스턴스 관리자다.** `users.is_admin`, 와이어 `isAdmin`(`GET /users/me`와 사용자를 답하는 모든 곳. 누가 관리자인지는 비밀이 아니다). 요청이 보낸 `isAdmin`은 쓰지 않는다 | 설계 3.6 | `fvoci_model::User::is_admin` |
 | "처음"은 저장과 같은 트랜잭션에서 정한다. 한 줄짜리 테이블 `instance`의 `bootstrapped`를 켠 쪽이 첫 사용자다. 빈 인스턴스에 동시에 온 가입 가운데 하나만 관리자가 된다 | 사용자 수를 세어 정하면 둘이 함께 0을 본다 | `Store::{create_user, create_first_user, is_bootstrapped}` |
-| **토큰 없는 가입은 첫 사용자만 된다.** 그 판정도 같은 트랜잭션이다. 전에는 "사용자가 0명인가"를 먼저 읽어서, 동시에 온 토큰 없는 가입이 모두 들어갈 수 있었다 | 가입 토큰의 뜻 | `Admission`, `StoreError::NotFirstUser` → 403 `signup_token_required` |
+| **조직을 하나 두는 서버에서 가입은 첫 사용자만 된다.** 그 판정도 계정·조직의 이름·두 구성원 행과 같은 트랜잭션이다. 전에는 "사용자가 0명인가"를 먼저 읽어서, 동시에 온 가입이 모두 들어갈 수 있었다 | 첫 사용자가 조직을 시작한다 | `Store::sign_up`, `StoreError::NotFirstUser` → 403 `invitation_required` |
 | `PUT /users/{id}/admin` `{"isAdmin": bool}`: 관리자만(아니면 403 `admin_required`). 없는 사용자는 404. 마지막 관리자는 해제할 수 없다(409 `last_admin`). 확인과 쓰기가 한 트랜잭션이라 둘이 동시에 물러나면 하나는 거절된다. 비활성화된 관리자는 세지 않는다. 응답은 바뀐 사용자다 | 설계 3.6. 양도는 "상대를 지정하고 나를 해제"의 두 번이다 | `Store::set_user_admin`, `AdminChange`, `api/users.rs` |
-| **가입 토큰은 관리자의 것이다.** `GET /w/{workspaceId}`의 `signupToken`은 관리자에게만 들어 있고 다른 사용자에게는 멤버 자체가 없다(전에는 로그인한 누구에게나 나갔다). 가입 토큰의 재발급은 관리자만 하고(전에는 누구나) 응답이 새 토큰이 든 워크스페이스다(전에는 빈 객체). 경로는 `POST /w/{workspaceId}/signup-token`이다(원본은 `POST /teams/{team}/regenerate_signup_token`) | 설계 3.6. 토큰을 가진 사람은 누구든 가입한다 | `api/workspace.rs`, `api/auth.rs`, `api::access::require_admin` |
+| **가입 토큰은 없다. 초대 링크로 들어온다.** 워크스페이스의 관리자가 구성원 링크를 만들고(`POST /w/{workspaceId}/invitations`), 링크를 가진 사람이 미리 보고(`POST /invitations/preview`) 수락한다(`POST /invitations/accept`: 로그인한 계정으로, 아니면 만들 계정과 함께). 토큰은 만들 때 한 번만 답에 있고 다이제스트로 저장한다. 쓸 수 없는 링크의 답은 까닭이 무엇이든 404 `invitation_unavailable` 하나다 | 사용자 결정 2026-11-12. 가입 토큰은 가진 사람 누구든, 언제까지나 들였다 | `api/invitations.rs`, `app/invitations.rs`, `store/invitations.rs` |
 | 관리자 소켓에 `POST /api/v1/admin/users/{username}/admin`: 그 사용자를 관리자로 만든다. 관리자가 아무도 로그인할 수 없을 때의 복구 수단이다 | 설계 3.6 | `api/admin.rs` |
 
 **고정하는 것.** 회귀 시나리오 `admins`가 첫 사용자, 가입 토큰의 조회와 재발급(역할별), 관리자 지정·해제의 거절과 순서를 고정한다. 테스트는 API `admins::*`와 소켓 하나, 스토어 `users::`의 다섯이다. 스토어의 것에는 경합 둘이 있다: 동시에 저장한 사용자 가운데 관리자는 하나, 동시에 물러난 관리자 둘 가운데 하나는 남는다.
@@ -627,7 +627,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 | 전 | 지금 | 비고 |
 |---|---|---|
 | `GET /clientConfig` | `GET /client-config` | |
-| `POST /teams/{team}/regenerate_signup_token` | `POST /w/{workspaceId}/signup-token` | |
+| `POST /teams/{team}/regenerate_signup_token` | 없다. 초대 링크가 대신한다(`POST /w/{workspaceId}/invitations`) | |
 | `POST /users/{user}/changepassword` | `POST /users/me/password` | 남의 비밀번호는 경로로 가리킬 수도 없다. 전의 "남의 ID면 403" 분기가 없어졌다 |
 | `GET /users/me/config`, `PUT /users/{user}/config` | `GET`·`PATCH /users/me/client-state` | 본문이 고치는 것만 담으므로 `PATCH`다. 답은 `{이름: 값}` 객체다(전에는 `{user_id, category, name, value}`의 목록) |
 | `POST /teams/{team}/{board}/files` | `POST /boards/{board}/files` | 파일은 보드의 것이다(G절). 팀은 경로에서 아무 일도 하지 않았다 |

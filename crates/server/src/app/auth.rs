@@ -3,9 +3,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{
-    MAXIMUM_PASSWORD_BYTES, NewAccount, RegisterRequest, Session, User, new_id, team_name,
-};
+use fvoci_model::{MAXIMUM_PASSWORD_BYTES, NewAccount, RegisterRequest, Session, User, new_id};
 use fvoci_store::{Founding, StoreError, Taken};
 
 use super::App;
@@ -259,12 +257,13 @@ impl App {
         Ok(self.config().takes_several_organizations() || !self.store().is_bootstrapped().await?)
     }
 
-    /// Makes the account of somebody who signs up with the name of their team, and the
-    /// team, and returns the account: the user administers the organization and its
-    /// first workspace, which both have the team's name. The first user of the instance
-    /// takes the organization the server started with, and administers the instance;
+    /// Makes the account of somebody who signs up, and the organization they start by
+    /// it, and returns the account: the user administers the organization and its
+    /// first workspace, which both have the name of the request. The first user of the
+    /// instance takes the organization the server started with, and administers the instance;
     /// everybody after starts a new organization, where the server takes several. The
-    /// caller has checked the request.
+    /// caller has tidied and checked the request (`RegisterRequest::tidied`,
+    /// `RegisterRequest::validate`).
     ///
     /// # Errors
     ///
@@ -280,16 +279,14 @@ impl App {
         // A registration costs a hash like a login, and is counted against where it
         // comes from like one. The turn is held until the user is stored.
         let _attempt = self.admit_registration(address)?;
-        let team = team_name(&request.team_name)?;
-        let mut user = self.new_account(&request.account().tidied()).await?;
+        let name = &request.organization_name;
+        let mut user = self.new_account(&request.account()).await?;
         let mut stored = if self.store().is_bootstrapped().await? {
             Err(StoreError::NotFirstUser)
         } else {
-            self.store()
-                .sign_up(&mut user, &team, Founding::First)
-                .await
+            self.store().sign_up(&mut user, name, Founding::First).await
         };
-        // Another registration was first after all, or one was long ago: a team of
+        // Another registration was first after all, or one was long ago: an organization of
         // its own, in an organization of its own, where the server takes several.
         if matches!(stored, Err(StoreError::NotFirstUser))
             && self.config().takes_several_organizations()
@@ -298,7 +295,7 @@ impl App {
                 workspace_id: &new_id(),
             };
             stored = match self.store().for_org(&new_id()) {
-                Ok(store) => store.sign_up(&mut user, &team, founding).await,
+                Ok(store) => store.sign_up(&mut user, name, founding).await,
                 Err(error) => Err(error),
             };
         }
@@ -309,7 +306,7 @@ impl App {
                     user_id = %user.id,
                     workspace_id,
                     first = user.is_admin,
-                    "a user signed up and started a team"
+                    "a user signed up and started an organization"
                 );
                 Ok(user)
             }
@@ -318,7 +315,7 @@ impl App {
     }
 
     /// Asks whether a registration from `address` may go ahead now, and holds its
-    /// turn: of the registrations of an address, with a team or by an invitation, one
+    /// turn: of the registrations of an address, with an organization or by an invitation, one
     /// is under way at a time.
     pub(crate) fn admit_registration(
         &self,

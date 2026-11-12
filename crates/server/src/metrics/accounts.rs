@@ -94,7 +94,7 @@ impl AccountMetrics {
         let registrations = IntCounter::with_opts(
             Opts::new(
                 "registrations_total",
-                "How many accounts were made by registering: those that started a team, \
+                "How many accounts were made by registering: those that started an organization, \
                  and those an invitation let in.",
             )
             .namespace(PREFIX),

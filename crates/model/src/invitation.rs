@@ -106,8 +106,8 @@ impl fmt::Debug for InvitationToken {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct InvitationPreview {
-    /// The name of the team the link leads into; empty if it was given none.
-    pub team_name: String,
+    /// The name of the workspace the link leads into; empty if it was given none.
+    pub workspace_name: String,
     /// The name of who made the link: the name they are shown by, or their login name
     /// if they have none.
     pub inviter_name: String,

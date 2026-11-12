@@ -21,13 +21,16 @@ function mount(
   start: (orgId: string) => Promise<void> = () => Promise.resolve(),
 ) {
   history.replaceState(null, '', address);
-  const organizationOf = vi.fn(async (_orgId: string | undefined) => found);
+  const organizationOf = vi.fn(async (_orgId: string | undefined) => ({
+    ...(found ? { organization: found } : {}),
+    registrationOpen: true,
+  }));
   const onOidcStart = vi.fn(start);
   render(SignInPage, {
     props: {
       onSignIn: vi.fn(() => Promise.resolve()),
       onRegister: vi.fn(() => Promise.resolve()),
-      organizationOf,
+      optionsOf: organizationOf,
       onOidcStart,
     },
   });

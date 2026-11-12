@@ -185,7 +185,7 @@ fn describe_reason(reason: Reason) -> &'static str {
              whose session is good: `errors` names `/oldPassword`."
         }
         Reason::InvitationRequired => {
-            "Status 403. The server has one team, which its first user started by \
+            "Status 403. The server has one organization, which its first user started by \
              registering. Everybody after gets in by the link of an invitation, and this \
              registration is none."
         }

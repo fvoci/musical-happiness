@@ -94,6 +94,27 @@ describe('the display name, on the server', () => {
     expect(user).toMatchObject({ id: 'u1', username: 'ada', displayName: 'Ada' });
   });
 
+  it('is sent with an invitation that is accepted only when one was typed', async () => {
+    const sent: unknown[] = [];
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      sent.push(typeof init.body === 'string' ? JSON.parse(init.body) : undefined);
+      return Promise.resolve(Response.json({ workspaceId: 'w1' }));
+    });
+    const backend = new ServerBackend('');
+    const account = { username: 'a', email: 'a@x', password: 'p' };
+    expect(await backend.acceptInvitation('t', { ...account, displayName: '' })).toEqual({
+      workspaceId: 'w1',
+    });
+    await backend.acceptInvitation('t', { ...account, displayName: 'A' });
+    // Whoever is signed in accepts with no account.
+    await backend.acceptInvitation('t');
+    expect(sent).toEqual([
+      { token: 't', account },
+      { token: 't', account: { ...account, displayName: 'A' } },
+      { token: 't' },
+    ]);
+  });
+
   it('is sent at registration only when one was typed', async () => {
     const sent: unknown[] = [];
     vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
@@ -101,11 +122,12 @@ describe('the display name, on the server', () => {
       return Promise.resolve(new Response(null, { status: 204 }));
     });
     const backend = new ServerBackend('');
-    await backend.register({ username: 'a', email: 'a@x', password: 'p', displayName: 'A' });
-    await backend.register({ username: 'b', email: 'b@x', password: 'p', displayName: '' });
+    const account = { username: 'a', email: 'a@x', password: 'p' };
+    await backend.register({ ...account, displayName: 'A', organizationName: 'Acme' });
+    await backend.register({ ...account, displayName: '', organizationName: 'Acme' });
     expect(sent).toEqual([
-      { username: 'a', email: 'a@x', password: 'p', displayName: 'A' },
-      { username: 'b', email: 'b@x', password: 'p' },
+      { ...account, displayName: 'A', organizationName: 'Acme' },
+      { ...account, organizationName: 'Acme' },
     ]);
   });
 });

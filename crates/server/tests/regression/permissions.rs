@@ -101,7 +101,7 @@ impl Users {
     async fn register(http: &Http) -> Self {
         let mut tokens = HashMap::new();
         tokens.insert("owner", http.register("owner", "").await);
-        let signup_token = http.signup_token(&tokens["owner"]).await;
+        let link = http.member_link(&tokens["owner"]).await;
         for name in [
             "outsider",
             "viewer",
@@ -110,7 +110,7 @@ impl Users {
             "admin",
             "extra",
         ] {
-            tokens.insert(name, http.register(name, &signup_token).await);
+            tokens.insert(name, http.register(name, &link).await);
         }
         let mut ids = HashMap::new();
         for (name, token) in &tokens {

@@ -1,15 +1,47 @@
 /** Signing in and out and making an account, where a backend has accounts (part of `backend.ts`). */
 
 /** What an account is made with. */
-export interface Registration {
+export interface NewAccount {
   /** The name to sign in with. */
   username: string;
   email: string;
   password: string;
   /** The name to be shown by; empty or left out for none. */
   displayName?: string;
-  /** The workspace's invitation; the first account of a server needs none. */
-  token?: string;
+}
+
+/** An account that starts an organization: whoever signs up without an invitation. */
+export interface Registration extends NewAccount {
+  /** The name of the organization the account starts, and of its first workspace. */
+  organizationName: string;
+}
+
+/** What the link of an invitation shows of where it leads, to whoever holds it. */
+export interface InvitationPreview {
+  /** The name of the workspace the link leads into; empty if it was given none. */
+  workspaceName: string;
+  /** Who made the link: the name they are shown by, or the one they sign in with. */
+  inviterName: string;
+  /** For a guest: the title of the board they are invited to. */
+  boardTitle?: string;
+}
+
+/** Where an accepted invitation let somebody in. */
+export interface AcceptedInvitation {
+  workspaceId: string;
+  /** For a guest: the board they were invited to. */
+  boardId?: string;
+}
+
+/** What the login page may know of the server before anybody signs in. */
+export interface LoginOptions {
+  /** The organization the page is for, if it is for one. */
+  organization?: LoginOrganization;
+  /**
+   * Whether somebody without an invitation may make an account and start an
+   * organization. Where they may not, the link of an invitation is the way in.
+   */
+  registrationOpen: boolean;
 }
 
 /** What the login page may know of an organization before anybody signs in. */
@@ -29,8 +61,19 @@ export interface LoginOrganization {
 export interface Account {
   /** `login` is the name to sign in with, or the email address. */
   signIn(login: string, password: string): Promise<void>;
-  /** Makes an account. It does not sign in. */
+  /** Makes an account and the organization it starts. It does not sign in. */
   register(registration: Registration): Promise<void>;
+  /**
+   * What the link of an invitation shows. A link that lets nobody in (there is
+   * none, it ended, it was used up or revoked) is refused with 404 and the
+   * reason `invitation_unavailable`, whatever is wrong with it.
+   */
+  previewInvitation(token: string): Promise<InvitationPreview>;
+  /**
+   * Lets somebody in by the link of an invitation: whoever is signed in, or
+   * the `account` it makes for somebody who is not. It does not sign in.
+   */
+  acceptInvitation(token: string, account?: NewAccount): Promise<AcceptedInvitation>;
   signOut(): Promise<void>;
   /**
    * Changes the reader's password; `oldPassword` proves they know it. Their
@@ -39,10 +82,11 @@ export interface Account {
    */
   changePassword(oldPassword: string, newPassword: string): Promise<void>;
   /**
-   * The organization the login page is for: the one `orgId` names, or the
-   * only one of a server that holds one; undefined for none.
+   * What the login page shows: the organization it is for (the one `orgId`
+   * names, or the only one of a server that holds one), and whether an
+   * account is made without an invitation.
    */
-  loginOrganization(orgId: string | undefined): Promise<LoginOrganization | undefined>;
+  loginOptions(orgId: string | undefined): Promise<LoginOptions>;
   /**
    * Starts a sign-in through the organization's provider for this browser:
    * the provider's address the browser is then sent to.

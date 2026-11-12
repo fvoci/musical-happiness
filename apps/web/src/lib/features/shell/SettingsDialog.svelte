@@ -30,6 +30,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
+  import { userDisplayName } from '$lib/logic/users.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import {
     THEME_SETTINGS,
@@ -379,7 +380,9 @@
         <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
           <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="signed-in-as">
             {m.account_signed_in_as({
-              name: (workspace.me && workspace.userName(workspace.me.id)) ?? '',
+              // The reader is not always among the people read of where they
+              // are (somebody new there, before they are on a board).
+              name: workspace.me ? userDisplayName(workspace.me) : '',
             })}
           </span>
           <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>

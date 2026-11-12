@@ -88,7 +88,7 @@ pub(crate) async fn log_request(
     let started = Instant::now();
     let request_id = Uuid::now_v7().to_string();
     let method = request.method().clone();
-    let path = request.uri().path().to_owned();
+    let path = logged_path(request.uri().path());
     let peer = Peer::of(&request);
     let (address, client) = client_of(&served.proxies, request.headers(), peer);
     // For the handlers that count by where a request comes from: the same address the
@@ -138,10 +138,27 @@ fn identify(mut response: Response, request_id: &str, base_path: &str) -> Respon
     response
 }
 
+/// Where the page of an invitation is, under whatever path the server is served at.
+/// What follows it in an address is the token of the invitation.
+const INVITATION_PAGE: &str = "/invite/";
+
+/// The path of a request as the log has it: the address of the page of an invitation
+/// carries the invitation's token, a credential, which the log leaves out. No other
+/// address of the server has that part.
+fn logged_path(path: &str) -> String {
+    match path.find(INVITATION_PAGE) {
+        Some(at) => {
+            let page = path.get(..at + INVITATION_PAGE.len()).unwrap_or(path);
+            format!("{page}<token>")
+        }
+        None => path.to_owned(),
+    }
+}
+
 /// Answers with the standard 500 when a handler panics, instead of dropping the
 /// connection; the original's `panicHandler` (`server/api/api.go:117-132`).
 pub(crate) async fn contain_panics(request: Request, next: Next) -> Response {
-    let path = request.uri().path().to_owned();
+    let path = logged_path(request.uri().path());
     match AssertUnwindSafe(next.run(request)).catch_unwind().await {
         Ok(response) => response,
         Err(payload) => {
@@ -193,6 +210,21 @@ mod tests {
     fn proxies(ranges: &[&str]) -> TrustedProxies {
         let ranges: Vec<String> = ranges.iter().map(|range| (*range).to_owned()).collect();
         TrustedProxies::parse(&ranges).expect("valid ranges")
+    }
+
+    #[test]
+    fn the_token_of_an_invitation_is_not_in_a_logged_path() {
+        for (path, logged) in [
+            ("/invite/secret-token", "/invite/<token>"),
+            ("/base/invite/secret-token", "/base/invite/<token>"),
+            ("/invite/secret/more", "/invite/<token>"),
+            ("/invite/", "/invite/<token>"),
+            ("/invite", "/invite"),
+            ("/api/v1/invitations/accept", "/api/v1/invitations/accept"),
+            ("/w/1/boards/2", "/w/1/boards/2"),
+        ] {
+            assert_eq!(logged_path(path), logged, "{path}");
+        }
     }
 
     #[test]

@@ -1,23 +1,20 @@
-//! Administrators of the instance: who becomes one, who may make others one, and what
-//! is theirs alone (the signup token).
+//! Administrators of the instance: who becomes one, and who may make others one.
 
-use fvoci_model::{RegisterRequest, User, Workspace};
+use fvoci_model::{RegisterRequest, User};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{
-    ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID,
-};
+use crate::common::{ApiResponse, Client, ORG_NAME, PASSWORD, Setup, TestServer, UNKNOWN_ID};
 
 const ADMINS_ONLY: &str = "only an administrator of the instance may do this";
 
-fn registration(username: &str, token: &str) -> RegisterRequest {
+fn registration(username: &str) -> RegisterRequest {
     RegisterRequest {
         username: username.to_owned(),
         email: format!("{username}@sample.com"),
         password: PASSWORD.to_owned(),
-        token: token.to_owned(),
         display_name: String::new(),
+        organization_name: ORG_NAME.to_owned(),
     }
 }
 
@@ -46,13 +43,6 @@ fn check_admins_only(response: &ApiResponse) {
     assert_eq!(response.error_reason(), "admin_required", "the reason");
 }
 
-async fn workspace_as(client: &Client) -> Value {
-    client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-        .await
-        .ok_json()
-}
-
 /// The first user to register is the administrator; whoever registers after is not.
 /// Each learns it from `GET /users/me`, and others see it in the profile.
 #[tokio::test]
@@ -75,18 +65,19 @@ async fn the_first_user_is_the_administrator_and_later_ones_are_not() {
     th.teardown().await;
 }
 
-/// Without the signup token only the first user gets in. Of several registrations that
-/// arrive at once at an instance without users, one is accepted and is the
-/// administrator; the others are told that they need the token.
+/// On a server that holds one organization only the first user registers. Of several
+/// registrations that arrive at once at an instance without users, one is accepted,
+/// starts the organization and is the administrator; the others are told that they need an
+/// invitation, and nothing of them is left: no account, and no second organization.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn of_registrations_without_a_token_that_arrive_at_once_one_gets_in() {
+async fn of_registrations_that_arrive_at_once_one_starts_the_organization() {
     let th = Setup::native().start().await;
 
     let attempts = (0..6).map(|index| {
         let client = th.anonymous();
         async move {
             client
-                .post("/register", &registration(&format!("early{index}"), ""))
+                .post("/register", &registration(&format!("early{index}")))
                 .await
         }
     });
@@ -104,12 +95,29 @@ async fn of_registrations_without_a_token_that_arrive_at_once_one_gets_in() {
     for (index, answer) in answers.iter().enumerate() {
         if index != accepted[0] {
             answer.check_status(StatusCode::FORBIDDEN);
-            assert_eq!(answer.error_reason(), "signup_token_required", "{index}");
+            assert_eq!(answer.error_reason(), "invitation_required", "{index}");
         }
     }
     let winner = th.login(&format!("early{}", accepted[0]), PASSWORD).await;
     let me: User = winner.get("/users/me").await.ok_json();
     assert!(me.is_admin, "and that user is the administrator");
+    assert_eq!(
+        th.app.registered_user_count().await.expect("the users"),
+        1,
+        "nobody else has an account"
+    );
+    for (table, rows) in [("organization_members", 1), ("workspace_members", 1)] {
+        assert_eq!(
+            th.app
+                .store()
+                .system()
+                .count_rows(table)
+                .await
+                .expect("the rows are counted"),
+            rows,
+            "{table}: the winner's and nobody else's"
+        );
+    }
 
     th.teardown().await;
 }
@@ -183,110 +191,21 @@ async fn an_administrator_makes_and_unmakes_administrators() {
     th.teardown().await;
 }
 
-/// The signup token lets in whoever has it. It is answered to administrators and left
-/// out for everybody else, in the workspace and in the list of workspaces.
+/// Whoever an invitation lets in is no administrator, also when the administrator is
+/// not there any more to object: the role is not for whoever comes next.
 #[tokio::test]
-async fn the_signup_token_is_for_administrators() {
-    let th = Setup::native().start().await.init_basic().await;
-
-    let for_admin = workspace_as(&th.client).await;
-    let for_other = workspace_as(&th.client2).await;
-    let token = for_admin["signupToken"]
-        .as_str()
-        .expect("the administrator gets the token");
-    assert_eq!(token.len(), 43, "a secret: {token}");
-    assert_eq!(
-        for_other.get("signupToken"),
-        None,
-        "nobody else does: {for_other}"
-    );
-    assert_eq!(
-        for_other["id"], for_admin["id"],
-        "the same workspace otherwise"
-    );
-
-    // The list of a user's workspaces carries no token, for anybody.
-    for client in [&th.client, &th.client2] {
-        let listed: Vec<Value> = client.get("/users/me/workspaces").await.ok_json();
-        assert!(
-            listed
-                .iter()
-                .all(|workspace| workspace.get("signupToken").is_none()),
-            "{listed:?}"
-        );
-    }
-
-    th.teardown().await;
-}
-
-/// Renewing the signup token is for administrators. The answer is the workspace with the new
-/// token; the old token lets nobody in any more.
-#[tokio::test]
-async fn an_administrator_renews_the_signup_token() {
-    let th = Setup::native().start().await.init_basic().await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/signup-token");
-    let old = workspace_as(&th.client).await["signupToken"]
-        .as_str()
-        .expect("the token")
-        .to_owned();
-
-    check_admins_only(&th.client2.post_empty(&path).await);
-    // A workspace that does not exist is not found, whoever asks.
-    for client in [&th.client, &th.client2] {
-        client
-            .post_empty(&format!("/w/{UNKNOWN_ID}/signup-token"))
-            .await
-            .check_error(StatusCode::NOT_FOUND, "workspace not found");
-    }
-    assert_eq!(
-        workspace_as(&th.client).await["signupToken"],
-        json!(old),
-        "nothing was renewed so far"
-    );
-
-    let renewed: Workspace = th.client.post_empty(&path).await.ok_json();
-    assert_eq!(renewed.id, ROOT_WORKSPACE_ID, "the workspace is answered");
-    assert_eq!(renewed.signup_token.len(), 43, "with a token");
-    assert_ne!(renewed.signup_token, old, "a new one");
-    assert_eq!(
-        workspace_as(&th.client).await["signupToken"],
-        json!(renewed.signup_token),
-        "which is the workspace's token from now on"
-    );
-
-    let with_old = th
-        .anonymous()
-        .post("/register", &registration("late", &old))
-        .await;
-    with_old.check_status(StatusCode::FORBIDDEN);
-    assert_eq!(
-        with_old.error_reason(),
-        "signup_token_invalid",
-        "the old one"
-    );
-    th.anonymous()
-        .post("/register", &registration("late", &renewed.signup_token))
-        .await
-        .check_created();
-
-    th.teardown().await;
-}
-
-/// A user who registers with the token is no administrator, also when the administrator
-/// is not there any more to object: the role is not for whoever comes next.
-#[tokio::test]
-async fn nobody_becomes_an_administrator_by_registering_later() {
+async fn nobody_becomes_an_administrator_by_coming_later() {
     let th: TestServer = Setup::native().start().await.init_basic().await;
 
     let third = th.add_user("third").await;
     assert!(!third.me().await.is_admin, "the third user");
-    // Without a token nobody gets in after the first user.
+    // Without an invitation nobody gets in after the first user.
     let response = th
         .anonymous()
-        .post("/register", &registration("fourth", ""))
+        .post("/register", &registration("fourth"))
         .await;
     response.check_status(StatusCode::FORBIDDEN);
-    assert_eq!(response.error_reason(), "signup_token_required", "no token");
+    assert_eq!(response.error_reason(), "invitation_required");
 
     th.teardown().await;
 }

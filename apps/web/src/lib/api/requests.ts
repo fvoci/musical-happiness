@@ -5,8 +5,11 @@
  * `ServerBackend` is made of these and the rest (`backend.ts`).
  */
 import type {
+  AcceptedInvitation,
   DeletedItem,
-  LoginOrganization,
+  InvitationPreview,
+  LoginOptions,
+  NewAccount,
   Paging,
   Registration,
   WorkspaceInfo,
@@ -17,6 +20,16 @@ import type {
 import { workspacesOf, userOf, type Schemas } from './convert.ts';
 import type { Http } from './http.ts';
 
+/** The account as the server takes it: a display name that is empty is left out. */
+function accountOf(account: NewAccount): Schemas['NewAccount'] {
+  return {
+    username: account.username,
+    email: account.email,
+    password: account.password,
+    ...(account.displayName ? { displayName: account.displayName } : {}),
+  };
+}
+
 export class ServerRequests implements TrashReads {
   readonly #http: Http;
 
@@ -26,22 +39,53 @@ export class ServerRequests implements TrashReads {
 
   async register(registration: Registration): Promise<void> {
     const request: Schemas['RegisterRequest'] = {
-      username: registration.username,
-      email: registration.email,
-      password: registration.password,
-      ...(registration.displayName ? { displayName: registration.displayName } : {}),
-      ...(registration.token ? { token: registration.token } : {}),
+      ...accountOf(registration),
+      organizationName: registration.organizationName,
     };
     await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
   }
 
-  async loginOrganization(orgId: string | undefined): Promise<LoginOrganization | undefined> {
+  /** The token goes in the body: an address would keep it in logs. */
+  async previewInvitation(token: string): Promise<InvitationPreview> {
+    const request: Schemas['InvitationToken'] = { token };
+    const preview = await this.#http.request<Schemas['InvitationPreview']>(
+      '/api/v1/invitations/preview',
+      {},
+      { method: 'POST', json: request },
+    );
+    return {
+      workspaceName: preview.workspaceName,
+      inviterName: preview.inviterName,
+      ...(typeof preview.boardTitle === 'string' ? { boardTitle: preview.boardTitle } : {}),
+    };
+  }
+
+  async acceptInvitation(token: string, account?: NewAccount): Promise<AcceptedInvitation> {
+    const request: Schemas['AcceptInvitation'] = {
+      token,
+      ...(account ? { account: accountOf(account) } : {}),
+    };
+    const accepted = await this.#http.request<Schemas['AcceptedInvitation']>(
+      '/api/v1/invitations/accept',
+      {},
+      { method: 'POST', json: request },
+    );
+    return {
+      workspaceId: accepted.workspaceId,
+      ...(accepted.boardId ? { boardId: accepted.boardId } : {}),
+    };
+  }
+
+  async loginOptions(orgId: string | undefined): Promise<LoginOptions> {
     const options = await this.#http.request<Schemas['LoginOptions']>(
       '/api/v1/login-options',
       {},
       { query: { org: orgId } },
     );
-    return options.organization ?? undefined;
+    return {
+      ...(options.organization ? { organization: options.organization } : {}),
+      registrationOpen: options.registrationOpen,
+    };
   }
 
   /**

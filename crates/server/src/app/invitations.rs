@@ -9,7 +9,8 @@
 use std::net::IpAddr;
 
 use fvoci_model::{
-    AcceptedInvitation, INVITATION_LIFETIME_MILLIS, Invitation, NewAccount, WorkspaceRole,
+    AcceptedInvitation, INVITATION_LIFETIME_MILLIS, Invitation, InvitationPreview, NewAccount,
+    WorkspaceRole,
 };
 use fvoci_store::{Acceptor, NewLink, StoreError};
 
@@ -115,6 +116,38 @@ impl App {
                 permissions::allows_in_workspace(inviter, WorkspacePermission::InviteMembers)
             }
             WorkspaceRole::Admin | WorkspaceRole::Guest => false,
+        })
+    }
+
+    /// What the link `token` is of shows to whoever holds it, signed in or not: the name
+    /// of the workspace it leads into and of who made it, and nothing else of either.
+    ///
+    /// `address` is where the request comes from: a look at a link is counted against
+    /// it as an acceptance is, so that tokens are not tried without end.
+    ///
+    /// # Errors
+    ///
+    /// Returns the 404 of [`App::accept_invitation`] for a token that lets nobody in,
+    /// whatever is wrong with it, and a 429 for too many attempts from the address.
+    pub async fn preview_invitation(
+        &self,
+        token: &str,
+        address: Option<IpAddr>,
+    ) -> Result<InvitationPreview, AppError> {
+        let _attempt = self.admit_registration(address)?;
+        let Some((app, invitation)) = self.usable_invitation(token).await? else {
+            return Err(AppError::invitation_unavailable());
+        };
+        let workspace = app.workspace(&invitation.workspace_id).await?;
+        let inviter = app.user(&invitation.created_by).await?;
+        Ok(InvitationPreview {
+            workspace_name: workspace.title,
+            inviter_name: if inviter.display_name.is_empty() {
+                inviter.username
+            } else {
+                inviter.display_name
+            },
+            board_title: None,
         })
     }
 

@@ -31,8 +31,8 @@ fn pairs(expected: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// A registration whose name, email address and password are all wrong is told of all
-/// three in one answer, and of a fourth with them; nothing is registered.
+/// A registration whose name, email address, password and organization name are all wrong is
+/// told of all four in one answer, and of a fifth with them; nothing is registered.
 #[tokio::test]
 async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
     let th = Setup::native().start().await;
@@ -46,7 +46,7 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
         .await;
     response.check_error(
         StatusCode::BAD_REQUEST,
-        "3 members of the request were refused",
+        "4 members of the request were refused",
     );
     assert_eq!(
         response.value()["errors"],
@@ -58,6 +58,7 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
                 "detail": "password must be at least 8 characters",
                 "reason": "too_short",
             },
+            {"pointer": "/organizationName", "detail": "organization name is required", "reason": "required"},
         ]),
         "each member with its own words and cause, in the order of the members"
     );
@@ -78,6 +79,7 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
             ("/email", "required"),
             ("/displayName", "invalid_characters"),
             ("/password", "required"),
+            ("/organizationName", "required"),
         ])
     );
 
@@ -87,18 +89,30 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
             "/register",
             &json!({
                 "username": "pam", "email": format!("{}@sample.com", "a".repeat(250)),
-                "password": "Pa$$word",
+                "password": "Pa$$word", "organizationName": "\u{202e}ours",
             }),
         )
         .await;
-    response.check_error(StatusCode::BAD_REQUEST, "email must be at most 254 bytes");
-    assert_eq!(refused(&response), pairs(&[("/email", "too_long")]));
+    assert_eq!(
+        refused(&response),
+        pairs(&[
+            ("/email", "too_long"),
+            ("/organizationName", "invalid_characters")
+        ])
+    );
+    assert_eq!(
+        response.value()["errors"][0]["detail"],
+        json!("email must be at most 254 bytes")
+    );
 
     // One member wrong: the answer's detail is that member's.
     let response = anonymous
         .post(
             "/register",
-            &json!({"username": "pam", "email": "pam@sample.com", "password": "short"}),
+            &json!({
+                "username": "pam", "email": "pam@sample.com", "password": "short",
+                "organizationName": "Ours",
+            }),
         )
         .await;
     response.check_error(
@@ -111,7 +125,10 @@ async fn a_registration_is_told_of_every_member_that_is_wrong_at_once() {
     let made: Value = anonymous
         .post(
             "/register",
-            &json!({"username": "pam", "email": "pam@sample.com", "password": "Pa$$word"}),
+            &json!({
+                "username": "pam", "email": "pam@sample.com", "password": "Pa$$word",
+                "organizationName": "Ours",
+            }),
         )
         .await
         .created_json();

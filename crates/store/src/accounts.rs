@@ -1,19 +1,20 @@
 //! Making an account and letting it in: the one place where a user's row is stored and
 //! where a user becomes a member of an organization and of a workspace of it.
 //!
-//! Whoever signs up with the name of a team, whoever accepts an invitation without an
+//! Whoever signs up with the name of an organization, whoever accepts an invitation without an
 //! account, and whoever a provider vouches for the first time all get their account
-//! here ([`insert_account`]) and are let in here ([`join_organization`],
-//! [`join_workspace`]).
+//! here (`insert_account`) and are let in here (`join_organization`,
+//! `join_workspace`).
 
 use fvoci_model::{OrgRole, User, Workspace, WorkspaceRole};
 
 use crate::Store;
 use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::{users, workspaces};
+use crate::users::{self, InstanceRole};
+use crate::workspaces;
 
-/// The organization somebody who signs up with the name of a team starts in.
+/// The organization somebody who signs up with the name of an organization starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Founding<'a> {
     /// The organization of the handle, which is there and nobody's: the one the server
@@ -36,12 +37,13 @@ pub(crate) enum Which<'a> {
 }
 
 impl Store {
-    /// Stores the account of somebody who signs up with the name of a team, and the
-    /// team: the organization of the handle and its first workspace, both under the
-    /// name, with the user as the administrator of both. Returns the identifier of the
-    /// workspace. All of it happens or none.
+    /// Stores the account of somebody who signs up, and what they start: the
+    /// organization of the handle and its first workspace, both under `name`, with the
+    /// user as the administrator of both. Returns the identifier of the workspace. All
+    /// of it happens or none.
     ///
-    /// `user` is updated to what was stored, as [`insert_account`] says; whoever is the
+    /// `user` is updated to what was stored (its times, and whether an administrator,
+    /// whatever the caller put there); whoever is the
     /// first user of the instance is its administrator, however they found their
     /// organization. Who is first is decided with the insertion: of two who sign up at
     /// once into an empty instance, one is.
@@ -57,20 +59,22 @@ impl Store {
     pub async fn sign_up(
         &self,
         user: &mut User,
-        team_name: &str,
+        organization_name: &str,
         founding: Founding<'_>,
     ) -> Result<String, StoreError> {
         self.transaction(async |scope| {
-            let is_first = become_first(scope).await?;
+            let role = become_first(scope).await?;
             let workspace_id = match founding {
-                Founding::First if !is_first => return Err(StoreError::NotFirstUser),
-                Founding::First => name_organization(scope, team_name).await?,
+                Founding::First if role == InstanceRole::User => {
+                    return Err(StoreError::NotFirstUser);
+                }
+                Founding::First => name_organization(scope, organization_name).await?,
                 Founding::New { workspace_id } => {
-                    found_organization(scope, team_name, workspace_id).await?;
+                    found_organization(scope, organization_name, workspace_id).await?;
                     workspace_id.to_owned()
                 }
             };
-            insert_account(scope, user, is_first).await?;
+            insert_account(scope, user, role).await?;
             join_organization(scope, &user.id, OrgRole::Admin).await?;
             join_workspace(
                 scope,
@@ -110,13 +114,12 @@ impl Store {
     #[cfg(any(test, feature = "test-util"))]
     pub async fn create_user(&self, user: &mut User) -> Result<(), StoreError> {
         self.transaction(async |scope| {
-            let is_first = become_first(scope).await?;
-            insert_account(scope, user, is_first).await?;
+            let role = become_first(scope).await?;
+            insert_account(scope, user, role).await?;
             if scope.has_org() {
-                let (org_role, workspace_role) = if is_first {
-                    (OrgRole::Admin, WorkspaceRole::Admin)
-                } else {
-                    (OrgRole::Member, WorkspaceRole::Member)
+                let (org_role, workspace_role) = match role {
+                    InstanceRole::Administrator => (OrgRole::Admin, WorkspaceRole::Admin),
+                    InstanceRole::User => (OrgRole::Member, WorkspaceRole::Member),
                 };
                 join_organization(scope, &user.id, org_role).await?;
                 join_workspace(scope, Which::DefaultWorkspace, &user.id, workspace_role).await?;
@@ -127,19 +130,24 @@ impl Store {
     }
 }
 
-/// Turns on the flag that the instance has had its first user, and says whether this
-/// transaction did: whoever turns it on is the first user. A second transaction that
-/// tries at the same moment waits for this one and then finds the flag on.
-async fn become_first(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
+/// Turns on the flag that the instance has had its first user, and says what whoever
+/// this transaction stores is to the instance: who turns the flag on is the first
+/// user, its administrator. A second transaction that tries at the same moment waits
+/// for this one and then finds the flag on.
+async fn become_first(scope: &mut Scope<'_>) -> Result<InstanceRole, StoreError> {
     let mut sql = scope.sql("UPDATE instance SET bootstrapped = ");
     sql.bind(true)
         .push_bind(" WHERE id = 1 AND bootstrapped = ", false);
-    Ok(scope.execute(sql).await? > 0)
+    Ok(if scope.execute(sql).await? > 0 {
+        InstanceRole::Administrator
+    } else {
+        InstanceRole::User
+    })
 }
 
 /// Stores the row of a new account: `user` with the current time as creation and
-/// modification time, not deleted, and an administrator of the instance if `is_first`,
-/// whatever the caller put there. Of its other members the identifier, the names, the
+/// modification time, not deleted, and an administrator of the instance if `role` says
+/// so, whatever the caller put there. Of its other members the identifier, the names, the
 /// email address and the password hash are stored.
 ///
 /// # Errors
@@ -150,13 +158,13 @@ async fn become_first(scope: &mut Scope<'_>) -> Result<bool, StoreError> {
 pub(crate) async fn insert_account(
     scope: &mut Scope<'_>,
     user: &mut User,
-    is_first: bool,
+    role: InstanceRole,
 ) -> Result<(), StoreError> {
     let now = now_millis();
     user.create_at = now;
     user.update_at = now;
     user.delete_at = 0;
-    user.is_admin = is_first;
+    user.is_admin = role == InstanceRole::Administrator;
     users::insert_user_row(scope, user).await
 }
 
@@ -221,11 +229,7 @@ pub(crate) async fn join_workspace(
 
 /// Pushes the workspace `t` that `which` names, of the scope's organization and in use:
 /// what follows `FROM`, with its conditions.
-fn push_workspace(
-    sql: &mut Sql,
-    scope: &Scope<'_>,
-    which: Which<'_>,
-) -> Result<(), StoreError> {
+fn push_workspace(sql: &mut Sql, scope: &Scope<'_>, which: Which<'_>) -> Result<(), StoreError> {
     match which {
         Which::Workspace(workspace_id) => {
             sql.push_bind("workspaces AS t WHERE t.id = ", Id(workspace_id))
@@ -243,12 +247,15 @@ fn push_workspace(
     Ok(())
 }
 
-/// Gives the scope's organization, which is there and nobody's, the name of the team
+/// Gives the scope's organization, which is there and nobody's, the name of the organization
 /// that takes it, and its default workspace the same; returns that workspace.
-async fn name_organization(scope: &mut Scope<'_>, team_name: &str) -> Result<String, StoreError> {
+async fn name_organization(
+    scope: &mut Scope<'_>,
+    organization_name: &str,
+) -> Result<String, StoreError> {
     let now = now_millis();
     let mut sql = scope.sql("UPDATE organizations SET name = ");
-    sql.bind(team_name)
+    sql.bind(organization_name)
         .push_bind(", update_at = ", now)
         .push_bind(" WHERE id = ", scope.org()?)
         .push_bind(" AND delete_at = ", 0_i64);
@@ -256,7 +263,7 @@ async fn name_organization(scope: &mut Scope<'_>, team_name: &str) -> Result<Str
         return Err(StoreError::not_found("organization"));
     }
     let mut sql = scope.sql("UPDATE workspaces SET name = ");
-    sql.bind(team_name)
+    sql.bind(organization_name)
         .push_bind(", update_at = ", now)
         .push_bind(
             " WHERE id = (SELECT default_workspace_id FROM organizations WHERE id = ",
@@ -274,18 +281,18 @@ async fn name_organization(scope: &mut Scope<'_>, team_name: &str) -> Result<Str
     }
 }
 
-/// Makes the scope's organization, under the scope's identifier and the name of the
-/// team, with its first workspace, which is its default one, under the same name.
+/// Makes the scope's organization, under the scope's identifier and the given name,
+/// with its first workspace, which is its default one, under the same name.
 async fn found_organization(
     scope: &mut Scope<'_>,
-    team_name: &str,
+    organization_name: &str,
     workspace_id: &str,
 ) -> Result<(), StoreError> {
     let workspace = Workspace {
         id: workspace_id.to_owned(),
-        title: team_name.to_owned(),
+        title: organization_name.to_owned(),
         ..Workspace::default()
     };
     let org = scope.org()?;
-    workspaces::insert_organization(scope, org, team_name, &workspace).await
+    workspaces::insert_organization(scope, org, organization_name, &workspace).await
 }

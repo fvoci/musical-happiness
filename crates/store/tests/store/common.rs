@@ -54,7 +54,6 @@ pub(crate) async fn setup() -> TestStore {
 pub(crate) async fn organization(store: &Store, name: &str) -> (String, String) {
     let workspace = Workspace {
         id: new_id(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     let org_id = store
@@ -189,7 +188,6 @@ pub(crate) async fn user(store: &Store, username: &str) -> String {
 pub(crate) async fn workspace(store: &Store) -> String {
     let workspace = Workspace {
         id: new_id(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     store

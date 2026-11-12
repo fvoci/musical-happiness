@@ -7,7 +7,10 @@
 
 use axum::body::Bytes;
 use axum::extract::{Extension, State};
-use fvoci_model::{AcceptInvitation, AcceptedInvitation, Invitation, NewInvitation, WorkspaceRole};
+use fvoci_model::{
+    AcceptInvitation, AcceptedInvitation, Invitation, InvitationPreview, InvitationToken,
+    NewInvitation, WorkspaceRole,
+};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -21,6 +24,9 @@ use crate::client_address::ClientAddress;
 use crate::error::AppError;
 use crate::permissions::{self, WorkspacePermission};
 
+/// Where the account to make is in the request that accepts a link: a JSON Pointer.
+const ACCOUNT: &str = "/account";
+
 /// The routes of a workspace's links, for its members.
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_create_invitation))
@@ -28,7 +34,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// The routes of whoever comes with a link: they may have no session yet.
 pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
-    OpenApiRouter::new().routes(routes!(handle_accept_invitation))
+    OpenApiRouter::new()
+        .routes(routes!(handle_preview_invitation))
+        .routes(routes!(handle_accept_invitation))
 }
 
 /// Make an invitation
@@ -58,10 +66,10 @@ async fn handle_create_invitation(ws: Ws, body: Bytes) -> ApiResult {
                 (request.board_role.is_some(), "boardRole"),
             ] {
                 if given {
-                    return Err(AppError::bad_request(
-                        "an invitation for members names no board",
-                    )
-                    .with_field(field));
+                    return Err(
+                        AppError::bad_request("an invitation for members names no board")
+                            .with_field(field),
+                    );
                 }
             }
             if !permissions::allows_in_workspace(ws.actor(), WorkspacePermission::InviteMembers) {
@@ -82,14 +90,54 @@ async fn handle_create_invitation(ws: Ws, body: Bytes) -> ApiResult {
     }
 }
 
+/// Look at an invitation
+///
+/// What the link of `token` shows to whoever holds it, before they accept it and
+/// whether they are signed in or not: the name of the workspace it leads into and the
+/// name of who made it (the name they are shown by, or their login name).
+///
+/// A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
+/// `acceptInvitation` answers it and whatever is wrong with it. Requests are counted
+/// by where they come from, and too many are 429.
+#[utoipa::path(
+    post,
+    path = "/invitations/preview",
+    operation_id = "previewInvitation",
+    tag = tag::WORKSPACES,
+    request_body = InvitationToken,
+    security(()),
+    responses(
+        (status = 200, description = "What the link shows.", body = InvitationPreview),
+        (
+            status = 429,
+            description = "Too many requests from where this one comes from.",
+            body = fvoci_model::Problem,
+            content_type = "application/problem+json",
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
+async fn handle_preview_invitation(
+    State(app): State<App>,
+    client: Option<Extension<ClientAddress>>,
+    body: Bytes,
+) -> ApiResult {
+    let request: InvitationToken = decode_object(&body)?;
+    let preview = app
+        .preview_invitation(&request.token, address_of(client))
+        .await?;
+    Ok(json_response(&preview))
+}
+
 /// Accept an invitation
 ///
 /// Lets somebody into the workspace the link of `token` leads into, and answers where
 /// that is. A request with a session lets in the user of the session, and names no
 /// `account` (400 if it does). A request without one makes the `account` it names and
 /// lets that in: the account's members are checked as `register` checks them (400,
-/// with `errors`), and a name or an email address that is taken is 409 with the reason
-/// `username_taken` or `email_taken`. Accepting does not sign in.
+/// with `errors`, which name them under `/account`), and a name or an email address
+/// that is taken is 409 with the reason `username_taken` or `email_taken`. Accepting
+/// does not sign in.
 ///
 /// A member's link makes the account a member of the workspace and of its
 /// organization; who is a guest of the workspace becomes a member, and who works there
@@ -106,7 +154,7 @@ async fn handle_create_invitation(ws: Ws, body: Bytes) -> ApiResult {
     operation_id = "acceptInvitation",
     tag = tag::WORKSPACES,
     request_body = AcceptInvitation,
-    security((), ("session" = [])),
+    security((), ("sessionCookie" = []), ("bearerToken" = [])),
     responses(
         (status = 200, description = "Where the account was let in.", body = AcceptedInvitation),
         (
@@ -137,7 +185,9 @@ async fn handle_accept_invitation(
             user_id: &session.user_id,
         },
         (None, Some(account)) => {
-            account.validate()?;
+            account
+                .validate()
+                .map_err(|refused| AppError::from(refused).under(ACCOUNT))?;
             Accepting::NewAccount(account)
         }
         (None, None) => {
@@ -146,8 +196,10 @@ async fn handle_accept_invitation(
             ));
         }
     };
+    // What is refused of the body is of the account: a name or an address that is taken.
     let accepted = app
         .accept_invitation(&request.token, accepting, address_of(client))
-        .await?;
+        .await
+        .map_err(|error| error.under(ACCOUNT))?;
     Ok(json_response(&accepted))
 }

@@ -238,8 +238,9 @@ impl App {
     }
 
     /// What the login page shows: the organization `org_id`, or without one the only
-    /// organization of a server that holds one. Nothing of an organization is told to
-    /// whoever does not name it, but on a server that holds only it.
+    /// organization of a server that holds one, and whether a registration is taken
+    /// without an invitation. Nothing of an organization is told to whoever does not
+    /// name it, but on a server that holds only it.
     ///
     /// # Errors
     ///
@@ -253,7 +254,10 @@ impl App {
             None if self.config().takes_several_organizations() => None,
             None => self.store().login_organization(None).await?,
         };
-        Ok(LoginOptions { organization })
+        Ok(LoginOptions {
+            organization,
+            registration_open: self.takes_registrations().await?,
+        })
     }
 
     /// Starts a sign-in through the provider of the organization `org_id`: stores what

@@ -792,7 +792,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
             Value::Null,
         ),
         (Method::POST, "/w/{}/onboard".to_owned(), Value::Null),
-        (Method::POST, "/w/{}/signup-token".to_owned(), Value::Null),
+        (Method::POST, "/w/{}/invitations".to_owned(), Value::Null),
         (Method::GET, "/users/{}".to_owned(), Value::Null),
         (Method::GET, "/subscriptions/{}".to_owned(), Value::Null),
         (

@@ -177,6 +177,7 @@ enum Members {
 /// [`document`], so that a new type is looked at once.
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
+    ("AcceptedInvitation", Members::AllBut(&["boardId"])),
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Board", Members::All),
@@ -193,6 +194,11 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("FileInfo", Members::All),
     ("ImportResult", Members::All),
     ("InvalidInput", Members::Only(&["detail", "reason"])),
+    (
+        "Invitation",
+        Members::AllBut(&["boardId", "boardRole", "maxUses", "token"]),
+    ),
+    ("InvitationPreview", Members::AllBut(&["boardTitle"])),
     ("LoginOptions", Members::All),
     ("OidcStart", Members::All),
     ("LoginOrganization", Members::All),
@@ -217,6 +223,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UserWorkspace", Members::All),
     ("WorkspaceRole", Members::AsWritten),
     // What a request carries.
+    ("AcceptInvitation", Members::Only(&["token"])),
     ("AccountChange", Members::AsWritten),
     ("AdminChange", Members::AsWritten),
     ("BlockPatch", Members::Only(&[])),
@@ -234,13 +241,19 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeleteBoardsAndBlocks", Members::Only(&["boards"])),
     ("FileForm", Members::AsWritten),
     ("ImportRequest", Members::AsWritten),
+    ("InvitationToken", Members::All),
     ("LoginRequest", Members::Only(&["password"])),
     ("MemberRoles", Members::AsWritten),
+    (
+        "NewAccount",
+        Members::Only(&["username", "email", "password"]),
+    ),
     ("NewBlock", Members::AsWritten),
     ("NewBoard", Members::AsWritten),
     ("NewBoardsAndBlocks", Members::AsWritten),
     ("NewCard", Members::AsWritten),
     ("NewCategory", Members::AsWritten),
+    ("NewInvitation", Members::Only(&["role"])),
     ("NewMember", Members::AsWritten),
     ("NewSubscription", Members::AsWritten),
     ("NewUpload", Members::Only(&["name", "size"])),
@@ -254,7 +267,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     (
         "RegisterRequest",
-        Members::Only(&["username", "email", "password"]),
+        Members::Only(&["username", "email", "password", "organizationName"]),
     ),
     ("SettingsChange", Members::AsWritten),
     ("SharingRequest", Members::AsWritten),

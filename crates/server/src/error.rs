@@ -169,7 +169,7 @@ reasons! {
     ForeignOrigin => "foreign_origin", "Request from another origin";
     /// The user name, email address or password of a login is wrong.
     InvalidCredentials => "invalid_credentials", "Invalid credentials";
-    /// The server has its team: who is not its first user gets in by an invitation.
+    /// The server has its organization: who is not its first user gets in by an invitation.
     InvitationRequired => "invitation_required", "Invitation required";
     /// The link of an invitation lets nobody in: there is none, or it ended.
     InvitationUnavailable => "invitation_unavailable", "Invitation not available";
@@ -406,10 +406,10 @@ impl AppError {
         Self::new(ErrorKind::NotFound, format_args!("{what} not found"))
     }
 
-    /// The 403 error of a registration on a server that has its team: who is not its
+    /// The 403 error of a registration on a server that has its organization: who is not its
     /// first user gets in by an invitation.
     pub fn invitation_required() -> Self {
-        Self::forbidden("this server has its team; an invitation lets you in")
+        Self::forbidden("this server has its organization; an invitation lets you in")
             .with_reason(Reason::InvitationRequired)
     }
 

@@ -408,6 +408,26 @@ impl Store {
         .await
     }
 
+    /// Runs one query as this handle does its own, and returns the first column of
+    /// every row, which is text (`CAST(… AS TEXT)` for one that is not): for the tests
+    /// of what is in a table, such as that no token is. Nothing checks the text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn texts_unchecked(&self, query: &str) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql(query);
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect()
+        })
+        .await
+    }
+
     /// Runs one statement as this handle does its own, and returns how many rows it
     /// changed: for the tests of what the database refuses whatever the server asks.
     /// Nothing checks the text.

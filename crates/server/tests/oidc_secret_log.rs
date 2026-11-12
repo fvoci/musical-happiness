@@ -163,9 +163,10 @@ async fn the_client_secret_and_the_key_are_not_logged() {
     let api = |path: &str| format!("{base}/api/v1{path}");
     http.post(api("/register"))
         .header("X-Requested-With", "XMLHttpRequest")
-        .json(
-            &json!({ "username": "admin", "email": "admin@example.com", "password": "Pa$$word1" }),
-        )
+        .json(&json!({
+            "username": "admin", "email": "admin@example.com", "password": "Pa$$word1",
+            "organizationName": "The Firm",
+        }))
         .send()
         .await
         .expect("registered");

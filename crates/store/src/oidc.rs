@@ -9,10 +9,11 @@
 use fvoci_model::{OrgRole, Session, User, WorkspaceRole, new_id};
 
 use crate::Store;
+use crate::accounts::{self, Which};
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
-use crate::accounts::{self, Which};
 use crate::sessions;
+use crate::users::InstanceRole;
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str =
@@ -306,7 +307,7 @@ impl Store {
                     }
                     user.password_hash = String::new();
                     user.email = String::new();
-                    accounts::insert_account(scope, user, false).await?;
+                    accounts::insert_account(scope, user, InstanceRole::User).await?;
                     insert_identity(scope, identity, &user.id, provider_email, user.create_at)
                         .await?;
                     join_as_member(scope, &user.id).await?;

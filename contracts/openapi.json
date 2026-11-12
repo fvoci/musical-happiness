@@ -1,6 +1,50 @@
 {
   "components": {
     "schemas": {
+      "AcceptInvitation": {
+        "description": "A request to accept a link.",
+        "properties": {
+          "account": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NewAccount",
+                "description": "The account to make and let in, for a request without a session. A request with\na session lets in the account of the session, and names none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "description": "The token of the link.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "AcceptedInvitation": {
+        "description": "Where an accepted link let somebody in.",
+        "properties": {
+          "boardId": {
+            "description": "For a guest: the board they were invited to.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspaceId": {
+            "description": "The workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
       "AccountChange": {
         "description": "What a user changes of their account. A member that is left out stays as it is.",
         "properties": {
@@ -1085,6 +1129,119 @@
         ],
         "type": "object"
       },
+      "Invitation": {
+        "description": "A link that lets somebody into a workspace.",
+        "properties": {
+          "boardId": {
+            "description": "For a guest: the board they are invited to.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "boardRole": {
+            "description": "For a guest: their role on that board, `viewer`, `commenter` or `editor`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createAt": {
+            "description": "When the link was made, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "The identifier of the user who made the link.",
+            "type": "string"
+          },
+          "expiresAt": {
+            "description": "When the link stops letting anybody in, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The invitation's identifier, by which it is revoked. It lets nobody in.",
+            "type": "string"
+          },
+          "maxUses": {
+            "description": "How often the link may be used; left out for one that is used as often as it is\nuntil it ends.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What whoever accepts becomes in the workspace: `member`, or `guest`."
+          },
+          "token": {
+            "description": "The token of the link: in the answer that makes the link, and in no other.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "uses": {
+            "description": "How often the link was used.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "workspaceId": {
+            "description": "The workspace the link leads into.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "createAt",
+          "createdBy",
+          "expiresAt",
+          "id",
+          "role",
+          "uses",
+          "workspaceId"
+        ],
+        "type": "object"
+      },
+      "InvitationPreview": {
+        "description": "What a link shows of where it leads, to whoever holds it.",
+        "properties": {
+          "boardTitle": {
+            "description": "For a guest: the title of the board they are invited to.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inviterName": {
+            "description": "The name of who made the link: the name they are shown by, or their login name\nif they have none.",
+            "type": "string"
+          },
+          "workspaceName": {
+            "description": "The name of the workspace the link leads into; empty if it was given none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inviterName",
+          "workspaceName"
+        ],
+        "type": "object"
+      },
+      "InvitationToken": {
+        "description": "A request that carries the token of a link and nothing else.",
+        "properties": {
+          "token": {
+            "description": "The token of the link.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
         "properties": {
@@ -1098,10 +1255,15 @@
                 "type": "null"
               }
             ]
+          },
+          "registrationOpen": {
+            "description": "Whether somebody without an invitation may register and start an organization: on a\nserver where everybody may, and on any server until its first user did. Where it\nis `false`, the link of an invitation is the way in.",
+            "type": "boolean"
           }
         },
         "required": [
-          "organization"
+          "organization",
+          "registrationOpen"
         ],
         "type": "object"
       },
@@ -1191,6 +1353,33 @@
           "editor"
         ],
         "type": "string"
+      },
+      "NewAccount": {
+        "description": "The account somebody asks for: who registers, and who accepts an invitation\nwithout having one.",
+        "properties": {
+          "displayName": {
+            "description": "The name to be shown by; may be left out, `null` or empty for none. Read as\n`patchMe` reads it.",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email address.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The password.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "password"
+        ],
+        "type": "object"
       },
       "NewBlock": {
         "description": "A block to insert.",
@@ -1480,6 +1669,33 @@
           "name",
           "userId",
           "workspaceId"
+        ],
+        "type": "object"
+      },
+      "NewInvitation": {
+        "description": "A request to make a link.",
+        "properties": {
+          "boardId": {
+            "description": "For a guest: the board they are invited to. Not for a member.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "boardRole": {
+            "description": "For a guest: their role on that board, `viewer`, `commenter` or `editor`; an\neditor if left out. Not for a member.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What whoever accepts becomes in the workspace: `member`, or `guest`."
+          }
+        },
+        "required": [
+          "role"
         ],
         "type": "object"
       },
@@ -1871,14 +2087,14 @@
             "type": "/problems/invalid-credentials"
           },
           {
-            "reason": "signup_token_required",
-            "title": "Signup token required",
-            "type": "/problems/signup-token-required"
+            "reason": "invitation_required",
+            "title": "Invitation required",
+            "type": "/problems/invitation-required"
           },
           {
-            "reason": "signup_token_invalid",
-            "title": "Signup token not valid",
-            "type": "/problems/signup-token-invalid"
+            "reason": "invitation_unavailable",
+            "title": "Invitation not available",
+            "type": "/problems/invitation-unavailable"
           },
           {
             "reason": "username_taken",
@@ -2094,12 +2310,12 @@
             "description": "The email address.",
             "type": "string"
           },
-          "password": {
-            "description": "The password.",
+          "organizationName": {
+            "description": "The name of the organization the account starts, and of that organization's\nfirst workspace. Read as `organization_name` reads it.",
             "type": "string"
           },
-          "token": {
-            "description": "The workspace's signup token; may be empty while no user exists yet.",
+          "password": {
+            "description": "The password.",
             "type": "string"
           },
           "username": {
@@ -2110,7 +2326,8 @@
         "required": [
           "username",
           "email",
-          "password"
+          "password",
+          "organizationName"
         ],
         "type": "object"
       },
@@ -2640,6 +2857,10 @@
       "Workspace": {
         "description": "A workspace of an organization.",
         "properties": {
+          "guestInvitations": {
+            "description": "Whether the admins of the workspace's boards may invite guests to them.",
+            "type": "boolean"
+          },
           "id": {
             "description": "The workspace's identifier.",
             "type": "string"
@@ -2653,10 +2874,6 @@
             "description": "Free-form workspace settings.",
             "type": "object"
           },
-          "signupToken": {
-            "description": "The token new users must present to register. Empty, and left out of the JSON\nform, in what is answered to anyone but an administrator of the instance.",
-            "type": "string"
-          },
           "title": {
             "description": "The workspace's title.",
             "type": "string"
@@ -2668,6 +2885,7 @@
           }
         },
         "required": [
+          "guestInvitations",
           "id",
           "modifiedBy",
           "settings",
@@ -5004,6 +5222,142 @@
         ]
       }
     },
+    "/api/v1/invitations/accept": {
+      "post": {
+        "description": "Lets somebody into the workspace the link of `token` leads into, and answers where\nthat is. A request with a session lets in the user of the session, and names no\n`account` (400 if it does). A request without one makes the `account` it names and\nlets that in: the account's members are checked as `register` checks them (400,\nwith `errors`, which name them under `/account`), and a name or an email address\nthat is taken is 409 with the reason `username_taken` or `email_taken`. Accepting\ndoes not sign in.\n\nA member's link makes the account a member of the workspace and of its\norganization; who is a guest of the workspace becomes a member, and who works there\nalready stays what they are. The account is made, the membership stored and the use\nof the link counted together or not at all.\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`,\nwhatever is wrong with it: there is no such link, it ended, it was used as often as\nit may be, it was revoked, or who made it may no longer invite. Requests are counted\nby where they come from, and too many are 429.",
+        "operationId": "acceptInvitation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedInvitation"
+                }
+              }
+            },
+            "description": "Where the account was let in."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests from where this one comes from, or the server has too much password work to do at the moment.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {},
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "Accept an invitation",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/invitations/preview": {
+      "post": {
+        "description": "What the link of `token` shows to whoever holds it, before they accept it and\nwhether they are signed in or not: the name of the workspace it leads into and the\nname of who made it (the name they are shown by, or their login name).\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`, as\n`acceptInvitation` answers it and whatever is wrong with it. Requests are counted\nby where they come from, and too many are 429.",
+        "operationId": "previewInvitation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPreview"
+                }
+              }
+            },
+            "description": "What the link shows."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests from where this one comes from.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Look at an invitation",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/login": {
       "post": {
         "description": "Starts a session for the user with the given name, or, if no user has that name,\nwith the given email address. The session comes in the `Set-Cookie` header and\nnowhere else.\n\nWrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong\nabout them, a missing password too. Attempts are counted at the name and at the\nemail address the request gives, each for itself, and by where they come from; too\nmany are 429. What is counted does not depend on whether there is such an account.",
@@ -5072,7 +5426,7 @@
     },
     "/api/v1/login-options": {
       "get": {
-        "description": "The organization the login page is for, and whether people sign in through its\nprovider: the one `org` names, or without it the only organization of a server that\nholds one. Its identifier, its name and whether it has a provider that is on, and\nnothing else. An identifier that names no organization in use answers as none\n(`organization` is `null`), and so does a server that takes in several\norganizations when none is named.",
+        "description": "The organization the login page is for, and whether people sign in through its\nprovider: the one `org` names, or without it the only organization of a server that\nholds one. Its identifier, its name and whether it has a provider that is on, and\nnothing else. An identifier that names no organization in use answers as none\n(`organization` is `null`), and so does a server that takes in several\norganizations when none is named.\n\n`registrationOpen` says whether `register` takes somebody without an invitation:\nalways on a server where everybody starts an organization of their own, and until the first\nuser registered on a server that holds one organization.",
         "operationId": "getLoginOptions",
         "parameters": [
           {
@@ -5359,7 +5713,7 @@
     },
     "/api/v1/register": {
       "post": {
-        "description": "Makes an account. The first user of a server needs no signup token and becomes its\nadministrator; everyone after needs the workspace's token, and is refused with 403 and\nthe reason `signup_token_required` without it. A token that is not the workspace's is 403\nwith the reason `signup_token_invalid`, for the first user too. A name or an email\naddress that is taken is 409 with the reason `username_taken` or `email_taken`.\nRegistering does not sign in.\n\nThe name and the email address must not be blank, the email address must look like\none, the display name (`displayName`, may be left out) is read as `patchMe` reads it,\nand the password must have at least 8 characters and at most 1024 bytes; otherwise\nthe request is 400, and `errors` names every member that is refused, each with\nits `reason`: `required`, `invalid_format`, `too_short`, `too_long` or\n`invalid_characters`.",
+        "description": "Makes an account and the organization it starts: `organizationName` names the\norganization and its first workspace, and the account administers both. On a server that takes one organization (`org_creation` is `first_user_only`)\nonly the first user registers, and administers the server too; everybody after is\nrefused with 403 and the reason `invitation_required`, whatever else the request\nsays, and gets in by the link of an invitation (`acceptInvitation`). A name or an\nemail address that is taken is 409 with the reason `username_taken` or\n`email_taken`. Registering does not sign in.\n\nThe name and the email address must not be blank, the email address must look like\none, the display name (`displayName`, may be left out) is read as `patchMe` reads it,\nthe password must have at least 8 characters and at most 1024 bytes, and the organization\nname must not be blank, and is otherwise read as a display name is; otherwise the\nrequest is 400, and `errors` names every member that is refused, each with\nits `reason`: `required`, `invalid_format`, `too_short`, `too_long` or\n`invalid_characters`.",
         "operationId": "register",
         "requestBody": {
           "content": {
@@ -6248,7 +6602,7 @@
     },
     "/api/v1/w/{workspaceId}": {
       "get": {
-        "description": "The signup token, which lets in whoever has it, is there for administrators only.",
+        "description": "Its name, and whether the admins of its boards may invite guests to them.",
         "operationId": "getWorkspace",
         "parameters": [
           {
@@ -7057,6 +7411,59 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}/invitations": {
+      "post": {
+        "description": "Makes a link that lets whoever accepts it into the workspace, and answers it with\nits `token`: the one time the token is told, as the server keeps its digest only. A\nlink ends seven days after it was made, or when it is revoked.\n\nWith the `role` `member` the link makes members of the workspace, as often as it is\nused. Only the workspace's administrators make one: anybody else is refused (403).\nWhoever accepts it becomes a member of the workspace's organization too.",
+        "operationId": "createInvitation",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewInvitation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Invitation"
+                }
+              }
+            },
+            "description": "The invitation, with its token."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make an invitation",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/onboard": {
       "post": {
         "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes in the client's state (`getClientState`) that the tour has begun:\n`onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is\n`onboarding`. Every request makes another copy.",
@@ -7095,49 +7502,6 @@
           }
         },
         "summary": "Start the tour",
-        "tags": [
-          "workspaces"
-        ]
-      }
-    },
-    "/api/v1/w/{workspaceId}/signup-token": {
-      "post": {
-        "description": "Makes a new signup token for the workspace; the old one stops working. For\nadministrators.",
-        "operationId": "regenerateSignupToken",
-        "parameters": [
-          {
-            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
-            "in": "path",
-            "name": "workspaceId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Workspace"
-                }
-              }
-            },
-            "description": "The workspace, with its new token."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Make a new signup token",
         "tags": [
           "workspaces"
         ]

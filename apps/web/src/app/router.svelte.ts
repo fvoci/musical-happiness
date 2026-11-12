@@ -3,7 +3,8 @@
  *
  * The addresses are `/w/<workspace>/boards/<board>/<view>/<card>`, each part
  * optional from the right (`/w/<workspace>` alone is the workspace), under
- * the base path the server serves the app at. The root `/` names no
+ * the base path the server serves the app at. The link of an invitation is an
+ * address of its own, `/invite/<token>`, which the app reads and never writes. The root `/` names no
  * workspace: the app chooses one and puts its address in place. The base
  * path is not built in: the server writes it into index.html (the
  * `fvoci:base` meta element), and it is read from there when the app starts.
@@ -23,6 +24,11 @@ export interface Route {
   boardId: string | undefined;
   viewId: string | undefined;
   cardId: string | undefined;
+  /**
+   * The token of an invitation: the address is the link of one
+   * (`/invite/<token>`), and names nothing else.
+   */
+  invitation?: string | undefined;
   /** The address is not one of the app's. */
   unknown: boolean;
 }
@@ -60,6 +66,9 @@ export function parseRoute(pathname: string, basePath: string): Route {
       }
     });
   if (segments.length === 0) return NOWHERE;
+  if (segments[0] === 'invite' && segments.length === 2) {
+    return { ...NOWHERE, invitation: segments[1] };
+  }
   const [w, workspaceId, boards, boardId, viewId, cardId, ...rest] = segments;
   if (
     w !== 'w' ||
@@ -126,6 +135,7 @@ export class Router {
         next.boardId === now.boardId &&
         next.viewId === now.viewId &&
         next.cardId === now.cardId &&
+        next.invitation === now.invitation &&
         next.unknown === now.unknown
       ) {
         return;

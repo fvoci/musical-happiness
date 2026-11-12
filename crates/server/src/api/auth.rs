@@ -142,9 +142,8 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 
 /// Register a user
 ///
-/// Makes an account and the team it starts: `teamName` names the account's
-/// organization and that organization's first workspace, and the account administers
-/// both. On a server that takes one organization (`org_creation` is `first_user_only`)
+/// Makes an account and the organization it starts: `organizationName` names the
+/// organization and its first workspace, and the account administers both. On a server that takes one organization (`org_creation` is `first_user_only`)
 /// only the first user registers, and administers the server too; everybody after is
 /// refused with 403 and the reason `invitation_required`, whatever else the request
 /// says, and gets in by the link of an invitation (`acceptInvitation`). A name or an
@@ -153,7 +152,7 @@ pub(super) fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std
 ///
 /// The name and the email address must not be blank, the email address must look like
 /// one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
-/// the password must have at least 8 characters and at most 1024 bytes, and the team
+/// the password must have at least 8 characters and at most 1024 bytes, and the organization
 /// name must not be blank, and is otherwise read as a display name is; otherwise the
 /// request is 400, and `errors` names every member that is refused, each with
 /// its `reason`: `required`, `invalid_format`, `too_short`, `too_long` or
@@ -188,6 +187,7 @@ async fn handle_register(
     if !app.takes_registrations().await? {
         return Err(AppError::invitation_required());
     }
+    let register = register.tidied();
     register.validate()?;
     let user = app.sign_up(&register, address_of(client)).await?;
     Ok(created(&user))

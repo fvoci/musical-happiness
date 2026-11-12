@@ -10,7 +10,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::common::{
-    PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID, USER1_USERNAME,
+    ORG_NAME, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID, USER1_USERNAME,
 };
 
 const FAKE_USERNAME: &str = "fakeUsername";
@@ -21,9 +21,21 @@ fn register_request(password: &str) -> RegisterRequest {
         username: FAKE_USERNAME.to_owned(),
         email: FAKE_EMAIL.to_owned(),
         password: password.to_owned(),
-        token: String::new(),
         display_name: String::new(),
+        organization_name: ORG_NAME.to_owned(),
     }
+}
+
+/// The request that accepts the link of `token` with an account to make.
+fn acceptance(token: &str, account: &Value) -> Value {
+    json!({"token": token, "account": account})
+}
+
+/// Accepts the link of `token` with an account to make, as nobody.
+async fn accept(th: &TestServer, token: &str, account: &Value) -> crate::common::ApiResponse {
+    th.anonymous()
+        .post("/invitations/accept", &acceptance(token, account))
+        .await
 }
 
 fn login_request(username: &str, email: &str, password: &str) -> LoginRequest {
@@ -42,27 +54,36 @@ async fn user_register() {
 
     th.client.post("/register", &request).await.check_created();
 
-    // The same user a second time: the first user exists, so a signup token is needed.
+    // The same user a second time: the server has its organization, and an invitation is needed.
     let again = th.client.post("/register", &request).await;
-    again.check_error(StatusCode::FORBIDDEN, "registration needs the signup token");
-    assert_eq!(again.error_reason(), "signup_token_required");
+    again.check_error(
+        StatusCode::FORBIDDEN,
+        "this server has its organization; an invitation lets you in",
+    );
+    assert_eq!(again.error_reason(), "invitation_required");
 
-    // With the token, the name is found to be taken.
-    let mut with_token = register_request(&new_id());
-    with_token.token = th
-        .app
-        .root_workspace()
-        .await
-        .expect("root workspace")
-        .signup_token;
-    let taken = th.client.post("/register", &with_token).await;
+    // With an invitation, the name is found to be taken.
+    let link = th.member_link().await;
+    let mut account = json!({
+        "username": request.username, "email": "another@test.com", "password": new_id(),
+    });
+    let taken = th
+        .client
+        .post("/invitations/accept", &acceptance(&link, &account))
+        .await;
     taken.check_status(StatusCode::CONFLICT);
     assert_eq!(taken.error_reason(), "username_taken", "the name is taken");
+    assert_eq!(taken.refused_at(), "/account/username");
 
-    with_token.username = "another".to_owned();
-    let taken = th.client.post("/register", &with_token).await;
+    account["username"] = json!("another");
+    account["email"] = json!(request.email);
+    let taken = th
+        .client
+        .post("/invitations/accept", &acceptance(&link, &account))
+        .await;
     taken.check_status(StatusCode::CONFLICT);
     assert_eq!(taken.error_reason(), "email_taken", "the address is taken");
+    assert_eq!(taken.refused_at(), "/account/email");
 
     th.teardown().await;
 }
@@ -233,28 +254,40 @@ async fn register_user_cases() {
     // checked before a user is created.
     let cases = [
         (
-            json!({"username": "", "email": "new@example.com", "password": "testPassword"}),
+            json!({"username": "", "email": "new@example.com", "password": "testPassword", "organizationName": "Ours"}),
             "username is required",
         ),
         (
             json!({"username": "", "email": "", "password": ""}),
-            "3 members of the request were refused",
+            "4 members of the request were refused",
         ),
         (
-            json!({"username": "newUsername", "email": "", "password": "testPassword"}),
+            json!({"username": "newUsername", "email": "", "password": "testPassword", "organizationName": "Ours"}),
             "email is required",
         ),
         (
-            json!({"username": "newUsername", "email": "not-an-address", "password": "testPassword"}),
+            json!({"username": "newUsername", "email": "not-an-address", "password": "testPassword", "organizationName": "Ours"}),
             "invalid email format",
         ),
         (
-            json!({"username": "newUsername", "email": "new@example.com", "password": ""}),
+            json!({"username": "newUsername", "email": "new@example.com", "password": "", "organizationName": "Ours"}),
             "password is required",
         ),
         (
-            json!({"username": "newUsername", "email": "new@example.com", "password": "test"}),
+            json!({"username": "newUsername", "email": "new@example.com", "password": "test", "organizationName": "Ours"}),
             "password must be at least",
+        ),
+        (
+            json!({"username": "newUsername", "email": "new@example.com", "password": "testPassword"}),
+            "organization name is required",
+        ),
+        (
+            json!({"username": "newUsername", "email": "new@example.com", "password": "testPassword", "organizationName": "  "}),
+            "organization name is required",
+        ),
+        (
+            json!({"username": "newUsername", "email": "new@example.com", "password": "testPassword", "organizationName": "x".repeat(65)}),
+            "an organization name has at most 64 characters",
         ),
     ];
     for (body, message) in cases {
@@ -278,7 +311,7 @@ async fn register_user_cases() {
     );
 
     // "success"
-    let body = json!({"username": " newUsername ", "email": " new@example.com ", "password": "testPassword"});
+    let body = json!({"username": " newUsername ", "email": " new@example.com ", "password": "testPassword", "organizationName": "Our Firm"});
     let made: User = th.client.post("/register", &body).await.created_json();
     assert_eq!(made.username, "newUsername", "the name is answered trimmed");
     let user = th
@@ -302,12 +335,6 @@ async fn register_user_cases() {
         "and not as itself"
     );
 
-    // A wrong signup token is refused.
-    let body = json!({"username": "second", "email": "second@example.com", "password": "testPassword", "token": "wrong"});
-    let response = th.client.post("/register", &body).await;
-    response.check_error(StatusCode::FORBIDDEN, "the signup token is not valid");
-    assert_eq!(response.error_reason(), "signup_token_invalid");
-
     th.teardown().await;
 }
 
@@ -317,30 +344,20 @@ async fn register_user_cases() {
 #[tokio::test]
 async fn a_registration_answers_the_user_that_was_made() {
     let th = Setup::native().start().await;
-    let register = async |username: &str, token: &str| {
-        th.anonymous()
-            .post(
-                "/register",
-                &json!({
-                    "username": username,
-                    "email": format!("{username}@sample.com"),
-                    "password": PASSWORD,
-                    "token": token,
-                }),
-            )
-            .await
-    };
+    let first = th
+        .anonymous()
+        .post(
+            "/register",
+            &json!({
+                "username": "first",
+                "email": "first@sample.com",
+                "password": PASSWORD,
+                "organizationName": ORG_NAME,
+            }),
+        )
+        .await;
 
-    let first = register("first", "").await;
-    let signup_token = th
-        .app
-        .root_workspace()
-        .await
-        .expect("root workspace")
-        .signup_token;
-    let second = register("second", &signup_token).await;
-
-    for (response, username, is_admin) in [(&first, "first", true), (&second, "second", false)] {
+    for (response, username, is_admin) in [(&first, "first", true)] {
         response.check_created();
         let made = response.value();
         let mut members: Vec<&str> = made
@@ -409,7 +426,7 @@ async fn get_me_logged_in() {
     let th = Setup::native().start().await;
     let password = new_id();
     let client = th
-        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &password, "")
+        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &password)
         .await;
 
     let response = client.get("/users/me").await;
@@ -447,7 +464,7 @@ async fn get_me_logged_in() {
 async fn get_user() {
     let th = Setup::native().start().await;
     let client = th
-        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &new_id(), "")
+        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &new_id())
         .await;
     let me = client.me().await;
 
@@ -556,7 +573,7 @@ async fn user_change_password() {
     let th = Setup::native().start().await;
     let password = new_id();
     let client = th
-        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &password, "")
+        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &password)
         .await;
     let new_password = new_id();
 
@@ -1056,43 +1073,30 @@ async fn workspaces() {
         .await
         .value();
     assert_eq!(workspace["id"], json!(ROOT_WORKSPACE_ID), "{workspace}");
-    let signup_token = workspace["signupToken"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let mut members: Vec<&str> = workspace
+        .as_object()
+        .expect("the workspace is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    members.sort_unstable();
     assert_eq!(
-        signup_token.len(),
-        fvoci_server::auth::secret::SECRET_LENGTH,
-        "the signup token is a secret and part of the workspace: {workspace}"
+        members,
+        [
+            "guestInvitations",
+            "id",
+            "modifiedBy",
+            "settings",
+            "title",
+            "updateAt"
+        ],
+        "a workspace carries no token of anything: {workspace}"
     );
-
+    // The route that renewed the signup token is gone with the token.
     th.client
         .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/signup-token"))
         .await
-        .check_ok();
-    let regenerated = th
-        .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-        .await
-        .value();
-    assert_ne!(
-        regenerated["signupToken"],
-        json!(signup_token),
-        "the token changed"
-    );
-    let other = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}"))
-        .await
-        .value();
-    assert_ne!(
-        other["signupToken"], regenerated["signupToken"],
-        "each workspace has a token of its own"
-    );
-    th.client
-        .post_empty(&format!("/w/{UNKNOWN_ID}/signup-token"))
-        .await
-        .check_error(StatusCode::NOT_FOUND, "workspace not found");
+        .check_status(StatusCode::NOT_FOUND);
 
     th.anonymous()
         .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
@@ -1122,12 +1126,8 @@ async fn app_get_root_workspace() {
         first.id, ROOT_WORKSPACE_ID,
         "the root workspace has the global identifier"
     );
-    assert!(!first.signup_token.is_empty(), "it has a signup token");
     assert_eq!(first.modified_by, "", "nobody modified it");
-    assert_eq!(
-        first.signup_token, second.signup_token,
-        "reading does not change the token"
-    );
+    assert_eq!(first, second, "reading does not change it");
     th.teardown().await;
 }
 
@@ -1451,21 +1451,23 @@ async fn changing_the_password_ends_the_other_sessions_of_the_user() {
 #[tokio::test]
 async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
     let th = Setup::native().start().await.init_basic().await;
-    let workspace = th.app.root_workspace().await.expect("the root workspace");
+    let link = th.member_link().await;
     let register = |username: &str, password: &str| {
-        let body = json!({
-            "username": username,
-            "email": format!("{username}@sample.com"),
-            "password": password,
-            "token": workspace.signup_token,
-        });
+        let body = acceptance(
+            &link,
+            &json!({
+                "username": username,
+                "email": format!("{username}@sample.com"),
+                "password": password,
+            }),
+        );
         let anonymous = th.anonymous();
-        async move { anonymous.post("/register", &body).await }
+        async move { anonymous.post("/invitations/accept", &body).await }
     };
 
     // Longer than the 72 bytes the previous hash looked at; every byte counts.
     let long = "p".repeat(200);
-    register("long", &long).await.check_created();
+    register("long", &long).await.check_ok();
     th.login("long", &long).await;
     let mut other_end = "p".repeat(199);
     other_end.push('q');
@@ -1476,7 +1478,7 @@ async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
 
     // The limits, where a password is set.
     let longest = "가".repeat(341);
-    register("longest", &longest).await.check_created();
+    register("longest", &longest).await.check_ok();
     th.login("longest", &longest).await;
     for (username, password, message) in [
         (
@@ -1510,18 +1512,12 @@ async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
 #[tokio::test]
 async fn a_user_has_a_display_name_of_their_choosing() {
     let th = Setup::native().start().await.init_basic().await;
-    let workspace = th.app.root_workspace().await.expect("the root workspace");
-    let registered = th
-        .anonymous()
-        .post(
-            "/register",
-            &json!({"username": "jim", "email": "jim@sample.com", "password": PASSWORD,
-                    "token": workspace.signup_token, "displayName": "Jim Halpert"}),
-        )
-        .await;
-    registered.check_created();
-    assert_eq!(registered.value()["displayName"], json!("Jim Halpert"));
+    let link = th.member_link().await;
+    let jim = json!({"username": "jim", "email": "jim@sample.com", "password": PASSWORD,
+                     "displayName": "Jim Halpert"});
+    accept(&th, &link, &jim).await.check_ok();
     let jim = th.login("jim", PASSWORD).await;
+    assert_eq!(jim.me().await.display_name, "Jim Halpert");
 
     let me = th.client.me().await;
     assert_eq!(me.display_name, "", "none unless chosen");
@@ -1575,26 +1571,21 @@ async fn a_user_has_a_display_name_of_their_choosing() {
         longest,
         "nothing changed"
     );
-    let response = th
-        .anonymous()
-        .post(
-            "/register",
-            &json!({"username": "pam", "email": "pam@sample.com", "password": PASSWORD,
-                    "token": workspace.signup_token, "displayName": "x".repeat(65)}),
-        )
-        .await;
+    let pam = json!({"username": "pam", "email": "pam@sample.com", "password": PASSWORD,
+                     "displayName": "x".repeat(65)});
+    let response = accept(&th, &link, &pam).await;
     response.check_bad_request();
-    assert_eq!(response.refused_at(), "/displayName");
-    // Left out or null at registration: none.
+    assert_eq!(response.refused_at(), "/account/displayName");
+    // Left out or null where the account is made: none.
     for (username, extra) in [("dwight", None), ("angela", Some(Value::Null))] {
-        let mut body = json!({"username": username, "email": format!("{username}@sample.com"),
-                              "password": PASSWORD, "token": workspace.signup_token});
+        let mut account = json!({"username": username, "email": format!("{username}@sample.com"),
+                                 "password": PASSWORD});
         if let Some(value) = extra {
-            body["displayName"] = value;
+            account["displayName"] = value;
         }
-        let made = th.anonymous().post("/register", &body).await;
-        made.check_created();
-        assert_eq!(made.value()["displayName"], json!(""), "{username}");
+        accept(&th, &link, &account).await.check_ok();
+        let made = th.login(username, PASSWORD).await.me().await;
+        assert_eq!(made.display_name, "", "{username}");
     }
 
     // White space around a name goes; empty, blank or null: none.

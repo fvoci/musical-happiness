@@ -25,6 +25,7 @@ mod fake_oidc;
 mod files;
 mod guests;
 mod imports;
+mod invitations;
 mod limits;
 mod login_limits;
 mod loose_objects;

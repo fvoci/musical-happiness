@@ -839,6 +839,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept an invitation
+         * @description Lets somebody into the workspace the link of `token` leads into, and answers where
+         *     that is. A request with a session lets in the user of the session, and names no
+         *     `account` (400 if it does). A request without one makes the `account` it names and
+         *     lets that in: the account's members are checked as `register` checks them (400,
+         *     with `errors`, which name them under `/account`), and a name or an email address
+         *     that is taken is 409 with the reason `username_taken` or `email_taken`. Accepting
+         *     does not sign in.
+         *
+         *     A member's link makes the account a member of the workspace and of its
+         *     organization; who is a guest of the workspace becomes a member, and who works there
+         *     already stays what they are. The account is made, the membership stored and the use
+         *     of the link counted together or not at all.
+         *
+         *     A token that lets nobody in is 404 with the reason `invitation_unavailable`,
+         *     whatever is wrong with it: there is no such link, it ended, it was used as often as
+         *     it may be, it was revoked, or who made it may no longer invite. Requests are counted
+         *     by where they come from, and too many are 429.
+         */
+        post: operations["acceptInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invitations/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look at an invitation
+         * @description What the link of `token` shows to whoever holds it, before they accept it and
+         *     whether they are signed in or not: the name of the workspace it leads into and the
+         *     name of who made it (the name they are shown by, or their login name).
+         *
+         *     A token that lets nobody in is 404 with the reason `invitation_unavailable`, as
+         *     `acceptInvitation` answers it and whatever is wrong with it. Requests are counted
+         *     by where they come from, and too many are 429.
+         */
+        post: operations["previewInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/login": {
         parameters: {
             query?: never;
@@ -881,6 +943,10 @@ export interface paths {
          *     nothing else. An identifier that names no organization in use answers as none
          *     (`organization` is `null`), and so does a server that takes in several
          *     organizations when none is named.
+         *
+         *     `registrationOpen` says whether `register` takes somebody without an invitation:
+         *     always on a server where everybody starts an organization of their own, and until the first
+         *     user registered on a server that holds one organization.
          */
         get: operations["getLoginOptions"];
         put?: never;
@@ -1013,17 +1079,19 @@ export interface paths {
         put?: never;
         /**
          * Register a user
-         * @description Makes an account. The first user of a server needs no signup token and becomes its
-         *     administrator; everyone after needs the workspace's token, and is refused with 403 and
-         *     the reason `signup_token_required` without it. A token that is not the workspace's is 403
-         *     with the reason `signup_token_invalid`, for the first user too. A name or an email
-         *     address that is taken is 409 with the reason `username_taken` or `email_taken`.
-         *     Registering does not sign in.
+         * @description Makes an account and the organization it starts: `organizationName` names the
+         *     organization and its first workspace, and the account administers both. On a server that takes one organization (`org_creation` is `first_user_only`)
+         *     only the first user registers, and administers the server too; everybody after is
+         *     refused with 403 and the reason `invitation_required`, whatever else the request
+         *     says, and gets in by the link of an invitation (`acceptInvitation`). A name or an
+         *     email address that is taken is 409 with the reason `username_taken` or
+         *     `email_taken`. Registering does not sign in.
          *
          *     The name and the email address must not be blank, the email address must look like
          *     one, the display name (`displayName`, may be left out) is read as `patchMe` reads it,
-         *     and the password must have at least 8 characters and at most 1024 bytes; otherwise
-         *     the request is 400, and `errors` names every member that is refused, each with
+         *     the password must have at least 8 characters and at most 1024 bytes, and the organization
+         *     name must not be blank, and is otherwise read as a display name is; otherwise the
+         *     request is 400, and `errors` names every member that is refused, each with
          *     its `reason`: `required`, `invalid_format`, `too_short`, `too_long` or
          *     `invalid_characters`.
          */
@@ -1412,7 +1480,7 @@ export interface paths {
         };
         /**
          * A workspace
-         * @description The signup token, which lets in whoever has it, is there for administrators only.
+         * @description Its name, and whether the admins of its boards may invite guests to them.
          */
         get: operations["getWorkspace"];
         put?: never;
@@ -1739,6 +1807,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make an invitation
+         * @description Makes a link that lets whoever accepts it into the workspace, and answers it with
+         *     its `token`: the one time the token is told, as the server keeps its digest only. A
+         *     link ends seven days after it was made, or when it is revoked.
+         *
+         *     With the `role` `member` the link makes members of the workspace, as often as it is
+         *     used. Only the workspace's administrators make one: anybody else is refused (403).
+         *     Whoever accepts it becomes a member of the workspace's organization too.
+         */
+        post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/onboard": {
         parameters: {
             query?: never;
@@ -1756,27 +1850,6 @@ export interface paths {
          *     `onboarding`. Every request makes another copy.
          */
         post: operations["onboard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/w/{workspaceId}/signup-token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make a new signup token
-         * @description Makes a new signup token for the workspace; the old one stops working. For
-         *     administrators.
-         */
-        post: operations["regenerateSignupToken"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1866,6 +1939,19 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A request to accept a link. */
+        AcceptInvitation: {
+            account?: components["schemas"]["NewAccount"] | null;
+            /** @description The token of the link. */
+            token: string;
+        };
+        /** @description Where an accepted link let somebody in. */
+        AcceptedInvitation: {
+            /** @description For a guest: the board they were invited to. */
+            boardId?: string | null;
+            /** @description The workspace. */
+            workspaceId: string;
+        };
         /** @description What a user changes of their account. A member that is left out stays as it is. */
         AccountChange: {
             /**
@@ -2443,9 +2529,70 @@ export interface components {
              */
             reason: string;
         };
+        /** @description A link that lets somebody into a workspace. */
+        Invitation: {
+            /** @description For a guest: the board they are invited to. */
+            boardId?: string | null;
+            /** @description For a guest: their role on that board, `viewer`, `commenter` or `editor`. */
+            boardRole?: string | null;
+            /**
+             * Format: int64
+             * @description When the link was made, in milliseconds since the Unix epoch.
+             */
+            createAt: number;
+            /** @description The identifier of the user who made the link. */
+            createdBy: string;
+            /**
+             * Format: int64
+             * @description When the link stops letting anybody in, in milliseconds since the Unix epoch.
+             */
+            expiresAt: number;
+            /** @description The invitation's identifier, by which it is revoked. It lets nobody in. */
+            id: string;
+            /**
+             * Format: int64
+             * @description How often the link may be used; left out for one that is used as often as it is
+             *     until it ends.
+             */
+            maxUses?: number | null;
+            /** @description What whoever accepts becomes in the workspace: `member`, or `guest`. */
+            role: components["schemas"]["WorkspaceRole"];
+            /** @description The token of the link: in the answer that makes the link, and in no other. */
+            token?: string | null;
+            /**
+             * Format: int64
+             * @description How often the link was used.
+             */
+            uses: number;
+            /** @description The workspace the link leads into. */
+            workspaceId: string;
+        };
+        /** @description What a link shows of where it leads, to whoever holds it. */
+        InvitationPreview: {
+            /** @description For a guest: the title of the board they are invited to. */
+            boardTitle?: string | null;
+            /**
+             * @description The name of who made the link: the name they are shown by, or their login name
+             *     if they have none.
+             */
+            inviterName: string;
+            /** @description The name of the workspace the link leads into; empty if it was given none. */
+            workspaceName: string;
+        };
+        /** @description A request that carries the token of a link and nothing else. */
+        InvitationToken: {
+            /** @description The token of the link. */
+            token: string;
+        };
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
             organization: components["schemas"]["LoginOrganization"] | null;
+            /**
+             * @description Whether somebody without an invitation may register and start an organization: on a
+             *     server where everybody may, and on any server until its first user did. Where it
+             *     is `false`, the link of an invitation is the way in.
+             */
+            registrationOpen: boolean;
         };
         /** @description What the login page may know of an organization before anybody signs in. */
         LoginOrganization: {
@@ -2488,6 +2635,23 @@ export interface components {
          * @enum {string}
          */
         MinimumRole: "viewer" | "commenter" | "editor";
+        /**
+         * @description The account somebody asks for: who registers, and who accepts an invitation
+         *     without having one.
+         */
+        NewAccount: {
+            /**
+             * @description The name to be shown by; may be left out, `null` or empty for none. Read as
+             *     `patchMe` reads it.
+             */
+            displayName?: string;
+            /** @description The email address. */
+            email: string;
+            /** @description The password. */
+            password: string;
+            /** @description The login name. */
+            username: string;
+        };
         /** @description A block to insert. */
         NewBlock: {
             /**
@@ -2622,6 +2786,18 @@ export interface components {
             userId: string;
             /** @description The workspace of the path. */
             workspaceId: string;
+        };
+        /** @description A request to make a link. */
+        NewInvitation: {
+            /** @description For a guest: the board they are invited to. Not for a member. */
+            boardId?: string | null;
+            /**
+             * @description For a guest: their role on that board, `viewer`, `commenter` or `editor`; an
+             *     editor if left out. Not for a member.
+             */
+            boardRole?: string | null;
+            /** @description What whoever accepts becomes in the workspace: `member`, or `guest`. */
+            role: components["schemas"]["WorkspaceRole"];
         };
         /**
          * @description A user to make a member of a board, and the roles to give them. A member with no
@@ -2854,10 +3030,13 @@ export interface components {
             displayName?: string;
             /** @description The email address. */
             email: string;
+            /**
+             * @description The name of the organization the account starts, and of that organization's
+             *     first workspace. Read as `organization_name` reads it.
+             */
+            organizationName: string;
             /** @description The password. */
             password: string;
-            /** @description The workspace's signup token; may be empty while no user exists yet. */
-            token?: string;
             /** @description The login name. */
             username: string;
         };
@@ -3142,6 +3321,8 @@ export interface components {
         WeekStart: "auto" | "sunday" | "monday" | "saturday";
         /** @description A workspace of an organization. */
         Workspace: {
+            /** @description Whether the admins of the workspace's boards may invite guests to them. */
+            guestInvitations: boolean;
             /** @description The workspace's identifier. */
             id: string;
             /** @description The identifier of the user who last modified the workspace. */
@@ -3150,11 +3331,6 @@ export interface components {
             settings: {
                 [key: string]: unknown;
             };
-            /**
-             * @description The token new users must present to register. Empty, and left out of the JSON
-             *     form, in what is answered to anyone but an administrator of the instance.
-             */
-            signupToken?: string;
             /** @description The workspace's title. */
             title: string;
             /**
@@ -4667,6 +4843,94 @@ export interface operations {
             };
         };
     };
+    acceptInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitation"];
+            };
+        };
+        responses: {
+            /** @description Where the account was let in. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedInvitation"];
+                };
+            };
+            /** @description Too many requests from where this one comes from, or the server has too much password work to do at the moment. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    previewInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationToken"];
+            };
+        };
+        responses: {
+            /** @description What the link shows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InvitationPreview"];
+                };
+            };
+            /** @description Too many requests from where this one comes from. */
+            429: {
+                headers: {
+                    /** @description How many seconds to wait before trying again. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     login: {
         parameters: {
             query?: never;
@@ -6127,6 +6391,42 @@ export interface operations {
             };
         };
     };
+    createInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewInvitation"];
+            };
+        };
+        responses: {
+            /** @description The invitation, with its token. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     onboard: {
         parameters: {
             query?: never;
@@ -6146,38 +6446,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingStart"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    regenerateSignupToken: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
-                workspaceId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The workspace, with its new token. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Workspace"];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

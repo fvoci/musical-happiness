@@ -26,7 +26,6 @@ use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, Category,
     CategoryBoards, MinimumRole, User, Workspace, is_id, new_id,
 };
-use fvoci_server::auth::secret::new_secret;
 use fvoci_store::{BlockFilter, DuplicateAs, PublicBoards};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -67,7 +66,6 @@ pub(crate) async fn board_without_members(th: &TestServer, board: Board, user_id
 pub(crate) async fn another_workspace(th: &TestServer, member: &str) -> String {
     let workspace = Workspace {
         id: new_id(),
-        signup_token: new_secret(),
         ..Workspace::default()
     };
     let (store, role) = (th.app.store(), fvoci_model::WorkspaceRole::Member);

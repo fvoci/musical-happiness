@@ -74,8 +74,10 @@ writeFileSync(
       dbconfig: path.join(data, 'fvoci.db'),
       webpath: dist,
       filespath: path.join(data, 'files'),
-      // The tests sign in many times from one address.
-      login_address_attempts_per_minute: 1000,
+      // The tests sign in and make accounts from one address, several at
+      // once: the limit by address, which lets one attempt of an address go
+      // at a time, is off. The server's own tests are about it.
+      login_address_attempts_per_minute: 0,
       // The smallest part the server allows, so that a test file of a few
       // MiB goes up in more than one part.
       upload_part_bytes: 5 * 1024 * 1024,

@@ -907,7 +907,6 @@ async fn an_sqlite_database_holds_one_organization() {
     let test = common::setup().await;
     let second = Workspace {
         id: new_id(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     let refused = test
@@ -1193,7 +1192,6 @@ async fn assert_the_workspaces_are_its_workspaces(
         [before.id("older_workspace"), before.id("younger_workspace")],
         "the oldest first"
     );
-    assert_eq!(workspaces[0].signup_token, "token-1", "{:?}", workspaces[0]);
     assert_eq!(
         workspaces[0].modified_by,
         before.id("admin"),

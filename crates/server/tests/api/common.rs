@@ -12,7 +12,6 @@ use fvoci_model::{
     Block, Board, BoardMember, BoardType, LoginRequest, RegisterRequest, User, Workspace, new_id,
 };
 use fvoci_server::app::App;
-use fvoci_server::auth::secret::new_secret;
 use fvoci_server::config::Configuration;
 use fvoci_server::{Server, TlsFiles};
 use fvoci_store::testing::TestDatabase;
@@ -31,6 +30,8 @@ pub(crate) type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 pub(crate) const USER1_USERNAME: &str = "user1";
 pub(crate) const USER2_USERNAME: &str = "user2";
 pub(crate) const PASSWORD: &str = "Pa$$word";
+/// The name of the organization the first user of a test server starts.
+pub(crate) const ORG_NAME: &str = "The Firm";
 /// The root workspace of every test server: the oldest workspace, the one the server would have
 /// made at its first start. The harness makes it before the server starts, so that
 /// tests can name it.
@@ -283,7 +284,7 @@ impl Setup {
         };
         if self.one_user {
             server.client = server
-                .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD, "")
+                .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD)
                 .await;
             server.client2 = server.client.clone();
         }
@@ -302,7 +303,6 @@ async fn seed_workspaces(config: &Configuration) {
         .expect("the test database takes the schema");
     let workspace = |workspace_id: &str| Workspace {
         id: workspace_id.to_owned(),
-        signup_token: new_secret(),
         ..Workspace::default()
     };
     let org_id = store
@@ -319,28 +319,14 @@ async fn seed_workspaces(config: &Configuration) {
 }
 
 impl TestServer {
-    /// `InitBasic`: registers and signs in `user1` on the first client and `user2`, with
-    /// the workspace's signup token, on the second.
+    /// `InitBasic`: registers and signs in `user1`, who starts the organization, on the first
+    /// client and `user2`, whom a link for members lets in, on the second.
     pub(crate) async fn init_basic(mut self) -> Self {
         self.client = self
-            .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD, "")
+            .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD)
             .await;
-        let workspace: Workspace = self
-            .client
-            .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-            .await
-            .ok_json();
-        assert!(
-            !workspace.signup_token.is_empty(),
-            "the workspace has a signup token"
-        );
         self.client2 = self
-            .register_and_login(
-                USER2_USERNAME,
-                "user2@sample.com",
-                PASSWORD,
-                &workspace.signup_token,
-            )
+            .register_and_login(USER2_USERNAME, "user2@sample.com", PASSWORD)
             .await;
         self
     }
@@ -387,28 +373,77 @@ impl TestServer {
         Client::new(&self.base_url, token)
     }
 
-    /// `RegisterAndLogin`: registers a user and returns a client signed in as them.
+    /// `RegisterAndLogin`: makes an account and returns a client signed in as it. The
+    /// first of a server registers and starts the organization ([`ORG_NAME`]); everybody after
+    /// accepts a link for members into the root workspace
+    /// ([`TestServer::member_link`]), as a server that holds one organization has it.
     pub(crate) async fn register_and_login(
         &self,
         username: &str,
         email: &str,
         password: &str,
-        signup_token: &str,
     ) -> Client {
-        let request = RegisterRequest {
-            username: username.to_owned(),
-            email: email.to_owned(),
-            password: password.to_owned(),
-            token: signup_token.to_owned(),
-            display_name: String::new(),
-        };
-        let user: User = self
-            .anonymous()
-            .post("/register", &request)
+        let bootstrapped = self
+            .app
+            .store()
+            .is_bootstrapped()
             .await
-            .created_json();
-        self.let_into_the_second_workspace(&user.id).await;
-        self.login(username, password).await
+            .expect("the instance is read");
+        if bootstrapped {
+            let request = serde_json::json!({
+                "token": self.member_link().await,
+                "account": { "username": username, "email": email, "password": password },
+            });
+            self.anonymous()
+                .post("/invitations/accept", &request)
+                .await
+                .check_ok();
+        } else {
+            let request = RegisterRequest {
+                username: username.to_owned(),
+                email: email.to_owned(),
+                password: password.to_owned(),
+                display_name: String::new(),
+                organization_name: ORG_NAME.to_owned(),
+            };
+            self.anonymous()
+                .post("/register", &request)
+                .await
+                .check_created();
+        }
+        let client = self.login(username, password).await;
+        self.let_into_the_second_workspace(&client.me().await.id)
+            .await;
+        client
+    }
+
+    /// The token of a new link that makes members of the root workspace, made past the
+    /// route on behalf of an administrator of that workspace: the oldest one it has.
+    pub(crate) async fn member_link(&self) -> String {
+        let workspace = self
+            .app
+            .root_workspace()
+            .await
+            .expect("the root workspace exists");
+        let admins = self
+            .app
+            .store()
+            .texts_unchecked(&format!(
+                "SELECT CAST(user_id AS TEXT) FROM workspace_members WHERE role = 'admin' \
+                 AND CAST(workspace_id AS TEXT) = '{}' ORDER BY create_at, user_id",
+                workspace.id
+            ))
+            .await
+            .expect("the administrators of the root workspace are read");
+        let inviter = admins
+            .first()
+            .expect("the root workspace has an administrator to invite on behalf of");
+        self.app
+            .invite_members(&workspace.id, inviter)
+            .await
+            .expect("a link for members is made")
+            .token
+            .expect("a new link comes with its token")
     }
 
     /// Lets a user into the second workspace of the test server, [`TEST_WORKSPACE_ID`], where
@@ -456,20 +491,10 @@ impl TestServer {
         client
     }
 
-    /// Registers one more user with the workspace's signup token and signs them in.
+    /// Makes one more account, which a link for members lets in, and signs it in.
     pub(crate) async fn add_user(&self, username: &str) -> Client {
-        let workspace = self
-            .app
-            .root_workspace()
+        self.register_and_login(username, &format!("{username}@sample.com"), PASSWORD)
             .await
-            .expect("the root workspace exists");
-        self.register_and_login(
-            username,
-            &format!("{username}@sample.com"),
-            PASSWORD,
-            &workspace.signup_token,
-        )
-        .await
     }
 
     /// Shares a board, past the route and on behalf of nobody, and returns the read

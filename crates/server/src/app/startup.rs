@@ -106,7 +106,7 @@ async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::
 async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
     // The first workspace of an organization that is made now: the root workspace. It
     // and its organization are nobody's, and unnamed, until the first user signs up
-    // with the name of their team (`App::sign_up`).
+    // with the name of their organization (`App::sign_up`).
     let workspace = fvoci_model::Workspace {
         id: fvoci_model::new_id(),
         ..fvoci_model::Workspace::default()

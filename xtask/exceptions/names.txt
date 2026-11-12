@@ -82,7 +82,6 @@ crates/store/tests/store/workspaces.rs | `testUpsertTeamSettings`
 crates/store/tests/store/workspaces.rs | `testGetAllTeams`
 crates/store/tests/store/workspaces.rs | "Nonexistent team"
 crates/store/tests/store/workspaces.rs | "Valid team"
-crates/store/tests/store/workspaces.rs | "Insert and update team with signup token"
 crates/store/tests/store/workspaces.rs | "No teams response"
 crates/store/tests/store/workspaces.rs | "Insert multiple team and get all teams"
 

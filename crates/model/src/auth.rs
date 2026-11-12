@@ -64,41 +64,46 @@ pub fn display_name(raw: &str) -> Result<String, AuthParamError> {
     Ok(name.to_owned())
 }
 
-/// The longest name of a team, in UTF-16 code units as the web app counts text.
-pub const TEAM_NAME_MAX_LENGTH: usize = 64;
+/// The longest name of an organization, in UTF-16 code units as the web app counts text.
+pub const ORGANIZATION_NAME_MAX_LENGTH: usize = 64;
 
-/// Reads the name of a team somebody starts by signing up, which names their
-/// organization and its first workspace: without the white space around it, not empty,
-/// and otherwise as [`display_name`] has a name. Returns the name to store.
+/// Reads the name of the organization somebody starts by signing up, which is the
+/// name of its first workspace too: without the white space around it, not empty, and
+/// otherwise as [`display_name`] has a name. Returns the name to store.
 ///
 /// # Errors
 ///
-/// Returns an [`AuthParamError`] for `teamName` if the name is blank, too long or
+/// Returns an [`AuthParamError`] for `organizationName` if the name is blank, too long or
 /// holds a character it may not.
-pub fn team_name(raw: &str) -> Result<String, AuthParamError> {
+pub fn organization_name(raw: &str) -> Result<String, AuthParamError> {
     let name = display_name(raw).map_err(|error| {
         let message = match error.reason() {
             RefusalReason::TooLong => {
-                format!("a team name has at most {TEAM_NAME_MAX_LENGTH} characters")
+                format!(
+                    "an organization name has at most {ORGANIZATION_NAME_MAX_LENGTH} characters"
+                )
             }
-            _ => "a team name has no control characters, and none that show nothing or \
+            _ => "an organization name has no control characters, and none that show nothing or \
                   turn the text around"
                 .to_owned(),
         };
-        AuthParamError::new("teamName", error.reason(), message)
+        AuthParamError::new("organizationName", error.reason(), message)
     })?;
     if name.is_empty() {
         return Err(AuthParamError::new(
-            "teamName",
+            "organizationName",
             RefusalReason::Required,
-            "team name is required",
+            "organization name is required",
         ));
     }
     Ok(name)
 }
 
-// A team is named as a person is: one rule for both.
-const _: () = assert!(TEAM_NAME_MAX_LENGTH == DISPLAY_NAME_MAX_LENGTH);
+// An organization is named as a person is: one rule for both.
+const _: () = assert!(
+    ORGANIZATION_NAME_MAX_LENGTH == DISPLAY_NAME_MAX_LENGTH,
+    "an organization's name is read by the rule of a display name"
+);
 
 /// A request parameter of an authentication request is missing or malformed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -191,10 +196,10 @@ pub struct RegisterRequest {
     /// `patchMe` reads it.
     #[serde(rename = "displayName", deserialize_with = "null_as_default")]
     pub display_name: String,
-    /// The name of the team the account starts: of its organization and of that
-    /// organization's first workspace. Read as [`team_name`] reads it.
-    #[serde(rename = "teamName", deserialize_with = "null_as_default")]
-    pub team_name: String,
+    /// The name of the organization the account starts, and of that organization's
+    /// first workspace. Read as [`organization_name`] reads it.
+    #[serde(rename = "organizationName", deserialize_with = "null_as_default")]
+    pub organization_name: String,
 }
 
 impl RegisterRequest {
@@ -206,16 +211,32 @@ impl RegisterRequest {
     /// if it is blank, the email address if it is blank or not well formed, the display
     /// name if it is not one ([`display_name`]), the password if it is empty,
     /// shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
-    /// [`MAXIMUM_PASSWORD_BYTES`], and the team name if it is not one ([`team_name`]).
+    /// [`MAXIMUM_PASSWORD_BYTES`], and the organization name if it is not one ([`organization_name`]).
     pub fn validate(&self) -> Result<(), Refusals> {
         let mut refused = self.account().refusals();
-        if let Err(error) = team_name(&self.team_name) {
+        if let Err(error) = organization_name(&self.organization_name) {
             refused.push(error.into());
         }
         refused.into_result()
     }
 
-    /// The account the request asks for, without the team it starts.
+    /// The request with its account tidied ([`NewAccount::tidied`]) and its organization name
+    /// as it is stored if it is one: what is refused stays as it was sent, to be
+    /// refused by [`RegisterRequest::validate`].
+    #[must_use]
+    pub fn tidied(self) -> Self {
+        let account = self.account().tidied();
+        Self {
+            username: account.username,
+            email: account.email,
+            password: account.password,
+            display_name: account.display_name,
+            organization_name: organization_name(&self.organization_name)
+                .unwrap_or(self.organization_name),
+        }
+    }
+
+    /// The account the request asks for, without the organization it starts.
     #[must_use]
     pub fn account(&self) -> NewAccount {
         NewAccount {
@@ -323,7 +344,7 @@ impl fmt::Debug for RegisterRequest {
             .field("username", &self.username)
             .field("email", &self.email)
             .field("display_name", &self.display_name)
-            .field("team_name", &self.team_name)
+            .field("organization_name", &self.organization_name)
             .finish_non_exhaustive()
     }
 }
