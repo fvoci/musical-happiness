@@ -28,11 +28,17 @@
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let place = '';
 
+  /** The board read, once it is: its title heads the page. */
+  const board = $derived(workspace?.board?.board);
+
   onMount(() => {
     const { boardId, readToken } = router.route;
     if (!boardId || !readToken) return;
     let made: Workspace | undefined;
+    let left = false;
     void startShared(boardId, readToken).then(async (started) => {
+      // Gone before the backend came: nothing is read.
+      if (left) return;
       const { backend } = started;
       place = started.place;
       made = new Workspace({ backend, locale: currentLocale });
@@ -42,14 +48,24 @@
       await made.load(place);
     });
     return () => {
+      left = true;
       made?.close();
     };
   });
 </script>
 
-<div class="flex h-dvh min-h-0 flex-col bg-background" data-testid="shared-board">
-  <header class="flex h-12 shrink-0 items-center border-b px-4">
-    <p class="font-semibold tracking-tight" translate="no">{m.app_name()}</p>
+<!-- The page is what is inside the edges the device keeps (#app has them as padding). -->
+<div
+  class="flex h-[calc(100dvh-var(--safe-top))] min-h-0 flex-col overflow-hidden bg-background"
+  data-testid="shared-board"
+>
+  <header class="flex h-12 shrink-0 items-center gap-3 border-b px-4">
+    <p class="shrink-0 font-semibold tracking-tight" translate="no">{m.app_name()}</p>
+    {#if board}
+      <h1 class="min-w-0 truncate text-muted-foreground" data-testid="shared-title">
+        {board.icon ? `${board.icon} ` : ''}{board.title || m['Sidebar.untitled-board']()}
+      </h1>
+    {/if}
   </header>
   <main class="@container/pane flex min-h-0 min-w-0 flex-1 flex-col" {@attach pane.attach}>
     {#if !router.route.boardId}

@@ -75,12 +75,23 @@ export class SharedBackend implements Backend {
   readonly #http: Http;
   readonly #boardId: string;
   readonly #readToken: string;
+  readonly #settings: AccountSettings;
 
-  /** `basePath` as `ServerBackend` takes it; the board and the token are the link's. */
-  constructor(basePath: string, boardId: string, readToken: string) {
+  /**
+   * `basePath` as `ServerBackend` takes it; the board and the token are the
+   * link's. `settings` are the device's (its theme and density), which the
+   * reader keeps: nobody's account has any here.
+   */
+  constructor(
+    basePath: string,
+    boardId: string,
+    readToken: string,
+    settings: AccountSettings = DEFAULT_ACCOUNT_SETTINGS,
+  ) {
     this.#http = new Http(basePath, 'omit');
     this.#boardId = boardId;
     this.#readToken = readToken;
+    this.#settings = settings;
   }
 
   /** Every address of the reader's is made here: the board's, with the token. */
@@ -110,7 +121,7 @@ export class SharedBackend implements Backend {
   }
 
   settings(): Promise<AccountSettings> {
-    return Promise.resolve({ ...DEFAULT_ACCOUNT_SETTINGS });
+    return Promise.resolve({ ...this.#settings });
   }
 
   screenState(): Promise<Record<string, string>> {
@@ -154,8 +165,7 @@ export class SharedBackend implements Backend {
       { blockId: cardId, type: 'card' },
     );
     if (!block) throw new BackendError(404, { detail: 'card not found' });
-    const summary = (await this.cards(boardId)).find((card) => card.id === cardId);
-    return { ...cardOfBlock(block), ...summary, body: bodyOf(block.body) };
+    return { ...cardOfBlock(block), body: bodyOf(block.body) };
   }
 
   async comments(boardId: string, cardId: string): Promise<Comment[]> {

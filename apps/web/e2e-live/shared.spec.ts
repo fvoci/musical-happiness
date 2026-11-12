@@ -29,15 +29,26 @@ function sharedPath(boardId: string, token: string, viewId?: string, cardId?: st
   return `/shared/${parts.map(encodeURIComponent).join('/')}?r=${encodeURIComponent(token)}`;
 }
 
-/** The requests of the page to the API that are not readings. */
-function writesOf(page: Page): string[] {
-  const writes: string[] = [];
+/**
+ * What the page asks of the server that a reader by the link must not: a
+ * request to the API that is no reading, or not of the board under
+ * `/api/v1/shared`, or that carries a cookie; and any connection for changes.
+ */
+function strayRequestsOf(page: Page, boardId: string): string[] {
+  const stray: string[] = [];
   page.on('request', (request) => {
-    if (request.url().includes('/api/') && request.method() !== 'GET') {
-      writes.push(`${request.method()} ${request.url()}`);
+    const url = new URL(request.url());
+    if (!url.pathname.startsWith('/api/')) return;
+    const said = `${request.method()} ${url.pathname}`;
+    if (request.method() !== 'GET' || !url.pathname.startsWith(`/api/v1/shared/${boardId}`)) {
+      stray.push(said);
     }
+    void request.allHeaders().then((headers) => {
+      if (headers.cookie !== undefined) stray.push(`${said} with a cookie`);
+    });
   });
-  return writes;
+  page.on('websocket', (socket) => stray.push(`websocket ${socket.url()}`));
+  return stray;
 }
 
 test('a board is read by its public link without signing in, and not when the link is off', async ({
@@ -108,12 +119,13 @@ test('a board is read by its public link without signing in, and not when the li
   const context = await browser.newContext({ locale: 'en-US', baseURL: base });
   const page = await context.newPage();
   const errors = watchErrors(page);
-  const writes = writesOf(page);
+  const writes = strayRequestsOf(page, board.boardId);
   await page.goto(sharedPath(board.boardId, token));
   const reader = page.getByTestId('shared-board');
   await expect(reader.getByTestId('board-page')).toBeVisible();
   await expect(reader.getByText('Sow the beans')).toBeVisible();
   await expect(reader.getByText('Mend the fence')).toBeVisible();
+  await expect(reader.getByTestId('shared-title')).toHaveText('Allotment plan');
   // The board alone: no sidebar, no settings, no sharing, no way to add a card.
   await expect(page.getByTestId('sidebar')).toHaveCount(0);
   await expect(page.getByTestId('share-board')).toHaveCount(0);
@@ -139,6 +151,7 @@ test('a board is read by its public link without signing in, and not when the li
   await expect(reader.getByText('after the frost')).toBeVisible();
   await shoot('table-wide');
   await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/shared/${board.boardId}/${board.viewId}\\?r=`));
 
   // A card: its body and its comment, nobody named, no way to write.
   await reader.getByText('Sow the beans').click();
@@ -166,18 +179,28 @@ test('a board is read by its public link without signing in, and not when the li
   await shoot('board-390');
   expect(writes).toEqual([]);
 
-  // Somebody signed in reads it the same way, as a reader.
-  const ownerPage = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
+  // Somebody signed in, its admin here, reads it the same way, as a reader: no
+  // cookie goes along, and nothing of the admin's shows.
+  const ownerContext = await browser.newContext({ locale: 'en-US', baseURL: base });
+  const ownerPage = await ownerContext.newPage();
   const ownerErrors = watchErrors(ownerPage);
   await ownerPage.goto(boardPath(board, board.viewId));
   await signInOnPage(ownerPage, owner);
   await expect(ownerPage.getByTestId('share-board')).toBeVisible();
-  const ownerWrites = writesOf(ownerPage);
-  await ownerPage.goto(sharedPath(board.boardId, token));
-  await expect(ownerPage.getByTestId('shared-board').getByText('Sow the beans')).toBeVisible();
-  await expect(ownerPage.getByTestId('sidebar')).toHaveCount(0);
-  await expect(ownerPage.getByTestId('share-board')).toHaveCount(0);
-  expect(ownerWrites).toEqual([]);
+  const ownerReader = await ownerContext.newPage();
+  ownerErrors.push(...watchErrors(ownerReader));
+  const ownerStray = strayRequestsOf(ownerReader, board.boardId);
+  await ownerReader.goto(sharedPath(board.boardId, token));
+  await expect(ownerReader.getByTestId('shared-board').getByText('Sow the beans')).toBeVisible();
+  await expect(ownerReader.getByTestId('sidebar')).toHaveCount(0);
+  await expect(ownerReader.getByTestId('share-board')).toHaveCount(0);
+  await expect(ownerReader.getByRole('button', { name: /^new$/i })).toHaveCount(0);
+  await ownerReader.getByTestId('shared-board').getByText('Sow the beans').click();
+  const ownerDialog = ownerReader.getByTestId('card-dialog');
+  await expect(ownerDialog.getByText('Two rows, a hand apart.')).toBeVisible();
+  await expect(ownerDialog.getByRole('textbox')).toHaveCount(0);
+  await expect(ownerDialog.getByTestId('card-comments').getByText(owner.username)).toHaveCount(0);
+  expect(ownerStray).toEqual([]);
 
   // A wrong token: not found.
   await page.goto(sharedPath(board.boardId, `${token}x`));
@@ -190,10 +213,13 @@ test('a board is read by its public link without signing in, and not when the li
   await page.goto(sharedPath(board.boardId, token));
   await expect(page.getByTestId('not-found')).toBeVisible();
   await expect(page.getByText('Sow the beans')).toHaveCount(0);
+  expect(writes).toEqual([]);
+  // Its way home is the app's: the sign-in page, the page loaded anew.
+  await page.getByRole('link', { name: 'Back to home' }).click();
+  await expect(page.getByRole('button', { name: /^sign in$/i })).toBeVisible();
 
   await api.dispose();
   await context.close();
-  await ownerPage.context().close();
-  expect(writes).toEqual([]);
+  await ownerContext.close();
   expect([...errors, ...ownerErrors]).toEqual([]);
 });

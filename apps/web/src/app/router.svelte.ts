@@ -187,6 +187,11 @@ export class Router {
   go(route: Partial<Route>, options: { replace?: boolean } = {}): void {
     const next = settled(route);
     const path = routePath(next, this.basePath);
+    // Between a public link and the app the page starts anew: each is a page of its own.
+    if (Boolean(next.readToken) !== Boolean(this.route.readToken)) {
+      window.location.assign(path);
+      return;
+    }
     // While an address waits to be written, that one is where the bar is heading.
     const here = next.readToken ? `${location.pathname}${location.search}` : location.pathname;
     const shown = this.#writes > 0 ? this.#heading : here;

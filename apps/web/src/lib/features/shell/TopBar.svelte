@@ -228,6 +228,6 @@
     {workspace}
     board={store}
     linkOf={(readToken: string) =>
-      new URL(sharedHref(boardId ?? '', readToken), location.href).href}
+      new URL(sharedHref(store.boardId, readToken), location.href).href}
   />
 {/if}

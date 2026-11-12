@@ -52,7 +52,7 @@ test('a file of two parts is attached on the server and downloads as the same by
   page.on('request', (request) => {
     if (
       request.method() === 'PUT' &&
-      /\/api\/v1\/uploads\/[^/]+\/parts\/\d+$/.test(request.url())
+      /\/api\/v1\/w\/[^/]+\/uploads\/[^/]+\/parts\/\d+$/.test(request.url())
     ) {
       parts.push(request.url().replace(/.*\/parts\//, ''));
     }

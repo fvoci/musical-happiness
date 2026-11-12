@@ -11,6 +11,8 @@
 import type { Account, Backend } from '$lib/state/index.ts';
 
 import { readBasePath } from './router.svelte.ts';
+import { display } from '$lib/display.svelte.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
 import { readDisplaySettings } from '$lib/logic/display.ts';
 import { readLanguageSettings } from '$lib/logic/language.ts';
 import { readRegionalSettings } from '$lib/logic/regional.ts';
@@ -88,7 +90,9 @@ export async function startShared(
 ): Promise<{ backend: Backend; place: string }> {
   const { SharedBackend, SHARED_PLACE } = await import('$lib/api/shared-backend.ts');
   const base = readBasePath(document);
-  const backend = new SharedBackend(base === '' ? '' : `/${base}`, boardId, readToken);
+  // The device's theme and density stay as they are: the reader has no account's.
+  const settings = { ...DEFAULT_ACCOUNT_SETTINGS, ...display.settings };
+  const backend = new SharedBackend(base === '' ? '' : `/${base}`, boardId, readToken, settings);
   return { backend, place: SHARED_PLACE };
 }
 

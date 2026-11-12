@@ -452,9 +452,8 @@ export class MemoryBackend implements Backend {
   }
 
   /**
-   * As the server matches: every word of the term in the title, whatever the
-   * case; oldest first. Among the boards this backend lists (`boards`: the
-   * reader's), not the workspace's open ones the server adds.
+   * As the server matches: every word of the term in the title, whatever the case; oldest
+   * first. Among the boards of the workspace this backend lists (`boards`: the reader's).
    */
   async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
     await this.#enterWorkspace('searchBoards', workspaceId);
@@ -467,6 +466,7 @@ export class MemoryBackend implements Backend {
       .filter(
         (board) =>
           !board.isTemplate &&
+          board.workspaceId === workspaceId &&
           this.#memberIds(board.id).includes(this.userId) &&
           words.every((word) => board.title.toLowerCase().includes(word)),
       )

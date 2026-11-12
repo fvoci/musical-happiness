@@ -80,7 +80,9 @@ test('an image pasted into the body is a file of the board, and is drawn from th
   // Every reading of a file answers with it.
   const files: number[] = [];
   page.on('response', (response) => {
-    if (/\/api\/v1\/boards\/[^/]+\/files\//.test(response.url())) files.push(response.status());
+    if (/\/api\/v1\/w\/[^/]+\/boards\/[^/]+\/files\//.test(response.url())) {
+      files.push(response.status());
+    }
   });
   await openCard(page, path, owner);
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
