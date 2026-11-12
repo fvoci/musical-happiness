@@ -36,12 +36,15 @@
     frame: CardFrame;
     /** How the saving of the body stands. */
     saveState: SaveState;
+    /** The address of a card of the board: its link to copy. */
+    cardHref: (cardId: string) => string;
     onClose: () => void;
     onDuplicate: () => void;
     onDelete: () => void;
   }
 
-  let { board, view, card, frame, saveState, onClose, onDuplicate, onDelete }: Props = $props();
+  let { board, view, card, frame, saveState, cardHref, onClose, onDuplicate, onDelete }: Props =
+    $props();
 
   let menuOpen = $state(false);
   /** Said once in place of the saving state: the link was copied. */
@@ -61,8 +64,8 @@
 
   async function copyLink(): Promise<void> {
     try {
-      // A card is an address: the one in the address bar is the link to it.
-      await navigator.clipboard.writeText(location.href);
+      // A card is an address of its own: that is the link to it.
+      await navigator.clipboard.writeText(new URL(cardHref(card.cardId), location.href).href);
     } catch {
       // No clipboard here (a page that is not served securely): nothing was copied, so nothing is said.
       return;

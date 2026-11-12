@@ -18,6 +18,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { boardPath, placeOf } from './address.ts';
 import { screensDir } from './screens.ts';
 
 interface StoredView {
@@ -109,28 +110,26 @@ async function boardAddress(page: Page, title: string): Promise<string> {
     return (await backend.boards(workspace.id)).find((board) => board.title === wanted)?.id;
   }, title);
   if (!id) throw new Error(`no board called ${title}`);
-  return `/board/${id}`;
+  return boardPath(id);
 }
 
 /** The view the address names, as the backend has it. */
 function storedView(page: Page): Promise<StoredView> {
-  return page.evaluate(async () => {
-    const [, , boardId, viewId] = location.pathname.split('/');
+  return page.evaluate(async ({ boardId, viewId }) => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const view = (await backend.views(boardId ?? '')).find((each) => each.id === viewId);
+    const view = (await backend.views(boardId)).find((each) => each.id === viewId);
     if (!view) throw new Error('the address names no view');
     return view;
-  });
+  }, placeOf(page.url()));
 }
 
 /** The properties of the board the address names, by name. */
 function properties(
   page: Page,
 ): Promise<Record<string, { id: string; options: Record<string, string> }>> {
-  return page.evaluate(async () => {
-    const [, , boardId] = location.pathname.split('/');
+  return page.evaluate(async (boardId) => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const board = await backend.board(boardId ?? '');
+    const board = await backend.board(boardId);
     return Object.fromEntries(
       board.cardProperties.map((property) => [
         property.name,
@@ -140,16 +139,18 @@ function properties(
         },
       ]),
     );
-  });
+  }, placeOf(page.url()).boardId);
 }
 
 /** Changes the view the address names as the backend, without the screen: for setting a scene. */
 async function patchView(page: Page, updatedFields: object): Promise<void> {
-  await page.evaluate(async (fields) => {
-    const [, , boardId, viewId] = location.pathname.split('/');
-    const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    await backend.patchView(boardId ?? '', viewId ?? '', { updatedFields: fields });
-  }, updatedFields);
+  await page.evaluate(
+    async ({ fields, boardId, viewId }) => {
+      const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
+      await backend.patchView(boardId, viewId, { updatedFields: fields });
+    },
+    { fields: updatedFields, ...placeOf(page.url()) },
+  );
 }
 
 /**

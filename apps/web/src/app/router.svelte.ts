@@ -1,10 +1,14 @@
 /**
- * The address bar: which board, view and card are shown.
+ * The address bar: which workspace, board, view and card are shown.
  *
- * The addresses are `/board/<board>/<view>/<card>`, each part optional from
- * the right, under the base path the server serves the app at. The base path
- * is not built in: the server writes it into index.html (the `fvoci:base`
- * meta element), and it is read from there when the app starts.
+ * The addresses are `/w/<workspace>/boards/<board>/<view>/<card>`, each part
+ * optional from the right (`/w/<workspace>` alone is the workspace), under
+ * the base path the server serves the app at. The root `/` names no
+ * workspace: the app chooses one and puts its address in place. The base
+ * path is not built in: the server writes it into index.html (the
+ * `fvoci:base` meta element), and it is read from there when the app starts.
+ *
+ * Every address the app writes is made here (`routePath`, `Router.href`).
  *
  * A card is an address of its own, so opening one adds an entry to the
  * history and "back" closes it. Sheets and the drawer also close on "back",
@@ -12,9 +16,10 @@
  * those are passed over here.
  */
 import { afterOwnSteps, releaseOverlayEntries } from '$lib/layout/back.svelte.ts';
-import { buildUrl, fillPath, normalizeBasePath } from '$lib/logic/urls.ts';
+import { buildUrl, normalizeBasePath, type BoardPlace } from '$lib/logic/urls.ts';
 
 export interface Route {
+  workspaceId: string | undefined;
   boardId: string | undefined;
   viewId: string | undefined;
   cardId: string | undefined;
@@ -22,7 +27,13 @@ export interface Route {
   unknown: boolean;
 }
 
-const BOARD_PATTERN = '/board/:boardId?/:viewId?/:cardId?';
+const NOWHERE: Route = {
+  workspaceId: undefined,
+  boardId: undefined,
+  viewId: undefined,
+  cardId: undefined,
+  unknown: false,
+};
 
 /** The base path the server filled into index.html; empty at the root of the site. */
 export function readBasePath(document: Document): string {
@@ -33,10 +44,9 @@ export function readBasePath(document: Document): string {
 
 /** The route an address stands for. `pathname` is the whole path, base path included. */
 export function parseRoute(pathname: string, basePath: string): Route {
-  const none: Route = { boardId: undefined, viewId: undefined, cardId: undefined, unknown: false };
   const prefix = basePath === '' ? '' : `/${basePath}`;
   if (prefix !== '' && pathname !== prefix && !pathname.startsWith(`${prefix}/`)) {
-    return { ...none, unknown: true };
+    return { ...NOWHERE, unknown: true };
   }
   const segments = pathname
     .slice(prefix.length)
@@ -49,31 +59,48 @@ export function parseRoute(pathname: string, basePath: string): Route {
         return segment;
       }
     });
-  if (segments.length === 0) return none;
-  const [first, boardId, viewId, cardId, ...rest] = segments;
-  if (first !== 'board' || rest.length > 0) return { ...none, unknown: true };
-  return { boardId, viewId, cardId, unknown: false };
+  if (segments.length === 0) return NOWHERE;
+  const [w, workspaceId, boards, boardId, viewId, cardId, ...rest] = segments;
+  if (
+    w !== 'w' ||
+    workspaceId === undefined ||
+    (boards !== undefined && boards !== 'boards') ||
+    rest.length > 0
+  ) {
+    return { ...NOWHERE, unknown: true };
+  }
+  return { workspaceId, boardId, viewId, cardId, unknown: false };
+}
+
+/**
+ * The route as far as it goes: each part only under the one before it
+ * (a card only on a view, a view only on a board, a board only in a workspace).
+ */
+function settled(route: Partial<Route>): Route {
+  const workspaceId = route.workspaceId || undefined;
+  const boardId = (workspaceId && route.boardId) || undefined;
+  const viewId = (boardId && route.viewId) || undefined;
+  const cardId = (viewId && route.cardId) || undefined;
+  return { workspaceId, boardId, viewId, cardId, unknown: false };
 }
 
 /** The address of a route, from the root of the site. */
 export function routePath(route: Partial<Route>, basePath: string): string {
-  if (!route.boardId) return buildUrl('/', basePath);
-  const encoded = {
-    boardId: encodeURIComponent(route.boardId),
-    viewId: route.viewId && encodeURIComponent(route.viewId),
-    cardId: route.viewId && route.cardId && encodeURIComponent(route.cardId),
-  };
-  return buildUrl(fillPath(BOARD_PATTERN, encoded), basePath);
+  const { workspaceId, boardId, viewId, cardId } = settled(route);
+  if (!workspaceId) return buildUrl('/', basePath);
+  const named = [boardId, viewId, cardId].filter((part) => part !== undefined);
+  const path = [
+    'w',
+    encodeURIComponent(workspaceId),
+    ...(named.length > 0 ? ['boards'] : []),
+    ...named.map((part) => encodeURIComponent(part)),
+  ];
+  return buildUrl(`/${path.join('/')}`, basePath);
 }
 
 export class Router {
   readonly basePath: string;
-  route = $state.raw<Route>({
-    boardId: undefined,
-    viewId: undefined,
-    cardId: undefined,
-    unknown: false,
-  });
+  route = $state.raw<Route>(NOWHERE);
   /** Whether the card on screen was opened from the board in this visit: then "back" closes it. */
   #cardEntered = false;
   /** Addresses that `go` has yet to write to the history, and the last of them. */
@@ -95,6 +122,7 @@ export class Router {
       const next = parseRoute(location.pathname, this.basePath);
       const now = this.route;
       if (
+        next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&
         next.viewId === now.viewId &&
         next.cardId === now.cardId &&
@@ -117,12 +145,7 @@ export class Router {
 
   /** Goes to a route. `replace` puts it in place of the current entry instead of after it. */
   go(route: Partial<Route>, options: { replace?: boolean } = {}): void {
-    const next: Route = {
-      boardId: route.boardId,
-      viewId: route.boardId ? route.viewId : undefined,
-      cardId: route.boardId && route.viewId ? route.cardId : undefined,
-      unknown: false,
-    };
+    const next = settled(route);
     const path = routePath(next, this.basePath);
     // While an address waits to be written, that one is where the bar is heading.
     const shown = this.#writes > 0 ? this.#heading : location.pathname;
@@ -144,15 +167,16 @@ export class Router {
     this.route = next;
   }
 
-  /** Shows a board; its first view is chosen by the page. */
-  openBoard(boardId: string): void {
+  /** Shows a board, at the address of its own workspace; its first view is chosen by the page. */
+  openBoard(board: BoardPlace): void {
     this.#cardEntered = false;
-    this.go({ boardId });
+    this.go({ workspaceId: board.workspaceId, boardId: board.id });
   }
 
   openView(viewId: string): void {
     this.#cardEntered = false;
-    this.go({ boardId: this.route.boardId, viewId });
+    const { workspaceId, boardId } = this.route;
+    this.go({ workspaceId, boardId, viewId });
   }
 
   /** Opens a card over the view that is shown. */

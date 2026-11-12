@@ -53,7 +53,6 @@ const BLOCK = {
 };
 
 const reads: LiveReads = {
-  workspaceId: () => Promise.resolve('t'),
   members: (boardId) =>
     Promise.resolve([
       {
@@ -93,6 +92,7 @@ async function connected(): Promise<{
   socket: FakeSocket;
 }> {
   const live = new LiveChanges('ws://here/ws', reads);
+  live.enter('t');
   const board: Change[] = [];
   const self: Change[] = [];
   const other: Change[] = [];
@@ -240,29 +240,57 @@ describe('changes from the server', () => {
     expect(board).toEqual([{ kind: 'resync' }]);
   });
 
-  it('gives up an opening that waits for the old session’s workspace when signing in again', async () => {
-    let oldWorkspace: (workspaceId: string) => void = () => undefined;
-    const workspaceId = vi
-      .spyOn(reads, 'workspaceId')
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            oldWorkspace = resolve;
-          }),
-      )
-      .mockImplementationOnce(() => Promise.resolve('t2'));
+  it('opens nothing until a workspace is entered, and then subscribes to it', async () => {
     const live = new LiveChanges('ws://here/ws', reads);
-    live.watch('b1', () => undefined);
-    live.restart();
+    live.watch(undefined, () => undefined);
     await settle();
-    oldWorkspace('t');
-    await settle();
-    expect(FakeSocket.made).toHaveLength(1);
+    expect(FakeSocket.made).toHaveLength(0);
+    live.enter('t');
     FakeSocket.made[0]?.open();
+    expect(FakeSocket.made[0]?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
+  });
+
+  it('moves the subscription to another workspace, and lets go of what the old one still sends', async () => {
+    const { live, socket, self } = await connected();
+    live.enter('t2');
+    live.enter('t2');
+    expect(FakeSocket.made).toHaveLength(1);
+    expect(socket.sent).toEqual([
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { action: 'UNSUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
+    ]);
+    const board = (workspaceId: string, id: string): unknown => ({
+      action: 'UPDATE_BOARD',
+      workspaceId,
+      board: { id, workspaceId, deleteAt: 0, title: id, cardProperties: [], properties: {} },
+    });
+    socket.message(board('t', 'old'));
+    socket.message(board('t2', 'new'));
+    await settle();
+    expect(self.map((change) => (change.kind === 'board' ? change.board.id : change.kind))).toEqual(
+      ['new'],
+    );
+  });
+
+  it('subscribes a connection that opens after entering to the workspace entered last', async () => {
+    const live = new LiveChanges('ws://here/ws', reads);
+    live.enter('t');
+    live.watch('b1', () => undefined);
+    live.enter('t2');
+    FakeSocket.made[0]?.open();
+    expect(FakeSocket.made).toHaveLength(1);
     expect(FakeSocket.made[0]?.sent).toEqual([
       { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't2' },
     ]);
-    workspaceId.mockRestore();
+  });
+
+  it('opens again at once on signing in, subscribed to the workspace entered', async () => {
+    const { live, socket } = await connected();
+    live.restart();
+    expect(socket.closed).toBe(true);
+    FakeSocket.made[1]?.open();
+    expect(FakeSocket.made[1]?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
   });
 
   it('waits from the first wait again only after a connection has held', async () => {
@@ -303,6 +331,7 @@ describe('changes from the server', () => {
 
   it('closes the connection when nobody listens any more, and does not open it again', async () => {
     const live = new LiveChanges('ws://here/ws', reads);
+    live.enter('t');
     const stop = live.watch('b1', () => undefined);
     await settle();
     const socket = FakeSocket.made[0];

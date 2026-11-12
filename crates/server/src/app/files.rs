@@ -10,7 +10,8 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, Board, Body, BodyChange, FileInfo, JsonMap, new_id,
+    Block, BlockError, BlockPatch, BlockPatchBatch, Board, Body, BodyChange, FileInfo, JsonMap,
+    new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -174,7 +175,9 @@ impl App {
     }
 
     /// Checks that every image of a body shows a file of the board (`docs/s6-design.md`
-    /// 5.7).
+    /// 5.7). The write that stores the body asks again of the images it makes a block
+    /// show newly, and holds their records until it commits
+    /// ([`fvoci_store::NewImages`]): a file collected in between refuses it the same way.
     ///
     /// # Errors
     ///
@@ -190,10 +193,7 @@ impl App {
         };
         for file_id in body.file_ids() {
             if self.file_info(board_id, file_id).await?.is_none() {
-                return Err(AppError::bad_request(
-                    "an image of the body shows no file of the board",
-                )
-                .with_field("body"));
+                return Err(BlockError::ImageWithoutFile.into());
             }
         }
         Ok(())

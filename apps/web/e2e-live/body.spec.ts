@@ -7,13 +7,14 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -67,7 +68,7 @@ test('a body written in the editor is the server’s, and opens again as it was'
   });
 
   const errors = watchErrors(page);
-  await openCard(page, `/board/${board.boardId}/${board.viewId}/${cardId}`, owner);
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
   await editor(page).click();
   await page.keyboard.type('First line');
   await page.keyboard.press('Enter');
@@ -86,7 +87,7 @@ test('a body written in the editor is the server’s, and opens again as it was'
 
   const saved = (await stored(api, cardId)).body;
   // The board opened anew, the card from it.
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   await expect(page.getByTestId('card-dialog')).toBeHidden();
   const written = writes.length;
   await page.locator('[data-card]').filter({ hasText: 'Write the report' }).click();
@@ -124,7 +125,7 @@ test('a body written while another value of the card changed is sent again on th
   });
 
   const errors = watchErrors(page);
-  await openCard(page, `/board/${board.boardId}/${board.viewId}/${cardId}`, owner);
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
   // The first write of the body waits until somebody has changed a value of the card.
   let first = true;
   await page.route(`**/api/v1/cards/${cardId}`, async (route) => {
@@ -172,7 +173,7 @@ test('a body somebody else wrote meanwhile is not overwritten until the reader c
   };
 
   const errors = watchErrors(page);
-  await openCard(page, `/board/${board.boardId}/${board.viewId}/${cardId}`, owner);
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
   // The first write of the body waits until somebody else has written one.
   let first = true;
   await page.route(`**/api/v1/cards/${cardId}`, async (route) => {

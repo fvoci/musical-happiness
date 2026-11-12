@@ -27,7 +27,7 @@ use crate::comment_versions;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
-use crate::file_refs;
+use crate::file_refs::{self, NewImages};
 use crate::loose_objects;
 use crate::users;
 
@@ -508,9 +508,10 @@ async fn take_blocks_out_of_trash(
             .forget_if_gone(scope, &mut block.created_by)
             .await?;
     }
-    // A statement per block: each is checked on its own, so a parent goes first.
+    // A statement per block: each is checked on its own, so a parent goes first. What
+    // they show, the trash kept for them.
     for index in parents_first(&restored) {
-        blocks::insert_block_row(scope, &restored[index]).await?;
+        blocks::insert_block_row(scope, &restored[index], NewImages::Unchecked).await?;
     }
     let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deletion_id = ");
     sql.bind(Id(deletion_id));

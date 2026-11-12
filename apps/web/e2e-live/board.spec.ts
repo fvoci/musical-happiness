@@ -6,7 +6,15 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { makeBoard, person, register, signedIn, signInOnPage, watchErrors } from './support.ts';
+import {
+  boardPath,
+  makeBoard,
+  person,
+  register,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+} from './support.ts';
 
 test.use({ locale: 'en-US' });
 
@@ -48,7 +56,7 @@ test('a board of the server is listed and opens with its views, cards and member
   await sidebar.getByText('Garden plan').click();
 
   await expect(page.getByTestId('board-page')).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/board/${board.boardId}/${board.viewId}`));
+  await expect(page).toHaveURL(new RegExp(boardPath(board, board.viewId)));
   await expect(page.getByTestId('board-title-text')).toHaveText('Garden plan');
   await expect(
     page.getByRole('navigation', { name: 'Views' }).getByRole('link', { name: 'By status' }),

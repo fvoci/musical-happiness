@@ -172,9 +172,19 @@ async fn large_file(backend: &FileBackend, dir: &str) {
     assert_content(backend, &path, None, &large).await;
 }
 
-/// Paths that could leave the storage root are refused.
+/// Paths that could leave the storage root are refused, and so is another spelling of
+/// a place, also of one that holds an object.
 async fn refused_paths(backend: &FileBackend, existing: &str) {
-    for bad in ["", "/etc/passwd", "../outside.png", "a/../../outside.png"] {
+    let aliases = [
+        format!("./{existing}"),
+        existing.replacen('/', "//", 1),
+        format!("{existing}/"),
+    ];
+    let leaving = ["", "/etc/passwd", "../outside.png", "a/../../outside.png"];
+    let all = leaving
+        .into_iter()
+        .chain(aliases.iter().map(String::as_str));
+    for bad in all {
         let error = backend.size(bad).await.expect_err(bad);
         assert!(
             matches!(error, StorageError::InvalidPath(_)),

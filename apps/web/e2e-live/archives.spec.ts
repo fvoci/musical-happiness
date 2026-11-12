@@ -11,13 +11,14 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { boardLink, boardMenu, chooseFromMenu, sidebar } from '../e2e/shell.support.ts';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -47,7 +48,7 @@ test('a board is exported and imported again, and a file that is no archive is r
   });
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${made.boardId}/${made.viewId}`);
+  await page.goto(boardPath(made, made.viewId));
   await signInOnPage(page, owner);
 
   // The board, from its menu: a ZIP saved under the server's name.

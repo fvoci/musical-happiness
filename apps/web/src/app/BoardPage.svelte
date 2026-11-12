@@ -21,6 +21,7 @@
   import { newCardMaker, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
+  import NotFound from './NotFound.svelte';
   import type { Router } from './router.svelte.ts';
 
   let { workspace, router }: { workspace: Workspace; router: Router } = $props();
@@ -50,10 +51,7 @@
     if (board?.status !== 'ready' || view) return;
     const first = board.orderedViews[0];
     if (first) {
-      router.go(
-        { boardId: board.boardId, viewId: first.id, cardId: router.route.cardId },
-        { replace: true },
-      );
+      router.go({ ...router.route, viewId: first.id }, { replace: true });
     }
   });
 
@@ -99,12 +97,7 @@
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
 {:else if board.missing}
-  <div class="grid h-full place-items-center p-6 text-center" data-testid="board-missing">
-    <div>
-      <p class="text-lg font-medium" role="alert">{m['error.board-not-found']()}</p>
-      <p class="mt-1 text-muted-foreground">{m.app_board_not_found_hint()}</p>
-    </div>
-  </div>
+  <NotFound {router} />
 {:else if board.joinable && board.board}
   <div class="grid h-full place-items-center p-6 text-center" data-testid="board-join">
     <div class="flex max-w-md flex-col items-center gap-3">
@@ -136,7 +129,7 @@
       {board}
       {view}
       bind:search
-      viewHref={(viewId: string) => router.href({ boardId: board.boardId, viewId })}
+      viewHref={(viewId: string) => router.href({ ...router.route, viewId, cardId: undefined })}
       onOpenView={(viewId: string) => {
         router.openView(viewId);
       }}
@@ -165,6 +158,7 @@
   <CardDialog
     {board}
     {view}
+    {cardHref}
     cardId={router.route.cardId}
     onOpenCard={openCard}
     onClose={() => {

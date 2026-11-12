@@ -7,13 +7,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US', timezoneId: 'UTC' });
@@ -55,7 +56,7 @@ test('a date is stored as a calendar day, and a value is cleared by naming it al
   });
 
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}/${cardId}`);
+  await page.goto(boardPath(board, board.viewId, cardId));
   await signInOnPage(page, owner);
   await expect(page.getByTestId('card-dialog')).toBeVisible();
 
@@ -109,7 +110,7 @@ test('two people change two values of one card at about the same time, and both 
   const second = await (await browser.newContext({ locale: 'en-US' })).newPage();
   const errors = [...watchErrors(first), ...watchErrors(second)];
   const open = async (page: Page, who: typeof owner): Promise<void> => {
-    await page.goto(`/board/${board.boardId}/${board.viewId}/${cardId}`);
+    await page.goto(boardPath(board, board.viewId, cardId));
     await signInOnPage(page, who);
     await expect(page.getByTestId('card-dialog')).toBeVisible();
   };

@@ -329,7 +329,7 @@ impl App {
         }
 
         let created = self
-            .create_boards_and_blocks(boards_and_blocks, &options.modified_by)
+            .create_imported_boards_and_blocks(boards_and_blocks, &options.modified_by)
             .await
             .map_err(|error| error.context("error inserting archive blocks"))?;
 

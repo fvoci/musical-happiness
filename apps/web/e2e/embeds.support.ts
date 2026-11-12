@@ -4,6 +4,8 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 
+import { boardPath } from './address.ts';
+
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
 export interface DevBackend {
   workspaces(): Promise<{ id: string }[]>;
@@ -40,7 +42,7 @@ export async function openCardWithBody(page: Page, board: string, doc: object): 
     if (!card || !view) throw new Error('the board has no card or no view');
     return { boardId: found.id, viewId: view.id, cardId: card.id };
   }, board);
-  await page.goto(`/board/${place.boardId}/${place.viewId}/${place.cardId}`);
+  await page.goto(boardPath(place.boardId, place.viewId, place.cardId));
   const body = page.getByTestId('card-body');
   await expect(body).toBeVisible();
   await expect(page.getByTestId('card-comments')).toBeVisible();
