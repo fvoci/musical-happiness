@@ -1071,6 +1071,49 @@
         ],
         "type": "object"
       },
+      "LoginOptions": {
+        "description": "What the login page shows: the organization it is for, if it is for one.",
+        "properties": {
+          "organization": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LoginOrganization",
+                "description": "The organization the page is for: the one named, or the only one of a server\nthat holds one. `null` for none, also for an identifier that names none."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "organization"
+        ],
+        "type": "object"
+      },
+      "LoginOrganization": {
+        "description": "What the login page may know of an organization before anybody signs in.",
+        "properties": {
+          "id": {
+            "description": "The organization's identifier, for starting a sign-in through its provider.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The organization's name; empty if it was given none.",
+            "type": "string"
+          },
+          "oidc": {
+            "description": "Whether signing in through the organization's provider is on.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "oidc"
+        ],
+        "type": "object"
+      },
       "LoginRequest": {
         "description": "A login request.",
         "properties": {
@@ -1519,6 +1562,108 @@
         ],
         "type": "object"
       },
+      "OidcProvider": {
+        "description": "The provider of an organization, as its administrators read it. The client secret\nis not in it: only whether there is one.",
+        "properties": {
+          "autoJoin": {
+            "description": "Whether somebody the provider vouches for who is no member of the organization\nbecomes one, and a member of its default workspace, by signing in.",
+            "type": "boolean"
+          },
+          "clientId": {
+            "description": "The client identifier the provider gave this server.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "When the provider was first set, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "Whether signing in through the provider is on.",
+            "type": "boolean"
+          },
+          "hasClientSecret": {
+            "description": "Whether a client secret is stored.",
+            "type": "boolean"
+          },
+          "issuer": {
+            "description": "The issuer: an `https` address, exactly as the provider names itself.",
+            "type": "string"
+          },
+          "redirectUri": {
+            "description": "The address the provider sends people back to, to be registered with it.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "When the provider was last changed, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "autoJoin",
+          "clientId",
+          "createAt",
+          "enabled",
+          "hasClientSecret",
+          "issuer",
+          "redirectUri",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "OidcProviderSettings": {
+        "description": "What an administrator sets of the organization's provider.",
+        "properties": {
+          "autoJoin": {
+            "description": "Whether somebody the provider vouches for who is no member becomes one. On if\nleft out.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "clientId": {
+            "description": "The client identifier the provider gave this server.",
+            "type": "string"
+          },
+          "clientSecret": {
+            "description": "The client secret. Left out, the stored one stays while the issuer and the client\nstay the same (none for a new provider), and is required with another issuer or\nclient when one is stored; the empty string stores none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "description": "Whether signing in through the provider is on. On if left out.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "issuer": {
+            "description": "The issuer: an `https` address without query or fragment.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId"
+        ],
+        "type": "object"
+      },
+      "OidcStart": {
+        "description": "A sign-in through a provider that was started: where the page sends the browser.",
+        "properties": {
+          "authorizationUrl": {
+            "description": "The provider's address that asks the person to sign in, for this sign-in.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorizationUrl"
+        ],
+        "type": "object"
+      },
       "OnboardingStart": {
         "description": "What starting the tour answers: where the tour's board is.",
         "properties": {
@@ -1785,6 +1930,61 @@
             "reason": "server_imports_busy",
             "title": "The server is busy importing",
             "type": "/problems/server-imports-busy"
+          },
+          {
+            "reason": "secret_key_required",
+            "title": "Secret key required",
+            "type": "/problems/secret-key-required"
+          },
+          {
+            "reason": "oidc_issuer_unverified",
+            "title": "Provider not verified",
+            "type": "/problems/oidc-issuer-unverified"
+          },
+          {
+            "reason": "oidc_unavailable",
+            "title": "Sign-in through the provider not available",
+            "type": "/problems/oidc-unavailable"
+          },
+          {
+            "reason": "oidc_state_invalid",
+            "title": "Sign-in not recognized",
+            "type": "/problems/oidc-state-invalid"
+          },
+          {
+            "reason": "oidc_denied",
+            "title": "Sign-in refused by the provider",
+            "type": "/problems/oidc-denied"
+          },
+          {
+            "reason": "oidc_token_refused",
+            "title": "No token from the provider",
+            "type": "/problems/oidc-token-refused"
+          },
+          {
+            "reason": "oidc_token_invalid",
+            "title": "Token of the provider not valid",
+            "type": "/problems/oidc-token-invalid"
+          },
+          {
+            "reason": "oidc_email_missing",
+            "title": "No email address from the provider",
+            "type": "/problems/oidc-email-missing"
+          },
+          {
+            "reason": "oidc_email_unverified",
+            "title": "Email address not verified",
+            "type": "/problems/oidc-email-unverified"
+          },
+          {
+            "reason": "oidc_email_taken",
+            "title": "Email address of another account",
+            "type": "/problems/oidc-email-taken"
+          },
+          {
+            "reason": "oidc_join_closed",
+            "title": "Organization closed to newcomers",
+            "type": "/problems/oidc-join-closed"
           },
           {
             "reason": "relation_not_a_list",
@@ -2492,6 +2692,161 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/oidc/callback": {
+      "get": {
+        "description": "Where a provider sends the browser back to, for every organization. The sign-in is\ntaken by its `state`, once, and only from the browser that started it; the code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or\n`oidc_unavailable`.",
+        "operationId": "finishOidcLogin",
+        "parameters": [
+          {
+            "description": "The `state` the sign-in was started with, as the provider sends it back.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The authorization code the provider gives.",
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The provider's code of why it did not let the person sign in.",
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "To the web app, signed in, or to the login page.",
+            "headers": {
+              "Location": {
+                "description": "Where the browser goes.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Set-Cookie": {
+                "description": "The session cookie, and the cookie of the sign-in cleared.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Come back from a provider",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/oidc/start": {
+      "post": {
+        "description": "For the login page of the server, as a request of its own, not an address a browser\nis sent to: like every request that changes something it needs the header\n`X-Requested-With: XMLHttpRequest` and no foreign `Origin`, which a page of another\nsite cannot send, so that no such page can sign a browser in to an account of its\nchoosing. Starts a sign-in for the organization `org` and answers where the page\nsends the browser (the provider), with a cookie that ties the sign-in to this\nbrowser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if\nthe organization has no provider that is on, or it cannot be reached; 429 when\nthis address made too many sign-ins of late.",
+        "operationId": "startOidcLogin",
+        "parameters": [
+          {
+            "description": "The identifier of the organization whose provider the person signs in through.",
+            "in": "query",
+            "name": "org",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OidcStart"
+                }
+              }
+            },
+            "description": "Started: where the browser goes.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The cookie of the sign-in.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No provider that is on, or it cannot be reached."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many sign-ins from this address. `retryAfter`, and the `Retry-After` header, say how long to wait.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Start signing in through a provider",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/boards": {
       "post": {
         "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template.",
@@ -4696,6 +5051,52 @@
         ]
       }
     },
+    "/api/v1/login-options": {
+      "get": {
+        "description": "The organization the login page is for, and whether people sign in through its\nprovider: the one `org` names, or without it the only organization of a server that\nholds one. Its identifier, its name and whether it has a provider that is on, and\nnothing else. An identifier that names no organization in use answers as none\n(`organization` is `null`), and so does a server that takes in several\norganizations when none is named.",
+        "operationId": "getLoginOptions",
+        "parameters": [
+          {
+            "description": "The identifier of the organization the login page is for.",
+            "in": "query",
+            "name": "org",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOptions"
+                }
+              }
+            },
+            "description": "What the login page shows."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "What the login page shows",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/logout": {
       "post": {
         "description": "Ends the session of the request and clears its cookie.",
@@ -4724,6 +5125,134 @@
           }
         },
         "summary": "Sign out",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/org/{orgId}/oidc": {
+      "delete": {
+        "description": "Removes the organization's provider and the sign-ins under way through it. The\nsessions made through it go on. An organization without one answers the same.",
+        "operationId": "deleteOidcProvider",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The organization has no provider."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove the provider of an organization",
+        "tags": [
+          "auth"
+        ]
+      },
+      "get": {
+        "description": "The `OpenID Connect` provider people of the organization sign in through, without\nits client secret: `hasClientSecret` says whether there is one. 404 if the\norganization has none.",
+        "operationId": "getOidcProvider",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OidcProvider"
+                }
+              }
+            },
+            "description": "The provider."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The provider of an organization",
+        "tags": [
+          "auth"
+        ]
+      },
+      "put": {
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The\nsecret is stored sealed with the server's key and never answered: without the key\nthe request is 409 with the reason `secret_key_required`. `autoJoin` and `enabled`\nare on if left out. The answer's `redirectUri` is the address to register with the\nprovider.",
+        "operationId": "putOidcProvider",
+        "parameters": [
+          {
+            "description": "The identifier of the organization. 404 unless the user of the session administers it.",
+            "in": "path",
+            "name": "orgId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OidcProviderSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OidcProvider"
+                }
+              }
+            },
+            "description": "The provider as stored."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Set the provider of an organization",
         "tags": [
           "auth"
         ]

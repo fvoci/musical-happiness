@@ -199,6 +199,28 @@ reasons! {
     ImportRunning => "import_running", "An import is running";
     /// The server runs as many imports as it may.
     ServerImportsBusy => "server_imports_busy", "The server is busy importing";
+    /// The server has no `secret_key` to seal a provider's client secret with.
+    SecretKeyRequired => "secret_key_required", "Secret key required";
+    /// The issuer of a provider could not be read and checked.
+    OidcIssuerUnverified => "oidc_issuer_unverified", "Provider not verified";
+    /// The organization has no provider that is on, or it could not be reached.
+    OidcUnavailable => "oidc_unavailable", "Sign-in through the provider not available";
+    /// A sign-in came back that is not one this browser started, was used or ended.
+    OidcStateInvalid => "oidc_state_invalid", "Sign-in not recognized";
+    /// The provider did not let the person sign in.
+    OidcDenied => "oidc_denied", "Sign-in refused by the provider";
+    /// The provider gave no ID token for the sign-in.
+    OidcTokenRefused => "oidc_token_refused", "No token from the provider";
+    /// The ID token of the provider does not hold.
+    OidcTokenInvalid => "oidc_token_invalid", "Token of the provider not valid";
+    /// The provider gave no email address for a person who has no account yet.
+    OidcEmailMissing => "oidc_email_missing", "No email address from the provider";
+    /// The provider says it has not checked the person's email address.
+    OidcEmailUnverified => "oidc_email_unverified", "Email address not verified";
+    /// Another account has the email address the provider gave.
+    OidcEmailTaken => "oidc_email_taken", "Email address of another account";
+    /// The organization does not let in who is no member through its provider.
+    OidcJoinClosed => "oidc_join_closed", "Organization closed to newcomers";
     /// The value of a card relation is neither `null` nor a list of identifiers.
     RelationNotAList => "relation_not_a_list", "Card relation that is no list";
     /// A card relation names the card it is the value of.

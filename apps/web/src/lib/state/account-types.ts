@@ -12,6 +12,15 @@ export interface Registration {
   token?: string;
 }
 
+/** What the login page may know of an organization before anybody signs in. */
+export interface LoginOrganization {
+  id: string;
+  /** Empty if it was given none. */
+  name: string;
+  /** Whether people sign in through its provider. */
+  oidc: boolean;
+}
+
 /**
  * Signing in and out, where a backend has accounts: the server has, the one
  * in memory has not. Until somebody is signed in, every read of a backend
@@ -29,4 +38,14 @@ export interface Account {
    * the reason `invalid_credentials`, too many tries 429.
    */
   changePassword(oldPassword: string, newPassword: string): Promise<void>;
+  /**
+   * The organization the login page is for: the one `orgId` names, or the
+   * only one of a server that holds one; undefined for none.
+   */
+  loginOrganization(orgId: string | undefined): Promise<LoginOrganization | undefined>;
+  /**
+   * Starts a sign-in through the organization's provider for this browser:
+   * the provider's address the browser is then sent to.
+   */
+  startOidc(orgId: string): Promise<string>;
 }

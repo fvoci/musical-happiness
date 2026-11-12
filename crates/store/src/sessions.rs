@@ -9,10 +9,11 @@
 use fvoci_model::Session;
 
 use crate::Store;
-use crate::db::{Dialect, Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
 use crate::error::StoreError;
 
-const SESSION_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent";
+const SESSION_COLUMNS: &str =
+    "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id";
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -38,34 +39,10 @@ impl Store {
         seen_password_hash: &str,
     ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
-            // The user's row is held: a reset of the password waits for this, or this
-            // for it. On SQLite a transaction that writes holds the whole database.
-            let mut sql =
-                scope.sql("SELECT password_hash FROM users WHERE delete_at = 0 AND id = ");
-            sql.bind(Id(&session.user_id));
-            if scope.dialect() == Dialect::Postgres {
-                sql.push(" FOR SHARE");
-            }
-            let unchanged = match scope.fetch_optional(sql).await? {
-                Some(row) => row.text(0)? == seen_password_hash,
-                None => false,
-            };
-            if !unchanged {
+            if !hold_unchanged_user(scope, &session.user_id, seen_password_hash).await? {
                 return Ok(false);
             }
-
-            let mut sql = scope.sql(&format!(
-                "INSERT INTO sessions (token_hash, {SESSION_COLUMNS}) VALUES ("
-            ));
-            sql.bind(token_digest)
-                .push_bind(", ", Id(&session.id))
-                .push_bind(", ", Id(&session.user_id))
-                .push_bind(", ", session.created_at)
-                .push_bind(", ", session.created_at)
-                .push_bind(", ", session.expires_at)
-                .push_bind(", ", &session.user_agent)
-                .push(")");
-            scope.execute(sql).await?;
+            insert_session(scope, session, token_digest).await?;
             Ok(true)
         })
         .await
@@ -220,6 +197,7 @@ fn session_from_row(row: &Row) -> Result<Session, StoreError> {
         last_used_at: row.int(3)?,
         expires_at: row.int(4)?,
         user_agent: row.text(5)?,
+        login_provider_id: Some(row.id(6)?).filter(|id| !id.is_empty()),
     })
 }
 
@@ -261,6 +239,51 @@ pub(crate) async fn delete_other_sessions_of_user(
 ) -> Result<(), StoreError> {
     let mut sql = delete_sessions_where_user(scope, user_id);
     sql.push_bind(" AND id <> ", Id(kept_session_id));
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// Holds the row of a user who is not deleted and whose password hash is still
+/// `seen_password_hash`, till the end of the transaction; false for anybody else. A
+/// reset of the password waits for this, or this for it. On SQLite a transaction that
+/// writes holds the whole database.
+pub(crate) async fn hold_unchanged_user(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    seen_password_hash: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT password_hash FROM users WHERE delete_at = 0 AND id = ");
+    sql.bind(Id(user_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE");
+    }
+    Ok(match scope.fetch_optional(sql).await? {
+        Some(row) => row.text(0)? == seen_password_hash,
+        None => false,
+    })
+}
+
+/// Stores a session under the digest of its token.
+pub(crate) async fn insert_session(
+    scope: &mut Scope<'_>,
+    session: &Session,
+    token_digest: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(&format!(
+        "INSERT INTO sessions (token_hash, {SESSION_COLUMNS}) VALUES ("
+    ));
+    sql.bind(token_digest)
+        .push_bind(", ", Id(&session.id))
+        .push_bind(", ", Id(&session.user_id))
+        .push_bind(", ", session.created_at)
+        .push_bind(", ", session.created_at)
+        .push_bind(", ", session.expires_at)
+        .push_bind(", ", &session.user_agent)
+        .push_bind(
+            ", ",
+            OptId(session.login_provider_id.as_deref().unwrap_or_default()),
+        )
+        .push(")");
     scope.execute(sql).await?;
     Ok(())
 }

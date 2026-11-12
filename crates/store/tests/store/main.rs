@@ -18,6 +18,7 @@ mod file_info;
 mod image_files;
 mod loose_objects;
 mod observe;
+mod oidc;
 mod order;
 mod restored_boards;
 mod sessions;

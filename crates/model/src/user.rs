@@ -147,4 +147,8 @@ pub struct Session {
     pub expires_at: i64,
     /// The `User-Agent` the session was made by, for telling a user's sessions apart.
     pub user_agent: String,
+    /// The identifier of the `OpenID Connect` provider the session was made through;
+    /// `None` for a session made with a password. A provider that was removed since is
+    /// still named.
+    pub login_provider_id: Option<String>,
 }

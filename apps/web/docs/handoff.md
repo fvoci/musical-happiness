@@ -104,7 +104,7 @@
 | 실제 서버의 Playwright                 | `e2e:live`(아래)                  | 18510, `FVOCI_LIVE_PORT`   | 스스로 띄우고 끈다 |
 | Storybook 개발 서버                    | `pnpm --filter web run storybook` | 6006                       | `/`                |
 
-`e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
+`e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server --bins --examples`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고(그 다음 포트에 서버 테스트의 가짜 OIDC 공급자도) 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
 
 `look`에 관해:
 

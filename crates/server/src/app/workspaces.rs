@@ -1,5 +1,7 @@
 //! Workspaces: which a user is a member of, the way into one, and the workspaces of the
-//! organization the routes that name no workspace in their path work in.
+//! organization the routes that name no workspace in their path work in. And the way
+//! into an organization: for its administrators, and for a sign-in through its
+//! provider.
 
 use fvoci_model::{Board, OrgRole, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
@@ -24,6 +26,34 @@ pub struct Entered {
     /// Whether the workspace is in the organization this application stood in, the
     /// one of the routes that name no workspace.
     pub home: bool,
+}
+
+impl App {
+    /// The same server reaching the rows of the organization `org_id`, for an
+    /// administrator of it; `None` for anybody else, and for an organization that is not
+    /// there, not in use or the system's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn enter_org_as_admin(
+        &self,
+        user_id: &str,
+        org_id: &str,
+    ) -> Result<Option<Self>, AppError> {
+        let Ok(tenant) = Tenant::org(org_id) else {
+            return Ok(None);
+        };
+        let role = self.store().org_role_of_user(user_id, org_id).await?;
+        Ok((role == Some(OrgRole::Admin)).then(|| self.scoped(tenant)))
+    }
+
+    /// The same server reaching the rows of the organization `org_id`, for a sign-in
+    /// through its provider: the one a sign-in is started for, or the one a sign-in that
+    /// comes back was started for. `None` for text that is no identifier.
+    pub(crate) fn enter_org_for_sign_in(&self, org_id: &str) -> Option<Self> {
+        Tenant::org(org_id).ok().map(|tenant| self.scoped(tenant))
+    }
 }
 
 impl App {

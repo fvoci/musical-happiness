@@ -24,6 +24,7 @@ mod date_value;
 mod deleted_item;
 mod file_info;
 mod id;
+mod oidc;
 mod organization;
 mod problem;
 mod refusal;
@@ -78,6 +79,10 @@ pub use date_value::{
 pub use deleted_item::DeletedItem;
 pub use file_info::{FileInfo, is_storage_path};
 pub use id::{is_id, new_id};
+pub use oidc::{
+    LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES, OIDC_ISSUER_MAX_BYTES,
+    OidcProvider, OidcProviderSettings, OidcStart,
+};
 pub use organization::{OrgRole, UnknownRole, UserWorkspace, WorkspaceRole};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
