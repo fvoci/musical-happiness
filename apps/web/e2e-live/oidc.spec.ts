@@ -8,6 +8,7 @@ import { expect, test } from '@playwright/test';
 
 import {
   ADMIN,
+  boardPath,
   invitation,
   makeBoard,
   signedIn,
@@ -51,7 +52,7 @@ test('a newcomer signs in through the provider and opens a board', async ({ page
   await expect(page.getByTestId('app-shell')).toBeVisible();
   expect(new URL(page.url()).pathname).not.toBe('/login');
 
-  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await page.goto(boardPath(board, board.viewId));
   const join = page.getByTestId('board-join');
   await expect(join.getByRole('heading')).toHaveText('Through the provider');
   await join.getByRole('button', { name: 'Join this board' }).click();
