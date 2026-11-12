@@ -2,7 +2,8 @@
  * Sharing a board on the real server, from its share dialog: people of the
  * workspace found by name and added, a member's role changed and the member
  * taken off, the board opened to the workspace with a minimum role, and the
- * public link turned on, made anew and off. Each is checked on the server;
+ * public link turned on (the reader's address, `/shared/<board>?r=<token>`),
+ * made anew and off. Each is checked on the server;
  * the person added sees the board without a reload.
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -111,11 +112,13 @@ test('a board is shared from its dialog, and every change is kept on the server'
   // The public link: on, made anew (the old token is gone), off.
   await dialog.getByTestId('share-public').click();
   const link = dialog.getByTestId('share-link');
-  await expect(link).toHaveValue(/readToken=/);
+  await expect(link).toHaveValue(/[?]r=/);
   const first = await sharing(api, board);
   expect(first.enabled).toBe(true);
-  expect(await link.inputValue()).toContain(boardPath(board));
-  expect(new URL(await link.inputValue()).searchParams.get('readToken')).toBe(first.token);
+  // The reader's address of the board (`shared.spec.ts`), which names no workspace.
+  const address = new URL(await link.inputValue());
+  expect(address.pathname).toBe(`/shared/${board.boardId}`);
+  expect(address.searchParams.get('r')).toBe(first.token);
   await dialog.getByTestId('share-regenerate').click();
   await ownerPage
     .getByRole('alertdialog')
@@ -123,7 +126,9 @@ test('a board is shared from its dialog, and every change is kept on the server'
     .click();
   await expect.poll(async () => (await sharing(api, board)).token).not.toBe(first.token);
   const second = await sharing(api, board);
-  await expect(link).toHaveValue(new RegExp(`readToken=${second.token}`));
+  await expect
+    .poll(async () => new URL(await link.inputValue()).searchParams.get('r'))
+    .toBe(second.token);
   await dialog.getByTestId('share-public').click();
   await expect(link).toHaveCount(0);
   await expect.poll(async () => (await sharing(api, board)).enabled).toBe(false);

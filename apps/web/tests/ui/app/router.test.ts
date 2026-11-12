@@ -36,6 +36,34 @@ describe('reading an address', () => {
     expect(parseRoute('/w/t/boards/b/v/', '')).toMatchObject({ boardId: 'b', viewId: 'v' });
   });
 
+  it('reads a public link: the board, a view and a card, and the read token', () => {
+    expect(parseRoute('/base/shared/b/v/c', 'base', '?r=tok')).toEqual({
+      ...none,
+      boardId: 'b',
+      viewId: 'v',
+      cardId: 'c',
+      readToken: 'tok',
+    });
+    expect(parseRoute('/shared/b', '', '?r=a%2Fb')).toEqual({
+      ...none,
+      boardId: 'b',
+      readToken: 'a/b',
+    });
+    // Without a token, or with more than a card, it is no address of the app's.
+    expect(parseRoute('/shared/b', '').unknown).toBe(true);
+    expect(parseRoute('/shared/b', '', '?r=').unknown).toBe(true);
+    expect(parseRoute('/shared', '', '?r=t').unknown).toBe(true);
+    expect(parseRoute('/shared/b/v/c/x', '', '?r=t').unknown).toBe(true);
+  });
+
+  it('writes a public link under the base path, the token in the query', () => {
+    const shared = { boardId: 'b', viewId: 'v', readToken: 't/1' };
+    expect(routePath(shared, 'base')).toBe('/base/shared/b/v?r=t%2F1');
+    expect(routePath({ ...shared, cardId: 'c' }, '')).toBe('/shared/b/v/c?r=t%2F1');
+    // A link names no workspace, also when the route has one.
+    expect(routePath({ ...shared, workspaceId: 'w' }, '')).toBe('/shared/b/v?r=t%2F1');
+  });
+
   it('does not know other addresses, the old ones among them', () => {
     expect(parseRoute('/login', '').unknown).toBe(true);
     expect(parseRoute('/w', '').unknown).toBe(true);
