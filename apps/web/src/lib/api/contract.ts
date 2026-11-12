@@ -833,9 +833,9 @@ export interface paths {
         };
         /**
          * Whether the server can serve
-         * @description The check that the server is ready: the database answers a statement, and the file
-         *     storage takes a small file, gives it back and removes it, each within two seconds.
-         *     An answer is kept five seconds; a
+         * @description The check that the server is ready: the database reads the table of the sessions,
+         *     which every signed-in request reads, and the file storage takes a small file, gives
+         *     it back and removes it, each within two seconds. An answer is kept five seconds; a
          *     request after that waits for the checks made anew, up to two and a half seconds
          *     (a probe's timeout of three seconds is enough), and else gets the answer before.
          *     Neither answer says why a check failed: the log does.
@@ -2564,7 +2564,10 @@ export interface components {
         };
         /** @description The checks of the readiness: what the server depends on to serve. */
         Readiness: {
-            /** @description Whether the database answers a statement. */
+            /**
+             * @description Whether the database reads the table of the sessions: it answers, and has not
+             *     lost a table every signed-in request reads.
+             */
             database: components["schemas"]["ReadinessCheck"];
             /**
              * @description Whether the file storage can be used: a small file is written to it, read back and

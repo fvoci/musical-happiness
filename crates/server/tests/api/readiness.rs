@@ -72,6 +72,33 @@ async fn without_the_database_the_server_is_alive_and_not_ready_and_says_no_more
     server.teardown().await;
 }
 
+/// A database that answers but has lost a table every signed-in request reads is not
+/// ready: that it answers a statement says nothing of its schema
+/// (`origin/fvoci/review-metrics`, `review_metrics_readiness.rs`).
+#[tokio::test]
+async fn readiness_refuses_a_database_missing_a_required_table() {
+    let server = Setup::native().start().await;
+    server
+        .app
+        .store()
+        .execute_unchecked("DROP TABLE sessions")
+        .await
+        .expect("the test removes a required table");
+    assert!(
+        server.app.store().count_live_sessions(1, 0).await.is_err(),
+        "session operations cannot run with the incomplete schema"
+    );
+    // No readiness result has been kept yet, so a stale one cannot explain the answer.
+    let response = ready(&server).await;
+    response.check_error(StatusCode::SERVICE_UNAVAILABLE, "not ready: database");
+    assert!(
+        !response.text().contains("sessions"),
+        "no table in the answer: {}",
+        response.text()
+    );
+    server.teardown().await;
+}
+
 #[tokio::test]
 async fn a_files_directory_that_is_no_directory_is_not_ready() {
     let server = Setup::native()

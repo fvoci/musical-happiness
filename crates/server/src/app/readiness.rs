@@ -35,7 +35,8 @@ pub enum ReadinessCheck {
 /// The checks of the readiness: what the server depends on to serve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct Readiness {
-    /// Whether the database answers a statement.
+    /// Whether the database reads the table of the sessions: it answers, and has not
+    /// lost a table every signed-in request reads.
     pub database: ReadinessCheck,
     /// Whether the file storage can be used: a small file is written to it, read back and
     /// removed, on the local disk as on the object store.

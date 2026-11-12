@@ -38,9 +38,9 @@ async fn handle_hello() -> &'static str {
 
 /// Whether the server can serve
 ///
-/// The check that the server is ready: the database answers a statement, and the file
-/// storage takes a small file, gives it back and removes it, each within two seconds.
-/// An answer is kept five seconds; a
+/// The check that the server is ready: the database reads the table of the sessions,
+/// which every signed-in request reads, and the file storage takes a small file, gives
+/// it back and removes it, each within two seconds. An answer is kept five seconds; a
 /// request after that waits for the checks made anew, up to two and a half seconds
 /// (a probe's timeout of three seconds is enough), and else gets the answer before.
 /// Neither answer says why a check failed: the log does.
