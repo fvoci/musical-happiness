@@ -17,7 +17,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CardFrame } from '$lib/layout/presentation.ts';
   import type { BoardView } from '$lib/logic/wire.ts';
-  import type { BoardStore, CardStore } from '$lib/state/index.ts';
+  import { whileHere, type BoardStore, type CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { BodySaver } from './body-saver.svelte.ts';
@@ -76,7 +76,7 @@
     const [store, cardId, open] = [board, card.cardId, onOpenCard];
     // The copy is made from what is stored: store what was typed first.
     await saver.flush();
-    const copy = await store.duplicateCard(cardId);
+    const copy = await whileHere(store, () => store.duplicateCard(cardId));
     if (copy) open?.(copy.id);
   }
 

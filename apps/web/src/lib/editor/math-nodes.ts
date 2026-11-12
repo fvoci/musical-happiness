@@ -4,17 +4,25 @@
  *
  * In the page a formula is the element drawing.ts describes, holding the
  * source; embeds.ts draws the formula into it once the library has arrived.
- * A press on a formula, or Enter while it is selected, opens the box in
- * which the source is changed (math-editing.ts).
+ * A press on a formula in a line, or Enter while it is selected, opens the box
+ * in which the source is changed (math-editing.ts). A block formula opens its
+ * place under its drawing instead, the way a diagram does (math-block.ts).
  *
  * Typing makes formulas too:
  *
  * - `$x^2$` in a line becomes an inline formula when the closing dollar is
  *   typed;
  * - `$$x^2$$` alone on a line becomes a block formula;
- * - `$$` and a space on an empty line opens the box for a new block formula.
+ * - `$$` and a space on an empty line opens the place of a new block formula.
  */
-import { InputRule, Node, type Editor, type Range, type NodeViewRenderer } from '@tiptap/core';
+import {
+  InputRule,
+  Node,
+  type Editor,
+  type KeyboardShortcutCommand,
+  type NodeViewRenderer,
+  type Range,
+} from '@tiptap/core';
 import type { NodeType } from '@tiptap/pm/model';
 import {
   NodeSelection,
@@ -31,15 +39,18 @@ import {
   mathSlotAttributes,
   type MathNodeName,
 } from './drawing.ts';
+import { openNewFormula } from './editing-place.ts';
 import { fillMath, watchFormulaFit } from './embeds.ts';
+import { formulaBlockView, newFormulaPanel } from './math-block.ts';
 import { editMath } from './math-editing.ts';
 import { MAX_LATEX } from './schema.ts';
 
 const latexOf = (node: { attrs: Record<string, unknown> }): string =>
   typeof node.attrs.latex === 'string' ? node.attrs.latex : '';
 
-/** Opens the box for the source of the formula at `position`. */
-function editFormulaAt(editor: Editor, name: MathNodeName, position: number): void {
+/** Opens the box for the source of the formula in a line at `position`. */
+function editFormulaAt(editor: Editor, position: number): void {
+  const name = 'inlineMath';
   const node = editor.state.doc.nodeAt(position);
   if (node?.type.name !== name || !editor.isEditable) return;
   const before = latexOf(node);
@@ -49,7 +60,6 @@ function editFormulaAt(editor: Editor, name: MathNodeName, position: number): vo
     return now?.type.name === name && latexOf(now) === before;
   };
   editMath({
-    node: name,
     latex: before,
     page: editor.view.dom.ownerDocument,
     anchor: () => {
@@ -95,37 +105,6 @@ function blockFormulaInto(transaction: Transaction, range: Range, latex: string)
   transaction.setSelection(TextSelection.near(transaction.doc.resolve(after), 1));
 }
 
-/** The empty paragraph around `position`, if that is what is there. */
-function emptyParagraphAt(editor: Editor, position: number): Range | undefined {
-  if (editor.isDestroyed || position > editor.state.doc.content.size) return undefined;
-  const $position = editor.state.doc.resolve(position);
-  if ($position.parent.type.name !== 'paragraph' || $position.parent.content.size > 0)
-    return undefined;
-  return { from: $position.before(), to: $position.after() };
-}
-
-/** Opens the box for a new block formula, to take the place of the empty paragraph at `position`. */
-function editNewBlockFormula(editor: Editor, position: number): void {
-  editMath({
-    node: 'blockMath',
-    latex: '',
-    page: editor.view.dom.ownerDocument,
-    anchor: () => (editor.isDestroyed ? undefined : editor.view.coordsAtPos(position)),
-    apply: (latex) => {
-      const range = emptyParagraphAt(editor, position);
-      if (latex !== '' && range) {
-        const transaction = editor.state.tr;
-        blockFormulaInto(transaction, range, latex);
-        editor.view.dispatch(transaction);
-      }
-      if (!editor.isDestroyed) editor.view.focus();
-    },
-    cancel: () => {
-      if (!editor.isDestroyed) editor.view.focus();
-    },
-  });
-}
-
 /**
  * The paragraph an input rule fired in, when the match is all that is in it
  * and a block formula may take its place (the first block of a list entry
@@ -141,11 +120,10 @@ function replaceableParagraph(state: EditorState, range: Range): Range | undefin
   return { from: $from.before(), to: $from.after() };
 }
 
-/** One formula's DOM and the source last drawn into it. */
-function mathNodeView(
-  name: MathNodeName,
-  slot: (typeof MATH_SLOTS)[MathNodeName],
-): NodeViewRenderer {
+/** The DOM of a formula in a line and the source last drawn into it. */
+function inlineMathView(): NodeViewRenderer {
+  const name = 'inlineMath';
+  const slot = MATH_SLOTS[name];
   return ({ node, editor, getPos }) => {
     // The page the editor is in. (Its view is not there yet while the first nodes are drawn.)
     const page = document;
@@ -162,7 +140,7 @@ function mathNodeView(
     show();
     dom.addEventListener('click', () => {
       const position = getPos();
-      if (position !== undefined) editFormulaAt(editor, name, position);
+      if (position !== undefined) editFormulaAt(editor, position);
     });
     return {
       dom,
@@ -215,9 +193,7 @@ function mathInputRules(isBlock: boolean, editor: Editor, type: NodeType): Input
         const paragraph = replaceableParagraph(state, range);
         if (!paragraph) return null;
         state.tr.delete(range.from, range.to);
-        setTimeout(() => {
-          if (!editor.isDestroyed) editNewBlockFormula(editor, paragraph.from + 1);
-        });
+        openNewFormula(state.tr, paragraph.from, newFormulaPanel(editor));
         return undefined;
       },
     }),
@@ -267,7 +243,7 @@ function mathNode(name: MathNodeName) {
     },
 
     addNodeView() {
-      return mathNodeView(name, slot);
+      return isBlock ? formulaBlockView : inlineMathView();
     },
 
     addProseMirrorPlugins() {
@@ -283,13 +259,15 @@ function mathNode(name: MathNodeName) {
       ];
     },
 
-    addKeyboardShortcuts() {
+    addKeyboardShortcuts(): Record<string, KeyboardShortcutCommand> {
+      // A block formula opens with Enter through its place (editing-place.ts).
+      if (isBlock) return {};
       return {
         Enter: ({ editor }) => {
           const { selection } = editor.state;
           if (!(selection instanceof NodeSelection) || selection.node.type.name !== name)
             return false;
-          editFormulaAt(editor, name, selection.from);
+          editFormulaAt(editor, selection.from);
           return true;
         },
       };

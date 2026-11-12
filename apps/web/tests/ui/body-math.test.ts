@@ -131,6 +131,35 @@ describe('a formula in the view', () => {
     expect(host.querySelector('p')?.firstChild?.nodeValue).toBe('a ');
   });
 
+  it('shows the source of the formulas left once the budget of time is spent, and says so', async () => {
+    const sources = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const rendered = renderBody(doc(paragraph(...sources.map((latex) => math(latex)))));
+    if (!rendered.ok) throw new Error('not drawn');
+    host.replaceChildren(rendered.fragment);
+    // Every reading of the clock is a second later: the budget of three is soon spent.
+    let tick = 0;
+    clock = vi.spyOn(performance, 'now').mockImplementation(() => (tick += 1000));
+    drawEmbeds(host);
+    await settled();
+    clock.mockRestore();
+    clock = undefined;
+    const slots = Array.from(host.querySelectorAll<HTMLElement>('span.doc-math'));
+    const states = slots.map((slot) => slot.getAttribute('data-state'));
+    // The first ones are drawn until the budget is spent; every one after says it is not.
+    const drawn = states.filter((state) => state === 'drawn').length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(sources.length);
+    expect(states).toEqual(sources.map((_source, index) => (index < drawn ? 'drawn' : 'skipped')));
+    for (const [index, slot] of slots.slice(drawn).entries()) {
+      // Its source, and a line that says it was not drawn, read where it stands.
+      expect(slot.firstChild?.nodeValue).toBe(sources[index + drawn]);
+      expect(slot.querySelector('[role="note"]')?.textContent).toBe(
+        'Not drawn: drawing the formulas here took too long.',
+      );
+      expect(slot.querySelector('.katex')).toBeNull();
+    }
+  });
+
   it('takes text of any script without complaint', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const root = await show(

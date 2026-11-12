@@ -20,11 +20,15 @@
  *  - The `<annotation>` inside a drawn formula: the source, kept in the
  *    MathML half for a screen reader. A browser does not render it at all
  *    (`display: none`), so it has no place to compare.
+ *  - The editor's element around a block formula (`doc-math-block`) and what
+ *    it holds besides the formula: its "Edit" button, the hint read to a
+ *    screen reader, the place where its source is changed. The formula in it
+ *    is measured.
  *
  * Formulas are compared as drawn: both sides wait for the formula library,
  * and every other element it built is measured like any other. Diagrams are
- * not in these samples: the editor shows a diagram with its source and the
- * view without, on purpose (see embeds.spec.ts for those).
+ * not in these samples: the editor draws a diagram with the place where its
+ * source is changed (see embeds.spec.ts for those).
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -96,6 +100,7 @@ async function measure(page: Page, which: 'editor' | 'view'): Promise<Measured[]
       // What the editor adds for the cursor and for the name of a checkbox.
       if (isSeparator(element)) continue;
       if (element.localName === 'annotation') continue;
+      if (element.closest('.doc-math-block') && !element.closest('.doc-math')) continue;
       if (element.tagName === 'SPAN' && element.parentElement?.tagName === 'LABEL') continue;
       if (element.tagName === 'BR' && element.classList.contains('ProseMirror-trailingBreak')) {
         let before = element.previousSibling;

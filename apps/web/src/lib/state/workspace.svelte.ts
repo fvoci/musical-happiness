@@ -214,7 +214,7 @@ export class Workspace {
       this.entered = 'missing';
       return;
     }
-    this.info = workspace;
+    this.info = { ...workspace }; // Each entry its own: a way back is not "still there".
     this.entered = 'loading';
     this.backend.enter?.(workspace.id);
     const read = await readWorkspace(this.backend, workspace.id);

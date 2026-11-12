@@ -27,7 +27,7 @@
   import { pane } from '$lib/layout/room.svelte.ts';
   import { moveItems, type ListOrder } from '$lib/logic/drop-target.ts';
   import type { BoardGroup } from '$lib/logic/group.ts';
-  import type { CardDrop } from '$lib/state/index.ts';
+  import { whileHere, type CardDrop } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import type { ViewProps } from '../props.ts';
@@ -175,7 +175,7 @@
   async function addCard(optionId: string): Promise<void> {
     if (!board.board || !groupBy) return;
     const properties = propertiesForColumn(board.board, view, groupBy.id, optionId);
-    const card = await board.createCard({ properties });
+    const card = await whileHere(board, () => board.createCard({ properties }));
     if (card) onOpenCard(card.id);
   }
 

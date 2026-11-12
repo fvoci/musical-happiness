@@ -369,8 +369,12 @@ test.describe('a hostile diagram', () => {
         } else {
           await expect(figure.getByRole('note')).toHaveText(NOTICE[outcome]);
           await expect(figure.locator('svg')).toHaveCount(0);
-          // The source stays readable where the picture would be.
-          await expect(body.locator('pre:has(code.language-mermaid)')).toBeVisible();
+          // The source stays readable where the picture would be (the editor's is shown in the figure).
+          await expect(
+            where === 'editor'
+              ? figure.locator('.doc-diagram-copy')
+              : body.locator('pre:has(code.language-mermaid)'),
+          ).toBeVisible();
         }
         expect(await findings(page, where, '.doc-diagram')).toEqual([]);
       }

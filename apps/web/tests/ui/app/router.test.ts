@@ -1,5 +1,7 @@
 /** Addresses: a board, a view and a card under the base path the server names. */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import * as back from '$lib/layout/back.svelte.ts';
 
 import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
 import { parseRoute, readBasePath, routePath, Router } from '../../../src/app/router.svelte.ts';
@@ -170,6 +172,34 @@ describe('moving about', () => {
     window.dispatchEvent(new PopStateEvent('popstate'));
     expect(router.route).toMatchObject({ workspaceId: 't2', boardId: 'x' });
     stop();
+  });
+
+  it('loads the page anew at a route, the entries of what is open let go first', () => {
+    const router = new Router('app');
+    const calls: string[] = [];
+    const released = vi.spyOn(back, 'releaseOverlayEntries');
+    vi.stubGlobal('location', {
+      assign: (to: string) => calls.push(`assign ${to}`),
+      replace: (to: string) => calls.push(`replace ${to}`),
+    });
+    try {
+      // Nothing open: a new entry, as any going somewhere.
+      released.mockImplementationOnce(() => {
+        calls.push('release');
+        return 0;
+      });
+      router.restart({});
+      // A dialog open, with its entry: the new address takes that entry's place.
+      released.mockImplementationOnce(() => {
+        calls.push('release');
+        return 1;
+      });
+      router.restart({});
+      expect(calls).toEqual(['release', 'assign /app/', 'release', 'replace /app/']);
+    } finally {
+      vi.unstubAllGlobals();
+      released.mockRestore();
+    }
   });
 
   it('makes links that keep the base path', () => {

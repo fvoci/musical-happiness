@@ -143,6 +143,19 @@ export class Router {
     return routePath(route, this.basePath);
   }
 
+  /**
+   * Loads the page anew at a route (signing out, another account signing
+   * in). What is open over the page lets go of its entries first: closing as
+   * the page goes (the shell gives way to the sign-in page) would otherwise
+   * step back in the history, over the new address, to the one left. The new
+   * address takes the place of such an entry, as `go` does it.
+   */
+  restart(route: Partial<Route>): void {
+    const overOverlay = releaseOverlayEntries() > 0;
+    if (overOverlay) window.location.replace(this.href(route));
+    else window.location.assign(this.href(route));
+  }
+
   /** Goes to a route. `replace` puts it in place of the current entry instead of after it. */
   go(route: Partial<Route>, options: { replace?: boolean } = {}): void {
     const next = settled(route);
