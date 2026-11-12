@@ -1,6 +1,7 @@
 <!--
   The top row of the pane: which board this is, who is on it, sharing it
-  (for its admins), and undo and redo.
+  (for its admins), and undo and redo, which pulse (or fade, with less
+  motion) while one asked for waits for a write.
 
   What it shows follows the width of the pane it is in, not of the window:
   the faces of the members from where two kanban columns fit, the
@@ -186,10 +187,13 @@
     </IconButton>
   {/if}
 
+  <!-- An undo or redo waiting for a write says so on both, until it is carried out. -->
   <IconButton
     label={m['UndoRedoHotKeys.canUndo']()}
     data-testid="undo"
     disabled={!workspace.canUndo}
+    aria-busy={workspace.undoBusy}
+    class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60"
     onclick={() => void workspace.undoLast()}
   >
     <Undo2Icon />
@@ -198,6 +202,8 @@
     label={m['UndoRedoHotKeys.canRedo']()}
     data-testid="redo"
     disabled={!workspace.canRedo}
+    aria-busy={workspace.undoBusy}
+    class="aria-busy:motion-safe:animate-pulse aria-busy:motion-reduce:opacity-60"
     onclick={() => void workspace.redoLast()}
   >
     <Redo2Icon />

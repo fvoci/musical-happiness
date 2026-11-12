@@ -17,7 +17,7 @@ import type {
   PropertyTemplate,
   PropertyType,
 } from '$lib/logic/wire.ts';
-import { newUndoGroup, type BoardStore } from '$lib/state/index.ts';
+import type { BoardStore } from '$lib/state/index.ts';
 
 import {
   newOption,
@@ -52,28 +52,29 @@ export async function addProperty(
 ): Promise<string | undefined> {
   if (!board.board) return undefined;
   const template = newProperty(type, typeName, board.board.cardProperties);
-  const groupId = newUndoGroup();
-  await board.changeBoard(
-    (current) => ({ ...current, cardProperties: [...current.cardProperties, template] }),
-    'addProperty',
-    groupId,
-  );
-  if (!templateOf(board, template.id)) return undefined;
-  if (view?.fields.viewType === 'table') {
-    await board.changeView(
-      view.id,
-      (current) => ({
-        ...current,
-        fields: {
-          ...current.fields,
-          visiblePropertyIds: [...current.fields.visiblePropertyIds, template.id],
-        },
-      }),
+  return board.inOneStep(async (groupId) => {
+    await board.changeBoard(
+      (current) => ({ ...current, cardProperties: [...current.cardProperties, template] }),
       'addProperty',
       groupId,
     );
-  }
-  return template.id;
+    if (!templateOf(board, template.id)) return undefined;
+    if (view?.fields.viewType === 'table') {
+      await board.changeView(
+        view.id,
+        (current) => ({
+          ...current,
+          fields: {
+            ...current.fields,
+            visiblePropertyIds: [...current.fields.visiblePropertyIds, template.id],
+          },
+        }),
+        'addProperty',
+        groupId,
+      );
+    }
+    return template.id;
+  });
 }
 
 /** Gives a property another name. An empty name, or the one it has, changes nothing. */
@@ -97,27 +98,28 @@ export async function renameProperty(
  */
 export async function changePropertyType(board: BoardStore, plan: TypeChangePlan): Promise<void> {
   const { template, values } = plan;
-  const groupId = newUndoGroup();
-  await board.changeBoard(
-    withTemplate(template.id, () => template),
-    'changePropertyType',
-    groupId,
-  );
-  // Refused: the views and the values stay as they are.
-  if (templateOf(board, template.id)?.type !== template.type) return;
-  await Promise.all([
-    ...board.views.map((view) =>
-      board.changeView(
-        view.id,
-        (current) => viewWithoutProperty(current, template.id, template.type),
-        'changePropertyType',
-        groupId,
+  await board.inOneStep(async (groupId) => {
+    await board.changeBoard(
+      withTemplate(template.id, () => template),
+      'changePropertyType',
+      groupId,
+    );
+    // Refused: the views and the values stay as they are.
+    if (templateOf(board, template.id)?.type !== template.type) return;
+    await Promise.all([
+      ...board.views.map((view) =>
+        board.changeView(
+          view.id,
+          (current) => viewWithoutProperty(current, template.id, template.type),
+          'changePropertyType',
+          groupId,
+        ),
       ),
-    ),
-    ...[...values].map(([cardId, value]) =>
-      board.setCardProperty(cardId, template.id, value, groupId),
-    ),
-  ]);
+      ...[...values].map(([cardId, value]) =>
+        board.setCardProperty(cardId, template.id, value, groupId),
+      ),
+    ]);
+  });
 }
 
 /**
@@ -126,26 +128,27 @@ export async function changePropertyType(board: BoardStore, plan: TypeChangePlan
  * the property back (undo) brings them back with it, in one write.
  */
 export async function deleteProperty(board: BoardStore, propertyId: string): Promise<void> {
-  const groupId = newUndoGroup();
-  await board.changeBoard(
-    (current) => ({
-      ...current,
-      cardProperties: current.cardProperties.filter((template) => template.id !== propertyId),
-    }),
-    'deleteProperty',
-    groupId,
-  );
-  if (templateOf(board, propertyId)) return;
-  await Promise.all(
-    board.views.map((view) =>
-      board.changeView(
-        view.id,
-        (current) => viewWithoutProperty(current, propertyId),
-        'deleteProperty',
-        groupId,
+  await board.inOneStep(async (groupId) => {
+    await board.changeBoard(
+      (current) => ({
+        ...current,
+        cardProperties: current.cardProperties.filter((template) => template.id !== propertyId),
+      }),
+      'deleteProperty',
+      groupId,
+    );
+    if (templateOf(board, propertyId)) return;
+    await Promise.all(
+      board.views.map((view) =>
+        board.changeView(
+          view.id,
+          (current) => viewWithoutProperty(current, propertyId),
+          'deleteProperty',
+          groupId,
+        ),
       ),
-    ),
-  );
+    );
+  });
 }
 
 /** What the editor of a select value reports about its options, applied to the board. */

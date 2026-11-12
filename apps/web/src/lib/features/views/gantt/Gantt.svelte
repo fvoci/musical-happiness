@@ -131,7 +131,7 @@
     );
   }
 
-  /** Drops being written: no step of undo until answered, so the chart says it is settling. */
+  /** Drops being written: the chart says it is settling until they are answered. */
   let writing = $state(0);
 
   /** The bar being dragged as it is drawn meanwhile. */
