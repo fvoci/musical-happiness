@@ -957,16 +957,13 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
     let anonymous = th.anonymous();
     get_board(&anonymous, &board.id).await.check_unauthorized();
     anonymous
-        .get(&format!("/boards/{}?readToken=wrong", board.id))
+        .get(&format!("/shared/{}?readToken=wrong", board.id))
         .await
-        .check_unauthorized();
+        .check_not_found();
 
-    // ...but it can with the read token. Who reads without a session is not told who
-    // made the board.
-    let read: Board = anonymous
-        .get(&format!("/boards/{}?readToken={sharing_token}", board.id))
-        .await
-        .ok_json();
+    // ...but it can by its link. Who reads by the link is not told who made the board.
+    let shared_path = format!("/shared/{}?readToken={sharing_token}", board.id);
+    let read: Board = anonymous.get(&shared_path).await.ok_json();
     assert_eq!(
         read,
         Board {
@@ -977,35 +974,16 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
         "the shared board, without its creator and modifier"
     );
 
-    // A signed-in user who is no member reads it as the token's reader; a member as a
-    // member.
-    let private = board_with_admin(
-        &th,
-        new_board(
-            TEST_WORKSPACE_ID,
-            BoardType::Private,
-            "private shared board",
-        ),
-        &user1.id,
-    )
-    .await;
-    let token = th.share(&private.id).await;
-    let path = format!("/boards/{}?readToken={token}", private.id);
-    let read: Board = th.client2.get(&path).await.ok_json();
-    assert_eq!(
-        (read.created_by.as_str(), read.modified_by.as_str()),
-        ("", ""),
-        "a signed-in user who is no member reads as the token's reader"
-    );
-    let read: Board = th.client.get(&path).await.ok_json();
-    assert_eq!(read.created_by, user1.id, "a member reads as a member");
-    // So on an open board, which a user of its workspace sees without the token as it is.
-    let read: Board = th
-        .client2
-        .get(&format!("/boards/{}?readToken={sharing_token}", board.id))
-        .await
-        .ok_json();
-    assert_eq!(read.created_by, "", "with the token, as its reader");
+    // Whoever is signed in reads by the link as its reader, a member of the board too;
+    // without the link, the member reads as a member.
+    for client in [&th.client, &th.client2] {
+        let read: Board = client.get(&shared_path).await.ok_json();
+        assert_eq!(
+            (read.created_by.as_str(), read.modified_by.as_str()),
+            ("", ""),
+            "by the link, as its reader"
+        );
+    }
     let read: Board = th
         .client2
         .get(&format!("/boards/{}", board.id))

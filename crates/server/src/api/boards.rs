@@ -9,11 +9,11 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewBoard;
-use super::contract::params::{AsTemplate, BoardId, ReadToken, ToWorkspace};
+use super::contract::params::{AsTemplate, BoardId, ToWorkspace};
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, by_read_token, created, decode_json,
+    ApiResult, RequiredSession, created, decode_json,
     json_response, no_content, query_param,
 };
 use super::{
@@ -152,48 +152,32 @@ async fn handle_create_board(
 /// A board
 ///
 /// For a user who may see the board: a member of it, or for an open board anyone in
-/// its workspace. With the board's read token no session is needed. Who reads with the token
-/// and is no member of the board, without a session or signed in, is not told who made
-/// the board or changed it last (`createdBy` and `modifiedBy` are empty).
+/// its workspace.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}",
     operation_id = "getBoard",
     tag = tag::BOARDS,
-    params(BoardId, ReadToken),
-    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    params(BoardId),
     responses((status = 200, description = "The board.", body = Board)),
 )]
 async fn handle_get_board(
     State(app): State<App>,
-    session: OptionalSession,
+    RequiredSession(session): RequiredSession,
     Path(board_id): Path<String>,
-    RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let user_id = session.user_id();
-    let shared = by_read_token(&app, query.as_deref(), &board_id).await?;
-    let has_valid_read_token = shared.is_some();
-    if user_id.is_empty() && !has_valid_read_token {
-        return Err(AppError::unauthorized("access denied to board"));
-    }
-    let app = shared.unwrap_or(app);
-
-    let mut board = app.board(&board_id).await?;
-    if has_valid_read_token {
-        if !app.is_board_reader(user_id, &board_id).await? {
-            board.hide_people();
-        }
+    // An open board is for whoever works in its workspace, a private one for its
+    // members, and its name for the workspace's administrators.
+    let access = app
+        .board_access(&session.user_id, &board_id)
+        .await?
+        .filter(|access| access.grant.sees())
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let board = if access.grant.manages_only() {
+        as_managed(access.board)
     } else {
-        // Without the token, an open board is for whoever works in its workspace, a
-        // private one for its members, and its name for the workspace's administrators.
-        let grant = app.board_grant(user_id, &board_id).await?;
-        if !grant.sees() {
-            return Err(AppError::not_found("board"));
-        }
-        if grant.manages_only() {
-            board = as_managed(board);
-        }
-    }
+        access.board
+    };
     Ok(json_response(&board))
 }
 

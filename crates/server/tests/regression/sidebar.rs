@@ -228,6 +228,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     let card = id_of(&created[0]);
     let path = format!("{API}/boards/{board}/sharing");
     let board_path = format!("{API}/boards/{board}");
+    let shared_path = format!("{API}/shared/{board}");
 
     s.get("get: none yet", &path).user(&alice).await;
     s.post("post: editor", &path)
@@ -271,27 +272,27 @@ pub(crate) async fn sharing(s: &mut Session) {
 
     s.get(
         "board with the read token",
-        &format!("{board_path}?readToken={token}"),
+        &format!("{shared_path}?readToken={token}"),
     )
     .await;
     s.get(
         "board with a wrong read token",
-        &format!("{board_path}?readToken=wrong"),
+        &format!("{shared_path}?readToken=wrong"),
     )
     .await;
     s.get(
         "board with the token under the old name of the parameter",
-        &format!("{board_path}?read_token={token}"),
+        &format!("{shared_path}?read_token={token}"),
     )
     .await;
     s.get(
         "blocks with the read token",
-        &format!("{board_path}/blocks?readToken={token}"),
+        &format!("{shared_path}/blocks?readToken={token}"),
     )
     .await;
     s.get(
         "blocks with a wrong read token",
-        &format!("{board_path}/blocks?readToken=wrong"),
+        &format!("{shared_path}/blocks?readToken=wrong"),
     )
     .await;
     s.get(
@@ -324,12 +325,12 @@ pub(crate) async fn sharing(s: &mut Session) {
     );
     s.get(
         "board with the token from before regenerating",
-        &format!("{board_path}?readToken={token}"),
+        &format!("{shared_path}?readToken={token}"),
     )
     .await;
     s.get(
         "board with the regenerated token",
-        &format!("{board_path}?readToken={renewed}"),
+        &format!("{shared_path}?readToken={renewed}"),
     )
     .await;
 
@@ -340,7 +341,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     s.get("get: disabled", &path).user(&alice).await;
     s.get(
         "board with the token of a disabled share",
-        &format!("{board_path}?readToken={renewed}"),
+        &format!("{shared_path}?readToken={renewed}"),
     )
     .await;
     let last = s
@@ -355,7 +356,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     );
     s.get(
         "board with the token from before disabling",
-        &format!("{board_path}?readToken={renewed}"),
+        &format!("{shared_path}?readToken={renewed}"),
     )
     .await;
 }

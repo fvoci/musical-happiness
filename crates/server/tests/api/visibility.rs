@@ -377,20 +377,25 @@ fn cases() -> Vec<Case> {
             |h, i| format!("/boards/{}/files/{}/info", h.board[i], h.file[i]),
             no_body,
         ),
-        // A wrong read token is no token.
+        // Its link, with a wrong read token.
         case(
             Method::GET,
-            |h, i| format!("/boards/{}?readToken=wrong", h.board[i]),
+            |h, i| format!("/shared/{}?readToken=wrong", h.board[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| format!("/boards/{}/blocks?readToken=wrong", h.board[i]),
+            |h, i| format!("/shared/{}/blocks?readToken=wrong", h.board[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| format!("/boards/{}/cards?readToken=wrong&preview=true", h.board[i]),
+            |h, i| format!("/shared/{}/cards?readToken=wrong&preview=true", h.board[i]),
+            no_body,
+        ),
+        case(
+            Method::GET,
+            |h, i| format!("/shared/{}/files/{}?readToken=wrong", h.board[i], h.file[i]),
             no_body,
         ),
         // Both kinds of combined request.

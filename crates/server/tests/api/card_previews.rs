@@ -95,14 +95,14 @@ async fn the_card_list_gives_previews_when_asked() {
     assert_eq!(previews(&asked), expected);
 
     let token = th.share(&board.id).await;
-    let shared = format!("{}?preview=true&readToken={token}", cards_path(&board.id));
+    let shared = format!("/shared/{}/cards?preview=true&readToken={token}", board.id);
     let read: Vec<Value> = th.anonymous().get(&shared).await.ok_json();
     assert_eq!(
         previews(&read),
         expected,
-        "the same for a reader with the token"
+        "the same for a reader by the link"
     );
-    // Anonymous, or signed in and no member: no users; a member: as ever.
+    // Anonymous, or signed in, a member too: no users; a member without the link: as ever.
     let outsider: Vec<Value> = th.client2.get(&shared).await.ok_json();
     assert_eq!(previews(&outsider), expected);
     for card in read.iter().chain(&outsider) {
@@ -115,11 +115,17 @@ async fn the_card_list_gives_previews_when_asked() {
         "{outsider:?}"
     );
     let member: Vec<Value> = th.client.get(&shared).await.ok_json();
+    assert_eq!(member[0]["createdBy"], json!(""));
+    let member: Vec<Value> = th
+        .client
+        .get(&format!("{}?preview=true", cards_path(&board.id)))
+        .await
+        .ok_json();
     assert_eq!(member[0]["createdBy"], json!(me_id));
     assert_eq!(member[0]["properties"]["owner"], json!(me_id));
     th.anonymous()
         .get(&format!(
-            "/boards/{}/files/{file_id}?readToken={token}",
+            "/shared/{}/files/{file_id}?readToken={token}",
             board.id
         ))
         .await
@@ -130,7 +136,7 @@ async fn the_card_list_gives_previews_when_asked() {
         .await
         .check_unauthorized();
     th.anonymous()
-        .get(&format!("{}?readToken=nope", cards_path(&board.id)))
+        .get(&format!("/shared/{}/cards?readToken=nope", board.id))
         .await
-        .check_unauthorized();
+        .check_not_found();
 }

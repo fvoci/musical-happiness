@@ -487,7 +487,7 @@ async fn download_with_a_valid_read_token() {
     let right = ts
         .anonymous()
         .get(&format!(
-            "/boards/{}/files/{file_id}?readToken={read_token}",
+            "/shared/{}/files/{file_id}?readToken={read_token}",
             board.id
         ))
         .await;
@@ -495,11 +495,11 @@ async fn download_with_a_valid_read_token() {
     let wrong = ts
         .anonymous()
         .get(&format!(
-            "/boards/{}/files/{file_id}?readToken=nope",
+            "/shared/{}/files/{file_id}?readToken=nope",
             board.id
         ))
         .await;
-    wrong.check_unauthorized();
+    wrong.check_not_found();
     ts.teardown().await;
 }
 
@@ -742,7 +742,10 @@ async fn a_file_is_given_out_through_its_own_board() {
     let read_token = ts.share(&fixture.owner_board.id).await;
     let shared = ts
         .anonymous()
-        .get(&format!("{path}?readToken={read_token}"))
+        .get(&format!(
+            "/shared/{}/files/{}?readToken={read_token}",
+            fixture.owner_board.id, fixture.file_id
+        ))
         .await;
     shared.check_ok();
     assert_eq!(

@@ -207,7 +207,7 @@ impl Scene {
 
         for client in [ts.anonymous(), ts.client2.clone()] {
             let public = client
-                .get(&format!("/boards/{}?readToken={token_b}", b.id))
+                .get(&format!("/shared/{}?readToken={token_b}", b.id))
                 .await;
             public.check_ok();
             assert_eq!(
@@ -217,7 +217,7 @@ impl Scene {
             );
             for part in ["blocks", "cards"] {
                 let listed = client
-                    .get(&format!("/boards/{}/{part}?readToken={token_b}", b.id))
+                    .get(&format!("/shared/{}/{part}?readToken={token_b}", b.id))
                     .await
                     .ok_json::<Vec<serde_json::Value>>();
                 assert!(
@@ -225,7 +225,7 @@ impl Scene {
                     "B's real card is read through {part}"
                 );
             }
-            let path = format!("/boards/{}/files/{name_b}?readToken={token_b}", b.id);
+            let path = format!("/shared/{}/files/{name_b}?readToken={token_b}", b.id);
             let file = client.get(&path).await;
             file.check_ok();
             assert_eq!(file.body, bytes_b, "the public link reads B's actual bytes");
@@ -243,7 +243,7 @@ impl Scene {
             assert_eq!(range.body, &bytes_b[2..6], "the range is B's");
             let info = client
                 .get(&format!(
-                    "/boards/{}/files/{name_b}/info?readToken={token_b}",
+                    "/shared/{}/files/{name_b}/info?readToken={token_b}",
                     b.id
                 ))
                 .await;
@@ -254,10 +254,10 @@ impl Scene {
             );
             // Wrong board in B, a board in A, and a valid token with another file name.
             for forbidden in [
-                format!("/boards/{}/files/{name_b}?readToken={token_b}", other.id),
-                format!("/boards/{}/files/{name_a}?readToken={token_b}", a.id),
-                format!("/boards/{}/files/{name_a}?readToken={token_b}", b.id),
-                format!("/boards/{}/files/{name_b}/info?readToken={token_a}", b.id),
+                format!("/shared/{}/files/{name_b}?readToken={token_b}", other.id),
+                format!("/shared/{}/files/{name_a}?readToken={token_b}", a.id),
+                format!("/shared/{}/files/{name_a}?readToken={token_b}", b.id),
+                format!("/shared/{}/files/{name_b}/info?readToken={token_a}", b.id),
             ] {
                 let denied = client.get(&forbidden).await;
                 assert!(
@@ -268,7 +268,7 @@ impl Scene {
             for card in [&self.card_a, &self.card_other] {
                 client
                     .get(&format!(
-                        "/boards/{}/blocks?blockId={}&readToken={token_b}",
+                        "/shared/{}/blocks?blockId={}&readToken={token_b}",
                         b.id, card.id
                     ))
                     .await

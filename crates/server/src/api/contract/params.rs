@@ -57,7 +57,7 @@ parameter!(StartOrg: Query "org", String, True, "The identifier of the organizat
 parameter!(OidcState: Query "state", String, False, "The `state` the sign-in was started with, as the provider sends it back.");
 parameter!(OidcCode: Query "code", String, False, "The authorization code the provider gives.");
 parameter!(OidcError: Query "error", String, False, "The provider's code of why it did not let the person sign in.");
-parameter!(ReadToken: Query "readToken", String, False, "The read token of the board. With the token of a board that is shared, the request needs no session.");
+parameter!(SharedReadToken: Query "readToken", String, True, "The read token of the board, as `getSharing` answers it while the board is shared.");
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.");
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");

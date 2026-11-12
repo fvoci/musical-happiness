@@ -242,13 +242,13 @@ pub(crate) async fn files(s: &mut Session) {
         .string("token");
     s.get(
         "download with the read token",
-        &format!("{download}?readToken={read_token}"),
+        &format!("{API}/shared/{board}/files/{file_id}?readToken={read_token}"),
     )
     .keep_headers(&["Content-Type"])
     .await;
     s.get(
         "download with a wrong read token",
-        &format!("{download}?readToken=wrong"),
+        &format!("{API}/shared/{board}/files/{file_id}?readToken=wrong"),
     )
     .await;
 

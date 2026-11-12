@@ -14,12 +14,12 @@ use utoipa_axum::routes;
 use super::contract::bodies::NewBlock;
 use super::contract::params::{
     AllBlocks, AsTemplate, BlockId, BlockTypeFilter, BoardId, DisableNotify, OneBlockId, ParentId,
-    ReadToken, SourceBoardId,
+    SourceBoardId,
 };
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, by_read_token, created, decode_json,
+    ApiResult, RequiredSession, created, decode_json,
     json_response, no_content, query_param,
 };
 use super::{
@@ -122,17 +122,7 @@ async fn require_source_board_access(
 
 /// The blocks of a board
 ///
-/// For the board's members, and for an open template everyone in its workspace. With the
-/// board's read token no session is needed. Who reads with the token and is no member
-/// of the board, without a session or signed in, is told no user's identifier:
-/// `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a
-/// body, and so is each user that the board's person properties (`person`,
-/// `multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in
-/// the clauses of a view's `fields.filter`; a list keeps its length, so how many people
-/// a card has still shows. A card's values of properties the board does not define are
-/// left out, and a view grouped by a person property keeps of `visibleOptionIds`,
-/// `hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of
-/// the cards without a value (`""`).
+/// For the board's members, and for an open template everyone in its workspace.
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -144,54 +134,41 @@ async fn require_source_board_access(
     path = "/boards/{boardId}/blocks",
     operation_id = "getBlocks",
     tag = tag::BLOCKS,
-    params(BoardId, AllBlocks, OneBlockId, ParentId, BlockTypeFilter, ReadToken),
-    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    params(BoardId, AllBlocks, OneBlockId, ParentId, BlockTypeFilter),
     responses((status = 200, description = "The blocks.", body = Vec<Block>)),
 )]
 async fn handle_get_blocks(
     State(app): State<App>,
-    session: OptionalSession,
+    RequiredSession(session): RequiredSession,
     Path(board_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    let query = query.as_deref();
-    let user_id = session.user_id();
-
-    let shared = by_read_token(&app, query, &board_id).await?;
-    let has_read_token = shared.is_some();
-    if user_id.is_empty() && !has_read_token {
-        return Err(AppError::unauthorized("access denied to board"));
-    }
-    let app = shared.unwrap_or(app);
     let board = app.board(&board_id).await?;
-    let by_token_alone = if has_read_token {
-        !app.is_board_reader(user_id, &board_id).await?
-    } else {
-        require_read_access(&app, user_id, &board).await?;
-        false
-    };
+    require_read_access(&app, &session.user_id, &board).await?;
+    let blocks = asked_blocks(&app, &board_id, query.as_deref()).await?;
+    tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
+    Ok(json_response(&blocks))
+}
 
-    let blocks = if !query_param(query, "all").is_empty() {
-        app.blocks_for_board(&board_id).await?
+/// The blocks of a board that the query of a request asks for, as `getBlocks` describes
+/// them; for whoever may read the board.
+pub(super) async fn asked_blocks(
+    app: &App,
+    board_id: &str,
+    query: Option<&str>,
+) -> Result<Vec<Block>, AppError> {
+    if !query_param(query, "all").is_empty() {
+        app.blocks_for_board(board_id).await
     } else if let Some(block_id) = optional_query_param(query, "blockId") {
-        vec![block_on_board(&app, &block_id, &board_id).await?]
+        Ok(vec![block_on_board(app, &block_id, board_id).await?])
     } else {
         let parent_id = optional_query_param(query, "parentId");
         // The type is matched as it is written: one that no block has finds nothing. The
         // word `unknown` is the exception, and narrows nothing.
         let block_type = optional_query_param(query, "type").map(BlockType::from);
-        app.blocks(&board_id, parent_id.as_deref(), block_type.as_ref())
-            .await?
-    };
-    tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
-    let mut blocks = blocks;
-    if by_token_alone {
-        let people = board.person_properties();
-        for block in &mut blocks {
-            block.hide_people(&people);
-        }
+        app.blocks(board_id, parent_id.as_deref(), block_type.as_ref())
+            .await
     }
-    Ok(json_response(&blocks))
 }
 
 /// Checks that the images of the blocks' bodies show files of the board, or of the board

@@ -10,7 +10,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use axum::extract::multipart::{Field, MultipartRejection};
-use axum::extract::{Multipart, Path, RawQuery, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
     EXPECT, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
@@ -26,11 +26,11 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::{Binary, FileForm};
-use super::contract::params::{BoardId, FileId, ReadToken};
+use super::contract::params::{BoardId, FileId};
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, by_read_token, created, json_response,
+    ApiResult, RequiredSession, created, json_response,
     require_board_permission, require_granted,
 };
 use crate::app::App;
@@ -93,31 +93,10 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_upload_file))
 }
 
-/// Checks that the requester may read the board's files: a member with the view
-/// permission, or the holder of a valid read token. Returns the application to read
-/// them with: for the holder of a token, the one of the board's own organization.
-async fn check_read_access(
-    app: App,
-    user_id: &str,
-    board_id: &str,
-    query: Option<&str>,
-) -> Result<App, AppError> {
-    if let Some(shared) = by_read_token(&app, query, board_id).await? {
-        return Ok(shared);
-    }
-    if user_id.is_empty() {
-        return Err(AppError::unauthorized("access denied to board"));
-    }
-    let grant = app.board_grant(user_id, board_id).await?;
-    require_granted(grant, BoardPermission::ViewBoard, "access denied to board")?;
-    Ok(app)
-}
-
 /// A file
 ///
-/// The content of a file of the board, for the board's members; with the board's read
-/// token no session is needed. A file is asked for through its own board only: through
-/// another board it is not there.
+/// The content of a file of the board, for the board's members. A file is asked for
+/// through its own board only: through another board it is not there.
 ///
 /// Every file is sent as `application/octet-stream` and offered as a download
 /// (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
@@ -131,8 +110,7 @@ async fn check_read_access(
     path = "/boards/{boardId}/files/{fileId}",
     operation_id = "getFile",
     tag = tag::FILES,
-    params(BoardId, FileId, ReadToken),
-    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    params(BoardId, FileId),
     responses(
         (status = 200, description = "The file.", body = inline(Binary), content_type = "application/octet-stream"),
         (status = 206, description = "The range of the file that was asked for.", body = inline(Binary), content_type = "application/octet-stream"),
@@ -143,51 +121,72 @@ async fn check_read_access(
 )]
 async fn handle_serve_file(
     State(app): State<App>,
-    session: OptionalSession,
-    Path((board_id, filename)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    RequiredSession(session): RequiredSession,
+    Path((board_id, file_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> ApiResult {
-    let app = check_read_access(app, session.user_id(), &board_id, query.as_deref()).await?;
+    require_file_reader(&app, &session.user_id, &board_id).await?;
+    serve_board_file(&app, &board_id, &file_id, &headers).await
+}
 
+/// Checks that the user may read the files of the board.
+async fn require_file_reader(app: &App, user_id: &str, board_id: &str) -> Result<(), AppError> {
+    let grant = app.board_grant(user_id, board_id).await?;
+    require_granted(grant, BoardPermission::ViewBoard, "access denied to board")
+}
+
+/// Sends a file of the board, as `getFile` describes it.
+pub(super) async fn serve_board_file(
+    app: &App,
+    board_id: &str,
+    file_id: &str,
+    headers: &HeaderMap,
+) -> ApiResult {
     // A file is its board's. Through another board it is as missing as a file that
     // does not exist: the answers must not tell the two apart.
-    let Some(info) = app.file_info(&board_id, &filename).await? else {
+    let Some(info) = app.file_info(board_id, file_id).await? else {
         return Err(AppError::not_found(FILE));
     };
     if !app.files().exists(&info.path).await? {
         return Err(AppError::not_found(FILE));
     }
     let size = app.files().size(&info.path).await?.unwrap_or(0);
-
-    serve_content(&app, &filename, &info.path, size, "", &headers).await
+    serve_content(app, file_id, &info.path, size, "", headers).await
 }
 
 /// What is known about a file
 ///
 /// The name a file was uploaded under, its size and when it was uploaded. For the
-/// board's members; with the board's read token no session is needed.
+/// board's members.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/files/{fileId}/info",
     operation_id = "getFileInfo",
     tag = tag::FILES,
-    params(BoardId, FileId, ReadToken),
-    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    params(BoardId, FileId),
     responses((status = 200, description = "What is known about the file.", body = FileInfo)),
 )]
 async fn handle_get_file_info(
     State(app): State<App>,
-    session: OptionalSession,
-    Path((board_id, filename)): Path<(String, String)>,
-    RawQuery(query): RawQuery,
+    RequiredSession(session): RequiredSession,
+    Path((board_id, file_id)): Path<(String, String)>,
 ) -> ApiResult {
-    let app = check_read_access(app, session.user_id(), &board_id, query.as_deref()).await?;
-    match app.file_info(&board_id, &filename).await? {
-        Some(info) => Ok(json_response(&info)),
-        // No record, or the record of another board's file.
-        None => Err(AppError::not_found(FILE)),
-    }
+    require_file_reader(&app, &session.user_id, &board_id).await?;
+    Ok(json_response(
+        &board_file_info(&app, &board_id, file_id.as_str()).await?,
+    ))
+}
+
+/// What is known about a file of the board; 404 for no record, and for the record of
+/// another board's file.
+pub(super) async fn board_file_info(
+    app: &App,
+    board_id: &str,
+    file_id: &str,
+) -> Result<FileInfo, AppError> {
+    app.file_info(board_id, file_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(FILE))
 }
 
 /// Upload a file

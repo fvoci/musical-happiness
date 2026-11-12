@@ -33,6 +33,7 @@ pub(crate) use server_lock::take_server_lock;
 use slots::Busy;
 pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
+mod shared_reads;
 mod sharing;
 mod startup;
 mod store_metrics;
@@ -58,6 +59,7 @@ pub use oidc::{
     secret_context,
 };
 pub use readiness::{Readiness, ReadinessCheck};
+pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
@@ -137,6 +139,8 @@ struct Inner {
     imports: slots::Slots,
     /// Whether this process holds the lock of the server (`server_lock`).
     server_lock: server_lock::Holder,
+    /// The limit on reads of shared boards whose token opens nothing.
+    shared_reads: SharedReads,
 }
 
 /// What `ping` reports about the server.
@@ -243,6 +247,7 @@ impl App {
                 exports,
                 imports,
                 server_lock: server_lock::Holder::default(),
+                shared_reads: SharedReads::default(),
             }),
         })
     }
@@ -287,6 +292,11 @@ impl App {
     /// The session and read-token checks.
     pub fn authenticator(&self) -> &Authenticator {
         &self.inner.auth
+    }
+
+    /// The limit on reads of shared boards whose token opens nothing.
+    pub(crate) fn shared_reads(&self) -> &SharedReads {
+        &self.inner.shared_reads
     }
 
     /// The limits on login attempts.

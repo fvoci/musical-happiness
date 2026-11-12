@@ -1138,10 +1138,10 @@ fn people_in(blocks: &Value) -> Value {
     })
 }
 
-/// Whoever reads a shared board by its read token without being a member, without a
-/// session or signed in, is told no user's identifier: not who wrote a block, nor who
-/// its body mentions, nor whom person properties name in values, filters and the groups
-/// of views. A member reading with the token is.
+/// Whoever reads a shared board by its link, without a session or signed in, a member
+/// of the board too, is told no user's identifier: not who wrote a block, nor who its
+/// body mentions, nor whom person properties name in values, filters and the groups of
+/// views. A member reading the board's own routes is.
 #[tokio::test]
 async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     let th = Setup::local_mode().start().await.init_basic().await;
@@ -1150,7 +1150,7 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     let editor = boards.editor.me().await;
     board_with_people(&th, &boards.board.id, &me.id, &editor.id).await;
     let read_token = th.share(&boards.board.id).await;
-    let path = format!("{}?readToken={read_token}", blocks_path(&boards.board.id));
+    let path = format!("/shared/{}/blocks?readToken={read_token}", boards.board.id);
     let hidden = json!({
         "createdBy": "",
         "mention": "",
@@ -1171,13 +1171,11 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     // refuses.
     let blocks = th.anonymous().get(&path).await.value();
     assert_eq!(people_in(&blocks), hidden, "nobody, to the token alone");
-    let blocks = th.client2.get(&path).await.value();
-    assert_eq!(
-        people_in(&blocks),
-        hidden,
-        "nobody, to a user who is no member"
-    );
-    let shown = people_in(&th.client.get(&path).await.value());
+    for client in [&th.client2, &th.client] {
+        let blocks = client.get(&path).await.value();
+        assert_eq!(people_in(&blocks), hidden, "nobody, to whoever is signed in");
+    }
+    let shown = people_in(&th.client.get(&blocks_path(&boards.board.id)).await.value());
     assert_eq!(shown["mention"], json!(me.id), "the user, to a member");
     assert_eq!(
         shown["properties"]["workspace"],
@@ -1191,16 +1189,10 @@ async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
         "{shown}"
     );
     assert_eq!(shown["hidden"], json!([me.id, ""]), "{shown}");
-    let blocks = th.client.get(&blocks_path(&boards.board.id)).await.value();
-    assert_eq!(
-        people_in(&blocks),
-        shown,
-        "the token changes nothing for a member"
-    );
     th.teardown().await;
 }
 
-/// A shared board's read token lets anyone read its blocks, and nothing else.
+/// A shared board's link lets anyone read its blocks, and nothing else.
 #[tokio::test]
 async fn get_blocks_with_a_read_token() {
     let th = Setup::local_mode().start().await.init_basic().await;
@@ -1208,7 +1200,8 @@ async fn get_blocks_with_a_read_token() {
     let content = card_with_content(&th, &boards).await;
     let read_token = th.share(&boards.board.id).await;
     let anonymous = th.anonymous();
-    let with_token = |board: &Board| format!("{}?readToken={read_token}", blocks_path(&board.id));
+    let with_token =
+        |board: &Board| format!("/shared/{}/blocks?readToken={read_token}", board.id);
 
     let blocks: Vec<Block> = anonymous.get(&with_token(&boards.board)).await.ok_json();
     assert_eq!(
@@ -1221,24 +1214,16 @@ async fn get_blocks_with_a_read_token() {
     let blocks: Vec<Block> = th.client2.get(&with_token(&boards.board)).await.ok_json();
     assert_eq!(blocks.len(), 3, "the token counts for a non-member");
 
-    let wrong = format!("{}?readToken=wrong", blocks_path(&boards.board.id));
-    let response = anonymous.get(&wrong).await;
-    response.check_unauthorized();
-    assert_eq!(
-        response.error_message(),
-        "access denied to board",
-        "a wrong token is no token"
-    );
-    th.client2
-        .get(&wrong)
-        .await
-        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
+    let wrong = format!("/shared/{}/blocks?readToken=wrong", boards.board.id);
+    for client in [&anonymous, &th.client2] {
+        client.get(&wrong).await.check_error(StatusCode::NOT_FOUND, NO_BOARD);
+    }
 
     // The token of one board opens no other board, by path or by block identifier.
     anonymous
         .get(&with_token(&boards.other_board))
         .await
-        .check_unauthorized();
+        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
     let response = anonymous
         .get(&format!(
             "{}&blockId={}",
@@ -1251,7 +1236,13 @@ async fn get_blocks_with_a_read_token() {
     // It does not let anyone write.
     let block = new_block(&boards.board.id, BlockType::Card, "");
     anonymous
-        .post(&with_token(&boards.board), &[block])
+        .post(
+            &format!(
+                "{}?readToken={read_token}",
+                blocks_path(&boards.board.id)
+            ),
+            &[block],
+        )
         .await
         .check_unauthorized();
 
@@ -1414,16 +1405,12 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
         "the parameter itself filters"
     );
 
-    // No read token: without a session the request is one without a session, and with
-    // the session of somebody who is no member the board does not exist.
+    // No read token, under any name: the board's routes are read with a session, and
+    // with the session of somebody who is no member the board does not exist.
     let read_token = th.share(&boards.board.id).await;
     let anonymous = th.anonymous();
     for route in [path.clone(), format!("/boards/{}", boards.board.id)] {
-        anonymous
-            .get(&format!("{route}?readToken={read_token}"))
-            .await
-            .check_ok();
-        for name in ["read_token", "readtoken", "ReadToken"] {
+        for name in ["readToken", "read_token", "readtoken", "ReadToken"] {
             let with_token = format!("{route}?{name}={read_token}");
             let response = anonymous.get(&with_token).await;
             response.check_unauthorized();

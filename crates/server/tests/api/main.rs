@@ -46,6 +46,7 @@ mod relation_copies;
 mod relations;
 mod search;
 mod server_lock;
+mod shared;
 mod sharing;
 mod sidebar;
 mod sidebar_messages;

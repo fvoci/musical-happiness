@@ -281,7 +281,7 @@ async fn a_valid_shared_link_reads_the_board_in_its_own_organization() {
     );
     let response = ts
         .anonymous()
-        .get(&format!("/boards/{}?readToken={}", board.id, sharing.token))
+        .get(&format!("/shared/{}?readToken={}", board.id, sharing.token))
         .await;
     ts.teardown().await;
 

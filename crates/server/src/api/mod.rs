@@ -23,6 +23,7 @@ mod onboarding;
 mod org;
 mod search;
 mod session;
+mod shared;
 mod sharing;
 mod subscriptions;
 mod system;
@@ -54,7 +55,7 @@ pub(crate) use body::{
     take_patch_bodies,
 };
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
-pub(crate) use session::{OptionalSession, RequiredSession};
+pub(crate) use session::RequiredSession;
 
 use limits::{
     BodyLimit, SessionBodyLimit, UNAUTHENTICATED_BODY_LIMIT, limit_request_body,
@@ -87,6 +88,8 @@ struct Routes {
     unauthenticated: OpenApiRouter<App>,
     /// The routes that take files.
     uploads: OpenApiRouter<App>,
+    /// The routes of a shared board, read with its read token: they look at no session.
+    shared: OpenApiRouter<App>,
 }
 
 /// Every route under [`PREFIX`]. The router and the contract are both made from this.
@@ -124,6 +127,7 @@ fn routes() -> Routes {
         json,
         unauthenticated,
         uploads,
+        shared: shared::routes(),
     }
 }
 
@@ -151,19 +155,26 @@ pub fn router(app: &App) -> Router<App> {
     // (`upload_part_bytes`) as it is read, and a part of an upload to its size. An
     // archive comes as an upload in parts; its import is a JSON request.
     let uploads = Router::from(routes.uploads);
+    // A shared board is read as anybody with its link reads it: a session that comes
+    // along is not looked at, not even to be renewed.
+    let shared = Router::from(routes.shared).layer(middleware::from_fn_with_state(
+        UNAUTHENTICATED_BODY_LIMIT,
+        limit_request_body,
+    ));
 
     Router::new()
         .merge(json)
         .merge(unauthenticated)
         .merge(uploads)
-        // The limits above are the ones that count, and they answer in the API's own
-        // shape; the framework's limit of 2 MB on what an extractor reads would cut in
-        // below them with an answer of its own.
-        .layer(DefaultBodyLimit::disable())
         .route_layer(middleware::from_fn_with_state(
             app.clone(),
             session::renew_session_cookie,
         ))
+        .merge(shared)
+        // The limits above are the ones that count, and they answer in the API's own
+        // shape; the framework's limit of 2 MB on what an extractor reads would cut in
+        // below them with an answer of its own.
+        .layer(DefaultBodyLimit::disable())
         .route_layer(middleware::from_fn_with_state(
             app.clone(),
             guard_against_forgery,
@@ -321,20 +332,3 @@ pub(crate) fn duplicate_as(query: Option<&str>) -> DuplicateAs {
 
 /// The value of a query flag that is set.
 pub(crate) const TRUE: &str = "true";
-
-/// The application for a request that carries a read token valid for the board: it
-/// reaches the board's own organization, and the handler goes on with it. `None` if
-/// the request carries no such token.
-///
-/// # Errors
-///
-/// Returns the store's error if the board's sharing cannot be read: that is no "no",
-/// and answered as one it would tell a reader with a good link that the link is dead.
-pub(crate) async fn by_read_token(
-    app: &App,
-    query: Option<&str>,
-    board_id: &str,
-) -> Result<Option<App>, AppError> {
-    app.enter_shared_board(board_id, &query_param(query, "readToken"))
-        .await
-}

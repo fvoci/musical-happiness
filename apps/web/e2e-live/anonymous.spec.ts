@@ -68,7 +68,7 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
   // Read with the read token alone, signed in as nobody.
   const anonymous = await request.newContext({ baseURL: base });
   const [block] = (await (
-    await anonymous.get(`/api/v1/boards/${board.boardId}/blocks`, {
+    await anonymous.get(`/api/v1/shared/${board.boardId}/blocks`, {
       params: { readToken: shared.token ?? '', blockId: cardId },
     })
   ).json()) as Schemas['Block'][];

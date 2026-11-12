@@ -678,13 +678,13 @@ async fn a_read_token_opens_its_board_in_the_boards_organization_and_no_other() 
     // Without a session, and with the session of a user of another organization.
     for client in [ts.anonymous(), ts.client.clone()] {
         let board: Board = client
-            .get(&format!("/boards/{shared}?readToken={token}"))
+            .get(&format!("/shared/{shared}?readToken={token}"))
             .await
             .ok_json();
         assert_eq!(board.id, shared, "the board");
         for part in ["blocks", "cards"] {
             let listed: Vec<Value> = client
-                .get(&format!("/boards/{shared}/{part}?readToken={token}"))
+                .get(&format!("/shared/{shared}/{part}?readToken={token}"))
                 .await
                 .ok_json();
             let listed: Vec<&Value> = listed.iter().map(|one| &one["id"]).collect();
@@ -693,11 +693,11 @@ async fn a_read_token_opens_its_board_in_the_boards_organization_and_no_other() 
     }
     // The token is the one board's.
     for path in [
-        format!("/boards/{}?readToken={token}", other.id),
-        format!("/boards/{}/blocks?readToken={token}", other.id),
-        format!("/boards/{}/cards?readToken={token}", other.id),
+        format!("/shared/{}?readToken={token}", other.id),
+        format!("/shared/{}/blocks?readToken={token}", other.id),
+        format!("/shared/{}/cards?readToken={token}", other.id),
     ] {
-        ts.anonymous().get(&path).await.check_unauthorized();
+        ts.anonymous().get(&path).await.check_not_found();
         ts.client.get(&path).await.check_not_found();
     }
     ts.teardown().await;
