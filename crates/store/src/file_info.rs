@@ -185,8 +185,8 @@ pub(crate) async fn save_file_info(
 
 /// The records of every file of a board, oldest first, held on PostgreSQL until the
 /// transaction ends: the board's deletion takes them to the trash, and a collection of
-/// the files no block shows that removes one of them meanwhile waits, then finds it
-/// gone with the board; or it went before, and is not taken to the trash.
+/// the files no block shows skips them meanwhile (PostgreSQL); or it took one before,
+/// and that one is not taken to the trash.
 pub(crate) async fn file_infos_of_board(
     scope: &mut Scope<'_>,
     board_id: &str,

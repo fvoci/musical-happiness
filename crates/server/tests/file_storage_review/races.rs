@@ -11,7 +11,7 @@ use fvoci_store::Store;
 use crate::common::Setup;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_overlapping_worker_cannot_delete_a_replacement_recorded_after_its_hold_query() {
+async fn an_overlapping_worker_without_the_lock_of_the_server_does_not_run() {
     let ts = Setup::native().start().await.init_basic().await;
     let file = crate::recorded(&ts).await;
     let housekeeping = ts.app.housekeeping();

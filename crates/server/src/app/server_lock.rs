@@ -162,11 +162,8 @@ pub(crate) async fn take_server_lock(
     let started = Instant::now();
     let mut said = false;
     loop {
-        let left = wait.saturating_sub(started.elapsed());
-        let tried = tokio::time::timeout(TRY_TIMEOUT.min(left.max(TRY_EVERY)), async {
-            store.try_lock_server(&holder).await
-        })
-        .await;
+        // Each try has its own time, also the one try of no wait.
+        let tried = tokio::time::timeout(TRY_TIMEOUT, store.try_lock_server(&holder)).await;
         let error = match tried {
             Ok(Ok(Some(lock))) => return Ok(lock),
             Ok(Ok(None)) => None,

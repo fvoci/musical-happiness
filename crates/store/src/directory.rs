@@ -257,7 +257,11 @@ impl Store {
     /// or an upload session. Asked once a process: the store takes no such row since
     /// it has the rule, and while one is there nothing is removed
     /// ([`Store::held_objects`]). One found is logged with its place.
-    pub(crate) async fn other_spellings_stored(&self) -> Result<bool, StoreError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn other_spellings_stored(&self) -> Result<bool, StoreError> {
         let found = self
             .inner
             .other_spellings

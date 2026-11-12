@@ -76,9 +76,9 @@ impl Store {
 pub enum NewImages {
     /// Each is a file of the block's board, asked in the write's transaction, and its
     /// record is held until the write ends: the collector of unreferenced files
-    /// ([`Store::collect_unreferenced_files`]) waits for it, or took the record first
-    /// and the write is refused with [`BlockError::ImageWithoutFile`]. For what a
-    /// client writes.
+    /// ([`Store::collect_unreferenced_files`]) skips it, or took the record first and
+    /// the write is refused with [`BlockError::ImageWithoutFile`]. For what a client
+    /// writes.
     Recorded,
     /// Not asked: for a write that copies blocks and points their images at copies of
     /// their files afterwards, as a duplicate and an import do.

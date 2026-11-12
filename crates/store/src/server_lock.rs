@@ -29,20 +29,22 @@ const LOCK_CLASS: i32 = i32::from_be_bytes(*b"fvoc");
 const SCHEMA_KEY: &str = "hashtext(COALESCE(current_schema(), ''))";
 
 /// The condition on `pg_locks` (as `l`) that is a lock of a server of this database
-/// whose second key is `$1`.
-const THE_LOCK: &str = "l.locktype = 'advisory' AND l.granted \
-     AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database()) \
-     AND l.classid = 1719037795::oid AND l.objid = ($1)::int4::oid AND l.objsubid = 2";
+/// whose second key is `key`, an expression.
+fn the_lock(key: &str) -> String {
+    format!(
+        "l.locktype = 'advisory' AND l.granted \
+         AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database()) \
+         AND l.classid = {LOCK_CLASS}::oid AND l.objid = ({key})::int4::oid AND l.objsubid = 2"
+    )
+}
 
 /// How the database server keeps the connection that holds the lock: it asks the
 /// client every few seconds once the connection is quiet, so that the lock of a server
 /// whose host went away is let go in about half a minute, not in the hours of the
-/// system's defaults.
-const KEEPALIVES: [(&str, &str); 3] = [
-    ("tcp_keepalives_idle", "10"),
-    ("tcp_keepalives_interval", "5"),
-    ("tcp_keepalives_count", "3"),
-];
+/// system's defaults. Set once connected, not in the startup packet, which some
+/// poolers refuse to carry settings in.
+const KEEPALIVES: &str = "SET tcp_keepalives_idle = 10; SET tcp_keepalives_interval = 5; \
+     SET tcp_keepalives_count = 3";
 
 /// The lock of the server of a database, held until it is released or dropped (see the
 /// module).
@@ -87,11 +89,9 @@ impl Store {
     pub async fn try_lock_server(&self, holder: &str) -> Result<Option<ServerLock>, StoreError> {
         let held = match &self.inner.pool {
             Pool::Postgres(pool) => {
-                let options = (*pool.connect_options())
-                    .clone()
-                    .application_name(holder)
-                    .options(KEEPALIVES);
+                let options = (*pool.connect_options()).clone().application_name(holder);
                 let mut conn = PgConnection::connect_with(&options).await?;
+                sqlx::raw_sql(KEEPALIVES).execute(&mut conn).await?;
                 // The key of the schema now, which stays the lock's.
                 let key: i32 =
                     sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT {SCHEMA_KEY}")))
@@ -135,7 +135,7 @@ impl Store {
             return self
                 .with_conn(async |scope| {
                     // Of a session of another role, only the backend may be shown.
-                    let lock = THE_LOCK.replace("$1", SCHEMA_KEY);
+                    let lock = the_lock(SCHEMA_KEY);
                     let sql = scope.sql(&format!(
                         "SELECT concat_ws(', ', NULLIF(a.application_name, ''), \
                          'backend ' || l.pid, 'connected since ' || a.backend_start::text) \
@@ -197,7 +197,8 @@ impl ServerLock {
                 let mut conn = conn.lock().await;
                 let held: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                     "SELECT EXISTS (SELECT 1 FROM pg_locks l \
-                     WHERE l.pid = pg_backend_pid() AND {THE_LOCK})"
+                     WHERE l.pid = pg_backend_pid() AND {})",
+                    the_lock("$1")
                 )))
                 .bind(*key)
                 .fetch_one(&mut *conn)
@@ -232,8 +233,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_lock_class_is_the_one_the_queries_name() {
+    fn the_lock_class_is_fvoc() {
         assert_eq!(LOCK_CLASS, 1_719_037_795);
-        assert!(THE_LOCK.contains(&LOCK_CLASS.to_string()));
+        assert!(the_lock("$1").contains("1719037795::oid"));
     }
 }

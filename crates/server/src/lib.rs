@@ -59,6 +59,9 @@ pub const BASE_PATH_ENV: &str = "FVOCI_HTTP_SERVER_BASEPATH";
 /// How long shutdown waits for requests that are still being answered.
 const CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long shutdown waits for the connections of the database to be given back.
+const STORE_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// How long shutdown waits for notifications that are still being sent.
 const BACKGROUND_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -435,9 +438,17 @@ impl Server {
         {
             tracing::warn!("background notifications did not finish before shutdown");
         }
-        self.app.store().close().await;
-        // Last: a request still under way after the drain writes nothing once the
-        // store is closed, and the next server may then clean up.
+        // A connection that is not given back (a request or an import still under way
+        // after the drain) holds the close up only so long: the lock goes then all the
+        // same, so that a restart is not refused.
+        if tokio::time::timeout(STORE_CLOSE_TIMEOUT, self.app.store().close())
+            .await
+            .is_err()
+        {
+            tracing::warn!("connections of the database still in use at shutdown");
+        }
+        // Last: a request still under way after that writes nothing once the store is
+        // closed, and the next server may then clean up.
         if let Some(server_lock) = self.lock.take() {
             server_lock.release().await;
         }
