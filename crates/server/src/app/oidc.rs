@@ -14,7 +14,9 @@ use fvoci_model::{
     LoginOptions, OidcProvider, OidcProviderSettings, RefusalReason, Refusals, Session, User,
     display_name, is_email_valid, new_id,
 };
-use fvoci_store::{Identity, LoginFlow, StoreError, StoredProvider, Taken};
+use fvoci_store::{
+    Identity, LoginFlow, OidcAccount, OidcRefusal, StoreError, StoredProvider, Taken,
+};
 use subtle::ConstantTimeEq as _;
 
 use super::App;
@@ -24,7 +26,7 @@ use crate::auth::oidc::provider::{
     self, Client, Discovery, Expected, Grant, IdClaims, ProviderError,
 };
 use crate::auth::secret::{new_secret, token_digest};
-use crate::error::{AppError, ErrorKind, Reason};
+use crate::error::{AppError, Reason};
 
 /// The path, under the server's address, that a provider sends a browser back to: one
 /// for every organization.
@@ -45,8 +47,6 @@ const USERNAME_MAX_CHARS: usize = 64;
 pub enum LoginFailure {
     /// The reason, one of the `Oidc…` ones.
     Reason(Reason),
-    /// Too many sign-ins from where this one comes from.
-    RateLimited,
 }
 
 impl LoginFailure {
@@ -54,7 +54,6 @@ impl LoginFailure {
     pub fn name(self) -> String {
         match self {
             Self::Reason(reason) => reason.name(),
-            Self::RateLimited => ErrorKind::RateLimited.name().to_owned(),
         }
     }
 }
@@ -262,22 +261,30 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`Reason::OidcUnavailable`] if the organization has no provider that is
-    /// on or it cannot be reached, and [`LoginFailure::RateLimited`] for too many
-    /// sign-ins from `address`.
+    /// Returns 409 with [`Reason::OidcUnavailable`] if the organization has no provider
+    /// that is on or it cannot be reached, and 429 for too many sign-ins from `address`.
     pub async fn start_oidc_login(
         &self,
         org_id: &str,
         address: Option<IpAddr>,
-    ) -> Result<StartedLogin, LoginFailure> {
+    ) -> Result<StartedLogin, AppError> {
         // Counted against the address as a login is, and let go at once: the requests
         // to the provider below are no password work, and must not keep the address's
         // other logins waiting.
         drop(
             self.login_limiter()
                 .admit_registration(address, Instant::now())
-                .map_err(|RetryAfter(_)| LoginFailure::RateLimited)?,
+                .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?,
         );
+        self.start(org_id)
+            .await
+            .map_err(|LoginFailure::Reason(reason)| {
+                AppError::conflict("no sign-in through the organization's provider can start now")
+                    .with_reason(reason)
+            })
+    }
+
+    async fn start(&self, org_id: &str) -> Result<StartedLogin, LoginFailure> {
         let unavailable = LoginFailure::Reason(Reason::OidcUnavailable);
         self.organization_in_use(org_id).await?;
         let org = self.enter_org_for_sign_in(org_id).ok_or(unavailable)?;
@@ -410,28 +417,17 @@ impl App {
         let claims = self
             .checked_claims(&discovery, &stored, secret.as_deref(), flow, &callback.code)
             .await?;
-        let user = org.account_of(&claims, &stored).await?;
-
         let token = new_secret();
         let now = now_millis();
-        let session = Session {
+        let mut session = Session {
             id: new_id(),
-            user_id: user.id.clone(),
             created_at: now,
             expires_at: now.saturating_add(self.config().session_max_millis()),
             user_agent: user_agent.to_owned(),
-            login_provider_id: Some(stored.id.clone()),
             ..Session::default()
         };
-        let stored_session = self
-            .store()
-            .create_session(&session, &token_digest(&token), &user.password_hash)
-            .await
-            .map_err(|error| logged(&error, "storing the session"))?;
-        if !stored_session {
-            // Deactivated, or given a password, while signing in.
-            return Err(unavailable);
-        }
+        org.sign_in_through(&claims, &stored, &mut session, &token_digest(&token))
+            .await?;
         Ok(FinishedLogin { token })
     }
 
@@ -506,14 +502,19 @@ impl App {
         .map_err(|error| provider_failure(&error, Reason::OidcTokenInvalid))
     }
 
-    /// The account the provider vouches for, a member of the handle's organization:
-    /// the one of the identity, which joins the organization if it is no member and the
-    /// provider lets newcomers in, or else a new account.
-    async fn account_of(
+    /// Signs the person the provider vouches for in, a member of the handle's
+    /// organization: to the account of the identity, which joins the organization if it
+    /// is no member and the provider lets newcomers in, or else to a new account; and
+    /// stores `session` for it under `digest`. What decides is read again when that is
+    /// stored (`Store::finish_oidc_sign_in`): the provider may have changed while the
+    /// person was at it.
+    async fn sign_in_through(
         &self,
         claims: &IdClaims,
         stored: &StoredProvider,
-    ) -> Result<User, LoginFailure> {
+        session: &mut Session,
+        digest: &str,
+    ) -> Result<(), LoginFailure> {
         let identity = Identity {
             issuer: &claims.issuer,
             subject: &claims.subject,
@@ -524,8 +525,7 @@ impl App {
             .await
             .map_err(|error| logged(&error, "looking up an identity"))?;
         if let Some(user) = found {
-            self.let_in(&user, stored).await?;
-            return Ok(user);
+            return self.let_in(&user, stored, session, digest).await;
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         if self
@@ -558,43 +558,46 @@ impl App {
             Err(error) if error.is_not_found() => {}
             Err(error) => return Err(logged(&error, "looking up an email address")),
         }
-        self.make_account(claims, identity, email, stored).await
+        self.make_account(claims, identity, email, stored, session, digest)
+            .await
     }
 
-    /// Makes a member of the handle's organization of an account that is no member,
-    /// if the provider lets newcomers in.
-    async fn let_in(&self, user: &User, stored: &StoredProvider) -> Result<(), LoginFailure> {
-        let member = self
+    /// Signs in to the account of the identity, which joins the handle's organization
+    /// if it is no member and the provider lets newcomers in.
+    async fn let_in(
+        &self,
+        user: &User,
+        stored: &StoredProvider,
+        session: &mut Session,
+        digest: &str,
+    ) -> Result<(), LoginFailure> {
+        let account = OidcAccount::Known {
+            user_id: &user.id,
+            password_hash: &user.password_hash,
+        };
+        let joined = self
             .store()
-            .is_organization_member(&user.id)
+            .finish_oidc_sign_in(&stored.id, account, session, digest)
             .await
-            .map_err(|error| logged(&error, "reading a membership"))?;
-        if member {
-            return Ok(());
-        }
-        if !stored.auto_join {
-            return Err(Reason::OidcJoinClosed.into());
-        }
-        if self
-            .store()
-            .join_organization_through_oidc(&user.id)
-            .await
-            .map_err(|error| logged(&error, "letting an account into an organization"))?
-        {
+            .map_err(|error| logged(&error, "storing a sign-in"))?
+            .map_err(|refusal| refused(refusal, stored))?;
+        if joined {
             tracing::info!(user_id = %user.id, org_id = %stored.org_id, "an account joined the organization by signing in through its provider");
         }
         Ok(())
     }
 
     /// Makes the account of a person who signs in for the first time, a member of the
-    /// handle's organization and its default workspace.
+    /// handle's organization and its default workspace, and signs in to it.
     async fn make_account(
         &self,
         claims: &IdClaims,
         identity: Identity<'_>,
         email: &str,
         stored: &StoredProvider,
-    ) -> Result<User, LoginFailure> {
+        session: &mut Session,
+        digest: &str,
+    ) -> Result<(), LoginFailure> {
         let base = username_base(claims, email);
         for attempt in 0..3 {
             let username = if attempt == 0 {
@@ -618,16 +621,22 @@ impl App {
                     .unwrap_or_default(),
                 ..User::default()
             };
+            let account = OidcAccount::New {
+                user: &mut user,
+                identity,
+                provider_email: email,
+            };
             match self
                 .store()
-                .create_oidc_user(&mut user, identity, email)
+                .finish_oidc_sign_in(&stored.id, account, session, digest)
                 .await
             {
-                Ok(()) => {
+                Ok(Ok(_)) => {
                     self.metrics().registered();
                     tracing::info!(user_id = %user.id, org_id = %stored.org_id, issuer = %stored.issuer, "an account was made at its first sign-in through a provider, and joined the organization");
-                    return Ok(user);
+                    return Ok(());
                 }
+                Ok(Err(refusal)) => return Err(refused(refusal, stored)),
                 Err(StoreError::Conflict(Taken::Username)) => {}
                 // Another sign-in of the same person made the account a moment ago.
                 Err(StoreError::Conflict(Taken::Identity)) => {
@@ -637,14 +646,28 @@ impl App {
                         .await
                         .map_err(|error| logged(&error, "looking up an identity"))?
                         .ok_or(Reason::OidcUnavailable)?;
-                    self.let_in(&user, stored).await?;
-                    return Ok(user);
+                    return self.let_in(&user, stored, session, digest).await;
                 }
                 Err(error) => return Err(logged(&error, "storing a new account")),
             }
         }
         tracing::warn!("no free user name was found for a new account");
         Err(Reason::OidcUnavailable.into())
+    }
+}
+
+/// The failure of a sign-in that the store refused at its end, logged.
+fn refused(refusal: OidcRefusal, stored: &StoredProvider) -> LoginFailure {
+    match refusal {
+        OidcRefusal::ProviderGone => {
+            tracing::info!(org_id = %stored.org_id, "the provider was switched off or changed while a sign-in through it was under way");
+            Reason::OidcUnavailable.into()
+        }
+        OidcRefusal::JoinClosed => Reason::OidcJoinClosed.into(),
+        OidcRefusal::AccountChanged => {
+            tracing::info!(org_id = %stored.org_id, "an account was deleted or given a password while signing in through a provider");
+            Reason::OidcUnavailable.into()
+        }
     }
 }
 

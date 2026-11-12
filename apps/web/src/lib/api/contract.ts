@@ -44,20 +44,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
          * Start signing in through a provider
-         * @description For a browser: sends it to the provider of the organization `org` (303), with a
-         *     cookie that ties the sign-in to it, and ten minutes to come back. A browser that
-         *     says a page of another site sent it here (`Sec-Fetch-Site` other than `same-origin`
-         *     or `none`) is sent to the login page with `oidc_state_invalid`. If the
-         *     organization has no provider that is on, or it cannot be reached, the browser is
-         *     sent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the
-         *     name of its problem (`oidc-unavailable`), or `rate-limited` when this address made
-         *     too many sign-ins of late.
+         * @description For the login page of the server, as a request of its own, not an address a browser
+         *     is sent to: like every request that changes something it needs the header
+         *     `X-Requested-With: XMLHttpRequest` and no foreign `Origin`, which a page of another
+         *     site cannot send, so that no such page can sign a browser in to an account of its
+         *     choosing. Starts a sign-in for the organization `org` and answers where the page
+         *     sends the browser (the provider), with a cookie that ties the sign-in to this
+         *     browser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if
+         *     the organization has no provider that is on, or it cannot be reached; 429 when
+         *     this address made too many sign-ins of late.
          */
-        get: operations["startOidcLogin"];
-        put?: never;
-        post?: never;
+        post: operations["startOidcLogin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2673,6 +2674,11 @@ export interface components {
             /** @description The issuer: an `https` address without query or fragment. */
             issuer: string;
         };
+        /** @description A sign-in through a provider that was started: where the page sends the browser. */
+        OidcStart: {
+            /** @description The provider's address that asks the person to sign in, for this sign-in. */
+            authorizationUrl: string;
+        };
         /** @description What starting the tour answers: where the tour's board is. */
         OnboardingStart: {
             /** @description The identifier of the board the tour goes through. */
@@ -3172,16 +3178,34 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description To the provider, or to the login page. */
-            303: {
+            /** @description Started: where the browser goes. */
+            200: {
                 headers: {
-                    /** @description Where the browser goes. */
-                    Location?: string;
-                    /** @description The cookie of the sign-in, if it was started. */
+                    /** @description The cookie of the sign-in. */
                     "Set-Cookie"?: string;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["OidcStart"];
+                };
+            };
+            /** @description No provider that is on, or it cannot be reached. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many sign-ins from this address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {

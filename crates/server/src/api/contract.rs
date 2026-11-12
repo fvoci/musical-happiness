@@ -193,6 +193,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("FileInfo", Members::All),
     ("InvalidInput", Members::Only(&["detail", "reason"])),
     ("LoginOptions", Members::All),
+    ("OidcStart", Members::All),
     ("LoginOrganization", Members::All),
     ("OidcProvider", Members::All),
     ("OnboardingStart", Members::AsWritten),

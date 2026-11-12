@@ -69,13 +69,15 @@ fn location(response: &reqwest::Response) -> String {
 /// Signs in through the provider, and returns where the server sent the browser.
 async fn sign_in(http: &reqwest::Client, base: &str, root: &str, org_id: &str) -> String {
     let started = http
-        .get(format!("{base}/api/v1/auth/oidc/start?org={org_id}"))
+        .post(format!("{base}/api/v1/auth/oidc/start?org={org_id}"))
+        .header("X-Requested-With", "XMLHttpRequest")
         .send()
         .await
         .expect("an answer");
     let flow = cookie(&started, "fvoci_oidc").expect("the cookie of the sign-in");
+    let started: fvoci_model::OidcStart = started.json().await.expect("where the browser goes");
     let authorized = http
-        .get(location(&started))
+        .get(&started.authorization_url)
         .send()
         .await
         .expect("the provider answers");

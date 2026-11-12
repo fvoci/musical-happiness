@@ -213,7 +213,11 @@
     }}
     organizationOf={(orgId: string | undefined) =>
       account?.loginOrganization(orgId) ?? Promise.resolve(undefined)}
-    oidcStartUrl={(orgId: string) => account?.oidcStartUrl(orgId) ?? ''}
+    onOidcStart={async (orgId: string) => {
+      if (!account) return;
+      // Started by this page's own request; the browser then goes to the provider.
+      location.assign(await account.startOidc(orgId));
+    }}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}
   <main class="grid min-h-dvh place-items-center p-4">

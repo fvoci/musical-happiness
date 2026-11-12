@@ -32,6 +32,7 @@ mod metrics_accounts;
 mod metrics_listener;
 mod metrics_outcomes;
 mod oidc;
+mod oidc_races;
 mod onboarding;
 mod organizations;
 mod paths;

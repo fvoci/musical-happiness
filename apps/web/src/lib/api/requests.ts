@@ -44,9 +44,13 @@ export class ServerRequests implements TrashReads {
     return options.organization ?? undefined;
   }
 
-  /** A page of the server's, not a request: the browser goes there. */
-  oidcStartUrl(orgId: string): string {
-    return this.#http.url('/api/v1/auth/oidc/start', {}, { org: orgId });
+  async startOidc(orgId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OidcStart']>(
+      '/api/v1/auth/oidc/start',
+      {},
+      { method: 'POST', query: { org: orgId } },
+    );
+    return started.authorizationUrl;
   }
 
   async patchMe(patch: { displayName: string | null }): Promise<User> {

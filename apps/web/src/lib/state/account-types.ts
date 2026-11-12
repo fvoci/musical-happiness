@@ -43,6 +43,9 @@ export interface Account {
    * only one of a server that holds one; undefined for none.
    */
   loginOrganization(orgId: string | undefined): Promise<LoginOrganization | undefined>;
-  /** Where a browser goes to sign in through the organization's provider. */
-  oidcStartUrl(orgId: string): string;
+  /**
+   * Starts a sign-in through the organization's provider for this browser:
+   * the provider's address the browser is then sent to.
+   */
+  startOidc(orgId: string): Promise<string>;
 }

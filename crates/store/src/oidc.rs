@@ -6,13 +6,13 @@
 //! is nobody's. What is asked before the organization is known (which sign-in comes
 //! back, which organization a login page is for) is in `directory.rs`.
 
-use fvoci_model::{User, new_id};
+use fvoci_model::{Session, User, new_id};
 
 use crate::Store;
-use crate::db::{Id, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
-use crate::members;
 use crate::users::{InstanceRole, insert_user_row};
+use crate::{members, sessions};
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str =
@@ -254,41 +254,89 @@ impl Store {
         .await
     }
 
-    /// Stores a new account that a provider of the handle's organization vouches for
-    /// under `identity`, with no password: an empty hash, which no password matches;
-    /// and with no email address of its own: `provider_email`, the address the provider
-    /// gave, is kept with the identity, unchecked, and holds no account's place. In
-    /// the same transaction the account joins the organization and its default
-    /// workspace, as a member.
+    /// Ends a sign-in through the provider `provider_id` of the handle's organization,
+    /// in one transaction: reads the provider again, and holds it on PostgreSQL, so that
+    /// a provider switched off, removed, replaced or closed to newcomers while the
+    /// person was at the provider lets nobody in; then makes or lets in the account,
+    /// and stores `session` (for `account`'s user) under `token_digest`. Says whether
+    /// the account joined the organization, or why nothing was stored.
     ///
-    /// `user` is updated to what was stored: the current time as creation and
-    /// modification time, not deleted, no administrator of the instance, no password, no
-    /// email address.
+    /// A new account ([`OidcAccount::New`]) is stored with no password (an empty
+    /// hash, which no password matches) and no email address of its own:
+    /// `provider_email`, the address the provider gave, is kept with the identity,
+    /// unchecked, and holds no account's place. `user` is updated to what was stored:
+    /// the current time as creation and modification time, not deleted, no
+    /// administrator of the instance. It joins the organization and its default
+    /// workspace. A known account ([`OidcAccount::Known`]) joins them if it is no
+    /// member, as often as that is asked at once.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Conflict`] if another account has the name in any letter
-    /// case, or the identity is another account's already;
-    /// [`StoreError::NoOrganization`] if the handle names no organization; and [`StoreError::Database`] if a statement fails. Nothing is
-    /// stored then.
-    pub async fn create_oidc_user(
+    /// Returns [`StoreError::Conflict`] if another account has the new account's name
+    /// in any letter case, or the identity is another account's already;
+    /// [`StoreError::NoOrganization`] if the handle names no organization; and
+    /// [`StoreError::Database`] if a statement fails. Nothing is stored then.
+    pub async fn finish_oidc_sign_in(
         &self,
-        user: &mut User,
-        identity: Identity<'_>,
-        provider_email: &str,
-    ) -> Result<(), StoreError> {
+        provider_id: &str,
+        account: OidcAccount<'_>,
+        session: &mut Session,
+        token_digest: &str,
+    ) -> Result<Result<bool, OidcRefusal>, StoreError> {
         self.transaction(async |scope| {
-            let now = now_millis();
-            user.create_at = now;
-            user.update_at = now;
-            user.delete_at = 0;
-            user.is_admin = false;
-            user.password_hash = String::new();
-            user.email = String::new();
-            insert_user_row(scope, user).await?;
-            insert_identity(scope, identity, &user.id, provider_email, now).await?;
-            members::join_organization(scope, &user.id, InstanceRole::User).await?;
-            Ok(())
+            let mut sql = scope.sql("SELECT auto_join FROM oidc_providers WHERE org_id = ");
+            sql.bind(scope.org()?)
+                .push_bind(" AND id = ", Id(provider_id))
+                .push_bind(" AND enabled = ", true);
+            if scope.dialect() == Dialect::Postgres {
+                sql.push(" FOR SHARE");
+            }
+            let Some(row) = scope.fetch_optional(sql).await? else {
+                return Ok(Err(OidcRefusal::ProviderGone));
+            };
+            let auto_join = row.bool(0)?;
+            let joined = match account {
+                OidcAccount::New {
+                    user,
+                    identity,
+                    provider_email,
+                } => {
+                    if !auto_join {
+                        return Ok(Err(OidcRefusal::JoinClosed));
+                    }
+                    let now = now_millis();
+                    user.create_at = now;
+                    user.update_at = now;
+                    user.delete_at = 0;
+                    user.is_admin = false;
+                    user.password_hash = String::new();
+                    user.email = String::new();
+                    insert_user_row(scope, user).await?;
+                    insert_identity(scope, identity, &user.id, provider_email, now).await?;
+                    members::join_organization(scope, &user.id, InstanceRole::User).await?;
+                    session.user_id.clone_from(&user.id);
+                    true
+                }
+                OidcAccount::Known {
+                    user_id,
+                    password_hash,
+                } => {
+                    if !sessions::hold_unchanged_user(scope, user_id, password_hash).await? {
+                        return Ok(Err(OidcRefusal::AccountChanged));
+                    }
+                    user_id.clone_into(&mut session.user_id);
+                    if is_member(scope, user_id).await? {
+                        false
+                    } else if auto_join {
+                        members::join_organization_unless_member(scope, user_id).await?
+                    } else {
+                        return Ok(Err(OidcRefusal::JoinClosed));
+                    }
+                }
+            };
+            session.login_provider_id = Some(provider_id.to_owned());
+            sessions::insert_session(scope, session, token_digest).await?;
+            Ok(Ok(joined))
         })
         .await
     }
@@ -324,16 +372,13 @@ impl Store {
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if a statement fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn join_organization_through_oidc(&self, user_id: &str) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
-            let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
-            sql.bind(scope.org()?)
-                .push_bind(" AND user_id = ", Id(user_id));
-            if scope.fetch_optional(sql).await?.is_some() {
+            if is_member(scope, user_id).await? {
                 return Ok(false);
             }
-            members::join_organization(scope, user_id, InstanceRole::User).await?;
-            Ok(true)
+            members::join_organization_unless_member(scope, user_id).await
         })
         .await
     }
@@ -345,14 +390,50 @@ impl Store {
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if the query fails.
     pub async fn is_organization_member(&self, user_id: &str) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
-            sql.bind(scope.org()?)
-                .push_bind(" AND user_id = ", Id(user_id));
-            Ok(scope.fetch_optional(sql).await?.is_some())
-        })
-        .await
+        self.with_conn(async |scope| is_member(scope, user_id).await)
+            .await
     }
+}
+
+/// The account a sign-in through a provider ends in.
+#[derive(Debug)]
+pub enum OidcAccount<'a> {
+    /// The account of the identity, with the password hash it was read with: a
+    /// password set or the account deleted meanwhile stops the sign-in.
+    Known {
+        /// The account.
+        user_id: &'a str,
+        /// Its password hash as it was read: empty for an account without one.
+        password_hash: &'a str,
+    },
+    /// A new account for the identity, with the address the provider gave.
+    New {
+        /// The account to store; updated to what was stored.
+        user: &'a mut User,
+        /// Who the provider vouches for.
+        identity: Identity<'a>,
+        /// The address the provider gave, unchecked.
+        provider_email: &'a str,
+    },
+}
+
+/// Why a sign-in through a provider stored nothing at its end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OidcRefusal {
+    /// The provider is switched off, removed, or another one, since the sign-in began.
+    ProviderGone,
+    /// The organization lets no newcomer in through its provider.
+    JoinClosed,
+    /// The account was deleted, or given a password, while signing in.
+    AccountChanged,
+}
+
+/// Whether the user is a member of the scope's organization.
+async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
+    sql.bind(scope.org()?)
+        .push_bind(" AND user_id = ", Id(user_id));
+    Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
 async fn insert_identity(

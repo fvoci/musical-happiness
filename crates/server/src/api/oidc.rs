@@ -1,11 +1,12 @@
 //! Signing in through an organization's `OpenID Connect` provider: what the login page
 //! may know beforehand, the start, and the return from the provider.
 //!
-//! The start and the return are addresses a browser is sent to, not requests of a
-//! script: they answer with a redirect (303), to the provider, to the web app, or to
-//! the login page with the name of what went wrong in its `oidc_error` parameter. The
-//! browser that starts a sign-in gets a cookie of its own for it, and only the browser
-//! with that cookie finishes it.
+//! The start is a request of the login page, behind the API's defence against forgery:
+//! it answers where the browser goes. The return is an address the provider sends the
+//! browser to: it answers with a redirect (303), to the web app, or to the login page
+//! with the name of what went wrong in its `oidc_error` parameter. The browser that
+//! starts a sign-in gets a cookie of its own for it, and only the browser with that
+//! cookie finishes it.
 
 use axum::extract::{Extension, RawQuery, State};
 use axum::http::header::{LOCATION, SET_COOKIE};
@@ -14,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use fvoci_model::LoginOptions;
+use fvoci_model::{LoginOptions, OidcStart, Problem};
 
 use super::auth::{address_of, user_agent};
 use super::contract::params::{LoginOrg, OidcCode, OidcError, OidcState, StartOrg};
@@ -23,7 +24,6 @@ use super::{ApiResult, json_response, query_param};
 use crate::app::{App, Callback, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure};
 use crate::auth::token::{Https, cookie_value, query_value};
 use crate::client_address::ClientAddress;
-use crate::error::Reason;
 
 /// The cookie that ties a sign-in to the browser that started it, where the server is
 /// reached over HTTPS: the `__Host-` prefix keeps other hosts of the domain from
@@ -65,58 +65,50 @@ async fn handle_login_options(State(app): State<App>, RawQuery(query): RawQuery)
 
 /// Start signing in through a provider
 ///
-/// For a browser: sends it to the provider of the organization `org` (303), with a
-/// cookie that ties the sign-in to it, and ten minutes to come back. A browser that
-/// says a page of another site sent it here (`Sec-Fetch-Site` other than `same-origin`
-/// or `none`) is sent to the login page with `oidc_state_invalid`. If the
-/// organization has no provider that is on, or it cannot be reached, the browser is
-/// sent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the
-/// name of its problem (`oidc-unavailable`), or `rate-limited` when this address made
-/// too many sign-ins of late.
+/// For the login page of the server, as a request of its own, not an address a browser
+/// is sent to: like every request that changes something it needs the header
+/// `X-Requested-With: XMLHttpRequest` and no foreign `Origin`, which a page of another
+/// site cannot send, so that no such page can sign a browser in to an account of its
+/// choosing. Starts a sign-in for the organization `org` and answers where the page
+/// sends the browser (the provider), with a cookie that ties the sign-in to this
+/// browser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if
+/// the organization has no provider that is on, or it cannot be reached; 429 when
+/// this address made too many sign-ins of late.
 #[utoipa::path(
-    get,
+    post,
     path = "/auth/oidc/start",
     operation_id = "startOidcLogin",
     tag = tag::AUTH,
     params(StartOrg),
     security(()),
-    responses((
-        status = 303,
-        description = "To the provider, or to the login page.",
-        headers(
-            ("Location" = String, description = "Where the browser goes."),
-            ("Set-Cookie" = String, description = "The cookie of the sign-in, if it was started."),
+    responses(
+        (
+            status = 200,
+            description = "Started: where the browser goes.",
+            body = OidcStart,
+            headers(("Set-Cookie" = String, description = "The cookie of the sign-in.")),
         ),
-    )),
+        (status = 409, description = "No provider that is on, or it cannot be reached.", body = Problem),
+        (status = 429, description = "Too many sign-ins from this address.", body = Problem),
+    ),
 )]
 async fn handle_start(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
-    headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let org_id = query_param(query.as_deref(), "org");
-    if sent_from_another_site(&headers) {
-        tracing::info!("a sign-in through a provider was started from another site");
-        return Ok(to_login_page(
-            &app,
-            Some(&org_id),
-            LoginFailure::Reason(Reason::OidcStateInvalid),
-        ));
-    }
-    match app.start_oidc_login(&org_id, address_of(client)).await {
-        Ok(started) => {
-            let mut response = see_other(&started.authorization_url);
-            let cookie = flow_cookie(
-                &app,
-                &started.browser_secret,
-                LOGIN_FLOW_LIFETIME_MILLIS / 1000,
-            );
-            response.headers_mut().append(SET_COOKIE, cookie);
-            Ok(response)
-        }
-        Err(failure) => Ok(to_login_page(&app, Some(&org_id), failure)),
-    }
+    let started = app.start_oidc_login(&org_id, address_of(client)).await?;
+    let mut response = json_response(&OidcStart {
+        authorization_url: started.authorization_url,
+    });
+    let cookie = flow_cookie(
+        &app,
+        &started.browser_secret,
+        LOGIN_FLOW_LIFETIME_MILLIS / 1000,
+    );
+    response.headers_mut().append(SET_COOKIE, cookie);
+    Ok(response)
 }
 
 /// Come back from a provider
@@ -180,20 +172,6 @@ async fn handle_callback(
         .headers_mut()
         .append(SET_COOKIE, flow_cookie(&app, "", 0));
     Ok(response)
-}
-
-/// Whether a browser says it was sent here by a page of another site
-/// (`Sec-Fetch-Site`). A sign-in started so could be another's: a page of theirs would
-/// send the browser through a provider that lets anybody in as the one person they
-/// chose, and the browser would come back signed in to that account. A start comes
-/// from the server's own login page, or from an address the person typed or followed
-/// from outside a page (`none`). A client that sends no such header is no browser that
-/// a page could send.
-fn sent_from_another_site(headers: &HeaderMap) -> bool {
-    headers
-        .get("sec-fetch-site")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|site| !matches!(site, "same-origin" | "none"))
 }
 
 /// A redirect to `location`, which the server made: always a valid header value.

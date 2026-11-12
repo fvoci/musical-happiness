@@ -1651,6 +1651,19 @@
         ],
         "type": "object"
       },
+      "OidcStart": {
+        "description": "A sign-in through a provider that was started: where the page sends the browser.",
+        "properties": {
+          "authorizationUrl": {
+            "description": "The provider's address that asks the person to sign in, for this sign-in.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorizationUrl"
+        ],
+        "type": "object"
+      },
       "OnboardingStart": {
         "description": "What starting the tour answers: where the tour's board is.",
         "properties": {
@@ -2721,8 +2734,8 @@
       }
     },
     "/api/v1/auth/oidc/start": {
-      "get": {
-        "description": "For a browser: sends it to the provider of the organization `org` (303), with a\ncookie that ties the sign-in to it, and ten minutes to come back. A browser that\nsays a page of another site sent it here (`Sec-Fetch-Site` other than `same-origin`\nor `none`) is sent to the login page with `oidc_state_invalid`. If the\norganization has no provider that is on, or it cannot be reached, the browser is\nsent to the login page with the reason `oidc_unavailable` in `oidc_error`, by the\nname of its problem (`oidc-unavailable`), or `rate-limited` when this address made\ntoo many sign-ins of late.",
+      "post": {
+        "description": "For the login page of the server, as a request of its own, not an address a browser\nis sent to: like every request that changes something it needs the header\n`X-Requested-With: XMLHttpRequest` and no foreign `Origin`, which a page of another\nsite cannot send, so that no such page can sign a browser in to an account of its\nchoosing. Starts a sign-in for the organization `org` and answers where the page\nsends the browser (the provider), with a cookie that ties the sign-in to this\nbrowser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if\nthe organization has no provider that is on, or it cannot be reached; 429 when\nthis address made too many sign-ins of late.",
         "operationId": "startOidcLogin",
         "parameters": [
           {
@@ -2736,22 +2749,43 @@
           }
         ],
         "responses": {
-          "303": {
-            "description": "To the provider, or to the login page.",
-            "headers": {
-              "Location": {
-                "description": "Where the browser goes.",
+          "200": {
+            "content": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/OidcStart"
                 }
-              },
+              }
+            },
+            "description": "Started: where the browser goes.",
+            "headers": {
               "Set-Cookie": {
-                "description": "The cookie of the sign-in, if it was started.",
+                "description": "The cookie of the sign-in.",
                 "schema": {
                   "type": "string"
                 }
               }
             }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "No provider that is on, or it cannot be reached."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many sign-ins from this address."
           },
           "default": {
             "content": {

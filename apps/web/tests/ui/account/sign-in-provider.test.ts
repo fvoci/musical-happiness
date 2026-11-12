@@ -1,49 +1,67 @@
 /**
- * The sign-in page and the organization's provider: the button that continues
- * through it, named after the organization, for the organization the address
- * names; and what a sign-in that came back refused is told as.
+ * The sign-in page and the organization's provider: the button that starts a
+ * sign-in through it (a request of the page, not an address another page could
+ * send a browser to), named after the organization, for the organization the
+ * address names; and what a start or a sign-in that came back refused is told as.
  */
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import SignInPage from '$lib/features/account/SignInPage.svelte';
-import type { LoginOrganization } from '$lib/state/index.ts';
+import { BackendError, type LoginOrganization } from '$lib/state/index.ts';
 
 afterEach(() => {
   cleanup();
   history.replaceState(null, '', '/');
 });
 
-function mount(address: string, found: LoginOrganization | undefined) {
+function mount(
+  address: string,
+  found: LoginOrganization | undefined,
+  start: (orgId: string) => Promise<void> = () => Promise.resolve(),
+) {
   history.replaceState(null, '', address);
   const organizationOf = vi.fn(async (_orgId: string | undefined) => found);
+  const onOidcStart = vi.fn(start);
   render(SignInPage, {
     props: {
       onSignIn: vi.fn(() => Promise.resolve()),
       onRegister: vi.fn(() => Promise.resolve()),
       organizationOf,
-      oidcStartUrl: (orgId: string) => `/api/v1/auth/oidc/start?org=${orgId}`,
+      onOidcStart,
     },
   });
-  return { organizationOf };
+  return { organizationOf, onOidcStart };
 }
 
 describe('the provider of the organization on the sign-in page', () => {
-  it('is a link named after the organization, to the start of a sign-in for it', async () => {
-    const { organizationOf } = mount('/login?org=org-1', {
+  it('is a button named after the organization that starts a sign-in for it', async () => {
+    const { organizationOf, onOidcStart } = mount('/login?org=org-1', {
       id: 'org-1',
       name: 'Acme',
       oidc: true,
     });
-    const button = await screen.findByRole('link', { name: 'Continue with Acme' });
-    expect(button).toHaveAttribute('href', '/api/v1/auth/oidc/start?org=org-1');
+    const button = await screen.findByRole('button', { name: 'Continue with Acme' });
+    expect(button).not.toHaveAttribute('href');
     expect(organizationOf).toHaveBeenCalledWith('org-1');
+    await fireEvent.click(button);
+    expect(onOidcStart).toHaveBeenCalledExactlyOnceWith('org-1');
+  });
+
+  it('says why a start was refused', async () => {
+    mount('/login?org=org-1', { id: 'org-1', name: 'Acme', oidc: true }, () =>
+      Promise.reject(new BackendError(409, { detail: 'no', reason: 'oidc_unavailable' })),
+    );
+    await fireEvent.click(await screen.findByRole('button', { name: 'Continue with Acme' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Signing in through the provider did not work. Try again, or ask the organization's administrator.",
+    );
   });
 
   it('asks for the server’s only organization when the address names none, or an empty one', async () => {
     const { organizationOf } = mount('/login?org=', { id: 'only', name: '', oidc: true });
     expect(
-      await screen.findByRole('link', { name: 'Continue with single sign-on' }),
+      await screen.findByRole('button', { name: 'Continue with single sign-on' }),
     ).toBeInTheDocument();
     expect(organizationOf).toHaveBeenCalledWith(undefined);
   });

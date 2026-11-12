@@ -36,11 +36,14 @@
     onRegister: (registration: Registration) => Promise<void>;
     /** The organization the page is for (`Account.loginOrganization`). */
     organizationOf?: (orgId: string | undefined) => Promise<LoginOrganization | undefined>;
-    /** Where the browser goes to sign in through a provider (`Account.oidcStartUrl`). */
-    oidcStartUrl?: (orgId: string) => string;
+    /**
+     * Starts a sign-in through the provider and sends the browser to it
+     * (`Account.startOidc`); a refusal of the start rejects.
+     */
+    onOidcStart?: (orgId: string) => Promise<void>;
   }
 
-  let { onSignIn, onRegister, organizationOf, oidcStartUrl }: Props = $props();
+  let { onSignIn, onRegister, organizationOf, onOidcStart }: Props = $props();
 
   /** What the page's address says: the organization, and what went wrong. */
   const address = new URLSearchParams(location.search);
@@ -70,8 +73,6 @@
         return m.account_oidc_email_taken();
       case 'oidc-join-closed':
         return m.account_oidc_join_closed();
-      case 'rate-limited':
-        return m.account_rate_limited();
       default:
         return m.account_oidc_failed();
     }
@@ -190,6 +191,23 @@
     return m.account_failed();
   }
 
+  /** Starts a sign-in through the organization's provider; says why it did not. */
+  async function startOidc(orgId: string): Promise<void> {
+    if (working || !onOidcStart) return;
+    working = true;
+    problem = undefined;
+    try {
+      await onOidcStart(orgId);
+    } catch (error) {
+      problem =
+        isBackendError(error) && error.reason === 'oidc_unavailable'
+          ? m.account_oidc_failed()
+          : problemOf(error);
+    } finally {
+      working = false;
+    }
+  }
+
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     if (working) return;
@@ -267,11 +285,13 @@
       </h1>
     </div>
 
-    {#if mode === 'signIn' && oidcStartUrl}
+    {#if mode === 'signIn' && onOidcStart}
       {#await organization then found}
         {#if found}
           <Button
-            href={oidcStartUrl(found.id)}
+            type="button"
+            onclick={() => void startOidc(found.id)}
+            disabled={working}
             variant="outline"
             class="roomy:min-h-touch"
             data-testid="oidc-continue"

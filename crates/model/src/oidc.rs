@@ -145,6 +145,14 @@ pub struct LoginOrganization {
     pub oidc: bool,
 }
 
+/// A sign-in through a provider that was started: where the page sends the browser.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcStart {
+    /// The provider's address that asks the person to sign in, for this sign-in.
+    pub authorization_url: String,
+}
+
 /// What the login page shows: the organization it is for, if it is for one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]

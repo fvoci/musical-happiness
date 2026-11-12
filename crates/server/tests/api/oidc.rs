@@ -4,7 +4,7 @@
 //! the requests to the provider.
 
 use base64::Engine as _;
-use fvoci_model::{LoginOptions, OidcProvider, User, UserWorkspace, Workspace, new_id};
+use fvoci_model::{LoginOptions, OidcProvider, OidcStart, User, UserWorkspace, Workspace, new_id};
 use fvoci_server::app::secret_context;
 use fvoci_server::auth::sealed::SecretKey;
 use fvoci_server::auth::secret::token_digest;
@@ -132,23 +132,20 @@ impl Browser {
         }
     }
 
-    /// Starts a sign-in for the organization and lets the provider answer: the way back
-    /// to the server, or the refusal of the start.
+    /// Starts a sign-in for the organization as the login page does, and lets the
+    /// provider answer: the way back to the server, or the name of the problem the
+    /// start was refused with.
     async fn go_to_provider(&self, org_id: &str) -> Result<Returning, String> {
         let started = self
             .http
-            .get(format!(
+            .post(format!(
                 "{}/api/v1/auth/oidc/start?org={org_id}",
                 self.base_url
             ))
+            .header("X-Requested-With", "XMLHttpRequest")
             .send()
             .await
             .expect("the server answers");
-        assert_eq!(started.status(), StatusCode::SEE_OTHER, "a start sends on");
-        let location = location_of(&started);
-        if let Some(name) = refusal_of(&location) {
-            return Err(name);
-        }
         let cookie = started
             .headers()
             .get_all(reqwest::header::SET_COOKIE)
@@ -156,9 +153,16 @@ impl Browser {
             .filter_map(|value| value.to_str().ok())
             .find_map(|cookie| cookie.split(';').next()?.strip_prefix("fvoci_oidc="))
             .map(str::to_owned);
+        if !started.status().is_success() {
+            let problem: serde_json::Value = started.json().await.expect("a problem");
+            let name = problem["type"].as_str().expect("its type");
+            assert!(cookie.is_none(), "a refused start sets no cookie");
+            return Err(name.trim_start_matches("/problems/").to_owned());
+        }
+        let started: OidcStart = started.json().await.expect("where the browser goes");
         let authorized = self
             .http
-            .get(&location)
+            .get(&started.authorization_url)
             .send()
             .await
             .expect("the provider answers");
@@ -1067,7 +1071,9 @@ async fn an_address_a_provider_gave_is_still_free_to_register() {
 
 /// A sign-in started by a page of another site is not started: such a page could send
 /// a browser through a provider of its own choosing and back signed in to an account
-/// of its choosing.
+/// of its choosing. The start is a request of the login page, behind the API's defence
+/// against forgery, whatever the browser says of where it comes from; the page's own
+/// request starts one.
 #[tokio::test]
 async fn a_sign_in_is_not_started_from_another_site() {
     let fake = FakeProvider::start().await;
@@ -1075,36 +1081,40 @@ async fn a_sign_in_is_not_started_from_another_site() {
     let org_id = org_of(&ts).await;
     set_provider(&ts, &org_id, &fake).await;
     let browser = Browser::new(&ts, &fake);
-    let start = |site: &'static str| {
-        browser
+    let start = format!("{}/api/v1/auth/oidc/start?org={org_id}", browser.base_url);
+    for site in ["cross-site", "same-site", "same-origin", "none"] {
+        let navigated = browser
             .http
-            .get(format!(
-                "{}/api/v1/auth/oidc/start?org={org_id}",
-                browser.base_url
-            ))
+            .get(&start)
             .header("Sec-Fetch-Site", site)
             .send()
-    };
-    for site in ["cross-site", "same-site"] {
-        let refused = start(site).await.expect("an answer");
-        assert_eq!(refused.status(), StatusCode::SEE_OTHER);
+            .await
+            .expect("an answer");
+        assert_eq!(navigated.status(), StatusCode::METHOD_NOT_ALLOWED, "{site}");
+        let posted = browser
+            .http
+            .post(&start)
+            .header("Sec-Fetch-Site", site)
+            .send()
+            .await
+            .expect("an answer");
         assert_eq!(
-            refusal_of(&location_of(&refused)).as_deref(),
-            Some("oidc-state-invalid"),
-            "{site}"
+            posted.status(),
+            StatusCode::FORBIDDEN,
+            "{site}: no header of the page"
         );
-        assert!(
-            refused.headers().get(reqwest::header::SET_COOKIE).is_none(),
-            "{site}: no sign-in was started"
-        );
+        for answer in [&navigated, &posted] {
+            assert!(
+                answer.headers().get(reqwest::header::SET_COOKIE).is_none(),
+                "{site}: no sign-in was started"
+            );
+        }
     }
-    for site in ["same-origin", "none"] {
-        let started = start(site).await.expect("an answer");
-        assert!(
-            location_of(&started).starts_with(&fake.issuer),
-            "{site}: to the provider"
-        );
-    }
+    let returning = browser.go_to_provider(&org_id).await.expect("started");
+    assert!(
+        returning.cookie.is_some(),
+        "the page's own request starts one"
+    );
     ts.teardown().await;
     fake.stop();
 }

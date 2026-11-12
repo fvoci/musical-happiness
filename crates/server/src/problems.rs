@@ -162,10 +162,11 @@ fn describe_kind(kind: ErrorKind) -> &'static str {
 }
 
 /// The description of [`Reason::OidcUnavailable`].
-const OIDC_LOGIN_PAGE_UNAVAILABLE: &str = "On the login page: the reasons of a sign-in \
-    through an organization's provider come back in the `oidc_error` parameter of its \
-    address, by these names. This one: the organization has no provider that is on, or \
-    the provider could not be reached.";
+const OIDC_LOGIN_PAGE_UNAVAILABLE: &str = "Status 409 at the start of a sign-in through an \
+    organization's provider; on the login page after one, whose reasons come back in the \
+    `oidc_error` parameter of its address, by these names. This one: the organization has \
+    no provider that is on, or the provider could not be reached, or it was switched off \
+    or changed while the person was signing in.";
 
 fn describe_reason(reason: Reason) -> &'static str {
     match reason {
@@ -269,8 +270,7 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
         Reason::OidcStateInvalid => {
             "On the login page, after a sign-in through a provider. What came back is no \
              sign-in this browser started, or one that was used already or took longer than \
-             ten minutes; or the sign-in was started from a page of another site. Start \
-             again from the login page."
+             ten minutes. Start again from the login page."
         }
         Reason::OidcDenied => {
             "On the login page, after a sign-in through a provider: the provider sent the \
