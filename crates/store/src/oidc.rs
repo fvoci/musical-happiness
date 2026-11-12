@@ -130,6 +130,7 @@ impl Store {
     ///
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if a statement fails.
+    #[cfg(any(test, feature = "test-util"))]
     pub async fn put_oidc_provider(
         &self,
         provider: &StoredProvider,
@@ -139,14 +140,21 @@ impl Store {
             .ok_or(StoreError::NoRows)
     }
 
-    /// Stores the provider as [`Store::put_oidc_provider`] does, if the organization's
-    /// provider is still as it was read: last changed at `read_update_at`, or none for
-    /// `None`. `None` if it changed meanwhile, and nothing is stored: what was decided
-    /// from it (the secret kept, the settings kept) is to be decided again.
+    /// Stores the provider of the handle's organization, in place of the one it has, if
+    /// that one is still as it was read: last changed at `read_update_at`, or none for
+    /// `None`; and returns it as stored. `None` if it changed or was removed meanwhile,
+    /// and nothing is stored: what was decided from it (the secret kept, the settings
+    /// kept) is to be decided again. A provider whose issuer and client stay keeps its
+    /// identifier and the time it was first set; one with another issuer or client is
+    /// another provider, under a new identifier, and the sign-ins under way through the
+    /// one before end with it. `provider.id`, `org_id` and the times are the store's;
+    /// the time of a change is always later than that of the one before, so that a
+    /// reading names one state of the provider.
     ///
     /// # Errors
     ///
-    /// As [`Store::put_oidc_provider`].
+    /// Returns [`StoreError::NoOrganization`] if the handle names none, and
+    /// [`StoreError::Database`] if a statement fails.
     pub async fn put_oidc_provider_as_read(
         &self,
         provider: &StoredProvider,
@@ -162,26 +170,23 @@ impl Store {
         as_read: AsRead,
     ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
-            let now = now_millis();
-            // Two at once for one organization, one after the other: on PostgreSQL the
-            // organization's row is held (no key of it changes, so its references are
-            // not held up); on SQLite a transaction that writes holds the database.
-            if scope.dialect() == Dialect::Postgres {
-                let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
-                sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
-                scope.fetch_optional(sql).await?;
+            hold_provider_of_organization(scope).await?;
+            let mut sql = scope.sql("SELECT update_at FROM oidc_providers WHERE org_id = ");
+            sql.bind(scope.org()?);
+            let now_update_at = match scope.fetch_optional(sql).await? {
+                Some(row) => Some(row.int(0)?),
+                None => None,
+            };
+            if let AsRead::LastChangedAt(read_update_at) = as_read
+                && now_update_at != read_update_at
+            {
+                return Ok(None);
             }
-            if let AsRead::LastChangedAt(read_update_at) = as_read {
-                let mut sql = scope.sql("SELECT update_at FROM oidc_providers WHERE org_id = ");
-                sql.bind(scope.org()?);
-                let now_update_at = match scope.fetch_optional(sql).await? {
-                    Some(row) => Some(row.int(0)?),
-                    None => None,
-                };
-                if now_update_at != read_update_at {
-                    return Ok(None);
-                }
-            }
+            // Later than the change before, also within one millisecond or when the
+            // clock went back: no two states of the provider have one time.
+            let now = now_update_at.map_or(now_millis(), |before| {
+                now_millis().max(before.saturating_add(1))
+            });
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?)
                 .push_bind(" AND (issuer <> ", &provider.issuer)
@@ -222,7 +227,8 @@ impl Store {
     /// Returns [`StoreError::NoOrganization`] if the handle names none, and
     /// [`StoreError::Database`] if the statement fails.
     pub async fn delete_oidc_provider(&self) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
+            hold_provider_of_organization(scope).await?;
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
             Ok(scope.execute(sql).await? > 0)
@@ -422,6 +428,19 @@ impl Store {
         self.with_conn(async |scope| is_member(scope, user_id).await)
             .await
     }
+}
+
+/// Holds the provider of the transaction's organization, there or not, until the
+/// transaction ends: changes and removals of it are one after the other. On PostgreSQL
+/// the organization's row is held (no key of it changes, so its references are not held
+/// up); on SQLite a transaction that writes holds the database.
+async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    if scope.dialect() == Dialect::Postgres {
+        let mut sql = scope.sql("SELECT 1 FROM organizations WHERE id = ");
+        sql.bind(scope.org()?).push(" FOR NO KEY UPDATE");
+        scope.fetch_optional(sql).await?;
+    }
+    Ok(())
 }
 
 /// What a provider that is replaced must still be.

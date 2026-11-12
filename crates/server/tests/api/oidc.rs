@@ -1350,3 +1350,35 @@ async fn what_a_change_leaves_out_stays() {
     ts.teardown().await;
     fake.stop();
 }
+
+/// A subject longer than `OpenID Connect` lets one be (255 bytes), or an email address
+/// longer than an account's may be, is no token of a provider's: refused, and no
+/// account made. At the limit, it signs in.
+#[tokio::test]
+async fn a_subject_or_an_address_too_long_is_refused() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let browser = Browser::new(&ts, &fake);
+    let users_before = users(&ts).await;
+    let long_subject = "s".repeat(256);
+    let long_email = format!("{}@example.com", "a".repeat(243));
+    let mut refusals = Vec::new();
+    for person in [
+        Person::new(&long_subject, "long-subject@example.com"),
+        Person::new("subject-long-email", &long_email),
+    ] {
+        fake.sign_in_as(person);
+        refusals.push(browser.sign_in(&org_id).await);
+    }
+    let users_after_refusals = users(&ts).await;
+    fake.sign_in_as(Person::new(&"s".repeat(255), "at-the-limit@example.com"));
+    let at_limit = browser.sign_in(&org_id).await;
+    ts.teardown().await;
+    fake.stop();
+    let refused = Outcome::Refused("oidc-token-invalid".to_owned());
+    assert_eq!(refusals, [refused.clone(), refused]);
+    assert_eq!(users_after_refusals, users_before, "no account made");
+    assert!(matches!(at_limit, Outcome::SignedIn(_)), "{at_limit:?}");
+}

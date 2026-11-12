@@ -7,6 +7,7 @@
 
 use std::fmt::Write as _;
 
+use fvoci_model::MAXIMUM_EMAIL_BYTES;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, PublicKeyUse};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
@@ -31,6 +32,9 @@ pub const ALLOWED_ALGORITHMS: [Algorithm; 9] = [
 
 /// How far the clocks of the server and the provider may be apart, in seconds.
 const CLOCK_SKEW_SECONDS: u64 = 60;
+
+/// The longest subject, in bytes (`OpenID Connect Core 1.0`, 2: 255 ASCII characters).
+const MAXIMUM_SUBJECT_BYTES: usize = 255;
 
 /// The path of the discovery document under the issuer.
 const DISCOVERY_PATH: &str = "/.well-known/openid-configuration";
@@ -344,6 +348,18 @@ pub fn verify_id_token(
     }
     if claims.sub.is_empty() {
         return Err(invalid("no subject"));
+    }
+    // `OpenID Connect Core 1.0`, 2: a subject is at most 255 ASCII characters; an address
+    // at most what an account's may be. Longer, they are no token's of a provider.
+    if claims.sub.len() > MAXIMUM_SUBJECT_BYTES {
+        return Err(invalid("subject longer than 255 bytes"));
+    }
+    if claims
+        .email
+        .as_ref()
+        .is_some_and(|email| email.len() > MAXIMUM_EMAIL_BYTES)
+    {
+        return Err(invalid("email address longer than an account's may be"));
     }
     Ok(IdClaims {
         issuer: claims.iss,

@@ -157,17 +157,14 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         .await
         .expect("stored")
         .expect("none was there, as read");
-    // Read by one request; changed by another meanwhile.
+    // Read by one request; changed by another meanwhile, within the same millisecond
+    // as often as not: the time of the change is later all the same.
     let read = none_read.update_at;
-    let later = loop {
-        let changed = test
-            .put_oidc_provider(&provider("second", "a secret"))
-            .await
-            .expect("changed");
-        if changed.update_at != read {
-            break changed;
-        }
-    };
+    let later = test
+        .put_oidc_provider(&provider("second", "a secret"))
+        .await
+        .expect("changed");
+    assert!(later.update_at > read, "{} after {read}", later.update_at);
     let stale = test
         .put_oidc_provider_as_read(&provider("second", ""), Some(read))
         .await
@@ -193,4 +190,36 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
     );
     assert!(fresh.is_some(), "stored from the reading of what is there");
     assert!(none_stale.is_none(), "one was there, not none");
+}
+
+/// A provider removed while a change of it was being decided does not come back: the
+/// change, made from the reading before the removal, is not stored.
+#[tokio::test]
+async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
+    let test = common::setup().await;
+    let provider = StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: "https://idp.example.com".to_owned(),
+        client_id: "client".to_owned(),
+        sealed_client_secret: "sealed".to_owned(),
+        auto_join: true,
+        enabled: false,
+        create_at: 0,
+        update_at: 0,
+    };
+    let read = test
+        .put_oidc_provider(&provider)
+        .await
+        .expect("stored")
+        .update_at;
+    assert!(test.delete_oidc_provider().await.expect("removed"));
+    let change = test
+        .put_oidc_provider_as_read(&provider, Some(read))
+        .await
+        .expect("asked");
+    let after = test.oidc_provider().await.expect("read");
+    test.teardown().await;
+    assert!(change.is_none(), "{change:?}");
+    assert!(after.is_none(), "{after:?}");
 }
