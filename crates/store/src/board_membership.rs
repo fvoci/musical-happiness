@@ -231,15 +231,22 @@ async fn manager_still(scope: &mut Scope<'_>, entry: &AuditEntry) -> Result<(), 
 }
 
 /// Whether who asks is still what their request was let in as: the same role in the
-/// board's workspace and the same membership of the board, read with the organization's
-/// row held before the board's.
+/// board's workspace, which is in use, and the same membership of the board, read with
+/// the organization's row held and then the board's, so that a removal of the asker
+/// under way is waited for and seen.
 async fn standing_holds(
     scope: &mut Scope<'_>,
     board_id: &str,
     asked: Standing<'_>,
 ) -> Result<(), StoreError> {
     org_admin::hold_organization_row(scope).await?;
-    let mut sql = scope.sql("SELECT workspace_id FROM boards WHERE id = ");
+    if !lock_board(scope, board_id).await? {
+        return Err(StoreError::not_found("board"));
+    }
+    let mut sql = scope.sql(
+        "SELECT b.workspace_id FROM boards AS b JOIN workspaces AS w ON w.id = b.workspace_id \
+         WHERE w.delete_at = 0 AND b.id = ",
+    );
     sql.bind(Id(board_id));
     let Some(row) = scope.fetch_optional(sql).await? else {
         return Err(StoreError::not_found("board"));

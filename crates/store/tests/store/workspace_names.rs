@@ -25,9 +25,9 @@ async fn names_stored_twice_are_told_apart_even_where_the_new_name_is_taken() {
             "INSERT INTO organizations (id, name, settings, create_at, update_at) \
              VALUES ('{org}', 'Org', '{{}}', 1, 1);"
         ),
-        workspace(&older, "Team", 1),
-        workspace(&newer, "Team", 2),
-        workspace(&other, &format!("Team ({newer})"), 3),
+        workspace(&older, "Design", 1),
+        workspace(&newer, "Design", 2),
+        workspace(&other, &format!("Design ({newer})"), 3),
     ];
     common::execute_raw(&common::raw_dbconfig(&database), &statements.concat()).await;
 
@@ -44,15 +44,20 @@ async fn names_stored_twice_are_told_apart_even_where_the_new_name_is_taken() {
         .map(|workspace| (workspace.id, workspace.name))
         .collect();
     names.sort();
-    let named = |id: &str| {
+    let name_of = |id: &str| {
         names
             .iter()
             .find(|(of, _)| of == id)
             .map(|(_, name)| name.clone())
     };
     assert_eq!(
-        named(&older).as_deref(),
-        Some("Team"),
+        name_of(&other),
+        Some(format!("Design ({newer})")),
+        "the workspace that had the name before keeps it"
+    );
+    assert_eq!(
+        name_of(&older).as_deref(),
+        Some("Design"),
         "the oldest keeps it"
     );
     let mut in_use: Vec<&String> = names

@@ -84,9 +84,11 @@ impl App {
         match self.store().make_admin_by_operator(&user.id).await? {
             AdminChange::Done(user) => Ok(*user),
             AdminChange::NoSuchUser => Err(AppError::not_found("user")),
-            change => Err(AppError::internal(format!(
-                "the operator's word made no administrator: {change:?}"
-            ))),
+            change @ (AdminChange::NotAnAdministrator | AdminChange::LastAdmin) => {
+                Err(AppError::internal(format!(
+                    "the operator's word made no administrator: {change:?}"
+                )))
+            }
         }
     }
 
