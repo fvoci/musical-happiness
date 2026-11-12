@@ -3,8 +3,9 @@
  * reader somewhere once the backend has answered (to the board it made, a
  * card it made or copied, a view it made or copied, the welcome board) does
  * so only while the reader is still where they were when they asked: in the
- * same workspace, and for something of a board, on that same board. One who
- * moved on meanwhile is not taken back; what was made is there all the same.
+ * same entry of the workspace, and for something of a board, on that same
+ * board. One who moved on meanwhile is not taken back, nor one who went
+ * elsewhere and came back; what was made is there all the same.
  *
  * Every such place goes through `whileHere`: the one rule.
  */

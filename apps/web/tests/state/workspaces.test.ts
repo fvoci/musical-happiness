@@ -273,6 +273,16 @@ describe('an answer that would take the reader somewhere', () => {
     expect(workspace.boards.map((board) => board.title)).toContain('Left behind');
   });
 
+  it('is not handed on to one who went to another workspace and came back', async () => {
+    const { workspace, backend, first } = twoWorkspaces();
+    await workspace.load();
+    backend.latency = 20;
+    const making = whileHere(workspace, () => workspace.createBoard({ title: 'Asked before' }));
+    await workspace.enter(OTHER.id);
+    await workspace.enter(first.id);
+    expect(await making).toBeUndefined();
+  });
+
   it('of a board, is not handed on once another board is open', async () => {
     const { workspace, backend } = twoWorkspaces(setup([SMALL, { ...SMALL, key: 'small-2' }]));
     await workspace.load();

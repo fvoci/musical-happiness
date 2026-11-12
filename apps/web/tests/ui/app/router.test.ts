@@ -174,17 +174,31 @@ describe('moving about', () => {
     stop();
   });
 
-  it('loads the page anew at a route, and what is open over it gives no step back', () => {
+  it('loads the page anew at a route, the entries of what is open let go first', () => {
     const router = new Router('app');
-    const assign = vi.fn();
-    vi.stubGlobal('location', { assign });
+    const calls: string[] = [];
+    const released = vi.spyOn(back, 'releaseOverlayEntries');
+    vi.stubGlobal('location', {
+      assign: (to: string) => calls.push(`assign ${to}`),
+      replace: (to: string) => calls.push(`replace ${to}`),
+    });
     try {
-      const released = vi.spyOn(back, 'releaseOverlayEntries');
+      // Nothing open: a new entry, as any going somewhere.
+      released.mockImplementationOnce(() => {
+        calls.push('release');
+        return 0;
+      });
       router.restart({});
-      expect(released).toHaveBeenCalledOnce();
-      expect(assign).toHaveBeenCalledWith('/app/');
+      // A dialog open, with its entry: the new address takes that entry's place.
+      released.mockImplementationOnce(() => {
+        calls.push('release');
+        return 1;
+      });
+      router.restart({});
+      expect(calls).toEqual(['release', 'assign /app/', 'release', 'replace /app/']);
     } finally {
       vi.unstubAllGlobals();
+      released.mockRestore();
     }
   });
 
