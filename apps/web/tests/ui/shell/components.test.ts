@@ -346,26 +346,33 @@ describe('the sidebar over a workspace', () => {
 });
 
 describe('an import from the settings', () => {
-  it('says in a line how many members it left out, and nothing when it left out none', async () => {
+  it('says in a line how many members it left out, nothing when none, and forgets it when closed', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
-    const answers = [{ membersLeftOut: 2 }, { membersLeftOut: 0 }];
+    const answers = [{ membersLeftOut: 2 }, { membersLeftOut: 0 }, { membersLeftOut: 1 }];
     vi.spyOn(workspace, 'importArchive').mockImplementation(() => Promise.resolve(answers.shift()));
-    render(SettingsDialog, { props: { open: true, workspace } });
-    const field = await screen.findByTestId('import-archive');
+    const dialog = render(SettingsDialog, { props: { open: true, workspace } });
     const choose = async () => {
+      const field = await screen.findByTestId('import-archive');
       const file = new File(['PK'], 'boards.boardarchive');
       Object.defineProperty(field, 'files', { value: [file], configurable: true });
       await fireEvent.change(field);
       await settle();
       await tick();
     };
+    const line = () => screen.getByTestId('import-left-out');
 
     await choose();
-    expect(screen.getByTestId('import-left-out')).toHaveTextContent(
-      /^2 members of the archive's boards are not in /,
-    );
+    expect(line()).toHaveTextContent(/^Members left out of the archive's boards, .*: 2\.$/);
+    expect(line()).toHaveAttribute('role', 'status');
     await choose();
-    expect(screen.queryByTestId('import-left-out')).toBeNull();
+    expect(line()).toBeEmptyDOMElement();
+    await choose();
+    expect(line()).toHaveTextContent(/: 1\.$/);
+    await fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    await tick();
+    await dialog.rerender({ open: true, workspace });
+    await tick();
+    expect(line()).toBeEmptyDOMElement();
   });
 });

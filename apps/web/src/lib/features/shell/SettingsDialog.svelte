@@ -98,13 +98,20 @@
     () => open,
     () => {
       open = false;
+      leftOut = undefined;
     },
   );
 
   const uid = $props.id();
   let importField = $state<HTMLInputElement | null>(null);
-  /** How many members the last import from here left out. */
-  let leftOut = $state(0);
+  /**
+   * What the last import from here left out, and in which workspace: told
+   * while the dialog stays open on that workspace, forgotten when it closes.
+   */
+  let leftOut = $state<{ workspaceId: string; count: number }>();
+  const leftOutHere = $derived(
+    leftOut?.workspaceId === workspace.info?.id ? (leftOut?.count ?? 0) : 0,
+  );
 
   /** Saves an archive of every board of the workspace, once it has all arrived. */
   async function exportWorkspace(): Promise<void> {
@@ -182,7 +189,12 @@
   }
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root
+  bind:open
+  onOpenChange={(now: boolean) => {
+    if (!now) leftOut = undefined;
+  }}
+>
   <Dialog.Content
     data-testid="settings-dialog"
     data-frame={compact ? 'full' : 'dialog'}
@@ -333,20 +345,24 @@
               const file = field.files?.[0];
               // The same file can be chosen again.
               field.value = '';
-              if (!file) return;
-              leftOut = 0;
+              const workspaceId = workspace.info?.id;
+              if (!file || workspaceId === undefined) return;
+              leftOut = undefined;
               void workspace.importArchive(file).then((imported) => {
-                leftOut = imported?.membersLeftOut ?? 0;
+                leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
               });
             }}
           />
         </div>
         <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
-        {#if leftOut > 0}
-          <p role="status" class="text-xs" data-testid="import-left-out">
-            {m.shell_import_left_out({ count: leftOut })}
-          </p>
-        {/if}
+        <!-- There before it says anything, so that what it says is announced. -->
+        <p
+          role="status"
+          class={leftOutHere > 0 ? 'text-xs' : 'sr-only'}
+          data-testid="import-left-out"
+        >
+          {#if leftOutHere > 0}{m.shell_import_left_out({ count: leftOutHere })}{/if}
+        </p>
       </section>
 
       {#if workspace.me}

@@ -22,8 +22,8 @@ fn answer(response: &ApiResponse) -> (StatusCode, Value) {
     (response.status, body)
 }
 
-/// Ends the second user's membership of the test workspace, and of nothing else.
-async fn remove_user2_from_the_test_workspace(th: &TestServer, user_id: &str) {
+/// Ends a user's membership of the test workspace, and of nothing else.
+async fn remove_from_the_test_workspace(th: &TestServer, user_id: &str) {
     th.app
         .store()
         .execute_unchecked(&format!(
@@ -47,7 +47,7 @@ async fn who_left_a_workspace_finds_none_of_its_boards() {
         ))
         .await
         .created_json();
-    remove_user2_from_the_test_workspace(&th, &user2).await;
+    remove_from_the_test_workspace(&th, &user2).await;
 
     let found_everywhere: Vec<Board> = th.client2.get("/boards/search?q=Quarterly").await.ok_json();
     let found_from_root: Vec<Board> = th
@@ -118,7 +118,7 @@ async fn an_admin_who_cannot_act_as_one_does_not_keep_a_board_from_its_last_admi
         })
         .await
         .expect("a second admin is stored");
-    remove_user2_from_the_test_workspace(&th, &user2).await;
+    remove_from_the_test_workspace(&th, &user2).await;
 
     let left = th
         .client
@@ -155,7 +155,7 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
     archive.check_ok();
 
     let kept = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
-    remove_user2_from_the_test_workspace(&th, &user2).await;
+    remove_from_the_test_workspace(&th, &user2).await;
     let left_out = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
     let shared: Vec<Board> = th
         .client
@@ -181,4 +181,46 @@ async fn an_import_leaves_out_who_is_not_in_the_workspace_and_says_how_many() {
     assert_eq!(left_out.value(), json!({"membersLeftOut": 1}));
     // The board, and the first import, have the second user; the second import not.
     assert_eq!(held, 2);
+}
+
+#[tokio::test]
+async fn an_import_counts_each_user_once_and_no_membership_without_a_role() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user2 = th.client2.me().await.id;
+    let third = th.add_user("third").await.me().await.id;
+    let mut boards = Vec::new();
+    for title in ["One", "Two"] {
+        let board: Board = th
+            .client
+            .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, title))
+            .await
+            .created_json();
+        th.client
+            .add_member(&BoardMember {
+                scheme_editor: true,
+                ..crate::boards::member(&board.id, &user2)
+            })
+            .await
+            .check_ok();
+        boards.push(board);
+    }
+    // A membership without a role, of a user who is not in the workspace.
+    th.app
+        .store()
+        .save_member(&crate::boards::member(&boards[1].id, &third))
+        .await
+        .expect("a membership without a role");
+    remove_from_the_test_workspace(&th, &third).await;
+    let archive = th
+        .client
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/archive/export"))
+        .await;
+    archive.check_ok();
+
+    remove_from_the_test_workspace(&th, &user2).await;
+    let imported = crate::export::import(&th.client, TEST_WORKSPACE_ID, &archive.body).await;
+    th.teardown().await;
+
+    // The second user, on both boards, once; the third, without a role, not at all.
+    assert_eq!(imported.value(), json!({"membersLeftOut": 1}));
 }

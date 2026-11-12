@@ -577,7 +577,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
         "{body}"
     );
     assert_eq!(
-        requests(&body, "POST", import_route, "204"),
+        requests(&body, "POST", import_route, "200"),
         Some(1.0),
         "{body}"
     );

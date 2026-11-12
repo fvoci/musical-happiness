@@ -344,9 +344,13 @@ impl App {
             members,
         } = board;
         // Keep only members who are in the workspace: a board takes no others. A guest of
-        // the workspace keeps a role no higher than editor.
+        // the workspace keeps a role no higher than editor. A membership without a role
+        // opens nothing, and is neither kept nor counted as left out.
         let mut kept_members = Vec::with_capacity(members.len());
         for member in members {
+            if permissions::role_of(&member).is_none() {
+                continue;
+            }
             let actor = self.actor(&member.user_id, &options.workspace_id).await?;
             match actor.workspace {
                 Some(workspace_role) => {

@@ -433,7 +433,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
     let before = boards_of(&ts).await.len();
     import_upload(&ts.client, TEST_WORKSPACE_ID, &id)
         .await
-        .check_no_content();
+        .check_ok();
     let boards = boards_of(&ts).await;
     assert_eq!(boards.len(), before + 1, "the board is made");
     assert_eq!(
