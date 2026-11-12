@@ -216,9 +216,10 @@ async fn a_large_update_is_refused_and_a_larger_frame_ends_the_connection() {
 
 /// A connection that asks and asks for the document and reads nothing: once as many
 /// messages wait for it as may (sixteen here, past what the system holds of a
-/// connection nobody reads), it is put out of the room. The others are sent what is
-/// written meanwhile; when it reads at last it finds that it was put out, comes in
-/// again and is sent the whole document.
+/// connection nobody reads), it is put out of the room. Another connection in the
+/// room, which reads, is sent everything that is written meanwhile and after, with
+/// nothing held back for the one that does not; when that one reads at last it finds
+/// that it was put out, comes in again and is sent the whole document.
 #[tokio::test]
 async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
     let th = Setup::native()
@@ -237,23 +238,48 @@ async fn a_connection_that_does_not_read_is_put_out_and_the_others_go_on() {
     // Its socket takes little of what it does not read: what waits for it waits in
     // the server, but for the few megabytes the server's own side of the socket holds.
     let mut slow = Peer::on(th.client.connect_websocket_receiving(64 * 1024).await, 102);
+    let mut reader = Peer::connect(&th.client2, 103).await;
+    crate::rooms::give(&th, &t.board_id, &th.client2.me().await.id, "viewer").await;
     one.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     slow.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    reader.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     let app = room_app(&th).await;
     // A document of some size, so that the answers fill that soon.
     one.write_acked(&"y".repeat(60 * 1024)).await;
     slow.settle().await;
+    reader.settle().await;
+    let mut written = vec!["first".to_owned(), "y".repeat(60 * 1024)];
     let mut asked = 0;
-    while th.app.collab().room_members(&app, &t.card_id).await == 2 {
+    while th.app.collab().room_members(&app, &t.card_id).await == 3 {
         assert!(asked < 20_000, "put out before {asked} answers waited");
         for _ in 0..50 {
             slow.send_binary(frame(slow.doc, slow.epoch, STEP_1, &[0]))
                 .await;
         }
         asked += 50;
-        one.write_acked(&format!("meanwhile {asked}")).await;
+        // While the one does not read, the other is sent each update as it is
+        // written: it holds it before the next is.
+        written.push(format!("meanwhile {asked}"));
+        one.write_acked(&written[written.len() - 1]).await;
+        match reader.incoming(PATIENCE).await {
+            Incoming::Frame(update) => {
+                assert_eq!(update.sync, UPDATE, "{:?}", update.sync);
+                reader.editor().receive(&update.payload);
+            }
+            other => panic!("the connection that reads is sent the update: {other:?}"),
+        }
+        assert_eq!(reader.lines(), written, "held by the one that reads");
     }
+    written.push("after it was put out".to_owned());
     one.write_acked("after it was put out").await;
+    reader.settle().await;
+    assert_eq!(reader.lines(), written, "and after the other was put out");
+    assert_eq!(reader.body(), one.body());
+    assert_eq!(
+        th.app.collab().room_members(&app, &t.card_id).await,
+        2,
+        "the two that read stay"
+    );
 
     // It reads at last: answers that were on their way, and then the notice.
     let left = slow.text("DOC_LEFT").await;
