@@ -228,6 +228,7 @@
   "editor_math_invalid": "This formula cannot be drawn.",
   "editor_math_too_long": "This formula is too long to draw.",
   "editor_math_too_large": "This formula is too large to show.",
+  "editor_math_not_drawn": "Not drawn: there are too many formulas here to draw them all.",
   "editor_diagram_label": "Diagram",
   "editor_diagram_invalid": "This diagram cannot be drawn.",
   "editor_diagram_too_long": "This diagram is too long to draw.",

@@ -35,10 +35,11 @@ const MATH_SELECTOR = Object.values(MATH_SLOTS)
   .map((slot) => `${slot.tag}.${MATH_CLASS}[data-type="${slot.type}"][${MATH_SOURCE_ATTRIBUTE}]`)
   .join(', ');
 
-const mathFailure: Record<'too-long' | 'invalid' | 'too-large', () => string> = {
+const mathFailure: Record<'too-long' | 'invalid' | 'too-large' | 'over-budget', () => string> = {
   'too-long': m.editor_math_too_long,
   invalid: m.editor_math_invalid,
   'too-large': m.editor_math_too_large,
+  'over-budget': m.editor_math_not_drawn,
 };
 const diagramFailure: Record<DiagramFailure, () => string> = {
   'too-long': m.editor_diagram_too_long,
@@ -62,10 +63,13 @@ function notice(page: Document, text: string, tag: 'span' | 'p' = 'span'): HTMLE
   return element;
 }
 
-/** Puts the source back into a formula's place, with what went wrong behind it. */
+/**
+ * Puts the source back into a formula's place, with why behind it: what went
+ * wrong (`error`), or that the formula was not drawn at all (`skipped`).
+ */
 function showMathSource(slot: HTMLElement, reason: keyof typeof mathFailure): void {
   const page = slot.ownerDocument;
-  slot.setAttribute('data-state', 'error');
+  slot.setAttribute('data-state', reason === 'over-budget' ? 'skipped' : 'error');
   slot.replaceChildren(
     page.createTextNode(slot.getAttribute(MATH_SOURCE_ATTRIBUTE) ?? ''),
     notice(page, mathFailure[reason]()),
@@ -166,7 +170,11 @@ async function fillAllMath(slots: HTMLElement[], cancelled: () => boolean): Prom
   let slice = 0;
   for (const slot of slots) {
     if (cancelled()) return;
-    if (spent > MATH_BUDGET) break;
+    if (spent > MATH_BUDGET) {
+      // Past the budget: the rest stay their source, and say they were not drawn.
+      showMathSource(slot, 'over-budget');
+      continue;
+    }
     const { ms } = applyMath(slot, library, drawMath);
     spent += ms;
     slice += ms;
