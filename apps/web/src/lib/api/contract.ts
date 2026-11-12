@@ -518,11 +518,11 @@ export interface paths {
          * Make a user a member of a board
          * @description The board's admins add members with the roles the request names; with no role at
          *     all the member may do nothing on the board, not even view it. On an open board
-         *     editors add members too, with the board's minimum role, whatever else the request
-         *     names; a request of theirs that asks for `schemeAdmin` is 403. A guest of the
-         *     workspace is given no role above editor: asking for `schemeAdmin` for one is 403
-         *     with the reason `guest_role_limit`. A user who is a member already stays as they
-         *     are.
+         *     editors who work in the workspace add members too, with the board's minimum role,
+         *     whatever else the request names; a request of theirs that asks for `schemeAdmin` is
+         *     403. A guest of the workspace is given no role above editor: asking for
+         *     `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
+         *     member already stays as they are.
          */
         post: operations["addMember"];
         delete?: never;
@@ -5803,7 +5803,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5835,7 +5835,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
                 workspaceId: string;
             };
             cookie?: never;

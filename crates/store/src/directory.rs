@@ -57,6 +57,12 @@ impl WorkspaceAccess {
     }
 }
 
+/// The condition that the memberships `mine` and `other` of a board each have a role: a
+/// membership without one opens nothing, and shares nothing.
+const ROLES_HELD: &str = " AND (mine.scheme_admin OR mine.scheme_editor OR mine.scheme_commenter \
+                          OR mine.scheme_viewer) AND (other.scheme_admin OR other.scheme_editor \
+                          OR other.scheme_commenter OR other.scheme_viewer)";
+
 /// Whom a user sees of the other users in a workspace the user is a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reach {
@@ -96,17 +102,24 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             workspace_id,
             reach,
         } => {
-            sql.push_bind(" AND (id = ", Id(seer_id))
-                .push(
-                    " OR id IN (SELECT other.user_id FROM board_members AS mine \
-                     JOIN boards AS b ON b.id = mine.board_id \
-                     JOIN board_members AS other ON other.board_id = mine.board_id \
-                     WHERE mine.user_id = ",
-                )
-                .bind(Id(seer_id))
-                .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-                .push(&scope.same_organization(&[("mine", "b"), ("other", "b")]))
-                .push(")");
+            // The seer is a member of the workspace, which the store asks too.
+            sql.push(
+                " AND EXISTS (SELECT 1 FROM workspace_members AS seer WHERE seer.workspace_id = ",
+            )
+            .bind(Id(workspace_id))
+            .push_bind(" AND seer.user_id = ", Id(seer_id))
+            .push_bind(") AND (id = ", Id(seer_id))
+            .push(
+                " OR id IN (SELECT other.user_id FROM board_members AS mine \
+                 JOIN boards AS b ON b.id = mine.board_id \
+                 JOIN board_members AS other ON other.board_id = mine.board_id \
+                 WHERE mine.user_id = ",
+            )
+            .bind(Id(seer_id))
+            .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+            .push(ROLES_HELD)
+            .push(&scope.same_organization(&[("mine", "b"), ("other", "b")]))
+            .push(")");
             if reach == Reach::Workspace {
                 sql.push(" OR id IN (SELECT wm.user_id FROM workspace_members AS wm WHERE wm.workspace_id = ")
                     .bind(Id(workspace_id))
@@ -138,6 +151,7 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                 )
                 .bind(Id(seer_id))
                 .push(IN_USE)
+                .push(ROLES_HELD)
                 .push(&scope.same_organization(&[
                     ("mine", "b"),
                     ("b", "t"),

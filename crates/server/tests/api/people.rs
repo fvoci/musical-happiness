@@ -176,3 +176,100 @@ async fn who_left_a_workspace_is_still_seen_on_the_boards_they_are_on() {
     seen_by_leaver.check_not_found();
     themselves.check_ok();
 }
+
+#[tokio::test]
+async fn a_guest_sees_by_identifier_who_is_on_a_board_with_a_role_and_nobody_else() {
+    let th = Setup::native().start().await.init_basic().await;
+    let guest = th.client2.me().await.id;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' WHERE user_id = '{guest}'"
+        ))
+        .await
+        .expect("the second user becomes a guest of every workspace");
+    let user1 = th.client.me().await.id;
+    let third = th.add_user("third").await.me().await.id;
+    let shared: fvoci_model::Board = th
+        .client
+        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "Shared"))
+        .await
+        .created_json();
+    th.client
+        .add_member(&BoardMember {
+            scheme_viewer: true,
+            ..member(&shared.id, &guest)
+        })
+        .await
+        .check_ok();
+    // On this board the guest has a membership without a role, which shares nothing.
+    let roleless: fvoci_model::Board = th
+        .client
+        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Private, "No role"))
+        .await
+        .created_json();
+    for user in [&guest, &third] {
+        let membership = if *user == third {
+            BoardMember {
+                scheme_viewer: true,
+                ..member(&roleless.id, user)
+            }
+        } else {
+            member(&roleless.id, user)
+        };
+        th.client.add_member(&membership).await.check_ok();
+    }
+
+    let coworker = th.client2.get(&format!("/users/{user1}")).await;
+    let not_shared = th.client2.post("/users", &[&third]).await;
+    let missing = th.client2.post("/users", &[UNKNOWN_ID]).await;
+    let found = search(&th.client2, TEST_WORKSPACE_ID, "third").await;
+    th.teardown().await;
+
+    coworker.check_ok();
+    not_shared.check_not_found();
+    assert_eq!(
+        answer(&not_shared),
+        answer(&missing),
+        "unseen is as missing"
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[tokio::test]
+async fn a_guest_editing_an_open_board_adds_nobody() {
+    let th = Setup::native().start().await.init_basic().await;
+    let guest = th.client2.me().await.id;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' WHERE user_id = '{guest}' \
+             AND workspace_id = '{TEST_WORKSPACE_ID}'"
+        ))
+        .await
+        .expect("the second user becomes a guest of the test workspace");
+    let third = th.add_user("third").await.me().await.id;
+    let board: fvoci_model::Board = th
+        .client
+        .create_board(&new_board(TEST_WORKSPACE_ID, BoardType::Open, "Open"))
+        .await
+        .created_json();
+    th.client
+        .add_member(&BoardMember {
+            scheme_editor: true,
+            ..member(&board.id, &guest)
+        })
+        .await
+        .check_ok();
+
+    let added = th.client2.add_member(&member(&board.id, &third)).await;
+    let nobody = th.client2.add_member(&member(&board.id, UNKNOWN_ID)).await;
+    th.teardown().await;
+
+    added.check_forbidden();
+    assert_eq!(
+        answer(&added),
+        answer(&nobody),
+        "a guest learns nothing of who is there"
+    );
+}

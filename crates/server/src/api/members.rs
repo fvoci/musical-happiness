@@ -96,11 +96,11 @@ async fn handle_get_members_for_board(
 ///
 /// The board's admins add members with the roles the request names; with no role at
 /// all the member may do nothing on the board, not even view it. On an open board
-/// editors add members too, with the board's minimum role, whatever else the request
-/// names; a request of theirs that asks for `schemeAdmin` is 403. A guest of the
-/// workspace is given no role above editor: asking for `schemeAdmin` for one is 403
-/// with the reason `guest_role_limit`. A user who is a member already stays as they
-/// are.
+/// editors who work in the workspace add members too, with the board's minimum role,
+/// whatever else the request names; a request of theirs that asks for `schemeAdmin` is
+/// 403. A guest of the workspace is given no role above editor: asking for
+/// `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
+/// member already stays as they are.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/members",
@@ -124,7 +124,9 @@ async fn handle_add_member(
     let (board, grant) = (access.board, access.grant);
     let manages_roles = grant.allows(BoardPermission::ManageBoardRoles);
     let edits_board = grant.allows(BoardPermission::ManageBoardProperties);
-    let adds_to_open_board = edits_board && board.board_type == BoardType::Open;
+    // A guest's editing adds nobody: who is in the workspace is not a guest's to learn.
+    let adds_to_open_board =
+        edits_board && board.board_type == BoardType::Open && access.actor.works_there();
     if !(manages_roles || adds_to_open_board) {
         return Err(refusal(grant, MODIFY_MEMBERS_DENIED));
     }

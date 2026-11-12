@@ -12,7 +12,7 @@ use fvoci_model::{Board, Session, User, UserWorkspace, Workspace, WorkspaceRole}
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{MemberWorkspaceId, UserSearch, WorkspaceId};
+use super::contract::params::{HomeMemberWorkspaceId, MemberWorkspaceId, UserSearch, WorkspaceId};
 use super::contract::tag;
 use super::session::session_of;
 use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
@@ -129,7 +129,21 @@ impl Ws {
     ///
     /// Returns 404 for a guest, and for a workspace of another organization.
     pub(crate) fn require_works_there(self) -> Result<Self, AppError> {
-        if self.role == WorkspaceRole::Guest || !self.home {
+        if self.role == WorkspaceRole::Guest {
+            return Err(workspace_not_found());
+        }
+        self.require_home()
+    }
+
+    /// The workspace for a member of it, a guest too, if it is of the organization the
+    /// server stands in: the routes that read their workspace there before they moved
+    /// under `/w/` keep that answer until the routes are decided anew.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 for a workspace of another organization.
+    pub(crate) fn require_home(self) -> Result<Self, AppError> {
+        if !self.home {
             return Err(workspace_not_found());
         }
         Ok(self)
@@ -237,10 +251,11 @@ async fn handle_get_workspace(WorksIn(ws): WorksIn) -> ApiResult {
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsers",
     tag = tag::WORKSPACES,
-    params(MemberWorkspaceId, UserSearch),
+    params(HomeMemberWorkspaceId, UserSearch),
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
 async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
+    let ws = ws.require_home()?;
     let search_query = query_param(query.as_deref(), "search");
     Ok(json_response(
         &ws.app
@@ -265,7 +280,7 @@ async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiRes
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsersById",
     tag = tag::WORKSPACES,
-    params(MemberWorkspaceId),
+    params(HomeMemberWorkspaceId),
     request_body = Vec<String>,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
@@ -277,7 +292,9 @@ async fn handle_get_workspace_users_by_id(
 ) -> ApiResult {
     // The body is read before the workspace is asked for, as it always was.
     let user_ids: Vec<String> = decode_json(&body)?;
-    let ws = Ws::enter(&app, session, workspace_id).await?;
+    let ws = Ws::enter(&app, session, workspace_id)
+        .await?
+        .require_home()?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
     }

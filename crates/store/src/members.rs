@@ -52,6 +52,31 @@ impl Store {
             .await
     }
 
+    /// The identifiers of who works in a workspace of the handle's organization: its
+    /// members who are no guests, by identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_workspace_worker_ids(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT user_id FROM workspace_members WHERE workspace_id = ");
+            sql.bind(Id(workspace_id))
+                .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str())
+                .push(" ORDER BY user_id");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.id(0))
+                .collect()
+        })
+        .await
+    }
+
     /// Makes a user a member of a workspace of the handle's organization.
     ///
     /// # Errors

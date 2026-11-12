@@ -83,6 +83,9 @@ impl App {
         seer_id: &str,
         user_ids: &[String],
     ) -> Result<Vec<User>, AppError> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         Ok(self
             .store()
             .get_users_in_sight(Sight::Anywhere { seer_id }, user_ids)
@@ -102,6 +105,9 @@ impl App {
         role: WorkspaceRole,
         user_ids: &[String],
     ) -> Result<Vec<User>, AppError> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
         let sight = Sight::InWorkspace {
             seer_id,
             workspace_id,

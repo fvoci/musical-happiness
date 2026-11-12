@@ -223,7 +223,7 @@ impl App {
         Ok(order.to_vec())
     }
 
-    /// Tells the users of a workspace who are not members of a template that they gained or
+    /// Tells who works in the workspace and is no member of a template that they gained or
     /// lost access to it, after the template changed between open and private.
     async fn broadcast_workspace_users(&self, board: &Board, board_type: BoardType) {
         let members = match self.members_for_board(&board.id).await {
@@ -233,7 +233,13 @@ impl App {
                 Vec::new()
             }
         };
-        let users = match self.store().get_users_by_workspace().await {
+        // Who works in the board's workspace, whom an open template is for: nobody else
+        // gains or loses it, and nobody else is named.
+        let users = match self
+            .store()
+            .get_workspace_worker_ids(&board.workspace_id)
+            .await
+        {
             Ok(users) => users,
             Err(error) => {
                 tracing::error!(%error, "Unable to get the workspace users");
@@ -242,17 +248,17 @@ impl App {
         };
         let others = users
             .iter()
-            .filter(|user| !members.iter().any(|member| member.user_id == user.id));
-        for user in others {
+            .filter(|user_id| !members.iter().any(|member| member.user_id == **user_id));
+        for user_id in others {
             match board_type {
                 BoardType::Private => {
                     self.ws()
-                        .broadcast_member_delete(&board.workspace_id, &board.id, &user.id)
+                        .broadcast_member_delete(&board.workspace_id, &board.id, user_id)
                         .await;
                 }
                 BoardType::Open => {
                     let viewer = BoardMember {
-                        user_id: user.id.clone(),
+                        user_id: user_id.clone(),
                         board_id: board.id.clone(),
                         scheme_viewer: true,
                         synthetic: true,
