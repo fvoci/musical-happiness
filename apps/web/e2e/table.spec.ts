@@ -1020,8 +1020,9 @@ test.describe('moving rows', () => {
       Reflect.set(window, 'restTimes', times);
       document.addEventListener(
         'pointerdown',
-        (event) => {
-          times.landed ??= event.timeStamp;
+        () => {
+          // When the page handles the press, as the rest starts: not when the touch was made.
+          times.landed ??= performance.now();
         },
         { capture: true },
       );

@@ -35,7 +35,12 @@ beforeEach(() => {
   vi.mocked(loadMath).mockClear();
   drawDiagram.mockClear();
 });
+/** The clock held still by `show`, while it draws. */
+let clock: { mockRestore: () => void } | undefined;
 afterEach(() => {
+  // Also when a drawing never ended: the clock goes on for the next test.
+  clock?.mockRestore();
+  clock = undefined;
   host.replaceChildren();
   delete (window as { pwned?: unknown }).pwned;
 });
@@ -51,13 +56,11 @@ async function show(body: DocNode): Promise<HTMLElement> {
   const rendered = renderBody(body);
   if (!rendered.ok) throw new Error(rendered.problems.join(' / '));
   host.replaceChildren(rendered.fragment);
-  const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
-  try {
-    drawEmbeds(host);
-    await settled();
-  } finally {
-    clock.mockRestore();
-  }
+  clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+  drawEmbeds(host);
+  await settled();
+  clock.mockRestore();
+  clock = undefined;
   return host;
 }
 
