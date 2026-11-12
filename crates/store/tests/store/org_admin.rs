@@ -753,6 +753,15 @@ async fn the_instance_is_administered_through_its_own_organization_only() {
         .expect("the user");
     assert!(kept.is_admin, "still the instance's administrator");
 
+    let plain = org_member(&test, "plain", OrgRole::Member).await;
+    assert_eq!(
+        test.set_org_role(&plain, OrgRole::Admin, &instance_admin)
+            .await
+            .expect("asked"),
+        OrgRoleChange::Done
+    );
+    let promoted = test.get_user_by_id(&plain).await.expect("the user");
+    assert!(promoted.is_admin, "the instance's administrator too");
     let second = org_member(&test, "second", OrgRole::Admin).await;
     assert_eq!(
         test.set_org_role(&second, OrgRole::Member, &instance_admin)

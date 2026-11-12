@@ -388,8 +388,9 @@ impl Store {
     ) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
             // The organization's first, as deleting a board takes it before the board's:
-            // with a joining of the workspace that ends meanwhile (`joinings`).
-            lock_organization(scope).await?;
+            // with a joining of the workspace that ends meanwhile (`joinings`). Its row
+            // alone: an organization no longer in use still has its trash emptied.
+            hold_organization_row(scope).await?;
             // Held against a restoration under way, which then finds nothing to restore.
             let mut sql = scope.sql("SELECT id FROM workspaces WHERE id = ");
             sql.bind(Id(workspace_id))
@@ -551,6 +552,13 @@ async fn organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError>
 /// the changes of who administers it and of its workspaces are made one at a time. On
 /// SQLite a transaction that writes holds the whole database.
 pub(crate) async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organization, StoreError> {
+    hold_organization_row(scope).await?;
+    organization(scope).await
+}
+
+/// Holds the handle's organization's row as [`lock_organization`] does, whether the
+/// organization is in use or not.
+async fn hold_organization_row(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     let mut sql = scope.sql("SELECT id FROM organizations WHERE id = ");
     sql.bind(scope.org()?);
     // Not FOR UPDATE: what refers to the organization (a member, a workspace, a record)
@@ -559,7 +567,7 @@ pub(crate) async fn lock_organization(scope: &mut Scope<'_>) -> Result<Organizat
         sql.push(" FOR NO KEY UPDATE");
     }
     scope.fetch_optional(sql).await?;
-    organization(scope).await
+    Ok(())
 }
 
 /// Holds the handle's organization's row as [`lock_organization`] does, for a change
