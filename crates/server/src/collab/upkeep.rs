@@ -138,7 +138,7 @@ impl Collab {
                 // A card written past the document made it again from that, and the
                 // room was told so.
                 if !replaced {
-                    self.tell(card_id, DocChange::Remade);
+                    self.tell(app, card_id, DocChange::Remade);
                 }
                 slot.remake_failed_at = None;
                 true
@@ -183,7 +183,7 @@ impl Collab {
         body: Option<&Body>,
     ) -> Result<(), AppError> {
         self.remake_held(app, card_id, slot, body).await?;
-        self.tell(card_id, DocChange::Replaced);
+        self.tell(app, card_id, DocChange::Replaced);
         Ok(())
     }
 
@@ -400,8 +400,14 @@ impl Collab {
                     self.retire(&mut slot);
                     return;
                 }
+                // Tried again a little later, whether or not anyone types.
+                if let Some(open) = slot.open.as_mut() {
+                    open.retry_at = Some(Instant::now() + super::WRITE_QUIET);
+                }
+                continue;
             }
             if let Some(open) = slot.open.as_mut() {
+                open.retry_at = None;
                 open.writing_scheduled = false;
             }
             return;

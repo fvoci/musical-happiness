@@ -215,7 +215,7 @@ impl App {
     ) -> Result<Block, AppError> {
         let old_block = self.store().get_block(block_id).await?;
         let board = self.store().get_board(&old_block.board_id).await?;
-        if patch.body.is_keep() {
+        if patch.body.is_keep() || old_block.block_type != BlockType::Card {
             self.store()
                 .patch_block(block_id, patch, modified_by)
                 .await?;
@@ -271,12 +271,8 @@ impl App {
         // to its notification service.
         let blocks = self.store().get_blocks_by_ids(&batch.block_ids).await?;
         // Whole bodies are written around the documents of bodies edited together.
-        let card_ids: Vec<String> = blocks
-            .iter()
-            .zip(&batch.block_patches)
-            .filter(|(block, patch)| block.block_type == BlockType::Card && !patch.body.is_keep())
-            .map(|(block, _)| block.id.clone())
-            .collect();
+        let card_ids =
+            crate::collab::cards_written_whole(&blocks, &batch.block_ids, &batch.block_patches);
         if card_ids.is_empty() {
             self.store().patch_blocks(batch, modified_by).await?;
         } else {

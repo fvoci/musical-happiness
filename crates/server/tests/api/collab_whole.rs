@@ -226,3 +226,161 @@ async fn a_batch_that_writes_a_body_whole_meets_the_open_document() {
     );
     th.teardown().await;
 }
+
+/// A batch whose identifiers are not in the order the cards were made in writes the
+/// body of the card its patch is for around that card's document.
+#[tokio::test]
+async fn a_batch_writes_the_body_of_the_card_its_patch_is_for() {
+    let th = Setup::native().start().await.init_basic().await;
+    let older = editing(&th, &paragraphs(&["older"])).await;
+    let collab = older.app.collab();
+    let board_id = card(&th.client, &older.card_id).await.board_id;
+    // Made after the first, on its board.
+    let newer: fvoci_model::Card = th
+        .client
+        .post(
+            &format!("/boards/{board_id}/cards"),
+            &json!({"title": "newer", "body": paragraphs(&["newer"])}),
+        )
+        .await
+        .created_json();
+    let editor = Editor::join(
+        101,
+        &collab
+            .open(&older.app, &older.card_id)
+            .await
+            .expect("opened"),
+    );
+    let read_before = card(&th.client, &older.card_id).await;
+    collab
+        .take(
+            &older.app,
+            &older.card_id,
+            &older.user1,
+            &editor.append_paragraph("typed"),
+        )
+        .await
+        .expect("taken");
+    let whole = paragraphs(&["written in a batch"]);
+    let path = format!("/boards/{}/blocks", read_before.board_id);
+    th.client
+        .patch(
+            &path,
+            &json!({
+                "blockIds": [newer.id, older.card_id],
+                "blockPatches": [{"title": "x"}, {"body": whole, "readAt": read_before.update_at}],
+            }),
+        )
+        .await
+        .check_status(reqwest::StatusCode::CONFLICT);
+    assert_eq!(
+        body_of(&card(&th.client, &older.card_id).await),
+        editor.body().map(|body| body.document().clone()),
+        "the editors' update was written first"
+    );
+    th.teardown().await;
+}
+
+/// A patch of boards and blocks that writes a card's body whole meets its document as a
+/// patch of the card does.
+#[tokio::test]
+async fn a_patch_of_boards_and_blocks_meets_the_open_document() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    let read_before = card(&th.client, &e.card_id).await;
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph("typed"),
+        )
+        .await
+        .expect("taken");
+    let whole = paragraphs(&["written with the boards"]);
+    let patch = |read_at: i64| {
+        json!({
+            "boardIds": [read_before.board_id],
+            "boardPatches": [{"title": "the board"}],
+            "blockIds": [e.card_id],
+            "blockPatches": [{"body": whole, "readAt": read_at}],
+        })
+    };
+    th.client
+        .patch("/boards-and-blocks", &patch(read_before.update_at))
+        .await
+        .check_status(reqwest::StatusCode::CONFLICT);
+    let read = card(&th.client, &e.card_id).await;
+    th.client
+        .patch("/boards-and-blocks", &patch(read.update_at))
+        .await
+        .check_ok();
+    assert!(told(&mut events, &e.card_id, DocChange::Replaced));
+    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    assert_eq!(
+        again.body().map(|body| body.document().clone()),
+        Some(whole)
+    );
+    th.teardown().await;
+}
+
+/// A document whose log holds an update the limits refuse now (they were lowered while
+/// the server was down) and that the card does not hold is made again from the card:
+/// it opens, and the card's body can be written whole, instead of being refused for
+/// good. The event names the card's organization.
+#[tokio::test]
+async fn a_log_the_lowered_limits_refuse_gives_way_to_the_card() {
+    let th = Setup::native().start().await.init_basic().await;
+    let e = editing(&th, &paragraphs(&["first"])).await;
+    let collab = e.app.collab();
+    let editor = Editor::join(101, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    collab
+        .take(
+            &e.app,
+            &e.card_id,
+            &e.user1,
+            &editor.append_paragraph(&"l".repeat(40 * 1024)),
+        )
+        .await
+        .expect("taken");
+    let card_id = e.card_id.clone();
+    let held = body_of(&card(&th.client, &card_id).await);
+    let mut th = th;
+    th.config.collab.collab_update_bytes = 32 * 1024;
+    let th = th
+        .killed_and_started_again(async |app| app.collab().abandon().await)
+        .await;
+    let e = crate::collab::Editing {
+        card_id,
+        ..crate::collab::editing_app(&th).await
+    };
+    let collab = e.app.collab();
+    let mut events = collab.subscribe();
+    let again = Editor::join(102, &collab.open(&e.app, &e.card_id).await.expect("opened"));
+    assert_eq!(
+        again.body().map(|body| body.document().clone()),
+        held,
+        "the card's body"
+    );
+    let read = card(&th.client, &e.card_id).await;
+    let whole = paragraphs(&["written whole"]);
+    th.client
+        .patch(
+            &format!("/cards/{}", e.card_id),
+            &json!({"body": whole, "readAt": read.update_at}),
+        )
+        .await
+        .check_ok();
+    // The start may have made the document again from the card as well (Remade).
+    let replaced = std::iter::from_fn(|| events.try_recv().ok())
+        .find(|event| event.change == DocChange::Replaced)
+        .expect("the room is told");
+    assert_eq!(
+        (replaced.tenant, replaced.card_id),
+        (e.app.store().tenant(), e.card_id.clone())
+    );
+    th.teardown().await;
+}

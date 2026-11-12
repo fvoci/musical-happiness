@@ -271,9 +271,11 @@ fn describe_editing_together(reason: Reason) -> &'static str {
             "Status 503. The document of the body cannot be worked on for now: the process \
              that holds the documents ended or did not answer in time, which drops what was \
              under way, or did so again and again with this document, which is closed for \
-             a while. The document is as it was stored before. Try again later."
+             a while; or a write of the card's whole body came while what its editors typed \
+             could not be written to the card first, and was not done. The document is as \
+             it was stored before. Try again later."
         }
-        _ => "",
+        other => unreachable!("{other:?} is no reason of editing together"),
     }
 }
 

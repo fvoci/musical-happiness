@@ -54,12 +54,19 @@ pub struct WorkerCommand {
 }
 
 impl WorkerCommand {
-    /// The executable the server runs in, as the worker.
+    /// The executable the server runs in, as the worker. On Linux it is the file the
+    /// server was started from even if another was put at its path since (an upgrade
+    /// while it runs): the two speak the same frames, which carry no version. Elsewhere,
+    /// and without `/proc`, it is the file at the path the server was started from.
     ///
     /// # Errors
     ///
     /// Returns why the path of the running executable is not known.
     pub fn this_executable() -> std::io::Result<Self> {
+        let running = std::path::Path::new("/proc/self/exe");
+        if cfg!(target_os = "linux") && running.exists() {
+            return Ok(Self::of_executable(running.to_owned()));
+        }
         Ok(Self::of_executable(std::env::current_exe()?))
     }
 

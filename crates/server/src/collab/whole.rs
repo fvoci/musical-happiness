@@ -4,11 +4,35 @@
 
 use std::future::Future;
 
+use fvoci_model::{Block, BlockPatch, BlockType};
+
 use super::place::Held;
 use super::upkeep::digest_of;
 use super::{Collab, refusals};
 use crate::app::App;
 use crate::error::AppError;
+
+/// The cards whose bodies a batch of patches writes: of `blocks`, those read for
+/// `block_ids`, the cards whose patch (at the same place as their identifier) sets a
+/// body.
+#[must_use]
+pub fn cards_written_whole(
+    blocks: &[Block],
+    block_ids: &[String],
+    patches: &[BlockPatch],
+) -> Vec<String> {
+    block_ids
+        .iter()
+        .zip(patches)
+        .filter(|(block_id, patch)| {
+            !patch.body.is_keep()
+                && blocks
+                    .iter()
+                    .any(|block| &block.id == *block_id && block.block_type == BlockType::Card)
+        })
+        .map(|(block_id, _)| block_id.clone())
+        .collect()
+}
 
 impl Collab {
     /// Runs `write`, a write of the whole bodies of the cards `card_ids` (with the

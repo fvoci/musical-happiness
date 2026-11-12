@@ -12,7 +12,7 @@ use super::worker::CallError;
 use super::{Collab, DocChange, given, refusals, upkeep};
 use crate::app::App;
 use crate::collab_worker::wire::{Answer, DocNumber, Request, Source};
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 impl Collab {
     /// Opens a card's document in the worker that holds the fewest: from what is
@@ -69,10 +69,17 @@ impl Collab {
             first_unwritten: None,
             last_update: Instant::now(),
             writing_scheduled: false,
+            retry_at: None,
         })
     }
 
     /// A stored document, with the updates logged after its state taken again.
+    ///
+    /// A document that cannot be opened so is made again from its card's body when its
+    /// card holds all of it, or when the limits refuse what is stored for good (they
+    /// were lowered since it was stored): the updates the card does not hold are then
+    /// dropped, and that is logged. Otherwise (a worker that is full or ended, the
+    /// store) the open fails, and the next one tries again.
     async fn reopen(
         &self,
         app: &App,
@@ -81,81 +88,100 @@ impl Collab {
         number: DocNumber,
         stored: StoredDoc,
     ) -> Result<OpenDoc, Opening> {
+        let unwritten = stored.projected_seq < stored.log_end;
+        let mut open = OpenDoc {
+            worker,
+            // Not open yet: no generation is 0.
+            generation: 0,
+            number,
+            state_seq: stored.state_seq,
+            log_end: stored.log_end,
+            written_seq: stored.projected_seq,
+            body_digest: stored.body_digest,
+            state_bytes: 0,
+            made_bytes: 0,
+            last_writer: block.modified_by.clone(),
+            first_unwritten: unwritten.then(Instant::now),
+            last_update: Instant::now(),
+            writing_scheduled: false,
+            retry_at: None,
+        };
+        let opened = self
+            .open_and_replay(app, &block.id, &mut open, stored.state, stored.updates)
+            .await;
+        if let Err(failed) = opened {
+            self.close_number(worker, open.generation, number).await;
+            let for_good = refused_for_good(&failed);
+            if matches!(failed, Opening::Died) || (unwritten && !for_good) {
+                return Err(failed);
+            }
+            if unwritten {
+                tracing::error!(
+                    card_id = block.id,
+                    "the limits refuse what is stored of a document; it is made again from its card, without the updates the card does not hold"
+                );
+            } else {
+                tracing::error!(
+                    card_id = block.id,
+                    "what is stored of a document is not taken again; it is made again from its card"
+                );
+            }
+            return self.made_from_card(app, block, open).await;
+        }
+        let written_elsewhere = upkeep::digest_of(block.body.as_ref()) != open.body_digest;
+        if !unwritten && written_elsewhere {
+            return self.made_from_card(app, block, open).await;
+        }
+        Ok(open)
+    }
+
+    /// Makes a document again from its card's body, in place of what is stored of it.
+    async fn made_from_card(
+        &self,
+        app: &App,
+        block: &Block,
+        mut open: OpenDoc,
+    ) -> Result<OpenDoc, Opening> {
+        if let Err(failed) = self
+            .remake_from(app, &block.id, &mut open, block.body.as_ref())
+            .await
+        {
+            self.close_number(open.worker, open.generation, open.number)
+                .await;
+            return Err(failed);
+        }
+        self.tell(app, &block.id, DocChange::Remade);
+        Ok(open)
+    }
+
+    /// Opens a stored state in the worker of `open` under its number, and takes the
+    /// logged updates again.
+    async fn open_and_replay(
+        &self,
+        app: &App,
+        card_id: &str,
+        open: &mut OpenDoc,
+        state: Vec<u8>,
+        updates: Vec<LoggedUpdate>,
+    ) -> Result<(), Opening> {
         let opened = self
             .call(
-                worker,
+                open.worker,
                 None,
                 &Request::Open {
-                    doc: number,
-                    source: Source::State(stored.state),
+                    doc: open.number,
+                    source: Source::State(state),
                 },
             )
             .await?;
         let (generation, Answer::Opened { state, state_bytes }) = opened else {
             return Err(unexpected(&opened.1).into());
         };
-        let unwritten = stored.projected_seq < stored.log_end;
-        let mut open = OpenDoc {
-            worker,
-            generation,
-            number,
-            state_seq: stored.state_seq,
-            log_end: stored.log_end,
-            written_seq: stored.projected_seq,
-            body_digest: stored.body_digest,
-            state_bytes,
-            made_bytes: 0,
-            last_writer: block.modified_by.clone(),
-            first_unwritten: unwritten.then(Instant::now),
-            last_update: Instant::now(),
-            writing_scheduled: false,
-        };
-        let replayed = self
-            .replay(
-                app,
-                &block.id,
-                &mut open,
-                state,
-                stored.state_seq,
-                stored.updates,
-            )
-            .await;
-        if let Err(failed) = replayed {
-            // The document is not opened short of an update of its log: a log that is
-            // in the card already is left for a document made again from the card, and
-            // one that is not waits for the next try.
-            self.close_number(worker, generation, number).await;
-            if unwritten || matches!(failed, Opening::Died) {
-                return Err(failed);
-            }
-            tracing::error!(
-                card_id = block.id,
-                "a logged update is not taken again; the document is made again from its card"
-            );
-            if let Err(failed) = self
-                .remake_from(app, &block.id, &mut open, block.body.as_ref())
-                .await
-            {
-                self.close_number(worker, open.generation, open.number)
-                    .await;
-                return Err(failed);
-            }
-            self.tell(&block.id, DocChange::Remade);
-            return Ok(open);
-        }
-        let written_elsewhere = upkeep::digest_of(block.body.as_ref()) != open.body_digest;
-        if !unwritten && written_elsewhere {
-            if let Err(failed) = self
-                .remake_from(app, &block.id, &mut open, block.body.as_ref())
-                .await
-            {
-                self.close_number(worker, open.generation, open.number)
-                    .await;
-                return Err(failed);
-            }
-            self.tell(&block.id, DocChange::Remade);
-        }
-        Ok(open)
+        open.generation = generation;
+        open.state_bytes = state_bytes;
+        let state_seq = open.state_seq;
+        self.replay(app, card_id, open, state, state_seq, updates)
+            .await
     }
 
     /// Takes the logged updates again into a document opened from its stored state,
@@ -280,4 +306,21 @@ async fn card(app: &App, card_id: &str) -> Result<Block, Opening> {
 /// The error of an answer that is not one to the request: a defect.
 pub(super) fn unexpected(answer: &Answer) -> AppError {
     AppError::internal(format_args!("the worker answered with {answer:?}"))
+}
+
+/// Whether an open failed because the limits refuse what is stored, which no later try
+/// changes.
+fn refused_for_good(failed: &Opening) -> bool {
+    let Opening::Refused(error) = failed else {
+        return false;
+    };
+    matches!(
+        error.reason(),
+        Some(
+            Reason::UpdateTooLarge
+                | Reason::DocumentTooLarge
+                | Reason::UpdateRefused
+                | Reason::UpdateOutOfStep
+        )
+    )
 }

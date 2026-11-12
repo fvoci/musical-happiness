@@ -61,8 +61,9 @@ pub(crate) struct TestServer {
     serving: tokio::task::JoinHandle<anyhow::Result<()>>,
     database: TestDatabase,
     directory: PathBuf,
-    /// What the server was started with, for a start again on the same database.
-    config: Configuration,
+    /// What the server was started with, for a start again on the same database (which
+    /// a test may change before).
+    pub(crate) config: Configuration,
     base_path: String,
 }
 

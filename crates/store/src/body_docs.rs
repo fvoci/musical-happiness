@@ -48,7 +48,9 @@ pub struct LoggedUpdate {
 
 impl Store {
     /// The stored document of a block, with the updates it took after its state;
-    /// `None` if the block has none.
+    /// `None` if the block has none. Read in two statements outside a transaction: the
+    /// server writes a block's document only while it holds the block's place, as the
+    /// reader does (the purge of the trash aside, which removes it whole).
     ///
     /// # Errors
     ///
@@ -221,24 +223,6 @@ impl Store {
             sql.bind(Id(block_id));
             scope.execute(sql).await?;
             Ok(())
-        })
-        .await
-    }
-
-    /// Removes a block's document and its log; whether there was one. The next one is
-    /// made from the block's body.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn delete_body_doc(&self, block_id: &str) -> Result<bool, StoreError> {
-        self.transaction(async |scope| {
-            let mut sql = scope.sql("DELETE FROM body_updates WHERE block_id = ");
-            sql.bind(Id(block_id));
-            scope.execute(sql).await?;
-            let mut sql = scope.sql("DELETE FROM body_docs WHERE block_id = ");
-            sql.bind(Id(block_id));
-            Ok(scope.execute(sql).await? > 0)
         })
         .await
     }

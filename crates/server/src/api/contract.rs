@@ -140,10 +140,13 @@ what was created in the same millisecond.
 
 ## Bodies edited together
 
-While people edit a card's body together the server holds it as a Y document, which no \
-operation here reaches yet. What it refuses of an editor has the reason `update_refused`, \
-`update_out_of_step`, `update_too_large` or `document_too_large`; `too_many_documents` and \
-`document_unavailable` say that it cannot take the document for now. The page of each kind \
+While people edit a card's body together the server holds it as a Y document. What it \
+refuses of an editor has the reason `update_refused`, `update_out_of_step`, \
+`update_too_large` or `document_too_large`; `too_many_documents` and \
+`document_unavailable` say that it cannot take the document for now. A write of a card's \
+whole body here (a patch of the card or of blocks, a card stored again) first writes to the \
+card what its editors typed: a `readAt` from before that is refused with 409, and if it \
+cannot be written the write is refused with `document_unavailable`. The page of each kind \
 says when it comes.
 
 ## Request bodies

@@ -83,13 +83,16 @@ pub(super) struct OpenDoc {
     pub(super) last_update: Instant,
     /// Whether a task waits to write its body.
     pub(super) writing_scheduled: bool,
+    /// Not before when its body is written again, after a write that failed.
+    pub(super) retry_at: Option<Instant>,
 }
 
 impl OpenDoc {
     /// When its body is to be written, if it has updates whose body is not.
     pub(super) fn write_at(&self) -> Option<Instant> {
         let first = self.first_unwritten?;
-        Some((self.last_update + super::WRITE_QUIET).min(first + super::WRITE_LONGEST))
+        let due = (self.last_update + super::WRITE_QUIET).min(first + super::WRITE_LONGEST);
+        Some(self.retry_at.map_or(due, |retry_at| due.max(retry_at)))
     }
 }
 
@@ -204,7 +207,7 @@ impl Collab {
                 Ok((_, answer)) => return Ok(answer),
                 Err(CallError::Lost) => {
                     self.lost(slot);
-                    self.tell(card_id, DocChange::Reopened);
+                    self.tell(app, card_id, DocChange::Reopened);
                 }
                 Err(CallError::Refused(refused)) => {
                     return Err(refusals::refused(&refused, &self.inner.limits));
@@ -268,9 +271,10 @@ impl Collab {
     }
 
     /// Tells the subscribers what happened to a card's document.
-    pub(super) fn tell(&self, card_id: &str, change: DocChange) {
+    pub(super) fn tell(&self, app: &App, card_id: &str, change: DocChange) {
         // Nobody may be listening.
         let _ = self.inner.events.send(DocEvent {
+            tenant: app.store().tenant(),
             card_id: card_id.to_owned(),
             change,
         });

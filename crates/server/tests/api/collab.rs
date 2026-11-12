@@ -476,7 +476,7 @@ async fn only_a_card_has_a_document() {
 }
 
 /// The application of a server as user1 reaches the test workspace.
-async fn editing_app(th: &TestServer) -> Editing {
+pub(crate) async fn editing_app(th: &TestServer) -> Editing {
     let user1 = th.client.me().await.id;
     let user2 = th.client2.me().await.id;
     let entered = th

@@ -121,14 +121,30 @@ impl App {
         // The original reads the blocks first to hand their old state to its
         // notifications. What remains of that is the failure when a block is missing or
         // listed twice.
-        if !patches.block_ids.is_empty() {
-            self.store().get_blocks_by_ids(&patches.block_ids).await?;
-        }
+        let blocks = if patches.block_ids.is_empty() {
+            Vec::new()
+        } else {
+            self.store().get_blocks_by_ids(&patches.block_ids).await?
+        };
 
-        let result = self
-            .store()
-            .patch_boards_and_blocks(patches, user_id)
-            .await?;
+        // Whole bodies are written around the documents of bodies edited together.
+        let card_ids =
+            crate::collab::cards_written_whole(&blocks, &patches.block_ids, &patches.block_patches);
+        let result = if card_ids.is_empty() {
+            self.store()
+                .patch_boards_and_blocks(patches, user_id)
+                .await?
+        } else {
+            let (patches, user_id) = (patches.clone(), user_id.to_owned());
+            self.collab()
+                .write_whole(self, card_ids, async move |app| {
+                    Ok(app
+                        .store()
+                        .patch_boards_and_blocks(&patches, &user_id)
+                        .await?)
+                })
+                .await?
+        };
 
         let app = self.clone();
         let broadcast = result.clone();

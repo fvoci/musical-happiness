@@ -33,6 +33,8 @@ mod upkeep;
 mod whole;
 pub mod worker;
 
+pub use whole::cards_written_whole;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -42,7 +44,7 @@ use fvoci_store::Tenant;
 use tokio::sync::broadcast;
 
 use crate::app::App;
-use crate::collab_worker::wire::{Answer, Limits, Request};
+use crate::collab_worker::wire::{Answer, Limits, Refusal, Refused, Request};
 use crate::config::CollabSettings;
 use crate::error::AppError;
 use place::{Held, Slot};
@@ -117,6 +119,9 @@ pub struct Taken {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DocEvent {
+    /// The organization of the card: the same identifier in another organization is
+    /// another card.
+    pub tenant: Tenant,
     /// The card.
     pub card_id: String,
     /// What happened.
@@ -254,6 +259,7 @@ impl Collab {
         card_id: &str,
         state_vector: &[u8],
     ) -> Result<Vec<u8>, AppError> {
+        self.held_to_update_bytes(state_vector)?;
         let state_vector = state_vector.to_vec();
         self.on_slot(
             app,
@@ -287,6 +293,7 @@ impl Collab {
         user_id: &str,
         update: &[u8],
     ) -> Result<Taken, AppError> {
+        self.held_to_update_bytes(update)?;
         let (user_id, update) = (user_id.to_owned(), update.to_vec());
         self.on_slot(
             app,
@@ -460,6 +467,20 @@ impl Collab {
             },
         )
         .await
+    }
+
+    /// Refuses what an editor sends that is larger than an update may be, before it is
+    /// copied into a frame for the worker (which refuses it as well).
+    fn held_to_update_bytes(&self, sent: &[u8]) -> Result<(), AppError> {
+        let limit = usize::try_from(self.inner.limits.update_bytes).unwrap_or(usize::MAX);
+        if sent.len() <= limit {
+            return Ok(());
+        }
+        let refused = Refused {
+            refusal: Refusal::UpdateTooLarge,
+            message: format!("{} bytes, before the worker", sent.len()),
+        };
+        Err(refusals::refused(&refused, &self.inner.limits))
     }
 
     /// Has the next write of a document's body to its card wait, after it read the card
