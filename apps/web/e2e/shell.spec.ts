@@ -172,13 +172,18 @@ test.describe('the top bar', () => {
 
     // The keys, pressed outside of any field.
     await undo.focus();
+    // Each key waits for the step before it to be done, as the buttons do: a redo
+    // asked for while the undo is still being written is not one.
     await page.keyboard.press('Control+z');
     await expect(title).toHaveValue(FIRST_BOARD);
+    await expect(redo).toBeEnabled();
     await page.keyboard.press('Control+Shift+z');
     await expect(title).toHaveValue('One');
+    await expect(undo).toBeEnabled();
     await undo.focus();
     await page.keyboard.press('Meta+z');
     await expect(title).toHaveValue(FIRST_BOARD);
+    await expect(redo).toBeEnabled();
     await page.keyboard.press('Meta+Shift+z');
     await expect(title).toHaveValue('One');
 
