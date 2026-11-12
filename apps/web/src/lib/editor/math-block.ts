@@ -225,11 +225,10 @@ class FormulaView implements NodeView {
     }
     if (place?.draft && this.#panel) {
       const { field, written } = this.#panel;
-      const stored = this.#latex;
       // What closing the place keeps: the field once it was written in (it may be empty while
-      // the document is not); until then the stored source, exactly, so that only opening and
-      // closing changes nothing.
-      place.draft.value = () => (written() ? field.value.trim().slice(0, MAX_LATEX) : stored);
+      // the document is not); until then the source as it is stored now, exactly, so that only
+      // opening and closing changes nothing, even when the source changed meanwhile elsewhere.
+      place.draft.value = () => (written() ? field.value.trim().slice(0, MAX_LATEX) : this.#latex);
     }
   }
 

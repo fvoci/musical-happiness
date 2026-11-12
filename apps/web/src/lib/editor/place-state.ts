@@ -146,11 +146,11 @@ function reachOver(state: EditorState): Transaction | null {
   if (!node) return null;
   const forward = $anchor.pos < pos;
   const beyond = state.doc.resolve(forward ? pos + node.nodeSize : pos);
-  // The first place for text past the diagram; with none, the selection stays as it was.
+  // The first place for text past the diagram; with none (it ends or begins the body), the
+  // edge of the body itself: the selection then holds the diagram whole, never part of it.
   const past = Selection.findFrom(beyond, forward ? 1 : -1, true);
-  return past
-    ? state.tr.setSelection(TextSelection.create(state.doc, $anchor.pos, past.head))
-    : null;
+  const head = past ? past.head : beyond.pos;
+  return state.tr.setSelection(TextSelection.create(state.doc, $anchor.pos, head));
 }
 
 /**

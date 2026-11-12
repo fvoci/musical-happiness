@@ -194,6 +194,32 @@ describe('the keys beside a closed diagram', () => {
   });
 });
 
+describe('a selection that reaches a closed diagram at an end of the body', () => {
+  // Found by an independent review (its branch `fvoci/review-web-mermaid`).
+  it('takes the whole last diagram, with no text behind it to end in', () => {
+    const target = create(doc(paragraph(text('before')), code('mermaid', FLOW)));
+    const diagramAt = target.state.doc.child(0).nodeSize;
+    target.view.dispatch(
+      target.state.tr.setSelection(TextSelection.create(target.state.doc, 2, diagramAt + 4)),
+    );
+    expect(placeOf(target.state)).toBeNull();
+    expect(target.state.selection.to).toBe(target.state.doc.content.size);
+    // What is typed then takes the diagram's place whole, not part of its source.
+    type(target, 'x');
+    expect(stored(target)).toEqual(doc(paragraph(text('bx'))));
+  });
+
+  it('takes the whole first diagram, drawn backwards to it', () => {
+    const target = create(doc(code('mermaid', FLOW), paragraph(text('after'))));
+    const afterAt = target.state.doc.child(0).nodeSize;
+    target.view.dispatch(
+      target.state.tr.setSelection(TextSelection.create(target.state.doc, afterAt + 2, 4)),
+    );
+    expect(placeOf(target.state)).toBeNull();
+    expect(target.state.selection.from).toBe(0);
+  });
+});
+
 describe('opening and closing the place', () => {
   it('opens on a press of the picture, with the cursor at the end of the source', () => {
     const target = create(BODY);
@@ -366,6 +392,24 @@ describe('editing the source', () => {
       ),
     );
     expect(isOpen(target)).toBe(true);
+  });
+
+  it('does not say the same error again when the next drawing fails the same way', async () => {
+    const target = create(doc(code('mermaid', 'flowchart LR\n  bad -->')));
+    await vi.waitFor(() => {
+      expect(block(target).getAttribute('data-state')).toBe('error');
+    });
+    figure(target).click();
+    const problem = block(target).querySelector('.doc-diagram-problem');
+    const said = problem?.firstChild;
+    expect(said?.textContent).toBe('This diagram cannot be drawn.');
+    type(target, ' ');
+    await vi.waitFor(() => {
+      expect(drawDiagram).toHaveBeenCalledTimes(2);
+    });
+    // After that drawing has been shown: the words in the live region are the same ones.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(problem?.firstChild).toBe(said);
   });
 
   it('shows no source while the first picture is being drawn', async () => {
