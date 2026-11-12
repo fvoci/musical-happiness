@@ -338,55 +338,59 @@ describe('redo while an undo is being written', () => {
 });
 
 describe('a gesture of several changes', () => {
+  /** A change that adds `value` to `values`, as a step of `manager` (of a gesture, with `groupId`). */
+  function adding(manager: UndoManager, values: string[], value: string, groupId?: string) {
+    return manager.perform(
+      async () => {
+        values.push(value);
+      },
+      async () => {
+        values.splice(values.indexOf(value), 1);
+      },
+      value,
+      groupId,
+    );
+  }
+
   it('is one step from its start, and an undo asked for meanwhile waits for all of it', async () => {
     const manager = new UndoManager();
     const values: string[] = [];
     const gate = held();
-    const push = (value: string) => () =>
-      manager.perform(
-        async () => {
-          values.push(value);
-        },
-        async () => {
-          values.splice(values.indexOf(value), 1);
-        },
-        value,
-        undefined,
-      );
-    await push('before')();
+    await adding(manager, values, 'before');
     const gesture = manager.group(async (groupId) => {
-      await manager.perform(
-        async () => {
-          values.push('a');
-        },
-        async () => {
-          values.splice(values.indexOf('a'), 1);
-        },
-        'a',
-        groupId,
-      );
+      await adding(manager, values, 'a', groupId);
       await gate.promise;
-      await manager.perform(
-        async () => {
-          values.push('b');
-        },
-        async () => {
-          values.splice(values.indexOf('b'), 1);
-        },
-        'b',
-        groupId,
-      );
+      await adding(manager, values, 'b', groupId);
     });
-    // Another change made while the gesture is under way comes after it.
-    await push('between')();
-    const first = manager.undo();
-    const second = manager.undo();
+    const undone = manager.undo();
     gate.answer();
-    await gesture;
-    await Promise.all([first, second]);
+    await Promise.all([gesture, undone]);
     expect(values).toEqual(['before']);
     expect(manager.undoDescription).toBe('before');
     expect(manager.redoDescription).toBe('a');
+  });
+
+  it('goes on in a step after a change made between its own: undo goes in the order they were made', async () => {
+    const manager = new UndoManager();
+    const values: string[] = [];
+    const gate = held();
+    await adding(manager, values, 'before');
+    const gesture = manager.group(async (groupId) => {
+      await adding(manager, values, 'a', groupId);
+      await gate.promise;
+      await adding(manager, values, 'b', groupId);
+    });
+    await adding(manager, values, 'between');
+    gate.answer();
+    await gesture;
+    expect(values).toEqual(['before', 'a', 'between', 'b']);
+    const undone: (string | undefined)[] = [];
+    for (let times = 0; times < 3; times += 1) {
+      undone.push(manager.undoDescription);
+      await manager.undo();
+    }
+    expect(undone).toEqual(['b', 'between', 'a']);
+    expect(values).toEqual(['before']);
   });
 
   it('leaves no step when it changed nothing', async () => {
@@ -471,4 +475,45 @@ describe('a history cleared while it is under way (another workspace entered)', 
     expect(manager.busy).toBe(false);
     expect(manager.canRedo).toBe(true);
   });
+});
+
+describe('changes refused one after the other (found by a review of 042ff43)', () => {
+  it.each([
+    { first: 0, second: 1 },
+    { first: 1, second: 0 },
+  ])(
+    'gives back what could be redone when two changes made after an undo are refused, $first then $second',
+    async ({ first, second }) => {
+      const manager = new UndoManager();
+      let value = 'start';
+      await manager.perform(
+        async () => {
+          value = 'original';
+        },
+        async () => {
+          value = 'start';
+        },
+        'original',
+      );
+      await manager.undo();
+      const writes = [held(), held()];
+      const changes = writes.map((write) =>
+        manager
+          .perform(
+            () => write.promise,
+            async () => undefined,
+          )
+          .catch(() => undefined),
+      );
+      writes[first]?.refuse();
+      await changes[first];
+      writes[second]?.refuse();
+      await changes[second];
+
+      expect(manager.canUndo).toBe(false);
+      expect(manager.redoDescription).toBe('original');
+      await manager.redo();
+      expect(value).toBe('original');
+    },
+  );
 });

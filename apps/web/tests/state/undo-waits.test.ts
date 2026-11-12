@@ -118,3 +118,55 @@ describe('a gesture of several writes', () => {
     expect(title()).toBe('One');
   });
 });
+
+describe('a change made while a gesture waits for one of its writes (found by a review of 042ff43)', () => {
+  it("is undone and redone in the order it was made among the gesture's changes", async () => {
+    const { board, backend, workspace } = await openFirstBoard();
+    const card = board.realCards.find((one) => one.title === 'Alpha');
+    const view = board.views[0];
+    if (!card || !view) throw new Error('missing card or view');
+
+    let release = (): void => undefined;
+    let entered = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const patchView = backend.patchView.bind(backend);
+    backend.patchView = async (...args) => {
+      backend.patchView = patchView;
+      entered();
+      await gate;
+      return patchView(...args);
+    };
+
+    try {
+      // The drop writes the view's order, then the card's status.
+      const dropping = board.dropCards({
+        viewId: view.id,
+        cardIds: [card.id],
+        optionId: 'done',
+        index: 0,
+      });
+      await started;
+      await board.setCardProperty(card.id, STATUS, 'doing');
+      release();
+      await dropping;
+      const final = (await backend.card(board.boardId, card.id)).fields.properties[STATUS];
+
+      await workspace.undoLast();
+      await workspace.undoLast();
+      await workspace.redoLast();
+      await workspace.redoLast();
+
+      expect(workspace.problems).toEqual([]);
+      expect((await backend.card(board.boardId, card.id)).fields.properties[STATUS]).toBe(final);
+      expect(board.card(card.id)?.fields.properties[STATUS]).toBe(final);
+    } finally {
+      release();
+      workspace.close();
+    }
+  });
+});

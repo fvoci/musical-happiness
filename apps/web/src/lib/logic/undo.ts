@@ -52,7 +52,10 @@ interface Entry {
 /** A gesture under way, and its step once it has made a change. */
 interface Gesture {
   over: Promise<void>;
+  /** The step its next change joins. */
   entry: Entry | undefined;
+  /** Every step it made: more than one where a change of the person came between its own. */
+  entries: Entry[];
   /** The history it was begun in (`clear` begins another). */
   history: number;
 }
@@ -156,16 +159,21 @@ export class UndoManager {
     groupCounter += 1;
     const groupId = `group-${groupCounter}`;
     const over = deferred();
-    const record: Gesture = { over: over.promise, entry: undefined, history: this.#history };
+    const record: Gesture = {
+      over: over.promise,
+      entry: undefined,
+      entries: [],
+      history: this.#history,
+    };
     this.#gestures.set(groupId, record);
     try {
       return await gesture(groupId);
     } finally {
       this.#gestures.delete(groupId);
       over.resolve();
-      if (record.entry) {
-        record.entry.gesture = undefined;
-        this.#forgetIfEmpty(record.entry);
+      for (const entry of record.entries) {
+        entry.gesture = undefined;
+        this.#forgetIfEmpty(entry);
       }
     }
   }
@@ -216,7 +224,7 @@ export class UndoManager {
     const gesture = groupId === undefined ? undefined : this.#gestures.get(groupId);
     const last = this.#entries[this.#index];
     let entry = gesture
-      ? gesture.entry
+      ? this.#continued(gesture)
       : groupId !== undefined && last?.groupId === groupId
         ? last
         : undefined;
@@ -228,12 +236,25 @@ export class UndoManager {
           : this.#push(groupId, isDiscardable);
       if (gesture) {
         gesture.entry = entry;
+        gesture.entries.push(entry);
         entry.gesture = gesture;
       }
     }
     entry.steps.push(step);
     this.onStateDidChange?.();
     return entry;
+  }
+
+  /**
+   * The step a gesture's next change joins: its own, unless a change of the
+   * person was made after it. That change came between, so the gesture goes
+   * on in a new step after it: undo and redo then go in the order the
+   * changes were made.
+   */
+  #continued(gesture: Gesture): Entry | undefined {
+    const { entry } = gesture;
+    const at = entry ? this.#entries.indexOf(entry) : -1;
+    return at !== -1 && at < this.#entries.length - 1 ? undefined : entry;
   }
 
   /**
@@ -264,7 +285,10 @@ export class UndoManager {
     const at = this.#entries.indexOf(entry);
     if (at === -1) return;
     this.#entries.splice(at, 1);
-    if (at === this.#entries.length) this.#entries.push(...entry.cut);
+    // What it cut comes back once nothing made after it stays: the step after it keeps it until then.
+    const next = this.#entries[at];
+    if (!next) this.#entries.push(...entry.cut);
+    else if (next.cut.length === 0) next.cut = entry.cut;
     if (at <= this.#index) this.#index -= 1;
     if (at <= this.#inForce) this.#inForce -= 1;
     this.onStateDidChange?.();
