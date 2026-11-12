@@ -13,9 +13,9 @@
 
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardSearchField, BoardType, Category, SubscriberType,
-    Subscription, User, new_id,
+    Subscription, User, WorkspaceRole, new_id,
 };
-use fvoci_store::{Paging, PublicBoards, Store};
+use fvoci_store::{Looking, Paging, PublicBoards, Reach, Sight, Store};
 
 use crate::common::{self, TestStore};
 
@@ -186,12 +186,12 @@ async fn templates_come_oldest_first() {
 async fn memberships_come_by_identifier() {
     let test = common::setup().await;
     let store = &test.store;
-    let workspace_id = common::workspace(store).await;
     let users = [
         common::user(store, "user c").await,
         common::user(store, "user a").await,
         common::user(store, "user b").await,
     ];
+    let workspace_id = common::workspace_of(store, &[&users[0]]).await;
     let open = || Board {
         board_type: BoardType::Open,
         ..Board::default()
@@ -277,20 +277,33 @@ async fn users_come_oldest_first() {
         "users by identifier, whatever order they are asked for in"
     );
 
+    // The search is of the users who share a workspace with the one who searches.
+    let workspace_id = common::workspace_of(store, &[&first, &second, &third]).await;
+    let sight = Sight::InWorkspace {
+        seer_id: &first,
+        workspace_id: &workspace_id,
+        reach: Reach::Workspace,
+        looking: Looking::AmongPeople,
+    };
     let found = store
-        .search_users_by_workspace("order-")
+        .search_users_in_sight(sight, "order-")
         .await
         .expect("the users are searched");
     assert_eq!(user_ids(&found), expected, "a search");
 
     let mut many = Vec::new();
     for index in 0..12 {
-        many.push(common::user(store, &format!("many-{index:02}")).await);
+        let user_id = common::user(store, &format!("many-{index:02}")).await;
+        store
+            .add_workspace_member(&workspace_id, &user_id, WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the workspace");
+        many.push(user_id);
     }
     // The two made last are the oldest.
     set_create_at(&test, "users", &[(&many[11], 10), (&many[10], 20)]).await;
     let found = store
-        .search_users_by_workspace("many-")
+        .search_users_in_sight(sight, "many-")
         .await
         .expect("the users are searched");
     let mut oldest_ten = vec![many[11].as_str(), many[10].as_str()];
@@ -584,7 +597,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         by_id(cards.iter().map(|card| card.id.clone()).collect())
     );
     let listed: Vec<String> = store
-        .get_deleted_boards(&workspace_id, &user_id, None)
+        .get_deleted_boards(&workspace_id, Some(&user_id), None)
         .await
         .expect("the deleted boards")
         .into_iter()
@@ -594,7 +607,7 @@ async fn the_trash_comes_the_last_deleted_first() {
     let page: Vec<String> = store
         .get_deleted_boards(
             &workspace_id,
-            &user_id,
+            Some(&user_id),
             Some(Paging {
                 page: 1,
                 per_page: 2,
@@ -607,7 +620,7 @@ async fn the_trash_comes_the_last_deleted_first() {
         .collect();
     assert_eq!(page, by_id(boards.clone())[2..], "the pages cut that order");
     let not_admin = store
-        .get_deleted_boards(&workspace_id, &other_id, None)
+        .get_deleted_boards(&workspace_id, Some(&other_id), None)
         .await
         .expect("the deleted boards of an editor");
     assert!(not_admin.is_empty(), "only those the user was an admin of");

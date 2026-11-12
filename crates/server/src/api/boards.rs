@@ -17,12 +17,12 @@ use super::{
     json_response, no_content, query_param,
 };
 use super::{
-    duplicate_as, json_object, require_board_permission, require_workspace_access,
+    duplicate_as, json_object, require_board_permission, require_granted, require_workspace_access,
     require_workspace_in_body, user_is_guest,
 };
-use crate::app::App;
+use crate::app::{App, as_managed};
 use crate::error::AppError;
-use crate::permissions::{BoardPermission, WorkspacePermission, member_has_permission};
+use crate::permissions::{BoardPermission, Grant};
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -134,23 +134,8 @@ async fn handle_create_board(
     let board: Board =
         serde_json::from_value(Value::Object(requested)).map_err(AppError::bad_request)?;
 
-    let (permission, denial) = match board.board_type {
-        BoardType::Open => (
-            WorkspacePermission::CreatePublicChannel,
-            "access denied to create public boards",
-        ),
-        BoardType::Private => (
-            WorkspacePermission::CreatePrivateChannel,
-            "access denied to create private boards",
-        ),
-    };
+    // Whoever works in the workspace makes boards in it, open ones and private ones.
     require_workspace_in_body(&app, user_id, &board.workspace_id, "workspaceId").await?;
-    if !app
-        .has_permission_to_workspace(user_id, &board.workspace_id, permission)
-        .await?
-    {
-        return Err(AppError::forbidden(denial));
-    }
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }
@@ -198,32 +183,18 @@ async fn handle_get_board(
         if !app.is_board_reader(user_id, &board_id).await? {
             board.hide_people();
         }
-    } else if !sees_board_without_token(&app, user_id, &board).await? {
-        return Err(AppError::not_found("board"));
+    } else {
+        // Without the token, an open board is for whoever works in its workspace, a
+        // private one for its members, and its name for the workspace's administrators.
+        let grant = app.board_grant(user_id, &board_id).await?;
+        if !grant.sees() {
+            return Err(AppError::not_found("board"));
+        }
+        if grant.manages_only() {
+            board = as_managed(board);
+        }
     }
     Ok(json_response(&board))
-}
-
-/// Whether a signed-in user sees the board without its read token: an open board is
-/// for every user of its workspace, a private one for its members.
-async fn sees_board_without_token(
-    app: &App,
-    user_id: &str,
-    board: &Board,
-) -> Result<bool, AppError> {
-    let open_to_the_workspace = board.board_type == BoardType::Open
-        && !user_is_guest(app, user_id).await?
-        && app
-            .has_permission_to_workspace(
-                user_id,
-                &board.workspace_id,
-                WorkspacePermission::ViewWorkspace,
-            )
-            .await?;
-    Ok(open_to_the_workspace
-        || app
-            .has_permission_to_board(user_id, &board.id, BoardPermission::ViewBoard)
-            .await?)
 }
 
 /// Change a board
@@ -387,21 +358,18 @@ async fn handle_duplicate_board(
 
     // Whether the board is there for the user comes first: a board that cannot be seen
     // answers as one that does not exist, whatever else the request says.
-    let denial = "access denied to board";
-    let board = app.board(&board_id).await?;
-    if board.is_template && board.board_type == BoardType::Open {
-        // An open template is for everybody who works in its workspace and for its
-        // members, and a built-in one for everybody; for anybody else it is not there.
-        if !board.is_builtin
-            && !app.works_in_workspace(user_id, &board.workspace_id).await?
-            && !app.is_board_reader(user_id, &board_id).await?
-        {
-            return Err(AppError::not_found("board"));
-        }
-    } else {
-        require_board_permission(&app, user_id, &board_id, BoardPermission::ViewBoard, denial)
-            .await?;
-    }
+    // Copying is reading: an open template is for everybody who works in its workspace
+    // and for its members, a built-in one for everybody, any other board for its members.
+    let access = app
+        .board_access(user_id, &board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    require_granted(
+        access.grant,
+        BoardPermission::ViewBoard,
+        "access denied to board",
+    )?;
+    let board = access.board;
     if to_workspace.is_empty() {
         // A copy stays in the board's workspace. A built-in template is in no workspace of the
         // user's organization: its copy goes to the root workspace (TEMPORARY, with
@@ -431,8 +399,9 @@ async fn handle_duplicate_board(
 /// category and place, hidden or not) or in the default category if that one was
 /// deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
 /// `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-/// the deletion and stay ended. For who was an admin of the board when it was deleted;
-/// to anybody who was no member there is no such board.
+/// the deletion and stay ended. For who was an admin of the board when it was deleted,
+/// and for the workspace's administrators (who, if they were no member, get it without
+/// its description and properties); to anybody else there is no such board.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/undelete",
@@ -447,21 +416,21 @@ async fn handle_undelete_board(
     Path(board_id): Path<String>,
 ) -> ApiResult {
     // The trash keeps the memberships a board had, which is how it is known who may
-    // bring it back. To anybody who was no member, and for a board that is not in the
-    // trash, there is no such board.
-    let deleted = app
-        .deleted_board(&board_id)
+    // bring it back, as what they are in its workspace now. To anybody else, and for a
+    // board that is not in the trash, there is no such board.
+    let grant = app
+        .deleted_board_access(&session.user_id, &board_id)
         .await?
-        .ok_or_else(|| AppError::not_found("board"))?;
-    let member = deleted
-        .members
-        .iter()
-        .find(|member| member.user_id == session.user_id)
-        .ok_or_else(|| AppError::not_found("board"))?;
-    if !member_has_permission(member, BoardPermission::DeleteBoard) {
-        return Err(AppError::forbidden("access denied to undelete board"));
-    }
+        .map_or(Grant::NONE, |access| access.grant);
+    require_granted(
+        grant,
+        BoardPermission::DeleteBoard,
+        "access denied to undelete board",
+    )?;
 
     let board = app.undelete_board(&board_id, &session.user_id).await?;
+    if grant.manages_only() {
+        return Ok(json_response(&as_managed(board)));
+    }
     Ok(json_response(&board))
 }

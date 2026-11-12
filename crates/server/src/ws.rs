@@ -24,7 +24,7 @@ use crate::app::Audience;
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::{BoardPermission, member_has_permission};
+use crate::permissions::role_of;
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -527,7 +527,7 @@ impl Hub {
         match command.action.as_str() {
             "SUBSCRIBE_WORKSPACE" => {
                 let workspace = &command.workspace_id;
-                if self.audience.works_in_workspace(&user_id, workspace).await {
+                if self.audience.is_in_workspace(&user_id, workspace).await {
                     subscribe_to_workspace(&mut self.listeners(), id, &command.workspace_id);
                 } else {
                     tracing::error!(workspace_id = %command.workspace_id, user_id, "websocket: no workspace access");
@@ -604,10 +604,9 @@ impl Hub {
         // gets the message once per subscription.
         for (id, user_id) in followers {
             let reader = !user_id.is_empty()
-                && members.iter().any(|member| {
-                    member.user_id == user_id
-                        && member_has_permission(member, BoardPermission::ViewBoard)
-                });
+                && members
+                    .iter()
+                    .any(|member| member.user_id == user_id && role_of(member).is_some());
             if reader {
                 recipients.push(id);
             } else {
@@ -873,7 +872,7 @@ impl Hub {
         self.listeners_among(workspace_id, &members, also_user)
     }
 
-    /// The workspace's listeners whose user is one of `members`, or is `also_user`.
+    /// The workspace's listeners whose user is one of `members` with a role, or `also_user`.
     fn listeners_among(
         &self,
         workspace_id: &str,
@@ -890,9 +889,9 @@ impl Hub {
             .filter(|id| {
                 listeners.by_id.get(id).is_some_and(|listener| {
                     also_user == Some(listener.user_id.as_str())
-                        || members
-                            .iter()
-                            .any(|member| member.user_id == listener.user_id)
+                        || members.iter().any(|member| {
+                            member.user_id == listener.user_id && role_of(member).is_some()
+                        })
                 })
             })
             .collect()

@@ -361,6 +361,20 @@ impl App {
         }
     }
 
+    /// Returns who deleted a block of the trash: the user whose deletion put it there,
+    /// empty if nobody's did or it is not there.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the trash cannot be read.
+    pub async fn deleted_by(&self, block_id: &str) -> Result<String, AppError> {
+        match self.store().get_deleted_block(block_id).await {
+            Ok(deleted) => Ok(deleted.deleted_by),
+            Err(error) if error.is_not_found() => Ok(String::new()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     /// Returns the blocks below a block, at any depth: what deleting it takes along.
     ///
     /// # Errors

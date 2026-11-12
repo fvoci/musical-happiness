@@ -11,9 +11,6 @@
 # http -> store: the HTTP layer names the store, or reaches it through `.store()`.
 # logic -> http: the logic names axum, HTTP types, or a module of the HTTP layer.
 
-crates/server/src/api/archive.rs     fvoci_store::PublicBoards                            1
-crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Exclude                   1
-crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Include                   1
 crates/server/src/api/auth.rs        .store().is_bootstrapped                             1
 crates/server/src/api/categories.rs  fvoci_store::BoardVisibility                         2
 crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Hidden                 1

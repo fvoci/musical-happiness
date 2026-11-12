@@ -169,7 +169,7 @@ impl App {
             }
         }
 
-        for member in self.members_for_board(&board.id).await? {
+        for member in self.present_members_for_board(&board.id).await? {
             writer.write_line("boardMember", &member).await?;
         }
 

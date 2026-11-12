@@ -22,6 +22,23 @@ pub(crate) fn push_open_boards_at_work<'sql>(sql: &'sql mut Sql, user_id: &str) 
         .push(")) OR ")
 }
 
+/// The condition that the membership `bm` has a role: one without opens nothing.
+pub(crate) const BM_HAS_A_ROLE: &str =
+    " AND (bm.scheme_admin OR bm.scheme_editor OR bm.scheme_commenter OR bm.scheme_viewer)";
+
+/// Pushes the condition that the membership `bm` is the user's and that the user is
+/// still a member of the board's workspace `b`, a guest too: a role left on a board after
+/// leaving its workspace finds nothing.
+pub(crate) fn push_own_membership_in_workspace<'sql>(
+    sql: &'sql mut Sql,
+    user_id: &str,
+) -> &'sql mut Sql {
+    sql.push_bind("bm.user_id = ", Id(user_id))
+        .push(" AND b.workspace_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
+        .push_bind(" WHERE wm.user_id = ", Id(user_id))
+        .push(")")
+}
+
 impl Store {
     /// Makes a user a member of the handle's organization.
     ///
@@ -37,6 +54,31 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| add_organization_member(scope, user_id, role).await)
             .await
+    }
+
+    /// The identifiers of who works in a workspace of the handle's organization: its
+    /// members who are no guests, by identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_workspace_worker_ids(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT user_id FROM workspace_members WHERE workspace_id = ");
+            sql.bind(Id(workspace_id))
+                .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str())
+                .push(" ORDER BY user_id");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.id(0))
+                .collect()
+        })
+        .await
     }
 
     /// Makes a user a member of a workspace of the handle's organization.
@@ -213,4 +255,25 @@ pub(crate) async fn follow_instance_role(
         .push(")");
     scope.execute(sql).await?;
     Ok(())
+}
+
+/// Whether no other member of the board than the user is an administrator.
+pub(crate) async fn is_only_admin(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    // Another admin counts who can act as one: a member of the board's workspace who is
+    // no guest. A guest is no more than an editor, and who has left opens nothing.
+    let mut sql = scope.sql(
+        "SELECT 1 FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
+         JOIN workspace_members AS wm \
+         ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.board_id = ",
+    );
+    sql.bind(Id(board_id))
+        .push_bind(" AND bm.user_id <> ", Id(user_id))
+        .push_bind(" AND bm.scheme_admin = ", true)
+        .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
+        .push(" LIMIT 1");
+    Ok(scope.fetch_optional(sql).await?.is_none())
 }

@@ -12,10 +12,10 @@ use fvoci_model::{Board, Session, User, UserWorkspace, Workspace, WorkspaceRole}
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{MemberWorkspaceId, UserSearch, WorkspaceId};
+use super::contract::params::{HomeMemberWorkspaceId, MemberWorkspaceId, UserSearch, WorkspaceId};
 use super::contract::tag;
 use super::session::session_of;
-use super::{ApiResult, RequiredSession, decode_json, json_response, query_param, user_is_guest};
+use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -129,7 +129,21 @@ impl Ws {
     ///
     /// Returns 404 for a guest, and for a workspace of another organization.
     pub(crate) fn require_works_there(self) -> Result<Self, AppError> {
-        if self.role == WorkspaceRole::Guest || !self.home {
+        if self.role == WorkspaceRole::Guest {
+            return Err(workspace_not_found());
+        }
+        self.require_home()
+    }
+
+    /// The workspace for a member of it, a guest too, if it is of the organization the
+    /// server stands in: the routes that read their workspace there before they moved
+    /// under `/w/` keep that answer until the routes are decided anew.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 for a workspace of another organization.
+    pub(crate) fn require_home(self) -> Result<Self, AppError> {
+        if !self.home {
             return Err(workspace_not_found());
         }
         Ok(self)
@@ -186,8 +200,10 @@ async fn handle_get_my_workspaces(
 /// The boards of a workspace
 ///
 /// The boards of the workspace that the user is a member of, and the workspace's open
-/// boards; a guest of the workspace gets only the former. Templates are not among
-/// them. Oldest first. 404 unless the user is a member of the workspace.
+/// boards; a guest of the workspace gets only the former, an administrator every board
+/// of the workspace (what is on a private board they are no member of stays 404 to
+/// them). Templates are not among them. Oldest first. 404 unless the user is a member of
+/// the workspace.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/boards",
@@ -227,37 +243,48 @@ async fn handle_get_workspace(WorksIn(ws): WorksIn) -> ApiResult {
 
 /// The users of a workspace
 ///
-/// Up to ten users: with `search` those whose login name or display name has that text
-/// in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
-/// account first.
+/// Up to ten of the users the user sees in the workspace: whoever works there sees its
+/// members and who is on a board of it with them, a guest only who is on a board of it
+/// with them; and the user. With `search` those whose login name or display name has
+/// that text in it, whatever the case of the letters, without it the ten oldest
+/// accounts. Oldest account first.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsers",
     tag = tag::WORKSPACES,
-    params(WorkspaceId, UserSearch),
+    params(HomeMemberWorkspaceId, UserSearch),
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
-async fn handle_get_workspace_users(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_workspace_users(ws: Ws, RawQuery(query): RawQuery) -> ApiResult {
+    let ws = ws.require_home()?;
     let search_query = query_param(query.as_deref(), "search");
-    // There are no guests to treat differently, but the user must exist.
-    user_is_guest(&ws.app, &ws.session.user_id).await?;
     Ok(json_response(
-        &ws.app.search_workspace_users(&search_query).await?,
+        &ws.app
+            .search_users_in_workspace(
+                &ws.session.user_id,
+                &ws.workspace_id,
+                ws.role,
+                &search_query,
+            )
+            .await?,
     ))
 }
 
 /// Users of a workspace by their identifiers
 ///
 /// The users with the identifiers of the body, which must name at least one: an empty
-/// list is 400. Every identifier must be a user's and none may be there twice;
-/// otherwise the request is 404. Oldest account first, not in the order of the request.
+/// list is 400. Every identifier must be of a user the user sees in the workspace and
+/// none may be there twice; otherwise the request is 404. The user sees whom
+/// `getWorkspaceUsers` finds, and who created or last changed a card, block or comment
+/// of a board of the workspace they read, also after leaving the workspace. Oldest
+/// account first, not in the order of the request.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/users",
     operation_id = "getWorkspaceUsersById",
     tag = tag::WORKSPACES,
-    params(WorkspaceId),
+    params(HomeMemberWorkspaceId),
     request_body = Vec<String>,
     responses((status = 200, description = "The users.", body = Vec<User>)),
 )]
@@ -271,9 +298,13 @@ async fn handle_get_workspace_users_by_id(
     let user_ids: Vec<String> = decode_json(&body)?;
     let ws = Ws::enter(&app, session, workspace_id)
         .await?
-        .require_works_there()?;
+        .require_home()?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
     }
-    Ok(json_response(&ws.app.users_list(&user_ids).await?))
+    let users = ws
+        .app
+        .users_in_workspace(&ws.session.user_id, &ws.workspace_id, ws.role, &user_ids)
+        .await?;
+    Ok(json_response(&users))
 }

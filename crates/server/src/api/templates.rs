@@ -2,7 +2,7 @@
 //!
 //! Ports `server/api/templates.go`.
 
-use fvoci_model::{Board, BoardType};
+use fvoci_model::Board;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -11,9 +11,8 @@ use super::contract::tag;
 
 use super::workspace::WorksIn;
 use super::{ApiResult, json_response, user_is_guest};
-use crate::app::App;
+use crate::app::{App, as_managed};
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_get_templates))
@@ -37,15 +36,16 @@ async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
         return Err(AppError::forbidden("access denied to templates"));
     }
 
-    let boards = app.template_boards(workspace_id, user_id).await?;
+    let boards = app.template_boards(workspace_id, user_id, ws.role).await?;
     let mut results: Vec<Board> = Vec::with_capacity(boards.len());
     for board in boards {
-        let visible = board.board_type == BoardType::Open
-            || app
-                .has_permission_to_board(user_id, &board.id, BoardPermission::ViewBoard)
-                .await?;
-        if visible {
+        // Whole to who reads it; to the workspace's administrators who only manage it,
+        // its name, as getBoard gives it (`as_managed`).
+        let grant = app.board_grant(user_id, &board.id).await?;
+        if grant.reads() {
             results.push(board);
+        } else if grant.manages_only() {
+            results.push(as_managed(board));
         }
     }
     tracing::debug!(workspace_id, boards_count = results.len(), "GetTemplates");

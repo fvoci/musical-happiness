@@ -2,7 +2,7 @@
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use fvoci_model::{BoardMember, BoardRole, BoardType};
+use fvoci_model::{BoardMember, BoardRole, BoardType, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -11,10 +11,10 @@ use super::contract::params::{BoardId, UserId};
 use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response, no_content};
-use super::{board_refusal, decode_object, require_board_permission, user_is_guest};
+use super::{decode_object, refusal, require_board_permission, require_granted, user_is_guest};
 use crate::app::App;
-use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::error::{AppError, Reason};
+use crate::permissions::{self, BoardPermission};
 
 /// The refusal to add, change or remove a member.
 const MODIFY_MEMBERS_DENIED: &str = "access denied to modify board members";
@@ -43,21 +43,32 @@ fn requested_member(board_id: String, user_id: String, body: &BoardMember) -> Bo
 
 /// A membership with exactly the one role.
 fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> BoardMember {
-    BoardMember {
+    let member = BoardMember {
         board_id,
         user_id,
-        scheme_admin: role == BoardRole::Admin,
-        scheme_editor: role == BoardRole::Editor,
-        scheme_commenter: role == BoardRole::Commenter,
-        scheme_viewer: role == BoardRole::Viewer,
         ..BoardMember::default()
+    };
+    permissions::with_role(member, Some(role))
+}
+
+/// Refuses a membership whose role the user's place in the workspace does not let
+/// them hold: a guest is no more than an editor (403, reason `guest_role_limit`).
+fn require_holdable(workspace_role: WorkspaceRole, member: &BoardMember) -> Result<(), AppError> {
+    match permissions::role_of(member) {
+        Some(role) if !permissions::may_hold(workspace_role, role) => Err(AppError::forbidden(
+            "a guest of the workspace is given no role above editor",
+        )
+        .with_reason(Reason::GuestRoleLimit)),
+        _ => Ok(()),
     }
 }
 
 /// The members of a board
 ///
-/// For the board's members. By the identifier of the user: a membership has no time of
-/// its own, so this is not the order in which the users came to the board.
+/// For the board's members and the workspace's administrators. Who left the workspace
+/// is not listed, whatever role they had on the board. By the identifier of the user: a
+/// membership has no time of its own, so this is not the order in which the users came
+/// to the board.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/members",
@@ -75,21 +86,27 @@ async fn handle_get_members_for_board(
         &app,
         &session.user_id,
         &board_id,
-        BoardPermission::ViewBoard,
+        BoardPermission::ListMembers,
         "access denied to board members",
     )
     .await?;
 
-    Ok(json_response(&app.members_for_board(&board_id).await?))
+    Ok(json_response(
+        &app.present_members_for_board(&board_id).await?,
+    ))
 }
 
 /// Make a user a member of a board
 ///
 /// The board's admins add members with the roles the request names; with no role at
 /// all the member may do nothing on the board, not even view it. On an open board
-/// editors add members too, with the board's minimum role, whatever else the request
-/// names; a request of theirs that asks for `schemeAdmin` is 403. A user who is a
-/// member already stays as they are.
+/// editors who work in the workspace add members too, with the board's minimum role,
+/// whatever else the request names; a request of theirs that asks for `schemeAdmin` is
+/// 403. A guest of the workspace is given no role above editor: asking for
+/// `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
+/// member already stays as they are. The workspace's administrators manage the members
+/// of every board of it; one who makes themselves a member of a board whose content
+/// they could not read is recorded in the organization's audit log.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/members",
@@ -106,23 +123,18 @@ async fn handle_add_member(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let manages_roles = app
-        .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardRoles)
-        .await?;
-    let edits_board = app
-        .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardProperties)
-        .await?;
-    // The board may be deleted between the two lookups; then it is gone for everybody.
-    let board = match app.board(&board_id).await {
-        Ok(board) => board,
-        Err(error) if error.is_not_found() && !manages_roles && !edits_board => {
-            return Err(board_refusal(&app, user_id, &board_id, MODIFY_MEMBERS_DENIED).await);
-        }
-        Err(error) => return Err(error),
-    };
-    let adds_to_open_board = edits_board && board.board_type == BoardType::Open;
+    let access = app
+        .board_access(user_id, &board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let (board, grant) = (access.board, access.grant);
+    let manages_roles = grant.allows(BoardPermission::ManageBoardRoles);
+    let edits_board = grant.allows(BoardPermission::ManageBoardProperties);
+    // A guest's editing adds nobody: who is in the workspace is not a guest's to learn.
+    let adds_to_open_board =
+        edits_board && board.board_type == BoardType::Open && access.actor.works_there();
     if !(manages_roles || adds_to_open_board) {
-        return Err(board_refusal(&app, user_id, &board_id, MODIFY_MEMBERS_DENIED).await);
+        return Err(refusal(grant, MODIFY_MEMBERS_DENIED));
     }
 
     let request: BoardMember = decode_object(&body)?;
@@ -141,12 +153,13 @@ async fn handle_add_member(
     // A board takes the people of its workspace, its guests too. Anybody else is, to who
     // adds members, a user who does not exist: the answer is the same, so that it
     // tells nothing of who has an account elsewhere on the server.
-    if !app
-        .is_in_workspace(&request.user_id, &board.workspace_id)
+    let Some(target_role) = app
+        .actor(&request.user_id, &board.workspace_id)
         .await?
-    {
+        .workspace
+    else {
         return Err(AppError::bad_request("no such user").with_field("userId"));
-    }
+    };
 
     // Not in the original, which lets an editor of an open board add members with any
     // role (`server/api/members.go:164-168`). Anyone can join an open board as an editor
@@ -170,12 +183,19 @@ async fn handle_add_member(
             BoardRole::from(board.minimum_role),
         )
     };
-    // The board was there a moment ago; if it is not any more, there is nothing to be a
-    // member of.
-    let added = app
-        .add_member_to_board(&member)
-        .await?
-        .ok_or_else(|| AppError::not_found("board"))?;
+    require_holdable(target_role, &member)?;
+    // A workspace's administrator who makes themselves a member of a board they could
+    // not read, with a role, and so comes to read it, is recorded doing so. The board was there a
+    // moment ago; if it is not any more, there is nothing to be a member of.
+    let added = if request.user_id == *user_id
+        && grant.manages_only()
+        && permissions::role_of(&member).is_some()
+    {
+        app.add_self_to_board_recorded(&member).await?
+    } else {
+        app.add_member_to_board(&member).await?
+    };
+    let added = added.ok_or_else(|| AppError::not_found("board"))?;
     Ok(json_response(&added))
 }
 
@@ -199,18 +219,22 @@ async fn handle_join_board(
     Path(board_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let board = app.board(&board_id).await?;
+    let access = app
+        .board_access(user_id, &board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let (board, grant) = (access.board, access.grant);
 
     // The original lets a workspace administrator join any board as its admin with the
-    // `allow_admin` parameter. Nobody administers the workspace of a standalone server.
+    // `allow_admin` parameter; here a workspace's administrator joins as anybody does.
     if board.board_type != BoardType::Open {
         // A private board exists only for its members, who have nothing to join.
-        return Err(board_refusal(&app, user_id, &board_id, "cannot join a non Open board").await);
+        return Err(refusal(grant, "cannot join a non Open board"));
     }
-    // An open board is there for who works in its workspace, and a built-in template for
-    // everybody. To anybody else, a guest of the workspace among them, it answers as
-    // a board that does not exist: joining is no way into a workspace.
-    if !board.is_builtin && !app.works_in_workspace(user_id, &board.workspace_id).await? {
+    // An open board is there for who works in its workspace and its members, and a
+    // built-in template for everybody. To anybody else it answers as a board that does
+    // not exist: joining is no way into a workspace.
+    if !grant.sees() {
         return Err(AppError::not_found("board"));
     }
     // An open template is for everybody to copy, and for its members to change. Joining
@@ -218,6 +242,12 @@ async fn handle_join_board(
     // user's first board is copied from.
     if board.is_template {
         return Err(AppError::forbidden("a template cannot be joined"));
+    }
+    // A guest of the workspace was invited to the open board and has no more to join:
+    // to them, as to anybody who does not work in the workspace, there is nothing to
+    // join, which joining would raise to the board's minimum role.
+    if !grant.allows(BoardPermission::JoinBoard) {
+        return Err(AppError::not_found("board"));
     }
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("guests not allowed to join boards"));
@@ -263,8 +293,10 @@ async fn handle_leave_board(
 ///
 /// Replaces the roles of a member of the board; with no role at all the member may do
 /// nothing on the board, not even view it. For the board's admins. The last admin of a
-/// board cannot be made less: that is 409 with the reason `last_admin`. A user who is
-/// no member of the board is 404.
+/// board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
+/// workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
+/// reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
+/// more, is 404.
 #[utoipa::path(
     put,
     path = "/boards/{boardId}/members/{userId}",
@@ -280,20 +312,37 @@ async fn handle_update_member(
     Path((board_id, member_user_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    require_board_permission(
-        &app,
-        &session.user_id,
-        &board_id,
+    let grant = app.board_grant(&session.user_id, &board_id).await?;
+    require_granted(
+        grant,
         BoardPermission::ManageBoardRoles,
         MODIFY_MEMBERS_DENIED,
-    )
-    .await?;
+    )?;
     // The board may be deleted between the two lookups; then it is gone for everybody.
-    app.board(&board_id).await?;
+    let target = app
+        .board_access(&member_user_id, &board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
     let request: BoardMember = decode_object(&body)?;
     let member = requested_member(board_id, member_user_id, &request);
+    // Who is no member of the board is not found, and so is who has left its
+    // workspace: the role left there opens nothing, and is not to be changed.
+    let (Some(_), Some(workspace_role)) = (target.member, target.actor.workspace) else {
+        return Err(AppError::not_found("member"));
+    };
+    require_holdable(workspace_role, &member)?;
 
-    match app.update_board_member(&member).await? {
+    // A workspace's administrator who gives themselves a role on a board they could not
+    // read is recorded doing so, as one who adds themselves.
+    let updated = if member.user_id == session.user_id
+        && grant.manages_only()
+        && permissions::role_of(&member).is_some()
+    {
+        app.update_self_on_board_recorded(&member).await?
+    } else {
+        app.update_board_member(&member).await?
+    };
+    match updated {
         Some(updated) => Ok(json_response(&updated)),
         None => Err(AppError::not_found("member")),
     }

@@ -13,7 +13,8 @@
     come from the app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
   - Archives: every board of the workspace exported, an archive imported; the
-    progress shows at the foot of the page (`Transfers.svelte`).
+    progress shows at the foot of the page (`Transfers.svelte`). An import that
+    left members out, who are not in the workspace, says how many in a line.
   - The display name (`DisplayNameField.svelte`).
   - Who is signed in, signing out and changing the password: only where the
     backend has accounts.
@@ -97,11 +98,20 @@
     () => open,
     () => {
       open = false;
+      leftOut = undefined;
     },
   );
 
   const uid = $props.id();
   let importField = $state<HTMLInputElement | null>(null);
+  /**
+   * What the last import from here left out, and in which workspace: told
+   * while the dialog stays open on that workspace, forgotten when it closes.
+   */
+  let leftOut = $state<{ workspaceId: string; count: number }>();
+  const leftOutHere = $derived(
+    leftOut?.workspaceId === workspace.info?.id ? (leftOut?.count ?? 0) : 0,
+  );
 
   /** Saves an archive of every board of the workspace, once it has all arrived. */
   async function exportWorkspace(): Promise<void> {
@@ -179,7 +189,12 @@
   }
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root
+  bind:open
+  onOpenChange={(now: boolean) => {
+    if (!now) leftOut = undefined;
+  }}
+>
   <Dialog.Content
     data-testid="settings-dialog"
     data-frame={compact ? 'full' : 'dialog'}
@@ -330,11 +345,24 @@
               const file = field.files?.[0];
               // The same file can be chosen again.
               field.value = '';
-              if (file) void workspace.importArchive(file);
+              const workspaceId = workspace.info?.id;
+              if (!file || workspaceId === undefined) return;
+              leftOut = undefined;
+              void workspace.importArchive(file).then((imported) => {
+                leftOut = { workspaceId, count: imported?.membersLeftOut ?? 0 };
+              });
             }}
           />
         </div>
         <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
+        <!-- There before it says anything, so that what it says is announced. -->
+        <p
+          role="status"
+          class={leftOutHere > 0 ? 'text-xs' : 'sr-only'}
+          data-testid="import-left-out"
+        >
+          {#if leftOutHere > 0}{m.shell_import_left_out({ count: leftOutHere })}{/if}
+        </p>
       </section>
 
       {#if workspace.me}

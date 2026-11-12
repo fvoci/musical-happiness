@@ -184,7 +184,7 @@ async fn template_initialization_is_idempotent_and_measured() {
 /// The number of template boards the root workspace is offered.
 async fn ts_template_count(ts: &crate::common::TestServer) -> usize {
     ts.app
-        .template_boards(ROOT_WORKSPACE_ID, "")
+        .template_boards(ROOT_WORKSPACE_ID, "", fvoci_model::WorkspaceRole::Member)
         .await
         .expect("the template boards")
         .len()

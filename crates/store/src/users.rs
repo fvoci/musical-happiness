@@ -117,27 +117,8 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if none of the users exists and
     /// [`StoreError::NotAllFound`] unless exactly one user is found per identifier.
     pub async fn get_users_list(&self, user_ids: &[String]) -> Result<Vec<User>, StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql = select_users(scope);
-            sql.push(" AND id IN (")
-                .bind_list(user_ids.iter().map(|id| Id(id)))
-                .push(")")
-                .push(OLDEST_FIRST);
-            let users = fetch_users(scope, sql).await?;
-            if users.is_empty() {
-                return Err(user_not_found());
-            }
-            // Preserved quirk: the counts are compared, so naming a user twice fails even
-            // though that user exists (`server/services/store/sqlstore/user.go:111`).
-            if users.len() != user_ids.len() {
-                return Err(StoreError::NotAllFound {
-                    entity: "user",
-                    ids: user_ids.to_vec(),
-                });
-            }
-            Ok(users)
-        })
-        .await
+        self.with_conn(async |scope| users_by_ids(scope, user_ids, |_, _| ()).await)
+            .await
     }
 
     /// Returns the user with the given email address, unless deleted.
@@ -417,56 +398,6 @@ impl Store {
         .await
     }
 
-    /// Returns the ten oldest users, oldest first, whose login name or display name
-    /// contains `search_query`, ignoring case.
-    ///
-    /// Compared here rather than in SQL, so that both databases fold every letter the
-    /// same way and `%` and `_` are characters like any other. (The original's `LIKE`
-    /// ignores ASCII case on SQLite only, `server/services/store/sqlstore/user.go:227`.)
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_users_by_workspace(
-        &self,
-        search_query: &str,
-    ) -> Result<Vec<User>, StoreError> {
-        self.with_conn(async |scope| {
-            let limit = i64::try_from(SEARCH_LIMIT).unwrap_or(i64::MAX);
-            if search_query.is_empty() {
-                let mut sql = select_users(scope);
-                sql.push(OLDEST_FIRST).push_bind(" LIMIT ", limit);
-                return fetch_users(scope, sql).await;
-            }
-            // The names only, matched here; then the users that matched, read whole.
-            let wanted = search_query.to_lowercase();
-            let mut sql =
-                scope.sql("SELECT id, username, display_name FROM users WHERE delete_at = 0");
-            sql.push(OLDEST_FIRST);
-            let mut matched = Vec::with_capacity(SEARCH_LIMIT);
-            for row in scope.fetch_all(sql).await? {
-                let found = row.text(1)?.to_lowercase().contains(&wanted)
-                    || row.text(2)?.to_lowercase().contains(&wanted);
-                if found {
-                    matched.push(row.id(0)?);
-                    if matched.len() == SEARCH_LIMIT {
-                        break;
-                    }
-                }
-            }
-            if matched.is_empty() {
-                return Ok(Vec::new());
-            }
-            let mut sql = select_users(scope);
-            sql.push(" AND id IN (")
-                .bind_list(matched.iter().map(|id| Id(id)))
-                .push(")")
-                .push(OLDEST_FIRST);
-            fetch_users(scope, sql).await
-        })
-        .await
-    }
-
     /// Sets and removes entries of the bag of client state of a user and returns the
     /// bag as it is afterwards, by name.
     ///
@@ -535,6 +466,88 @@ fn select_users(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!(
         "SELECT {USER_COLUMNS} FROM users WHERE delete_at = 0"
     ))
+}
+
+/// The users with the given identifiers among those `narrow` keeps, oldest first.
+///
+/// # Errors
+///
+/// Returns [`StoreError::NotFound`] if none of the users is found and
+/// [`StoreError::NotAllFound`] unless exactly one user is found per identifier.
+pub(crate) async fn users_by_ids(
+    scope: &mut Scope<'_>,
+    user_ids: &[String],
+    narrow: impl Fn(&mut Sql, &Scope<'_>),
+) -> Result<Vec<User>, StoreError> {
+    let mut sql = select_users(scope);
+    narrow(&mut sql, scope);
+    sql.push(" AND id IN (")
+        .bind_list(user_ids.iter().map(|id| Id(id)))
+        .push(")")
+        .push(OLDEST_FIRST);
+    let users = fetch_users(scope, sql).await?;
+    if users.is_empty() {
+        return Err(user_not_found());
+    }
+    // Preserved quirk: the counts are compared, so naming a user twice fails even
+    // though that user exists (`server/services/store/sqlstore/user.go:111`).
+    if users.len() != user_ids.len() {
+        return Err(StoreError::NotAllFound {
+            entity: "user",
+            ids: user_ids.to_vec(),
+        });
+    }
+    Ok(users)
+}
+
+/// The ten oldest users among those `narrow` keeps, oldest first, whose login name or
+/// display name contains `search_query`, ignoring case; the ten oldest of them for an
+/// empty query.
+///
+/// Compared here rather than in SQL, so that both databases fold every letter the same
+/// way and `%` and `_` are characters like any other. (The original's `LIKE` ignores
+/// ASCII case on SQLite only, `server/services/store/sqlstore/user.go:227`.)
+///
+/// # Errors
+///
+/// Returns [`StoreError::Database`] if a query fails.
+pub(crate) async fn search_users(
+    scope: &mut Scope<'_>,
+    search_query: &str,
+    narrow: impl Fn(&mut Sql, &Scope<'_>),
+) -> Result<Vec<User>, StoreError> {
+    let limit = i64::try_from(SEARCH_LIMIT).unwrap_or(i64::MAX);
+    if search_query.is_empty() {
+        let mut sql = select_users(scope);
+        narrow(&mut sql, scope);
+        sql.push(OLDEST_FIRST).push_bind(" LIMIT ", limit);
+        return fetch_users(scope, sql).await;
+    }
+    // The names only, matched here; then the users that matched, read whole.
+    let wanted = search_query.to_lowercase();
+    let mut sql = scope.sql("SELECT id, username, display_name FROM users WHERE delete_at = 0");
+    narrow(&mut sql, scope);
+    sql.push(OLDEST_FIRST);
+    let mut matched = Vec::with_capacity(SEARCH_LIMIT);
+    for row in scope.fetch_all(sql).await? {
+        let found = row.text(1)?.to_lowercase().contains(&wanted)
+            || row.text(2)?.to_lowercase().contains(&wanted);
+        if found {
+            matched.push(row.id(0)?);
+            if matched.len() == SEARCH_LIMIT {
+                break;
+            }
+        }
+    }
+    if matched.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut sql = select_users(scope);
+    sql.push(" AND id IN (")
+        .bind_list(matched.iter().map(|id| Id(id)))
+        .push(")")
+        .push(OLDEST_FIRST);
+    fetch_users(scope, sql).await
 }
 
 async fn fetch_users(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<User>, StoreError> {

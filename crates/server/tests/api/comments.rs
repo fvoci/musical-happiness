@@ -293,13 +293,13 @@ async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
     );
 }
 
-/// Not in the original (user decision 2026-11-11 22:13 KST). The author of a comment
-/// deletes it and brings it back, also after an admin deleted it: who may delete it may
-/// bring it back. (Deleting a comment would take what is below it, and a block of
-/// somebody else there would refuse it; a comment has nothing below it, so that check
-/// is left as a guard.)
+/// Not in the original (user decision 2026-11-11 22:13 KST, changed by the decisions of
+/// O4). The author of a comment deletes it and brings it back; a comment of theirs that
+/// somebody else deleted is the board's admins' to bring back, not theirs. (Deleting a
+/// comment would take what is below it, and a block of somebody else there would
+/// refuse it; a comment has nothing below it, so that check is left as a guard.)
 #[tokio::test]
-async fn the_author_of_a_comment_deleted_by_an_admin_brings_it_back() {
+async fn the_author_of_a_comment_brings_back_only_what_they_deleted() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
     let content = card_with_content(&th, &boards).await;
@@ -310,7 +310,15 @@ async fn the_author_of_a_comment_deleted_by_an_admin_brings_it_back() {
     delete(&boards.commenter, own).await;
     boards.commenter.post(&back, &json!({})).await.check_ok();
     delete(&th.client, own).await;
-    boards.commenter.post(&back, &json!({})).await.check_ok();
+    boards.commenter.post(&back, &json!({})).await.check_error(
+        StatusCode::FORBIDDEN,
+        "a comment somebody else deleted is brought back by the board's admins",
+    );
+    assert!(
+        !titles(&blocks_of(&th.client, board_id).await).contains(&"comment"),
+        "still in the trash"
+    );
+    th.client.post(&back, &json!({})).await.check_ok();
     assert!(titles(&blocks_of(&th.client, board_id).await).contains(&"comment"));
 }
 

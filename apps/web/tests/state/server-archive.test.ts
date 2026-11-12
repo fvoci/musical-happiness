@@ -113,7 +113,7 @@ describe('an import', () => {
         return answer(201, { uploadId: 'up9', partSize: 4, partCount: 2, expiresAt: 1 });
       }
       if (url.includes('/parts/')) return answer(204);
-      if (url.endsWith('/archive/import')) return answer(204);
+      if (url.endsWith('/archive/import')) return answer(200, { membersLeftOut: 2 });
       return answer(404, { type: '/problems/not-found', status: 404, detail: 'no' });
     });
     return calls;
@@ -122,11 +122,12 @@ describe('an import', () => {
   it('opens an import upload, sends the parts and names the upload to import', async () => {
     const calls = importServer(100);
     const seen: number[] = [];
-    await new ServerBackend('').importArchive(
+    const imported = await new ServerBackend('').importArchive(
       't1',
       new File(['12345678'], 'boards.boardarchive', { type: 'application/zip' }),
       { onProgress: (progress) => seen.push(progress.sentBytes) },
     );
+    expect(imported).toEqual({ membersLeftOut: 2 });
     expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
       'GET /api/v1/client-config',
       'POST /api/v1/w/t1/archive/uploads',

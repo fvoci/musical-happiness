@@ -202,6 +202,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("CommentVersion", Members::All),
     ("DeletedItem", Members::All),
     ("FileInfo", Members::All),
+    ("ImportResult", Members::All),
     ("InvalidInput", Members::Only(&["detail", "reason"])),
     ("LoginOptions", Members::All),
     ("OidcStart", Members::All),

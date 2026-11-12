@@ -68,6 +68,7 @@ import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
 import { ServerRequests } from './requests.ts';
+import { seenUsers } from './seen-users.ts';
 import { importInParts, uploadInParts } from './upload.ts';
 
 /**
@@ -146,14 +147,13 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   }
 
   async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
-    const ids = [...new Set(userIds)];
-    if (ids.length === 0) return [];
-    const users = await this.#http.request<Schemas['User'][]>(
-      '/api/v1/w/{workspaceId}/users',
-      { workspaceId },
-      { method: 'POST', json: ids },
-    );
-    return users.map(userOf);
+    const ask = (json: string[]) =>
+      this.#http.request<Schemas['User'][]>(
+        '/api/v1/w/{workspaceId}/users',
+        { workspaceId },
+        { method: 'POST', json },
+      );
+    return (await seenUsers([...new Set(userIds)], ask)).map(userOf);
   }
 
   async settings(): Promise<AccountSettings> {
@@ -947,7 +947,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * limit, as the server would (413). It takes a turn among the uploads: it
    * counts toward the same open uploads of the reader.
    */
-  async importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<void> {
+  async importArchive(workspaceId: string, file: File, options?: UploadOptions) {
     const limit = (await this.#clientConfig()).maxImportSize;
     if (file.size > limit) {
       // The reason is this app's: the server's 413 may count entries, this one counts bytes.
@@ -959,7 +959,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     }
     await this.#uploadTurn(options?.signal);
     try {
-      await importInParts(this.#http, workspaceId, file, options);
+      return await importInParts(this.#http, workspaceId, file, options);
     } finally {
       this.#uploading -= 1;
       this.#uploadWaiting.shift()?.();

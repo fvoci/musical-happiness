@@ -1,10 +1,11 @@
 //! Users and their preferences.
 
-use fvoci_model::{User, UserPreferencesPatch, UserSettings, UserSettingsPatch};
-use fvoci_store::{AdminChange, InstanceRole, Preference};
+use fvoci_model::{User, UserPreferencesPatch, UserSettings, UserSettingsPatch, WorkspaceRole};
+use fvoci_store::{AdminChange, InstanceRole, Looking, Preference, Sight};
 
 use super::App;
 use crate::error::{AppError, Reason};
+use crate::permissions;
 
 impl App {
     /// Sets the name the user is shown by; empty for none. Returns the user as stored.
@@ -70,19 +71,52 @@ impl App {
             .await
     }
 
-    /// Returns the users with the given identifiers.
+    /// The users with the given identifiers that the user `seer_id` sees anywhere by
+    /// name (`Sight::Anywhere`, `permissions::sees_person`): who shares a workspace the
+    /// seer works in, or a board of a workspace both are in, or wrote on a board the
+    /// seer reads, and the seer. Oldest account first.
     ///
     /// # Errors
     ///
-    /// Returns an error if the list is empty or not every user exists.
-    pub async fn users_list(&self, user_ids: &[String]) -> Result<Vec<User>, AppError> {
+    /// Returns a 404 unless every identifier is of a user the seer sees, once.
+    pub async fn users_seen_by(
+        &self,
+        seer_id: &str,
+        user_ids: &[String],
+    ) -> Result<Vec<User>, AppError> {
         if user_ids.is_empty() {
-            return Err(AppError::internal("No User IDs"));
+            return Ok(Vec::new());
         }
-        self.store()
-            .get_users_list(user_ids)
-            .await
-            .map_err(|error| AppError::from(error).context("unable to find users"))
+        Ok(self
+            .store()
+            .get_users_in_sight(Sight::Anywhere { seer_id }, user_ids)
+            .await?)
+    }
+
+    /// The users with the given identifiers that the user `seer_id`, in `role` in the
+    /// workspace, sees there by name (`permissions::sees_person`): also who left it and
+    /// wrote on a board the seer reads. Oldest account first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 404 unless every identifier is of a user the seer sees there, once.
+    pub async fn users_in_workspace(
+        &self,
+        seer_id: &str,
+        workspace_id: &str,
+        role: WorkspaceRole,
+        user_ids: &[String],
+    ) -> Result<Vec<User>, AppError> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sight = Sight::InWorkspace {
+            seer_id,
+            workspace_id,
+            reach: permissions::people_reach(role),
+            looking: Looking::ByName,
+        };
+        Ok(self.store().get_users_in_sight(sight, user_ids).await?)
     }
 
     /// Returns whether a user is a guest. A standalone server has no guests, but the user
@@ -98,25 +132,30 @@ impl App {
         Ok(self.store().get_user_by_id(user_id).await?.is_guest)
     }
 
-    /// Returns whether one user may see another. Every user who exists sees every other.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the seeing user cannot be read.
-    pub async fn can_see_user(&self, seer_id: &str) -> Result<bool, AppError> {
-        // A guest would be limited to users they share a board with; there are no guests.
-        self.user_is_guest(seer_id).await?;
-        Ok(true)
-    }
-
-    /// Returns the workspace's users whose login name or display name matches
-    /// `search_query`, at most ten.
+    /// The users the user `seer_id`, in `role` in the workspace, sees among its people
+    /// (`permissions::sees_person`: members of it now) whose login name or display name
+    /// matches `search_query`: at most ten, oldest account first.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn search_workspace_users(&self, search_query: &str) -> Result<Vec<User>, AppError> {
-        Ok(self.store().search_users_by_workspace(search_query).await?)
+    pub async fn search_users_in_workspace(
+        &self,
+        seer_id: &str,
+        workspace_id: &str,
+        role: WorkspaceRole,
+        search_query: &str,
+    ) -> Result<Vec<User>, AppError> {
+        let sight = Sight::InWorkspace {
+            seer_id,
+            workspace_id,
+            reach: permissions::people_reach(role),
+            looking: Looking::AmongPeople,
+        };
+        Ok(self
+            .store()
+            .search_users_in_sight(sight, search_query)
+            .await?)
     }
 
     /// Returns what a user has set about how things are shown to them; what was never

@@ -1,7 +1,7 @@
 //! What is asked before the organization of a request is known, and what makes an
 //! organization: which workspaces a user has, whose a workspace or a shared board is,
-//! what a user is in an organization, which sign-in through a provider comes back and
-//! what a login page shows of an organization.
+//! which other users a user sees, what a user is in an organization, which sign-in
+//! through a provider comes back and what a login page shows of an organization.
 //! And whether an object of the file storage is held, which is asked of every
 //! organization: an object's place is one across them.
 //!
@@ -13,17 +13,19 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{LoginOrganization, OrgRole, UserWorkspace, Workspace, WorkspaceRole, new_id};
+use fvoci_model::{
+    BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+};
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
-use crate::db::{Dialect, Id, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
-use crate::workspaces;
+use crate::{users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -60,7 +62,225 @@ impl WorkspaceAccess {
     }
 }
 
+/// The condition that the memberships `mine` and `other` of a board each have a role: a
+/// membership without one opens nothing, and shares nothing.
+const ROLES_HELD: &str = " AND (mine.scheme_admin OR mine.scheme_editor OR mine.scheme_commenter \
+                          OR mine.scheme_viewer) AND (other.scheme_admin OR other.scheme_editor \
+                          OR other.scheme_commenter OR other.scheme_viewer)";
+
+/// Whom a user sees of the other users in a workspace the user is a member of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// The workspace's members, and who is on a board of it with the user: what whoever
+    /// works in the workspace sees.
+    Workspace,
+    /// Who is on a board of the workspace with the user: what a guest sees.
+    SharedBoards,
+}
+
+/// What a user looks at other users for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Looking {
+    /// Among the people: a list, a search, the candidates of a mention. Only who is in
+    /// the workspace now.
+    AmongPeople,
+    /// By name: the users named by their identifiers, to show who wrote what. Who left
+    /// the workspace too, where they wrote on a board the seer reads.
+    ByName,
+}
+
+/// The users one user sees: in one workspace, as far as [`Reach`] goes, or across every
+/// workspace they are in; and for what ([`Looking`]). The user sees themselves. The
+/// rule is the server's `permissions::sees_person`; this is its form in SQL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sight<'a> {
+    /// In the workspace, which the seer is a member of (the caller has asked).
+    InWorkspace {
+        /// The user who looks.
+        seer_id: &'a str,
+        /// The workspace.
+        workspace_id: &'a str,
+        /// How far the seer sees in it.
+        reach: Reach,
+        /// What for.
+        looking: Looking,
+    },
+    /// Anywhere, by name: who shares with the seer a workspace the seer works in (is no
+    /// guest of), or a board of a workspace both are members of, or wrote on a board
+    /// the seer reads.
+    Anywhere {
+        /// The user who looks.
+        seer_id: &'a str,
+    },
+}
+
+/// Pushes the condition that the user `id` is one `sight` sees.
+fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
+    match sight {
+        Sight::InWorkspace {
+            seer_id,
+            workspace_id,
+            reach,
+            looking,
+        } => {
+            // The seer is a member of the workspace, which the store asks too.
+            sql.push(
+                " AND EXISTS (SELECT 1 FROM workspace_members AS seer WHERE seer.workspace_id = ",
+            )
+            .bind(Id(workspace_id))
+            .push_bind(" AND seer.user_id = ", Id(seer_id))
+            .push_bind(") AND (id = ", Id(seer_id))
+            // On a board of the workspace with the seer, and in the workspace still.
+            .push(
+                " OR id IN (SELECT other.user_id FROM board_members AS mine \
+                 JOIN boards AS b ON b.id = mine.board_id \
+                 JOIN board_members AS other ON other.board_id = mine.board_id \
+                 JOIN workspace_members AS them \
+                 ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
+                 WHERE mine.user_id = ",
+            )
+            .bind(Id(seer_id))
+            .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+            .push(ROLES_HELD)
+            .push(&scope.same_organization(&[("mine", "b"), ("other", "b"), ("them", "b")]))
+            .push(")");
+            if reach == Reach::Workspace {
+                sql.push(" OR id IN (SELECT wm.user_id FROM workspace_members AS wm WHERE wm.workspace_id = ")
+                    .bind(Id(workspace_id))
+                    .push(")");
+            }
+            if looking == Looking::ByName {
+                push_writer(sql, scope, seer_id, Some((workspace_id, reach)));
+            }
+            sql.push(")");
+        }
+        Sight::Anywhere { seer_id } => {
+            sql.push_bind(" AND (id = ", Id(seer_id))
+                .push(
+                    " OR id IN (SELECT them.user_id FROM workspace_members AS me \
+                     JOIN workspace_members AS them ON them.workspace_id = me.workspace_id \
+                     JOIN workspaces AS t ON t.id = me.workspace_id \
+                     JOIN organizations AS o ON o.id = t.org_id WHERE me.user_id = ",
+                )
+                .bind(Id(seer_id))
+                .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
+                .push(IN_USE)
+                .push(&scope.same_organization(&[("me", "t"), ("them", "t")]))
+                .push(
+                    ") OR id IN (SELECT other.user_id FROM board_members AS mine \
+                     JOIN boards AS b ON b.id = mine.board_id \
+                     JOIN workspace_members AS me \
+                     ON me.workspace_id = b.workspace_id AND me.user_id = mine.user_id \
+                     JOIN workspaces AS t ON t.id = b.workspace_id \
+                     JOIN organizations AS o ON o.id = t.org_id \
+                     JOIN board_members AS other ON other.board_id = mine.board_id \
+                     JOIN workspace_members AS them \
+                     ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
+                     WHERE mine.user_id = ",
+                )
+                .bind(Id(seer_id))
+                .push(IN_USE)
+                .push(ROLES_HELD)
+                .push(&scope.same_organization(&[
+                    ("mine", "b"),
+                    ("b", "t"),
+                    ("me", "t"),
+                    ("other", "b"),
+                    ("them", "b"),
+                ]))
+                .push(")");
+            push_writer(sql, scope, seer_id, None);
+            sql.push(")");
+        }
+    }
+}
+
+/// Pushes `OR` the condition that the user `id` created or last changed a block of a
+/// board the seer reads, as the server's `permissions::grant` has it: one they hold a
+/// role on, or an open template of a workspace they work in; of the workspace `within`
+/// names, as far as its [`Reach`] goes, or of any workspace in use the seer is a member
+/// of.
+fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(&str, Reach)>) {
+    sql.push(
+        " OR EXISTS (SELECT 1 FROM blocks AS bl JOIN boards AS b ON b.id = bl.board_id \
+         JOIN workspace_members AS me ON me.workspace_id = b.workspace_id \
+         JOIN workspaces AS t ON t.id = b.workspace_id \
+         JOIN organizations AS o ON o.id = t.org_id \
+         WHERE (bl.created_by = users.id OR bl.modified_by = users.id) AND me.user_id = ",
+    )
+    .bind(Id(seer_id))
+    .push(IN_USE)
+    .push(&scope.same_organization(&[("bl", "b"), ("b", "t"), ("me", "t")]));
+    let open_where_seer_works = match within {
+        Some((workspace_id, reach)) => {
+            sql.push_bind(" AND b.workspace_id = ", Id(workspace_id));
+            reach == Reach::Workspace
+        }
+        None => true,
+    };
+    sql.push(
+        " AND (EXISTS (SELECT 1 FROM board_members AS mine WHERE mine.board_id = b.id \
+         AND mine.user_id = me.user_id AND (mine.scheme_admin OR mine.scheme_editor \
+         OR mine.scheme_commenter OR mine.scheme_viewer)",
+    )
+    .push(&scope.same_organization(&[("mine", "b")]))
+    .push(")");
+    if open_where_seer_works {
+        // Read without a role: an open template, for who works in its workspace. An
+        // open board that is none is joined to be read.
+        sql.push_bind(" OR (b.type = ", BoardType::Open.as_str())
+            .push_bind(" AND b.is_template = ", true)
+            .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
+            .push(")");
+    }
+    sql.push("))");
+}
+
 impl Store {
+    /// The users `sight` takes in whose login name or display name contains
+    /// `search_query`, ignoring case: at most ten, the oldest accounts first; for an
+    /// empty query the ten oldest of them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a query fails.
+    pub async fn search_users_in_sight(
+        &self,
+        sight: Sight<'_>,
+        search_query: &str,
+    ) -> Result<Vec<User>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                users::search_users(scope, search_query, |sql, scope| {
+                    push_seen(sql, scope, sight);
+                })
+                .await
+            })
+            .await
+    }
+
+    /// The users with the given identifiers, each one that `sight` takes in, oldest
+    /// first. A user it does not take in is as one that does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if none is found and [`StoreError::NotAllFound`]
+    /// unless exactly one is found per identifier.
+    pub async fn get_users_in_sight(
+        &self,
+        sight: Sight<'_>,
+        user_ids: &[String],
+    ) -> Result<Vec<User>, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                users::users_by_ids(scope, user_ids, |sql, scope| {
+                    push_seen(sql, scope, sight);
+                })
+                .await
+            })
+            .await
+    }
+
     /// Makes an organization with the given name and its first workspace, which is its
     /// default one, and returns the organization's identifier. Nobody is a member of
     /// either yet.

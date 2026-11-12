@@ -881,7 +881,7 @@ describe('archives', () => {
     const imported = await workspace.importArchive(
       new File([archive?.bytes ?? ''], archive?.name ?? 'a'),
     );
-    expect(imported).toBe(true);
+    expect(imported).toEqual({ membersLeftOut: 0 });
     await settle();
     expect(workspace.boards).toHaveLength(before + 1);
     const copy = workspace.boards.find(
@@ -914,7 +914,7 @@ describe('archives', () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
     const before = workspace.boards.length;
-    expect(await workspace.importArchive(new File(['hello'], 'notes.txt'))).toBe(false);
+    expect(await workspace.importArchive(new File(['hello'], 'notes.txt'))).toBeUndefined();
     expect(workspace.problems).toMatchObject([{ action: 'import', error: { status: 400 } }]);
     expect(workspace.transfers.list).toEqual([]);
     await settle();

@@ -28,9 +28,9 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::sync::{OwnedMutexGuard, Semaphore};
 use tokio_util::io::{ReaderStream, StreamReader};
 
-use super::App;
 use super::doomed::Doomed;
 use super::files::FilePlace;
+use super::{App, Imported};
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
@@ -695,14 +695,14 @@ impl App {
     /// Imports the archive of an upload into its workspace, as its user, and throws the
     /// upload away: checks that every part is there, joins them into one file on the
     /// local disk, and imports from that. The caller has checked again that the user may
-    /// import into the workspace.
+    /// import into the workspace. Returns what the import left out.
     ///
     /// # Errors
     ///
     /// Returns a bad request for an upload of a file, or one that misses parts (left as
     /// it is); a conflict if it is being completed or thrown away already; and the
     /// errors of the import, with the upload thrown away.
-    pub async fn import_upload(&self, upload: &Upload) -> Result<(), AppError> {
+    pub async fn import_upload(&self, upload: &Upload) -> Result<Imported, AppError> {
         if upload.purpose != UploadPurpose::Import {
             return Err(AppError::bad_request(
                 "the upload is of a file; complete it with completeUpload",

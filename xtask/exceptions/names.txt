@@ -54,10 +54,6 @@ crates/server/tests/regression/golden/search.json | /teams/
 # does not know.
 crates/server/tests/api/sidebar.rs | "teamID"
 crates/model/tests/wire_format.rs | "teamID"
-crates/server/src/permissions.rs | `TestHasPermissionToTeam`
-crates/server/src/permissions.rs | "all users have all permissions on teams"
-crates/server/src/permissions.rs | "no users have PermissionManageTeam on teams"
-crates/server/src/permissions.rs | "Manage Team Permission "
 crates/server/src/ws/tests.rs | `TestTeamSubscription
 crates/server/src/ws/tests.rs | "Should correctly subscribe to a team"
 crates/server/src/ws/tests.rs | "Should correctly unsubscribe to a team"

@@ -738,8 +738,8 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 | 답 | 라우트 |
 |---|---|
 | 201과 만든 것 | `POST /boards`, `POST /boards/{board}/duplicate`, `POST /boards/{board}/blocks`, `POST /boards/{board}/blocks/{block}/duplicate`, `POST /boards/{board}/cards`, `POST /w/{workspaceId}/categories`, `POST /subscriptions`, `POST /boards/{board}/files`, `POST /boards-and-blocks`, `POST /register` |
-| 204 | `POST /login`, `POST /logout`, `POST /users/me/password`(셋 다 `Set-Cookie`는 그대로), `DELETE /boards/{board}`, 블록의 `DELETE`·`PATCH`(하나, 여럿), `DELETE /w/{workspaceId}/categories/{category}`, 카테고리에 보드 넣기와 `hide`·`unhide`, `POST /boards/{board}/leave`, `DELETE /boards/{board}/members/{user}`, `DELETE /subscriptions/...`, `DELETE /boards-and-blocks`, 콘텐츠 블록 옮기기, `POST /w/{workspaceId}/archive/import`, 관리자 소켓의 두 라우트 |
-| 200(그대로) | 모든 `GET`, 고친 것을 돌려주는 수정(`PATCH /boards/{board}`, `PATCH /cards/{card}`, 카테고리 수정과 순서, 멤버 수정, 설정), 이미 있을 수 있는 것을 정하는 요청(`POST /boards/{board}/members`, `join`, `sharing`), 복원(`undelete`), 온보딩, 가입 토큰 갱신 |
+| 204 | `POST /login`, `POST /logout`, `POST /users/me/password`(셋 다 `Set-Cookie`는 그대로), `DELETE /boards/{board}`, 블록의 `DELETE`·`PATCH`(하나, 여럿), `DELETE /w/{workspaceId}/categories/{category}`, 카테고리에 보드 넣기와 `hide`·`unhide`, `POST /boards/{board}/leave`, `DELETE /boards/{board}/members/{user}`, `DELETE /subscriptions/...`, `DELETE /boards-and-blocks`, 콘텐츠 블록 옮기기, 관리자 소켓의 두 라우트 |
+| 200(그대로) | 모든 `GET`, 고친 것을 돌려주는 수정(`PATCH /boards/{board}`, `PATCH /cards/{card}`, 카테고리 수정과 순서, 멤버 수정, 설정), 이미 있을 수 있는 것을 정하는 요청(`POST /boards/{board}/members`, `join`, `sharing`), 복원(`undelete`), 온보딩, 가입 토큰 갱신, 빠진 구성원 수를 돌려주는 `POST /w/{workspaceId}/archive/import` |
 
 전에 다른 본문을 답하던 곳:
 

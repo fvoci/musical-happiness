@@ -227,9 +227,10 @@ impl Store {
         .await
     }
 
-    /// Returns the boards of a workspace that are in the trash and that `admin_id` was an
-    /// admin of when they were deleted (`schemeAdmin` of the membership they had), with
-    /// those memberships, the last deleted first and then by identifier: one page of them
+    /// Returns the boards of a workspace that are in the trash and, with an `admin_id`,
+    /// that the user was an admin of when they were deleted (`schemeAdmin` of the
+    /// membership they had); without one, every board of the workspace in the trash. With
+    /// their memberships, the last deleted first and then by identifier: one page of them
     /// if `paging` says so (a page size of zero is every board).
     ///
     /// # Errors
@@ -238,7 +239,7 @@ impl Store {
     pub async fn get_deleted_boards(
         &self,
         workspace_id: &str,
-        admin_id: &str,
+        admin_id: Option<&str>,
         paging: Option<Paging>,
     ) -> Result<Vec<DeletedBoard>, StoreError> {
         self.with_conn(async |scope| {
@@ -256,9 +257,11 @@ impl Store {
             };
             let mut sql = scope
                 .sql("SELECT board, members, deleted_by FROM deleted_boards WHERE workspace_id = ");
-            sql.bind(Id(workspace_id))
-                .push_bind(was_admin, admin_id)
-                .push(") ORDER BY deleted_at DESC, id");
+            sql.bind(Id(workspace_id));
+            if let Some(admin_id) = admin_id {
+                sql.push_bind(was_admin, admin_id).push(")");
+            }
+            sql.push(" ORDER BY deleted_at DESC, id");
             push_paging(&mut sql, paging);
             scope
                 .fetch_all(sql)

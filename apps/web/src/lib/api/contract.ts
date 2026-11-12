@@ -136,7 +136,7 @@ export interface paths {
         };
         /**
          * Search the boards
-         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         * @description The boards the user finds (a member of them, or open where the user works), whose title matches
          *     the term: a title matches if every word of the term, as spaces divide it, is somewhere
          *     in it, whatever the case of the letters (of every letter, not only ASCII). Templates
          *     are never found. `%` and `_` are characters like any other. Oldest first.
@@ -338,8 +338,10 @@ export interface paths {
          *     it. A block whose parent is gone has nowhere to come back to: 404; one whose parent
          *     may no longer hold it (a comment off a card, a block below a comment): 409. For who may
          *     delete what comes back, as `deleteBlock` has it: editors, a comment its author from
-         *     the commenter's role up, and a comment of somebody else the board's admins only
-         *     (403, `access denied to undelete other users' comments`). What decides is what was
+         *     the commenter's role up if they deleted it themselves, and a comment of somebody
+         *     else the board's admins only (403, `access denied to undelete other users' comments`),
+         *     as one of the user's that somebody else deleted (403, `a comment somebody else
+         *     deleted is brought back by the board's admins`). What decides is what was
          *     deleted, as `deleteBlock` decided it: a comment with every reply that went with it,
          *     so a block below somebody else's comment is brought back by the admins only, and a
          *     card alone, so a comment that went with its card comes back for whoever may bring
@@ -580,8 +582,10 @@ export interface paths {
         };
         /**
          * The members of a board
-         * @description For the board's members. By the identifier of the user: a membership has no time of
-         *     its own, so this is not the order in which the users came to the board.
+         * @description For the board's members and the workspace's administrators. Who left the workspace
+         *     is not listed, whatever role they had on the board. By the identifier of the user: a
+         *     membership has no time of its own, so this is not the order in which the users came
+         *     to the board.
          */
         get: operations["getMembers"];
         put?: never;
@@ -589,9 +593,13 @@ export interface paths {
          * Make a user a member of a board
          * @description The board's admins add members with the roles the request names; with no role at
          *     all the member may do nothing on the board, not even view it. On an open board
-         *     editors add members too, with the board's minimum role, whatever else the request
-         *     names; a request of theirs that asks for `schemeAdmin` is 403. A user who is a
-         *     member already stays as they are.
+         *     editors who work in the workspace add members too, with the board's minimum role,
+         *     whatever else the request names; a request of theirs that asks for `schemeAdmin` is
+         *     403. A guest of the workspace is given no role above editor: asking for
+         *     `schemeAdmin` for one is 403 with the reason `guest_role_limit`. A user who is a
+         *     member already stays as they are. The workspace's administrators manage the members
+         *     of every board of it; one who makes themselves a member of a board whose content
+         *     they could not read is recorded in the organization's audit log.
          */
         post: operations["addMember"];
         delete?: never;
@@ -612,8 +620,10 @@ export interface paths {
          * Change the roles of a member
          * @description Replaces the roles of a member of the board; with no role at all the member may do
          *     nothing on the board, not even view it. For the board's admins. The last admin of a
-         *     board cannot be made less: that is 409 with the reason `last_admin`. A user who is
-         *     no member of the board is 404.
+         *     board cannot be made less: that is 409 with the reason `last_admin`. A guest of the
+         *     workspace is made no more than an editor: `schemeAdmin` for one is 403 with the
+         *     reason `guest_role_limit`. A user who is no member of the board, or of its workspace any
+         *     more, is 404.
          */
         put: operations["updateMember"];
         post?: never;
@@ -722,8 +732,9 @@ export interface paths {
          *     category and place, hidden or not) or in the default category if that one was
          *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
          *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-         *     the deletion and stay ended. For who was an admin of the board when it was deleted;
-         *     to anybody who was no member there is no such board.
+         *     the deletion and stay ended. For who was an admin of the board when it was deleted,
+         *     and for the workspace's administrators (who, if they were no member, get it without
+         *     its description and properties); to anybody else there is no such board.
          */
         post: operations["undeleteBoard"];
         delete?: never;
@@ -1182,8 +1193,12 @@ export interface paths {
         /**
          * Users by their identifiers
          * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be a user's and none may be there twice;
-         *     otherwise the request is 404. Oldest account first, not in the order of the request.
+         *     list is 400. Every identifier must be of a user the user sees and none may be there
+         *     twice; otherwise the request is 404. A user sees who shares with them a workspace
+         *     they work in (are no guest of), who holds a role with them on a board of a workspace
+         *     both are in, who created or last changed a card, block or comment of a board they
+         *     read (also after leaving its workspace), and themselves. Oldest account first, not in
+         *     the order of the request.
          */
         post: operations["getUsers"];
         delete?: never;
@@ -1254,7 +1269,8 @@ export interface paths {
         };
         /**
          * The boards the user is a member of
-         * @description The user's memberships, with the roles of each. By the identifier of the board.
+         * @description The user's memberships, with the roles of each, of the boards of the workspaces the
+         *     user is a member of. By the identifier of the board.
          */
         get: operations["getMyMemberships"];
         put?: never;
@@ -1349,7 +1365,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A user */
+        /**
+         * A user
+         * @description A user the user sees, as `getUsers` has it; anybody else is 404, as one who does not
+         *     exist.
+         */
         get: operations["getUser"];
         put?: never;
         post?: never;
@@ -1412,11 +1432,11 @@ export interface paths {
         };
         /**
          * Export the boards of a workspace
-         * @description An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
-         *     user, offered as a download with its length, in the format of `exportBoardArchive`,
-         *     and under its limits. A workspace that is not there, that the user is not in, or that
-         *     is of another organization than the server's, is not refused: its archive has no
-         *     boards.
+         * @description An archive of the boards of the workspace that the user is a member of with a role,
+         *     and of its open boards for who works in the workspace (also those they have not
+         *     joined), offered as a download with its length, in the format of `exportBoardArchive`,
+         *     and under its limits. 404 unless the user is a member of the workspace; a guest's
+         *     archive has the boards they were invited to.
          */
         get: operations["exportWorkspaceArchive"];
         put?: never;
@@ -1459,7 +1479,9 @@ export interface paths {
          *     value that does not fit its property's kind is cleared, as a copy does.
          *
          *     The boards are made one after the other, not all or none: when one of them fails,
-         *     those before it stay.
+         *     those before it stay. The members of a board who are not in the workspace are left
+         *     out of it, a guest of the workspace keeps no role above editor; the answer says how
+         *     many users were left out, not who.
          *
          *     A user runs one import at a time, and the server as many as its setting
          *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
@@ -1507,8 +1529,10 @@ export interface paths {
         /**
          * The boards of a workspace
          * @description The boards of the workspace that the user is a member of, and the workspace's open
-         *     boards; a guest of the workspace gets only the former. Templates are not among
-         *     them. Oldest first. 404 unless the user is a member of the workspace.
+         *     boards; a guest of the workspace gets only the former, an administrator every board
+         *     of the workspace (what is on a private board they are no member of stays 404 to
+         *     them). Templates are not among them. Oldest first. 404 unless the user is a member of
+         *     the workspace.
          */
         get: operations["getWorkspaceBoards"];
         put?: never;
@@ -1528,7 +1552,7 @@ export interface paths {
         };
         /**
          * Search the boards, asked through a workspace
-         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         * @description The boards the user finds (a member of them, or open where the user works), whose title matches
          *     the term as `searchBoards` matches it, or with `field=property_name` those whose own
          *     `properties` have a member of exactly that name, whatever its value (`null` too). The
          *     workspace of the path is not part of the search: the boards of every workspace are
@@ -1790,7 +1814,8 @@ export interface paths {
         /**
          * The deleted boards of a workspace
          * @description One page of the workspace's boards that are in the trash and that the user was an admin
-         *     of when they were deleted, which is who `undeleteBoard` lets bring them back: each
+         *     of when they were deleted, or every one of them for an administrator of the
+         *     workspace, which is who `undeleteBoard` lets bring them back: each
          *     with its identifier, its title, when it was deleted and by whom. The last deleted
          *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
          *     400. For users of the workspace.
@@ -1813,17 +1838,22 @@ export interface paths {
         };
         /**
          * The users of a workspace
-         * @description Up to ten users: with `search` those whose login name or display name has that text
-         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
-         *     account first.
+         * @description Up to ten of the users the user sees in the workspace: whoever works there sees its
+         *     members and who is on a board of it with them, a guest only who is on a board of it
+         *     with them; and the user. With `search` those whose login name or display name has
+         *     that text in it, whatever the case of the letters, without it the ten oldest
+         *     accounts. Oldest account first.
          */
         get: operations["getWorkspaceUsers"];
         put?: never;
         /**
          * Users of a workspace by their identifiers
          * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be a user's and none may be there twice;
-         *     otherwise the request is 404. Oldest account first, not in the order of the request.
+         *     list is 400. Every identifier must be of a user the user sees in the workspace and
+         *     none may be there twice; otherwise the request is 404. The user sees whom
+         *     `getWorkspaceUsers` finds, and who created or last changed a card, block or comment
+         *     of a board of the workspace they read, also after leaving the workspace. Oldest
+         *     account first, not in the order of the request.
          */
         post: operations["getWorkspaceUsersById"];
         delete?: never;
@@ -2376,6 +2406,15 @@ export interface components {
              *     import, whether the import succeeds or not.
              */
             uploadId: string;
+        };
+        /** @description What an import did beyond making the archive's boards. */
+        ImportResult: {
+            /**
+             * @description How many of the users who were members of the archive's boards were left out of
+             *     the boards made of them, because they are not in the workspace; each counted
+             *     once. Who they are is not told.
+             */
+            membersLeftOut: number;
         };
         /**
          * @description One thing of a request that was refused, and where in the request it is: exactly
@@ -5602,7 +5641,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. A workspace that is not there, that the user is not in, or that is of another organization than the server's, is not refused: its archive has no boards. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5650,11 +5689,13 @@ export interface operations {
         };
         responses: {
             /** @description The boards of the archive are made. */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
@@ -6227,7 +6268,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -6259,7 +6300,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too, and it is of the server's organization. */
                 workspaceId: string;
             };
             cookie?: never;

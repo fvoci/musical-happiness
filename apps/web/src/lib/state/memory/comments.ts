@@ -45,18 +45,25 @@ export function lastCommentAt(blocks: readonly StoredBlock[]): number {
 /**
  * Whether the user may delete a comment with what goes with it, or bring that
  * back: every comment of it, its replies too, theirs to delete, and any other
- * block under it an editor's.
+ * block under it an editor's. Brought back (with `deletedBy`, who deleted
+ * it), a comment is its author's only if they deleted it, as the server has it.
  */
 export function mayRemoveComments(
   role: Role,
   userId: string,
-  blocks: readonly Pick<StoredBlock, 'type' | 'createdBy'>[],
+  { blocks, deletedBy = userId }: Removal,
 ): boolean {
   return blocks.every((block) =>
     block.type === 'comment'
-      ? mayDeleteComment(role, block.createdBy === userId)
+      ? mayDeleteComment(role, block.createdBy === userId && deletedBy === userId)
       : role === 'admin' || role === 'editor',
   );
+}
+
+/** What is deleted, or brought back with who deleted it. */
+interface Removal {
+  readonly blocks: readonly Pick<StoredBlock, 'type' | 'createdBy'>[];
+  readonly deletedBy?: string;
 }
 
 /** How many texts before the one it has now a comment keeps: the server's default. */

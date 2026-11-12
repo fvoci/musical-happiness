@@ -8,18 +8,17 @@ use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Path, State};
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{Session, UploadPurpose};
-use fvoci_store::PublicBoards;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::body::decode_object;
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, ExportedWorkspaceId, WorkspaceId};
+use super::contract::params::{BoardId, MemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::workspace::Ws;
-use super::{ApiResult, RequiredSession, no_content};
+use super::{ApiResult, RequiredSession, json_response};
 use super::{require_board_permission, user_is_guest};
 use crate::app::{App, ExportedArchive, Slot, download};
 use crate::connection::{Breaker, Connection};
@@ -36,6 +35,16 @@ struct ImportRequest {
     /// The upload of the archive, every part of it received. It is thrown away by the
     /// import, whether the import succeeds or not.
     upload_id: String,
+}
+
+/// What an import did beyond making the archive's boards.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ImportResult {
+    /// How many of the users who were members of the archive's boards were left out of
+    /// the boards made of them, because they are not in the workspace; each counted
+    /// once. Who they are is not told.
+    members_left_out: usize,
 }
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -129,17 +138,17 @@ async fn handle_export_board(
 
 /// Export the boards of a workspace
 ///
-/// An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
-/// user, offered as a download with its length, in the format of `exportBoardArchive`,
-/// and under its limits. A workspace that is not there, that the user is not in, or that
-/// is of another organization than the server's, is not refused: its archive has no
-/// boards.
+/// An archive of the boards of the workspace that the user is a member of with a role,
+/// and of its open boards for who works in the workspace (also those they have not
+/// joined), offered as a download with its length, in the format of `exportBoardArchive`,
+/// and under its limits. 404 unless the user is a member of the workspace; a guest's
+/// archive has the boards they were invited to.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/archive/export",
     operation_id = "exportWorkspaceArchive",
     tag = tag::ARCHIVES,
-    params(ExportedWorkspaceId),
+    params(MemberWorkspaceId),
     responses((
         status = 200,
         description = "The archive.",
@@ -157,24 +166,15 @@ async fn handle_export_workspace(
     connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(workspace_id): Path<String>,
 ) -> ApiResult {
-    let user_id = &session.user_id;
-    let public = if user_is_guest(&app, user_id).await? {
-        PublicBoards::Exclude
-    } else {
-        PublicBoards::Include
-    };
+    let ws = Ws::enter(&app, session, workspace_id).await?;
+    let (app, user_id) = (&ws.app, &ws.session.user_id);
     let boards = app
-        .boards_for_user_and_workspace(user_id, &workspace_id, public)
+        .readable_workspace_boards(user_id, &ws.workspace_id, ws.role)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
     let slot = app.start_export(user_id)?;
-    let archive = app.export_archive(&workspace_id, &ids).await?;
-    Ok(archive_response(
-        &app,
-        archive,
-        slot,
-        breaker_of(connection),
-    ))
+    let archive = app.export_archive(&ws.workspace_id, &ids).await?;
+    Ok(archive_response(app, archive, slot, breaker_of(connection)))
 }
 
 /// Import an archive
@@ -200,7 +200,9 @@ async fn handle_export_workspace(
 /// value that does not fit its property's kind is cleared, as a copy does.
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
-/// those before it stay.
+/// those before it stay. The members of a board who are not in the workspace are left
+/// out of it, a guest of the workspace keeps no role above editor; the answer says how
+/// many users were left out, not who.
 ///
 /// A user runs one import at a time, and the server as many as its setting
 /// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
@@ -212,7 +214,11 @@ async fn handle_export_workspace(
     tag = tag::ARCHIVES,
     params(WorkspaceId),
     request_body = ImportRequest,
-    responses((status = 204, description = "The boards of the archive are made.")),
+    responses((
+        status = 200,
+        description = "The boards of the archive are made.",
+        body = ImportResult,
+    )),
 )]
 async fn handle_import(
     State(app): State<App>,
@@ -257,11 +263,14 @@ async fn handle_import(
     let _slot = ws.app.start_import(&user_id)?;
     // What is refused of the archive's boards and blocks is in the archive, not in the
     // request, which names the upload alone.
-    ws.app
+    let imported = ws
+        .app
         .import_upload(&upload)
         .await
         .map_err(AppError::outside_the_request)?;
-    Ok(no_content())
+    Ok(json_response(&ImportResult {
+        members_left_out: imported.members_left_out,
+    }))
 }
 
 /// Sends an archive, written whole before, as the download the original sends, with its

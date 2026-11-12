@@ -4,7 +4,9 @@ use fvoci_model::{
     Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
     DeleteBoardsAndBlocks, new_id,
 };
-use fvoci_store::{DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards};
+use fvoci_store::{
+    AuditAction, AuditEntry, DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards,
+};
 
 use super::{App, DEFAULT_CATEGORY_BOARDS};
 use crate::error::{AppError, Reason};
@@ -223,7 +225,7 @@ impl App {
         Ok(order.to_vec())
     }
 
-    /// Tells the users of a workspace who are not members of a template that they gained or
+    /// Tells who works in the workspace and is no member of a template that they gained or
     /// lost access to it, after the template changed between open and private.
     async fn broadcast_workspace_users(&self, board: &Board, board_type: BoardType) {
         let members = match self.members_for_board(&board.id).await {
@@ -233,7 +235,13 @@ impl App {
                 Vec::new()
             }
         };
-        let users = match self.store().get_users_by_workspace().await {
+        // Who works in the board's workspace, whom an open template is for: nobody else
+        // gains or loses it, and nobody else is named.
+        let users = match self
+            .store()
+            .get_workspace_worker_ids(&board.workspace_id)
+            .await
+        {
             Ok(users) => users,
             Err(error) => {
                 tracing::error!(%error, "Unable to get the workspace users");
@@ -242,17 +250,17 @@ impl App {
         };
         let others = users
             .iter()
-            .filter(|user| !members.iter().any(|member| member.user_id == user.id));
-        for user in others {
+            .filter(|user_id| !members.iter().any(|member| member.user_id == **user_id));
+        for user_id in others {
             match board_type {
                 BoardType::Private => {
                     self.ws()
-                        .broadcast_member_delete(&board.workspace_id, &board.id, &user.id)
+                        .broadcast_member_delete(&board.workspace_id, &board.id, user_id)
                         .await;
                 }
                 BoardType::Open => {
                     let viewer = BoardMember {
-                        user_id: user.id.clone(),
+                        user_id: user_id.clone(),
                         board_id: board.id.clone(),
                         scheme_viewer: true,
                         synthetic: true,
@@ -506,6 +514,19 @@ impl App {
         Ok(self.store().get_members_for_board(board_id).await?)
     }
 
+    /// Returns the members of a board who are in its workspace now, as the board's member
+    /// list shows them: who left the workspace is listed nowhere, whatever role is left.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the members cannot be read.
+    pub async fn present_members_for_board(
+        &self,
+        board_id: &str,
+    ) -> Result<Vec<BoardMember>, AppError> {
+        Ok(self.store().get_present_members_for_board(board_id).await?)
+    }
+
     /// Makes a user a member of a board with the roles of `member`, files the board
     /// under the user's default category unless it is a template, and tells the board's
     /// members.
@@ -522,6 +543,33 @@ impl App {
         &self,
         member: &BoardMember,
     ) -> Result<Option<BoardMember>, AppError> {
+        self.add_member_to_board_recorded(member, None).await
+    }
+
+    /// Makes a user, who manages the board without reading it, a member of it as
+    /// [`App::add_member_to_board`] does and, if the membership is new, records in the
+    /// organization's audit log in the same step that they made themselves one.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::add_member_to_board`]; a record that cannot be written is the store's
+    /// error, and the membership is not made then.
+    pub async fn add_self_to_board_recorded(
+        &self,
+        member: &BoardMember,
+    ) -> Result<Option<BoardMember>, AppError> {
+        self.add_member_to_board_recorded(member, Some(AuditAction::SelfAddedToBoard))
+            .await
+    }
+
+    /// Adds a member as [`App::add_member_to_board`] does and, if the membership is new
+    /// and `action` is given, records the user doing it in the audit log in the same
+    /// step.
+    async fn add_member_to_board_recorded(
+        &self,
+        member: &BoardMember,
+        action: Option<AuditAction>,
+    ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
             Err(error) if error.is_not_found() => return Ok(None),
@@ -530,7 +578,14 @@ impl App {
 
         // Added unless already there, in one step: of two requests that add the same
         // user at once, the second finds the membership the first made.
-        if let Some(existing) = self.store().add_member(member).await? {
+        let existing = match action {
+            Some(action) => {
+                let entry = audit_entry(&board, member, action);
+                self.store().add_member_recorded(member, &entry).await?
+            }
+            None => self.store().add_member(member).await?,
+        };
+        if let Some(existing) = existing {
             return Ok(Some(existing));
         }
 
@@ -603,6 +658,30 @@ impl App {
         &self,
         member: &BoardMember,
     ) -> Result<Option<BoardMember>, AppError> {
+        self.update_board_member_recorded(member, None).await
+    }
+
+    /// Gives a user, who manages the board without reading it, roles on it as
+    /// [`App::update_board_member`] does and records in the organization's audit log in
+    /// the same step that they gave them to themselves.
+    ///
+    /// # Errors
+    ///
+    /// As [`App::update_board_member`]; a record that cannot be written is the store's
+    /// error, and the membership is not changed then.
+    pub async fn update_self_on_board_recorded(
+        &self,
+        member: &BoardMember,
+    ) -> Result<Option<BoardMember>, AppError> {
+        self.update_board_member_recorded(member, Some(AuditAction::SelfAddedToBoard))
+            .await
+    }
+
+    async fn update_board_member_recorded(
+        &self,
+        member: &BoardMember,
+        action: Option<AuditAction>,
+    ) -> Result<Option<BoardMember>, AppError> {
         let board = match self.store().get_board(&member.board_id).await {
             Ok(board) => board,
             Err(error) if error.is_not_found() => return Ok(None),
@@ -611,7 +690,14 @@ impl App {
         // A board keeps at least one admin. Whether this change would take the last one
         // away is decided where the change is written, so that two admins who step down
         // at once do not both pass.
-        match self.store().change_member(member).await? {
+        let change = match action {
+            Some(action) => {
+                let entry = audit_entry(&board, member, action);
+                self.store().change_member_recorded(member, &entry).await?
+            }
+            None => self.store().change_member(member).await?,
+        };
+        match change {
             MemberChange::Done => {}
             MemberChange::NotAMember => return Ok(None),
             MemberChange::LastAdmin => {
@@ -664,5 +750,16 @@ impl App {
                 .await;
         });
         Ok(())
+    }
+}
+
+/// The record of a user doing `action` to their own membership of the board.
+fn audit_entry(board: &Board, member: &BoardMember, action: AuditAction) -> AuditEntry {
+    AuditEntry {
+        workspace_id: board.workspace_id.clone(),
+        actor_id: member.user_id.clone(),
+        action,
+        target_id: board.id.clone(),
+        create_at: 0,
     }
 }

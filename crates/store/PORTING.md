@@ -81,7 +81,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 | `DuplicateBoard` | `duplicate_board(board_id, user_id, Option<&str> /* to_workspace */, DuplicateAs) -> (BoardsAndBlocks, Vec<BoardMember>)` |
 | `GetRegisteredUserCount` | `get_registered_user_count()` |
 | `GetUserByID`, `GetUserByEmail`, `GetUserByUsername` | `get_user_by_id`, `get_user_by_email`, `get_user_by_username` |
-| `GetUsersList`, `GetUsersByTeam`, `SearchUsersByTeam` | `get_users_list(&[String])`, `get_users_by_workspace()`, `search_users_by_workspace(query)` |
+| `GetUsersList`, `GetUsersByTeam`, `SearchUsersByTeam` | `get_users_list(&[String])`, `get_users_by_workspace()`, `search_users_in_sight(Sight, query)`(묻는 사람이 보는 사람만) |
 | `CreateUser`, `UpdateUser` | `create_user(&mut User)`, `update_user(&mut User)` |
 | `UpdateUserPassword`, `UpdateUserPasswordByID` | `reset_user_password(username, hash) -> Vec<String>`(S6: 그 사용자들의 세션도 같은 트랜잭션에서 지우고 사용자 ID를 돌려준다), `update_user_password_by_id(user_id, hash)` |
 | `PatchUserPreferences`, `GetUserPreferences` | `patch_user_preferences(user_id, &UserPreferencesPatch) -> Vec<Preference>`, `get_user_preferences(user_id)` |

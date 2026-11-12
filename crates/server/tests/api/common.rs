@@ -449,6 +449,23 @@ impl TestServer {
         }
     }
 
+    /// The user of the client, made a member, and no administrator, of every workspace
+    /// they are in: for a test about a member, of the first user, who administers the
+    /// workspace they made.
+    pub(crate) async fn me_as_no_admin(&self, client: &Client) -> User {
+        let user = client.me().await;
+        self.app
+            .store()
+            .execute_unchecked(&format!(
+                "UPDATE workspace_members SET role = 'member' WHERE user_id = '{}' \
+                 AND role = 'admin'",
+                user.id
+            ))
+            .await
+            .expect("the user administers no workspace");
+        user
+    }
+
     /// `Login`: returns a client signed in as an existing user.
     pub(crate) async fn login(&self, username: &str, password: &str) -> Client {
         let mut client = self.anonymous();

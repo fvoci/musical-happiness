@@ -227,7 +227,7 @@ struct BoardsByIdsCase {
 async fn get_boards_in_workspace_by_ids() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&user_id]).await;
 
     // "should return err not all found if one or more of the ids are not found"
     {
@@ -1494,7 +1494,7 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let member_id = common::user(&test, "member").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&user_id, &member_id]).await;
     let board_id = new_id();
 
     let mut board = Board {
@@ -3216,7 +3216,7 @@ async fn change_member_replaces_the_flags_of_a_membership_and_of_no_one_else() {
     let admin_id = common::user(&test, "admin").await;
     let member_id = common::user(&test, "member").await;
     let stranger_id = common::user(&test, "stranger").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&admin_id, &member_id, &stranger_id]).await;
     let board_id = stored_board(&test, &workspace_id, &admin_id).await;
     for member in [
         admin_of(&board_id, &admin_id),
@@ -3381,7 +3381,7 @@ async fn an_administrator_may_step_down_or_leave_while_another_one_exists() {
     let first_id = common::user(&test, "first").await;
     let second_id = common::user(&test, "second").await;
     let third_id = common::user(&test, "third").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&first_id, &second_id, &third_id]).await;
     let board_id = stored_board(&test, &workspace_id, &first_id).await;
     for user_id in [&first_id, &second_id, &third_id] {
         test.save_member(&admin_of(&board_id, user_id))
@@ -3494,7 +3494,7 @@ async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
     let first_id = common::user(&test, "first").await;
     let second_id = common::user(&test, "second").await;
     let editor_id = common::user(&test, "editor").await;
-    let workspace_id = common::workspace(&test).await;
+    let workspace_id = common::workspace_of(&test, &[&first_id, &second_id, &editor_id]).await;
 
     let pairs = [
         (GiveUp::StepDown, GiveUp::StepDown),
