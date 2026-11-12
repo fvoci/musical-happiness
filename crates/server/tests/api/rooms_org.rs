@@ -9,7 +9,7 @@ use serde_json::json;
 use crate::boards::new_board;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::org_admin::{let_in, make_workspace, org_of};
-use crate::rooms::{Peer, give, no_rooms, paragraphs, table};
+use crate::rooms::{Peer, give_in, no_rooms, paragraphs, table};
 
 /// A server that asks every second whether who is in a room may be there.
 fn asking_often() -> Setup {
@@ -22,7 +22,7 @@ async fn card_in(th: &TestServer, workspace_id: &str) -> (String, String) {
     let card: Card = th
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("/w/{workspace_id}/boards/{}/cards", board.id),
             &json!({"title": "Theirs", "body": paragraphs(&["first"])}),
         )
         .await
@@ -48,7 +48,7 @@ async fn a_workspace_in_the_trash_or_removed_for_good_empties_the_rooms_of_its_c
         .check_ok();
     let_in(&th, &workspace, &member, WorkspaceRole::Member).await;
     let (board_id, card_id) = card_in(&th, &workspace).await;
-    give(&th, &board_id, &member, "editor").await;
+    give_in(&th, &workspace, &board_id, &member, "editor").await;
     let mut one = Peer::connect(&th.client, 101).await;
     let mut two = Peer::connect(&th.client2, 102).await;
     one.joined(&workspace, &card_id).await;
@@ -123,7 +123,7 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
     let card: Card = th
         .client2
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("/w/{workspace}/boards/{}/cards", board.id),
             &json!({"title": "Theirs", "body": paragraphs(&["first"])}),
         )
         .await
@@ -142,13 +142,14 @@ async fn an_org_admin_who_leaves_a_workspace_they_joined_is_put_out_of_its_rooms
     // Its administrator now, who reads no board for the invited only without a role.
     let refused = joined.join(&workspace, &card.id).await;
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    let as_editor = BoardMember {
+        board_id: board.id.clone(),
+        user_id: admin,
+        scheme_editor: true,
+        ..BoardMember::default()
+    };
     th.client
-        .add_member(&BoardMember {
-            board_id: board.id.clone(),
-            user_id: admin,
-            scheme_editor: true,
-            ..BoardMember::default()
-        })
+        .add_member_in(&workspace, &as_editor)
         .await
         .check_ok();
     let entered = joined.joined(&workspace, &card.id).await;

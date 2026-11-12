@@ -88,10 +88,8 @@
     bind:open={membersOpen}
     {workspace}
     {board}
-    boardAddress={new URL(
-      router.href({ workspaceId: board.board.workspaceId, boardId: board.boardId }),
-      location.href,
-    ).href}
+    linkOf={(readToken: string) =>
+      new URL(router.href({ boardId: board.boardId, readToken }), location.href).href}
     membersOnly
   />
 {/if}

@@ -7,7 +7,7 @@
 //! date value (`docs/s6-design.md` 5.7). Anything else is refused before it is stored,
 //! so that one member cannot break the board for the others.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 use thiserror::Error;
@@ -297,8 +297,12 @@ const VIEW_GROUP_LISTS: [&str; 3] = ["visibleOptionIds", "hiddenOptionIds", "col
 /// The member of a view's `fields` that is keyed by the groups the view shows.
 const VIEW_GROUP_KEYED: &str = "kanbanCalculations";
 
+/// The property of a view's filter that is the card's title, defined by no board.
+const TITLE: &str = "title";
+
 /// The properties of a board as whoever reads it by its read token alone may be told of
-/// them: which ones it defines, and which of those name users.
+/// them: which ones it defines, which of those name users, and the options of those a
+/// view may group by without naming anybody.
 ///
 /// Such a reader is not told who the server's users are (`docs/s6-design.md`, decision
 /// 7): the values of person properties go to them emptied, one empty string for each
@@ -307,6 +311,8 @@ const VIEW_GROUP_KEYED: &str = "kanbanCalculations";
 pub struct PersonProperties {
     defined: BTreeSet<String>,
     people: BTreeSet<String>,
+    /// The identifiers of the options of each `select` property.
+    options: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl PersonProperties {
@@ -325,6 +331,15 @@ impl PersonProperties {
                 .is_some_and(|kind| PERSON_PROPERTY_TYPES.contains(&kind));
             if names_users {
                 properties.people.insert(id.to_owned());
+            }
+            if definition.get("type").and_then(Value::as_str) == Some("select") {
+                let options = definition.get("options").and_then(Value::as_array);
+                let ids = options
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|option| option.get("id"));
+                let ids = ids.filter_map(Value::as_str).map(str::to_owned).collect();
+                properties.options.insert(id.to_owned(), ids);
             }
         }
         properties
@@ -345,30 +360,44 @@ impl PersonProperties {
 
     /// Empties the users that a view's `fields` name. In the clauses of its filter
     /// (`filter`, a group `{operation, filters}` whose filters are groups or clauses
-    /// `{propertyId, condition, values}`) the users that a person property is compared
-    /// with become empty strings. A view grouped by a person property (`groupById`)
-    /// keeps of its lists of groups (`visibleOptionIds`, `hiddenOptionIds`,
-    /// `collapsedOptionIds`) and of `kanbanCalculations` only the group of the cards
-    /// without a value, the empty string: an emptied user would be taken for it.
+    /// `{propertyId, condition, values}`) the values compared with a person property
+    /// become empty strings. A view grouped by a person property (`groupById`) keeps of
+    /// its lists of groups (`visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`)
+    /// and of `kanbanCalculations` only the group of the cards without a value, the
+    /// empty string: an emptied user would be taken for it.
+    ///
+    /// A property the board no longer defines may have been a person property, whose
+    /// users the view still names: it counts as one. The card's title (`title`), which
+    /// is no definition, names nobody. The lists of groups keep only the options of the
+    /// `select` property the view groups by, and the empty string: a view grouped by
+    /// anything else (or by nothing) is grouped by the app by a property of its choosing,
+    /// a person property among them, whose users the lists may hold.
     pub fn hide_view_fields(&self, fields: &mut JsonMap) {
         if let Some(filter) = fields.get_mut("filter") {
             self.hide_filter_values(filter);
         }
-        let grouped_by_people = fields
+        let options = fields
             .get("groupById")
             .and_then(Value::as_str)
-            .is_some_and(|id| self.people.contains(id));
-        if !grouped_by_people {
-            return;
-        }
+            .and_then(|id| self.options.get(id))
+            .cloned();
+        let shown = |group: &str| {
+            group.is_empty() || options.as_ref().is_some_and(|ids| ids.contains(group))
+        };
         for list in VIEW_GROUP_LISTS {
             if let Some(Value::Array(groups)) = fields.get_mut(list) {
-                groups.retain(|group| group.as_str() == Some(""));
+                groups.retain(|group| group.as_str().is_some_and(shown));
             }
         }
         if let Some(Value::Object(groups)) = fields.get_mut(VIEW_GROUP_KEYED) {
-            groups.retain(|group, _| group.is_empty());
+            groups.retain(|group, _| shown(group));
         }
+    }
+
+    /// Whether the values of the property may be users: it is a person property, or
+    /// one the board does not define (any more).
+    fn may_name_people(&self, id: &str) -> bool {
+        self.people.contains(id) || !self.defined.contains(id)
     }
 
     /// See [`Self::hide_view_fields`].
@@ -382,7 +411,7 @@ impl PersonProperties {
         let names_a_person = filter
             .get("propertyId")
             .and_then(Value::as_str)
-            .is_some_and(|id| self.people.contains(id));
+            .is_some_and(|id| id != TITLE && self.may_name_people(id));
         if names_a_person && let Some(values) = filter.get_mut("values") {
             hide_users(values);
         }
@@ -416,6 +445,55 @@ mod tests {
             Value::Object(object) => object,
             other => panic!("not an object: {other}"),
         }
+    }
+
+    #[test]
+    fn a_view_of_a_property_no_longer_defined_names_nobody_but_the_title_stays() {
+        let people = PersonProperties::of(&[
+            object(json!({"id": "stage", "type": "select", "options": [{"id": "s1"}]})),
+            object(json!({"id": "note", "type": "text"})),
+        ]);
+        let mut fields = object(json!({
+            "groupById": "owner",
+            "hiddenOptionIds": ["u1", ""],
+            "kanbanCalculations": {"u1": {"calculation": "count"}},
+            "filter": {"operation": "and", "filters": [
+                {"propertyId": "owner", "condition": "includes", "values": ["u1"]},
+                {"propertyId": "title", "condition": "contains", "values": ["beans"]},
+                {"propertyId": "stage", "condition": "includes", "values": ["s1"]},
+            ]},
+        }));
+        people.hide_view_fields(&mut fields);
+        assert_eq!(
+            Value::Object(fields),
+            json!({
+                "groupById": "owner",
+                "hiddenOptionIds": [""],
+                "kanbanCalculations": {},
+                "filter": {"operation": "and", "filters": [
+                    {"propertyId": "owner", "condition": "includes", "values": [""]},
+                    {"propertyId": "title", "condition": "contains", "values": ["beans"]},
+                    {"propertyId": "stage", "condition": "includes", "values": ["s1"]},
+                ]},
+            }),
+            "a deleted property may have named users; the title and a select do not"
+        );
+        let mut by_stage = object(json!({"groupById": "stage", "hiddenOptionIds": ["s1", "u1"]}));
+        people.hide_view_fields(&mut by_stage);
+        let kept = &by_stage["hiddenOptionIds"];
+        assert_eq!(
+            kept,
+            &json!(["s1"]),
+            "a select's options stay, anything else goes"
+        );
+        // Grouped by a text, the app groups by a property of its choosing.
+        let mut by_note = object(json!({"groupById": "note", "collapsedOptionIds": ["u1", ""]}));
+        people.hide_view_fields(&mut by_note);
+        assert_eq!(
+            by_note["collapsedOptionIds"],
+            json!([""]),
+            "only the empty group stays"
+        );
     }
 
     #[test]
@@ -473,11 +551,14 @@ mod tests {
             "in nested groups too, and the groups of users go"
         );
 
-        let mut by_text = object(json!({"groupById": "note", "hiddenOptionIds": ["o1"]}));
-        people.hide_view_fields(&mut by_text);
+        let stages = PersonProperties::of(&[object(
+            json!({"id": "stage", "type": "select", "options": [{"id": "o1"}]}),
+        )]);
+        let mut by_select = object(json!({"groupById": "stage", "hiddenOptionIds": ["o1"]}));
+        stages.hide_view_fields(&mut by_select);
         assert_eq!(
-            Value::Object(by_text),
-            json!({"groupById": "note", "hiddenOptionIds": ["o1"]}),
+            Value::Object(by_select),
+            json!({"groupById": "stage", "hiddenOptionIds": ["o1"]}),
             "groups of options stay"
         );
     }

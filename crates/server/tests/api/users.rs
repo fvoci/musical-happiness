@@ -9,9 +9,9 @@ use fvoci_server::auth::secret::new_secret;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{
-    PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID, USER1_USERNAME,
-};
+use crate::common::ROOT_WS;
+use crate::common::TEST_WS;
+use crate::common::{PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID, USER1_USERNAME};
 
 const FAKE_USERNAME: &str = "fakeUsername";
 const FAKE_EMAIL: &str = "mock@test.com";
@@ -452,13 +452,16 @@ async fn get_user() {
     let me = client.me().await;
 
     // "me's id"
-    let user: User = client.get(&format!("/users/{}", me.id)).await.ok_json();
+    let user: User = client
+        .get(&format!("{ROOT_WS}/users/{}", me.id))
+        .await
+        .ok_json();
     assert_eq!(user.id, me.id, "the same user");
     assert_eq!(user.username, me.username, "the same name");
 
     // "nonexist user"
-    let response = client.get("/users/nonexistid").await;
-    response.check_not_found();
+    let response = client.get(&format!("{ROOT_WS}/users/nonexistid")).await;
+    response.check_error(StatusCode::NOT_FOUND, "user not found");
 
     th.teardown().await;
 }
@@ -489,7 +492,7 @@ async fn users_list_and_profiles() {
 
     let listed: Vec<User> = th
         .client
-        .post("/users", &[&user1.id, &user2.id])
+        .post(&format!("{ROOT_WS}/users"), &[&user1.id, &user2.id])
         .await
         .ok_json();
     let mut names: Vec<&str> = listed.iter().map(|user| user.username.as_str()).collect();
@@ -497,28 +500,43 @@ async fn users_list_and_profiles() {
     assert_eq!(names, ["user1", "user2"], "both users are listed");
 
     let empty: Vec<String> = Vec::new();
-    let response = th.client.post("/users", &empty).await;
+    let response = th.client.post(&format!("{ROOT_WS}/users"), &empty).await;
     response.check_bad_request();
     assert_eq!(
         response.error_message(),
-        "the list of user IDs is empty",
+        "User IDs are empty",
         "an empty list is refused"
     );
 
-    th.client
-        .post("/users", &["nonexistent"])
-        .await
-        .check_not_found();
-
-    let workspace_users: Vec<User> = th
+    // At most 200 identifiers at once: more is a bad request, as an empty list is.
+    let many = |n: usize| (0..n).map(|_| UNKNOWN_ID.to_owned()).collect::<Vec<_>>();
+    let at_most: Vec<User> = th
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/users"))
+        .post(&format!("{ROOT_WS}/users"), &many(200))
         .await
         .ok_json();
+    assert!(at_most.is_empty(), "{at_most:?}");
+    th.client
+        .post(&format!("{ROOT_WS}/users"), &many(201))
+        .await
+        .check_error(
+            StatusCode::BAD_REQUEST,
+            "at most 200 user IDs are asked for at once",
+        );
+
+    // An identifier of nobody finds nothing; the list is not refused.
+    let nobody: Vec<User> = th
+        .client
+        .post(&format!("{ROOT_WS}/users"), &["nonexistent"])
+        .await
+        .ok_json();
+    assert!(nobody.is_empty(), "{nobody:?}");
+
+    let workspace_users: Vec<User> = th.client.get(&format!("{ROOT_WS}/users")).await.ok_json();
     assert_eq!(workspace_users.len(), 2, "the workspace has both users");
     let found: Vec<User> = th
         .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/users?search=user2"))
+        .get(&format!("{ROOT_WS}/users?search=user2"))
         .await
         .ok_json();
     assert_eq!(found.len(), 1, "the search narrows the list");
@@ -526,13 +544,17 @@ async fn users_list_and_profiles() {
 
     let by_id: Vec<User> = th
         .client
-        .post(&format!("/w/{ROOT_WORKSPACE_ID}/users"), &[&user2.id])
+        .post(&format!("{ROOT_WS}/users"), &[&user2.id])
         .await
         .ok_json();
     assert_eq!(by_id.len(), 1, "one user was asked for");
 
     // The members of a user on the wire, as another user sees them.
-    let profile = th.client.get(&format!("/users/{}", user2.id)).await.value();
+    let profile = th
+        .client
+        .get(&format!("{ROOT_WS}/users/{}", user2.id))
+        .await
+        .value();
     assert_eq!(
         profile,
         json!({
@@ -1050,11 +1072,7 @@ async fn workspaces() {
         let response = th.client.get(&format!("/w/{no_workspace}")).await;
         response.check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
-    let workspace = th
-        .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-        .await
-        .value();
+    let workspace = th.client.get(ROOT_WS).await.value();
     assert_eq!(workspace["id"], json!(ROOT_WORKSPACE_ID), "{workspace}");
     let signup_token = workspace["signupToken"]
         .as_str()
@@ -1067,24 +1085,16 @@ async fn workspaces() {
     );
 
     th.client
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/signup-token"))
+        .post_empty(&format!("{ROOT_WS}/signup-token"))
         .await
         .check_ok();
-    let regenerated = th
-        .client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-        .await
-        .value();
+    let regenerated = th.client.get(ROOT_WS).await.value();
     assert_ne!(
         regenerated["signupToken"],
         json!(signup_token),
         "the token changed"
     );
-    let other = th
-        .client
-        .get(&format!("/w/{TEST_WORKSPACE_ID}"))
-        .await
-        .value();
+    let other = th.client.get(TEST_WS).await.value();
     assert_ne!(
         other["signupToken"], regenerated["signupToken"],
         "each workspace has a token of its own"
@@ -1094,10 +1104,7 @@ async fn workspaces() {
         .await
         .check_error(StatusCode::NOT_FOUND, "workspace not found");
 
-    th.anonymous()
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-        .await
-        .check_unauthorized();
+    th.anonymous().get(ROOT_WS).await.check_unauthorized();
     th.teardown().await;
 }
 
@@ -1534,7 +1541,7 @@ async fn a_user_has_a_display_name_of_their_choosing() {
     assert_eq!(th.client.me().await.display_name, "Michael Scott 🎉");
 
     // Found by either name, whatever the case.
-    let search = |query: &str| format!("/w/{ROOT_WORKSPACE_ID}/users?search={query}");
+    let search = |query: &str| format!("{ROOT_WS}/users?search={query}");
     let found: Vec<User> = jim.get(&search("scott")).await.ok_json();
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].id, me.id);

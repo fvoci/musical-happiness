@@ -356,7 +356,7 @@ pub(crate) async fn table(th: &TestServer, body: &Value) -> Table {
     let card: Card = th
         .client
         .post(
-            &format!("/boards/{}/cards", board.id),
+            &format!("/w/{TEST_WORKSPACE_ID}/boards/{}/cards", board.id),
             &json!({"title": "Edited together", "body": body}),
         )
         .await
@@ -383,6 +383,17 @@ pub(crate) async fn two_in_a_room(th: &TestServer, body: &Value) -> (Table, Peer
 /// Gives a user a role on the board, as the first client's user: `viewer`,
 /// `commenter` or `editor`. A user who has a role is given this one in its place.
 pub(crate) async fn give(th: &TestServer, board_id: &str, user_id: &str, role: &str) {
+    give_in(th, TEST_WORKSPACE_ID, board_id, user_id, role).await;
+}
+
+/// As [`give`], on a board of the workspace `workspace_id`.
+pub(crate) async fn give_in(
+    th: &TestServer,
+    workspace_id: &str,
+    board_id: &str,
+    user_id: &str,
+    role: &str,
+) {
     let member = BoardMember {
         board_id: board_id.to_owned(),
         user_id: user_id.to_owned(),
@@ -399,11 +410,17 @@ pub(crate) async fn give(th: &TestServer, board_id: &str, user_id: &str, role: &
         .is_ok();
     if is_member {
         th.client
-            .put(&format!("/boards/{board_id}/members/{user_id}"), &member)
+            .put(
+                &format!("/w/{workspace_id}/boards/{board_id}/members/{user_id}"),
+                &member,
+            )
             .await
             .check_ok();
     } else {
-        th.client.add_member(&member).await.check_ok();
+        th.client
+            .add_member_in(workspace_id, &member)
+            .await
+            .check_ok();
     }
 }
 
@@ -415,7 +432,7 @@ pub(crate) async fn write_whole(client: &Client, card_id: &str, body: &Value) {
         let read = card(client, card_id).await;
         let patched = client
             .patch(
-                &format!("/cards/{card_id}"),
+                &format!("/w/{TEST_WORKSPACE_ID}/cards/{card_id}"),
                 &json!({"body": body, "readAt": read.update_at}),
             )
             .await;

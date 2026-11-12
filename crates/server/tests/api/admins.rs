@@ -5,6 +5,7 @@ use fvoci_model::{RegisterRequest, User, Workspace};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
 use crate::common::{
     ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID,
 };
@@ -47,10 +48,7 @@ fn check_admins_only(response: &ApiResponse) {
 }
 
 async fn workspace_as(client: &Client) -> Value {
-    client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
-        .await
-        .ok_json()
+    client.get(ROOT_WS).await.ok_json()
 }
 
 /// The first user to register is the administrator; whoever registers after is not.
@@ -67,7 +65,7 @@ async fn the_first_user_is_the_administrator_and_later_ones_are_not() {
     let first_id = first["id"].as_str().expect("the user has an identifier");
     let seen: User = th
         .client2
-        .get(&format!("/users/{first_id}"))
+        .get(&format!("{ROOT_WS}/users/{first_id}"))
         .await
         .ok_json();
     assert!(seen.is_admin, "who the administrator is, is no secret");
@@ -224,7 +222,7 @@ async fn the_signup_token_is_for_administrators() {
 #[tokio::test]
 async fn an_administrator_renews_the_signup_token() {
     let th = Setup::native().start().await.init_basic().await;
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/signup-token");
+    let path = format!("{ROOT_WS}/signup-token");
     let old = workspace_as(&th.client).await["signupToken"]
         .as_str()
         .expect("the token")

@@ -5,11 +5,10 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ServerBackend } from '$lib/api/backend.ts';
 import { createBoardView } from '$lib/logic/wire.ts';
 import { BackendError, boardTrash, cardTrash, type Change } from '$lib/state/index.ts';
 
-import { openFirstBoard, settle, setup } from './support.ts';
+import { openFirstBoard, serverBackend, settle, setup } from './support.ts';
 
 const rejection = async (promise: Promise<unknown>): Promise<BackendError> => {
   try {
@@ -237,13 +236,13 @@ describe('the trash, on the server', () => {
         new Response(JSON.stringify([item]), { headers: { 'Content-Type': 'application/json' } }),
       );
     });
-    const backend = new ServerBackend('');
+    const backend = serverBackend('');
     expect(await backend.deletedCards('b1', { page: 2, perPage: 50 })).toEqual([
       { id: 'x', title: 'X', deletedAt: 5, deletedBy: 'u' },
     ]);
     await backend.deletedBoards('t1');
     expect(sent).toEqual([
-      'GET /api/v1/boards/b1/trash/cards?page=2&perPage=50',
+      'GET /api/v1/w/w1/boards/b1/trash/cards?page=2&perPage=50',
       'GET /api/v1/w/t1/trash/boards',
     ]);
   });

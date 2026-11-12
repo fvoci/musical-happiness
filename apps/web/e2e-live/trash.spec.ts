@@ -88,7 +88,7 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
     ).map((entry) => entry.boardId);
   expect(await order()).toEqual(ids);
 
-  const deleted = await api.delete(`/api/v1/boards/${beta.boardId}`);
+  const deleted = await api.delete(`/api/v1/w/${beta.workspaceId}/boards/${beta.boardId}`);
   expect(deleted.ok()).toBe(true);
   expect(await order()).toEqual([alpha.boardId, gamma.boardId]);
 
@@ -158,11 +158,19 @@ test('a deleted card is listed for the editors of its board, and comes back to t
     ],
   });
   const gone = board.cards['Throw me out'] ?? '';
-  expect((await api.delete(`/api/v1/boards/${board.boardId}/blocks/${gone}`)).ok()).toBe(true);
+  expect(
+    (
+      await api.delete(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${gone}`)
+    ).ok(),
+  ).toBe(true);
   const path = boardPath(board, board.viewId);
 
   // A viewer may not bring cards back: the server refuses the list, and the page offers none.
-  expect((await viewerApi.get(`/api/v1/boards/${board.boardId}/trash/cards`)).status()).toBe(403);
+  expect(
+    (
+      await viewerApi.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/trash/cards`)
+    ).status(),
+  ).toBe(403);
   const viewerPage = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
   const viewerErrors = watchErrors(viewerPage);
   await viewerPage.goto(path);
@@ -188,7 +196,9 @@ test('a deleted card is listed for the editors of its board, and comes back to t
   // The viewer's board shows it too, as any card that changes.
   await expect(column(viewerPage, 'To do').locator('[data-card]')).toHaveCount(2);
   const cards = await json<Schemas['Card'][]>(
-    await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } }),
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
+      params: { perPage: 0 },
+    }),
   );
   expect(cards.map((card) => card.title).sort()).toEqual(['Keep me', 'Throw me out']);
 

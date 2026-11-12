@@ -32,8 +32,14 @@ function lines(body: unknown): string[] {
   return ((body as Node | null)?.content ?? []).map((block) => words(block));
 }
 
-async function stored(api: APIRequestContext, cardId: string): Promise<Schemas['Card']> {
-  return (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
+async function stored(
+  api: APIRequestContext,
+  board: { workspaceId: string },
+  cardId: string,
+): Promise<Schemas['Card']> {
+  return (await (
+    await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+  ).json()) as Schemas['Card'];
 }
 
 function editor(page: Page) {
@@ -62,7 +68,7 @@ test('a body written in the editor is the server’s, and opens again as it was'
   const cardId = board.cards['Write the report'] ?? '';
   const writes: unknown[] = [];
   page.on('request', (request) => {
-    if (request.method() === 'PATCH' && request.url().endsWith(`/api/v1/cards/${cardId}`)) {
+    if (request.method() === 'PATCH' && request.url().endsWith(`/cards/${cardId}`)) {
       writes.push(request.postDataJSON());
     }
   });
@@ -74,18 +80,20 @@ test('a body written in the editor is the server’s, and opens again as it was'
   await page.keyboard.press('Enter');
   await page.keyboard.type('Second line');
   await expect
-    .poll(async () => lines((await stored(api, cardId)).body))
+    .poll(async () => lines((await stored(api, board, cardId)).body))
     .toEqual(['First line', 'Second line']);
   // Every write named the version it was read at.
   expect(writes.length).toBeGreaterThan(0);
   for (const write of writes) expect(write).toMatchObject({ readAt: expect.any(Number) });
   // The list of cards says there is one, without carrying it.
   const [listed] = (await (
-    await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } })
+    await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
+      params: { perPage: 0 },
+    })
   ).json()) as Schemas['Card'][];
   expect(listed).toMatchObject({ hasBody: true, body: null });
 
-  const saved = (await stored(api, cardId)).body;
+  const saved = (await stored(api, board, cardId)).body;
   // The board opened anew, the card from it.
   await page.goto(boardPath(board, board.viewId));
   await expect(page.getByTestId('card-dialog')).toBeHidden();
@@ -97,7 +105,7 @@ test('a body written in the editor is the server’s, and opens again as it was'
   await editor(page).click();
   await page.waitForTimeout(1200);
   expect(writes).toHaveLength(written);
-  expect((await stored(api, cardId)).body).toEqual(saved);
+  expect((await stored(api, board, cardId)).body).toEqual(saved);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();
   expect(errors).toEqual([]);
@@ -119,7 +127,7 @@ test('a body written while another value of the card changed is sent again on th
   const answers: number[] = [];
   page.on('response', (response) => {
     const request = response.request();
-    if (request.method() === 'PATCH' && request.url().endsWith(`/api/v1/cards/${cardId}`)) {
+    if (request.method() === 'PATCH' && request.url().endsWith(`/cards/${cardId}`)) {
       answers.push(response.status());
     }
   });
@@ -128,10 +136,10 @@ test('a body written while another value of the card changed is sent again on th
   await openCard(page, boardPath(board, board.viewId, cardId), owner);
   // The first write of the body waits until somebody has changed a value of the card.
   let first = true;
-  await page.route(`**/api/v1/cards/${cardId}`, async (route) => {
+  await page.route(`**/cards/${cardId}`, async (route) => {
     if (route.request().method() === 'PATCH' && first) {
       first = false;
-      const changed = await api.patch(`/api/v1/cards/${cardId}`, {
+      const changed = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
         data: { updatedProperties: { note: 'ask for Kim' } },
       });
       expect(changed.ok()).toBe(true);
@@ -142,12 +150,12 @@ test('a body written while another value of the card changed is sent again on th
   await page.keyboard.type('Ask about the loan');
 
   await expect
-    .poll(async () => lines((await stored(api, cardId)).body))
+    .poll(async () => lines((await stored(api, board, cardId)).body))
     .toEqual(['Ask about the loan']);
   // Refused once on the old version, then stored (a slow typist may make more writes after).
   await expect.poll(() => answers).toContain(200);
   expect(answers.slice(0, 2)).toEqual([409, 200]);
-  expect((await stored(api, cardId)).properties).toMatchObject({ note: 'ask for Kim' });
+  expect((await stored(api, board, cardId)).properties).toMatchObject({ note: 'ask for Kim' });
   await expect(page.getByTestId('body-conflict')).toHaveCount(0);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();
@@ -176,11 +184,11 @@ test('a body somebody else wrote meanwhile is not overwritten until the reader c
   await openCard(page, boardPath(board, board.viewId, cardId), owner);
   // The first write of the body waits until somebody else has written one.
   let first = true;
-  await page.route(`**/api/v1/cards/${cardId}`, async (route) => {
+  await page.route(`**/cards/${cardId}`, async (route) => {
     if (route.request().method() === 'PATCH' && first) {
       first = false;
-      const readAt = (await stored(api, cardId)).updateAt;
-      const written = await api.patch(`/api/v1/cards/${cardId}`, {
+      const readAt = (await stored(api, board, cardId)).updateAt;
+      const written = await api.patch(`/api/v1/w/${board.workspaceId}/cards/${cardId}`, {
         data: { body: theirs, readAt },
       });
       expect(written.ok()).toBe(true);
@@ -193,10 +201,12 @@ test('a body somebody else wrote meanwhile is not overwritten until the reader c
   const notice = page.getByTestId('body-conflict');
   await expect(notice).toBeVisible();
   // Nothing was overwritten: the server has their text.
-  expect(lines((await stored(api, cardId)).body)).toEqual(['Their plan']);
+  expect(lines((await stored(api, board, cardId)).body)).toEqual(['Their plan']);
   await notice.getByTestId('conflict-mine').click();
   await expect(notice).toBeHidden();
-  await expect.poll(async () => lines((await stored(api, cardId)).body)).toEqual(['My plan']);
+  await expect
+    .poll(async () => lines((await stored(api, board, cardId)).body))
+    .toEqual(['My plan']);
   await expect(editor(page).locator('p')).toHaveText(['My plan']);
   await api.dispose();
   expect(errors).toEqual([]);

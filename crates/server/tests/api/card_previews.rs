@@ -4,6 +4,7 @@ use fvoci_model::{Board, BoardType, new_id};
 use serde_json::{Value, json};
 
 use crate::cards::cards_path;
+use crate::common::TEST_WS;
 use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// An open board with a person property `owner` and two cards: "with", owned by the
@@ -21,7 +22,7 @@ async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
     let later_id = crate::files::uploaded_id(&later);
     th.client
         .patch(
-            &format!("/boards/{}", board.id),
+            &format!("{TEST_WS}/boards/{}", board.id),
             &json!({"updatedCardProperties": [
                 {"id": "owner", "name": "Owner", "type": "person", "options": []},
             ]}),
@@ -51,7 +52,7 @@ async fn board_with_previewed_card(th: &TestServer) -> (Board, String, String) {
                          "createAt": 1, "updateAt": 1});
     th.client
         .post(
-            &format!("/boards/{}/blocks", board.id),
+            &format!("{TEST_WS}/boards/{}/blocks", board.id),
             &[with_body, without],
         )
         .await
@@ -95,14 +96,14 @@ async fn the_card_list_gives_previews_when_asked() {
     assert_eq!(previews(&asked), expected);
 
     let token = th.share(&board.id).await;
-    let shared = format!("{}?preview=true&readToken={token}", cards_path(&board.id));
+    let shared = format!("/shared/{}/cards?preview=true&readToken={token}", board.id);
     let read: Vec<Value> = th.anonymous().get(&shared).await.ok_json();
     assert_eq!(
         previews(&read),
         expected,
-        "the same for a reader with the token"
+        "the same for a reader by the link"
     );
-    // Anonymous, or signed in and no member: no users; a member: as ever.
+    // Anonymous, or signed in, a member too: no users; a member without the link: as ever.
     let outsider: Vec<Value> = th.client2.get(&shared).await.ok_json();
     assert_eq!(previews(&outsider), expected);
     for card in read.iter().chain(&outsider) {
@@ -115,11 +116,17 @@ async fn the_card_list_gives_previews_when_asked() {
         "{outsider:?}"
     );
     let member: Vec<Value> = th.client.get(&shared).await.ok_json();
+    assert_eq!(member[0]["createdBy"], json!(""));
+    let member: Vec<Value> = th
+        .client
+        .get(&format!("{}?preview=true", cards_path(&board.id)))
+        .await
+        .ok_json();
     assert_eq!(member[0]["createdBy"], json!(me_id));
     assert_eq!(member[0]["properties"]["owner"], json!(me_id));
     th.anonymous()
         .get(&format!(
-            "/boards/{}/files/{file_id}?readToken={token}",
+            "/shared/{}/files/{file_id}?readToken={token}",
             board.id
         ))
         .await
@@ -130,7 +137,7 @@ async fn the_card_list_gives_previews_when_asked() {
         .await
         .check_unauthorized();
     th.anonymous()
-        .get(&format!("{}?readToken=nope", cards_path(&board.id)))
+        .get(&format!("/shared/{}/cards?readToken=nope", board.id))
         .await
-        .check_unauthorized();
+        .check_not_found();
 }

@@ -40,7 +40,7 @@ test('a file of two parts is attached on the server and downloads as the same by
   const cardId = board.cards['Keep the scans'] ?? '';
   const attachmentsOnServer = async (): Promise<Schemas['Block'][]> =>
     (await (
-      await api.get(`/api/v1/boards/${board.boardId}/blocks`, {
+      await api.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`, {
         params: { parentId: cardId, type: 'attachment' },
       })
     ).json()) as Schemas['Block'][];
@@ -52,7 +52,7 @@ test('a file of two parts is attached on the server and downloads as the same by
   page.on('request', (request) => {
     if (
       request.method() === 'PUT' &&
-      /\/api\/v1\/uploads\/[^/]+\/parts\/\d+$/.test(request.url())
+      /\/api\/v1\/w\/[^/]+\/uploads\/[^/]+\/parts\/\d+$/.test(request.url())
     ) {
       parts.push(request.url().replace(/.*\/parts\//, ''));
     }
@@ -75,7 +75,9 @@ test('a file of two parts is attached on the server and downloads as the same by
   const [stored] = await attachmentsOnServer();
   expect(stored).toMatchObject({ title: 'scan.bin', fields: { size: bytes.length } });
   const fileId = String(stored?.fields.fileId);
-  const fetched = await api.get(`/api/v1/boards/${board.boardId}/files/${fileId}`);
+  const fetched = await api.get(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/files/${fileId}`,
+  );
   expect(sha(await fetched.body())).toBe(sha(bytes));
 
   // The link on the card downloads it, after a reload too.

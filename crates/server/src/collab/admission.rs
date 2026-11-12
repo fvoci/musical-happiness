@@ -40,7 +40,9 @@ pub(super) async fn admit(
     let Some(entered) = home.enter_workspace(user_id, workspace_id).await? else {
         return Ok(None);
     };
-    let app = entered.app;
+    // For the workspace the connection named: a board of another is not there for it
+    // (`App::reaches_board`), as for a request that names the workspace in its path.
+    let app = entered.app.in_workspace(workspace_id);
     // The card's board and nothing else of the card: its body is read once the user
     // is let in, so that a refusal costs the same whatever the body is.
     let board_id = app.store().board_of_card(card_id).await.map_err(|error| {
@@ -49,7 +51,9 @@ pub(super) async fn admit(
     let mode = app
         .board_access(user_id, board_id.as_deref().unwrap_or_default())
         .await?
-        .filter(|access| access.board.workspace_id == workspace_id)
+        // A template the server ships with is every workspace's to read and nobody's
+        // to edit: it has no room.
+        .filter(|access| !access.board.is_builtin)
         .and_then(|access| doc_mode(access.grant));
     Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
 }

@@ -83,7 +83,7 @@ test('a board is exported and imported again, and a file that is no archive is r
     (board) => board.id !== made.boardId,
   );
   const cards = (await (
-    await api.get(`/api/v1/boards/${copy?.id ?? ''}/cards`)
+    await api.get(`/api/v1/w/${made.workspaceId}/boards/${copy?.id ?? ''}/cards`)
   ).json()) as Schemas['Card'][];
   expect(cards.map((card) => card.title).sort()).toEqual(['First', 'Second']);
   await page.keyboard.press('Escape');

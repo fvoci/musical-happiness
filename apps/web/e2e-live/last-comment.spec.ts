@@ -43,18 +43,18 @@ test('a comment somebody else posts moves the card in a view sorted by last upda
   });
   // "Talked about" is older than "Quiet": made first, changed never.
   const older = board.cards.Quiet ?? '';
-  const made = await api.post(`/api/v1/boards/${board.boardId}/cards`, {
+  const made = await api.post(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/cards`, {
     data: { title: 'Talked about', properties: { status: board.options['To do'] } },
   });
   const talked = ((await made.json()) as Schemas['Card']).id;
-  await api.patch(`/api/v1/cards/${older}`, { data: { title: 'Quiet' } });
+  await api.patch(`/api/v1/w/${board.workspaceId}/cards/${older}`, { data: { title: 'Quiet' } });
   // The board gets a "last updated time" and the view is sorted by it, newest first.
-  await api.patch(`/api/v1/boards/${board.boardId}`, {
+  await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`, {
     data: {
       updatedCardProperties: [{ id: 'updated', name: 'Updated', type: 'updatedTime', options: [] }],
     },
   });
-  await api.patch(`/api/v1/boards/${board.boardId}/blocks/${board.viewId}`, {
+  await api.patch(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${board.viewId}`, {
     data: {
       updatedFields: { sortOptions: [{ propertyId: 'updated', reversed: true }] },
     },
@@ -69,30 +69,37 @@ test('a comment somebody else posts moves the card in a view sorted by last upda
 
   // The guest comments on the older card: it is the newest change now.
   const guestApi = await signedIn(base, guest);
-  const posted = await guestApi.post(`/api/v1/boards/${board.boardId}/blocks`, {
-    data: [
-      {
-        boardId: board.boardId,
-        parentId: talked,
-        type: 'comment',
-        title: '',
-        fields: {},
-        createAt: 1,
-        updateAt: 1,
-        body: paragraph('Any news?'),
-      },
-    ],
-  });
+  const posted = await guestApi.post(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks`,
+    {
+      data: [
+        {
+          boardId: board.boardId,
+          parentId: talked,
+          type: 'comment',
+          title: '',
+          fields: {},
+          createAt: 1,
+          updateAt: 1,
+          body: paragraph('Any news?'),
+        },
+      ],
+    },
+  );
   expect(posted.ok()).toBe(true);
   const [comment] = (await posted.json()) as Schemas['Block'][];
   await expect
     .poll(() => titles(page))
     .toEqual([expect.stringContaining('Talked about'), expect.stringContaining('Quiet')]);
-  const card = (await (await api.get(`/api/v1/cards/${talked}`)).json()) as Schemas['Card'];
+  const card = (await (
+    await api.get(`/api/v1/w/${board.workspaceId}/cards/${talked}`)
+  ).json()) as Schemas['Card'];
   expect(card.lastCommentAt).toBe(comment?.createAt);
 
   // The guest's comment goes (the admin deletes it): the card is where it was.
-  const deleted = await api.delete(`/api/v1/boards/${board.boardId}/blocks/${comment?.id ?? ''}`);
+  const deleted = await api.delete(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${comment?.id ?? ''}`,
+  );
   expect(deleted.ok()).toBe(true);
   await expect
     .poll(() => titles(page))

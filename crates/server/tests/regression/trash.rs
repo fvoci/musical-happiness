@@ -3,9 +3,9 @@
 
 use serde_json::json;
 
-use crate::common::{ROOT_WORKSPACE_ID, UNKNOWN_ID};
+use crate::common::UNKNOWN_ID;
 use crate::fixtures::{add_member, block, id_of, new_blocks, new_board};
-use crate::harness::{API, Session};
+use crate::harness::{API, ROOT_API, Session};
 
 #[expect(
     clippy::too_many_lines,
@@ -17,7 +17,7 @@ pub(crate) async fn trash(s: &mut Session) {
     add_member(s, &alice, &board, &bob, "editor").await;
     add_member(s, &alice, &board, &carol, "viewer").await;
     let alice_id = s.user_id(&alice).await;
-    let board_path = format!("{API}/boards/{board}");
+    let board_path = format!("{ROOT_API}/boards/{board}");
     let blocks = format!("{board_path}/blocks");
 
     // A card with a comment and a text on it, a view next to it. Blocks below the card
@@ -72,7 +72,9 @@ pub(crate) async fn trash(s: &mut Session) {
 
     // -- a block and what is below it ---------------------------------------------------
 
-    s.post("subscribe to the card", &format!("{API}/subscriptions"))
+    let subscriptions = format!("{ROOT_API}/subscriptions");
+    let of_alice = format!("{subscriptions}/{alice_id}");
+    s.post("subscribe to the card", &subscriptions)
         .json(json!({
             "blockType": "card", "blockId": card,
             "subscriberType": "user", "subscriberId": alice_id,
@@ -85,12 +87,9 @@ pub(crate) async fn trash(s: &mut Session) {
     s.get("blocks: the card took everything below it", &blocks)
         .user(&alice)
         .await;
-    s.get(
-        "subscriptions: ended with the card",
-        &format!("{API}/subscriptions/{alice_id}"),
-    )
-    .user(&alice)
-    .await;
+    s.get("subscriptions: ended with the card", &of_alice)
+        .user(&alice)
+        .await;
     s.post("undelete: viewer", &format!("{blocks}/{card}/undelete"))
         .user(&carol)
         .await;
@@ -121,12 +120,9 @@ pub(crate) async fn trash(s: &mut Session) {
     s.post("undelete: again", &format!("{blocks}/{card}/undelete"))
         .user(&alice)
         .await;
-    s.get(
-        "subscriptions: not back with the card",
-        &format!("{API}/subscriptions/{alice_id}"),
-    )
-    .user(&alice)
-    .await;
+    s.get("subscriptions: not back with the card", &of_alice)
+        .user(&alice)
+        .await;
 
     // -- a block deleted on its own, then what it was on ---------------------------------
 
@@ -182,7 +178,7 @@ pub(crate) async fn trash(s: &mut Session) {
     .await;
     s.get(
         "boards of the workspace: not listed",
-        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
+        &format!("{ROOT_API}/boards"),
     )
     .user(&alice)
     .await;
@@ -212,7 +208,7 @@ pub(crate) async fn trash(s: &mut Session) {
     .await;
     s.post(
         "undelete: unknown board",
-        &format!("{API}/boards/{UNKNOWN_ID}/undelete"),
+        &format!("{ROOT_API}/boards/{UNKNOWN_ID}/undelete"),
     )
     .user(&alice)
     .await;

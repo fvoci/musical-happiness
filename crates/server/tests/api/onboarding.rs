@@ -6,6 +6,8 @@
 use fvoci_model::{Block, BlockType, Board, BoardType, new_id};
 use serde_json::{Value, json};
 
+use crate::common::ROOT_WS;
+use crate::common::TEST_WS;
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// The title of the built-in welcome board.
@@ -17,7 +19,7 @@ const WELCOME_TITLE: &str = "Welcome to fvoci!";
 async fn impostor_template(client: &Client) -> Board {
     let board: Board = client
         .post(
-            "/boards",
+            &format!("{ROOT_WS}/boards"),
             &json!({
                 "workspaceId": ROOT_WORKSPACE_ID, "type": "O", "title": WELCOME_TITLE, "isTemplate": true,
                 "properties": {"onboarding": true}, "createdBy": "system",
@@ -36,7 +38,7 @@ async fn impostor_template(client: &Client) -> Board {
         ..Block::default()
     };
     client
-        .insert_blocks(&board.id, &[card])
+        .insert_blocks_in(ROOT_WORKSPACE_ID, &board.id, &[card])
         .await
         .check_created();
     board
@@ -46,7 +48,7 @@ async fn impostor_template(client: &Client) -> Board {
 async fn card_titles(ts: &TestServer, client: &Client, board_id: &str) -> Vec<String> {
     let _ = ts;
     let blocks: Vec<Block> = client
-        .get(&format!("/boards/{board_id}/blocks?type=card"))
+        .get(&format!("{ROOT_WS}/boards/{board_id}/blocks?type=card"))
         .await
         .ok_json();
     blocks.into_iter().map(|block| block.title).collect()
@@ -54,10 +56,7 @@ async fn card_titles(ts: &TestServer, client: &Client, board_id: &str) -> Vec<St
 
 /// The built-in template that carries the onboarding mark.
 async fn marked_template(client: &Client) -> Board {
-    let templates: Vec<Board> = client
-        .get(&format!("/w/{ROOT_WORKSPACE_ID}/templates"))
-        .await
-        .ok_json();
+    let templates: Vec<Board> = client.get(&format!("{ROOT_WS}/templates")).await.ok_json();
     let marked: Vec<Board> = templates
         .into_iter()
         .filter(|board| {
@@ -85,7 +84,7 @@ async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template
 
     let value = ts
         .client2
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
+        .post_empty(&format!("{ROOT_WS}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
@@ -125,7 +124,7 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
 
     let value = ts
         .client2
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
+        .post_empty(&format!("{ROOT_WS}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
@@ -135,7 +134,7 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
     assert_eq!(copied, expected, "the cards of the built-in board");
     let copy: Board = ts
         .client2
-        .get(&format!("/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/boards/{board_id}"))
         .await
         .ok_json();
     assert_eq!(
@@ -170,14 +169,14 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
 
     let value = ts
         .client
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
+        .post_empty(&format!("{ROOT_WS}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
 
     let copy: Board = ts
         .client
-        .get(&format!("/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/boards/{board_id}"))
         .await
         .ok_json();
     assert_eq!(
@@ -198,10 +197,7 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
         .init_basic()
         .await;
 
-    let response = ts
-        .client
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
-        .await;
+    let response = ts.client.post_empty(&format!("{ROOT_WS}/onboard")).await;
     let value = response.ok_json::<Value>();
     assert_eq!(
         value["workspaceId"],
@@ -213,7 +209,7 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
 
     let board = ts
         .client
-        .get(&format!("/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/boards/{board_id}"))
         .await
         .ok_json::<Board>();
     assert_eq!(
@@ -269,7 +265,7 @@ async fn onboard_echoes_the_workspace_identifier() {
         .await;
     let value = ts
         .client
-        .post_empty(&format!("/w/{TEST_WORKSPACE_ID}/onboard"))
+        .post_empty(&format!("{TEST_WS}/onboard"))
         .await
         .ok_json::<Value>();
     assert_eq!(
@@ -294,7 +290,7 @@ async fn onboard_without_a_session_is_refused() {
         .init_basic()
         .await;
     ts.anonymous()
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
+        .post_empty(&format!("{ROOT_WS}/onboard"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -318,13 +314,13 @@ async fn onboard_stores_the_templates_again_when_the_welcome_board_is_gone() {
 
     let value = ts
         .client
-        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/onboard"))
+        .post_empty(&format!("{ROOT_WS}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
     let board: Board = ts
         .client
-        .get(&format!("/boards/{board_id}"))
+        .get(&format!("{ROOT_WS}/boards/{board_id}"))
         .await
         .ok_json();
     assert_eq!(board.title, WELCOME_TITLE, "the welcome board is copied");
@@ -349,7 +345,7 @@ async fn concurrent_onboarding_stores_the_templates_once() {
         .await
         .expect("the built-in templates are removed");
 
-    let path = format!("/w/{ROOT_WORKSPACE_ID}/onboard");
+    let path = format!("{ROOT_WS}/onboard");
     let answers = futures_util::future::join_all(
         [&ts.client, &ts.client2, &ts.client, &ts.client2].map(|client| client.post_empty(&path)),
     )

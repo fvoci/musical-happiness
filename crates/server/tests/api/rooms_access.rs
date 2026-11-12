@@ -49,7 +49,10 @@ async fn a_lowered_role_reads_and_who_is_taken_off_the_board_is_put_out() {
 
     // Off the board: out of the room, and what it sends reaches nobody.
     th.client
-        .delete(&format!("/boards/{}/members/{user2}", t.board_id))
+        .delete(&format!(
+            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user2}",
+            t.board_id
+        ))
         .await
         .check_no_content();
     let left = two.text("DOC_LEFT").await;
@@ -100,7 +103,10 @@ async fn the_room_of_a_deleted_card_is_emptied() {
     let th = asking_often().start().await.init_basic().await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     th.client
-        .delete(&format!("/boards/{}/blocks/{}", t.board_id, t.card_id))
+        .delete(&format!(
+            "/w/{TEST_WORKSPACE_ID}/boards/{}/blocks/{}",
+            t.board_id, t.card_id
+        ))
         .await
         .check_no_content();
     for peer in [&mut one, &mut two] {

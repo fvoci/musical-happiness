@@ -73,7 +73,8 @@ test('the organization’s administrator makes a workspace, joins it, switches t
   await picture(page, 'switcher');
 
   const made = page.waitForResponse(
-    (answer) => answer.url().endsWith('/api/v1/boards-and-blocks') && answer.status() === 201,
+    (answer) =>
+      /\/api\/v1\/w\/[^/]+\/boards-and-blocks$/.test(answer.url()) && answer.status() === 201,
   );
   await sidebar(page).getByTestId('add-board').click();
   await page.getByTestId('template-picker').getByTestId('empty-board').click();

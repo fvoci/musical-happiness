@@ -108,7 +108,7 @@ async fn a_second_orgs_read_token_can_subscribe_to_its_card_updates() {
     scene
         .ts
         .anonymous()
-        .get(&format!("/boards/{}?readToken={token}", scene.b.id))
+        .get(&format!("/shared/{}?readToken={token}", scene.b.id))
         .await
         .check_ok();
     let mut socket = scene.ts.anonymous().as_browser().connect_websocket().await;

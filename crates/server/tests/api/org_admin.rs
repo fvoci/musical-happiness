@@ -11,9 +11,10 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::common::{
-    ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID,
+    ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TEST_WS, TestServer,
+    UNKNOWN_ID,
 };
-use crate::files::{upload, uploaded_id};
+use crate::files::{upload_in, uploaded_id};
 use crate::loose_objects::{exists, remove_doomed};
 
 /// The organization of the test server: the first user administers it.
@@ -474,7 +475,14 @@ async fn board_with_a_file(ts: &TestServer, workspace_id: &str) -> (Board, Strin
         })
         .await
         .created_json();
-    let response = upload(&ts.client, &board.id, "plan.txt", b"the plan\n").await;
+    let response = upload_in(
+        &ts.client,
+        workspace_id,
+        &board.id,
+        "plan.txt",
+        b"the plan\n",
+    )
+    .await;
     response.check_created();
     (board, uploaded_id(&response))
 }
@@ -496,8 +504,9 @@ async fn a_workspace_in_the_trash_is_not_there_and_comes_back_as_it_was() {
     let_in(&ts, &workspace, &member, WorkspaceRole::Member).await;
     let (board, file_id) = board_with_a_file(&ts, &workspace).await;
     let token = ts.share(&board.id).await;
-    let shared = format!("/boards/{}?readToken={token}", board.id);
-    let file = format!("/boards/{}/files/{file_id}", board.id);
+    let shared = format!("/shared/{}?readToken={token}", board.id);
+    let at = format!("/w/{workspace}/boards/{}", board.id);
+    let file = format!("{at}/files/{file_id}");
     ts.anonymous().get(&shared).await.check_ok();
 
     ts.client.delete(&place).await.check_no_content();
@@ -505,13 +514,13 @@ async fn a_workspace_in_the_trash_is_not_there_and_comes_back_as_it_was() {
         ts.client2.get(&format!("/w/{workspace}")).await,
         ts.client2.get(&format!("/w/{workspace}/boards")).await,
         ts.client2.get(&format!("/w/{workspace}/audit")).await,
-        ts.client2.get(&format!("/boards/{}", board.id)).await,
+        ts.client2.get(&at).await,
         ts.client.get(&file).await,
     ];
     let link_closed = ts.anonymous().get(&shared).await;
     let no_link = ts
         .anonymous()
-        .get(&format!("/boards/{}?readToken=wrong", board.id))
+        .get(&format!("/shared/{}?readToken=wrong", board.id))
         .await;
     let listed = my_workspaces(&ts.client2).await;
     let again = ts.client.delete(&place).await;
@@ -531,7 +540,7 @@ async fn a_workspace_in_the_trash_is_not_there_and_comes_back_as_it_was() {
         .ok_json();
     let back = [
         ts.client2.get(&format!("/w/{workspace}")).await,
-        ts.client2.get(&format!("/boards/{}", board.id)).await,
+        ts.client2.get(&at).await,
         ts.client.get(&file).await,
         ts.anonymous().get(&shared).await,
     ];
@@ -639,7 +648,7 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let stopped_board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let token = ts.share(&shared_board.id).await;
     ts.share(&stopped_board.id).await;
-    let link = format!("/boards/{}?readToken={token}", shared_board.id);
+    let link = format!("/shared/{}?readToken={token}", shared_board.id);
     ts.anonymous().get(&link).await.check_ok();
 
     let off: Value = ts
@@ -650,12 +659,12 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let closed = ts.anonymous().get(&link).await;
     let no_link = ts
         .anonymous()
-        .get(&format!("/boards/{}?readToken=wrong", shared_board.id))
+        .get(&format!("/shared/{}?readToken=wrong", shared_board.id))
         .await;
     let share = ts
         .client
         .post(
-            &format!("/boards/{}/sharing", other_board.id),
+            &format!("{TEST_WS}/boards/{}/sharing", other_board.id),
             &json!({ "enabled": true }),
         )
         .await;
@@ -666,7 +675,7 @@ async fn the_public_links_of_the_organization_close_and_open_again() {
     let stop = ts
         .client
         .post(
-            &format!("/boards/{}/sharing", stopped_board.id),
+            &format!("{TEST_WS}/boards/{}/sharing", stopped_board.id),
             &json!({ "enabled": false }),
         )
         .await;

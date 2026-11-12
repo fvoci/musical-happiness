@@ -29,7 +29,7 @@ async fn a_connection_is_in_eight_rooms_and_no_more() {
         let card: Card = th
             .client
             .post(
-                &format!("/boards/{}/cards", t.board_id),
+                &format!("/w/{TEST_WORKSPACE_ID}/boards/{}/cards", t.board_id),
                 &json!({"title": format!("card {n}")}),
             )
             .await

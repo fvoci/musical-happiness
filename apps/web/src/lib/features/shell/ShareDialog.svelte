@@ -39,14 +39,14 @@
   import { Input } from '$lib/ui/input/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
-  import { publicLinkOf, ROLE_ORDER, roleOfMember } from './share-logic.ts';
+  import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
 
   interface Props {
     open: boolean;
     workspace: Workspace;
     board: BoardStore;
-    /** The address of the board's page, for the public link. */
-    boardAddress: string;
+    /** The whole address of the board's public link with a read token. */
+    linkOf: (readToken: string) => string;
     /**
      * The members alone: for a board the reader manages without reading it, whose
      * openness and public link are not theirs to change or read.
@@ -54,7 +54,7 @@
     membersOnly?: boolean;
   }
 
-  let { open = $bindable(), workspace, board, boardAddress, membersOnly = false }: Props = $props();
+  let { open = $bindable(), workspace, board, linkOf, membersOnly = false }: Props = $props();
 
   const uid = $props.id();
   const compact = $derived(page.stage === 'compact');
@@ -125,9 +125,7 @@
   /** Asking before a new link stops the old one. */
   let confirmOpen = $state(false);
 
-  const link = $derived(
-    sharing?.enabled && sharing.token ? publicLinkOf(boardAddress, sharing.token) : '',
-  );
+  const link = $derived(sharing?.enabled && sharing.token ? linkOf(sharing.token) : '');
 
   async function readSharing(): Promise<void> {
     sharing = undefined;

@@ -29,11 +29,13 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::common::{ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::golden;
 
 /// The prefix of every API route.
 pub(crate) const API: &str = "/api/v1";
+/// The API of the root workspace, `{ROOT_API}`, where the scenarios work.
+pub(crate) const ROOT_API: &str = "/api/v1/w/00000000-0000-7000-8000-000000000000";
 
 /// The password of every user the scenarios register.
 const PASSWORD: &str = "test-password";
@@ -381,7 +383,7 @@ impl Http {
     pub(crate) async fn signup_token(&self, token: &str) -> String {
         self.api(
             Method::GET,
-            &format!("{API}/w/{ROOT_WORKSPACE_ID}"),
+            ROOT_API,
             Payload::None,
             &Caller::Token(token.to_owned()),
         )
