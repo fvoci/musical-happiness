@@ -432,9 +432,10 @@ impl Store {
 
     /// The provider a session of the user must be made through to open what is the
     /// organization's: `Some` if the organization takes no other session and the user
-    /// has a place in it, as a member of it or of one of its workspaces. `None` for an
-    /// organization that takes a password too, and for a user who has no place in it,
-    /// whether it exists or not: who has nothing there to open is told nothing of it.
+    /// has a place in it, as a member of it or of one of its workspaces in use. `None`
+    /// for an organization that takes a password too or is not in use, and for a user
+    /// who has no place in it, whether it exists or not: who has nothing there to open
+    /// is told nothing of it.
     ///
     /// # Errors
     ///
@@ -446,18 +447,22 @@ impl Store {
     ) -> Result<Option<String>, StoreError> {
         self.system()
             .with_conn(async |scope| {
-                let mut sql = scope.sql("SELECT p.id FROM oidc_providers AS p WHERE p.org_id = ");
+                let mut sql = scope.sql(
+                    "SELECT p.id FROM oidc_providers AS p \
+                     JOIN organizations AS o ON o.id = p.org_id WHERE p.org_id = ",
+                );
                 sql.bind(Id(org_id))
                     .push_bind(" AND p.sso_required = ", true)
                     .push(
-                        " AND (EXISTS (SELECT 1 FROM organization_members AS om \
+                        " AND o.delete_at = 0 AND o.is_system = false \
+                         AND (EXISTS (SELECT 1 FROM organization_members AS om \
                          WHERE om.org_id = p.org_id AND om.user_id = ",
                     )
                     .bind(Id(user_id))
                     .push(
                         ") OR EXISTS (SELECT 1 FROM workspace_members AS wm \
                          JOIN workspaces AS t ON t.id = wm.workspace_id \
-                         WHERE t.org_id = p.org_id AND wm.user_id = ",
+                         WHERE t.org_id = p.org_id AND t.delete_at = 0 AND wm.user_id = ",
                     )
                     .bind(Id(user_id))
                     .push("))");

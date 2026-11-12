@@ -146,7 +146,8 @@ impl App {
     }
 
     /// Sets the provider of the organization `org_id`, which the handle reaches, after
-    /// reading its discovery document to see that the issuer is what it says.
+    /// reading the discovery document of an issuer that is new to the organization, to
+    /// see that it is what it says.
     ///
     /// # Errors
     ///
@@ -168,7 +169,16 @@ impl App {
             )
             .with_reason(Reason::SecretKeyRequired));
         };
-        if let Err(error) = provider::discover(self.oidc_fetcher(), &settings.issuer).await {
+        let existing = self.store().oidc_provider().await?;
+        // The issuer that stays was read when it was set. Not read again: a change of
+        // what else there is, taking a password again among it, does not wait for a
+        // provider that does not answer.
+        let issuer_stays = existing
+            .as_ref()
+            .is_some_and(|existing| existing.issuer == settings.issuer);
+        if !issuer_stays
+            && let Err(error) = provider::discover(self.oidc_fetcher(), &settings.issuer).await
+        {
             tracing::info!(%error, "the issuer of a provider could not be verified");
             return Err(AppError::bad_request(format_args!(
                 "the issuer could not be verified: {error}"
@@ -176,7 +186,6 @@ impl App {
             .with_reason(Reason::OidcIssuerUnverified)
             .with_field("issuer"));
         }
-        let existing = self.store().oidc_provider().await?;
         let kept = existing
             .as_ref()
             .map(|existing| (existing.auto_join, existing.enabled));

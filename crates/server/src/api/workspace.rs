@@ -40,7 +40,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// answer alike. A member whose session does not open the workspace's organization,
 /// which takes only sessions made through its provider, is told so (401, reason
 /// `sso_required`): that is asked where the workspace is entered
-/// (`App::enter_workspace`), of every request. The application it hands the handler is behind the wall between
+/// (`App::enter_workspace`), of every request, before anything else is asked of the
+/// member. The application it hands the handler is behind the wall between
 /// organizations, reaching the rows of the workspace's organization and no other. It
 /// is not narrowed to the workspace: the organization's other workspaces are in its
 /// reach, and a handler asks for what is in this one by `workspace_id`.

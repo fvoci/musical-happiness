@@ -424,9 +424,11 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
             "Status 409, setting or removing an organization's provider. While the \
              organization takes no password (`ssoRequired`), its provider is not switched \
              off, removed, or set to another issuer or client: nobody would get in. \
-             Switch `ssoRequired` off first. If nobody gets in through the provider any \
-             more, who runs the server releases the organization on its administration \
-             socket."
+             Switch `ssoRequired` off first; `errors` names what of the request was \
+             refused. The client secret can still be set, and a wrong one lets nobody \
+             in either. If nobody gets in through the provider any more, who runs the \
+             server releases the organization on its administration socket \
+             (`POST /api/v1/admin/orgs/{orgId}/sso/release`)."
         }
         _ => return None,
     })

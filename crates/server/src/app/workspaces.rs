@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use fvoci_model::{Board, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
-use super::{App, as_managed};
+use super::{App, as_managed, sso};
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
@@ -38,7 +38,7 @@ impl App {
     /// # Errors
     ///
     /// Returns 401 with the reason `sso_required` for an administrator whose session
-    /// does not open the organization (`App::require_session_opens`), and the store's
+    /// does not open the organization (`sso::require_session_opens`), and the store's
     /// error if the membership or the provider cannot be read.
     pub async fn enter_org_as_admin(
         &self,
@@ -56,7 +56,7 @@ impl App {
             .store()
             .required_provider_for(&session.user_id, org_id)
             .await?;
-        Self::require_session_opens(session, org_id, required.as_deref())?;
+        sso::require_session_opens(session, org_id, required.as_deref())?;
         Ok(Some(self.scoped(tenant)))
     }
 
@@ -76,7 +76,7 @@ impl App {
     /// # Errors
     ///
     /// Returns 401 with the reason `sso_required` for a member whose session does not
-    /// open the workspace's organization (`App::require_session_opens`), and the
+    /// open the workspace's organization (`sso::require_session_opens`), and the
     /// store's error if the membership cannot be read: that is no "not a member".
     pub async fn enter_workspace(
         &self,
@@ -90,7 +90,7 @@ impl App {
         else {
             return Ok(None);
         };
-        Self::require_session_opens(session, &access.org_id, access.required_provider.as_deref())?;
+        sso::require_session_opens(session, &access.org_id, access.required_provider.as_deref())?;
         let app = self.in_organization(&access.org_id)?;
         let home = app.store().tenant() == self.store().tenant();
         Ok(Some(Entered {

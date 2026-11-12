@@ -241,13 +241,22 @@ async fn an_organization_does_not_lock_itself_out() {
     require_sso(&admin, &org_id, &fake, Passwords::Refused)
         .await
         .check_ok();
-    for held in [
-        settings(&fake, json!({ "enabled": false })),
-        settings(&other, json!({})),
-        json!({ "issuer": fake.issuer, "clientId": "another-client", "clientSecret": "s" }),
-        settings(&other, json!({ "ssoRequired": true })),
+    // Each refusal names what of the request would let nobody in.
+    for (held, at) in [
+        (settings(&fake, json!({ "enabled": false })), "/enabled"),
+        (settings(&other, json!({})), "/issuer"),
+        (
+            json!({ "issuer": fake.issuer, "clientId": "another-client", "clientSecret": "s" }),
+            "/clientId",
+        ),
+        (
+            settings(&other, json!({ "ssoRequired": true, "enabled": false })),
+            "/issuer",
+        ),
     ] {
-        check_refused(&admin.put(&path, &held).await, "sso_enforced");
+        let response = admin.put(&path, &held).await;
+        check_refused(&response, "sso_enforced");
+        assert_eq!(response.refused_at(), at, "{held}");
     }
     check_refused(&admin.delete(&path).await, "sso_enforced");
     let read: OidcProvider = admin.get(&path).await.ok_json();
@@ -261,6 +270,19 @@ async fn an_organization_does_not_lock_itself_out() {
         .ok_json();
     assert!(changed.sso_required && !changed.auto_join);
     admin.get(&path).await.check_ok();
+
+    // Switched off also while the provider does not answer: the issuer that stays is
+    // not read again, so who is in need not wait for it to get everybody back in.
+    fake.redirect_discovery();
+    let released: OidcProvider = admin
+        .put(&path, &settings(&fake, json!({ "ssoRequired": false })))
+        .await
+        .ok_json();
+    assert!(!released.sso_required);
+    ts.client.get(&path).await.check_ok();
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
 
     // Switched off with the change, the provider is another's to become.
     let replaced: OidcProvider = admin
@@ -604,6 +626,52 @@ async fn nothing_of_the_organization_is_reached_around_the_wall() {
         .await
         .ok_json();
     assert_eq!(cards.len(), 1, "{cards:?}");
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// An import that names a workspace that is not there looks for its upload in the
+/// organization the server stands in: not for a session that does not open that one,
+/// which is told so, and whose upload stays.
+#[tokio::test]
+async fn an_import_looks_at_no_upload_for_a_session_that_opens_nothing() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let upload = ts
+        .client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/archive/uploads"),
+            &json!({ "name": "archive.zip", "size": 1 }),
+        )
+        .await;
+    upload.check_created();
+    let upload_id = upload.value()["uploadId"]
+        .as_str()
+        .expect("an upload")
+        .to_owned();
+    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+    require_sso(&admin, &org_id, &fake, Passwords::Refused)
+        .await
+        .check_ok();
+
+    for (workspace, upload) in [
+        (new_id(), upload_id.clone()),
+        (new_id(), new_id()),
+        (ROOT_WORKSPACE_ID.to_owned(), upload_id.clone()),
+    ] {
+        let response = ts
+            .client
+            .post(
+                &format!("/w/{workspace}/archive/import"),
+                &json!({ "uploadId": upload }),
+            )
+            .await;
+        check_sso_required(&response, &org_id);
+    }
+    // The upload is there as it was: its owner finds it open.
+    admin.get(&format!("/uploads/{upload_id}")).await.check_ok();
     ts.teardown().await;
     fake.stop();
 }

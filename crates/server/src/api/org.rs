@@ -107,7 +107,8 @@ async fn handle_get_oidc_provider(org: OrgAdmin) -> ApiResult {
 /// Set the provider of an organization
 ///
 /// Sets the organization's `OpenID Connect` provider, in place of the one it has. The
-/// issuer's discovery document is read first: it must name the issuer exactly and have
+/// discovery document of an issuer that is not the organization's already is read
+/// first: it must name the issuer exactly and have
 /// `https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`
 /// and `errors` naming `/issuer`. The server reaches only `https` addresses, follows no
 /// redirect, and reaches only public addresses unless its configuration lets it

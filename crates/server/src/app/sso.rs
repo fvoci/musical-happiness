@@ -1,13 +1,11 @@
 //! An organization that takes no password: the one check every way into what is an
 //! organization's passes, and what switches it on and off.
 //!
-//! The check is [`App::require_session_opens`]. A workspace is entered through it
+//! The check is [`require_session_opens`]. A workspace is entered through it
 //! (`App::enter_workspace`), an organization (`App::enter_org_as_admin`), and the
 //! organization the routes that name no workspace work in
-//! (`App::require_session_opens_here`); the
-//! websocket hub asks the same rule of a subscription. It is asked of every request:
-//! the sessions stay, and one that does not open an organization still opens the
-//! others.
+//! (`App::require_session_opens_here`). It is asked of every request: the sessions
+//! stay, and one that does not open an organization still opens the others.
 
 use fvoci_model::Session;
 use fvoci_store::StoredProvider;
@@ -58,20 +56,21 @@ fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
 
 /// Records that the administrator `user_id` switched an organization's taking no
 /// password on or off, if the provider as stored differs in that from the one before.
+/// What is recorded is the provider it was switched on for, and the one it was
+/// switched off for: the one before, where the same change set another.
 pub(crate) fn record_if_changed(
     before: Option<&StoredProvider>,
     stored: &StoredProvider,
     user_id: &str,
 ) {
-    let change = match (
-        before.is_some_and(|before| before.sso_required),
+    match (
+        before.filter(|before| before.sso_required),
         stored.sso_required,
     ) {
-        (false, true) => SsoChange::Required,
-        (true, false) => SsoChange::Released,
-        _ => return,
-    };
-    record(stored, change, Some(user_id));
+        (None, true) => record(stored, SsoChange::Required, Some(user_id)),
+        (Some(before), false) => record(before, SsoChange::Released, Some(user_id)),
+        _ => {}
+    }
 }
 
 /// The refusal of a change to the provider that an organization that takes no
@@ -109,12 +108,18 @@ pub(crate) fn check_change(
     }
     let same_provider = existing
         .filter(|existing| existing.issuer == next.issuer && existing.client_id == next.client_id);
-    if existing.is_some_and(|existing| existing.sso_required) {
-        return if same_provider.is_some() && next.enabled {
-            Ok(())
+    if let Some(held) = existing.filter(|existing| existing.sso_required) {
+        // Named: what of the request would let nobody in.
+        let refused = if held.issuer != next.issuer {
+            "issuer"
+        } else if held.client_id != next.client_id {
+            "clientId"
+        } else if !next.enabled {
+            "enabled"
         } else {
-            Err(enforced().with_field(if next.enabled { "issuer" } else { "enabled" }))
+            return Ok(());
         };
+        return Err(enforced().with_field(refused));
     }
     let proven = same_provider.is_some_and(|provider| {
         provider.enabled
@@ -133,33 +138,33 @@ pub(crate) fn check_change(
     }
 }
 
-impl App {
-    /// Refuses a session that does not open what is the organization `org_id`'s:
-    /// `required` is the provider the organization takes sessions of and no other, as
-    /// the store answered it for this user, `None` if it takes a password too.
-    ///
-    /// # Errors
-    ///
-    /// Returns 401 with the reason `sso_required`, naming the organization. It is for
-    /// who has a place in the organization only: the caller asks after it knows the
-    /// user has one, so that the answer tells nobody else that the organization is
-    /// there.
-    pub(crate) fn require_session_opens(
-        session: &Session,
-        org_id: &str,
-        required: Option<&str>,
-    ) -> Result<(), AppError> {
-        if session_opens(required, session.login_provider_id.as_deref()) {
-            return Ok(());
-        }
-        tracing::debug!(
-            org_id,
-            user_id = %session.user_id,
-            "a session not made through the organization's provider was refused"
-        );
-        Err(AppError::sso_required(org_id))
+/// Refuses a session that does not open what is the organization `org_id`'s:
+/// `required` is the provider the organization takes sessions of and no other, as
+/// the store answered it for this user, `None` if it takes a password too.
+///
+/// # Errors
+///
+/// Returns 401 with the reason `sso_required`, naming the organization. It is for
+/// who has a place in the organization only: the caller asks after it knows the
+/// user has one, so that the answer tells nobody else that the organization is
+/// there.
+pub(crate) fn require_session_opens(
+    session: &Session,
+    org_id: &str,
+    required: Option<&str>,
+) -> Result<(), AppError> {
+    if session_opens(required, session.login_provider_id.as_deref()) {
+        return Ok(());
     }
+    tracing::debug!(
+        org_id,
+        user_id = %session.user_id,
+        "a session not made through the organization's provider was refused"
+    );
+    Err(AppError::sso_required(org_id))
+}
 
+impl App {
     /// Releases the organization `org_id` from taking no password, for who runs the
     /// server: the way back in when nobody gets in through the provider. Its provider
     /// stays as it is otherwise. Releasing one that takes a password already changes
@@ -197,19 +202,24 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns 401 with the reason `sso_required`, and the store's error if the
-    /// organization's provider cannot be read: that is no "yes".
+    /// Returns 401 with the reason `sso_required`; the store's error if the
+    /// organization's provider cannot be read, which is no "yes"; and a server error
+    /// for a handle that stands in no organization.
     pub(crate) async fn require_session_opens_here(
         &self,
         session: &Session,
     ) -> Result<(), AppError> {
+        // A handle of no organization, or of all, is no route's: nothing is opened
+        // for want of an organization to ask.
         let Some(org_id) = self.store().tenant().org_id() else {
-            return Ok(());
+            return Err(AppError::internal(
+                "a route that names no workspace stands in no organization",
+            ));
         };
         let required = self
             .store()
             .required_provider_for(&session.user_id, &org_id)
             .await?;
-        Self::require_session_opens(session, &org_id, required.as_deref())
+        require_session_opens(session, &org_id, required.as_deref())
     }
 }

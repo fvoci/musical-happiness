@@ -399,3 +399,53 @@ async fn the_required_provider_is_told_to_who_has_a_place_in_the_organization() 
     );
     assert_eq!(elsewhere, None, "an organization that is not there");
 }
+
+/// Taking no other session is switched on, from a reading of the provider, while the
+/// provider is removed: whichever comes first, the organization is never left taking
+/// only the sessions of a provider that is gone. Either the removal was refused and the
+/// provider is there, enforcing; or the provider is gone and the change, read before,
+/// stored nothing.
+#[tokio::test]
+async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provider() {
+    let test = common::setup().await;
+    for round in 0..12 {
+        let read = test
+            .put_oidc_provider(&provider_that(Enforcement::Off))
+            .await
+            .expect("stored");
+        let enforcing = {
+            let store = test.store.clone();
+            let read = read.clone();
+            tokio::spawn(async move {
+                store
+                    .put_oidc_provider_as_read(&provider_that(Enforcement::On), Some(&read))
+                    .await
+            })
+        };
+        let removing = {
+            let store = test.store.clone();
+            tokio::spawn(async move { store.delete_oidc_provider().await })
+        };
+        let enforced = enforcing.await.expect("joined").expect("asked");
+        let removal = removing.await.expect("joined").expect("asked");
+        let left = test.oidc_provider().await.expect("read");
+        match removal {
+            Removal::Enforced => {
+                assert!(enforced.is_some(), "round {round}: switched on first");
+                assert!(
+                    left.is_some_and(|left| left.sso_required),
+                    "round {round}: the provider is there, and holds"
+                );
+            }
+            Removal::Removed => {
+                assert_eq!(enforced, None, "round {round}: nothing to switch it on for");
+                assert_eq!(left, None, "round {round}: removed");
+            }
+            Removal::NoneThere => panic!("round {round}: there was a provider"),
+        }
+        // For the next round.
+        test.release_sso().await.expect("asked");
+        test.delete_oidc_provider().await.expect("asked");
+    }
+    test.teardown().await;
+}

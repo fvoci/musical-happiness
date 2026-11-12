@@ -227,18 +227,25 @@ async fn handle_import(
     body: Bytes,
 ) -> ApiResult {
     let user_id = session.user_id.clone();
+    let asker = session.clone();
     // The workspace is entered first, for the organization its upload is read in, and
     // refused where it always was: after the body and the upload are looked at, with
     // the upload thrown away.
-    let entered = match require_import_access(&app, session, workspace_id.clone()).await {
+    let (entered, reach) = match require_import_access(&app, session, workspace_id.clone()).await {
+        Ok(ws) => {
+            let reach = ws.app.clone();
+            (Ok(ws), reach)
+        }
         // A session that does not open the organization looks at nothing of it, its
-        // uploads included, and throws none away.
+        // uploads included, and throws none away: not of the workspace's
+        // organization, and, where no workspace was entered, not of the one the
+        // server stands in, where the upload is then looked for.
         Err(refusal) if refusal.reason() == Some(Reason::SsoRequired) => return Err(refusal),
-        entered => entered,
+        Err(refusal) => {
+            app.require_session_opens_here(&asker).await?;
+            (Err(refusal), app.clone())
+        }
     };
-    let reach = entered
-        .as_ref()
-        .map_or_else(|_| app.clone(), |ws| ws.app.clone());
     let ImportRequest { upload_id } = decode_object(&body)?;
     let (upload, _) = reach.upload(&upload_id, &user_id).await?;
     if upload.purpose != UploadPurpose::Import {
