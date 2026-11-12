@@ -814,3 +814,37 @@ async fn the_live_sessions_are_those_that_would_be_found() {
     );
     test.teardown().await;
 }
+
+/// The readiness check reads the sessions; on PostgreSQL it gives up by itself behind a
+/// lock on the table, before the server's two seconds, and its connection comes back.
+/// On SQLite there is no such lock to hold; a reader waits only for a writer, up to the
+/// busy timeout, and only when the database is not in WAL mode.
+#[tokio::test]
+async fn a_readiness_check_behind_a_lock_on_the_sessions_gives_up_by_itself() {
+    let test = common::setup().await;
+    test.check_ready().await.expect("ready without a lock");
+    if common::db_type() == fvoci_store::DbType::Postgres {
+        let mut holder = common::connect_past_the_store(&test.dbconfig()).await;
+        let mut lock = sqlx::Connection::begin(&mut holder)
+            .await
+            .expect("a transaction of the test's own");
+        sqlx::raw_sql("LOCK TABLE sessions IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *lock)
+            .await
+            .expect("the table lock is held");
+        let checked =
+            tokio::time::timeout(std::time::Duration::from_secs(2), test.check_ready()).await;
+        assert!(
+            matches!(checked, Ok(Err(StoreError::Database(_)))),
+            "the statement gave up by itself: {checked:?}"
+        );
+        lock.rollback().await.expect("the table lock is let go");
+        sqlx::Connection::close(holder)
+            .await
+            .expect("the connection closes");
+        test.check_ready()
+            .await
+            .expect("ready once the lock is gone");
+    }
+    test.teardown().await;
+}

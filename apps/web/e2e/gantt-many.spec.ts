@@ -6,6 +6,7 @@
  */
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 
+import { boardPath } from './address.ts';
 import { arrows, bar, bars, gantt, scroller, type Backend, type Dev } from './gantt.support.ts';
 import { fitPane, nextFrame, paneOf } from './kanban.support.ts';
 
@@ -28,7 +29,7 @@ async function openMany(page: Page, info: TestInfo): Promise<number> {
   await page.goto('/');
   await expect(page.getByTestId('board-page')).toBeVisible();
   await fitPane(page, paneOf(info));
-  const path = await page.evaluate(async (count) => {
+  const made = await page.evaluate(async (count) => {
     const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
     backend.latency = 0;
     const workspaces = await backend.workspaces();
@@ -78,8 +79,9 @@ async function openMany(page: Page, info: TestInfo): Promise<number> {
         defaultTemplateId: '',
       },
     });
-    return `/board/${boardId}/${view.id}`;
+    return { boardId, viewId: view.id };
   }, MANY);
+  const path = boardPath(made.boardId, made.viewId);
   // Timed on the page, from the change of address to the second frame after the last bar is there.
   const drawn = await page.evaluate(
     ([address, count]) =>

@@ -7,13 +7,14 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -39,7 +40,7 @@ test('what one person does shows on the other’s page, and a dropped connection
     cards: [{ title: 'Plan the week', status: 'To do' }],
     members: [{ who: other, role: 'editor' }],
   });
-  const address = `/board/${board.boardId}/${board.viewId}`;
+  const address = boardPath(board, board.viewId);
 
   const first = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();
   const second = await (await browser.newContext({ locale: 'en-US', baseURL: base })).newPage();

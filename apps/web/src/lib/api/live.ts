@@ -1,6 +1,7 @@
 /**
  * The server's changes as they happen (`contracts/websocket.md`): one
- * WebSocket per page, subscribed to the reader's workspace, its messages turned
+ * WebSocket per page, subscribed to the workspace the reader is in
+ * (`enter`: the one the address names), its messages turned
  * into the screens' changes (`Change`) and handed to whoever listens to that
  * board or to the reader's own things.
  *
@@ -9,7 +10,8 @@
  * grows (it shrinks back once a connection has held), and every listener is
  * then told to read again (`resync`): what happened in between is not
  * known. The browser saying it is online again, or the reader signing in
- * (`restart`), opens it at once.
+ * (`restart`), opens it at once. Nothing is opened before a workspace is
+ * entered; entering another one moves the subscription over to it.
  *
  * Members and categories come in pieces, and being added to a board or
  * taken off one sends no message of the board. So a member message has the
@@ -25,8 +27,6 @@ type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
 
 /** What the messages do not carry, read over HTTP instead. */
 export interface LiveReads {
-  /** The reader's workspace, which the connection subscribes to. */
-  workspaceId(): Promise<string>;
   /** A board's members: a message carries one member, the screens want them all. */
   members(boardId: string): Promise<Members>;
 }
@@ -44,24 +44,26 @@ const STEADY = 10_000;
 /** How long member and category messages are gathered before the sidebar is read again. */
 const GATHER = 200;
 
-type Message =
+type Message = { workspaceId?: string } & (
   | { action: 'UPDATE_BOARD'; board: Schemas['Board'] }
   | { action: 'UPDATE_BLOCK'; block: Schemas['Block'] }
   | { action: 'UPDATE_MEMBER' | 'DELETE_MEMBER'; member: Schemas['BoardMember'] }
-  | { action: string };
+  | { action: string }
+);
 
 export class LiveChanges {
   readonly #url: string;
   readonly #reads: LiveReads;
   readonly #listening = new Set<Listening>();
   #socket: WebSocket | undefined;
+  /** Whether `#socket` has opened and subscribed. */
+  #subscribed = false;
+  /** The workspace entered: the one subscribed to. */
   #workspaceId: string | undefined;
   /** Tries in a row that did not open: picks the wait. */
   #failures = 0;
   /** A connection was open before: the next one that opens is a reconnection. */
   #wasOpen = false;
-  /** Counts the sign-ins (`restart`): an opening begun before the latest is given up. */
-  #session = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #steady: ReturnType<typeof setTimeout> | undefined;
   #gathering: ReturnType<typeof setTimeout> | undefined;
@@ -84,14 +86,12 @@ export class LiveChanges {
    * anonymous and hears nothing). The listeners then read again.
    */
   restart(): void {
-    this.#workspaceId = undefined;
-    // An opening still waiting for the old session's workspace gives up (#open).
-    this.#session += 1;
     this.#failures = 0;
     // The old connection's close is not heard (it is no longer the one): its timer goes here.
     clearTimeout(this.#steady);
     const socket = this.#socket;
     this.#socket = undefined;
+    this.#subscribed = false;
     socket?.close();
     if (this.#listening.size === 0) return;
     this.#wasOpen = true;
@@ -101,13 +101,33 @@ export class LiveChanges {
   #openNow(): void {
     clearTimeout(this.#timer);
     this.#timer = undefined;
-    void this.#open();
+    this.#open();
+  }
+
+  /**
+   * Follows `workspaceId` from now on. An open connection leaves the one it
+   * followed and subscribes to this one; what was heard of the old one is
+   * the business of whoever listened to it (the workspace reads anew).
+   */
+  enter(workspaceId: string): void {
+    const before = this.#workspaceId;
+    if (before === workspaceId) return;
+    this.#workspaceId = workspaceId;
+    const socket = this.#socket;
+    if (socket && this.#subscribed) {
+      if (before !== undefined) {
+        socket.send(JSON.stringify({ action: 'UNSUBSCRIBE_WORKSPACE', workspaceId: before }));
+      }
+      socket.send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
+    } else if (!socket && this.#listening.size > 0 && this.#timer === undefined) {
+      this.#open();
+    }
   }
 
   watch(boardId: string | undefined, listener: ChangeListener): () => void {
     const entry: Listening = { boardId, listener };
     this.#listening.add(entry);
-    if (!this.#socket && this.#timer === undefined) void this.#open();
+    if (!this.#socket && this.#timer === undefined) this.#open();
     return () => {
       this.#listening.delete(entry);
       if (this.#listening.size === 0) this.#stop();
@@ -122,31 +142,25 @@ export class LiveChanges {
     this.#gathering = undefined;
     const socket = this.#socket;
     this.#socket = undefined;
+    this.#subscribed = false;
     this.#wasOpen = false;
     this.#failures = 0;
     socket?.close();
   }
 
-  async #open(): Promise<void> {
-    const session = this.#session;
-    let workspaceId = this.#workspaceId;
-    try {
-      workspaceId ??= await this.#reads.workspaceId();
-    } catch {
-      if (session !== this.#session) return;
-      this.#failures += 1;
-      this.#again();
-      return;
-    }
-    // Signed in again meanwhile: that opening is the one that counts.
-    if (session !== this.#session) return;
-    this.#workspaceId = workspaceId;
+  #open(): void {
+    // Nothing to follow yet: entering a workspace opens it.
+    if (this.#workspaceId === undefined) return;
     if (this.#listening.size === 0 || this.#socket) return;
     const socket = new WebSocket(this.#url);
     this.#socket = socket;
+    this.#subscribed = false;
     socket.addEventListener('open', () => {
       if (this.#socket !== socket) return;
-      socket.send(JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId }));
+      socket.send(
+        JSON.stringify({ action: 'SUBSCRIBE_WORKSPACE', workspaceId: this.#workspaceId }),
+      );
+      this.#subscribed = true;
       // A connection that is closed as soon as it opens does not count as held.
       this.#steady = setTimeout(() => {
         this.#failures = 0;
@@ -164,6 +178,7 @@ export class LiveChanges {
       if (this.#socket !== socket) return;
       clearTimeout(this.#steady);
       this.#socket = undefined;
+      this.#subscribed = false;
       this.#failures += 1;
       this.#again();
     });
@@ -174,7 +189,7 @@ export class LiveChanges {
     const wait = WAITS[Math.min(this.#failures - 1, WAITS.length - 1)] ?? 30_000;
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
-      void this.#open();
+      this.#open();
     }, wait);
   }
 
@@ -202,6 +217,8 @@ export class LiveChanges {
     } catch {
       return;
     }
+    // Still on its way from a workspace that was left.
+    if (message.workspaceId !== undefined && message.workspaceId !== this.#workspaceId) return;
     if ('board' in message) {
       const { board } = message;
       // A deleted board carries only its identifier and times.

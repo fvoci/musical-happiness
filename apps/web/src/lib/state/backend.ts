@@ -462,6 +462,15 @@ export interface Backend extends TrashReads {
   // Changes as they happen.
   /** Listens to the changes of one board. Returns the function that stops listening. */
   watchBoard(boardId: string, listener: ChangeListener): () => void;
-  /** Listens to the changes of the reader's own things: boards they can see, sidebar, settings. */
+  /**
+   * Listens to the changes of the reader's own things: the boards they can
+   * see and the sidebar of the workspace entered (`enter`), and their settings.
+   */
   watchSelf(listener: ChangeListener): () => void;
+  /**
+   * The workspace the reader works in now, as the address names it: the
+   * changes of its boards and sidebar are the ones `watchSelf` hears. A
+   * backend that hears every workspace's (the one in memory) has none.
+   */
+  enter?(workspaceId: string): void;
 }

@@ -28,6 +28,7 @@ fn empty_object_gives_the_defaults() {
     assert_eq!(config.export_stall_seconds, 60);
     assert_eq!(config.export_stall(), std::time::Duration::from_secs(60));
     assert_eq!(config.max_concurrent_imports, 2);
+    assert_eq!(config.server_lock_wait_seconds, 30);
     assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
     assert_eq!(config.auth_mode, "native");
     assert_eq!(config.teammate_name_display, "username");

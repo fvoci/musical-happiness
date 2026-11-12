@@ -12,13 +12,14 @@ import { expect, request, test } from '@playwright/test';
 import { validateDoc } from '../src/lib/editor/schema.ts';
 
 import {
+  boardPath,
   makeBoard,
   person,
   register,
+  type Schemas,
   signedIn,
   signInOnPage,
   watchErrors,
-  type Schemas,
 } from './support.ts';
 
 test.use({ locale: 'en-US' });
@@ -92,7 +93,7 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
 
   // The owner's own card screen names the owner, and the one it does not know "Unknown user".
   const errors = watchErrors(page);
-  await page.goto(`/board/${board.boardId}/${board.viewId}/${cardId}`);
+  await page.goto(boardPath(board, board.viewId, cardId));
   await signInOnPage(page, owner);
   await expect(page.getByTestId('card-body').locator('[data-mention]')).toHaveText([
     `@${owner.username}`,

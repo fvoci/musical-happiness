@@ -59,6 +59,9 @@ pub const BASE_PATH_ENV: &str = "FVOCI_HTTP_SERVER_BASEPATH";
 /// How long shutdown waits for requests that are still being answered.
 const CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long shutdown waits for the connections of the database to be given back.
+const STORE_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// How long shutdown waits for notifications that are still being sent.
 const BACKGROUND_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -81,6 +84,8 @@ pub struct Server {
     tls_files: TlsFiles,
     /// The listener of the metrics, if `prometheusaddress` is set.
     metrics_listener: Option<tokio::net::TcpListener>,
+    /// The lock of the server of the database, held from the start to the shutdown.
+    lock: Option<app::HeldLock>,
 }
 
 impl Server {
@@ -92,8 +97,9 @@ impl Server {
     /// # Errors
     ///
     /// Returns an error if the configuration asks for something unsupported, the
-    /// database or the file storage cannot be set up, or the metrics listener cannot
-    /// listen at `prometheusaddress`.
+    /// database or the file storage cannot be set up, another process holds the lock of
+    /// the server of the database for longer than `server_lock_wait_seconds`, or the
+    /// metrics listener cannot listen at `prometheusaddress`.
     pub async fn new(config: Configuration, base_path: &str) -> anyhow::Result<Self> {
         for warning in config.check()? {
             tracing::warn!("{warning}");
@@ -113,6 +119,10 @@ impl Server {
             );
         }
         let store = app::open_store(&config).await?;
+        // Before anything is changed or cleaned up: what is left over is nobody's only
+        // if no other process serves the database.
+        let server_lock = app::take_server_lock(&store, &config).await?;
+        let store = app::prepare_store(store).await?;
         let files =
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
@@ -125,6 +135,7 @@ impl Server {
         app.root_workspace()
             .await
             .context("unable to get root workspace")?;
+        let server_lock = app.hold_server_lock(server_lock);
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
         match app.housekeeping().sweep_temporary_files().await {
@@ -142,6 +153,7 @@ impl Server {
             base_path: base_path.to_owned(),
             tls_files: TlsFiles::default(),
             metrics_listener,
+            lock: Some(server_lock),
         })
     }
 
@@ -333,8 +345,17 @@ impl Server {
             }
         };
         tokio::pin!(serving);
+        let lost = self.app.server_lock_lost();
+        tokio::pin!(lost);
         let served = tokio::select! {
             served = &mut serving => served,
+            () = &mut lost => {
+                stop.cancel();
+                tokio::time::timeout_at(drain_deadline(), &mut serving)
+                    .await
+                    .unwrap_or(Ok(()))
+                    .and(Err(std::io::Error::other("the lock of the server was lost")))
+            }
             () = shutdown => {
                 stop.cancel();
                 // Requests under way may finish, but a client that stalls must not hold
@@ -404,8 +425,9 @@ impl Server {
             .map(Some)
     }
 
-    /// Waits for notifications in flight and closes the database.
-    pub async fn shutdown(self) {
+    /// Waits for notifications in flight, closes the database, and lets the lock of the
+    /// server go once no connection of the database is out.
+    pub async fn shutdown(mut self) {
         // Websocket connections are not part of the HTTP server's own connections once
         // they are upgraded; they end here.
         self.app.ws().close();
@@ -416,7 +438,13 @@ impl Server {
         {
             tracing::warn!("background notifications did not finish before shutdown");
         }
-        self.app.store().close().await;
+        if let Some(server_lock) = self.lock.take() {
+            server_lock
+                .close_store_and_release(STORE_CLOSE_TIMEOUT)
+                .await;
+        } else {
+            self.app.store().close().await;
+        }
         tracing::info!("server shut down");
     }
 }
@@ -480,6 +508,10 @@ pub async fn keep_house(app: &App) {
 /// absolute limit. What such a session still has open is closed.
 async fn clean_up_sessions(app: &App) {
     let app = &app.housekeeping();
+    if let Err(error) = app.require_server_lock() {
+        tracing::warn!(%error, "the sessions that ended are not cleaned up");
+        return;
+    }
     let now = auth::now_millis();
     let idle_since = now.saturating_sub(app.config().session_idle_millis());
     match app.store().clean_up_sessions(now, idle_since).await {
@@ -500,6 +532,10 @@ async fn clean_up_sessions(app: &App) {
 /// removed by [`remove_doomed_objects`].
 async fn purge_trash(app: &App) -> JobOutcome {
     let app = &app.housekeeping();
+    if let Err(error) = app.require_server_lock() {
+        tracing::warn!(%error, "the trash is not purged");
+        return JobOutcome::Failed;
+    }
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     match app.store().purge_trash(deleted_before).await {
         Ok(purged) => {
@@ -524,6 +560,10 @@ async fn purge_trash(app: &App) -> JobOutcome {
 /// are doomed with them, and removed by [`remove_doomed_objects`].
 async fn collect_unreferenced_files(app: &App) -> JobOutcome {
     let app = &app.housekeeping();
+    if let Err(error) = app.require_server_lock() {
+        tracing::warn!(%error, "the files no block shows are not collected");
+        return JobOutcome::Failed;
+    }
     let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     match app.store().collect_unreferenced_files(before).await {
         Ok(files) => {

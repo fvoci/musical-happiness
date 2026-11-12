@@ -4,21 +4,26 @@ use std::collections::HashMap;
 
 use fvoci_model::{BoardMember, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks};
 
+use fvoci_store::NewImages;
+
 use super::App;
 use super::boards::CreatorMembership;
 use crate::error::AppError;
 
 impl App {
-    /// Stores boards and their blocks as they are, identifiers included, tells the
-    /// boards' members and the webhooks, and files each board that is not a template
-    /// under the default category of `user_id`. The boards start without members.
+    /// Stores the boards and blocks of an archive as they are, identifiers included,
+    /// tells the boards' members and the webhooks, and files each board that is not a
+    /// template under the default category of `user_id`. The boards start without
+    /// members. The images of the bodies name the archive's files, which the import
+    /// stores after them and points them at: the board's files are not asked of them
+    /// ([`fvoci_store::NewImages::Unchecked`]).
     ///
     /// # Errors
     ///
     /// Returns a bad request if a block is too large, the store's error if nothing could
     /// be stored, or an error if a board cannot be filed under the user's default
     /// category; in the last case the boards and blocks exist nonetheless.
-    pub async fn create_boards_and_blocks(
+    pub async fn create_imported_boards_and_blocks(
         &self,
         boards_and_blocks: BoardsAndBlocks,
         user_id: &str,
@@ -27,12 +32,13 @@ impl App {
             .await
     }
 
-    /// Stores boards and their blocks as [`App::create_boards_and_blocks`] does and
-    /// makes `user_id` an admin and editor of each board.
+    /// Stores boards and their blocks as [`App::create_imported_boards_and_blocks`]
+    /// does and makes `user_id` an admin and editor of each board. Each image of a body
+    /// shows a file of its board ([`fvoci_store::NewImages::Recorded`]).
     ///
     /// # Errors
     ///
-    /// Returns the errors of [`App::create_boards_and_blocks`].
+    /// Returns the errors of [`App::create_imported_boards_and_blocks`].
     pub async fn create_boards_and_blocks_with_admin(
         &self,
         boards_and_blocks: BoardsAndBlocks,
@@ -56,7 +62,7 @@ impl App {
             }
             CreatorMembership::None => {
                 self.store()
-                    .create_boards_and_blocks(&mut created, user_id)
+                    .create_boards_and_blocks(&mut created, user_id, NewImages::Unchecked)
                     .await?;
                 Vec::new()
             }

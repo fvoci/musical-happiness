@@ -485,6 +485,20 @@ impl TestServer {
         served
     }
 
+    /// Stops the server cleanly, and keeps its database and files for another server
+    /// to start on.
+    pub(crate) async fn stop_keeping_data(self) -> KeptData {
+        let _ = self.shutdown.send(());
+        self.serving
+            .await
+            .expect("the server task does not panic")
+            .expect("the server stops cleanly");
+        KeptData {
+            database: self.database,
+            directory: self.directory,
+        }
+    }
+
     /// Stops the server and removes its database and files. The counterpart of
     /// `TearDown`.
     pub(crate) async fn teardown(self) {
@@ -493,6 +507,20 @@ impl TestServer {
             .await
             .expect("the server task does not panic")
             .expect("the server stops cleanly");
+        self.database.remove().await;
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
+/// The database and the files of a test server that stopped.
+pub(crate) struct KeptData {
+    database: TestDatabase,
+    directory: PathBuf,
+}
+
+impl KeptData {
+    /// Removes the database and the files.
+    pub(crate) async fn remove(self) {
         self.database.remove().await;
         let _ = std::fs::remove_dir_all(&self.directory);
     }

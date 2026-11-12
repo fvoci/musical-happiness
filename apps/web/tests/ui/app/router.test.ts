@@ -4,52 +4,84 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
 import { parseRoute, readBasePath, routePath, Router } from '../../../src/app/router.svelte.ts';
 
-const none = { boardId: undefined, viewId: undefined, cardId: undefined, unknown: false };
+const none = {
+  workspaceId: undefined,
+  boardId: undefined,
+  viewId: undefined,
+  cardId: undefined,
+  unknown: false,
+};
 
 describe('reading an address', () => {
-  it('reads board, view and card, each optional from the right', () => {
+  it('reads workspace, board, view and card, each optional from the right', () => {
     expect(parseRoute('/', '')).toEqual(none);
-    expect(parseRoute('/board', '')).toEqual(none);
-    expect(parseRoute('/board/b', '')).toEqual({ ...none, boardId: 'b' });
-    expect(parseRoute('/board/b/v', '')).toEqual({ ...none, boardId: 'b', viewId: 'v' });
-    expect(parseRoute('/board/b/v/c', '')).toEqual({
+    expect(parseRoute('/w/t', '')).toEqual({ ...none, workspaceId: 't' });
+    expect(parseRoute('/w/t/boards', '')).toEqual({ ...none, workspaceId: 't' });
+    expect(parseRoute('/w/t/boards/b', '')).toEqual({ ...none, workspaceId: 't', boardId: 'b' });
+    expect(parseRoute('/w/t/boards/b/v', '')).toEqual({
+      ...none,
+      workspaceId: 't',
+      boardId: 'b',
+      viewId: 'v',
+    });
+    expect(parseRoute('/w/t/boards/b/v/c', '')).toEqual({
+      workspaceId: 't',
       boardId: 'b',
       viewId: 'v',
       cardId: 'c',
       unknown: false,
     });
-    expect(parseRoute('/board/b/v/', '')).toEqual({ ...none, boardId: 'b', viewId: 'v' });
+    expect(parseRoute('/w/t/boards/b/v/', '')).toMatchObject({ boardId: 'b', viewId: 'v' });
   });
 
-  it('does not know other addresses', () => {
+  it('does not know other addresses, the old ones among them', () => {
     expect(parseRoute('/login', '').unknown).toBe(true);
-    expect(parseRoute('/board/b/v/c/more', '').unknown).toBe(true);
+    expect(parseRoute('/w', '').unknown).toBe(true);
+    expect(parseRoute('/w/t/bord/b', '').unknown).toBe(true);
+    expect(parseRoute('/w/t/boards/b/v/c/more', '').unknown).toBe(true);
+    expect(parseRoute(['', 'board', 'b', 'v', 'c'].join('/'), '').unknown).toBe(true);
   });
 
   it('works under a base path, and knows nothing outside of it', () => {
-    expect(parseRoute('/boards', 'boards')).toEqual(none);
-    expect(parseRoute('/boards/board/b', 'boards')).toEqual({ ...none, boardId: 'b' });
-    expect(parseRoute('/elsewhere/board/b', 'boards').unknown).toBe(true);
-    expect(parseRoute('/boardsx/board/b', 'boards').unknown).toBe(true);
+    expect(parseRoute('/app', 'app')).toEqual(none);
+    expect(parseRoute('/app/w/t/boards/b', 'app')).toMatchObject({
+      workspaceId: 't',
+      boardId: 'b',
+    });
+    expect(parseRoute('/elsewhere/w/t/boards/b', 'app').unknown).toBe(true);
+    expect(parseRoute('/appx/w/t/boards/b', 'app').unknown).toBe(true);
   });
 
   it('decodes what the address encodes, and survives what does not decode', () => {
-    expect(parseRoute('/board/a%20b', '').boardId).toBe('a b');
-    expect(parseRoute('/board/%E0%A4%A', '').boardId).toBe('%E0%A4%A');
+    expect(parseRoute('/w/a%2Fb/boards/a%20b', '')).toMatchObject({
+      workspaceId: 'a/b',
+      boardId: 'a b',
+    });
+    expect(parseRoute('/w/t/boards/%E0%A4%A', '').boardId).toBe('%E0%A4%A');
   });
 });
 
 describe('writing an address', () => {
   it('is the reverse of reading one', () => {
-    for (const path of ['/', '/board/b', '/board/b/v', '/board/b/v/c']) {
+    for (const path of [
+      '/',
+      '/w/t',
+      '/w/t/boards/b',
+      '/w/t/boards/b/v',
+      '/w/t/boards/b/v/c',
+      '/w/a%2Fb/boards/a%20b%3F/v%23',
+    ]) {
       expect(routePath(parseRoute(path, ''), '')).toBe(path);
     }
-    expect(routePath({ boardId: 'b', viewId: 'v' }, 'boards')).toBe('/boards/board/b/v');
-    expect(routePath({}, 'boards')).toBe('/boards/');
+    expect(routePath({ workspaceId: 't', boardId: 'b', viewId: 'v' }, 'app')).toBe(
+      '/app/w/t/boards/b/v',
+    );
+    expect(routePath({}, 'app')).toBe('/app/');
   });
 
-  it('drops a card without a view', () => {
-    expect(routePath({ boardId: 'b', cardId: 'c' }, '')).toBe('/board/b');
+  it('drops what has nothing to stand under: a card without a view, a board without a workspace', () => {
+    expect(routePath({ workspaceId: 't', boardId: 'b', cardId: 'c' }, '')).toBe('/w/t/boards/b');
+    expect(routePath({ boardId: 'b', viewId: 'v' }, '')).toBe('/');
   });
 });
 
@@ -77,30 +109,35 @@ describe('the base path', () => {
 
 describe('moving about', () => {
   beforeEach(() => {
-    history.replaceState(null, '', '/board/b/v');
+    history.replaceState(null, '', '/w/t/boards/b/v');
   });
 
   it('starts from the address the page was loaded on', () => {
-    expect(new Router('').route).toMatchObject({ boardId: 'b', viewId: 'v', cardId: undefined });
+    expect(new Router('').route).toMatchObject({
+      workspaceId: 't',
+      boardId: 'b',
+      viewId: 'v',
+      cardId: undefined,
+    });
   });
 
   it('opens a card as a new step and another card in its place', () => {
     const router = new Router('');
     const before = history.length;
     router.openCard('c1');
-    expect(location.pathname).toBe('/board/b/v/c1');
+    expect(location.pathname).toBe('/w/t/boards/b/v/c1');
     expect(history.length).toBe(before + 1);
     router.openCard('c2');
-    expect(location.pathname).toBe('/board/b/v/c2');
+    expect(location.pathname).toBe('/w/t/boards/b/v/c2');
     expect(history.length).toBe(before + 1);
   });
 
   it('closes a card it was loaded on by replacing the address', () => {
-    history.replaceState(null, '', '/board/b/v/c');
+    history.replaceState(null, '', '/w/t/boards/b/v/c');
     const router = new Router('');
     const before = history.length;
     router.closeCard();
-    expect(location.pathname).toBe('/board/b/v');
+    expect(location.pathname).toBe('/w/t/boards/b/v');
     expect(history.length).toBe(before);
     expect(router.route.cardId).toBeUndefined();
   });
@@ -108,15 +145,37 @@ describe('moving about', () => {
   it('drops the view and the card when another board is opened', () => {
     const router = new Router('');
     router.openCard('c');
-    router.openBoard('other');
-    expect(location.pathname).toBe('/board/other');
+    router.openBoard({ id: 'other', workspaceId: 't' });
+    expect(location.pathname).toBe('/w/t/boards/other');
     expect(router.route).toMatchObject({ boardId: 'other', viewId: undefined, cardId: undefined });
   });
 
+  it('opens a board at the address of its own workspace', () => {
+    const router = new Router('');
+    router.openBoard({ id: 'theirs', workspaceId: 't2' });
+    expect(location.pathname).toBe('/w/t2/boards/theirs');
+    expect(router.route).toMatchObject({ workspaceId: 't2', boardId: 'theirs' });
+  });
+
+  it('keeps the workspace when another view is opened', () => {
+    const router = new Router('');
+    router.openView('v2');
+    expect(location.pathname).toBe('/w/t/boards/b/v2');
+  });
+
+  it('follows back and forward to another workspace', () => {
+    const router = new Router('');
+    const stop = router.listen();
+    history.pushState(null, '', '/w/t2/boards/x');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(router.route).toMatchObject({ workspaceId: 't2', boardId: 'x' });
+    stop();
+  });
+
   it('makes links that keep the base path', () => {
-    expect(new Router('boards').href({ boardId: 'b', viewId: 'v', cardId: 'c' })).toBe(
-      '/boards/board/b/v/c',
-    );
+    expect(
+      new Router('app').href({ workspaceId: 't', boardId: 'b', viewId: 'v', cardId: 'c' }),
+    ).toBe('/app/w/t/boards/b/v/c');
   });
 });
 

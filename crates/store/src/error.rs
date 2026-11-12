@@ -85,6 +85,12 @@ pub enum StoreError {
     #[error("{0:?} is not an identifier")]
     InvalidId(String),
 
+    /// A place of the file storage given to a record, a mark of writing or an upload
+    /// session is not spelled the one way ([`fvoci_model::is_storage_path`]). The
+    /// server makes its places; it is the server's error.
+    #[error("{0:?} is not a place of the file storage")]
+    InvalidPath(String),
+
     /// A user cannot be stored because another one has what must be one user's alone.
     #[error("{0} is taken")]
     Conflict(Taken),

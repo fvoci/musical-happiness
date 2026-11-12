@@ -2,6 +2,11 @@
   The app: starts the backend, loads the reader's workspace, and puts the
   screens together. Features do not import each other; this folder is where
   they meet (src/lib/README.md).
+
+  The workspace shown is the one the address names. The root address names
+  none: the reader is taken to the one they were last in on this browser if
+  it is still theirs, else to their first, the address put in place of the
+  root's (`Workspace.firstChoice`, `last-workspace.ts`).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -17,10 +22,12 @@
     type Account,
     type Registration,
   } from '$lib/state/index.ts';
+  import type { BoardPlace } from '$lib/logic/urls.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { startBackend } from './backend.ts';
   import BoardPage from './BoardPage.svelte';
+  import { lastWorkspace, rememberWorkspace } from './last-workspace.ts';
   import {
     browserLocale,
     currentLocale,
@@ -28,6 +35,7 @@
     locales,
     shownLanguage,
   } from './locale.ts';
+  import NotFound from './NotFound.svelte';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
 
@@ -45,7 +53,7 @@
     void startBackend().then(async (started) => {
       const { backend } = started;
       account = started.account;
-      const made = new Workspace({ backend, locale: currentLocale });
+      const made = new Workspace({ backend, locale: currentLocale, lastWorkspace });
       // The bodies of cards name their images by file; the board that is open says where they are.
       setFileUrlResolver((fileId) =>
         made.board ? backend.fileUrl(made.board.boardId, fileId) : undefined,
@@ -55,7 +63,7 @@
       // one (the backend in memory): a test undoes through it.
       const dev = (window as unknown as { fvociDev?: object }).fvociDev;
       if (dev) Object.assign(dev, { workspace: made });
-      await made.load();
+      await made.load(router.route.workspaceId);
       followLanguage(made);
     });
     return () => {
@@ -75,7 +83,7 @@
   /** Reads the workspace again after a failure, and follows its language as the first load does. */
   async function retryLoad(): Promise<void> {
     if (!workspace) return;
-    await workspace.load();
+    await workspace.load(router.route.workspaceId);
     followLanguage(workspace);
   }
 
@@ -108,12 +116,45 @@
     window.location.assign(router.href({}));
   }
 
+  // The root address: to the workspace the reader starts in, in its place.
+  $effect(() => {
+    if (workspace?.status !== 'ready' || router.route.unknown || router.route.workspaceId) return;
+    const chosen = workspace.firstChoice();
+    if (chosen) router.go({ workspaceId: chosen }, { replace: true });
+  });
+
+  // Another workspace in the address (a link, back or forward): it is entered.
+  $effect(() => {
+    const asked = router.route.workspaceId;
+    if (workspace?.status === 'ready' && asked && asked !== workspace.asked) {
+      void workspace.enter(asked);
+    }
+  });
+
+  // The workspace entered is the one to come back to on this browser.
+  $effect(() => {
+    if (workspace?.entered === 'ready' && workspace.me && workspace.info) {
+      rememberWorkspace(workspace.me.id, workspace.info.id);
+    }
+  });
+
+  /** The workspace the address names, entered and read. */
+  const shown = $derived(
+    workspace?.entered === 'ready' && workspace.info?.id === router.route.workspaceId
+      ? workspace.info
+      : undefined,
+  );
+
   // Without a board in the address, show the first one of the sidebar.
   $effect(() => {
-    if (workspace?.status !== 'ready' || router.route.unknown || router.route.boardId) return;
+    if (!shown || !workspace || router.route.boardId) return;
     const first = workspace.sidebar.flatMap((entry) => entry.boards)[0];
-    if (first) router.go({ boardId: first.id }, { replace: true });
+    if (first) router.go({ workspaceId: shown.id, boardId: first.id }, { replace: true });
   });
+
+  const openBoard = (board: BoardPlace): void => {
+    router.openBoard(board);
+  };
 </script>
 
 {#if !workspace || workspace.status === 'idle' || workspace.status === 'loading'}
@@ -129,15 +170,19 @@
       await account?.signIn(login, password);
       // A session that ended while working here: what is on the page (the
       // open board, undo, problems) was the old session's. Start afresh, as
-      // signing out does.
-      if (workspace?.me) {
-        location.reload();
+      // signing out does: at the same address when it is the same person,
+      // else at the root, where they are taken to a workspace of theirs.
+      const before = workspace?.me;
+      if (workspace && before) {
+        const now = await workspace.backend.me().catch(() => undefined);
+        if (now?.id === before.id) location.reload();
+        else location.assign(router.href({}));
         return;
       }
       // Signed in on an address that is no page of the app (`/login`, where a
       // sign-in through a provider comes back refused, or any other): the first.
       if (router.route.unknown) router.go({}, { replace: true });
-      await workspace?.load();
+      await workspace?.load(router.route.workspaceId);
       // Signed in, yet the next request is not: the browser did not keep the
       // session (a cookie for https on a page over http, or cookies blocked).
       if (workspace?.status === 'signedOut') {
@@ -152,8 +197,11 @@
         registered = undefined;
         if (login === made.username || login === made.email) {
           const welcome = await workspace.onboard();
+          const where = workspace.info?.id;
           // The page may be on it already (the first board is shown by itself).
-          if (welcome && router.route.boardId !== welcome) router.openBoard(welcome);
+          if (welcome && where && router.route.boardId !== welcome) {
+            router.openBoard({ id: welcome, workspaceId: where });
+          }
         }
       }
       // Last: the page may load again in the account's language.
@@ -180,10 +228,9 @@
   <AppShell
     {workspace}
     boardId={router.route.boardId}
-    boardHref={(boardId: string) => router.href({ boardId })}
-    onOpenBoard={(boardId: string) => {
-      router.openBoard(boardId);
-    }}
+    boardHref={(board: BoardPlace) =>
+      router.href({ workspaceId: board.workspaceId, boardId: board.id })}
+    onOpenBoard={openBoard}
     {locales}
     language={shownLanguage(workspace.settings.language)}
     autoLocale={browserLocale()}
@@ -201,9 +248,28 @@
         }
       : undefined}
   >
-    {#if router.route.unknown}
+    {@const here = workspace.asked === router.route.workspaceId}
+    {#if router.route.unknown || (here && workspace.entered === 'missing')}
+      <NotFound {router} />
+    {:else if !router.route.workspaceId && workspace.workspaces.length === 0}
       <div class="grid h-full place-items-center p-6 text-center">
-        <p class="text-muted-foreground" role="alert">{m.app_page_not_found()}</p>
+        <p class="text-muted-foreground">{m.app_no_boards()}</p>
+      </div>
+    {:else if here && workspace.entered === 'failed'}
+      <div class="grid h-full place-items-center p-6 text-center" data-testid="enter-failed">
+        <div>
+          <p class="text-muted-foreground" role="alert">{m.app_problem_load()}</p>
+          <Button
+            class="mt-4 roomy:min-h-touch"
+            onclick={() => {
+              if (router.route.workspaceId) void workspace?.enter(router.route.workspaceId);
+            }}>{m.app_retry()}</Button
+          >
+        </div>
+      </div>
+    {:else if !shown}
+      <div class="grid h-full place-items-center p-6">
+        <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
       </div>
     {:else if router.route.boardId}
       <BoardPage {workspace} {router} />

@@ -5,6 +5,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import { ON_A_CARD, viewIdOf } from './address.ts';
 import { boardPage, card, choose, dialog, fitPane, openView, undo } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
 
@@ -31,7 +32,7 @@ async function columns(page: Page): Promise<number> {
 test('the cards of the view stand in a grid, in the order of the view', async ({ page }, info) => {
   await openView(page, info, ...WELCOME);
   await expect(cards(page)).toHaveCount(10);
-  const expected = await page.evaluate(() => {
+  const expected = await page.evaluate((id) => {
     const { workspace } = (
       window as unknown as {
         fvociDev: {
@@ -41,9 +42,8 @@ test('the cards of the view stand in a grid, in the order of the view', async ({
         };
       }
     ).fvociDev;
-    const id = location.pathname.split('/')[3] ?? '';
     return workspace.board.cardsOf(workspace.board.view(id)).map((shown) => shown.title);
-  });
+  }, viewIdOf(page.url()));
   expect(await titles(page)).toEqual(expected);
   // Every card of the seed has a body, and the face says so.
   await expect(cards(page).first().locator('[data-slot="card-has-body"]')).toBeAttached();
@@ -77,7 +77,7 @@ test('a press on a card opens it, and so does Enter', async ({ page }, info) => 
   await openView(page, info, ...WELCOME);
   await card(page, 'Drag cards').click();
   await expect(dialog(page)).toContainText('Drag cards');
-  await expect(page).toHaveURL(/\/board\/[^/]+\/[^/]+\/[^/]+$/);
+  await expect(page).toHaveURL(ON_A_CARD);
   await page.goBack();
   await expect(dialog(page)).toBeHidden();
   await card(page, 'Share a board').focus();

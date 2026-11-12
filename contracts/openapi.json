@@ -1980,11 +1980,11 @@
         "properties": {
           "database": {
             "$ref": "#/components/schemas/ReadinessCheck",
-            "description": "Whether the database answers a statement."
+            "description": "Whether the database reads the table of the sessions (it answers, and has not\nlost a table every signed-in request reads), and this process holds the lock of\nthe server of the database in it."
           },
           "files": {
             "$ref": "#/components/schemas/ReadinessCheck",
-            "description": "Whether the file storage can be used: on the local disk, the directory; on the\nobject store, the bucket with the credentials."
+            "description": "Whether the file storage can be used: a small file is written to it, read back and\nremoved, on the local disk as on the object store."
           }
         },
         "required": [
@@ -5221,7 +5221,7 @@
     },
     "/api/v1/ready": {
       "get": {
-        "description": "The check that the server is ready: the database answers a statement, and the file\nstorage can be used, each within two seconds; on S3 the check lists the bucket under\na key, which needs the permission to list it. An answer is kept five seconds; a\nrequest after that waits for the checks made anew, up to two and a half seconds\n(a probe's timeout of three seconds is enough), and else gets the answer before.\nNeither answer says why a check failed: the log does.",
+        "description": "The check that the server is ready: the database reads the table of the sessions,\nwhich every signed-in request reads, and this process holds the lock of the server\nin it; and the file storage takes a small file, gives it back and removes it, each\nwithin two seconds. An answer is kept five seconds; a\nrequest after that waits for the checks made anew, up to two and a half seconds\n(a probe's timeout of three seconds is enough), and else gets the answer before.\nNeither answer says why a check failed: the log does.",
         "operationId": "ready",
         "responses": {
           "200": {

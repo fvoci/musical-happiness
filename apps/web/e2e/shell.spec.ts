@@ -8,6 +8,7 @@ import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { boardPath } from './address.ts';
 import {
   boardLink,
   boardMenu,
@@ -75,9 +76,9 @@ test('the page can be zoomed and follows the text size of the browser', async ({
 });
 
 test('a deep link gets the app, and its files resolve from the base path', async ({ page }) => {
-  await page.goto('/board/some-board/some-view');
+  await page.goto(boardPath('some-board', 'some-view'));
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await expect(page.getByRole('alert')).toHaveText('Board not found.');
+  await expect(page.getByRole('alert')).toHaveText('There is nothing at this address.');
 });
 
 test('an address that is not one of the app says so', async ({ page }) => {

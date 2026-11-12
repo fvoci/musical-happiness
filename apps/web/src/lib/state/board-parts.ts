@@ -1,10 +1,29 @@
 /**
- * What the board store is built on besides the backend: a member's role,
- * the flags of a role, the name of an undo group, the place of a drop.
+ * What the board store is built on besides the backend: a board of the
+ * workspace shown, a member's role, the flags of a role, the name of an undo
+ * group, the place of a drop.
  */
-import type { BoardMember, MemberRole } from '../logic/wire.ts';
+import type { Board, BoardMember, MemberRole } from '../logic/wire.ts';
 
-import type { BoardRole } from './backend.ts';
+import type { Backend, BoardRole } from './backend.ts';
+import { BackendError } from './problems.ts';
+
+/**
+ * Reads a board of the workspace `workspaceId`, the one the address names.
+ * A board of another workspace is not found there (404), as one that is not
+ * there at all: the address does not say where else it is.
+ */
+export async function boardOfWorkspace(
+  backend: Backend,
+  boardId: string,
+  workspaceId: string | undefined,
+): Promise<Board> {
+  const board = await backend.board(boardId);
+  if (board.workspaceId !== workspaceId) {
+    throw new BackendError(404, { detail: 'the board is of another workspace' });
+  }
+  return board;
+}
 
 export function roleOf(member: BoardMember | undefined): MemberRole {
   if (!member) return '';
