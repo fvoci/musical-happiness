@@ -204,7 +204,7 @@ fn origin_of(url: &str) -> Option<String> {
 }
 
 /// Returns the value of the named cookie, if the request carries it.
-fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get_all(COOKIE)
         .iter()

@@ -636,23 +636,7 @@ async fn create_user(
     user.update_at = now;
     user.delete_at = 0;
     user.is_admin = is_first;
-
-    let mut sql = scope.sql(&format!("INSERT INTO users ({USER_COLUMNS}) VALUES ("));
-    sql.bind(Id(&user.id))
-        .push_bind(", ", &user.username)
-        .push_bind(", ", &user.email)
-        .push_bind(", ", &user.password_hash)
-        .push_bind(", ", user.create_at)
-        .push_bind(", ", user.update_at)
-        .push_bind(", ", user.delete_at)
-        .push_bind(", ", user.is_admin)
-        .push_bind(", ", &user.display_name)
-        .push(")");
-    match scope.execute(sql).await {
-        Ok(_) => {}
-        Err(StoreError::Database(error)) => return Err(unique_violation(error)),
-        Err(error) => return Err(error),
-    }
+    insert_user_row(scope, user).await?;
     // Whoever registers joins the organization there is (`members::join_organization`).
     // A handle that names none stores the user alone.
     if scope.has_org() {
@@ -666,8 +650,30 @@ async fn create_user(
     Ok(())
 }
 
-/// Reads the violation of one of the two unique indexes of the users as a conflict.
-fn unique_violation(error: sqlx::Error) -> StoreError {
+/// Inserts the row of a user as it is; a name or an address that is taken is a
+/// conflict.
+pub(crate) async fn insert_user_row(scope: &mut Scope<'_>, user: &User) -> Result<(), StoreError> {
+    let mut sql = scope.sql(&format!("INSERT INTO users ({USER_COLUMNS}) VALUES ("));
+    sql.bind(Id(&user.id))
+        .push_bind(", ", &user.username)
+        .push_bind(", ", &user.email)
+        .push_bind(", ", &user.password_hash)
+        .push_bind(", ", user.create_at)
+        .push_bind(", ", user.update_at)
+        .push_bind(", ", user.delete_at)
+        .push_bind(", ", user.is_admin)
+        .push_bind(", ", &user.display_name)
+        .push(")");
+    match scope.execute(sql).await {
+        Ok(_) => Ok(()),
+        Err(StoreError::Database(error)) => Err(unique_violation(error)),
+        Err(error) => Err(error),
+    }
+}
+
+/// Reads the violation of one of the two unique indexes of the users, or of the key of
+/// their identities, as a conflict.
+pub(crate) fn unique_violation(error: sqlx::Error) -> StoreError {
     let Some(database_error) = error.as_database_error() else {
         return StoreError::Database(error);
     };
@@ -677,7 +683,9 @@ fn unique_violation(error: sqlx::Error) -> StoreError {
     // PostgreSQL names the index; SQLite names the indexed expression.
     let message = database_error.message();
     let of_index = database_error.constraint().unwrap_or(message);
-    if of_index.contains("email") {
+    if of_index.contains("user_identities") {
+        StoreError::Conflict(Taken::Identity)
+    } else if of_index.contains("email") {
         StoreError::Conflict(Taken::Email)
     } else if of_index.contains("username") {
         StoreError::Conflict(Taken::Username)

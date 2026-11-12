@@ -192,6 +192,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("DeletedItem", Members::All),
     ("FileInfo", Members::All),
     ("InvalidInput", Members::Only(&["detail", "reason"])),
+    ("LoginOptions", Members::All),
+    ("LoginOrganization", Members::All),
+    ("OidcProvider", Members::All),
     ("OnboardingStart", Members::AsWritten),
     (
         "Problem",
@@ -239,6 +242,10 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewMember", Members::AsWritten),
     ("NewSubscription", Members::AsWritten),
     ("NewUpload", Members::Only(&["name", "size"])),
+    (
+        "OidcProviderSettings",
+        Members::Only(&["issuer", "clientId"]),
+    ),
     (
         "PatchBoardsAndBlocks",
         Members::Only(&["boardIds", "boardPatches"]),
@@ -684,7 +691,11 @@ fn finish_operations(document: &mut Value) -> Result<(), ContractError> {
                 .or_insert_with(|| json!({}))
                 .as_object_mut()
                 .ok_or_else(|| ContractError(format!("the responses of {what} are no object")))?;
-            if !responses.keys().any(|status| status.starts_with('2')) {
+            // A route a browser is sent to succeeds by sending it on (303).
+            if !responses
+                .keys()
+                .any(|status| status.starts_with('2') || status == "303")
+            {
                 return Err(ContractError(format!("{what} has no answer of success")));
             }
             responses.insert("default".to_owned(), refusal.clone());

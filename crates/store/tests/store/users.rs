@@ -541,6 +541,7 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
         let said = match taken {
             Taken::Username => "the user name is taken",
             Taken::Email => "the email address is taken",
+            Taken::Identity => "the identity at the provider is taken",
         };
         assert_eq!(error.to_string(), said, "{username} <{email}>");
         assert!(
@@ -978,6 +979,7 @@ pub(crate) async fn open_session_under(
         last_used_at: SESSION_MADE,
         expires_at: SESSION_MADE + 1000,
         user_agent: "a browser".to_owned(),
+        login_provider_id: None,
     };
     let stored = store
         .create_session(&session, digest, seen)

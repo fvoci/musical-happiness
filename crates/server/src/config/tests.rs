@@ -446,6 +446,8 @@ struct Documented {
     env: BTreeMap<String, String>,
     /// The removed keys.
     removed: Vec<String>,
+    /// The variables of "그 밖의 환경 변수", as written.
+    other_env: Vec<String>,
 }
 
 /// The text of a table cell between backticks, if it is all in backticks.
@@ -470,6 +472,10 @@ fn documented(text: &str) -> Documented {
         let Some(key) = cells.first().and_then(|cell| code(cell)) else {
             continue;
         };
+        if section == "그 밖의 환경 변수" {
+            documented.other_env.push(key.to_owned());
+            continue;
+        }
         let key = key.to_lowercase();
         if section.starts_with("키:") {
             assert!(cells.len() >= 5, "a row of five cells: {line}");
@@ -571,6 +577,63 @@ fn the_configuration_document_lists_every_key() {
     assert_eq!(
         documented.removed, removed,
         "docs/configuration.md lists the removed keys"
+    );
+    for (key, variable) in ENV_ONLY {
+        assert!(
+            documented.other_env.iter().any(|name| name == variable),
+            "docs/configuration.md lists {variable}, the variable of {key}, among the other \
+             environment variables"
+        );
+        assert!(!defaults.contains_key(key), "{key} is no key of the file");
+    }
+}
+
+/// The key the server seals secrets with comes from `FVOCI_SECRET_KEY` and from
+/// nowhere else, and what is wrong with it is said without its value.
+#[test]
+fn the_secret_key_is_read_from_the_environment_only() {
+    use base64::Engine as _;
+    let text = base64::engine::general_purpose::STANDARD.encode([9_u8; 32]);
+    let env =
+        |value: &'static str| move |name: &str| (name == SECRET_KEY_ENV).then(|| value.to_owned());
+    let leaked: &'static str = Box::leak(text.clone().into_boxed_str());
+
+    assert!(
+        Configuration::parse("{}", no_env)
+            .expect("no key")
+            .secret_key
+            .is_none()
+    );
+    assert!(
+        Configuration::parse("{}", env("  "))
+            .expect("a blank key")
+            .secret_key
+            .is_none()
+    );
+    let config = Configuration::parse("{}", env(leaked)).expect("a key");
+    assert_eq!(
+        config.secret_key,
+        Some(crate::auth::sealed::SecretKey::from_base64(&text).expect("a key"))
+    );
+    assert!(
+        !format!("{config:?}").contains(&text),
+        "the key is not written by Debug"
+    );
+
+    let short = "c2hvcnQgYW5kIHdyb25nIGtleQ==";
+    let refused = Configuration::parse("{}", env(short)).expect_err("too short");
+    let said = format!("{refused:#}");
+    assert!(
+        said.contains(SECRET_KEY_ENV) && !said.contains(short),
+        "{said}"
+    );
+
+    let in_file = format!(r#"{{"Secret_Key": "{text}"}}"#);
+    let refused = Configuration::parse(&in_file, no_env).expect_err("not from the file");
+    let said = format!("{refused:#}");
+    assert!(
+        said.contains(SECRET_KEY_ENV) && !said.contains(&text),
+        "{said}"
     );
 }
 

@@ -161,6 +161,12 @@ fn describe_kind(kind: ErrorKind) -> &'static str {
     }
 }
 
+/// The description of [`Reason::OidcUnavailable`].
+const OIDC_LOGIN_PAGE_UNAVAILABLE: &str = "On the login page: the reasons of a sign-in \
+    through an organization's provider come back in the `oidc_error` parameter of its \
+    address, by these names. This one: the organization has no provider that is on, or \
+    the provider could not be reached.";
+
 fn describe_reason(reason: Reason) -> &'static str {
     match reason {
         Reason::Csrf => {
@@ -230,7 +236,75 @@ fn describe_reason(reason: Reason) -> &'static str {
         Reason::ServerImportsBusy => {
             "Status 429. The server runs as many imports as it may at once. Try again later."
         }
+        Reason::SecretKeyRequired
+        | Reason::OidcIssuerUnverified
+        | Reason::OidcUnavailable
+        | Reason::OidcStateInvalid
+        | Reason::OidcDenied
+        | Reason::OidcTokenRefused
+        | Reason::OidcTokenInvalid
+        | Reason::OidcEmailMissing
+        | Reason::OidcEmailUnverified
+        | Reason::OidcEmailTaken
+        | Reason::OidcJoinClosed => describe_sign_in(reason).unwrap_or_default(),
     }
+}
+
+/// The descriptions of the reasons of signing in through a provider.
+fn describe_sign_in(reason: Reason) -> Option<&'static str> {
+    Some(match reason {
+        Reason::SecretKeyRequired => {
+            "Status 409. The server seals the client secret of a provider with its key, \
+             `FVOCI_SECRET_KEY`, and has none: a provider cannot be stored until the server is \
+             started with one."
+        }
+        Reason::OidcIssuerUnverified => {
+            "Status 400. The discovery document of the issuer could not be read, or does not \
+             name the issuer exactly, or its endpoints are not `https`. The server reaches \
+             only `https` addresses, follows no redirect, and reaches only public addresses \
+             unless its configuration lets it reach others. `errors` names `/issuer`; \
+             `detail` says which of these it was, and nothing of the provider's answer."
+        }
+        Reason::OidcUnavailable => OIDC_LOGIN_PAGE_UNAVAILABLE,
+        Reason::OidcStateInvalid => {
+            "On the login page, after a sign-in through a provider. What came back is no \
+             sign-in this browser started, or one that was used already or took longer than \
+             ten minutes. Start again."
+        }
+        Reason::OidcDenied => {
+            "On the login page, after a sign-in through a provider: the provider sent the \
+             person back without letting them sign in."
+        }
+        Reason::OidcTokenRefused => {
+            "On the login page, after a sign-in through a provider: the provider did not \
+             give an ID token for the code, or could not be reached for it."
+        }
+        Reason::OidcTokenInvalid => {
+            "On the login page, after a sign-in through a provider: its ID token does not \
+             hold (signature, algorithm, key, issuer, audience, time, nonce). The server's \
+             log says which."
+        }
+        Reason::OidcEmailMissing => {
+            "On the login page, after a sign-in through a provider: the person has no \
+             account yet, and the provider gave no email address to make one with."
+        }
+        Reason::OidcEmailUnverified => {
+            "On the login page, after a sign-in through a provider: the person has no \
+             account yet, and the provider says it has not checked their email address."
+        }
+        Reason::OidcEmailTaken => {
+            "On the login page, after a sign-in through a provider: the person has no \
+             account through the provider, and an account of the email address the \
+             provider gave exists. The two are not joined by their address: sign in with \
+             the password of that account and connect the provider to it."
+        }
+        Reason::OidcJoinClosed => {
+            "On the login page, after a sign-in through a provider: the person is no member \
+             of the organization, and the organization does not let newcomers in through \
+             its provider."
+        }
+        _ => return None,
+    })
 }
 
 /// How long a cache may keep a page: the pages change with a release of the server.

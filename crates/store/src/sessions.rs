@@ -9,10 +9,11 @@
 use fvoci_model::Session;
 
 use crate::Store;
-use crate::db::{Dialect, Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
 use crate::error::StoreError;
 
-const SESSION_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent";
+const SESSION_COLUMNS: &str =
+    "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id";
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -64,6 +65,10 @@ impl Store {
                 .push_bind(", ", session.created_at)
                 .push_bind(", ", session.expires_at)
                 .push_bind(", ", &session.user_agent)
+                .push_bind(
+                    ", ",
+                    OptId(session.login_provider_id.as_deref().unwrap_or_default()),
+                )
                 .push(")");
             scope.execute(sql).await?;
             Ok(true)
@@ -220,6 +225,7 @@ fn session_from_row(row: &Row) -> Result<Session, StoreError> {
         last_used_at: row.int(3)?,
         expires_at: row.int(4)?,
         user_agent: row.text(5)?,
+        login_provider_id: Some(row.id(6)?).filter(|id| !id.is_empty()),
     })
 }
 

@@ -153,6 +153,7 @@ pub(crate) const CRATES: &[(&str, &str)] = &[
 pub(crate) const NO_LAYER: &[&str] = &[
     "anyhow",
     "argon2",
+    "aws_lc_rs",
     "base64",
     "bytes",
     "chrono_tz",
@@ -160,6 +161,7 @@ pub(crate) const NO_LAYER: &[&str] = &[
     "flate2",
     "futures_util",
     "getrandom",
+    "jsonwebtoken",
     "md_5",
     "object_store",
     "reqwest",
