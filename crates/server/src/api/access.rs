@@ -70,6 +70,10 @@ pub(crate) fn refusal(grant: Grant, denial: &str) -> AppError {
     }
 }
 
+/// The refusal of a comment to its author who did not delete it.
+const SOMEBODY_ELSE_DELETED: &str =
+    "a comment somebody else deleted is brought back by the board's admins";
+
 /// What a user does to a block, which a comment of somebody else lets only the board's
 /// admins do, each refused in its own words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,15 +240,14 @@ fn comment_permission<'a>(
 ) -> (BoardPermission, &'a str) {
     let permission =
         permissions::comment_permission(user_id, &block.created_by, action.on_comment());
-    if permission == BoardPermission::CommentBoardCards {
-        (permission, denial)
-    } else if block.created_by == user_id {
-        (
-            permission,
-            "a comment somebody else deleted is brought back by the board's admins",
-        )
-    } else {
-        (permission, action.others_comments_denial())
+    match action {
+        _ if permission == BoardPermission::CommentBoardCards => (permission, denial),
+        BlockAction::Undelete { deleted_by }
+            if block.created_by == user_id && !deleted_by.is_empty() =>
+        {
+            (permission, SOMEBODY_ELSE_DELETED)
+        }
+        _ => (permission, action.others_comments_denial()),
     }
 }
 

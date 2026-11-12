@@ -1070,11 +1070,12 @@ export class MemoryBackend implements Backend {
       for (const child of this.world.childrenOf(parent.id)) collect(child);
     };
     collect(block);
-    if (block.type === 'comment' && !mayRemoveComments(this.#roleOn(boardId), this.userId, gone)) {
+    const entry = { boardId, blocks: gone, ...deletion(this) };
+    if (block.type === 'comment' && !mayRemoveComments(this.#roleOn(boardId), this.userId, entry)) {
       fail(403, "access denied to delete other users' comments");
     }
     for (const each of gone) this.world.blocks.delete(each.id);
-    this.world.deletedBlocks.set(blockId, { boardId, blocks: gone, ...deletion(this) });
+    this.world.deletedBlocks.set(blockId, entry);
     this.world.tellBoard(boardId, {
       kind: 'blocksDeleted',
       boardId,
@@ -1088,11 +1089,10 @@ export class MemoryBackend implements Backend {
     if (deleted?.boardId !== boardId) fail(404, 'no such block in the trash');
     // A comment at the top of the deletion comes back by the comment's rule, anything else by an editor's.
     const top = deleted.blocks[0];
-    if (top?.type === 'comment') {
-      if (!mayRemoveComments(this.#memberRole(boardId), this.userId, deleted.blocks)) {
-        fail(403, "access denied to undelete other users' comments");
-      }
-    } else mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');
+    const card = top?.type !== 'comment';
+    if (card) mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');
+    else if (!mayRemoveComments(this.#memberRole(boardId), this.userId, deleted))
+      fail(403, "access denied to undelete other users' comments");
     const parent = top?.parentId;
     // A block comes back only under a living parent (or the board itself).
     if (parent !== boardId && parent !== undefined && !this.world.blocks.has(parent)) {

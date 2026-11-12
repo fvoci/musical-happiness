@@ -91,6 +91,8 @@ describe('who changes and deletes a comment', () => {
     expect(await statusOf(backend.restoreBlock(boardId, first.id))).toBe('ok');
     setRole(world, boardId, other, 'admin');
     expect(await statusOf(other.deleteBlock(boardId, second.id))).toBe('ok');
+    // Deleted by the admin, it is not its author's to bring back, but the admin's.
+    expect(await statusOf(backend.restoreBlock(boardId, second.id))).toBe(403);
     expect(await statusOf(other.restoreBlock(boardId, second.id))).toBe('ok');
   });
 });
