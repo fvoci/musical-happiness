@@ -173,7 +173,7 @@ async fn joining_a_team_that_edits_lets_a_reader_write_at_once() {
 }
 
 #[tokio::test]
-async fn deleting_a_team_reaches_every_board_it_was_on_and_only_its_people() {
+async fn deleting_a_team_reaches_every_board_it_was_on_and_leaves_the_admin_writing() {
     let th = seldom().start().await.init_basic().await;
     workspace_admin(&th).await;
     let team_id = team_of_the_second(&th, "Both boards").await;

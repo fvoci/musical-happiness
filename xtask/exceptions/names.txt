@@ -275,3 +275,6 @@ crates/store/src/visibility.rs | DELETE FROM teams WHERE
 # A user's board memberships in every organization count the roles of their teams too.
 crates/store/src/memberships_everywhere.rs
 crates/store/src/directory.rs | through a team
+crates/server/src/api/users.rs | through a team of its workspace
+crates/server/src/api/users.rs | (`synthetic`, with the team's role in
+crates/server/src/api/users.rs | a guest is in no team

@@ -1,6 +1,6 @@
 # WebSocket `/ws`의 메시지
 
-적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
+적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST. 서버가 구독을 끝낼 때의 알림, 3절은 2026-11-14 01:35 KST. 팀의 조작, 3절과 6절은 2026-11-14 06:55 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다.
 - 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
@@ -87,7 +87,7 @@
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
 | `addMember`, `joinBoard`, `updateMember` | `UPDATE_MEMBER`. 이미 멤버인 사용자의 `addMember`·`joinBoard`, 멤버가 아닌 사용자의 `updateMember`는 아무것도 내지 않는다. 템플릿이 아닌 보드에 새로 든 멤버는 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`도 받는다 |
 | `removeMember`, `leaveBoard` | `DELETE_MEMBER` |
-| `addTeamMember`, `removeTeamMember`, `deleteTeam`, `setBoardTeam`, `removeBoardTeam` | 역할이 바뀐 보드와 사람마다 `DELETE_MEMBER`(역할이 생기거나 오른 때에도): 받은 클라이언트는 보드의 멤버를 다시 읽는다. 사람을 넣고 빼면 그 팀이 걸린 보드마다 그 사람의 것, 팀을 지우면 그 팀이 걸린 보드마다 그 팀의 사람 모두의 것, 보드의 팀 역할을 주고 바꾸고 떼면 그 보드에서 그 팀의 사람 모두의 것이다. 팀이 이미 그 역할이었거나 뗄 역할이 없었으면, 또 팀이 걸린 보드나 팀의 사람이 없으면 아무것도 내지 않는다 |
+| `addTeamMember`, `removeTeamMember`, `deleteTeam`, `setBoardTeam`, `removeBoardTeam` | 역할이 바뀐 보드와 사람마다 `DELETE_MEMBER`(역할이 생기거나 오른 때에도): 받은 클라이언트는 보드의 멤버를 다시 읽는다. 사람을 넣고 빼면 그 팀이 걸린 보드마다 그 사람의 것, 팀을 지우면 그 팀이 걸린 보드마다 그 팀의 사람 모두의 것, 보드의 팀 역할을 주고 바꾸고 떼면 그 보드에서 그 팀의 사람 모두의 것이다. 팀이 이미 그 역할이었거나 뗄 역할이 없었으면, 이미 팀에 있는 사람을 넣거나 팀에 없는 사람을 빼면, 또 팀이 걸린 보드나 팀의 사람이 없으면 아무것도 내지 않는다 |
 | `createCategory`, `updateCategory`, `deleteCategory` | `UPDATE_CATEGORY`. 지운 카테고리는 `deleteAt`이 0이 아니다. `deleteCategory`는 그 보드들을 기본 카테고리로 옮기며 `UPDATE_BOARD_CATEGORY`도 낸다 |
 | `getCategories`와 기본 카테고리를 쓰는 위의 조작 | 사용자에게 기본 카테고리가 아직 없으면 만들면서 `UPDATE_CATEGORY`와 `UPDATE_BOARD_CATEGORY`를 낸다(읽기인 `GET`도) |
 | `reorderCategories` | `REORDER_CATEGORIES` |
@@ -207,7 +207,7 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 
 ### 방에 있는 동안
 
-구성원·역할·보드 공개 범위·조직 관리자 참여·워크스페이스의 사용 여부·팀이 바뀌는 조작은 답하기 전에 해당 방들의 권한을 다시 묻는다. 팀의 조작(`addTeamMember`, `removeTeamMember`, `deleteTeam`, `setBoardTeam`, `removeBoardTeam`)은 그 팀이 걸린 보드들에서 그 팀의 사람만(사람을 넣고 빼면 그 사람만, 보드의 팀 역할을 바꾸면 그 보드에서) 묻고, `undeleteBoard`는 사람과 남은 팀의 역할이 다시 걸린 그 보드를 묻는다. 한 사람의 사실이 바뀐 조작(구성원·역할, 참여)은 그 사람의 연결만(워크스페이스에서 빠지거나 손님이 된 사람이 혼자 관리하던 보드가 그 조작을 한 관리자에게 넘어가면 그 보드에서는 그 관리자도), 보드나 워크스페이스 전체가 바뀐 조작은 모두를 묻고, 같은 보드의 같은 사용자·세션 방식은 여러 카드 방에 있어도 한 번만 묻고, 여럿은 여덟까지 함께 묻는다. 보드 여럿을 한꺼번에 바꾸는 조작(묶음, 가져오기)은 보드마다가 아니라 한 번에 다시 묻는다. 다른 조직의 조작은 기다리지도 다시 묻게 하지도 않는다. 서버는 그와 별개로 설정 `collab_recheck_seconds`(기본 30초)마다 방의 연결마다 들어올 때와 같은 것을 다시 묻는다(같은 사용자가 같은 방식(비밀번호, 어느 공급자)으로 만든 세션의 연결들은 한 번에).
+구성원·역할·보드 공개 범위·조직 관리자 참여·워크스페이스의 사용 여부·팀이 바뀌는 조작은 답하기 전에 해당 방들의 권한을 다시 묻는다. 팀의 조작(`addTeamMember`, `removeTeamMember`, `deleteTeam`, `setBoardTeam`, `removeBoardTeam`)은 그 팀이 걸린 보드들에서 그 팀의 사람만(사람을 넣고 빼면 그 사람만, 보드의 팀 역할을 바꾸면 그 보드에서) 묻고(이미 그 역할이거나 뗄 역할이 없거나, 이미 팀에 있는 사람을 넣거나 팀에 없는 사람을 빼는 조작은 아무도 묻지 않는다), `undeleteBoard`는 사람과 남은 팀의 역할이 다시 걸린 그 보드를 묻는다. 한 사람의 사실이 바뀐 조작(구성원·역할, 참여)은 그 사람의 연결만(워크스페이스에서 빠지거나 손님이 된 사람이 혼자 관리하던 보드가 그 조작을 한 관리자에게 넘어가면 그 보드에서는 그 관리자도), 보드나 워크스페이스 전체가 바뀐 조작은 모두를 묻고, 같은 보드의 같은 사용자·세션 방식은 여러 카드 방에 있어도 한 번만 묻고, 여럿은 여덟까지 함께 묻는다. 보드 여럿을 한꺼번에 바꾸는 조작(묶음, 가져오기)은 보드마다가 아니라 한 번에 다시 묻는다. 다른 조직의 조작은 기다리지도 다시 묻게 하지도 않는다. 서버는 그와 별개로 설정 `collab_recheck_seconds`(기본 30초)마다 방의 연결마다 들어올 때와 같은 것을 다시 묻는다(같은 사용자가 같은 방식(비밀번호, 어느 공급자)으로 만든 세션의 연결들은 한 번에).
 
 - 더 읽을 수 없으면(보드에서 빠졌다, 워크스페이스에서 빠졌다, 카드가 지워졌거나 다른 워크스페이스의 보드로 갔다, 조직이 비밀번호를 받지 않게 됐는데(`ssoRequired`) 연결의 세션이 그 공급자로 만든 것이 아니다) `reason`이 `not_found`인 `DOC_LEFT`로 내보낸다. 물을 수 없었을 때(저장소의 오류, 한 간격 안에 답이 없음)는 2초 뒤에 한 번 더 묻고, 그래도 답이 없으면 그 오류의 `reason`(답이 없었으면 `document_unavailable`)으로 내보낸다: 확인되지 않은 연결은 방에 남지 않는다.
 - 쓰던 연결이 읽을 수만 있게 됐으면 `DOC_MODE`(`read`)를 보내고 그 뒤의 변경은 `DOC_NACK`(`document_read_only`)이다. 반대로 쓸 수 있게 됐으면 `DOC_MODE`(`write`)다.

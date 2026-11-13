@@ -5820,7 +5820,7 @@
     },
     "/api/v1/users/me/memberships": {
       "get": {
-        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nBy the identifier of the board.",
+        "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of, in every organization the session opens: one that takes only\nsessions made through its provider leaves its boards out of another session's list.\nA board the user has a role on only through a team of its workspace is listed too\n(`synthetic`, with the team's role in `inheritedRole`); a guest is in no team. By the\nidentifier of the board.",
         "operationId": "getMyMemberships",
         "responses": {
           "200": {
