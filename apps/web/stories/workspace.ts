@@ -1,0 +1,136 @@
+/** A small, public world using the same memory backend as the application's tests. */
+import { DEFAULT_ACCOUNT_SETTINGS } from '$lib/logic/account-settings.ts';
+import { createBoardView, type Board, type BoardView } from '$lib/logic/wire.ts';
+import { getLocale } from '$lib/i18n/paraglide/runtime.js';
+import { Workspace, BackendError } from '$lib/state/index.ts';
+import { MemoryBackend, memberOf } from '$lib/state/memory/backend.ts';
+import { World } from '$lib/state/memory/world.ts';
+
+import { exampleBlock, exampleCard, STORY_NOW } from './fixtures.ts';
+
+export interface WorkspaceExample {
+  count?: number;
+  kind?: BoardView['fields']['viewType'];
+  readOnly?: boolean;
+  managed?: boolean;
+  cycle?: boolean;
+}
+
+export function exampleWorkspace({
+  count = 8,
+  kind = 'calendar',
+  readOnly = false,
+  managed = false,
+  cycle = false,
+}: WorkspaceExample = {}) {
+  const world = new World(() => STORY_NOW);
+  world.workspace = {
+    id: 'example-workspace',
+    title: 'Example workspace · 예시 작업 공간',
+    role: 'admin',
+  };
+  for (const [index, id] of ['example-reader', 'example-member', 'example-guest'].entries()) {
+    world.users.set(id, {
+      id,
+      username: id,
+      displayName: `Example member ${index + 1} · 예시 구성원`,
+      email: `${id}@example.test`,
+      createAt: STORY_NOW,
+      updateAt: STORY_NOW,
+      deleteAt: 0,
+    });
+  }
+  world.settings.set('example-reader', {
+    ...DEFAULT_ACCOUNT_SETTINGS,
+    timeZone: 'Asia/Seoul',
+    weekStart: 'monday',
+    hourCycle: 'h23',
+  });
+  const board: Board = {
+    id: 'example-board',
+    workspaceId: world.workspace.id,
+    createdBy: 'example-reader',
+    modifiedBy: 'example-reader',
+    type: 'P',
+    minimumRole: 'editor',
+    title: 'Example board with a long name · 이름이 긴 예시 보드',
+    description: '',
+    showDescription: false,
+    isTemplate: false,
+    templateVersion: 0,
+    properties: {},
+    cardProperties: [
+      { id: 'due', name: 'Due · 날짜', type: 'date', options: [] },
+      { id: 'before', name: 'Depends on · 선행 카드', type: 'relation', options: [] },
+      {
+        id: 'status',
+        name: 'Status · 상태',
+        type: 'select',
+        options: [
+          { id: 'todo', value: 'To do · 할 일', color: 'propColorBlue' },
+          { id: 'done', value: 'Done · 완료', color: 'propColorGreen' },
+        ],
+      },
+    ],
+    createAt: STORY_NOW,
+    updateAt: STORY_NOW,
+    deleteAt: 0,
+  };
+  world.boards.set(board.id, board);
+  world.members.set(board.id, [
+    ...(managed ? [] : [memberOf(board.id, 'example-reader', readOnly ? 'viewer' : 'admin')]),
+    memberOf(board.id, 'example-member', 'admin'),
+  ]);
+  const view = createBoardView({
+    ...exampleBlock('example-view', 'view'),
+    title: 'Example view',
+    fields: {
+      viewType: kind,
+      dateDisplayPropertyId: 'due',
+      dependencyPropertyId: 'before',
+      ganttZoom: 'day',
+      groupById: 'status',
+      visiblePropertyIds: ['status', 'due'],
+      visibleOptionIds: ['todo', 'done', ''],
+      hiddenOptionIds: [],
+      cardOrder: Array.from({ length: count }, (_, index) => `example-card-${index + 1}`),
+    },
+  });
+  world.blocks.set(view.id, view);
+  for (let index = 1; index <= count; index += 1) {
+    const card = exampleCard(index);
+    if (index === 1) card.title += ' — Long example / 긴 예시'.repeat(5);
+    card.fields.properties.status = index % 3 === 0 ? 'done' : 'todo';
+    if (index % 5 !== 0) {
+      const day = 10 + (index % 15);
+      card.fields.properties.due = { from: `2026-11-${day}`, to: `2026-11-${day + 2}` };
+    }
+    if (index > 1) card.fields.properties.before = [`example-card-${index - 1}`];
+    if (cycle && index === 1 && count >= 3) card.fields.properties.before = ['example-card-3'];
+    world.blocks.set(card.id, card);
+  }
+  const backend = new MemoryBackend(world, 'example-reader');
+  if (managed) requireMembership(backend);
+  const workspace = new Workspace({ backend, locale: getLocale });
+  return { world, backend, workspace };
+}
+
+/** The memory backend permits content reads by nonmembers; the server does not.
+ * Keep metadata readable for administration, and expose content only after joining. */
+function requireMembership(backend: MemoryBackend): void {
+  const member = (boardId: string): boolean =>
+    backend.world.members.get(boardId)?.some((one) => one.userId === backend.userId) ?? false;
+  const views = backend.views.bind(backend);
+  const cards = backend.cards.bind(backend);
+  const refused = (): BackendError =>
+    new BackendError(404, { detail: 'Example board content unavailable' });
+  backend.views = (boardId: string) =>
+    member(boardId) ? views(boardId) : Promise.reject(refused());
+  backend.cards = (boardId: string) =>
+    member(boardId) ? cards(boardId) : Promise.reject(refused());
+}
+
+export async function loadWorkspace(example: ReturnType<typeof exampleWorkspace>): Promise<void> {
+  await example.workspace.load();
+  await example.workspace.openBoard('example-board');
+}
