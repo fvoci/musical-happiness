@@ -189,3 +189,37 @@ impl LoginOrigin {
                 .is_none_or(|made_for| made_for == subject)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn made_for(subject: Option<&str>) -> LoginOrigin {
+        LoginOrigin {
+            provider_id: "provider".to_owned(),
+            org_id: "org".to_owned(),
+            issuer: "https://one.example".to_owned(),
+            subject: subject.map(str::to_owned),
+        }
+    }
+
+    /// A session is of the identity it was made for, and of no other; one that knows
+    /// no subject is of every identity of its issuer, and of none of another issuer.
+    #[test]
+    fn a_session_is_of_the_identity_it_was_made_for() {
+        let cases = [
+            (Some("first"), "https://one.example", "first", true),
+            (Some("first"), "https://one.example", "second", false),
+            (None, "https://one.example", "second", true),
+            (Some("first"), "https://two.example", "first", false),
+            (None, "https://two.example", "first", false),
+        ];
+        for (subject, issuer, asked, answer) in cases {
+            assert_eq!(
+                made_for(subject).is_of_identity(issuer, asked),
+                answer,
+                "made for {subject:?}, asked of {asked} at {issuer}"
+            );
+        }
+    }
+}

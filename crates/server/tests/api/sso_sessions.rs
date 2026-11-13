@@ -143,14 +143,25 @@ async fn unlinking_one_identity_of_an_issuer_leaves_the_session_of_the_other() {
     let first = admin_through_provider(&ts, &fake, &org_id).await;
     tie(&ts, &ts.client, &fake, "another-subject-of-user1").await;
     let second = through_provider(&ts, &fake, &org_id, "another-subject-of-user1").await;
-    let mut made: Vec<(String, bool)> = identities(&second)
-        .await
-        .into_iter()
-        .map(|identity| (identity.subject, identity.made_this_session))
-        .collect();
-    made.sort();
+    // Sorted by subject: the two may be tied within one millisecond.
+    let made = async |client: &Client| {
+        let mut made: Vec<(String, bool)> = identities(client)
+            .await
+            .into_iter()
+            .map(|identity| (identity.subject, identity.made_this_session))
+            .collect();
+        made.sort();
+        made
+    };
     assert_eq!(
-        made,
+        made(&first).await,
+        [
+            ("another-subject-of-user1".to_owned(), false),
+            (ADMIN_SUBJECT.to_owned(), true),
+        ]
+    );
+    assert_eq!(
+        made(&second).await,
         [
             ("another-subject-of-user1".to_owned(), true),
             (ADMIN_SUBJECT.to_owned(), false),
