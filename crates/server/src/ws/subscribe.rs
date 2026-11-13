@@ -69,9 +69,15 @@ impl Hub {
     /// sessions made through the provider `provider_id`: those that follow one of its
     /// workspaces, `workspace_ids`, with a session made otherwise (`shuts_out`). For
     /// after that is stored. A subscription being checked meanwhile is checked again
-    /// (the wall is counted as taken back from everyone), against access read anew.
+    /// (the wall is counted as taken back in each of the workspaces), against access
+    /// read anew.
     pub fn close_sessions_closed_out(&self, workspace_ids: &[String], provider_id: &str) {
-        self.listeners().revoked.everyone();
+        {
+            let mut listeners = self.listeners();
+            for workspace_id in workspace_ids {
+                listeners.revoked.workspace(workspace_id);
+            }
+        }
         self.close_where(Disconnect::SsoRequired, |listener| {
             shuts_out(listener, workspace_ids, provider_id)
         });

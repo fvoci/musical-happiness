@@ -2,75 +2,9 @@
 //! stopping them following a workspace their user is no member of any more, or one in
 //! the trash.
 
-use std::collections::HashMap;
-
 use crate::metrics::Disconnect;
 
 use super::{Hub, Listener, ListenerId, Listeners};
-
-/// Counts of what was taken back, kept so that a subscription checked meanwhile is
-/// checked again when, and only when, something that concerns it was: another user's
-/// logout does not overtake it.
-#[derive(Debug, Default)]
-pub(super) struct Revocations {
-    /// What may end anybody's access: an organization beginning to take no password.
-    everyone: u64,
-    /// What ended a user's access somewhere, or closed a connection of theirs.
-    users: HashMap<String, u64>,
-    /// A workspace that went to the trash.
-    workspaces: HashMap<String, u64>,
-    /// A board's read token that stopped opening it.
-    links: u64,
-}
-
-/// What a check saw of [`Revocations`]: equal again as it registers, nothing that
-/// concerns it was taken back meanwhile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Seen(u64, u64, u64);
-
-impl Revocations {
-    /// What concerns `user_id` following `workspace_id`.
-    pub(super) fn of_workspace(&self, user_id: &str, workspace_id: &str) -> Seen {
-        Seen(
-            self.everyone,
-            self.users.get(user_id).copied().unwrap_or_default(),
-            self.workspaces
-                .get(workspace_id)
-                .copied()
-                .unwrap_or_default(),
-        )
-    }
-
-    /// What concerns a connection of `user_id` (empty without a session) following
-    /// blocks by a read token.
-    pub(super) fn of_links(&self, user_id: &str) -> Seen {
-        Seen(
-            self.everyone,
-            self.users.get(user_id).copied().unwrap_or_default(),
-            self.links,
-        )
-    }
-
-    pub(super) fn everyone(&mut self) {
-        self.everyone = self.everyone.wrapping_add(1);
-    }
-
-    fn user(&mut self, user_id: &str) {
-        if !user_id.is_empty() {
-            let count = self.users.entry(user_id.to_owned()).or_default();
-            *count = count.wrapping_add(1);
-        }
-    }
-
-    fn workspace(&mut self, workspace_id: &str) {
-        let count = self.workspaces.entry(workspace_id.to_owned()).or_default();
-        *count = count.wrapping_add(1);
-    }
-
-    fn links(&mut self) {
-        self.links = self.links.wrapping_add(1);
-    }
-}
 
 impl Hub {
     /// Closes every connection of the user. For when the user's sessions are ended: a
@@ -87,7 +21,7 @@ impl Hub {
     /// anew under another token, or the board is deleted. A reader with the new link
     /// connects again.
     pub fn close_readers_of_board(&self, board_id: &str) {
-        self.listeners().revoked.links();
+        self.listeners().revoked.board(board_id);
         self.close_where(Disconnect::ShareEnded, |listener| {
             listener
                 .shared_boards

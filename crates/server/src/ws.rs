@@ -223,7 +223,7 @@ impl std::fmt::Debug for ReadPermit {
 struct Listeners {
     next_id: ListenerId,
     /// What was taken back, for the subscriptions being checked (`closing.rs`).
-    revoked: closing::Revocations,
+    revoked: revocations::Revocations,
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
@@ -879,6 +879,7 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
 }
 
 mod closing;
+mod revocations;
 mod subscribe;
 
 /// Ports of `server/ws/server_test.go`, on the listener table.

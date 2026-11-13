@@ -83,6 +83,7 @@ mod visibility;
 mod websocket;
 mod websocket_access;
 mod websocket_documents;
+mod websocket_organizations;
 mod workspace_admin;
 mod workspace_members;
 mod workspace_removal;

@@ -76,13 +76,7 @@ impl Hub {
     async fn subscribe_blocks(&self, id: ListenerId, command: &Command) {
         let mut validated = false;
         for _ in 0..CHECKED_AT_MOST {
-            let seen = {
-                let listeners = self.listeners();
-                let Some(listener) = listeners.by_id.get(&id) else {
-                    return;
-                };
-                listeners.revoked.of_links(&listener.user_id)
-            };
+            let since = self.listeners().revoked.now();
             let board_id = match self.board_of_read_token(command).await {
                 Ok(Some(board_id)) => board_id,
                 Ok(None) => {
@@ -110,8 +104,9 @@ impl Hub {
             else {
                 return;
             };
-            // A link taken back meanwhile, or this user's access: checked again.
-            if listeners.revoked.of_links(&user_id) != seen {
+            // This board's link taken back meanwhile, or this user's access: checked
+            // again.
+            if listeners.revoked.of_board_since(&user_id, &board_id, since) {
                 continue;
             }
             subscribe_to_blocks(&mut listeners, id, &command.block_ids);
@@ -139,7 +134,7 @@ impl Hub {
     async fn subscribe_workspace(&self, id: ListenerId, user_id: &str, workspace: &str) {
         let mut validated_role = None;
         for _ in 0..CHECKED_AT_MOST {
-            let seen = self.listeners().revoked.of_workspace(user_id, workspace);
+            let since = self.listeners().revoked.now();
             let role = match self.opened_role(id, user_id, workspace).await {
                 Ok(role) => role,
                 Err(NotOpened::Ended(ended)) => {
@@ -167,7 +162,10 @@ impl Hub {
                 return;
             }
             // What concerns this user or this workspace taken back meanwhile.
-            if listeners.revoked.of_workspace(user_id, workspace) != seen {
+            if listeners
+                .revoked
+                .of_workspace_since(user_id, workspace, since)
+            {
                 continue;
             }
             subscribe_to_workspace(&mut listeners, id, workspace);
