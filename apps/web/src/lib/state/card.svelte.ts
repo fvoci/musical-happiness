@@ -26,22 +26,10 @@ import {
   type Comment,
 } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
+import { afterPutOut, type CommentEdit, type Upload } from './card-parts.ts';
 import { byCreation } from './order.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
-
-/** How a change of a comment ended: stored, refused for a newer version, or failed (and told). */
-export type CommentEdit = 'saved' | 'conflict' | 'failed';
-
-export interface Upload {
-  id: number;
-  name: string;
-  sentBytes: number;
-  totalBytes: number;
-  failed: boolean;
-  /** Gives the upload up. */
-  cancel: () => void;
-}
 
 /** How long the line at the top of the card says "saving" after the server had it all. */
 export const SAVING_SHOWN = 600;
@@ -92,10 +80,13 @@ export class CardStore {
   #savingShown: ReturnType<typeof setTimeout> | undefined;
   #uploadCount = 0;
   #closed = false;
+  /** Has the board read again: a card gone for the reader may take its board along. */
+  readonly #readBoardAgain: () => void;
 
-  constructor(board: BoardStore, cardId: string) {
+  constructor(board: BoardStore, cardId: string, readBoardAgain: () => void) {
     this.board = board;
     this.cardId = cardId;
+    this.#readBoardAgain = readBoardAgain;
   }
 
   get #backend(): BoardStore['workspace']['backend'] {
@@ -155,7 +146,8 @@ export class CardStore {
       state: (state) => {
         if (this.#bodyDoc !== opened) return;
         const shut = state.status === 'out' && state.reason === 'not_found';
-        if (shut && this.room?.reason !== 'not_found') void this.#stillThere(opened);
+        const wasIn = this.room?.status === 'joined' || this.room?.status === 'receiving';
+        if (shut && this.room?.reason !== 'not_found') void this.#stillThere(opened, wasIn);
         this.room = state;
         this.#showSaving(state.pending);
         // Without the room's document the body is the card's again: read what was missed.
@@ -170,22 +162,21 @@ export class CardStore {
   }
 
   /**
-   * The room let the reader go as it does for a card that is not there: the
-   * card was deleted, or is no longer the reader's to read (taken off its
-   * board, out of its workspace). The card says which, and the board is read
-   * again: one that is gone for the reader takes the card's window with it.
+   * The room let the reader go as it does for a card that is not there. The
+   * card says why (`afterPutOut`). Gone for the reader, it is missing, and the
+   * board is read again: one that is gone for them takes the card's window
+   * along. Still there (restored before the room told), a room the reader was
+   * in is joined again; one that refused them is not asked again.
    */
-  async #stillThere(opened: BodyDoc): Promise<void> {
-    try {
-      await this.#backend.card(this.#boardId, this.cardId);
-    } catch (error) {
-      // Of a room that is still this card's: not one left meanwhile, or of the card restored.
-      if (this.#bodyDoc !== opened || !isBackendError(error)) return;
-      if (error.status === 401) this.board.workspace.report('load', error);
-      if (error.status !== 403 && error.status !== 404) return;
-      this.missing = true;
-      void this.board.refresh();
-    }
+  async #stillThere(opened: BodyDoc, wasIn: boolean): Promise<void> {
+    const read = await afterPutOut(() => this.#backend.card(this.#boardId, this.cardId));
+    // Of a room that is still this card's: not one left meanwhile, or of the card restored.
+    if (this.#bodyDoc !== opened) return;
+    if (read.found === 'there' && wasIn) opened.retry();
+    if (read.found === 'ended') this.board.workspace.report('load', read.error);
+    if (read.found !== 'gone') return;
+    this.missing = true;
+    this.#readBoardAgain();
   }
 
   #showSaving(pending: boolean): void {

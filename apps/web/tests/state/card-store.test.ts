@@ -134,10 +134,11 @@ describe('an open card', () => {
   });
 
   it('is missing when its room lets the reader go and the card is no longer theirs to read', async () => {
-    const { card, board, backend, takenOff } = await inTheRoom();
+    const { card, backend, takenOff } = await inTheRoom();
     // Read again, the card is not there for the reader any more, as the server answers.
     const read = vi.spyOn(backend, 'card');
-    const boardRead = vi.spyOn(board, 'refresh');
+    // The board is read again: its views are read with it, and by nothing else here.
+    const boardRead = vi.spyOn(backend, 'views');
     await takenOff();
     await vi.waitFor(() => {
       expect(card.missing).toBe(true);
@@ -150,18 +151,40 @@ describe('an open card', () => {
     card.close();
   });
 
-  it('stays when its room lets the reader go but the card can still be read', async () => {
+  it('asks its room once more when the room lets the reader go but the card can still be read', async () => {
     const { card, board, cardId, backend, takenOff } = await inTheRoom();
-    // A card that is still read (moved meanwhile, or let in again) is not called gone.
+    // A card that is still read is not called gone; its room, which refuses them now, is not asked again.
     const detail = await backend.card(board.boardId, cardId);
     const read = vi.spyOn(backend, 'card').mockResolvedValue(detail);
     await takenOff();
     await vi.waitFor(() => {
-      expect(read).toHaveBeenCalledWith(board.boardId, cardId);
+      expect(read).toHaveBeenCalledOnce();
     });
     await settle();
+    // Refused again, the room is not asked a third time, nor the card read again.
+    expect(read).toHaveBeenCalledOnce();
     expect(card.missing).toBe(false);
+    expect(card.room?.status).toBe('out');
     expect(card.room?.reason).toBe('not_found');
+    card.close();
+  });
+
+  it("joins its room again when the card is the reader's again before the room told them", async () => {
+    const { card, board, cardId, backend, other, takenOff } = await inTheRoom();
+    const me = board.workspace.me?.id ?? '';
+    const detail = await backend.card(board.boardId, cardId);
+    // Restored (here: let back onto the board) between the room letting them go and the card read.
+    const read = vi.spyOn(backend, 'card').mockImplementationOnce(async () => {
+      await other.addMember(board.boardId, me, 'editor');
+      return detail;
+    });
+    await takenOff();
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalledOnce();
+      expect(card.room?.status).toBe('joined');
+    });
+    expect(card.missing).toBe(false);
+    expect(card.room?.writable).toBe(true);
     card.close();
   });
 
