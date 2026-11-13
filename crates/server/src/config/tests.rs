@@ -334,6 +334,8 @@ fn check_rejects_what_the_server_cannot_honor() {
         "max_concurrent_exports",
         "max_concurrent_imports",
         "export_stall_seconds",
+        "public_link_connections_per_board",
+        "public_link_connections_per_address",
     ] {
         assert!(
             error(&format!(r#"{{"{key}": 0}}"#)).contains(key),

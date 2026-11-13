@@ -77,6 +77,14 @@ pub(super) struct State {
 }
 
 impl State {
+    /// Whether the visit is renewed within its lease: a lapsed one is on no roster.
+    pub(super) fn is_current(&self) -> bool {
+        self.visit.is_some()
+            && self
+                .renewed
+                .is_some_and(|renewed| renewed.elapsed() < LEASE)
+    }
+
     pub(super) fn reads_shared_board(&self, board_id: &str) -> bool {
         self.visit
             .as_ref()

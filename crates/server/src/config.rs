@@ -845,8 +845,9 @@ impl Configuration {
         let mut warnings = Vec::new();
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
-        // which address that is, all clients are one client to the login limits: one
-        // that guesses holds everybody up.
+        // which address that is, all clients are one client to the login limits (one
+        // that guesses holds everybody up) and to the readers of a public link (one
+        // address's share of a board is all a board takes).
         if self.server_root.starts_with("https://")
             && !self.use_ssl
             && self.trusted_proxies.is_empty()
@@ -854,7 +855,8 @@ impl Configuration {
             warnings.push(
                 "serverRoot is https but the server does not end TLS itself (usessl is off) and \
                  trusted_proxies is empty: behind a reverse proxy every client is seen at the \
-                 proxy's address, and the login limits then count all clients as one; set \
+                 proxy's address, and the login limits and the readers of a public link \
+                 (public_link_connections_per_address) then count all clients as one; set \
                  trusted_proxies to the proxy's addresses"
                     .to_owned(),
             );

@@ -111,7 +111,7 @@
 | 조직이 비밀번호를 받지 않게 됨(`ssoRequired`) | 그 조직의 워크스페이스를 그 공급자로 만들지 않은 세션으로 구독하던 것(`sso required`). 조직의 워크스페이스를 읽지 못하면 그런 세션의 워크스페이스 구독 모두 |
 | 공유를 끄거나 새 토큰을 내거나 보드·워크스페이스를 휴지통에 넣거나 조직의 공개 링크를 끔 | 그 보드의 옛 읽기 토큰으로 따라가던 블록(`UNSUBSCRIBED_BLOCKS`, `public link access ended`) |
 | 보낼 때의 검사가 권한이 끝났거나 역할이 바뀌었거나 세션이 그 조직을 열지 못함을 봄(앞의 알림이 없던 회수) | 그 연결의 그 구독(같은 알림) |
-| 공개 링크로 그 보드를 읽는 연결이 이미 `public_link_connections_per_board`(기본 200)개, 또는 그 가운데 같은 주소(IPv6는 /64)의 것이 `public_link_connections_per_address`(기본 10)개 | 새로 오는 그 연결의 블록 구독을 받지 않는다(`UNSUBSCRIBED_BLOCKS`, `public link connections full`. `docs/configuration.md`). 읽기 토큰으로 블록을 따라가거나 방문(7절)하는 연결을 하나로 세고, 이미 읽는 연결과 구성원이 보통으로 여는 연결은 세지도 막지도 않는다 |
+| 공개 링크로 그 보드를 읽는 연결이 이미 `public_link_connections_per_board`(기본 200)개, 또는 그 가운데 같은 주소(IPv6는 /64)의 것이 `public_link_connections_per_address`(기본 10)개 | 새로 오는 그 연결의 블록 구독을 받지 않는다(`UNSUBSCRIBED_BLOCKS`, `public link connections full`. `docs/configuration.md`). 읽기 토큰으로 블록을 따라가거나 방문(7절)하는 연결을 하나로 센다. 이미 읽는 연결은 막지 않고, 구성원이 보통으로 여는 연결(읽기 토큰 없이)은 세지도 막지도 않는다. 받지 않은 구독은 다시 보내지 않으면 그대로이고, 방문은 30초마다의 갱신에 자리가 있으면 받는다 |
 
 ### 서버가 연결을 닫을 때
 

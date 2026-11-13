@@ -11,9 +11,11 @@ pub(super) fn add_listener_from(
     address: Option<AddressKey>,
 ) -> ListenerId {
     let (id, _) = add_listener_reading(listeners, user_id);
-    if let Some(listener) = listeners.by_id.get_mut(&id) {
-        listener.address = address;
-    }
+    listeners
+        .by_id
+        .get_mut(&id)
+        .expect("the listener was just added")
+        .address = address;
     id
 }
 

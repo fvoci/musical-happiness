@@ -34,12 +34,13 @@ fn as_count(setting: u32) -> usize {
 }
 
 impl Listener {
-    /// Whether the connection reads `board_id` by its public link.
+    /// Whether the connection reads `board_id` by its public link: a visit whose
+    /// lease lapsed counts no more, as it is on no roster.
     fn reads_by_link(&self, board_id: &str) -> bool {
         self.shared_boards
             .iter()
             .any(|permit| permit.board == board_id)
-            || self.presence.reads_shared_board(board_id)
+            || (self.presence.reads_shared_board(board_id) && self.presence.is_current())
     }
 }
 
@@ -99,7 +100,7 @@ mod tests {
     fn read(listeners: &mut Listeners, id: ListenerId, board_id: &str) {
         assert!(listeners.admits_reader(id, board_id, LIMITS));
         let listener = listeners.by_id.get_mut(&id).expect("the listener");
-        listener.shared_boards.push(super::super::ReadPermit {
+        listener.shared_boards.push(crate::ws::ReadPermit {
             board: board_id.to_owned(),
             token: String::new(),
             workspace: String::new(),
