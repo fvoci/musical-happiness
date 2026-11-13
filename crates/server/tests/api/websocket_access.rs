@@ -764,3 +764,46 @@ async fn a_role_change_asks_another_organizations_workspace_anew() {
     closed(&mut socket).await;
     ts.teardown().await;
 }
+
+/// A subscription checked again as often as access is taken back elsewhere is given
+/// up after a bound, and the page is told to connect again (1013), not that its
+/// access ended.
+#[tokio::test]
+async fn a_subscription_checked_too_often_is_given_up_as_retryable() {
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let mut socket = ts.client.connect_websocket().await;
+    let mut pause = subscribe(
+        &ts,
+        &mut socket,
+        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
+        Moment::Validated,
+    )
+    .await
+    .expect("the first check is paused");
+    // Eight checks in all, each overtaken by somebody else's access being taken back.
+    for _ in 1..8 {
+        let next = ts.app.ws().pause_next_subscription();
+        ts.app.ws().close_user(&new_id());
+        pause.resume();
+        tokio::time::timeout(WAIT, next.reached())
+            .await
+            .expect("the subscription is checked again");
+        pause = next;
+    }
+    ts.app.ws().close_user(&new_id());
+    pause.resume();
+    let frame = tokio::time::timeout(WAIT, async {
+        while let Some(message) = socket.next().await {
+            if let Message::Close(frame) = message.expect("the close is a protocol frame") {
+                return frame;
+            }
+        }
+        None
+    })
+    .await
+    .expect("the connection is closed");
+    let frame = frame.expect("the page is told why");
+    assert_eq!(u16::from(frame.code), 1013, "a retryable close");
+    assert_eq!(frame.reason.as_str(), "try again");
+    ts.teardown().await;
+}

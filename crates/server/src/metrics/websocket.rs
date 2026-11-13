@@ -25,6 +25,9 @@ pub(crate) enum Disconnect {
     /// An organization of its user began to take only sessions made through its
     /// provider, and its session was not.
     SsoRequired,
+    /// What it may be told could not be read of the store: it connects again and
+    /// reads anew, rather than miss what it was not sent.
+    StoreUnavailable,
     /// It did not read its messages as fast as they came.
     SlowConsumer,
     /// The server stopped. Counted as it stops, after the metrics listener closed, so a
@@ -33,13 +36,14 @@ pub(crate) enum Disconnect {
 }
 
 impl Disconnect {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::ClientClosed,
         Self::ReadError,
         Self::SessionEnded,
         Self::ShareEnded,
         Self::AccessEnded,
         Self::SsoRequired,
+        Self::StoreUnavailable,
         Self::SlowConsumer,
         Self::Shutdown,
     ];
@@ -53,6 +57,7 @@ impl Disconnect {
             Self::ShareEnded => "share_ended",
             Self::AccessEnded => "access_ended",
             Self::SsoRequired => "sso_required",
+            Self::StoreUnavailable => "store_unavailable",
             Self::SlowConsumer => "slow_consumer",
             Self::Shutdown => "shutdown",
         }
@@ -93,8 +98,9 @@ impl WebsocketMetrics {
                 "websocket_disconnections_total",
                 "How many websocket connections ended, by reason: client_closed (a close \
                  frame), read_error (broken off, or no websocket frame), session_ended, \
-                 share_ended, access_ended, slow_consumer, shutdown (not seen: counted as the server \
-                 stops).",
+                 share_ended, access_ended, sso_required, store_unavailable (what it may be \
+                 told could not be read; it connects again), slow_consumer, shutdown (not \
+                 seen: counted as the server stops).",
             )
             .namespace(PREFIX),
             &["reason"],

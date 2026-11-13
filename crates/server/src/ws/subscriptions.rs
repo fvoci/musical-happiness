@@ -31,7 +31,7 @@ impl Hub {
                 return true;
             }
             "UNSUBSCRIBE_BLOCKS" => {
-                if self.board_of_read_token(&command).await.is_some() {
+                if let Ok(Some(_)) = self.board_of_read_token(&command).await {
                     unsubscribe_from_blocks(&mut self.listeners(), id, &command.block_ids);
                 }
                 return true;
@@ -72,11 +72,19 @@ impl Hub {
         let mut validated = false;
         for _ in 0..CHECKED_AT_MOST {
             let revision = self.listeners().revision;
-            let Some(board_id) = self.board_of_read_token(command).await else {
-                if validated {
-                    self.close_listener(id, Disconnect::ShareEnded);
+            let board_id = match self.board_of_read_token(command).await {
+                Ok(Some(board_id)) => board_id,
+                Ok(None) => {
+                    if validated {
+                        self.close_listener(id, Disconnect::ShareEnded);
+                    }
+                    return;
                 }
-                return;
+                // The page believes it follows the blocks: it connects again.
+                Err(()) => {
+                    self.close_unread(&[id]);
+                    return;
+                }
             };
             validated = true;
             #[cfg(feature = "test-util")]
@@ -105,6 +113,8 @@ impl Hub {
             workspace_id = %command.workspace_id,
             "websocket: a block subscription was given up"
         );
+        // The page believes it follows the blocks: it connects again, later.
+        self.close_unread(&[id]);
     }
 
     async fn subscribe_workspace(&self, id: ListenerId, user_id: &str, workspace: &str) {
@@ -119,9 +129,12 @@ impl Hub {
                     }
                     return;
                 }
-                // Not subscribed, and not closed: access that cannot be read has not
-                // ended. The page subscribes again when it connects again.
-                Err(Refusal::Unreadable) => return,
+                // Access that cannot be read has not ended, but the page believes it
+                // follows the workspace: it connects again and subscribes anew.
+                Err(Refusal::Unreadable) => {
+                    self.close_unread(&[id]);
+                    return;
+                }
             };
             if validated_role.is_some_and(|previous| previous != role) {
                 self.close_listener(id, Disconnect::AccessEnded);
@@ -145,6 +158,8 @@ impl Hub {
             user_id,
             "websocket: a workspace subscription was given up"
         );
+        // The page believes it follows the workspace: it connects again, later.
+        self.close_unread(&[id]);
     }
 
     /// What the connection's user is in the workspace, if they are a member of it and
@@ -180,36 +195,37 @@ impl Hub {
     }
 
     /// A block subscription needs a workspace, blocks that all belong to one board, and that
-    /// board's read token. Returns the board, or `None` if the subscription is refused.
-    async fn board_of_read_token(&self, command: &Command) -> Option<String> {
+    /// board's read token. Returns the board, `None` if the subscription is refused,
+    /// and `Err` (logged) if the store could not be asked.
+    async fn board_of_read_token(&self, command: &Command) -> Result<Option<String>, ()> {
         if command.workspace_id.is_empty() {
-            return None;
+            return Ok(None);
         }
+        let unread = |error: &dyn std::fmt::Display| {
+            tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
+        };
         let mut board_id = String::new();
         for block_id in &command.block_ids {
             let of_block = self
                 .audience
                 .board_of_shared_block(&command.workspace_id, block_id, &command.read_token)
                 .await
-                .ok()??;
+                .map_err(|error| unread(&error))?;
+            let Some(of_block) = of_block else {
+                return Ok(None);
+            };
             if board_id.is_empty() {
                 board_id = of_block;
             } else if board_id != of_block {
-                return None;
+                return Ok(None);
             }
         }
-        match self
+        let valid = self
             .inner
             .auth
             .is_valid_read_token(&board_id, &command.read_token)
             .await
-        {
-            Ok(true) => Some(board_id),
-            Ok(false) => None,
-            Err(error) => {
-                tracing::error!(%error, workspace_id = %command.workspace_id, "websocket: checking a read token failed");
-                None
-            }
-        }
+            .map_err(|error| unread(&error))?;
+        Ok(valid.then_some(board_id))
     }
 }

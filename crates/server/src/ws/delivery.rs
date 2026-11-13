@@ -65,6 +65,7 @@ impl Hub {
                 Ok(people) => people,
                 Err(error) => {
                     tracing::error!(%error, board_id = %block.board_id, "websocket: cannot redact public block");
+                    self.close_unread(&authorized);
                     return;
                 }
             };
@@ -87,12 +88,22 @@ impl Hub {
         }
     }
 
+    /// Closes connections that a change could not be checked for, as retryable
+    /// (`StoreUnavailable`): a page connects again and reads anew, rather than miss
+    /// the change unknowingly. Their access did not end.
+    pub(super) fn close_unread(&self, ids: &[ListenerId]) {
+        for id in ids {
+            self.close_listener(*id, Disconnect::StoreUnavailable);
+        }
+    }
+
     async fn authorized(&self, ids: &[ListenerId], access: Access<'_>) -> Vec<ListenerId> {
         let members = match access {
             Access::Members { board, .. } => match self.audience.members(board).await {
                 Ok(members) => members,
                 Err(error) => {
                     tracing::error!(%error, board_id = board, "websocket: cannot read dispatch membership");
+                    self.close_unread(ids);
                     return Vec::new();
                 }
             },
@@ -147,9 +158,10 @@ impl Hub {
                     self.close_listener(id, Disconnect::ShareEnded);
                     false
                 }
-                // Not told this change, and not closed: the link may still open.
+                // The link may still open: not "ended", but not to miss the change.
                 Err(error) => {
                     tracing::error!(%error, board_id = %permit.board, "websocket: reading a board's sharing failed");
+                    self.close_unread(&[id]);
                     false
                 }
             };
@@ -164,10 +176,11 @@ impl Hub {
                 self.close_listener(id, Disconnect::AccessEnded);
                 return false;
             }
-            // Not told this change, and not closed: access that cannot be read has
-            // not ended.
+            // Access that cannot be read has not ended, but the change is not to be
+            // missed either.
             Err(error) => {
                 tracing::error!(%error, workspace_id = workspace, "websocket: reading a workspace's membership failed");
+                self.close_unread(&[id]);
                 return false;
             }
         };

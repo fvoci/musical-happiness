@@ -113,9 +113,11 @@ impl Hub {
                 .await
             {
                 Ok(access) => access.map(|access| access.workspace_role),
-                // Left as it is: each change sent to it asks again.
+                // Not known to have ended: closed as retryable, so the page asks
+                // again as it connects.
                 Err(error) => {
                     tracing::error!(%error, %workspace_id, "websocket: reading a workspace's membership failed");
+                    self.close_unread(&[id]);
                     continue;
                 }
             };

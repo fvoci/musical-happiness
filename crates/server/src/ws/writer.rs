@@ -80,17 +80,18 @@ async fn write<S: Sink<Message> + Unpin>(
             result = sink.send(message) => if result.is_err() { return; },
         }
     }
-    let reason = match closed_because.get() {
-        Some(Disconnect::AccessEnded) => Some("workspace access ended"),
-        Some(Disconnect::ShareEnded) => Some("public link access ended"),
-        Some(Disconnect::SessionEnded) => Some("session ended"),
-        Some(Disconnect::SsoRequired) => Some("sso required"),
+    let frame = match closed_because.get() {
+        Some(Disconnect::AccessEnded) => Some((close_code::POLICY, "workspace access ended")),
+        Some(Disconnect::ShareEnded) => Some((close_code::POLICY, "public link access ended")),
+        Some(Disconnect::SessionEnded) => Some((close_code::POLICY, "session ended")),
+        Some(Disconnect::SsoRequired) => Some((close_code::POLICY, "sso required")),
+        Some(Disconnect::StoreUnavailable) => Some((close_code::AGAIN, "try again")),
         _ => None,
     };
-    if let Some(reason) = reason {
+    if let Some((code, reason)) = frame {
         let _ = sink
             .send(Message::Close(Some(CloseFrame {
-                code: close_code::POLICY,
+                code,
                 reason: reason.into(),
             })))
             .await;
