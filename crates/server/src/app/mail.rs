@@ -31,6 +31,8 @@ const INVITATION_CONNECTIONS: usize = CONNECTIONS - 1;
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The waits before the second and the third attempt, when the way did not say.
 const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(4)];
+/// What a mail semaphore's acquire expects: none is ever closed.
+const CLOSED: &str = "the mail semaphores are never closed";
 /// The longest a message waits for another attempt: a way that asks for longer has its
 /// message given up then, rather than asked again before it said.
 const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(1);
@@ -278,8 +280,19 @@ impl Queued {
         let mut message = None;
         let mut waits = RETRY_DELAYS.into_iter();
         for attempt in 1.. {
+            // The organization's own sending first: it keeps waiting only that
+            // organization's messages, and a message that has its turn has its sending.
+            let org_sending = match &self.org {
+                Some(org) => Some(
+                    Arc::clone(&org.sending)
+                        .acquire_owned()
+                        .await
+                        .expect(CLOSED),
+                ),
+                None => None,
+            };
             mailer.pace.turn(kind).await;
-            let sending = mailer.sending(kind, self.org.as_ref()).await;
+            let sending = mailer.sending(kind, org_sending).await;
             if let Some(write) = write.take() {
                 let Some(letter) = write().await? else {
                     return Ok(());
@@ -342,33 +355,23 @@ struct Sending {
 }
 
 impl Mailer {
-    /// Waits for a sending a message of `kind`, of the organization's share `org` if it
-    /// is an invitation, may use.
-    async fn sending(&self, kind: MailKind, org: Option<&share::OrgPlace>) -> Sending {
-        let closed = "the mail semaphores are never closed";
-        let org = match org {
-            Some(org) => Some(
-                Arc::clone(&org.sending)
-                    .acquire_owned()
-                    .await
-                    .expect(closed),
-            ),
-            None => None,
-        };
+    /// Waits for a sending a message of `kind` may use, beside its organization's `org`
+    /// that an invitation already holds.
+    async fn sending(&self, kind: MailKind, org: Option<OwnedSemaphorePermit>) -> Sending {
         let invitations = match kind {
             MailKind::PasswordReset => None,
             MailKind::Invitation => Some(
                 Arc::clone(&self.invitation_connections)
                     .acquire_owned()
                     .await
-                    .expect(closed),
+                    .expect(CLOSED),
             ),
         };
         Sending {
             _connection: Arc::clone(&self.connections)
                 .acquire_owned()
                 .await
-                .expect(closed),
+                .expect(CLOSED),
             _invitations: invitations,
             _org: org,
         }

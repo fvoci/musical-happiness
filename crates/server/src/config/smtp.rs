@@ -140,25 +140,40 @@ impl SmtpSettings {
         if self.smtp_port == 0 {
             bail!("smtp_port must be 1 to 65535");
         }
-        if self.mail_per_second == 0
-            || self.mail_reset_queue == 0
-            || self.mail_reset_per_account_hour == 0
-            || self.invitation_mail_recipients == 0
-        {
+        for (key, value) in [
+            ("mail_per_second", self.mail_per_second),
+            ("mail_reset_queue", self.mail_reset_queue),
+            (
+                "mail_reset_per_account_hour",
+                self.mail_reset_per_account_hour,
+            ),
+            (
+                "invitation_mail_recipients",
+                self.invitation_mail_recipients,
+            ),
+        ] {
+            if value == 0 {
+                bail!("{key} must be at least 1");
+            }
+        }
+        let recipients = self.invitation_mail_recipients;
+        if recipients > self.mail_invitation_queue / 2 {
             bail!(
-                "mail_per_second, mail_reset_queue, mail_reset_per_account_hour and \
-                 invitation_mail_recipients must be at least 1"
+                "mail_invitation_queue ({}) must be at least twice invitation_mail_recipients \
+                 ({recipients}): one organization holds half of it, and half must hold a request",
+                self.mail_invitation_queue
             );
         }
-        if self.invitation_mail_recipients > self.mail_invitation_queue / 2
-            || self.invitation_mail_recipients > self.invitation_mail_per_hour
-            || self.invitation_mail_recipients > self.invitation_mail_per_org_hour
-        {
-            bail!(
-                "half of mail_invitation_queue (what one organization may hold), \
-                 invitation_mail_per_hour and invitation_mail_per_org_hour must each be at \
-                 least invitation_mail_recipients"
-            );
+        for (key, limit) in [
+            ("invitation_mail_per_hour", self.invitation_mail_per_hour),
+            (
+                "invitation_mail_per_org_hour",
+                self.invitation_mail_per_org_hour,
+            ),
+        ] {
+            if recipients > limit {
+                bail!("{key} ({limit}) must be at least invitation_mail_recipients ({recipients})");
+            }
         }
         if self.smtp_user.is_empty() != self.smtp_password.is_empty() {
             bail!("smtp_user and smtp_password must be supplied together");

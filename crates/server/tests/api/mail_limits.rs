@@ -36,7 +36,7 @@ fn mail_path() -> String {
 }
 
 #[tokio::test]
-async fn invitations_never_take_the_last_connection_from_recovery() {
+async fn one_organizations_invitations_take_two_sendings_and_leave_recovery_its_own() {
     let smtp = FakeSmtp::start_on(0).await;
     smtp.hold("@held.test");
     let th = Setup::native()
@@ -411,16 +411,15 @@ async fn an_organization_waits_once_its_workspaces_queued_its_hourly_invitation_
 
 #[tokio::test]
 async fn one_organization_filling_its_half_leaves_another_organizations_invitations_going() {
-    // Several organizations are a PostgreSQL deployment; SQLite refuses that mode.
-    if fvoci_store::testing::db_type_of_the_tests() != fvoci_store::DbType::Postgres {
-        return;
-    }
+    let several = fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres;
     let smtp = FakeSmtp::start_on(0).await;
     smtp.hold("@held.test");
     let th = Setup::native()
         .smtp(smtp.settings())
         .configure(|config| {
-            "open".clone_into(&mut config.org_creation);
+            if fvoci_store::testing::db_type_of_the_tests() == fvoci_store::DbType::Postgres {
+                "open".clone_into(&mut config.org_creation);
+            }
             config.smtp.mail_invitation_queue = 20;
             config.smtp.invitation_mail_recipients = 5;
         })
@@ -449,6 +448,19 @@ async fn one_organization_filling_its_half_leaves_another_organizations_invitati
     refused.check_status(StatusCode::SERVICE_UNAVAILABLE);
     let body: Value = serde_json::from_slice(&refused.body).expect("problem");
     assert_eq!(body["type"], "/problems/mail-queue-full", "{body}");
+    assert!(
+        body.to_string().contains("organization"),
+        "its half, not the whole queue, is full: {body}"
+    );
+    if !several {
+        // Several organizations are a PostgreSQL deployment; SQLite refuses that mode.
+        smtp.release();
+        smtp.received(10).await;
+        assert!(th.app.finish_background(Duration::from_secs(20)).await);
+        th.teardown().await;
+        smtp.stop().await;
+        return;
+    }
 
     let mut other = th.anonymous();
     other.post("/register", &json!({"organizationName":"Other mail organization","username":"mail-other","email":"mail-other@example.test","password":"Other-password"})).await.check_status(StatusCode::CREATED);

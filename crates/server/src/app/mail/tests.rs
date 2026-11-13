@@ -16,6 +16,9 @@ struct Fake {
     script: Mutex<VecDeque<Outcome>>,
     /// Each attempt: when, in whole seconds from the start, and to whom.
     attempts: Mutex<Vec<(u64, String)>>,
+    /// While true, an attempt to a recipient at `held.test` is answered only once it
+    /// is false again.
+    held: tokio::sync::watch::Sender<bool>,
 }
 
 impl Fake {
@@ -24,6 +27,7 @@ impl Fake {
             start: Instant::now(),
             script: Mutex::new(script.iter().copied().collect()),
             attempts: Mutex::new(Vec::new()),
+            held: tokio::sync::watch::Sender::new(false),
         })
     }
 
@@ -51,7 +55,15 @@ impl Outbound for Fake {
         } else {
             script.front().copied()
         };
-        Box::pin(std::future::ready(outcome.unwrap_or(Outcome::Sent)))
+        let outcome = outcome.unwrap_or(Outcome::Sent);
+        let mut held = (message.to.ends_with("@held.test")).then(|| self.held.subscribe());
+        Box::pin(async move {
+            if let Some(held) = held.as_mut() {
+                // The sender lives as long as the fake; it is never dropped first.
+                let _ = held.wait_for(|held| !*held).await;
+            }
+            outcome
+        })
     }
 }
 
@@ -330,10 +342,19 @@ fn an_organization_holds_half_of_the_invitation_queue_within_its_own_hour() {
         .queue_invitations("w3", "b", 300, 3)
         .expect("another organization has its own half");
     assert_eq!(
-        mailer.queue_invitations("w4", "c", 300, 1).err(),
+        mailer.queue_invitations("w4", "c", 1, 1).err(),
         Some(InvitationRefusal::QueueFull)
     );
-    drop((held, other));
+    assert_eq!(
+        mailer.org_shares.messages_of("c"),
+        None,
+        "the share taken before the queue refused is given back"
+    );
+    drop(other);
+    mailer
+        .queue_invitations("w4", "c", 1, 1)
+        .expect("the refusal took nothing of c's hour");
+    drop(held);
     assert!(matches!(
         mailer.queue_invitations("w5", "d", 2, 3).err(),
         Some(InvitationRefusal::OrgHourlyLimit(_))
@@ -352,4 +373,50 @@ fn an_organization_holds_half_of_the_invitation_queue_within_its_own_hour() {
         mailer.queue_invitations("w6", "e", 300, 1).is_ok(),
         "nothing of the refusals was kept"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn invitations_never_take_the_last_sending_and_one_organization_takes_two() {
+    let fake = Fake::new(&[Outcome::Sent]);
+    fake.held.send_replace(true);
+    let mailer = mailer_with(
+        &fake,
+        Metrics::none(),
+        SmtpSettings {
+            mail_per_second: 100,
+            ..SmtpSettings::default()
+        },
+    );
+    let mut sending = Vec::new();
+    for (org, count) in [("a", 3), ("b", 1), ("c", 1)] {
+        for (n, queued) in mailer
+            .queue_invitations(org, org, 300, count)
+            .expect("places")
+            .into_iter()
+            .enumerate()
+        {
+            sending.push(send(&mailer, queued, &format!("{org}{n}@held.test")));
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let attempts = fake.attempts();
+    assert_eq!(attempts.len(), 3, "three of four sendings: {attempts:?}");
+    let of_a = attempts
+        .iter()
+        .filter(|(_, to)| to.starts_with('a'))
+        .count();
+    assert_eq!(of_a, 2, "two of them one organization's: {attempts:?}");
+    sending.push(send(&mailer, reset(&mailer, "owner"), "owner@example.test"));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        fake.attempts()
+            .iter()
+            .any(|(_, to)| to == "owner@example.test"),
+        "recovery has the fourth"
+    );
+    fake.held.send_replace(false);
+    for task in sending {
+        task.await.expect("sent");
+    }
+    assert_eq!(fake.attempts().len(), 6);
 }

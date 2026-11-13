@@ -62,10 +62,12 @@ impl App {
         let count = u32::try_from(recipients.len()).unwrap_or(limit);
         // The handle is the organization's the workspace is in: what it holds of the
         // mail is counted under it, at its own limit.
-        let org = match self.store().tenant() {
-            Tenant::Org(org_id) => org_id.to_string(),
-            Tenant::Unset | Tenant::System => String::new(),
+        let Tenant::Org(org) = self.store().tenant() else {
+            return Err(AppError::internal(
+                "invitation mail outside an organization",
+            ));
         };
+        let org = org.to_string();
         let queued = self
             .inner
             .mail

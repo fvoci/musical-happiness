@@ -79,8 +79,17 @@ impl OrgShares {
     }
 }
 
+#[cfg(test)]
+impl OrgShares {
+    /// How many messages `org` holds.
+    pub(super) fn messages_of(&self, org: &str) -> Option<u32> {
+        self.held().get(org).map(|held| held.messages)
+    }
+}
+
 impl Drop for OrgPlace {
     fn drop(&mut self) {
+        // A drop does not panic: a poisoned lock leaves the count as it is.
         if let Ok(mut held) = self.shares.held.lock()
             && let Some(entry) = held.get_mut(&self.org)
         {
