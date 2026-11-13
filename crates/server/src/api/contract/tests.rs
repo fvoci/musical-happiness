@@ -501,7 +501,7 @@ const ORDERS: &[(&str, &str)] = &[
     ),
     (
         "getBoardTeams",
-        "Ordered by team name in any letter case, then by identifier",
+        "Ordered by team name in any letter case, by code point, then by identifier",
     ),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
@@ -533,7 +533,7 @@ const ORDERS: &[(&str, &str)] = &[
     ),
     (
         "getTeams",
-        "ordered by name in any letter case, then by identifier",
+        "ordered by name in any letter case, by code point",
     ),
     ("getTemplates", "Each of the two oldest first"),
     ("getWorkspaceAudit", "the newest first"),

@@ -107,8 +107,8 @@ pub(crate) async fn require_team(
     Ok(())
 }
 
-/// Lists the workspace's teams by name in any letter case. PostgreSQL compares the
-/// key by its bytes, as SQLite does, rather than by the collation of its database.
+/// Lists the workspace's teams by the code points of their name keys. PostgreSQL compares
+/// the key by its bytes, as SQLite does, rather than by the collation of its database.
 pub(crate) async fn list(
     scope: &mut Scope<'_>,
     workspace_id: &str,
@@ -116,9 +116,10 @@ pub(crate) async fn list(
     let mut sql = scope.sql("SELECT t.id, t.name FROM teams t JOIN workspaces w ON w.id = t.workspace_id AND w.org_id = t.org_id WHERE t.workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND t.org_id = ", scope.org()?)
+        .push(" AND w.delete_at = 0 ORDER BY t.name_key")
         .push(match scope.dialect() {
-            Dialect::Postgres => " AND w.delete_at = 0 ORDER BY t.name_key COLLATE \"C\", t.id",
-            Dialect::Sqlite => " AND w.delete_at = 0 ORDER BY t.name_key, t.id",
+            Dialect::Postgres => " COLLATE \"C\", t.id",
+            Dialect::Sqlite => ", t.id",
         });
     let rows = scope.fetch_all(sql).await?;
     let mut teams = rows

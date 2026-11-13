@@ -1751,7 +1751,8 @@ export interface paths {
         /**
          * List the teams assigned to a board
          * @description For nonguest members allowed to list board members. Includes the team's current
-         *     people and its role. Ordered by team name in any letter case, then by identifier.
+         *     people and its role. Ordered by team name in any letter case, by code point, then by
+         *     identifier.
          *     Direct memberships remain separate.
          */
         get: operations["getBoardTeams"];
@@ -2349,8 +2350,9 @@ export interface paths {
         /**
          * List the workspace's teams
          * @description Includes the login and display names of their nonguest members, ordered by user
-         *     identifier. Teams are ordered by name in any letter case, then by identifier, alike
-         *     on every database. Guests are answered 404.
+         *     identifier. Teams are ordered by name in any letter case, by code point and not by
+         *     any language's alphabet (`Émile` after `zeta`), then by identifier, alike on every
+         *     database. Guests are answered 404.
          */
         get: operations["getTeams"];
         put?: never;

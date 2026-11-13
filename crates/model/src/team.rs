@@ -62,9 +62,12 @@ pub fn team_name(text: &str) -> Result<&str, TeamNameError> {
 }
 
 /// The form of a team name that names differing only in letter case share. A name is
-/// unique in its workspace by this form, and teams are listed in its order; the server
-/// makes it, so both databases hold, compare and order the same text.
+/// unique in its workspace by this form, and teams are listed in the order of its code
+/// points; the server makes it, so both databases hold, compare and order the same text.
+///
+/// Upper case and then lower case fold what lower case alone keeps apart: `Straße` and
+/// `STRASSE`, a final sigma and another, the long s and `s`.
 #[must_use]
 pub fn team_name_key(name: &str) -> String {
-    name.to_lowercase()
+    name.to_uppercase().to_lowercase()
 }

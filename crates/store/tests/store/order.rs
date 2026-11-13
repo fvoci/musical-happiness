@@ -640,9 +640,10 @@ async fn the_trash_comes_the_last_deleted_first() {
 }
 
 /// The teams of a workspace come by name in any letter case, and in the same order on
-/// both databases: a name in capitals sorts among the others as in lower case. The order
-/// cannot follow the collation of PostgreSQL's database (that of the locale of its image)
-/// while SQLite compares bytes.
+/// both databases: a name in capitals sorts among the others as in lower case, and the
+/// rest by code point, beyond the Latin alphabet and the Basic Multilingual Plane too.
+/// The order cannot follow the collation of PostgreSQL's database (that of the locale of
+/// its image) while SQLite compares bytes.
 #[tokio::test]
 async fn teams_come_by_name_alike_on_both_databases() {
     let test = common::setup().await;
@@ -653,7 +654,7 @@ async fn teams_come_by_name_alike_on_both_databases() {
         .add_workspace_member(&workspace_id, &admin, WorkspaceRole::Admin)
         .await
         .expect("the administrator is let into the workspace");
-    for name in ["gamma", "Beta", "alpha"] {
+    for name in ["gamma", "𝔷eta", "Émile", "Beta", "alpha"] {
         store
             .create_team(&workspace_id, name, &admin)
             .await
@@ -665,7 +666,12 @@ async fn teams_come_by_name_alike_on_both_databases() {
         .await
         .expect("the teams are read");
     let names: Vec<&str> = teams.iter().map(|team| team.name.as_str()).collect();
-    assert_eq!(names, ["alpha", "Beta", "gamma"], "{:?}", common::db_type());
+    assert_eq!(
+        names,
+        ["alpha", "Beta", "gamma", "Émile", "𝔷eta"],
+        "{:?}",
+        common::db_type()
+    );
 
     test.teardown().await;
 }

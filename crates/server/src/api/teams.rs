@@ -49,8 +49,9 @@ struct MemberPlace {
 /// List the workspace's teams
 ///
 /// Includes the login and display names of their nonguest members, ordered by user
-/// identifier. Teams are ordered by name in any letter case, then by identifier, alike
-/// on every database. Guests are answered 404.
+/// identifier. Teams are ordered by name in any letter case, by code point and not by
+/// any language's alphabet (`Émile` after `zeta`), then by identifier, alike on every
+/// database. Guests are answered 404.
 #[utoipa::path(get, path = "/w/{workspaceId}/teams", operation_id = "getTeams", tag = tag::WORKSPACES,
     params(WorkerWorkspaceId), responses((status = 200, description = "Teams.", body = Vec<Team>)))]
 async fn list_teams(ws: Ws) -> ApiResult {

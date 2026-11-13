@@ -8,8 +8,9 @@ CREATE TABLE teams (
     org_id TEXT NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
     workspace_id TEXT NOT NULL,
     name TEXT NOT NULL CHECK (length(name) > 0),
-    -- The name in lower case, made by the server alike for both databases: two names
-    -- that differ only in letter case are one name, and teams are listed in its order.
+    -- The name with its letter case folded (fvoci_model::team_name_key), written only by
+    -- the server, alike for both databases: two names that differ only in letter case
+    -- are one name, and teams are listed in the order of its code points.
     name_key TEXT NOT NULL CHECK (length(name_key) > 0),
     PRIMARY KEY (id, org_id),
     UNIQUE (id, workspace_id, org_id),

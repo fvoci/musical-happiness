@@ -72,6 +72,17 @@ async fn a_team_name_is_taken_in_any_letter_case() {
         .await
         .ok_json();
     assert_eq!(renamed.name, "design");
+    // Folded beyond ASCII: the sharp s and its capitals, the final sigma, the long s.
+    for (first, second) in [("Straße", "STRASSE"), ("ΟΔΟΣ", "οδοσ"), ("ſun", "SUN")] {
+        th.client
+            .post(&teams_path(), &json!({ "name": first }))
+            .await
+            .ok_json::<Team>();
+        th.client
+            .post(&teams_path(), &json!({ "name": second }))
+            .await
+            .check_status(StatusCode::CONFLICT);
+    }
     th.teardown().await;
 }
 
