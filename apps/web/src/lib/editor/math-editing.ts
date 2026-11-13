@@ -90,6 +90,42 @@ function placeMathDialog(box: HTMLElement, options: MathEditingOptions, view: Wi
   box.style.top = `${fits ? below : rect.top - 6 - size.height}px`;
 }
 
+/** Draws the field's source into the preview as it is typed: aside, and swapped in when ready. */
+function previewer(
+  page: Document,
+  box: HTMLElement,
+  field: HTMLTextAreaElement,
+  preview: HTMLElement,
+  closed: () => boolean,
+): () => void {
+  let sequence = 0;
+  return () => {
+    const latex = field.value.trim();
+    sequence += 1;
+    const mine = sequence;
+    if (latex === '') {
+      preview.replaceChildren();
+      return;
+    }
+    const slot = page.createElement(MATH_SLOTS.inlineMath.tag);
+    slot.setAttribute('class', MATH_CLASS);
+    slot.setAttribute('data-type', MATH_SLOTS.inlineMath.type);
+    slot.setAttribute(MATH_SOURCE_ATTRIBUTE, latex);
+    slot.append(page.createTextNode(latex));
+    const holder = page.createElement('div');
+    holder.hidden = true;
+    holder.append(slot);
+    box.append(holder);
+    // So that the preview does not blink.
+    void fillMath(slot)
+      .catch(() => undefined)
+      .then(() => {
+        holder.remove();
+        if (mine === sequence && !closed()) preview.replaceChildren(slot);
+      });
+  };
+}
+
 /** The keys of the field: Escape cancels, Enter keeps. */
 function fieldKeys(apply: () => void, cancel: () => void): (event: KeyboardEvent) => void {
   return (event) => {
@@ -125,35 +161,10 @@ export function editMath(options: MathEditingOptions): void {
   let done = false;
   /** The editor is read-only for now: nothing is typed in, nothing kept (`lockMathEditing`). */
   let locked = false;
-  let sequence = 0;
   const changed = (): boolean =>
     field.value.trim().slice(0, MAX_LATEX) !== options.latex.trim().slice(0, MAX_LATEX);
 
-  function redraw(): void {
-    const latex = field.value.trim();
-    sequence += 1;
-    const mine = sequence;
-    if (latex === '') {
-      preview.replaceChildren();
-      return;
-    }
-    // Drawn aside and swapped in when ready, so that the preview does not blink.
-    const slot = page.createElement(MATH_SLOTS.inlineMath.tag);
-    slot.setAttribute('class', MATH_CLASS);
-    slot.setAttribute('data-type', MATH_SLOTS.inlineMath.type);
-    slot.setAttribute(MATH_SOURCE_ATTRIBUTE, latex);
-    slot.append(page.createTextNode(latex));
-    const holder = page.createElement('div');
-    holder.hidden = true;
-    holder.append(slot);
-    box.append(holder);
-    void fillMath(slot)
-      .catch(() => undefined)
-      .then(() => {
-        holder.remove();
-        if (mine === sequence && !done) preview.replaceChildren(slot);
-      });
-  }
+  const redraw = previewer(page, box, field, preview, () => done);
 
   function place(): void {
     placeMathDialog(box, options, view);
@@ -165,6 +176,7 @@ export function editMath(options: MathEditingOptions): void {
     if (open?.cancel === cancel) open = undefined;
     view?.removeEventListener('resize', place);
     page.removeEventListener('pointerdown', outside, true);
+    page.removeEventListener('click', outside, true);
     box.remove();
   }
   function apply(): void {
@@ -185,9 +197,12 @@ export function editMath(options: MathEditingOptions): void {
     if (locked) cancel();
     else apply();
   }
-  function outside(event: Event): void {
-    if (!(event.target instanceof Node && box.contains(event.target))) leave();
-  }
+  const elsewhere = (event: Event): boolean =>
+    !(event.target instanceof Node && box.contains(event.target));
+  // Locked, only a press (a click), not a touch that only scrolls the page, closes it.
+  const outside = (event: Event): void => {
+    if (elsewhere(event) && (event.type === 'click') === locked) leave();
+  };
   box.addEventListener('focusout', (event) => {
     const next = event.relatedTarget;
     if (next instanceof Node && !box.contains(next)) leave();
@@ -214,6 +229,7 @@ export function editMath(options: MathEditingOptions): void {
   redraw();
   view?.addEventListener('resize', place);
   page.addEventListener('pointerdown', outside, true);
+  page.addEventListener('click', outside, true);
   field.focus();
   field.select();
 }

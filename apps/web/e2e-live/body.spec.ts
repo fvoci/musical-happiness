@@ -343,7 +343,6 @@ test('a card duplicated right after typing copies what was typed', async ({ page
   test.fail(true, 'the server copies the stored body before the room has written it');
   const base = baseURL ?? '';
   const owner = person('copier');
-  const errors = watchErrors(page);
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
@@ -363,7 +362,8 @@ test('a card duplicated right after typing copies what was typed', async ({ page
   expect(copied.ok()).toBe(true);
   const [copy] = (await copied.json()) as Schemas['Card'][];
   await api.dispose();
-  expect(errors).toEqual([]);
+  // Under test.fail any failure counts as the expected one: the page's errors are asserted
+  // once R4 lifts it.
   expect(JSON.stringify(copy?.body ?? null)).toContain('Typed just now');
 });
 
@@ -372,7 +372,6 @@ test('a board copied right after typing copies what was typed', async ({ page, b
   test.fail(true, 'the server copies the stored bodies before the room has written them');
   const base = baseURL ?? '';
   const owner = person('boardcopier');
-  const errors = watchErrors(page);
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
@@ -392,6 +391,6 @@ test('a board copied right after typing copies what was typed', async ({ page, b
   ).json()) as Schemas['Block'][];
   const card = blocks.find((block) => block.type === 'card' && block.title === 'Original');
   await api.dispose();
-  expect(errors).toEqual([]);
+  // As above: the page's errors are asserted once R4 lifts test.fail.
   expect(JSON.stringify(card?.body ?? null)).toContain('Typed just now');
 });

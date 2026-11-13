@@ -67,6 +67,9 @@ interface Placeholder {
 
 const key = new PluginKey<Placeholder[]>('imageUpload');
 
+/** Whether a transaction is this extension's own (a placeholder added or taken away, an image put in). */
+export const fromUpload = (tr: Transaction): boolean => tr.getMeta(key) !== undefined;
+
 /** Where a placeholder is after a transaction. */
 function follow(placeholder: Placeholder, tr: Transaction, before: EditorState): Placeholder {
   if (placeholder.gone) return placeholder;

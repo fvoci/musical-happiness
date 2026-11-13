@@ -571,7 +571,10 @@ describe('the box of a formula in a line in a body edited together', () => {
     if (!field) throw new Error('no box');
     field.value = 'y';
     await rerender({ ...props, editable: false });
+    // A touch that only scrolls leaves it open; a press closes it.
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(box()).not.toBeNull();
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(box()).toBeNull();
     expect(latexIn(editor)).toBe('x');
     await vi.waitFor(() => {
@@ -579,6 +582,35 @@ describe('the box of a formula in a line in a body edited together', () => {
         'What you wrote in the formula was not kept: the description cannot be changed now.',
       );
     });
+  });
+
+  it("says a formula's loss during an upload, and the image going in does not take it away", async () => {
+    const shared = room(doc(paragraph(text('a '), math('x'), text(' b'))));
+    const { upload, finish } = slowUpload();
+    const { container } = render(BodyEditor, {
+      doc: null,
+      collab: shared.reader,
+      uploadImage: upload,
+    });
+    const editor = editorIn(container);
+    editor.commands.setTextSelection(1);
+    pasteImage(editor);
+    editor.view.dom.querySelector<HTMLElement>('.doc-math')?.click();
+    const field = box();
+    if (!field) throw new Error('no box');
+    field.value = 'y^2';
+    shared.others(() => {
+      (shared.server.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement).delete(1, 1);
+    });
+    const said = 'What you wrote in the formula was not kept: its line was removed or changed.';
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-editor-status')?.textContent.trim()).toBe(said);
+    });
+    finish();
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-upload')).toBeNull();
+    });
+    expect(container.querySelector('.doc-editor-status')?.textContent.trim()).toBe(said);
   });
 
   it('closes, keeping nothing, when the room deletes the formula', () => {

@@ -39,7 +39,7 @@
   import { cancelMathEditingOf, mathDraftChanged } from './math-editing.ts';
   import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
   import { suggestionList } from './suggestion-list.ts';
-  import { ImageUpload } from './uploads.ts';
+  import { fromUpload, ImageUpload } from './uploads.ts';
 
   let {
     doc,
@@ -71,14 +71,16 @@
   let unreadable = $state(false);
   /**
    * The last thing that came of something the reader did and is to be said:
-   * an image not put in, a formula's source not kept. Gone once the reader
-   * writes again; an image's, also once another image went in.
+   * an image not put in, a formula's source not kept (which an image's does
+   * not replace). Gone once the reader writes again.
    */
   let said = $state<{ text: string; image: boolean }>();
   let uploads = $state(0);
 
   const status = $derived.by(() => {
     if (unreadable) return m.editor_body_unreadable();
+    // A formula's loss is said even while an image goes up; an image's waits for the uploads.
+    if (said && !said.image) return said.text;
     if (uploads > 0) return m.editor_image_uploading();
     return said?.text ?? '';
   });
@@ -186,8 +188,7 @@
               if (outcome === 'gone') onImageDropped?.();
               return;
             }
-            if (outcome === 'done' && said?.image) said = undefined;
-            else if (outcome !== undefined && outcome !== 'done') {
+            if (outcome !== undefined && outcome !== 'done' && !(said && !said.image)) {
               said = { text: UPLOAD_SAID[outcome](), image: true };
             }
           },
@@ -197,7 +198,8 @@
       onTransaction: fromEditor(({ transaction }: { transaction: Transaction }) => {
         changes += 1;
         // The reader writes again: what was said of before is over.
-        if (transaction.docChanged && !fromShared(transaction)) said = undefined;
+        const reader = !fromShared(transaction) && !fromUpload(transaction);
+        if (transaction.docChanged && reader) said = undefined;
       }),
       onUpdate: fromEditor(({ editor: current }: { editor: Editor }) =>
         onChange?.(storedOf(current)),
