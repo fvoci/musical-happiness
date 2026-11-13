@@ -64,6 +64,28 @@ describe('an open card', () => {
     });
   });
 
+  it("puts nothing of the body on the app's undo line: the body's undo is the editor's", async () => {
+    const { card, board, cardId, world } = await openAlpha();
+    card.openBody();
+    await vi.waitFor(() => {
+      expect(card.room?.status).toBe('joined');
+    });
+    const doc = card.room?.doc;
+    if (!doc) throw new Error('no document');
+    const paragraph = new Y.XmlElement('paragraph');
+    paragraph.insert(0, [new Y.XmlText('typed')]);
+    doc.getXmlFragment(FIELD).insert(0, [paragraph]);
+    await vi.waitFor(() => {
+      expect(card.bodyPending).toBe(false);
+    });
+    roomsOf(world).flush();
+    await settle();
+    expect(board.workspace.canUndo).toBe(false);
+    // Written into the card, and still nothing to undo.
+    expect(JSON.stringify(world.blocks.get(cardId)?.body)).toContain('typed');
+    card.close();
+  });
+
   it('says when what the reader wrote was dropped with a document made anew', async () => {
     const { card, other, board, cardId, backend } = await openAlpha();
     card.openBody();

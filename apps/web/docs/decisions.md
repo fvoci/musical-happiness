@@ -1315,7 +1315,7 @@
 - **연결 2.** 서버 구현은 `src/lib/api/`(높이 3)에 둔다. 타입은 계약에서 만든 `contract.ts`이고(`pnpm run api:types`), `check`가 계약과 어긋나면 실패한다(`--check`).
   - 왜: 린트(`fvoci/no-direct-server`)가 이미 `api/`를 경계의 구현으로 보고 있었다. `state/`의 인터페이스를 가져와야 하므로 `state`보다 높다.
   - 바꾸려면: `tools/lint/layers.ts`의 `LAYERS`, `src/lib/README.md`.
-- **연결 3.** 아직 서버에 붙이지 않은 조작은 `BackendError`(405, `reason: 'not_wired'`)로 거절한다(`api/backend.ts`의 `notWired`). 화면에서 막지 않고, 쓰면 알림 줄에 그렇게 뜬다(`app/Problems.svelte`가 `not_wired`를 따로 말한다).
+- **연결 3.** 모든 조작이 서버에 붙어 있다. 붙지 않은 조작을 거절하는 장치는 두지 않는다.
   - 왜: 화면에서 막으려면 "이 구현은 무엇을 못 하는가"를 인터페이스에 더해야 한다. 조용히 아무것도 안 하는 것보다 오류가 낫다.
   - 다른 안: 화면에서 편집기를 읽기 전용으로 / 새 상태 코드(501).
   - 바꾸려면: 붙일 때마다 그 메서드를 채운다.

@@ -39,14 +39,16 @@ export function roomNote(room: BodyDocState, canEdit: boolean): RoomNote | undef
       return note(m.card_body_unavailable(), { retry: true });
     case 'joined':
       if (room.mode === 'read' || !canEdit) return note(m.card_body_read_only());
+      // Waiting a moment for the server (a change it was out of step with): said when it lasts.
+      if (!room.writable) return note(m.card_body_receiving(), { late: true });
       return undefined;
   }
 }
 
-/** The notice for changes dropped, by the reason the room gave. */
 /** Why an image that went up was not put in: the editor was made anew for another document. */
 export const IMAGE_DROPPED = 'image_dropped';
 
+/** The notice for changes dropped, by the reason the room gave. */
 export function lostNote(why: string): string {
   if (why === 'document_reset') return m.card_body_lost_reset();
   if (why === IMAGE_DROPPED) return m.card_body_lost_image();

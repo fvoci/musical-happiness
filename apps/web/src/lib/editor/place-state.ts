@@ -214,10 +214,6 @@ function madeHere(transactions: readonly Transaction[], before: EditorState, pos
   return at === pos;
 }
 
-/**
- * The cursor never rests in the source of a closed diagram: it selects the
- * diagram instead. A diagram that has just been made, empty, opens.
- */
 /** After a change from the room, the selection goes back to the open place it was in. */
 export function keepPlaceSelected(
   transactions: readonly Transaction[],
@@ -233,6 +229,10 @@ export function keepPlaceSelected(
   return state.tr.setSelection(TextSelection.create(state.doc, end));
 }
 
+/**
+ * The cursor never rests in the source of a closed diagram: it selects the
+ * diagram instead. A diagram that has just been made, empty, opens.
+ */
 export function keepOutOfClosed(
   transactions: readonly Transaction[],
   before: EditorState,

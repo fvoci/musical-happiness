@@ -19,7 +19,7 @@ const WAITING: BodyDocState = {
 };
 
 /** What `load` could not fetch (the connection dropped, a new version was deployed). */
-export const NOT_LOADED = 'not_loaded';
+const NOT_LOADED = 'not_loaded';
 
 const NOT_LOADED_STATE: BodyDocState = { ...WAITING, status: 'out', reason: NOT_LOADED };
 

@@ -44,7 +44,7 @@ import { fillMath, watchFormulaFit } from './embeds.ts';
 import { formulaBlockView, newFormulaPanel } from './math-block.ts';
 import { cancelMathEditing, editMath } from './math-editing.ts';
 import { MAX_LATEX } from './schema.ts';
-import { holdNode, mayWrite, nodeNow } from './shared-place.ts';
+import { holdNode, mayWrite, nodeNow, sayDropped } from './shared-place.ts';
 
 const latexOf = (node: { attrs: Record<string, unknown> }): string =>
   typeof node.attrs.latex === 'string' ? node.attrs.latex : '';
@@ -88,7 +88,11 @@ function editFormulaAt(editor: Editor, position: number): void {
       stopWatching();
       const at = where();
       const now = at === undefined ? undefined : editor.state.doc.nodeAt(at);
-      if (at === undefined || !now || !mayWrite(editor.view)) return;
+      if (at === undefined || !now) return;
+      if (!mayWrite(editor.view)) {
+        if (latex !== latexOf(now)) sayDropped(editor.view);
+        return;
+      }
       const transaction = editor.state.tr;
       if (latex === '') transaction.delete(at, at + now.nodeSize);
       else if (latex !== latexOf(now)) transaction.setNodeMarkup(at, undefined, { latex });

@@ -58,6 +58,7 @@
     onEditor,
     canWrite = false,
     onImageDropped,
+    onFitsAgain,
   }: BodyEditorProps = $props();
 
   let host: HTMLDivElement;
@@ -65,12 +66,15 @@
   let changes = $state(0);
   /** Whether the document that was last read could not be loaded. */
   let unreadable = $state(false);
+  /** A formula's source the reader wrote was not kept: they may no longer write. */
+  let formulaDropped = $state(false);
   let uploads = $state(0);
   /** How the upload that ended last did, when that is to be said. */
   let uploadEnded = $state<'failed' | 'gone' | 'refused'>();
 
   const status = $derived.by(() => {
     if (unreadable) return m.editor_body_unreadable();
+    if (formulaDropped) return m.editor_formula_refused();
     if (uploads > 0) return m.editor_image_uploading();
     if (uploadEnded === 'gone') return m.editor_image_gone();
     if (uploadEnded === 'refused') return m.editor_image_refused();
@@ -179,9 +183,8 @@
         }),
       ],
       editorProps: { attributes: rootAttributes() },
-      onTransaction: fromEditor(({ editor: current }: { editor: Editor }) => {
+      onTransaction: fromEditor(() => {
         changes += 1;
-        if (shared && unreadable) unreadable = !fitsAgain(current);
       }),
       onUpdate: fromEditor(({ editor: current }: { editor: Editor }) =>
         onChange?.(storedOf(current)),
@@ -190,10 +193,22 @@
       onBlur: fromEditor(() => onBlur?.()),
     });
     editor = created;
-    setMayWrite(created.view, () => shared !== undefined && canWrite);
+    setMayWrite(created.view, {
+      may: () => shared !== undefined && canWrite,
+      dropped: fromEditor(() => {
+        formulaDropped = true;
+      }),
+    });
+    // What it could not draw is gone again: the editor, which took nothing from the shared
+    // document meanwhile, is made anew from it (never made editable on what it last showed).
+    const fits = (): void => {
+      if (unreadable && fitsAgain(created)) onFitsAgain?.();
+    };
+    shared?.on('afterTransaction', fits);
     if (!shared) onLoad?.(first === undefined ? undefined : storedOf(created));
     onEditor?.(created);
     return () => {
+      shared?.off('afterTransaction', fits);
       cancelMathEditing();
       created.destroy();
     };

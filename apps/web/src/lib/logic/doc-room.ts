@@ -58,10 +58,10 @@ export const RESET_WAIT = 1500;
 /** The wait before joining again after being put out for sending or reading at the wrong pace. */
 export const PACE_WAIT = 1000;
 /** The waits before trying again what was refused for now, by tries; the last repeats. */
-export const RETRY_WAITS = [1000, 2000, 5000, 15_000, 30_000];
+const RETRY_WAITS = [1000, 2000, 5000, 15_000, 30_000];
 
 /** How long a join waits for its answer before it is taken as refused for now. */
-export const ANSWER_WAIT = 10_000;
+const ANSWER_WAIT = 10_000;
 
 /** A reason that does not pass by waiting: the card is not there for the reader. */
 const FINAL = new Set(['not_found']);

@@ -31,7 +31,7 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import { diagramKind } from './diagram-kind.ts';
-import { mayWrite, onShared } from './shared-place.ts';
+import { mayWrite, onShared, sayDropped } from './shared-place.ts';
 import {
   closedDiagramAt,
   closePlace,
@@ -212,6 +212,8 @@ function placeView(view: EditorView) {
   });
   return {
     update: (_: EditorView, before: EditorState) => {
+      // Nothing of the document changed: the shared document has it all already.
+      if (view.state.doc === before.doc) holdAgain(view.state);
       const place = placeOf(view.state);
       if (place && !view.editable) {
         // The editor became read-only with a place open. Only for a moment (the connection
@@ -219,7 +221,11 @@ function placeView(view: EditorView) {
         // when it can, or says it was lost. For a reader who may only read: nothing is written.
         // Not from inside this update.
         queueMicrotask(() => {
-          if (!view.isDestroyed) closePlace(view, false, !mayWrite(view));
+          if (view.isDestroyed) return;
+          const dropping = !mayWrite(view);
+          const written = place.kind === 'new-formula' || place.draft?.touched === true;
+          if (dropping && written) sayDropped(view);
+          closePlace(view, false, dropping);
         });
         return;
       }

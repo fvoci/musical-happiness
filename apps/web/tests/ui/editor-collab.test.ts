@@ -84,10 +84,11 @@ describe('BodyEditor on a shared document', () => {
 });
 
 describe('BodyEditor on a shared document it cannot draw', () => {
-  it('keeps what it cannot draw, says so and stops editing, and edits again once it fits', async () => {
+  it('keeps what it cannot draw, says so and stops editing, and asks to be made anew once it fits', async () => {
     const shared = new Y.Doc();
     fromTheRoom(shared, 'first');
-    const { container } = render(BodyEditor, { doc: null, collab: shared });
+    const onFitsAgain = vi.fn();
+    const { container } = render(BodyEditor, { doc: null, collab: shared, onFitsAgain });
     const editor = editorIn(container);
     // Somebody with a newer version writes a node this one does not know.
     const other = new Y.Doc();
@@ -106,7 +107,9 @@ describe('BodyEditor on a shared document it cannot draw', () => {
     other.getXmlFragment(BODY_FIELD).delete(1, 1);
     Y.applyUpdate(shared, Y.encodeStateAsUpdate(other, back), 'room');
     await vi.waitFor(() => {
-      expect(editor.isEditable).toBe(true);
+      expect(onFitsAgain).toHaveBeenCalled();
     });
+    // Never made editable on what it last showed: it took nothing from the room meanwhile.
+    expect(editor.isEditable).toBe(false);
   });
 });

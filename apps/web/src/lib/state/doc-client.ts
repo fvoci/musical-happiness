@@ -26,7 +26,7 @@ import type { BodyDoc, BodyDocHears, BodyDocState } from './backend.ts';
 /** How long leaving a card waits for the server to take what was written, in milliseconds. */
 const SETTLE_WAIT = 3000;
 
-export class RoomClient implements BodyDoc {
+class RoomClient implements BodyDoc {
   readonly #room = new DocRoom((updates) => Y.mergeUpdates(updates));
   readonly #hears: BodyDocHears;
   readonly #port: RoomPort;

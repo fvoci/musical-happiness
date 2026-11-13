@@ -57,7 +57,9 @@
   // for another), and its arguments with it.
   async function duplicate(): Promise<void> {
     const [store, cardId, open] = [board, card.cardId, onOpenCard];
-    // The copy is made from what is stored: what was typed goes to the server first.
+    // What was typed goes to the room first. The copy is made from the card's body as stored,
+    // which the room writes a little later: the last seconds of typing may be missing from it
+    // (a gap of the server, recorded in e2e-live/body.spec.ts).
     await card.settleBody();
     const copy = await whileHere(store, () => store.duplicateCard(cardId));
     if (copy) open?.(copy.id);
@@ -66,8 +68,8 @@
   async function remove(): Promise<void> {
     const [store, cardId, close] = [board, card.cardId, onClose];
     deleting = true;
-    // What was typed goes to the server first, so that undo brings the card
-    // back with it.
+    // What was typed goes to the room first. Whether the card that undo brings back has
+    // its last seconds depends on the server writing the room's body first, as for a copy.
     await card.settleBody();
     await store.deleteCards([cardId]);
     // Refused: the card is still there, and stays open.

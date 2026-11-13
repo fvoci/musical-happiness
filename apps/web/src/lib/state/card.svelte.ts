@@ -148,8 +148,9 @@ export class CardStore {
    */
   openBody(): void {
     const backend = this.#backend;
-    if (this.#bodyDoc || this.#closed || !backend.openDoc) return;
-    const workspaceId = this.board.workspace.info?.id ?? '';
+    // Not before the workspace is known: the room is asked for in it (opened again once it is).
+    const workspaceId = this.board.workspace.info?.id;
+    if (this.#bodyDoc || this.#closed || !backend.openDoc || workspaceId === undefined) return;
     const opened = backend.openDoc(workspaceId, this.#boardId, this.cardId, {
       state: (state) => {
         if (this.#bodyDoc !== opened) return;
@@ -198,12 +199,12 @@ export class CardStore {
     this.#bodyDoc?.retry();
   }
 
-  /** The reader was told that changes were dropped. */
   /** Something of the reader's that was not put into the body is said as lost, until dismissed. */
   sayLost(why: string): void {
     this.lost = why;
   }
 
+  /** The reader was told that changes were dropped. */
   dismissLost(): void {
     this.lost = undefined;
   }

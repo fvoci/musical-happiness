@@ -194,16 +194,23 @@ export const ImageUpload = Extension.create<ImageUploadOptions>({
             return next;
           },
         },
-        // Held once the change that put it there is in the shared document (shared-place.ts).
-        view: (view) => ({
-          destroy: onShared(view, () => {
+        // Held once the change that put it there is in the shared document (shared-place.ts):
+        // after the binding writes it, or at once when nothing was to be written (the body empty).
+        view: (view) => {
+          const hold = (): void => {
             for (const placeholder of key.getState(view.state) ?? []) {
               if (!placeholder.stale || placeholder.gone) continue;
               placeholder.held = holdPlace(view.state, placeholder.pos);
               placeholder.stale = false;
             }
-          }),
-        }),
+          };
+          return {
+            update: (_view, before) => {
+              if (view.state.doc === before.doc) hold();
+            },
+            destroy: onShared(view, hold),
+          };
+        },
         props: {
           decorations: (state) => {
             const list = (key.getState(state) ?? []).filter((placeholder) => !placeholder.gone);

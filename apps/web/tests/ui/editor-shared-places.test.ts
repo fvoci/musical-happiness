@@ -164,6 +164,30 @@ describe('an image going up in a body edited together', () => {
     });
   });
 
+  it('in an empty line, follows its line when the room rewrites the blocks around it', async () => {
+    const shared = room(doc(paragraph(), paragraph(text('after'))));
+    const { upload, finish } = slowUpload();
+    const { container } = render(BodyEditor, {
+      doc: null,
+      collab: shared.reader,
+      uploadImage: upload,
+    });
+    const editor = editorIn(container);
+    editor.commands.setTextSelection(1);
+    pasteImage(editor);
+    // One change above, in and after the line: the editor replaces all of it.
+    shared.others(() => {
+      const fragment = shared.server.getXmlFragment(BODY_FIELD);
+      fragment.insert(0, [paragraphOf('above'), paragraphOf('more')]);
+      (fragment.get(2) as Y.XmlElement).insert(0, [new Y.XmlText('line')]);
+      ((fragment.get(3) as Y.XmlElement).get(0) as Y.XmlText).insert(0, 'just ');
+    });
+    finish();
+    await vi.waitFor(() => {
+      expect(blocks(editor)).toEqual(['above', 'more', 'line', 'image', 'just after']);
+    });
+  });
+
   it('goes after its line when the room splits the line before its last letter', async () => {
     const shared = room(doc(paragraph(text('Hello'))));
     const { upload, finish } = slowUpload();

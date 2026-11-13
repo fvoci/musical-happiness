@@ -48,6 +48,7 @@ import type {
   RoomMessage,
   RoomPort,
 } from '../../logic/doc-room-types.ts';
+import { ROOM_LIMITS } from '../../logic/doc-room.ts';
 
 import { roleOn } from './comments.ts';
 import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
@@ -57,11 +58,9 @@ import type { StoredCard, World } from './world.ts';
 /** The shared type the editor binds to (`@tiptap/extension-collaboration`). */
 export const FIELD = BODY_FIELD;
 export { bodyOf } from './room-docs.ts';
-/** The largest update taken, in bytes (`collab_update_bytes`). */
-export const UPDATE_BYTES = 64 * 1024;
 /** When a body is written after a change: after a pause, at most after the first change. */
-export const QUIET_WAIT = 2000;
-export const LONGEST_WAIT = 10_000;
+const QUIET_WAIT = 2000;
+const LONGEST_WAIT = 10_000;
 
 /** Who goes through a room, as the backend in memory acts for them. */
 export interface RoomUser {
@@ -324,7 +323,7 @@ export class MemoryRooms {
   #refusal(seat: Seat, room: Room, epoch: number, update: Uint8Array): string | undefined {
     if (seat.mode === 'read') return 'document_read_only';
     if (epoch !== room.epoch) return 'update_out_of_step';
-    if (update.length > UPDATE_BYTES) return 'update_too_large';
+    if (update.length > ROOM_LIMITS.updateBytes) return 'update_too_large';
     // A card deleted meanwhile: the room stays until the roles are asked again.
     if (!this.#card(room.boardId, room.cardId)) return 'not_found';
     return this.#check(room, update);

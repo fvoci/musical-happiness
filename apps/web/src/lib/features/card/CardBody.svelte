@@ -57,10 +57,15 @@
     })),
   );
 
+  /** The workspace the room is asked for in; the room opens once it is known. */
+  const workspaceId = $derived(workspace.info?.id);
+
   // The room is the card's while this is shown; going away leaves it. Only
-  // another card opens another room: nothing the opening reads does.
+  // another card (or the workspace becoming known) opens another room:
+  // nothing the opening reads does.
   $effect(() => {
     const store = card;
+    if (workspaceId === undefined) return;
     untrack(() => {
       store.openBody();
     });
@@ -74,6 +79,8 @@
   });
 
   const caret = keepCaret();
+  /** How many times the editor was made anew for the same document. */
+  let made = $state(0);
 
   /** Joining and receiving are usually over at once: their line is put in only when they last. */
   let lateShown = $state(false);
@@ -122,25 +129,31 @@
     </div>
   {/if}
   {#if Editor && doc}
-    {#key doc}
-      <Editor
-        doc={card.body}
-        collab={doc}
-        editable={writable}
-        canWrite={board.canEdit && room?.mode === 'write'}
-        onImageDropped={() => {
-          card.sayLost(IMAGE_DROPPED);
-        }}
-        users={people}
-        {resolveUser}
-        label={m.card_body()}
-        placeholder={writable ? m.card_body_placeholder() : ''}
-        class="min-h-24 text-base outline-none"
-        uploadImage={(file: File) => card.uploadImage(file)}
-        onEditor={(editor: TiptapEditor) => {
-          caret.take(editor, writable);
-        }}
-      />
+    <!-- Made anew for another document, and when one it could not draw fits again. -->
+    {#key made}
+      {#key doc}
+        <Editor
+          doc={card.body}
+          collab={doc}
+          editable={writable}
+          canWrite={board.canEdit && room?.mode === 'write'}
+          onFitsAgain={() => {
+            made += 1;
+          }}
+          onImageDropped={() => {
+            card.sayLost(IMAGE_DROPPED);
+          }}
+          users={people}
+          {resolveUser}
+          label={m.card_body()}
+          placeholder={writable ? m.card_body_placeholder() : ''}
+          class="min-h-24 text-base outline-none"
+          uploadImage={(file: File) => card.uploadImage(file)}
+          onEditor={(editor: TiptapEditor) => {
+            caret.take(editor, writable);
+          }}
+        />
+      {/key}
     {/key}
   {:else}
     <div {@attach caret.watch}>

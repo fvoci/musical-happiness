@@ -184,17 +184,31 @@ export function onShared(view: EditorView, then: () => void): () => void {
   };
 }
 
-const writers = new WeakMap<EditorView, () => boolean>();
+interface Writer {
+  /** The reader may still write while the editor is read-only for now. */
+  may: () => boolean;
+  /** Something the reader wrote (a formula's source) was not kept: to be said. */
+  dropped: () => void;
+}
 
-/** Says whether the reader of an editor may still write while it is read-only for now. */
-export function setMayWrite(view: EditorView, may: () => boolean): void {
-  writers.set(view, may);
+const writers = new WeakMap<EditorView, Writer>();
+
+/** Says whether the reader of an editor may still write, and how a dropped source is said. */
+export function setMayWrite(view: EditorView, writer: Writer): void {
+  writers.set(view, writer);
 }
 
 /**
  * Whether what the reader did before may be written into the editor now: it
- * is editable, or read-only only for a moment (the room sends it later).
+ * is editable, or read-only only for a moment (the room sends it later); and
+ * the editor takes changes (not while it holds what it cannot draw).
  */
 export function mayWrite(view: EditorView): boolean {
-  return view.editable || (writers.get(view)?.() ?? false);
+  if (ySyncPluginKey.getState(view.state)?.binding.invalidContentError) return false;
+  return view.editable || (writers.get(view)?.may() ?? false);
+}
+
+/** Says that what the reader wrote in a formula was not kept. */
+export function sayDropped(view: EditorView): void {
+  writers.get(view)?.dropped();
 }

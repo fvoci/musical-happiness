@@ -74,4 +74,10 @@ export interface BodyEditorProps {
   canWrite?: boolean;
   /** With `collab`: an image that went up had no place left, the editor being made anew meanwhile. */
   onImageDropped?: () => void;
+  /**
+   * With `collab`: the shared document holds something the editor could not
+   * draw no longer. The editor took nothing from it meanwhile and is to be
+   * made anew.
+   */
+  onFitsAgain?: () => void;
 }

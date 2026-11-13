@@ -23,8 +23,6 @@
       return m.app_problem_import_forbidden();
     }
     if (error?.status === 403) return m.app_problem_forbidden();
-    // What the server does not take yet (`docs/decisions.md`, 연결 3): said as that, not as a refusal.
-    if (error?.reason === 'not_wired') return m.app_problem_not_wired();
     if (problem.action === 'upload' && error?.status === 429) {
       return m.app_problem_upload_busy();
     }
