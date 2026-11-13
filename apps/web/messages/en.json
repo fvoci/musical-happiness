@@ -254,7 +254,7 @@
   "card_body_lost_reset": "The description was replaced elsewhere, and what you just wrote was removed with the old text.",
   "card_body_lost_large": "What you just wrote or pasted was too large to send and was removed.",
   "card_body_lost_image": "An image you added was not put in: the description was sent again meanwhile. Add it once more.",
-  "card_body_lost_formula": "What you were writing in a formula was not put in: the description was sent again meanwhile. Write it once more.",
+  "card_body_lost_formula": "What you were writing in a formula was not put into the description: the editor it was open in went away. Write it once more.",
   "card_attachments": "Attachments",
   "card_attachment_drop": "Drop files here to attach them",
   "card_attachment_delete": "Delete {name}",

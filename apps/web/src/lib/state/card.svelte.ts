@@ -63,11 +63,11 @@ export class CardStore {
   /** The body in its room, while it is open there (`openBody`). */
   room = $state.raw<BodyDocState | undefined>(undefined);
   /**
-   * Why changes of the reader were last dropped with the document they were
-   * in (a reason of the server's, or `document_reset`), until it is said and
-   * dismissed (`dismissLost`).
+   * Why things of the reader's were dropped (a reason of the server's,
+   * `document_reset`, or what the editor could not put in), each once, until
+   * they are said and dismissed (`dismissLost`): none replaces another.
    */
-  lost = $state<string | undefined>(undefined);
+  lost = $state.raw<readonly string[]>([]);
   /** The reader wrote in the body in this visit. */
   bodyEdited = $state(false);
   /**
@@ -160,7 +160,7 @@ export class CardStore {
         if (!state.doc) this.#catchUp();
       },
       discarded: (why) => {
-        if (this.#bodyDoc === opened) this.lost = why;
+        if (this.#bodyDoc === opened) this.sayLost(why);
       },
     });
     this.#bodyDoc = opened;
@@ -199,17 +199,14 @@ export class CardStore {
     this.#bodyDoc?.retry();
   }
 
-  /**
-   * Something of the reader's that was not put into the body is said as
-   * lost, until dismissed; a loss already said (the room's) stays said.
-   */
+  /** Something of the reader's that was not put into the body is said as lost, until dismissed. */
   sayLost(why: string): void {
-    this.lost ??= why;
+    if (!this.lost.includes(why)) this.lost = [...this.lost, why];
   }
 
   /** The reader was told that changes were dropped. */
   dismissLost(): void {
-    this.lost = undefined;
+    this.lost = [];
   }
 
   /** What the reader wrote has not all reached the server. */

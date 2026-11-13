@@ -254,7 +254,7 @@
   "card_body_lost_reset": "본문이 다른 곳에서 통째로 바뀌어, 방금 쓴 것이 옛 글과 함께 지워졌습니다.",
   "card_body_lost_large": "방금 쓰거나 붙여 넣은 것이 너무 커서 보내지 못하고 지웠습니다.",
   "card_body_lost_image": "그사이 본문이 새로 와서 올린 이미지를 넣지 못했습니다. 다시 넣어 주세요.",
-  "card_body_lost_formula": "그사이 본문이 새로 와서 수식에 쓰던 것을 넣지 못했습니다. 다시 써 주세요.",
+  "card_body_lost_formula": "수식 상자가 열려 있던 편집기가 사라져 수식에 쓰던 것을 본문에 넣지 못했습니다. 다시 써 주세요.",
   "card_attachments": "첨부 파일",
   "card_attachment_drop": "첨부할 파일을 여기에 놓으세요",
   "card_attachment_delete": "{name} 삭제",

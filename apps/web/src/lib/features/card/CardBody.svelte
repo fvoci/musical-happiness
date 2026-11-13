@@ -109,13 +109,17 @@
   data-room={room?.status ?? 'none'}
   data-settling={settling ? '' : undefined}
 >
-  {#if card.lost}
+  {#if card.lost.length > 0}
     <div
       class="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3"
       role="alert"
       data-testid="body-lost"
     >
-      <p class="min-w-0 flex-1">{lostNote(card.lost)}</p>
+      <div class="min-w-0 flex-1">
+        {#each card.lost as why (why)}
+          <p>{lostNote(why)}</p>
+        {/each}
+      </div>
       <Button
         variant="outline"
         size="sm"

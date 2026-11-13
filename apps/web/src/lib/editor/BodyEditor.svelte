@@ -22,6 +22,7 @@
 <script lang="ts">
   import { Editor } from '@tiptap/core';
   import { Collaboration } from '@tiptap/extension-collaboration';
+  import type { Transaction } from '@tiptap/pm/state';
   import { ySyncPluginKey } from '@tiptap/y-tiptap';
   import { onMount, untrack } from 'svelte';
 
@@ -29,7 +30,7 @@
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 
   import { BODY_FIELD, type BodyEditorProps } from './body-editor.ts';
-  import { setMayWrite, type DroppedWhy } from './shared-place.ts';
+  import { fromShared, setMayWrite, type DroppedWhy } from './shared-place.ts';
   import './editor.css';
   import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
@@ -70,16 +71,16 @@
   let unreadable = $state(false);
   /**
    * The last thing that came of something the reader did and is to be said:
-   * an image not put in, a formula's source not kept. Undefined once an
-   * image went in.
+   * an image not put in, a formula's source not kept. Gone once the reader
+   * writes again; an image's, also once another image went in.
    */
-  let said = $state<string>();
+  let said = $state<{ text: string; image: boolean }>();
   let uploads = $state(0);
 
   const status = $derived.by(() => {
     if (unreadable) return m.editor_body_unreadable();
     if (uploads > 0) return m.editor_image_uploading();
-    return said ?? '';
+    return said?.text ?? '';
   });
 
   const UPLOAD_SAID = {
@@ -185,14 +186,18 @@
               if (outcome === 'gone') onImageDropped?.();
               return;
             }
-            if (outcome !== undefined)
-              said = outcome === 'done' ? undefined : UPLOAD_SAID[outcome]();
+            if (outcome === 'done' && said?.image) said = undefined;
+            else if (outcome !== undefined && outcome !== 'done') {
+              said = { text: UPLOAD_SAID[outcome](), image: true };
+            }
           },
         }),
       ],
       editorProps: { attributes: rootAttributes() },
-      onTransaction: fromEditor(() => {
+      onTransaction: fromEditor(({ transaction }: { transaction: Transaction }) => {
         changes += 1;
+        // The reader writes again: what was said of before is over.
+        if (transaction.docChanged && !fromShared(transaction)) said = undefined;
       }),
       onUpdate: fromEditor(({ editor: current }: { editor: Editor }) =>
         onChange?.(storedOf(current)),
@@ -204,7 +209,8 @@
     setMayWrite(created.view, {
       may: () => shared !== undefined && canWrite,
       dropped: fromEditor((why: DroppedWhy) => {
-        said = why === 'gone' ? m.editor_formula_gone() : m.editor_formula_refused();
+        const text = why === 'gone' ? m.editor_formula_gone() : m.editor_formula_refused();
+        said = { text, image: false };
       }),
     });
     // What it could not draw is gone again: the editor, which took nothing from the shared

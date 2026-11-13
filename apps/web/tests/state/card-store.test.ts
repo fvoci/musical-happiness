@@ -109,10 +109,10 @@ describe('an open card', () => {
       expect(card.room?.doc).not.toBe(doc);
       expect(card.room?.status).toBe('joined');
     });
-    expect(card.lost).toBe('document_reset');
+    expect(card.lost).toEqual(['document_reset']);
     expect(bodyOf(card.room?.doc ?? doc)).toEqual(text('theirs'));
     card.dismissLost();
-    expect(card.lost).toBeUndefined();
+    expect(card.lost).toEqual([]);
     card.close();
   });
 });

@@ -27,8 +27,11 @@ export interface MathEditingOptions {
    * `cancel` is.
    */
   apply: (latex: string, changed: boolean) => void;
-  /** Nothing is to change. Called once, unless `apply` is. */
-  cancel: () => void;
+  /**
+   * Nothing is to change. `dropped`: closed while locked with something
+   * written in it, which is lost (to be said). Called once, unless `apply` is.
+   */
+  cancel: (dropped: boolean) => void;
   page: Document;
   /** Whose box it is (the editor's view): for `lockMathEditing` and `mathDraftChanged`. */
   owner?: object;
@@ -56,6 +59,8 @@ function mathDialog(page: Document, options: MathEditingOptions) {
 
   const hint = page.createElement('p');
   hint.setAttribute('class', 'doc-math-hint');
+  // Said when it changes: why the field no longer takes typing, and when it does again.
+  hint.setAttribute('aria-live', 'polite');
   hint.append(page.createTextNode(m.editor_math_hint()));
 
   const buttons = page.createElement('div');
@@ -103,7 +108,7 @@ function fieldKeys(apply: () => void, cancel: () => void): (event: KeyboardEvent
 
 let open:
   | {
-      apply: () => void;
+      leave: () => void;
       cancel: () => void;
       owner?: object;
       changed: () => boolean;
@@ -113,16 +118,16 @@ let open:
 
 /** Opens the box. Only one is open at a time; opening another applies the first. */
 export function editMath(options: MathEditingOptions): void {
-  open?.apply();
+  open?.leave();
   const { page } = options;
   const view = page.defaultView;
   const { box, field, preview, hint, buttons, button } = mathDialog(page, options);
-
   let done = false;
   /** The editor is read-only for now: nothing is typed in, nothing kept (`lockMathEditing`). */
   let locked = false;
   let sequence = 0;
-  const changed = (): boolean => field.value !== options.latex;
+  const changed = (): boolean =>
+    field.value.trim().slice(0, MAX_LATEX) !== options.latex.trim().slice(0, MAX_LATEX);
 
   function redraw(): void {
     const latex = field.value.trim();
@@ -157,7 +162,7 @@ export function editMath(options: MathEditingOptions): void {
   function close(): void {
     if (done) return;
     done = true;
-    open = undefined;
+    if (open?.cancel === cancel) open = undefined;
     view?.removeEventListener('resize', place);
     page.removeEventListener('pointerdown', outside, true);
     box.remove();
@@ -171,19 +176,21 @@ export function editMath(options: MathEditingOptions): void {
   }
   function cancel(): void {
     if (done) return;
+    const dropped = locked && changed();
     close();
-    options.cancel();
+    options.cancel(dropped);
   }
-  /** A press anywhere else keeps what was written, like leaving a field. */
+  /** Leaving keeps what was written, like leaving a field; locked, it closes keeping nothing. */
+  function leave(): void {
+    if (locked) cancel();
+    else apply();
+  }
   function outside(event: Event): void {
-    if (event.target instanceof Node && box.contains(event.target)) return;
-    apply();
+    if (!(event.target instanceof Node && box.contains(event.target))) leave();
   }
-
-  // Leaving the box for another part of the page keeps what was written.
   box.addEventListener('focusout', (event) => {
     const next = event.relatedTarget;
-    if (next instanceof Node && !box.contains(next)) apply();
+    if (next instanceof Node && !box.contains(next)) leave();
   });
   field.addEventListener('input', redraw);
   field.addEventListener('keydown', fieldKeys(apply, cancel));
@@ -195,14 +202,13 @@ export function editMath(options: MathEditingOptions): void {
 
   box.append(field, preview, hint, buttons);
   page.body.append(box);
-  open = { apply, cancel, owner: options.owner, changed, lock: lockBox };
+  open = { leave, cancel, owner: options.owner, changed, lock: lockBox };
   function lockBox(lock: boolean): void {
     if (lock === locked) return;
     locked = lock;
     field.readOnly = lock;
     for (const each of buttons.querySelectorAll('button')) each.disabled = lock;
     hint.replaceChildren(page.createTextNode(lock ? m.editor_math_locked() : m.editor_math_hint()));
-    box.toggleAttribute('data-locked', lock);
   }
   place();
   redraw();

@@ -104,8 +104,11 @@ function editFormulaAt(editor: Editor, position: number): void {
       view.dispatch(transaction);
       view.focus();
     },
-    cancel: () => {
+    cancel: (dropped) => {
       stopWatching();
+      // Closed while locked with something written: not kept (the formula still there; a
+      // formula deleted, or the editor gone, says so itself).
+      if (dropped && where() !== undefined) sayDropped(view, 'refused');
       if (!editor.isDestroyed && editor.isEditable) view.focus();
     },
   });

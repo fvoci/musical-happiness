@@ -247,6 +247,7 @@ test('a connection that drops leaves the body read-only, and once back the reade
 }) => {
   const base = baseURL ?? '';
   const owner = person('dropper');
+  const errors = watchErrors(page);
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
@@ -286,6 +287,7 @@ test('a connection that drops leaves the body read-only, and once back the reade
     .poll(async () => lines((await stored(api, board, cardId)).body), { timeout: 15_000 })
     .toEqual(['Before the tunnel. After it.']);
   await api.dispose();
+  expect(errors).toEqual([]);
 });
 
 test('a body written whole by another client of the API takes the place of the one in the editor', async ({
@@ -341,6 +343,7 @@ test('a card duplicated right after typing copies what was typed', async ({ page
   test.fail(true, 'the server copies the stored body before the room has written it');
   const base = baseURL ?? '';
   const owner = person('copier');
+  const errors = watchErrors(page);
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
@@ -359,8 +362,9 @@ test('a card duplicated right after typing copies what was typed', async ({ page
   );
   expect(copied.ok()).toBe(true);
   const [copy] = (await copied.json()) as Schemas['Card'][];
-  expect(JSON.stringify(copy?.body ?? null)).toContain('Typed just now');
   await api.dispose();
+  expect(errors).toEqual([]);
+  expect(JSON.stringify(copy?.body ?? null)).toContain('Typed just now');
 });
 
 // The same gap for a board copied (and a template made of it, an archive: the same read).
@@ -368,6 +372,7 @@ test('a board copied right after typing copies what was typed', async ({ page, b
   test.fail(true, 'the server copies the stored bodies before the room has written them');
   const base = baseURL ?? '';
   const owner = person('boardcopier');
+  const errors = watchErrors(page);
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
@@ -386,6 +391,7 @@ test('a board copied right after typing copies what was typed', async ({ page, b
     await api.get(`/api/v1/w/${board.workspaceId}/boards/${copyId}/blocks`)
   ).json()) as Schemas['Block'][];
   const card = blocks.find((block) => block.type === 'card' && block.title === 'Original');
-  expect(JSON.stringify(card?.body ?? null)).toContain('Typed just now');
   await api.dispose();
+  expect(errors).toEqual([]);
+  expect(JSON.stringify(card?.body ?? null)).toContain('Typed just now');
 });

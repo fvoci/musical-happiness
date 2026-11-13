@@ -461,6 +461,15 @@ describe('the place of a new formula in a body edited together', () => {
   });
 });
 
+/** The source of the first formula in a line of the editor's document. */
+function latexIn(editor: Editor): unknown {
+  let latex: unknown;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === 'inlineMath') latex ??= node.attrs.latex;
+  });
+  return latex;
+}
+
 describe('the box of a formula in a line in a body edited together', () => {
   const box = (): HTMLTextAreaElement | null =>
     document.querySelector<HTMLTextAreaElement>('.doc-math-editing textarea');
@@ -545,15 +554,31 @@ describe('the box of a formula in a line in a body edited together', () => {
     // Enter does nothing while locked: nothing goes into the shared document.
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(box()).not.toBeNull();
-    expect(JSON.stringify(shared.reader.getXmlFragment(BODY_FIELD).toJSON())).not.toContain('"y"');
+    expect(latexIn(editor)).toBe('x');
     await rerender({ ...props, editable: true });
     expect(field.readOnly).toBe(false);
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    let latex: unknown;
-    editor.state.doc.descendants((node) => {
-      if (node.type.name === 'inlineMath') latex = node.attrs.latex;
+    expect(latexIn(editor)).toBe('y');
+  });
+
+  it('locked, closes on a press elsewhere, keeping nothing, and says so', async () => {
+    const shared = room(doc(paragraph(text('a '), math('x'), text(' b'))));
+    const props = { doc: null, collab: shared.reader, canWrite: true };
+    const { container, rerender } = render(BodyEditor, props);
+    const editor = editorIn(container);
+    editor.view.dom.querySelector<HTMLElement>('.doc-math')?.click();
+    const field = box();
+    if (!field) throw new Error('no box');
+    field.value = 'y';
+    await rerender({ ...props, editable: false });
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(box()).toBeNull();
+    expect(latexIn(editor)).toBe('x');
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-editor-status')?.textContent.trim()).toBe(
+        'What you wrote in the formula was not kept: the description cannot be changed now.',
+      );
     });
-    expect(latex).toBe('y');
   });
 
   it('closes, keeping nothing, when the room deletes the formula', () => {

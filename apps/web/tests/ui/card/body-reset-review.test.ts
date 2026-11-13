@@ -45,7 +45,7 @@ it('says that an inline formula draft was lost when the room receives a new epoc
     });
     expect(container.querySelector('[data-testid="body-lost"]')).not.toBeNull();
     // Said as the formula's: nothing else of the reader's was waiting.
-    expect(card.lost).toBe('formula_dropped');
+    expect(card.lost).toEqual(['formula_dropped']);
   } finally {
     unmount();
     board.close();
