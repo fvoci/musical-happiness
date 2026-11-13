@@ -5,6 +5,7 @@ mod content;
 mod outbound;
 mod pace;
 mod quota;
+mod share;
 mod smtp;
 #[cfg(test)]
 mod tests;
@@ -38,7 +39,11 @@ const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(1);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum InvitationRefusal {
     /// The workspace queued its hourly limit; the oldest of those leave after this.
-    HourlyLimit(Duration),
+    WorkspaceHourlyLimit(Duration),
+    /// The organization queued its hourly limit; the oldest of those leave after this.
+    OrgHourlyLimit(Duration),
+    /// The organization holds half of the invitation queue.
+    OrgShareFull,
     /// The invitation queue holds as many messages as it may.
     QueueFull,
 }
@@ -54,8 +59,15 @@ pub(super) struct Mailer {
     invitation_connections: Arc<Semaphore>,
     reset_queue: Arc<Semaphore>,
     invitation_queue: Arc<Semaphore>,
-    invitation_quota: Arc<quota::HourlyQuota>,
+    /// Invitation messages per workspace and hour, up to `invitation_mail_per_hour`.
+    workspace_quota: Arc<quota::HourlyQuota>,
+    workspace_per_hour: u32,
+    /// Invitation messages per organization and hour, up to the organization's limit.
+    org_quota: Arc<quota::HourlyQuota>,
+    org_shares: Arc<share::OrgShares>,
+    /// Recovery messages per account and hour, up to `mail_reset_per_account_hour`.
     reset_quota: Arc<quota::HourlyQuota>,
+    reset_per_hour: u32,
     pace: Arc<pace::Pace>,
     metrics: Metrics,
 }
@@ -110,10 +122,12 @@ impl Mailer {
             invitation_queue: Arc::new(Semaphore::new(usize::try_from(
                 settings.mail_invitation_queue,
             )?)),
-            invitation_quota: Arc::new(quota::HourlyQuota::new(settings.invitation_mail_per_hour)),
-            reset_quota: Arc::new(quota::HourlyQuota::new(
-                settings.mail_reset_per_account_hour,
-            )),
+            workspace_quota: Arc::default(),
+            workspace_per_hour: settings.invitation_mail_per_hour,
+            org_quota: Arc::default(),
+            org_shares: Arc::new(share::OrgShares::new(settings.mail_invitation_queue / 2)),
+            reset_quota: Arc::default(),
+            reset_per_hour: settings.mail_reset_per_account_hour,
             pace: Arc::new(pace::Pace::new(settings.mail_per_second)),
             metrics,
         })
@@ -127,44 +141,68 @@ impl Mailer {
     /// a full queue.
     pub(super) fn queue_reset(&self, user_id: &str) -> Result<Queued, ResetMailDrop> {
         self.reset_quota
-            .take(user_id, 1, Instant::now(), || {
-                Arc::clone(&self.reset_queue).try_acquire_owned().ok()
+            .take(user_id, 1, self.reset_per_hour, Instant::now(), || {
+                Arc::clone(&self.reset_queue).try_acquire_owned()
             })
             .map(|place| Queued {
                 kind: MailKind::PasswordReset,
                 place,
+                org: None,
             })
             .map_err(|refusal| match refusal {
                 quota::Refusal::Limit(_) => ResetMailDrop::AccountLimit,
-                quota::Refusal::Unplaced => ResetMailDrop::QueueFull,
+                quota::Refusal::Unplaced(_) => ResetMailDrop::QueueFull,
             })
     }
 
-    /// Takes the places of all `messages` of one invitation request, or none of them:
-    /// the queue must hold them all and the workspace's hourly limit must allow them.
-    /// The hourly limit is asked first, so a workspace past it is told when to come
-    /// back even while the queue is full.
+    /// Takes the places of all `messages` of one invitation request of the workspace
+    /// `workspace_id` in the organization `org_id`, or none of them. In this order, the
+    /// workspace's hourly limit, the organization's (`org_per_hour`), the
+    /// organization's half of the queue and the queue must each take them all: a
+    /// workspace or an organization past its hour is told when to come back even while
+    /// the queue is full, and one organization never holds the whole queue.
     pub(super) fn queue_invitations(
         &self,
         workspace_id: &str,
+        org_id: &str,
+        org_per_hour: u32,
         messages: u32,
     ) -> Result<Vec<Queued>, InvitationRefusal> {
-        let mut places = self
-            .invitation_quota
-            .take(workspace_id, messages, Instant::now(), || {
-                Arc::clone(&self.invitation_queue)
-                    .try_acquire_many_owned(messages)
-                    .ok()
+        let now = Instant::now();
+        let (orgs, mut places) = self
+            .workspace_quota
+            .take(workspace_id, messages, self.workspace_per_hour, now, || {
+                self.org_quota
+                    .take(org_id, messages, org_per_hour, now, || {
+                        let orgs = self
+                            .org_shares
+                            .take(org_id, messages)
+                            .ok_or(InvitationRefusal::OrgShareFull)?;
+                        let places = Arc::clone(&self.invitation_queue)
+                            .try_acquire_many_owned(messages)
+                            .map_err(|_| InvitationRefusal::QueueFull)?;
+                        Ok((orgs, places))
+                    })
+                    .map_err(|refusal| match refusal {
+                        quota::Refusal::Limit(RetryAfter(wait)) => {
+                            InvitationRefusal::OrgHourlyLimit(wait)
+                        }
+                        quota::Refusal::Unplaced(refusal) => refusal,
+                    })
             })
-            .map_err(|refused| match refused {
-                quota::Refusal::Limit(RetryAfter(wait)) => InvitationRefusal::HourlyLimit(wait),
-                quota::Refusal::Unplaced => InvitationRefusal::QueueFull,
+            .map_err(|refusal| match refusal {
+                quota::Refusal::Limit(RetryAfter(wait)) => {
+                    InvitationRefusal::WorkspaceHourlyLimit(wait)
+                }
+                quota::Refusal::Unplaced(refusal) => refusal,
             })?;
         let mut queued = Vec::new();
-        while let Some(place) = places.split(1) {
+        for org in orgs {
+            let Some(place) = places.split(1) else { break };
             queued.push(Queued {
                 kind: MailKind::Invitation,
                 place,
+                org: Some(org),
             });
         }
         Ok(queued)
@@ -201,6 +239,8 @@ fn is_loopback_root(server_root: &str) -> bool {
 pub(super) struct Queued {
     kind: MailKind,
     place: OwnedSemaphorePermit,
+    /// For an invitation, its part of its organization's share.
+    org: Option<share::OrgPlace>,
 }
 
 /// A message the caller made, to one recipient; the sender is the mailer's.
@@ -239,7 +279,7 @@ impl Queued {
         let mut waits = RETRY_DELAYS.into_iter();
         for attempt in 1.. {
             mailer.pace.turn(kind).await;
-            let sending = mailer.sending(kind).await;
+            let sending = mailer.sending(kind, self.org.as_ref()).await;
             if let Some(write) = write.take() {
                 let Some(letter) = write().await? else {
                     return Ok(());
@@ -286,23 +326,35 @@ impl Queued {
             };
             tokio::time::sleep(wait).await;
         }
-        drop(self.place);
+        drop((self.place, self.org));
         Ok(())
     }
 }
 
 /// The sendings one attempt holds while it is made; given back in the order of the
 /// fields, so the connection is free before the share that let an invitation take it,
-/// and invitations never hold all four at once.
+/// and that before its organization's: invitations never hold all four at once, nor one
+/// organization all three of theirs.
 struct Sending {
     _connection: OwnedSemaphorePermit,
     _invitations: Option<OwnedSemaphorePermit>,
+    _org: Option<OwnedSemaphorePermit>,
 }
 
 impl Mailer {
-    /// Waits for a sending a message of `kind` may use.
-    async fn sending(&self, kind: MailKind) -> Sending {
+    /// Waits for a sending a message of `kind`, of the organization's share `org` if it
+    /// is an invitation, may use.
+    async fn sending(&self, kind: MailKind, org: Option<&share::OrgPlace>) -> Sending {
         let closed = "the mail semaphores are never closed";
+        let org = match org {
+            Some(org) => Some(
+                Arc::clone(&org.sending)
+                    .acquire_owned()
+                    .await
+                    .expect(closed),
+            ),
+            None => None,
+        };
         let invitations = match kind {
             MailKind::PasswordReset => None,
             MailKind::Invitation => Some(
@@ -318,6 +370,7 @@ impl Mailer {
                 .await
                 .expect(closed),
             _invitations: invitations,
+            _org: org,
         }
     }
 

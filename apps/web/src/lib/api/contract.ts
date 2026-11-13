@@ -2164,13 +2164,15 @@ export interface paths {
          *     still be allowed to make that kind of invitation. The same checks are repeated
          *     before each delivery. Member and one-use guest links retain their original
          *     expiry and use limits. Invalid recipients reject the whole request before sending.
-         *     The recipient's language wins when known, otherwise the sender's language is used;
-         *     `language` is the fallback for a sender whose setting is auto. No SMTP means 404.
+         *     Each message is in the recipient's language when the mail is written in it, else the
+         *     sender's setting, else `language`, else English. No SMTP means 404.
          *     A request names at most `invitation_mail_recipients` addresses, repeats counted
          *     (400, `too_many_recipients`). Its messages are queued all or none: 429
          *     (`invitation_mail_limit`, with `Retry-After`) when the workspace would pass
-         *     `invitation_mail_per_hour` messages within an hour, and 503 (`mail_queue_full`) when
-         *     the server's invitation queue cannot hold them all. A refused request sends nothing.
+         *     `invitation_mail_per_hour` messages within an hour or its organization its own
+         *     hourly limit (`invitation_mail_per_org_hour`), and 503 (`mail_queue_full`) when the
+         *     organization's half of the server's invitation queue, or the queue, cannot hold them
+         *     all. A refused request sends nothing.
          */
         post: operations["emailInvitation"];
         delete?: never;

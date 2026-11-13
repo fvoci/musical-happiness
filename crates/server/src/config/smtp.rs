@@ -4,7 +4,7 @@ use anyhow::bail;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 12] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 13] = [
     ("smtp_host", super::EnvKind::Text),
     ("smtp_port", super::EnvKind::Number),
     ("smtp_tls", super::EnvKind::Text),
@@ -17,6 +17,7 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 12] = [
     ("mail_invitation_queue", super::EnvKind::Number),
     ("invitation_mail_recipients", super::EnvKind::Number),
     ("invitation_mail_per_hour", super::EnvKind::Number),
+    ("invitation_mail_per_org_hour", super::EnvKind::Number),
 ];
 
 /// How the connection to the SMTP server is protected; a value that is none of these
@@ -60,11 +61,15 @@ pub struct SmtpSettings {
     /// answered as any other and send nothing.
     pub mail_reset_per_account_hour: u32,
     /// The most invitation messages waiting or being delivered; more are refused (503).
+    /// One organization holds at most half of them.
     pub mail_invitation_queue: u32,
     /// The most recipients one invitation mail request names (400 beyond).
     pub invitation_mail_recipients: u32,
     /// The most invitation messages one workspace queues in an hour (429 beyond).
     pub invitation_mail_per_hour: u32,
+    /// The most invitation messages one organization queues in an hour (429 beyond),
+    /// until organizations have limits of their own (`App::limits`).
+    pub invitation_mail_per_org_hour: u32,
 }
 
 impl Default for SmtpSettings {
@@ -82,6 +87,7 @@ impl Default for SmtpSettings {
             mail_invitation_queue: 200,
             invitation_mail_recipients: 20,
             invitation_mail_per_hour: 100,
+            invitation_mail_per_org_hour: 300,
         }
     }
 }
@@ -105,6 +111,10 @@ impl std::fmt::Debug for SmtpSettings {
                 &self.invitation_mail_recipients,
             )
             .field("invitation_mail_per_hour", &self.invitation_mail_per_hour)
+            .field(
+                "invitation_mail_per_org_hour",
+                &self.invitation_mail_per_org_hour,
+            )
             .finish_non_exhaustive()
     }
 }
@@ -140,12 +150,14 @@ impl SmtpSettings {
                  invitation_mail_recipients must be at least 1"
             );
         }
-        if self.invitation_mail_recipients > self.mail_invitation_queue
+        if self.invitation_mail_recipients > self.mail_invitation_queue / 2
             || self.invitation_mail_recipients > self.invitation_mail_per_hour
+            || self.invitation_mail_recipients > self.invitation_mail_per_org_hour
         {
             bail!(
-                "mail_invitation_queue and invitation_mail_per_hour must each be at least \
-                 invitation_mail_recipients"
+                "half of mail_invitation_queue (what one organization may hold), \
+                 invitation_mail_per_hour and invitation_mail_per_org_hour must each be at \
+                 least invitation_mail_recipients"
             );
         }
         if self.smtp_user.is_empty() != self.smtp_password.is_empty() {
@@ -208,8 +220,9 @@ mod tests {
             ("mail_reset_queue", 0),
             ("mail_reset_per_account_hour", 0),
             ("invitation_mail_recipients", 0),
-            ("mail_invitation_queue", 19),
+            ("mail_invitation_queue", 39),
             ("invitation_mail_per_hour", 19),
+            ("invitation_mail_per_org_hour", 19),
         ] {
             for host in ["", "smtp.example.test"] {
                 let mut json = serde_json::json!({"smtp_host": host});
@@ -227,7 +240,8 @@ mod tests {
         let fits = serde_json::json!({
             "invitation_mail_recipients": 1,
             "invitation_mail_per_hour": 1,
-            "mail_invitation_queue": 1,
+            "invitation_mail_per_org_hour": 1,
+            "mail_invitation_queue": 2,
             "mail_reset_queue": 1,
             "mail_reset_per_account_hour": 1,
         });

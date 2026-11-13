@@ -8,6 +8,7 @@ use super::super::mail::{Content, InvitationRefusal, Language, Letter, Queued};
 use super::App;
 use crate::auth::{now_millis, secret::token_digest};
 use crate::error::{AppError, Reason};
+use fvoci_store::Tenant;
 
 impl App {
     /// Queues individual messages carrying this workspace's existing invitation.
@@ -15,8 +16,9 @@ impl App {
     /// # Errors
     /// Returns 404 without SMTP or a usable link in this workspace, 403 when the
     /// sender cannot invite, 400 if any recipient is not a single email address or
-    /// there are more than `invitation_mail_recipients`, 429 when the workspace's hourly
-    /// limit would be passed, and 503 when the invitation queue cannot hold them all.
+    /// there are more than `invitation_mail_recipients`, 429 when the workspace's or the
+    /// organization's hourly limit would be passed, and 503 when the organization's half
+    /// of the invitation queue or the queue cannot hold them all.
     /// Any refusal queues none of the messages.
     pub async fn email_invitation(
         &self,
@@ -58,16 +60,36 @@ impl App {
             .await?;
         // Distinct recipients are no more than those named, which fit in the limit.
         let count = u32::try_from(recipients.len()).unwrap_or(limit);
+        // The handle is the organization's the workspace is in: what it holds of the
+        // mail is counted under it, at its own limit.
+        let org = match self.store().tenant() {
+            Tenant::Org(org_id) => org_id.to_string(),
+            Tenant::Unset | Tenant::System => String::new(),
+        };
         let queued = self
             .inner
             .mail
-            .queue_invitations(workspace_id, count)
+            .queue_invitations(
+                workspace_id,
+                &org,
+                self.limits().invitation_mail_per_hour,
+                count,
+            )
             .map_err(|refused| match refused {
-                InvitationRefusal::HourlyLimit(wait) => AppError::quota_reached(
+                InvitationRefusal::WorkspaceHourlyLimit(wait) => AppError::quota_reached(
                     "the workspace sent its hourly invitation mail; try again later",
                     Reason::InvitationMailLimit,
                     wait,
                 ),
+                InvitationRefusal::OrgHourlyLimit(wait) => AppError::quota_reached(
+                    "the organization sent its hourly invitation mail; try again later",
+                    Reason::InvitationMailLimit,
+                    wait,
+                ),
+                InvitationRefusal::OrgShareFull => AppError::service_unavailable(
+                    "the organization has too much mail waiting; try again later",
+                )
+                .with_reason(Reason::MailQueueFull),
                 InvitationRefusal::QueueFull => {
                     AppError::service_unavailable("too much mail is waiting; try again later")
                         .with_reason(Reason::MailQueueFull)

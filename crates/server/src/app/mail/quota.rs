@@ -12,42 +12,37 @@ const WINDOW: Duration = Duration::from_hours(1);
 
 /// Why messages were not taken; nothing was recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Refusal {
+pub(super) enum Refusal<E> {
     /// The key would pass its limit; enough earlier messages leave after this.
     Limit(RetryAfter),
-    /// The messages fit within the hour, but there was no place for them.
-    Unplaced,
+    /// The messages fit within the hour, but finding a place for them failed so.
+    Unplaced(E),
 }
 
 /// Messages admitted per key, as (when, how many) oldest first, kept in memory.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct HourlyQuota {
-    per_hour: u32,
     admitted: Mutex<HashMap<String, VecDeque<(Instant, u32)>>>,
 }
 
 impl HourlyQuota {
-    pub(super) fn new(per_hour: u32) -> Self {
-        Self {
-            per_hour,
-            admitted: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Records `messages` for `key` if they fit within the last hour's limit
+    /// Records `messages` for `key` if they fit within `per_hour` over the last hour
     /// and `place` finds room for them, returning what it found. Both are decided under
-    /// one lock, so no other request is counted in between.
+    /// one lock, so no other request is counted in between. The limit is the caller's,
+    /// as it may differ from key to key.
     ///
     /// # Errors
     /// Returns [`Refusal::Limit`] with how long until enough earlier messages leave the
-    /// window, or [`Refusal::Unplaced`] when `place` found no room; nothing is recorded.
-    pub(super) fn take<T>(
+    /// window, or [`Refusal::Unplaced`] with what `place` failed with; nothing is
+    /// recorded.
+    pub(super) fn take<T, E>(
         &self,
         key: &str,
         messages: u32,
+        per_hour: u32,
         now: Instant,
-        place: impl FnOnce() -> Option<T>,
-    ) -> Result<T, Refusal> {
+        place: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, Refusal<E>> {
         let mut admitted = self.admitted.lock().expect("mail quota lock poisoned");
         // Forget keys with nothing in the window, so the map stays as small as the
         // keys that were given mail within the hour.
@@ -62,20 +57,20 @@ impl HourlyQuota {
         });
         let earlier = admitted.get(key);
         let mut used: u32 = earlier.map_or(0, |entries| entries.iter().map(|(_, n)| n).sum());
-        if used.saturating_add(messages) > self.per_hour {
+        if used.saturating_add(messages) > per_hour {
             // The configuration keeps a request's messages within every hourly limit,
             // so the window always empties far enough.
             let mut wait = WINDOW;
             for (at, count) in earlier.into_iter().flatten() {
                 used -= count;
-                if used.saturating_add(messages) <= self.per_hour {
+                if used.saturating_add(messages) <= per_hour {
                     wait = (*at + WINDOW).saturating_duration_since(now);
                     break;
                 }
             }
             return Err(Refusal::Limit(RetryAfter(wait)));
         }
-        let placed = place().ok_or(Refusal::Unplaced)?;
+        let placed = place().map_err(Refusal::Unplaced)?;
         admitted
             .entry(key.to_owned())
             .or_default()
@@ -89,16 +84,16 @@ mod tests {
     use super::*;
 
     fn take(quota: &HourlyQuota, key: &str, messages: u32, at: Instant) -> Option<Duration> {
-        match quota.take(key, messages, at, || Some(())) {
+        match quota.take(key, messages, 5, at, || Ok::<_, ()>(())) {
             Ok(()) => None,
             Err(Refusal::Limit(RetryAfter(wait))) => Some(wait),
-            Err(Refusal::Unplaced) => panic!("placing always succeeds here"),
+            Err(Refusal::Unplaced(())) => panic!("placing always succeeds here"),
         }
     }
 
     #[test]
     fn a_key_waits_until_its_oldest_messages_leave_the_hour() {
-        let quota = HourlyQuota::new(5);
+        let quota = HourlyQuota::default();
         let start = Instant::now();
         assert_eq!(take(&quota, "w1", 3, start), None);
         assert_eq!(take(&quota, "w1", 2, start + Duration::from_mins(10)), None);
@@ -126,17 +121,17 @@ mod tests {
 
     #[test]
     fn messages_without_a_place_take_nothing_of_the_hour() {
-        let quota = HourlyQuota::new(5);
+        let quota = HourlyQuota::default();
         let start = Instant::now();
         assert_eq!(
-            quota.take("w1", 5, start, || None::<()>),
-            Err(Refusal::Unplaced)
+            quota.take("w1", 5, 5, start, || Err::<(), _>("full")),
+            Err(Refusal::Unplaced("full"))
         );
         assert_eq!(take(&quota, "w1", 5, start), None, "the hour is untouched");
         let mut asked = false;
-        let refused = quota.take("w1", 1, start, || {
+        let refused = quota.take("w1", 1, 5, start, || {
             asked = true;
-            Some(())
+            Ok::<_, ()>(())
         });
         assert_eq!(
             refused,

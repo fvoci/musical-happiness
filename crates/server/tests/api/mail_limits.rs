@@ -1,6 +1,7 @@
-//! What invitation mail may hold of the SMTP work: its own queue, three of the four
-//! connections, recipients per request and messages per workspace and hour; and
-//! recovery answering as always when its queue is full.
+//! What invitation mail may hold of the SMTP work: its own queue, of which one
+//! organization holds half, three of the four sendings, of which one organization uses
+//! two, recipients per request, and messages per workspace and per organization and
+//! hour; and recovery answering as always when its queue is full.
 
 use std::time::Duration;
 
@@ -40,14 +41,14 @@ async fn invitations_never_take_the_last_connection_from_recovery() {
     smtp.hold("@held.test");
     let th = Setup::native()
         .smtp(smtp.settings())
-        .configure(|config| config.smtp.mail_invitation_queue = 20)
+        .configure(|config| config.smtp.mail_invitation_queue = 40)
         .start()
         .await
         .init_basic()
         .await;
     let token = member_link(&th).await;
-    // Four requests deliver one message at a time each: more than the connections
-    // invitations may use, and as many messages as their queue holds.
+    // Four requests deliver one message at a time each: more than the sendings one
+    // organization may use, and as many messages as its half of the queue holds.
     for batch in 0..4 {
         th.client
             .post(
@@ -57,12 +58,12 @@ async fn invitations_never_take_the_last_connection_from_recovery() {
             .await
             .check_no_content();
     }
-    smtp.attempted(3).await;
+    smtp.attempted(2).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(
         smtp.attempts(),
-        3,
-        "invitations hold three connections at most"
+        2,
+        "one organization's invitations hold two sendings at most"
     );
     th.client
         .post(
@@ -203,7 +204,7 @@ async fn a_full_invitation_queue_refuses_a_whole_request_before_answering() {
     let th = Setup::native()
         .smtp(smtp.settings())
         .configure(|config| {
-            config.smtp.mail_invitation_queue = 3;
+            config.smtp.mail_invitation_queue = 6;
             config.smtp.invitation_mail_recipients = 3;
         })
         .start()
@@ -320,6 +321,167 @@ async fn recovery_answers_the_same_when_its_queue_is_full_and_counts_the_drop() 
         1,
         "the dropped request made no token"
     );
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+/// A second workspace of user1's organization, which user1 administers, and the token
+/// of a new member link of it.
+async fn second_workspace_link(th: &TestServer) -> (String, String) {
+    let own: Vec<fvoci_model::UserWorkspace> =
+        th.client.get("/users/me/workspaces").await.ok_json();
+    let org = own.first().expect("user1's organization").org_id.clone();
+    let made: Value = th
+        .client
+        .post(
+            &format!("/org/{org}/workspaces"),
+            &json!({"name": "Mail workspace"}),
+        )
+        .await
+        .created_json();
+    let workspace = made["id"].as_str().expect("an identifier").to_owned();
+    th.client
+        .post_empty(&format!("/org/{org}/workspaces/{workspace}/join"))
+        .await
+        .check_ok();
+    let link: Invitation = th
+        .client
+        .post(
+            &format!("/w/{workspace}/invitations"),
+            &json!({"role":"member"}),
+        )
+        .await
+        .created_json();
+    (workspace, link.token.expect("a new link has its token"))
+}
+
+#[tokio::test]
+async fn an_organization_waits_once_its_workspaces_queued_its_hourly_invitation_mail() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .configure(|config| {
+            config.smtp.invitation_mail_recipients = 3;
+            config.smtp.invitation_mail_per_org_hour = 5;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    assert_eq!(th.app.limits().invitation_mail_per_hour, 5);
+    let token = member_link(&th).await;
+    let (workspace, other_token) = second_workspace_link(&th).await;
+    th.client
+        .post(
+            &mail_path(),
+            &json!({"token":token,"recipients":addresses("a", 3, "@example.test")}),
+        )
+        .await
+        .check_no_content();
+    let other_path = format!("/w/{workspace}/invitations/mail");
+    let refused = th
+        .client
+        .post(
+            &other_path,
+            &json!({"token":other_token,"recipients":addresses("b", 3, "@example.test")}),
+        )
+        .await;
+    refused.check_status(StatusCode::TOO_MANY_REQUESTS);
+    let body: Value = serde_json::from_slice(&refused.body).expect("problem");
+    assert_eq!(body["type"], "/problems/invitation-mail-limit", "{body}");
+    assert!(
+        body.to_string().contains("organization"),
+        "the organization's limit, not the workspace's: {body}"
+    );
+    let wait = body["retryAfter"].as_u64().expect("seconds");
+    assert!((3590..=3600).contains(&wait), "{wait}");
+    th.client
+        .post(
+            &other_path,
+            &json!({"token":other_token,"recipients":addresses("c", 2, "@example.test")}),
+        )
+        .await
+        .check_no_content();
+    smtp.received(5).await;
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    assert_eq!(smtp.messages().await.len(), 5);
+    th.teardown().await;
+    smtp.stop().await;
+}
+
+#[tokio::test]
+async fn one_organization_filling_its_half_leaves_another_organizations_invitations_going() {
+    // Several organizations are a PostgreSQL deployment; SQLite refuses that mode.
+    if fvoci_store::testing::db_type_of_the_tests() != fvoci_store::DbType::Postgres {
+        return;
+    }
+    let smtp = FakeSmtp::start_on(0).await;
+    smtp.hold("@held.test");
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .configure(|config| {
+            "open".clone_into(&mut config.org_creation);
+            config.smtp.mail_invitation_queue = 20;
+            config.smtp.invitation_mail_recipients = 5;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let token = member_link(&th).await;
+    for batch in 0..2 {
+        th.client
+            .post(
+                &mail_path(),
+                &json!({"token":token,"recipients":addresses(&format!("a{batch}-"), 5, "@held.test")}),
+            )
+            .await
+            .check_no_content();
+    }
+    smtp.attempted(2).await;
+    let refused = th
+        .client
+        .post(
+            &mail_path(),
+            &json!({"token":token,"recipients":["more@held.test"]}),
+        )
+        .await;
+    refused.check_status(StatusCode::SERVICE_UNAVAILABLE);
+    let body: Value = serde_json::from_slice(&refused.body).expect("problem");
+    assert_eq!(body["type"], "/problems/mail-queue-full", "{body}");
+
+    let mut other = th.anonymous();
+    other.post("/register", &json!({"organizationName":"Other mail organization","username":"mail-other","email":"mail-other@example.test","password":"Other-password"})).await.check_status(StatusCode::CREATED);
+    other
+        .login("mail-other", "Other-password")
+        .await
+        .check_no_content();
+    let workspaces: Vec<fvoci_model::UserWorkspace> =
+        other.get("/users/me/workspaces").await.ok_json();
+    let own = &workspaces[0].id;
+    let link: Invitation = other
+        .post(&format!("/w/{own}/invitations"), &json!({"role":"member"}))
+        .await
+        .created_json();
+    other
+        .post(
+            &format!("/w/{own}/invitations/mail"),
+            &json!({"token":link.token,"recipients":addresses("b", 5, "@example.test")}),
+        )
+        .await
+        .check_no_content();
+    let delivered = smtp.received(5).await;
+    assert!(
+        delivered
+            .iter()
+            .all(|message| message.recipient.ends_with("@example.test")),
+        "the other organization's mail goes out while the first one's waits: {delivered:?}"
+    );
+
+    smtp.release();
+    smtp.received(15).await;
+    assert!(th.app.finish_background(Duration::from_secs(20)).await);
+    assert_eq!(smtp.messages().await.len(), 15);
     th.teardown().await;
     smtp.stop().await;
 }

@@ -61,10 +61,14 @@ const LATER: Outcome = Outcome::Later {
 };
 
 fn mailer_of(fake: &Arc<Fake>, metrics: Metrics) -> Mailer {
+    mailer_with(fake, metrics, SmtpSettings::default())
+}
+
+fn mailer_with(fake: &Arc<Fake>, metrics: Metrics, settings: SmtpSettings) -> Mailer {
     let settings = SmtpSettings {
         smtp_host: "smtp.example.test".to_owned(),
         smtp_from: "sender@example.test".to_owned(),
-        ..SmtpSettings::default()
+        ..settings
     };
     let outbound: Arc<dyn Outbound> = Arc::<Fake>::clone(fake);
     Mailer::with_outbound(&settings, Some(outbound), metrics).expect("mailer")
@@ -93,7 +97,7 @@ fn reset(mailer: &Mailer, account: &str) -> Queued {
 
 fn invitation(mailer: &Mailer) -> Queued {
     mailer
-        .queue_invitations("workspace", 1)
+        .queue_invitations("workspace", "org", 300, 1)
         .expect("a place")
         .pop()
         .expect("one")
@@ -299,5 +303,53 @@ async fn recovery_keeps_the_pace_while_invitations_wait_and_another_backs_off() 
     assert!(
         of("i0@example.test")[0] < 36,
         "a message sent lets the invitations go: {attempts:?}"
+    );
+}
+
+#[test]
+fn an_organization_holds_half_of_the_invitation_queue_within_its_own_hour() {
+    let fake = Fake::new(&[Outcome::Sent]);
+    let mailer = mailer_with(
+        &fake,
+        Metrics::none(),
+        SmtpSettings {
+            mail_invitation_queue: 6,
+            ..SmtpSettings::default()
+        },
+    );
+    let held = mailer
+        .queue_invitations("w1", "a", 300, 3)
+        .expect("half of the queue");
+    assert_eq!(held.len(), 3);
+    assert_eq!(
+        mailer.queue_invitations("w2", "a", 300, 1).err(),
+        Some(InvitationRefusal::OrgShareFull),
+        "another workspace of the same organization counts in its share"
+    );
+    let other = mailer
+        .queue_invitations("w3", "b", 300, 3)
+        .expect("another organization has its own half");
+    assert_eq!(
+        mailer.queue_invitations("w4", "c", 300, 1).err(),
+        Some(InvitationRefusal::QueueFull)
+    );
+    drop((held, other));
+    assert!(matches!(
+        mailer.queue_invitations("w5", "d", 2, 3).err(),
+        Some(InvitationRefusal::OrgHourlyLimit(_))
+    ));
+    mailer
+        .queue_invitations("w5", "d", 3, 3)
+        .expect("the organization's own limit");
+    assert!(
+        matches!(
+            mailer.queue_invitations("w6", "d", 3, 1).err(),
+            Some(InvitationRefusal::OrgHourlyLimit(_))
+        ),
+        "the hour counts every workspace of the organization"
+    );
+    assert!(
+        mailer.queue_invitations("w6", "e", 300, 1).is_ok(),
+        "nothing of the refusals was kept"
     );
 }
