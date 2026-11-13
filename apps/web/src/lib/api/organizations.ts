@@ -3,7 +3,7 @@
  * audit log of a workspace (`/w/{workspaceId}/audit`). The members are read
  * whole; a record list is its newest page of the most the server gives (200).
  */
-import { isBackendError } from '../state/backend.ts';
+import { isBackendError, ssoOrgOf } from '../state/backend.ts';
 import type {
   AuditRecord,
   Organization,
@@ -36,8 +36,11 @@ export class ServerOrganizations implements Organizations {
         await this.organization(orgId);
         return orgId;
       } catch (error) {
-        // Not theirs to administer: the organization is not there for them.
-        if (!isBackendError(error) || error.status !== 404) throw error;
+        // Not theirs to administer: the organization is not there for them. One that
+        // this session does not open (it takes its single sign-on alone) is passed
+        // over, for the next that it does.
+        const passedOver = isBackendError(error) && error.status === 404;
+        if (!passedOver && ssoOrgOf(error) === undefined) throw error;
       }
     }
     return undefined;

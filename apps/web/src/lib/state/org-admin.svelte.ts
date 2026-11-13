@@ -4,7 +4,7 @@
  * which the server answers for. A refusal is kept to be told (`refusal`); the
  * lists stay as they were.
  */
-import { isBackendError } from './backend.ts';
+import { isBackendError, ssoOrgOf } from './backend.ts';
 import type {
   AuditRecord,
   Organization,
@@ -14,7 +14,11 @@ import type {
   OrgWorkspace,
 } from './organization.ts';
 
-export type OrgStatus = 'loading' | 'ready' | 'missing' | 'failed';
+/**
+ * `sso`: the organization takes no password and the session was made another
+ * way; it opens by signing in through its single sign-on, not by asking again.
+ */
+export type OrgStatus = 'loading' | 'ready' | 'missing' | 'sso' | 'failed';
 
 /** Why a change was refused, as the screen tells it. */
 export type OrgRefusal =
@@ -70,7 +74,8 @@ export class OrgAdmin {
       this.records = records;
       this.status = 'ready';
     } catch (error) {
-      this.status = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
+      if (ssoOrgOf(error) !== undefined) this.status = 'sso';
+      else this.status = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
     }
   }
 

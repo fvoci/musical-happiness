@@ -115,3 +115,12 @@ export function hiddenBoardsOf(
     locale,
   );
 }
+
+/** The categories without a board that is gone: it is filed and hidden nowhere. */
+export function withoutBoard(categories: readonly Category[], boardId: string): Category[] {
+  return categories.map((category) => ({
+    ...category,
+    boardIds: category.boardIds.filter((id) => id !== boardId),
+    hiddenBoardIds: category.hiddenBoardIds.filter((id) => id !== boardId),
+  }));
+}

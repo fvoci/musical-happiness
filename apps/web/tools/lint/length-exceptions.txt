@@ -14,9 +14,11 @@
 # file <lines> <path>
 # function <lines> <path> <name>
 
+file 526 src/app/App.svelte
 file 954 src/lib/api/backend.ts
 file 525 src/lib/features/shell/SidebarList.svelte
 file 902 src/lib/logic/wire.ts
+file 510 src/lib/state/backend.ts
 file 818 src/lib/state/board.svelte.ts
 file 1137 src/lib/state/memory/backend.ts
 file 833 src/lib/state/workspace.svelte.ts

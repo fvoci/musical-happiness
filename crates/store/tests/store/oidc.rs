@@ -4,7 +4,10 @@
 use std::time::Duration;
 
 use fvoci_model::{Session, new_id};
-use fvoci_store::{DbType, OidcAccount, OidcRefusal, Store, StoredProvider, Tenant};
+use fvoci_store::{
+    DbType, Identity, LinkRefusal, LinkingSession, OidcAccount, OidcRefusal, Removal, Store,
+    StoredProvider, Tenant, Unlinked,
+};
 use sqlx::Connection as _;
 
 use crate::common;
@@ -57,6 +60,7 @@ async fn concurrent_oidc_joins_of_one_account_both_succeed() {
             enabled: true,
             create_at: 0,
             update_at: 0,
+            sso_required: false,
         })
         .await
         .expect("a provider")
@@ -152,6 +156,7 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         enabled: true,
         create_at: 0,
         update_at: 0,
+        sso_required: false,
     };
     let none_read = test
         .put_oidc_provider_as_read(&provider("first", ""), None)
@@ -216,9 +221,13 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         enabled: false,
         create_at: 0,
         update_at: 0,
+        sso_required: false,
     };
     let read = test.put_oidc_provider(&provider).await.expect("stored");
-    assert!(test.delete_oidc_provider().await.expect("removed"));
+    assert_eq!(
+        test.delete_oidc_provider().await.expect("removed"),
+        Removal::Removed
+    );
     let change = test
         .put_oidc_provider_as_read(&provider, Some(&read))
         .await
@@ -240,4 +249,526 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
     assert!(after.is_none(), "{after:?}");
     assert_ne!(again.id, read.id, "another provider");
     assert!(change_again.is_none(), "{change_again:?}");
+}
+
+fn provider_that(sso_required: Enforcement) -> StoredProvider {
+    StoredProvider {
+        id: String::new(),
+        org_id: String::new(),
+        issuer: "https://idp.example.com".to_owned(),
+        client_id: "client".to_owned(),
+        sealed_client_secret: String::new(),
+        auto_join: true,
+        enabled: true,
+        create_at: 0,
+        update_at: 0,
+        sso_required: sso_required == Enforcement::On,
+    }
+}
+
+/// Whether the organization takes only sessions made through its provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Enforcement {
+    On,
+    Off,
+}
+
+/// The provider an organization takes no other session than stays: its removal is
+/// refused, until the organization is released, which leaves the provider as it was
+/// but for that, under a later time.
+#[tokio::test]
+async fn an_enforced_provider_is_not_removed_until_it_is_released() {
+    let test = common::setup().await;
+    assert_eq!(
+        test.delete_oidc_provider().await.expect("asked"),
+        Removal::NoneThere
+    );
+    assert_eq!(test.release_sso().await.expect("asked"), None);
+    let enforced = test
+        .put_oidc_provider(&provider_that(Enforcement::On))
+        .await
+        .expect("stored");
+    assert!(enforced.sso_required);
+
+    let refused = test.delete_oidc_provider().await.expect("asked");
+    let still = test.oidc_provider().await.expect("read");
+    let released = test.release_sso().await.expect("released");
+    let again = test.release_sso().await.expect("asked");
+    let removed = test.delete_oidc_provider().await.expect("asked");
+    test.teardown().await;
+
+    assert_eq!(refused, Removal::Enforced);
+    assert_eq!(still.as_ref(), Some(&enforced), "as it was");
+    let released = released.expect("it was enforced");
+    assert!(!released.sso_required);
+    assert!(
+        released.update_at > enforced.update_at,
+        "another state of it"
+    );
+    assert_eq!(
+        StoredProvider {
+            sso_required: true,
+            update_at: enforced.update_at,
+            ..released
+        },
+        enforced,
+        "nothing else of it changed"
+    );
+    assert_eq!(again, None, "nothing left to release");
+    assert_eq!(removed, Removal::Removed);
+}
+
+/// What a session must be made through to open an organization is answered to who has
+/// a place in it, by the organization or by a workspace of it, and to nobody else; and
+/// only while the organization takes no other session.
+#[tokio::test]
+async fn the_required_provider_is_told_to_who_has_a_place_in_the_organization() {
+    let test = common::setup().await;
+    let nobodys = test.scoped(Tenant::Unset);
+    let member = common::user(&test, "member").await;
+    let guest = common::user(&nobodys, "guest").await;
+    let stranger = common::user(&nobodys, "stranger").await;
+    test.add_workspace_member(
+        &test.workspace_id,
+        &guest,
+        fvoci_model::WorkspaceRole::Guest,
+    )
+    .await
+    .expect("a guest of the workspace, no member of the organization");
+    let required = async |user_id: &str| {
+        test.required_provider_for(user_id, &test.org_id)
+            .await
+            .expect("asked")
+    };
+    let entered = async |user_id: &str| {
+        test.resolve_workspace(user_id, &test.workspace_id)
+            .await
+            .expect("asked")
+            .map(|access| access.required_provider)
+    };
+    let listed = async |user_id: &str, through: Option<&str>| {
+        test.workspaces_of_user(user_id, through)
+            .await
+            .expect("listed")
+            .iter()
+            .map(|workspace| workspace.sso_required)
+            .collect::<Vec<_>>()
+    };
+
+    let open = test
+        .put_oidc_provider(&provider_that(Enforcement::Off))
+        .await
+        .expect("stored");
+    let while_open = (
+        required(&member).await,
+        entered(&member).await,
+        listed(&member, None).await,
+    );
+    let provider = test
+        .put_oidc_provider(&provider_that(Enforcement::On))
+        .await
+        .expect("stored");
+    let told = [
+        required(&member).await,
+        required(&guest).await,
+        required(&stranger).await,
+    ];
+    let at_the_door = [
+        entered(&member).await,
+        entered(&guest).await,
+        entered(&stranger).await,
+    ];
+    let lists = [
+        listed(&member, None).await,
+        listed(&member, Some(&provider.id)).await,
+        listed(&member, Some(&new_id())).await,
+        listed(&guest, None).await,
+        listed(&stranger, None).await,
+    ];
+    let elsewhere = test
+        .required_provider_for(&member, &new_id())
+        .await
+        .expect("asked");
+    test.teardown().await;
+
+    assert_eq!(open.id, provider.id, "the same provider");
+    assert_eq!(while_open, (None, Some(None), vec![false]));
+    let ours = Some(provider.id.clone());
+    assert_eq!(told, [ours.clone(), ours.clone(), None]);
+    assert_eq!(at_the_door, [Some(ours.clone()), Some(ours), None]);
+    assert_eq!(
+        lists,
+        [vec![true], vec![false], vec![true], vec![true], vec![]]
+    );
+    assert_eq!(elsewhere, None, "an organization that is not there");
+}
+
+/// Taking no other session is switched on, from a reading of the provider, while the
+/// provider is removed: whichever comes first, the organization is never left taking
+/// only the sessions of a provider that is gone. Either the removal was refused and the
+/// provider is there, enforcing; or the provider is gone and the change, read before,
+/// stored nothing.
+#[tokio::test]
+async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provider() {
+    let test = common::setup().await;
+    for round in 0..12 {
+        let read = test
+            .put_oidc_provider(&provider_that(Enforcement::Off))
+            .await
+            .expect("stored");
+        let enforcing = {
+            let store = test.store.clone();
+            let read = read.clone();
+            tokio::spawn(async move {
+                store
+                    .put_oidc_provider_as_read(&provider_that(Enforcement::On), Some(&read))
+                    .await
+            })
+        };
+        let removing = {
+            let store = test.store.clone();
+            tokio::spawn(async move { store.delete_oidc_provider().await })
+        };
+        let enforced = enforcing.await.expect("joined").expect("asked");
+        let removal = removing.await.expect("joined").expect("asked");
+        let left = test.oidc_provider().await.expect("read");
+        match removal {
+            Removal::Enforced => {
+                assert!(enforced.is_some(), "round {round}: switched on first");
+                assert!(
+                    left.is_some_and(|left| left.sso_required),
+                    "round {round}: the provider is there, and holds"
+                );
+            }
+            Removal::Removed => {
+                assert_eq!(enforced, None, "round {round}: nothing to switch it on for");
+                assert_eq!(left, None, "round {round}: removed");
+            }
+            Removal::NoneThere => panic!("round {round}: there was a provider"),
+        }
+        // For the next round.
+        test.release_sso().await.expect("asked");
+        test.delete_oidc_provider().await.expect("asked");
+    }
+    test.teardown().await;
+}
+
+/// A session of `user_id` under the token digest `digest`, made at 1,000 and ending at
+/// 2,000.
+async fn session_of(test: &common::TestStore, user_id: &str, digest: &str) -> Session {
+    let session = Session {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        created_at: 1_000,
+        expires_at: 2_000,
+        ..Session::default()
+    };
+    let password_hash = test
+        .get_user_by_id(user_id)
+        .await
+        .expect("the account")
+        .password_hash;
+    assert!(
+        test.create_session(&session, digest, &password_hash)
+            .await
+            .expect("stored"),
+        "the session is made"
+    );
+    session
+}
+
+/// A sign-in to link ties the identity to the account of the session it was started
+/// from, if that session came back under its token and is still good, and the provider
+/// is still the one, switched on. An identity that is another account's is refused,
+/// and one that is the account's already is left as it is.
+#[tokio::test]
+async fn a_link_ties_an_identity_to_the_account_of_a_session_that_is_still_good() {
+    let test = common::setup().await;
+    let user = common::user(&test, "linker").await;
+    let other = common::user(&test, "other").await;
+    let provider = test
+        .put_oidc_provider(&provider_that(Enforcement::Off))
+        .await
+        .expect("stored");
+    let session = session_of(&test, &user, "digest").await;
+    let identity = Identity {
+        issuer: "https://idp.example.com",
+        subject: "linker-there",
+    };
+    let link = |token_digest: &'static str, now: i64, idle_since: i64| LinkingSession {
+        session_id: &session.id,
+        token_digest,
+        now,
+        idle_since,
+    };
+    let attempt = async |provider_id: &str, link: LinkingSession<'_>, identity: Identity<'_>| {
+        test.finish_oidc_link(provider_id, link, identity, "Linker@Example.com")
+            .await
+            .expect("asked")
+    };
+
+    let refused = [
+        attempt(&provider.id, link("another digest", 1_500, 0), identity).await,
+        attempt(&provider.id, link("digest", 2_000, 0), identity).await,
+        attempt(&provider.id, link("digest", 1_500, 1_000), identity).await,
+        attempt(&new_id(), link("digest", 1_500, 0), identity).await,
+    ];
+    let before = test.identities_of_user(&user).await.expect("read");
+    let first = attempt(&provider.id, link("digest", 1_500, 0), identity).await;
+    let again = attempt(&provider.id, link("digest", 1_500, 0), identity).await;
+    test.add_identity(
+        &other,
+        Identity {
+            issuer: "https://idp.example.com",
+            subject: "other-there",
+        },
+        "",
+    )
+    .await
+    .expect("the other account's identity");
+    let of_another = attempt(
+        &provider.id,
+        link("digest", 1_500, 0),
+        Identity {
+            issuer: "https://idp.example.com",
+            subject: "other-there",
+        },
+    )
+    .await;
+    let after = test.identities_of_user(&user).await.expect("read");
+    test.teardown().await;
+
+    assert_eq!(
+        refused,
+        [
+            Err(LinkRefusal::SessionEnded),
+            Err(LinkRefusal::SessionEnded),
+            Err(LinkRefusal::SessionEnded),
+            Err(LinkRefusal::ProviderGone),
+        ],
+        "another token, past its end, idle too long, another provider"
+    );
+    assert_eq!(before, [], "nothing tied by what was refused");
+    assert_eq!(
+        first.map(|linked| (linked.user_id, linked.newly)),
+        Ok((user.clone(), true))
+    );
+    assert_eq!(
+        again.map(|linked| (linked.user_id, linked.newly)),
+        Ok((user, false))
+    );
+    assert_eq!(of_another, Err(LinkRefusal::IdentityTaken));
+    assert_eq!(
+        after
+            .iter()
+            .map(|identity| (identity.subject.as_str(), identity.email.as_str()))
+            .collect::<Vec<_>>(),
+        [("linker-there", "Linker@Example.com")]
+    );
+}
+
+/// An identity is tied to the account whose own address the provider vouches for, in
+/// whatever letters, and to no other: not by another address, another account's, or
+/// none. One that is the account's already is that still, whatever address comes.
+#[tokio::test]
+async fn a_link_ties_only_the_identity_of_the_accounts_own_address() {
+    let test = common::setup().await;
+    let user = common::user(&test, "linker").await;
+    common::user(&test, "other").await;
+    let provider = test
+        .put_oidc_provider(&provider_that(Enforcement::Off))
+        .await
+        .expect("stored");
+    let session = session_of(&test, &user, "digest").await;
+    let attempt = async |address: &str| {
+        let link = LinkingSession {
+            session_id: &session.id,
+            token_digest: "digest",
+            now: 1_500,
+            idle_since: 0,
+        };
+        let identity = Identity {
+            issuer: "https://idp.example.com",
+            subject: "linker-there",
+        };
+        test.finish_oidc_link(&provider.id, link, identity, address)
+            .await
+            .expect("asked")
+            .map(|linked| linked.newly)
+    };
+
+    for address in ["somebody@elsewhere.example", "other@example.com", ""] {
+        assert_eq!(
+            attempt(address).await,
+            Err(LinkRefusal::AnotherAddress),
+            "{address:?}"
+        );
+    }
+    assert_eq!(test.identities_of_user(&user).await.expect("read"), []);
+    assert_eq!(attempt("LINKER@example.com").await, Ok(true));
+    assert_eq!(
+        attempt("somebody@elsewhere.example").await,
+        Ok(false),
+        "the account's already"
+    );
+    assert_eq!(test.identities_of_user(&user).await.expect("read").len(), 1);
+    test.teardown().await;
+}
+
+/// An account without a password keeps its last identity, also when two of them are
+/// removed at once: one removal sees what the other left. An account with a password
+/// loses any, and an identity that is not the account's is not removed.
+#[tokio::test]
+async fn the_last_identity_of_an_account_without_a_password_is_not_removed() {
+    let test = common::setup().await;
+    let user = common::user(&test, "without-password").await;
+    let other = common::user(&test, "other").await;
+    let first = Identity {
+        issuer: "https://one.example.com",
+        subject: "there",
+    };
+    let second = Identity {
+        issuer: "https://two.example.com",
+        subject: "there",
+    };
+    let mut rounds = Vec::new();
+    for _ in 0..8 {
+        for identity in [first, second] {
+            // Tied anew, or still there from the round before.
+            match test.add_identity(&user, identity, "").await {
+                Ok(()) | Err(fvoci_store::StoreError::Conflict(_)) => {}
+                Err(error) => panic!("an identity is tied: {error}"),
+            }
+        }
+        let removing = |identity: Identity<'static>| {
+            let store = test.store.clone();
+            let user = user.clone();
+            tokio::spawn(async move { store.unlink_identity(&user, "", identity).await })
+        };
+        let (one, two) = (removing(first), removing(second));
+        let mut outcomes = [
+            one.await.expect("joined").expect("asked"),
+            two.await.expect("joined").expect("asked"),
+        ];
+        outcomes.sort_by_key(|outcome| *outcome != Unlinked::Removed);
+        let left = test.identities_of_user(&user).await.expect("read").len();
+        rounds.push((outcomes, left));
+    }
+    let not_theirs = test
+        .unlink_identity(&other, "", first)
+        .await
+        .expect("asked");
+    let changed = test
+        .unlink_identity(&user, "another hash", first)
+        .await
+        .expect("asked");
+    test.teardown().await;
+
+    for (round, (outcomes, left)) in rounds.into_iter().enumerate() {
+        assert_eq!(
+            (outcomes, left),
+            ([Unlinked::Removed, Unlinked::LastWayIn], 1),
+            "round {round}: one goes and the last stays"
+        );
+    }
+    assert_eq!(not_theirs, Unlinked::NotTied);
+    assert_eq!(changed, Unlinked::AccountChanged);
+}
+
+/// Two accounts link one identity at once: it is tied to one of them, the other is
+/// told it is taken, and neither transaction is left half done. A provider that is
+/// switched off ties nothing.
+#[tokio::test]
+async fn one_identity_linked_by_two_accounts_at_once_is_tied_to_one() {
+    let test = common::setup().await;
+    let provider = test
+        .put_oidc_provider(&provider_that(Enforcement::Off))
+        .await
+        .expect("stored");
+    let mut rounds = Vec::new();
+    for round in 0..8 {
+        let subject = format!("contested-{round}");
+        let mut linking = Vec::new();
+        let mut users = Vec::new();
+        for name in ["first", "second"] {
+            let user = common::user(&test, &format!("{name}-{round}")).await;
+            let digest = format!("digest-{name}-{round}");
+            let session = session_of(&test, &user, &digest).await;
+            let (store, provider_id, subject) =
+                (test.store.clone(), provider.id.clone(), subject.clone());
+            // Each as the provider would know it: by the address of its own account.
+            let address = format!("{name}-{round}@example.com");
+            users.push(user);
+            linking.push(tokio::spawn(async move {
+                let link = LinkingSession {
+                    session_id: &session.id,
+                    token_digest: &digest,
+                    now: 1_500,
+                    idle_since: 0,
+                };
+                let identity = Identity {
+                    issuer: "https://idp.example.com",
+                    subject: &subject,
+                };
+                store
+                    .finish_oidc_link(&provider_id, link, identity, &address)
+                    .await
+            }));
+        }
+        let mut outcomes = Vec::new();
+        for link in linking {
+            outcomes.push(link.await.expect("joined").expect("asked"));
+        }
+        let mut tied = Vec::new();
+        for user in &users {
+            tied.push(test.identities_of_user(user).await.expect("read").len());
+        }
+        rounds.push((outcomes, tied, users));
+    }
+    let mut off = provider_that(Enforcement::Off);
+    off.enabled = false;
+    test.put_oidc_provider(&off).await.expect("switched off");
+    let user = common::user(&test, "late").await;
+    let session = session_of(&test, &user, "late digest").await;
+    let switched_off = test
+        .finish_oidc_link(
+            &provider.id,
+            LinkingSession {
+                session_id: &session.id,
+                token_digest: "late digest",
+                now: 1_500,
+                idle_since: 0,
+            },
+            Identity {
+                issuer: "https://idp.example.com",
+                subject: "late",
+            },
+            "late@example.com",
+        )
+        .await
+        .expect("asked");
+    test.teardown().await;
+
+    for (round, (outcomes, tied, users)) in rounds.into_iter().enumerate() {
+        let winners: Vec<&String> = outcomes
+            .iter()
+            .filter_map(|outcome| outcome.as_ref().ok())
+            .map(|linked| &linked.user_id)
+            .collect();
+        assert_eq!(
+            winners.len(),
+            1,
+            "round {round}: one of the two: {outcomes:?}"
+        );
+        assert!(
+            outcomes.contains(&Err(LinkRefusal::IdentityTaken)),
+            "round {round}: the other is told it is taken: {outcomes:?}"
+        );
+        let expected: Vec<usize> = users
+            .iter()
+            .map(|user| usize::from(winners[0] == user))
+            .collect();
+        assert_eq!(tied, expected, "round {round}: tied to the one alone");
+    }
+    assert_eq!(switched_off, Err(LinkRefusal::ProviderGone));
 }

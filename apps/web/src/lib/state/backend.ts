@@ -41,10 +41,12 @@ export type {
   AcceptedInvitation,
   Account,
   InvitationPreview,
+  LinkedIdentity,
   LoginOptions,
   LoginOrganization,
   NewAccount,
   Registration,
+  SignInOrganization,
 } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
@@ -62,8 +64,10 @@ export {
   ERROR_STATUSES,
   isBackendError,
   isConflict,
+  isSignedOut,
   problemOf,
   refusedMember,
+  ssoOrgOf,
   type ErrorStatus,
   type InvalidInput,
   type Problem,
@@ -85,6 +89,13 @@ export interface User extends UserNames {
 export interface WorkspaceInfo {
   id: string;
   title: string;
+  /** The organization the workspace belongs to, where the backend has organizations (the server). */
+  orgId?: string;
+  /**
+   * The workspace is closed to this session: its organization takes no
+   * password, and it opens for a session made through the provider of `orgId`.
+   */
+  ssoRequired?: boolean;
   /**
    * What the reader is in it; left out by a backend that has no roles, where
    * the reader does everything. A guest is on the boards they were invited

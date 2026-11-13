@@ -999,7 +999,13 @@ describe('sharing a board on the server', () => {
   });
 
   it("takes the reader's workspaces from their workspaces, those they are a guest of too, with what they are in each", async () => {
-    const workspace = (id: string, role: string) => ({ id, orgId: 'o', name: `n-${id}`, role });
+    const workspace = (id: string, role: string) => ({
+      id,
+      orgId: 'o',
+      name: `n-${id}`,
+      role,
+      ssoRequired: false,
+    });
     const sent = serveRoutes([
       [
         'GET /api/v1/users/me/workspaces',
@@ -1007,9 +1013,9 @@ describe('sharing a board on the server', () => {
       ],
     ]);
     expect(await serverBackend('').workspaces()).toEqual([
-      { id: 'w1', title: 'n-w1', role: 'guest' },
-      { id: 'w2', title: 'n-w2', role: 'member' },
-      { id: 'w3', title: 'n-w3', role: 'admin' },
+      { id: 'w1', title: 'n-w1', role: 'guest', orgId: 'o', ssoRequired: false },
+      { id: 'w2', title: 'n-w2', role: 'member', orgId: 'o', ssoRequired: false },
+      { id: 'w3', title: 'n-w3', role: 'admin', orgId: 'o', ssoRequired: false },
     ]);
     expect(sentLines(sent)).toEqual(['GET /api/v1/users/me/workspaces']);
   });

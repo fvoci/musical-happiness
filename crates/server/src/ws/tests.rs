@@ -9,6 +9,7 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
         Listener {
             user_id: user_id.to_owned(),
             session_id: String::new(),
+            login_provider: None,
             outbox,
             closed: CancellationToken::new(),
             closed_because: Arc::default(),
@@ -277,4 +278,62 @@ fn blocks_subscription() {
             "{block_id}"
         );
     }
+}
+
+/// The wall of an organization shuts out the connections that follow one of its
+/// workspaces with a session made otherwise, and no other.
+#[test]
+fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
+    let mut listeners = Listeners::default();
+    let ours = vec!["ours-1".to_owned(), "ours-2".to_owned()];
+    let follows = |listeners: &mut Listeners, provider: Option<&str>, workspace: Option<&str>| {
+        let id = add_listener(listeners, "user");
+        if let Some(listener) = listeners.by_id.get_mut(&id) {
+            listener.login_provider = provider.map(str::to_owned);
+        }
+        if let Some(workspace) = workspace {
+            subscribe_to_workspace(listeners, id, workspace);
+        }
+        id
+    };
+    let with_password = follows(&mut listeners, None, Some("ours-2"));
+    let through_another = follows(&mut listeners, Some("theirs"), Some("ours-1"));
+    let through_ours = follows(&mut listeners, Some("ours"), Some("ours-1"));
+    let elsewhere = follows(&mut listeners, None, Some("theirs-1"));
+    let following_nothing = follows(&mut listeners, None, None);
+
+    let shut_out = |id: ListenerId| subscribe::shuts_out(&listeners.by_id[&id], &ours, "ours");
+    assert!(shut_out(with_password), "a password");
+    assert!(shut_out(through_another), "another provider");
+    assert!(!shut_out(through_ours), "the organization's provider");
+    assert!(!shut_out(elsewhere), "follows another organization");
+    assert!(!shut_out(following_nothing), "follows nothing of it");
+}
+
+/// A subscription that was admitted before a wall was raised is not made after it: the
+/// answer is asked again.
+#[test]
+fn a_subscription_admitted_before_a_wall_is_not_made_after_it() {
+    let mut listeners = Listeners::default();
+    let id = add_listener(&mut listeners, "user");
+    let asked_at = listeners.walls_raised;
+
+    listeners.walls_raised += 1;
+    assert!(
+        !subscribe::subscribe_unless_walled(&mut listeners, id, "workspace", asked_at),
+        "a wall was raised since"
+    );
+    assert_eq!(
+        workspace_listeners(&listeners, "workspace"),
+        Vec::<ListenerId>::new()
+    );
+
+    let asked_at = listeners.walls_raised;
+    assert!(subscribe::subscribe_unless_walled(
+        &mut listeners,
+        id,
+        "workspace",
+        asked_at
+    ));
+    assert_eq!(workspace_listeners(&listeners, "workspace"), [id]);
 }

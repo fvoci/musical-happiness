@@ -80,7 +80,12 @@ impl Hub {
                 .collect()
         };
         for (id, workspace_id) in followed {
-            if self.audience.is_in_workspace(user_id, &workspace_id).await {
+            let still_in_it = self
+                .audience
+                .workspace_access(user_id, &workspace_id)
+                .await
+                .is_some();
+            if still_in_it {
                 continue;
             }
             let mut listeners = self.listeners();
