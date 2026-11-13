@@ -17,6 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { ON_A_CARD, boardPath, viewAddress } from './address.ts';
 import { screensDir } from './screens.ts';
 import { primaryKey, primaryName, documentBoundary } from './keyboard.support.ts';
+import { scrollTo } from './scroll.support.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
 // other work they have run past the default of thirty seconds without anything
@@ -766,9 +767,7 @@ test('the window changes size under an open card: the text, the caret, the focus
   const scrollTop = (): Promise<number> => scroller(page).evaluate((element) => element.scrollTop);
   const scrollMax = (): Promise<number> =>
     scroller(page).evaluate((element) => element.scrollHeight - element.clientHeight);
-  await scroller(page).evaluate((element) => {
-    element.scrollTop = 120;
-  });
+  await scrollTo(scroller(page), 0, 120);
   expect(await scrollTop()).toBe(120);
 
   // Round the sizes with the caret in the body. A letter typed after each change lands at the caret.
@@ -1185,7 +1184,7 @@ test('the menu deletes the card without asking, the card closes, and undo brings
 });
 
 test('the menu copies the link to the card', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await context.grantPermissions(['clipboard-read']);
   const place = await openTaskCard(page);
   await cardMenu(page, 'copy-link');
   await expect(saveState(page)).toHaveText('Copied!');

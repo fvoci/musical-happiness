@@ -9,7 +9,7 @@
  */
 import { scrollTo } from './scroll.support.ts';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { primaryKey, primaryName } from './keyboard.support.ts';
+import { primaryKey, primaryName, tabKey } from './keyboard.support.ts';
 import { boardPath } from './address.ts';
 import { screensDir } from './screens.ts';
 
@@ -52,7 +52,7 @@ interface Opened {
 const TITLE = '__title';
 const STAGES: Record<string, string> = { desktop: 'expanded', middle: 'medium', mobile: 'compact' };
 
-test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+test.use({ permissions: ['clipboard-read'] });
 
 /** Opens a view of a seeded board by the titles of both. */
 async function openView(page: Page, boardTitle: string, viewTitle: string): Promise<Opened> {
@@ -1422,7 +1422,7 @@ test.describe('with the keyboard alone', () => {
     const id = await rowId(page, 'Identify dependencies');
     await titleCell(page, id).focus();
     if (testInfo.project.name === 'desktop') {
-      await page.keyboard.press('Tab');
+      await page.keyboard.press(await tabKey(page));
       await expect(rowOf(page, id).locator('a[data-open-card]')).toBeFocused();
       // Focus shows what hover shows.
       await expect(rowOf(page, id).locator('a[data-open-card]').locator('xpath=..')).toHaveCSS(
@@ -1430,7 +1430,7 @@ test.describe('with the keyboard alone', () => {
         '1',
       );
     }
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(await tabKey(page));
     await expect(rowOf(page, id).locator('[data-more]')).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(menuItem(page, 'delete')).toBeVisible();

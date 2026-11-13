@@ -20,6 +20,13 @@ export async function documentBoundary(page: Page, edge: 'start' | 'end'): Promi
   await page.keyboard.press(key);
 }
 
+/** Safari on macOS uses Option+Tab to include buttons regardless of host preferences. */
+export async function tabKey(page: Page, backwards = false): Promise<string> {
+  const safariOnMac =
+    process.platform === 'darwin' && page.context().browser()?.browserType().name() === 'webkit';
+  return `${safariOnMac ? 'Alt+' : ''}${backwards ? 'Shift+' : ''}Tab`;
+}
+
 /** Dropdowns use arrows; sheets use Tab after their opening focus has arrived. */
 export async function menuTo(page: Page, target: Locator): Promise<void> {
   const dropdown = page.getByTestId('dropdown').filter({ has: target });
@@ -38,7 +45,7 @@ export async function menuTo(page: Page, target: Locator): Promise<void> {
       .toBe(true);
     for (let step = 0; step < 20; step += 1) {
       if (await target.evaluate((node) => node === document.activeElement)) return;
-      await page.keyboard.press('Tab');
+      await page.keyboard.press(await tabKey(page));
     }
   }
   await expect(target).toBeFocused();

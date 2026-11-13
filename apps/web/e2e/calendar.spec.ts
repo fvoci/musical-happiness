@@ -29,6 +29,7 @@ import {
   wide,
 } from './calendar.support.ts';
 import { boardPage, dialog, fitPane, openView, touch } from './kanban.support.ts';
+import { tabKey } from './keyboard.support.ts';
 import { screensDir } from './screens.ts';
 
 test.use(CALENDAR_PAGE);
@@ -233,7 +234,7 @@ test('the days are one stop of Tab, and the arrows walk them into the next month
   // From the last button of the row above, one Tab is on the picked day: the other days
   // are not stops (bars are stops of their own; the first week has none here).
   await page.getByTestId('calendar-undated').focus();
-  await page.keyboard.press('Tab');
+  await page.keyboard.press(await tabKey(page));
   await expect(page.locator(':focus')).toHaveAccessibleName(/Tuesday, November 10/);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
@@ -322,8 +323,8 @@ test('the cards without a date are counted in the row and listed on asking (C16)
     await expect(page.getByTestId('day-popover')).toHaveCount(0);
     await expect(panel).toBeVisible();
     // Shift+Tab out of the column into the grid it covers closes it.
-    await page.keyboard.press('Shift+Tab');
-    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press(await tabKey(page, true));
+    await page.keyboard.press(await tabKey(page, true));
     await expect(panel).toHaveCount(0);
   }
   // A card given a date leaves the list; one opened from it gives the focus back to "No date".

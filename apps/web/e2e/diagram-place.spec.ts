@@ -17,7 +17,7 @@ test.describe.configure({ timeout: 90_000 });
 
 const blockOf = (body: Locator): Locator => body.locator('.doc-diagram-block');
 const pictureOf = (body: Locator): Locator => blockOf(body).locator('.doc-diagram');
-const sourceOf = (body: Locator): Locator => blockOf(body).locator('pre.doc-diagram-source');
+const sourceOf = (body: Locator): Locator => blockOf(body).locator('> pre.doc-diagram-source');
 
 /** The editor is there (not the view it stands in for while it is fetched), its diagram drawn and closed. */
 async function closedAndDrawn(body: Locator): Promise<void> {
@@ -48,7 +48,9 @@ test('a press opens the source under the picture, typing draws it again, Escape 
   const source = await sourceOf(body).boundingBox();
   expect(picture && source && source.y >= picture.y + picture.height - 1).toBe(true);
 
-  await page.keyboard.type('\n  C --> D[Done]');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => sourceOf(body).textContent()).toMatch(/\n$/);
+  await page.keyboard.type('  C --> D[Done]');
   await expect(pictureOf(body).locator('svg')).toContainText('Done', { timeout: 30_000 });
   await expect(blockOf(body)).toHaveAttribute('data-state', 'drawn');
 
@@ -90,7 +92,9 @@ test('with the keys alone: arrows reach the diagram, Enter opens, Escape closes'
   await page.keyboard.press('Enter');
   await expect(blockOf(body)).toHaveAttribute('data-open', '');
   await expect(body.locator('.doc-announce')).toContainText('Escape closes');
-  await page.keyboard.type('\n  C --> K[Keys]');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => sourceOf(body).textContent()).toMatch(/\n$/);
+  await page.keyboard.type('  C --> K[Keys]');
   await expect(pictureOf(body).locator('svg')).toContainText('Keys', { timeout: 30_000 });
   await page.keyboard.press(await primaryKey(page, 'Enter'));
   await expect(blockOf(body)).not.toHaveAttribute('data-open');
@@ -108,7 +112,9 @@ test('a source that cannot be drawn shows, closed, with what went wrong; open, t
   const body = await openCardWithBody(page, 'Welcome', diagramBody(FLOW));
   await closedAndDrawn(body);
   await pictureOf(body).click();
-  await page.keyboard.type('\n  -->');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => sourceOf(body).textContent()).toMatch(/\n$/);
+  await page.keyboard.type('  -->');
   await expect(blockOf(body)).toHaveAttribute('data-state', 'error', { timeout: 30_000 });
   await expect(pictureOf(body)).toHaveAttribute('data-stale', '');
   await expect(pictureOf(body).locator('svg')).toBeVisible();
@@ -153,7 +159,9 @@ test.describe('on a narrow screen', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       390,
     );
-    await page.keyboard.type('\n  C --> N[Narrow]');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => sourceOf(body).textContent()).toMatch(/\n$/);
+    await page.keyboard.type('  C --> N[Narrow]');
     await expect(pictureOf(body).locator('svg')).toContainText('Narrow', { timeout: 30_000 });
     await done.click();
     await expect(blockOf(body)).not.toHaveAttribute('data-open');

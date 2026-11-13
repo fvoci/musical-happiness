@@ -34,7 +34,13 @@ test('the app starts and requests only hashed, compressed files', async ({ page 
   });
   page.on('pageerror', (error) => errors.push(error.message));
 
-  const responses: { url: string; status: number; cache: string; encoding: string }[] = [];
+  const responses: {
+    url: string;
+    status: number;
+    cache: string;
+    encoding: string;
+    accepted: Promise<string | null>;
+  }[] = [];
   page.on('response', (response) => {
     const headers = response.headers();
     responses.push({
@@ -42,6 +48,7 @@ test('the app starts and requests only hashed, compressed files', async ({ page 
       status: response.status(),
       cache: headers['cache-control'] ?? '',
       encoding: headers['content-encoding'] ?? '',
+      accepted: response.request().headerValue('accept-encoding'),
     });
   });
 
@@ -56,7 +63,12 @@ test('the app starts and requests only hashed, compressed files', async ({ page 
   for (const asset of assets) {
     expect(asset.status, asset.url).toBe(200);
     expect(asset.cache, asset.url).toContain('immutable');
-    if (/\.(js|css)$/.test(asset.url)) expect(asset.encoding, asset.url).toBe('br');
+    if (/\.(js|css)$/.test(asset.url)) {
+      const offered = (await asset.accepted)?.split(',').map((coding) => coding.trim()) ?? [];
+      const preferred = ['br', 'zstd', 'gzip'].find((coding) => offered.includes(coding));
+      expect(preferred, `a compressed representation is offered for ${asset.url}`).toBeDefined();
+      expect(asset.encoding, asset.url).toBe(preferred);
+    }
   }
 });
 

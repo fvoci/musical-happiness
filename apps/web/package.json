@@ -17,6 +17,7 @@
     "build": "pnpm run i18n && node tools/fonts/build.ts && vite build",
     "preview": "node tools/preview.ts",
     "e2e": "playwright test",
+    "e2e:apple": "playwright test --config playwright.apple.config.ts",
     "storybook": "pnpm run i18n && storybook dev --port 6006 --host 127.0.0.1 --no-open",
     "build-storybook": "pnpm run i18n && storybook build --output-dir storybook-static",
     "spikes": "pnpm run i18n && vite --config vite.spikes.config.ts",
@@ -25,7 +26,8 @@
     "test:once": "pnpm run i18n && vitest run",
     "look": "pnpm run build && pnpm run spikes:build && pnpm run build-storybook && node tools/serve.ts --host 0.0.0.0 --port 18410 app:app=dist screens=dist-spikes storybook=storybook-static",
     "api:types": "openapi-typescript ../../contracts/openapi.json -o src/lib/api/contract.ts",
-    "e2e:live": "playwright test --config playwright.live.config.ts"
+    "e2e:live": "playwright test --config playwright.live.config.ts",
+    "e2e:live:apple": "playwright test --config playwright.live.apple.config.ts"
   },
   "dependencies": {
     "@tiptap/core": "3.33.0",

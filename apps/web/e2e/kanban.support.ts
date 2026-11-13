@@ -15,16 +15,12 @@ export interface Point {
   y: number;
 }
 
-/**
- * The width the board has in each project once the shell is the real one:
- * the whole phone, the unfolded device less the strip of the sidebar, the
- * desktop less the fixed sidebar. The tests give the board this width
- * whatever shell is around it (`fitPane`), so that they see the same board
- * while the shell is still a stand-in that always shows its sidebar.
- */
-const PANE: Record<string, number> = { mobile: 412, middle: 570, desktop: 1024 };
-
-export const paneOf = (info: TestInfo): number => PANE[info.project.name] ?? 1024;
+/** The configured device's viewport, less the sidebar used by its layout stage. */
+export function paneOf(info: TestInfo): number {
+  const width = info.project.use.viewport?.width ?? 1280;
+  const sidebar = info.project.name === 'desktop' ? 256 : info.project.name === 'middle' ? 56 : 0;
+  return width - sidebar;
+}
 /** The pane of this project fits one column at a time (34rem is the boundary). */
 export const oneColumn = (info: TestInfo): boolean => paneOf(info) < 544;
 export const touch = (info: TestInfo): boolean => info.project.name !== 'desktop';

@@ -6,7 +6,7 @@
  *
  * The same welcome board, moment and projects as e2e/calendar.spec.ts.
  */
-import { primaryKey, menuTo } from './keyboard.support.ts';
+import { primaryKey, menuTo, tabKey } from './keyboard.support.ts';
 import { expect, test } from '@playwright/test';
 
 import {
@@ -87,7 +87,7 @@ test('"+N" opens every card of its day, each with its "…", reached by the keys
   // Under a finger the day is the button, "+N" a picture in it. With a mouse "+N" is a
   // button of its own and a stop of the Tab key, right after the day's.
   if (!touch(info)) {
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(await tabKey(page));
     await expect(more).toBeFocused();
   }
   await page.keyboard.press('Enter');

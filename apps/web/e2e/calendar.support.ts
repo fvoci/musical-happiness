@@ -7,6 +7,7 @@
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 
 import { openView } from './kanban.support.ts';
+import { tabKey } from './keyboard.support.ts';
 
 /** The page's time zone and language: Seoul, and English, whose weeks start on Sunday. */
 export const CALENDAR_PAGE = { timezoneId: 'Asia/Seoul', locale: 'en-US' } as const;
@@ -89,7 +90,7 @@ export async function dueOf(page: Page, title: string): Promise<unknown> {
 export async function tabTo(page: Page, target: Locator, most = 12): Promise<void> {
   for (let press = 0; press < most; press += 1) {
     if (await target.evaluate((element) => element === document.activeElement)) return;
-    await page.keyboard.press('Tab');
+    await page.keyboard.press(await tabKey(page));
   }
   await expect(target).toBeFocused();
 }
