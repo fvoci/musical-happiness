@@ -222,8 +222,8 @@ impl std::fmt::Debug for ReadPermit {
 #[derive(Debug, Default)]
 struct Listeners {
     next_id: ListenerId,
-    /// Changes whenever access is revoked, including before a subscription is registered.
-    revision: u64,
+    /// What was taken back, for the subscriptions being checked (`closing.rs`).
+    revoked: closing::Revocations,
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,

@@ -87,10 +87,18 @@ async fn require_read_access(ws: &Ws, board: &Board) -> Result<(), AppError> {
         "access denied to board",
     )
     .await?;
+    // A guest of the path's workspace reads a template only as a member of it: not an
+    // open template of the workspace, nor one the server ships with.
     if board.is_template && ws.role == fvoci_model::WorkspaceRole::Guest {
-        return Err(AppError::forbidden(
-            "guest are not allowed to get board templates",
-        ));
+        match app.store().get_member_for_board(&board.id, user_id).await {
+            Ok(_) => {}
+            Err(error) if error.is_not_found() => {
+                return Err(AppError::forbidden(
+                    "guest are not allowed to get board templates",
+                ));
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(())
 }
@@ -117,7 +125,8 @@ async fn require_source_board_access(ws: &Ws, source_board_id: &str) -> Result<(
 /// The blocks of a board
 ///
 /// For the board's members, and for an open template everyone who works in its workspace.
-/// A guest of the path's workspace cannot read template blocks (403).
+/// A guest of the path's workspace reads a template's blocks only as a member of that
+/// template (403 otherwise).
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the

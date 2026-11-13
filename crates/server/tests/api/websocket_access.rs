@@ -765,12 +765,13 @@ async fn a_role_change_asks_another_organizations_workspace_anew() {
     ts.teardown().await;
 }
 
-/// A subscription checked again as often as access is taken back elsewhere is given
-/// up after a bound, and the page is told to connect again (1013), not that its
+/// A subscription checked again as often as its user's access is taken back elsewhere
+/// is given up after a bound, and the page is told to connect again (1013), not that its
 /// access ended.
 #[tokio::test]
 async fn a_subscription_checked_too_often_is_given_up_as_retryable() {
     let ts = Setup::local_mode().start().await.init_basic().await;
+    let user = ts.client.me().await.id;
     let mut socket = ts.client.connect_websocket().await;
     let mut pause = subscribe(
         &ts,
@@ -780,17 +781,18 @@ async fn a_subscription_checked_too_often_is_given_up_as_retryable() {
     )
     .await
     .expect("the first check is paused");
-    // Eight checks in all, each overtaken by somebody else's access being taken back.
+    // Eight checks in all, each overtaken by this user's access being taken back in
+    // another workspace, which this connection does not follow.
     for _ in 1..8 {
         let next = ts.app.ws().pause_next_subscription();
-        ts.app.ws().close_user(&new_id());
+        ts.app.ws().workspace_role_changed(TEST_WORKSPACE_ID, &user);
         pause.resume();
         tokio::time::timeout(WAIT, next.reached())
             .await
             .expect("the subscription is checked again");
         pause = next;
     }
-    ts.app.ws().close_user(&new_id());
+    ts.app.ws().workspace_role_changed(TEST_WORKSPACE_ID, &user);
     pause.resume();
     let frame = tokio::time::timeout(WAIT, async {
         while let Some(message) = socket.next().await {
