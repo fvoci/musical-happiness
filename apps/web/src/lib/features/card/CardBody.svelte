@@ -25,7 +25,7 @@
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { roomNote, lostNote } from './body-notes.ts';
+  import { LATE_NOTE, lostNote, roomNote } from './body-notes.ts';
   import { keepCaret } from './caret-keeper.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
 
@@ -74,6 +74,19 @@
   });
 
   const caret = keepCaret();
+
+  /** Joining and receiving are usually over at once: their line is put in only when they last. */
+  let lateShown = $state(false);
+  $effect(() => {
+    if (!note?.late) return;
+    const timer = setTimeout(() => {
+      lateShown = true;
+    }, LATE_NOTE);
+    return () => {
+      clearTimeout(timer);
+      lateShown = false;
+    };
+  });
 </script>
 
 <section
@@ -83,7 +96,6 @@
   data-editor={Editor && doc ? (writable ? 'ready' : 'reading') : room ? 'loading' : 'none'}
   data-room={room?.status ?? 'none'}
   data-settling={settling ? '' : undefined}
-  {@attach caret.watch}
 >
   {#if card.lost}
     <div
@@ -122,16 +134,18 @@
       />
     {/key}
   {:else}
-    <BodyView doc={card.body} {resolveUser} class="text-base">
-      {#snippet empty()}
-        <p class="text-base text-muted-foreground">
-          {board.canEdit ? m.card_body_placeholder() : m.card_body_empty()}
-        </p>
-      {/snippet}
-      {#snippet invalid()}
-        <p class="text-muted-foreground" role="alert">{m.card_body_invalid()}</p>
-      {/snippet}
-    </BodyView>
+    <div {@attach caret.watch}>
+      <BodyView doc={card.body} {resolveUser} class="text-base">
+        {#snippet empty()}
+          <p class="text-base text-muted-foreground">
+            {board.canEdit ? m.card_body_placeholder() : m.card_body_empty()}
+          </p>
+        {/snippet}
+        {#snippet invalid()}
+          <p class="text-muted-foreground" role="alert">{m.card_body_invalid()}</p>
+        {/snippet}
+      </BodyView>
+    </div>
   {/if}
   {#if room && editorChunk.failed}
     <p class="flex flex-wrap items-center gap-2 text-muted-foreground" role="alert">
@@ -147,46 +161,29 @@
         {m.card_body_editor_retry()}
       </Button>
     </p>
-  {:else if note}
-    <p
-      class={[
-        'flex flex-wrap items-center gap-2 text-sm text-muted-foreground',
-        note.late && 'late',
-      ]}
-      role="status"
-      data-testid="body-room-note"
-      data-reason={room?.reason}
-    >
-      {note.text}
-      {#if note.retry}
-        <Button
-          variant="outline"
-          size="sm"
-          class="roomy:min-h-touch"
-          onclick={() => {
-            card.retryBody();
-          }}
-        >
-          {m.card_body_editor_retry()}
-        </Button>
-      {/if}
-    </p>
   {/if}
+  <!-- A live region that is always there: a line put into it is said aloud. -->
+  <div role="status">
+    {#if note && (!note.late || lateShown)}
+      <p
+        class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+        data-testid="body-room-note"
+        data-reason={room?.reason}
+      >
+        {note.text}
+        {#if note.retry}
+          <Button
+            variant="outline"
+            size="sm"
+            class="roomy:min-h-touch"
+            onclick={() => {
+              card.retryBody();
+            }}
+          >
+            {m.card_body_editor_retry()}
+          </Button>
+        {/if}
+      </p>
+    {/if}
+  </div>
 </section>
-
-<style>
-  /* Joining and receiving are usually over at once: said only when they last. */
-  .late {
-    animation: appear-late 0s 1s both;
-  }
-
-  @keyframes appear-late {
-    from {
-      visibility: hidden;
-    }
-
-    to {
-      visibility: visible;
-    }
-  }
-</style>

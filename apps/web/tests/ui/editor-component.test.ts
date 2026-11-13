@@ -299,7 +299,7 @@ describe('images given to the editor as files', () => {
     expect(uploadImage).not.toHaveBeenCalled();
   });
 
-  it('puts no picture into an editor that was locked while it went up', async () => {
+  it('puts the picture into an editor read-only for now while it went up (its room sends it later)', async () => {
     let finish: (fileId: string) => void = () => undefined;
     const uploadImage = vi.fn(
       (_file: File) =>
@@ -319,7 +319,7 @@ describe('images given to the editor as files', () => {
     await vi.waitFor(() => {
       expect(container.querySelector('.doc-upload')).toBeNull();
     });
-    expect(JSON.stringify(editorIn(container).getJSON())).not.toContain('file-1');
+    expect(JSON.stringify(editorIn(container).getJSON())).toContain('file-1');
   });
 
   it('uploads a pasted picture, holds its place meanwhile, and stores only the identifier', async () => {

@@ -8,23 +8,77 @@
  * arrives. The placeholder is a decoration, no part of the document: nothing
  * about an upload in progress is ever stored. Without an `upload` function
  * the editor takes no image files at all.
+ *
+ * In a body edited together the place is held in the shared document
+ * (shared-place.ts), so that what others write meanwhile, before it or in
+ * its block, does not move the image elsewhere. When the block it was going
+ * into is deleted (by anybody) the image is not put in, and that is said.
  */
 import { Extension } from '@tiptap/core';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
+
+import { fromShared, holdPlace, placeNow, type HeldPlace } from './shared-place.ts';
+
+/** How an upload ended for the reader: put in, failed (or given up), or its place was deleted. */
+export type UploadOutcome = 'done' | 'failed' | 'gone';
 
 export interface ImageUploadOptions {
   /** Uploads a file and gives its identifier. Undefined: images cannot be added. */
   upload: () => ((file: File) => Promise<string>) | undefined;
   /** What the placeholder says to a screen reader. */
   uploadingLabel: () => string;
-  /** How many uploads are under way, whenever that changes; `failed` when one just failed. */
-  onProgress: (pending: number, failed: boolean) => void;
+  /** How many uploads are under way, whenever that changes, and how the one that just ended did. */
+  onProgress: (pending: number, outcome: UploadOutcome | undefined) => void;
 }
 
 type Change = { add: { id: number; position: number; label: string } } | { remove: number };
 
-const key = new PluginKey<DecorationSet>('imageUpload');
+/** Where an image goes once it is up. */
+interface Placeholder {
+  id: number;
+  pos: number;
+  /** The place in the shared document, in a body edited together. */
+  held: HeldPlace | undefined;
+  label: string;
+  /** Its block was deleted: the image has nowhere to go. */
+  gone: boolean;
+}
+
+const key = new PluginKey<Placeholder[]>('imageUpload');
+
+/** Where a placeholder is after a transaction. */
+function follow(placeholder: Placeholder, tr: Transaction, state: EditorState): Placeholder {
+  if (placeholder.gone) return placeholder;
+  if (placeholder.held && fromShared(tr)) {
+    const now = placeNow(state, placeholder.held);
+    if (now === null) return { ...placeholder, gone: true };
+    if (now !== undefined) return { ...placeholder, pos: now };
+  }
+  return { ...placeholder, pos: tr.mapping.map(placeholder.pos) };
+}
+
+/** Where the image of a placeholder goes now: a position, `null` when its block is gone. */
+function placeOf(state: EditorState, placeholder: Placeholder): number | null {
+  if (placeholder.gone) return null;
+  if (!placeholder.held) return placeholder.pos;
+  return placeNow(state, placeholder.held) ?? null;
+}
+
+function widget(placeholder: Placeholder, size: number): Decoration {
+  const { id, label } = placeholder;
+  return Decoration.widget(
+    Math.min(placeholder.pos, size),
+    (view) => {
+      const element = view.dom.ownerDocument.createElement('span');
+      element.setAttribute('class', 'doc-upload');
+      element.setAttribute('role', 'img');
+      element.setAttribute('aria-label', label);
+      return element;
+    },
+    { id, key: `doc-upload-${String(id)}` },
+  );
+}
 
 /**
  * The kinds of picture taken. The server serves every file as bytes of no
@@ -60,23 +114,26 @@ export const ImageUpload = Extension.create<ImageUploadOptions>({
             add: { id, position, label: options.uploadingLabel() },
           } satisfies Change),
         );
-        options.onProgress(pending, false);
+        options.onProgress(pending, undefined);
         const finish = (uploaded: string | undefined): void => {
-          // An editor locked meanwhile (a conflict to settle) takes nothing in.
-          const fileId = view.isDestroyed || view.editable ? uploaded : undefined;
+          // Put in even while the editor is read only for now (the connection away): the room
+          // sends it when it can, or says it was lost; a reader who may no longer write is refused.
+          const fileId = uploaded;
           pending -= 1;
-          options.onProgress(pending, fileId === undefined);
-          if (view.isDestroyed) return;
-          // Where the placeholder is now; it has moved with whatever was typed meanwhile.
-          const found = key
-            .getState(view.state)
-            ?.find(undefined, undefined, (spec: { id?: number }) => spec.id === id);
-          const at = found?.[0]?.from;
+          if (view.isDestroyed) {
+            options.onProgress(pending, fileId === undefined ? 'failed' : 'done');
+            return;
+          }
+          // Where the placeholder is now; it has moved with whatever was written meanwhile.
+          const placeholder = key.getState(view.state)?.find((each) => each.id === id);
+          const at = placeholder ? placeOf(view.state, placeholder) : null;
           const transaction = view.state.tr.setMeta(key, { remove: id } satisfies Change);
           const image = view.state.schema.nodes.image;
-          if (fileId !== undefined && fileId !== '' && at !== undefined && image)
-            transaction.replaceRangeWith(at, at, image.create({ fileId }));
+          const placed = fileId !== undefined && fileId !== '' && at !== null && image;
+          if (placed) transaction.replaceRangeWith(at, at, image.create({ fileId }));
           view.dispatch(transaction);
+          if (fileId === undefined) options.onProgress(pending, 'failed');
+          else options.onProgress(pending, placed ? 'done' : 'gone');
         };
         upload(file).then(finish, () => {
           finish(undefined);
@@ -86,41 +143,33 @@ export const ImageUpload = Extension.create<ImageUploadOptions>({
     }
 
     return [
-      new Plugin<DecorationSet>({
+      new Plugin<Placeholder[]>({
         key,
         state: {
-          init: () => DecorationSet.empty,
-          apply(transaction, set) {
-            let next = set.map(transaction.mapping, transaction.doc);
+          init: () => [],
+          apply(transaction, list, _before, state) {
+            let next = list.map((placeholder) => follow(placeholder, transaction, state));
             const change = transaction.getMeta(key) as Change | undefined;
             if (change && 'add' in change) {
               const { id, position, label } = change.add;
-              const widget = Decoration.widget(
-                Math.min(position, transaction.doc.content.size),
-                (view) => {
-                  const element = view.dom.ownerDocument.createElement('span');
-                  element.setAttribute('class', 'doc-upload');
-                  element.setAttribute('role', 'img');
-                  element.setAttribute('aria-label', label);
-                  return element;
-                },
-                { id, key: `doc-upload-${id}` },
-              );
-              next = next.add(transaction.doc, [widget]);
+              const pos = Math.min(position, transaction.doc.content.size);
+              next = [...next, { id, pos, held: holdPlace(state, pos, true), label, gone: false }];
             } else if (change && 'remove' in change) {
-              next = next.remove(
-                next.find(
-                  undefined,
-                  undefined,
-                  (spec: { id?: number }) => spec.id === change.remove,
-                ),
-              );
+              next = next.filter((placeholder) => placeholder.id !== change.remove);
             }
             return next;
           },
         },
         props: {
-          decorations: (state) => key.getState(state),
+          decorations: (state) => {
+            const list = (key.getState(state) ?? []).filter((placeholder) => !placeholder.gone);
+            if (list.length === 0) return DecorationSet.empty;
+            const size = state.doc.content.size;
+            return DecorationSet.create(
+              state.doc,
+              list.map((placeholder) => widget(placeholder, size)),
+            );
+          },
           handlePaste: (view, event) => {
             const files = imagesIn(event.clipboardData?.files);
             if (!start(view, files, view.state.selection.from)) return false;

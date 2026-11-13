@@ -181,6 +181,7 @@ export class CardStore {
   /** Leaves the body's room; what waits is sent first. */
   closeBody(): void {
     clearTimeout(this.#savingShown);
+    this.bodySaving = false;
     const opened = this.#bodyDoc;
     this.#bodyDoc = undefined;
     this.room = undefined;

@@ -42,44 +42,63 @@ import {
 import { openNewFormula } from './editing-place.ts';
 import { fillMath, watchFormulaFit } from './embeds.ts';
 import { formulaBlockView, newFormulaPanel } from './math-block.ts';
-import { editMath } from './math-editing.ts';
+import { cancelMathEditing, editMath } from './math-editing.ts';
 import { MAX_LATEX } from './schema.ts';
+import { holdPlace, placeNow } from './shared-place.ts';
 
 const latexOf = (node: { attrs: Record<string, unknown> }): string =>
   typeof node.attrs.latex === 'string' ? node.attrs.latex : '';
 
-/** Opens the box for the source of the formula in a line at `position`. */
+/**
+ * Opens the box for the source of the formula in a line at `position`. The
+ * box stays open while the reader writes: in a body edited together the
+ * formula is found again through what others write meanwhile
+ * (shared-place.ts), and the box closes, keeping nothing, when the formula
+ * is deleted or its source changed by somebody else.
+ */
 function editFormulaAt(editor: Editor, position: number): void {
   const name = 'inlineMath';
   const node = editor.state.doc.nodeAt(position);
   if (node?.type.name !== name || !editor.isEditable) return;
   const before = latexOf(node);
-  /** Whether the formula is still where it was: the document may be replaced from outside meanwhile. */
-  const still = (): boolean => {
-    const now = editor.isDestroyed ? null : editor.state.doc.nodeAt(position);
-    return now?.type.name === name && latexOf(now) === before;
+  const held = holdPlace(editor.state, position);
+  /** Where the formula is now; undefined when it is not there as it was. */
+  const where = (): number | undefined => {
+    if (editor.isDestroyed) return undefined;
+    const at = held ? placeNow(editor.state, held) : position;
+    if (at === null || at === undefined) return undefined;
+    const now = editor.state.doc.nodeAt(at);
+    return now?.type.name === name && latexOf(now) === before ? at : undefined;
   };
+  const watch = (): void => {
+    if (where() === undefined) cancelMathEditing();
+  };
+  const stopWatching = (): void => {
+    if (!editor.isDestroyed) editor.off('transaction', watch);
+  };
+  editor.on('transaction', watch);
   editMath({
     latex: before,
     page: editor.view.dom.ownerDocument,
     anchor: () => {
-      const element = editor.isDestroyed ? null : editor.view.nodeDOM(position);
+      const at = where();
+      const element = at === undefined ? null : editor.view.nodeDOM(at);
       return element instanceof HTMLElement ? element.getBoundingClientRect() : undefined;
     },
     apply: (latex) => {
-      if (!still()) return;
+      stopWatching();
+      const at = where();
+      if (at === undefined) return;
       const transaction = editor.state.tr;
-      if (latex === '') transaction.delete(position, position + node.nodeSize);
-      else if (latex !== before) transaction.setNodeMarkup(position, undefined, { latex });
-      const after = Math.min(
-        transaction.doc.content.size,
-        latex === '' ? position : position + node.nodeSize,
-      );
+      if (latex === '') transaction.delete(at, at + node.nodeSize);
+      else if (latex !== before) transaction.setNodeMarkup(at, undefined, { latex });
+      const after = Math.min(transaction.doc.content.size, latex === '' ? at : at + node.nodeSize);
       transaction.setSelection(TextSelection.near(transaction.doc.resolve(after)));
       editor.view.dispatch(transaction);
       editor.view.focus();
     },
     cancel: () => {
+      stopWatching();
       if (!editor.isDestroyed) editor.view.focus();
     },
   });

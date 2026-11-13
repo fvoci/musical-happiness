@@ -12,6 +12,21 @@ import { fail } from './refuse.ts';
 import { copy, imageFileIds, LIMITS } from './shapes.ts';
 import type { World } from './world.ts';
 
+/**
+ * A body written whole, checked; what the card's room wrote is written into
+ * the card first, as the server does, so that it counts against `readAt`.
+ */
+export function checkedWhole(
+  world: World,
+  boardId: string,
+  cardId: string,
+  body: DocNode | null,
+): DocNode | null {
+  const checked = checkedBody(world, boardId, body);
+  world.bodyFlushed?.(cardId);
+  return checked;
+}
+
 /** A body as it is stored, or the server's refusal of it (400). An empty paragraph alone is none. */
 export function checkedBody(world: World, boardId: string, body: DocNode | null): DocNode | null {
   if (body === null) return null;

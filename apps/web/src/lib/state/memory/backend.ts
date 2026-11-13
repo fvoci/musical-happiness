@@ -72,7 +72,7 @@ import {
   type Role,
 } from './comments.ts';
 import { changeDisplayName } from './account.ts';
-import { checkedBody, openMemoryRoom } from './bodies.ts';
+import { checkedBody, checkedWhole, openMemoryRoom } from './bodies.ts';
 import { checkRelations, renameCopied } from './references.ts';
 import { fail } from './refuse.ts';
 import {
@@ -944,11 +944,11 @@ export class MemoryBackend implements Backend {
     return this.#commented(summaryOf(card));
   }
 
-  /** A body written whole, as another client of the server's API does it; its room gets a new document. */
+  /** A body written whole by another client of the server's API; its room gets a new document. */
   async writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
     await this.#enter('writeCardBody');
     const card = this.#block(boardId, cardId, 'card') as StoredCard;
-    const body = checkedBody(this.world, boardId, write.body);
+    const body = checkedWhole(this.world, boardId, cardId, write.body);
     if (card.updateAt !== write.readAt) fail(409, 'the card changed since it was read');
     card.body = body;
     this.#touch(card);

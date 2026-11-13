@@ -14,10 +14,8 @@
  * - The card's body is written from the document 2 seconds after the last
  *   change, 10 at most after the first, and when the last reader leaves:
  *   the board's listeners are told the card, as `UPDATE_BLOCK` tells them.
- * - The roles are asked again whenever the board's members change.
- * - A body written whole (`MemoryBackend.writeCardBody`, as another client
- *   of the server's API does it) makes the document anew: the room is told
- *   `DOC_RESET` of the next `epoch` and sent the new document.
+ * - A body written whole (`MemoryBackend.writeCardBody`) is written after
+ *   the room's changes, and makes the document anew (`DOC_RESET`).
  *
  * The tabs of one browser that each run a world in memory can be joined
  * (`shareRooms`): their documents are made alike from the seed, so that the
@@ -32,20 +30,10 @@
  * members change, not on a timer; and a room is kept for the life of the
  * world, as the server keeps a document stored.
  */
-import { getSchema } from '@tiptap/core';
-import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 
 import { BODY_FIELD } from '../../editor/body-editor.ts';
-import { bodyExtensions } from '../../editor/extensions.ts';
-import {
-  emptyDoc,
-  isEmptyDoc,
-  storedSize,
-  toStoredDoc,
-  validateDoc,
-  type DocNode,
-} from '../../editor/schema.ts';
+import { storedSize } from '../../editor/schema.ts';
 import {
   decodeDocFrame,
   encodeDocFrame,
@@ -63,17 +51,17 @@ import type {
 
 import { roleOn } from './comments.ts';
 import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
+import { bodyOf, documentOf, sameBody } from './room-docs.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** The shared type the editor binds to (`@tiptap/extension-collaboration`). */
 export const FIELD = BODY_FIELD;
+export { bodyOf } from './room-docs.ts';
 /** The largest update taken, in bytes (`collab_update_bytes`). */
 export const UPDATE_BYTES = 64 * 1024;
 /** When a body is written after a change: after a pause, at most after the first change. */
 export const QUIET_WAIT = 2000;
 export const LONGEST_WAIT = 10_000;
-/** The client of a document made from a body: the same in every tab, so that two makings are one. */
-const MAKER = 1;
 
 /** Who goes through a room, as the backend in memory acts for them. */
 export interface RoomUser {
@@ -131,29 +119,6 @@ function tabKey(card: StoredCard | undefined, cardId: string, epoch: number): st
   return `${card?.boardId ?? ''} ${cardId} ${String(card?.createAt ?? 0)} ${String(epoch)} ${made}`;
 }
 
-const schema = getSchema(bodyExtensions());
-
-/** The document of a body, made the same way wherever it is made. */
-function documentOf(body: DocNode | null): Y.Doc {
-  const doc = new Y.Doc();
-  doc.clientID = MAKER;
-  prosemirrorJSONToYXmlFragment(schema, body ?? emptyDoc(), doc.getXmlFragment(FIELD));
-  // Whatever is written next is somebody's: never the maker's again.
-  doc.clientID = Math.floor(Math.random() * 0x7fff_ffff) + 2;
-  return doc;
-}
-
-/** The body a document holds, as it would be stored; undefined when it is not one. */
-export function bodyOf(doc: Y.Doc): DocNode | null | undefined {
-  try {
-    const stored = toStoredDoc(yXmlFragmentToProsemirrorJSON(doc.getXmlFragment(FIELD)) as DocNode);
-    if (validateDoc(stored).length > 0) return undefined;
-    return isEmptyDoc(stored) ? null : stored;
-  } catch {
-    return undefined;
-  }
-}
-
 export class MemoryRooms {
   readonly #world: World;
   readonly #rooms = new Map<string, Room>();
@@ -162,6 +127,10 @@ export class MemoryRooms {
 
   constructor(world: World, channel?: string) {
     this.#world = world;
+    world.bodyFlushed = (cardId) => {
+      const room = this.#rooms.get(cardId);
+      if (room) this.#write(room);
+    };
     world.bodyWritten = (cardId) => {
       this.#remake(cardId);
     };
@@ -297,7 +266,6 @@ export class MemoryRooms {
       this.#say(seat, { message: { action: 'DOC_REFUSED', reason: 'not_found' } });
       return;
     }
-    // A join takes the place of the one before.
     const room = this.#room(boardId, cardId);
     this.#numbers += 1;
     const doc = this.#numbers;
@@ -420,7 +388,7 @@ export class MemoryRooms {
     const card = this.#card(room.boardId, room.cardId);
     const body = bodyOf(room.doc);
     if (!card || body === undefined) return;
-    if (JSON.stringify(body) === JSON.stringify(card.body ?? null)) return;
+    if (sameBody(body, card.body ?? null)) return;
     card.body = body;
     card.updateAt = this.#world.now();
     card.modifiedBy = room.lastWriter ?? card.modifiedBy;

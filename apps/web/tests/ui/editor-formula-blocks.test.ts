@@ -199,20 +199,21 @@ describe('a block formula', () => {
     );
   });
 
-  it('writes nothing when the place only goes away: a new document, the editor made read-only', async () => {
+  it('writes nothing when the place only goes away (a new document); made read-only, keeps what its field holds', async () => {
     const target = create(doc(mathBlock('x^2'), paragraph()));
     formula(target).click();
     write('');
     target.commands.setContent(doc(mathBlock('other')));
     expect(stored(target)).toEqual(doc(mathBlock('other')));
 
+    // Read-only for now (the connection away): the room sends it when it can.
     formula(target).click();
-    write('');
+    write('y^2');
     target.setEditable(false);
     await vi.waitFor(() => {
       expect(isOpen(target)).toBe(false);
     });
-    expect(stored(target)).toEqual(doc(mathBlock('other')));
+    expect(stored(target)).toEqual(doc(mathBlock('y^2')));
   });
 
   it('writes nothing when its field was not written in, though the source changed meanwhile', () => {
@@ -318,7 +319,7 @@ describe('a new block formula', () => {
     expect(JSON.stringify(stored(target))).not.toContain('blockMath');
   });
 
-  it('writes nothing when its line is taken by a new document or the editor turns read-only', async () => {
+  it('writes nothing when its line is taken by a new document; goes in when the editor turns read-only', async () => {
     const target = create(doc(paragraph()));
     type(target, '$$ ');
     write('x');
@@ -332,7 +333,7 @@ describe('a new block formula', () => {
     await vi.waitFor(() => {
       expect(document.querySelector('.doc-place-new')).toBeNull();
     });
-    expect(stored(target)).toEqual(doc(paragraph()));
+    expect(stored(target)).toEqual(doc(mathBlock('y'), paragraph()));
   });
 
   it('goes in when the focus goes back to the editor, not lost to what is typed there', () => {

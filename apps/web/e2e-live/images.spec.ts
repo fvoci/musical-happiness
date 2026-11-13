@@ -190,3 +190,107 @@ test('a card does not close at once while an image is still going up for its bod
   await api.dispose();
   expect(errors).toEqual([]);
 });
+
+test('an image going up lands where it was put while somebody else writes above it', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('pictures');
+  const colleague = person('writes');
+  await register(base, owner);
+  await register(base, colleague);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Pictures together',
+    cards: [{ title: 'The trip', status: 'To do' }],
+    members: [{ who: colleague, role: 'editor' }],
+  });
+  const cardId = board.cards['The trip'] ?? '';
+  const path = boardPath(board, board.viewId, cardId);
+  const stored = async (): Promise<Schemas['Card']> =>
+    (await (
+      await api.get(`/api/v1/w/${board.workspaceId}/cards/${cardId}`)
+    ).json()) as Schemas['Card'];
+  const pageOf = async (who: Person): Promise<Page> => {
+    const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+    await openCard(page, path, who);
+    await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
+    return page;
+  };
+  const first = await pageOf(owner);
+  const second = await pageOf(colleague);
+  const errors = [...watchErrors(first), ...watchErrors(second)];
+  const editorOf = (page: Page): Locator =>
+    page.getByTestId('card-body').locator('[contenteditable]').first();
+
+  // The end of the upload waits until the test lets it go.
+  let release = (): void => undefined;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = 0;
+  await first.route('**/uploads/*/complete', async (route) => {
+    held += 1;
+    await released;
+    await route.continue();
+  });
+
+  try {
+    await editorOf(first).click();
+    await first.keyboard.type('The view from the top');
+    await expect(editorOf(second)).toHaveText('The view from the top');
+    await editorOf(first).evaluate((element, png) => {
+      const bytes = Uint8Array.from(atob(png), (letter) => letter.charCodeAt(0));
+      const data = new DataTransfer();
+      data.items.add(new File([bytes], 'hill.png', { type: 'image/png' }));
+      element.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    }, PNG);
+    await expect.poll(() => held).toBe(1);
+    await expect(first.getByTestId('card-body').locator('.doc-upload')).toHaveCount(1);
+
+    // Meanwhile the other writes two lines above it.
+    await editorOf(second).click();
+    await second.keyboard.press('Control+Home');
+    await second.keyboard.type('Day one');
+    await second.keyboard.press('Enter');
+    await second.keyboard.type('Day two');
+    await second.keyboard.press('Enter');
+    // All of it arrived before the image goes in (an image put in while the other's Enter
+    // rewrites its line at the same moment may merge on either side of it).
+    await expect(editorOf(first).locator('p')).toHaveText([
+      'Day one',
+      'Day two',
+      'The view from the top',
+    ]);
+  } finally {
+    release();
+  }
+
+  // The picture is after the line it was put behind, on both pages and on the server.
+  await expect
+    .poll(
+      async () =>
+        ((await stored()).body as unknown as Node | null)?.content?.map((node) => node.type),
+      {
+        timeout: 15_000,
+      },
+    )
+    .toEqual(['paragraph', 'paragraph', 'paragraph', 'image']);
+  for (const page of [first, second]) {
+    const body = page.getByTestId('card-body');
+    await expect(body.locator('.ProseMirror > *')).toHaveCount(4);
+    await expect(body.locator('.ProseMirror > p').nth(2)).toHaveText('The view from the top');
+    await expect(
+      body.locator('.ProseMirror > :nth-child(4)').locator('xpath=descendant-or-self::img'),
+    ).toHaveCount(1);
+    await expect.poll(() => drawn(body)).toEqual([3]);
+  }
+  await expect(first.locator('[data-problem]')).toHaveCount(0);
+  await first.context().close();
+  await second.context().close();
+  await api.dispose();
+  expect(errors).toEqual([]);
+});

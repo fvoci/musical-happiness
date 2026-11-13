@@ -17,6 +17,7 @@ import {
 import type { Decoration, EditorView } from '@tiptap/pm/view';
 
 import { DIAGRAM_LANGUAGE } from './schema.ts';
+import { fromShared, holdPlace, placeNow, type HeldPlace } from './shared-place.ts';
 
 /** A diagram, a block formula, or a block formula that is still being written. */
 export type PlaceKind = 'diagram' | 'formula' | 'new-formula';
@@ -39,6 +40,12 @@ export interface Place {
   kind: PlaceKind;
   /** Where the block starts: the diagram, the formula, or the empty line a new formula goes into. */
   pos: number;
+  /**
+   * The same place in the shared document of a body edited together: a
+   * change from there replaces the blocks it changed, which the mapping of
+   * `pos` cannot follow (shared-place.ts).
+   */
+  held?: HeldPlace;
   /** For a new formula: its place, which the document does not hold yet. */
   panel?: NewFormulaPanel;
   /** For a formula: its field, set by its node view while the place is open. */
@@ -92,7 +99,13 @@ export function nextPlace(value: Place | null, tr: Transaction, state: EditorSta
   if (meta && 'close' in meta) return null;
   let place = meta?.open ?? value;
   if (!place) return null;
-  if (!meta) {
+  if (meta) place = { ...place, held: holdPlace(state, place.pos) };
+  else if (place.held && fromShared(tr)) {
+    // Somebody else's change, or the shared undo: the block is found again in the shared document.
+    const now = placeNow(state, place.held);
+    if (now === null) return null;
+    if (now !== undefined && now !== place.pos) place = { ...place, pos: now };
+  } else {
     const mapped = tr.mapping.mapResult(place.pos, 1);
     if (mapped.deleted) return null;
     if (mapped.pos !== place.pos) place = { ...place, pos: mapped.pos };
@@ -238,9 +251,9 @@ export function openPlace(view: EditorView, pos: number): boolean {
  * Closes the place that is open, on purpose: a formula keeps what its field
  * holds. With `focusBlock` (a key, its button) the block is selected and the
  * editor takes the focus; without (a press or the focus elsewhere), the
- * selection and the focus are left to what was pressed. A place that only
- * goes away (its block is deleted, the document replaced, the editor made
- * read-only) is dropped instead (`dropPlace`): nothing is written then.
+ * selection and the focus are left to what was pressed. The editor made
+ * read-only closes it too, keeping what it holds. A place that only goes
+ * away (its block is deleted, the document replaced) writes nothing.
  */
 export function closePlace(view: EditorView, focusBlock: boolean): void {
   const place = placeOf(view.state);
@@ -254,11 +267,6 @@ export function closePlace(view: EditorView, focusBlock: boolean): void {
   }
   view.dispatch(tr);
   if (focusBlock) view.focus();
-}
-
-/** Closes the place that is open and writes nothing: what a field holds is given up. */
-export function dropPlace(view: EditorView): void {
-  if (placeOf(view.state)) view.dispatch(view.state.tr.setMeta(placeKey, { close: true }));
 }
 
 /** Opens the place of a new formula on the empty line at `pos`, as part of `tr`. */

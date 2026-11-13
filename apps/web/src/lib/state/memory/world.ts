@@ -92,6 +92,8 @@ export class World {
    * the browser's other tabs (`rooms.ts`); none unless set.
    */
   shareRooms: string | undefined;
+  /** Before a card's body is written whole: what its room's editors wrote is written into the card (`rooms.ts`). */
+  bodyFlushed: ((cardId: string) => void) | undefined;
   /** A card's body was written whole: its room, if it has one, makes its document anew (`rooms.ts`). */
   bodyWritten: ((cardId: string) => void) | undefined;
 

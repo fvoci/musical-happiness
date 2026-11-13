@@ -7,7 +7,7 @@
 import type { Editor } from '@tiptap/core';
 import { Selection } from '@tiptap/pm/state';
 import { render } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 
 import { BODY_FIELD } from '$lib/editor/body-editor.ts';
@@ -80,5 +80,33 @@ describe('BodyEditor on a shared document', () => {
     const { container } = render(BodyEditor, { doc: null, collab: shared });
     typeAtEnd(editorIn(container), ' two');
     expect(shared.getXmlFragment(BODY_FIELD).toJSON()).toBe('<paragraph>one two</paragraph>');
+  });
+});
+
+describe('BodyEditor on a shared document it cannot draw', () => {
+  it('keeps what it cannot draw, says so and stops editing, and edits again once it fits', async () => {
+    const shared = new Y.Doc();
+    fromTheRoom(shared, 'first');
+    const { container } = render(BodyEditor, { doc: null, collab: shared });
+    const editor = editorIn(container);
+    // Somebody with a newer version writes a node this one does not know.
+    const other = new Y.Doc();
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(shared));
+    const before = Y.encodeStateVector(other);
+    other.getXmlFragment(BODY_FIELD).insert(1, [new Y.XmlElement('futureNode')]);
+    Y.applyUpdate(shared, Y.encodeStateAsUpdate(other, before), 'room');
+    await vi.waitFor(() => {
+      expect(editor.isEditable).toBe(false);
+    });
+    expect(container.querySelector('.doc-editor-status')?.textContent.trim()).not.toBe('');
+    // Nothing of it was deleted on this side.
+    expect(shared.getXmlFragment(BODY_FIELD).length).toBe(2);
+
+    const back = Y.encodeStateVector(other);
+    other.getXmlFragment(BODY_FIELD).delete(1, 1);
+    Y.applyUpdate(shared, Y.encodeStateAsUpdate(other, back), 'room');
+    await vi.waitFor(() => {
+      expect(editor.isEditable).toBe(true);
+    });
   });
 });

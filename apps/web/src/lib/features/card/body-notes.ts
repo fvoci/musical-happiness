@@ -6,6 +6,9 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 import type { BodyDocState } from '$lib/state/backend.ts';
 
+/** How long joining or receiving lasts before it is said, in milliseconds. */
+export const LATE_NOTE = 1000;
+
 export interface RoomNote {
   text: string;
   /** The reader can ask to be let in again now. */
@@ -31,6 +34,8 @@ export function roomNote(room: BodyDocState, canEdit: boolean): RoomNote | undef
       return note(m.card_body_offline());
     case 'out':
       if (room.reason === 'not_found') return note(m.card_body_gone());
+      // Not tried again by itself (the code of the room could not be fetched): the reader may.
+      if (!room.retrying) return note(m.card_body_not_opened(), { retry: true });
       return note(m.card_body_unavailable(), { retry: true });
     case 'joined':
       if (room.mode === 'read' || !canEdit) return note(m.card_body_read_only());

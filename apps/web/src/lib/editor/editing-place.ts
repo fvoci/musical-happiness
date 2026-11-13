@@ -35,7 +35,6 @@ import {
   closedDiagramAt,
   closePlace,
   closesPlace,
-  dropPlace,
   isDiagramNode,
   keepOutOfClosed,
   nextPlace,
@@ -48,7 +47,6 @@ import {
 export {
   closePlace,
   closesPlace,
-  dropPlace,
   isDiagramNode,
   openNewFormula,
   openPlace,
@@ -210,9 +208,11 @@ function placeView(view: EditorView) {
     update: (_: EditorView, before: EditorState) => {
       const place = placeOf(view.state);
       if (place && !view.editable) {
-        // The editor became read-only with a place open. Not from inside this update.
+        // The editor became read-only with a place open (the connection away, the room's
+        // document sent again): what the field holds is kept as if closed on purpose; the
+        // room sends it when it can, or says it was lost. Not from inside this update.
         queueMicrotask(() => {
-          if (!view.isDestroyed) dropPlace(view);
+          if (!view.isDestroyed) closePlace(view, false);
         });
         return;
       }

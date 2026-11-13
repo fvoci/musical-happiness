@@ -11,6 +11,7 @@ import {
   type Browser,
   type Page,
   type WebSocketRoute,
+  type WebSocket,
 } from '@playwright/test';
 
 import {
@@ -73,6 +74,10 @@ test('a body written in the editor is the server’s, and opens again as it was'
     cards: [{ title: 'Write the report', status: 'To do' }],
   });
   const cardId = board.cards['Write the report'] ?? '';
+  const sockets: WebSocket[] = [];
+  page.on('websocket', (socket) => {
+    sockets.push(socket);
+  });
   const writes: unknown[] = [];
   page.on('request', (request) => {
     if (request.method() === 'PATCH' && request.url().endsWith(`/cards/${cardId}`)) {
@@ -107,9 +112,19 @@ test('a body written in the editor is the server’s, and opens again as it was'
   await page.locator('[data-card]').filter({ hasText: 'Write the report' }).click();
   await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
   await expect(editor(page).locator('p')).toHaveText(['First line', 'Second line']);
-  // Opening it is no change: the server keeps the same document.
+  // Opening it is no change: nothing is sent to the room before the card is
+  // left (leaving sends what waits first), and the server keeps the same body.
+  let sent = 0;
+  for (const socket of sockets) {
+    socket.on('framesent', (frame) => {
+      if (typeof frame.payload !== 'string') sent += 1;
+    });
+  }
   await editor(page).click();
-  await page.waitForTimeout(2500);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('card-dialog')).toBeHidden();
+  expect(sent).toBe(0);
   expect((await stored(api, board, cardId)).body).toEqual(saved);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();
@@ -314,4 +329,33 @@ test('a body written whole by another client of the API takes the place of the o
     .toEqual(['Their plan, and mine']);
   await api.dispose();
   expect(errors).toEqual([]);
+});
+
+// A gap of the server, found by the review of collab-r3: a card duplicated
+// right after its body was typed (every change acknowledged by the room)
+// copies `blocks.body` as stored, before the room has written what was typed
+// into it. Expected to fail until the server writes the room's body first.
+test('a card duplicated right after typing copies what was typed', async ({ page, baseURL }) => {
+  test.fail(true, 'the server copies the stored body before the room has written it');
+  const base = baseURL ?? '';
+  const owner = person('copier');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Copies',
+    cards: [{ title: 'Original', status: 'To do' }],
+  });
+  const cardId = board.cards.Original ?? '';
+  await openCard(page, boardPath(board, board.viewId, cardId), owner);
+  await editor(page).click();
+  await page.keyboard.type('Typed just now');
+  // Every change acknowledged by the room.
+  await expect(page.getByTestId('card-save-state')).toHaveAttribute('data-state', 'saved');
+  const copied = await api.post(
+    `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${cardId}/duplicate`,
+  );
+  expect(copied.ok()).toBe(true);
+  const [copy] = (await copied.json()) as Schemas['Card'][];
+  expect(JSON.stringify(copy?.body ?? null)).toContain('Typed just now');
+  await api.dispose();
 });
