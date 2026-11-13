@@ -27,6 +27,8 @@ test.describe.configure({ mode: 'parallel', timeout: 90_000 });
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
 interface DevBackend {
   latency: number;
+  me(): Promise<{ id: string }>;
+  addMember(boardId: string, userId: string, role: 'editor'): Promise<unknown>;
   workspaces(): Promise<{ id: string }[]>;
   boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   views(boardId: string): Promise<{ id: string; title: string }[]>;
@@ -709,14 +711,7 @@ test('the reader stays in the body when the room sends it anew, with the caret w
   await page.keyboard.type('Mine ');
   // In the card already: what follows loses nothing.
   await expect.poll(async () => textOf((await stored(page, place)).body)).toContain('Mine ');
-  await page.evaluate(
-    async ({ place: at, body }) => {
-      const other = window.fvociDev.someoneElse();
-      const card = await other.card(at.boardId, at.cardId);
-      await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updateAt });
-    },
-    { place, body: paragraph('Theirs, written whole') },
-  );
+  await writtenWholeElsewhere(page, place, paragraph('Theirs, written whole'));
   await expect(await bodyEditor(page)).toHaveText('Theirs, written whole');
   await expect(page.getByTestId('body-lost')).toHaveCount(0);
   // Not pressed again: the new editor has the focus, and the caret near where it was.
@@ -729,6 +724,23 @@ test('the reader stays in the body when the room sends it anew, with the caret w
   );
 });
 
+/**
+ * Somebody else, made a member of the board first (a card is read by its
+ * board's members only), writes the card's body whole as another client of
+ * the API does.
+ */
+async function writtenWholeElsewhere(page: Page, place: Place, body: object): Promise<void> {
+  await page.evaluate(
+    async ({ place: at, body: written }) => {
+      const other = window.fvociDev.someoneElse();
+      await window.fvociDev.backend.addMember(at.boardId, (await other.me()).id, 'editor');
+      const card = await other.card(at.boardId, at.cardId);
+      await other.writeCardBody(at.boardId, at.cardId, { body: written, readAt: card.updateAt });
+    },
+    { place, body },
+  );
+}
+
 async function replacedWhileTyping(page: Page, place: Place, editor: Locator): Promise<void> {
   await page.evaluate(() => {
     window.fvociDev.backend.latency = 1500;
@@ -736,14 +748,7 @@ async function replacedWhileTyping(page: Page, place: Place, editor: Locator): P
   await editor.click();
   await page.keyboard.press('Control+Home');
   await page.keyboard.type('Mine. ');
-  await page.evaluate(
-    async ({ place: at, body }) => {
-      const other = window.fvociDev.someoneElse();
-      const card = await other.card(at.boardId, at.cardId);
-      await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updateAt });
-    },
-    { place, body: paragraph('Theirs') },
-  );
+  await writtenWholeElsewhere(page, place, paragraph('Theirs'));
   await expect(page.getByTestId('body-lost')).toBeVisible({ timeout: 15_000 });
   await page.evaluate(() => {
     window.fvociDev.backend.latency = 40;
