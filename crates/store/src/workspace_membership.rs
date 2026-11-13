@@ -283,6 +283,7 @@ async fn remove(
     scope.execute(sql).await?;
     trash::change_member_of_deleted_boards(scope, workspace_id, user_id, TrashedRoles::Forget)
         .await?;
+    crate::teams::remove_workspace_teams(scope, workspace_id, user_id).await?;
     let mut sql = scope.sql("DELETE FROM workspace_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id));

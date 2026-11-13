@@ -161,3 +161,59 @@ async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_fail
     assert_eq!(one.lines(), ["first", "after the store came back"]);
     th.teardown().await;
 }
+
+/// Removing the team role evicts a live collaborator just as removing a direct role does.
+#[tokio::test]
+async fn losing_the_team_role_puts_the_member_out_of_the_room() {
+    use fvoci_model::{Team, WorkspaceRole};
+    let th = asking_often().start().await.init_basic().await;
+    let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let owner = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    th.app
+        .store()
+        .change_workspace_role(
+            TEST_WORKSPACE_ID,
+            &owner,
+            (WorkspaceRole::Member, WorkspaceRole::Admin),
+            &owner,
+        )
+        .await
+        .unwrap();
+    let team: Team = th
+        .client
+        .post(
+            &format!("/w/{TEST_WORKSPACE_ID}/teams"),
+            &json!({"name":"Collaborators"}),
+        )
+        .await
+        .ok_json();
+    let link = format!("/w/{TEST_WORKSPACE_ID}/teams/{}/members/{user}", team.id);
+    th.client.put(&link, &json!({})).await.check_no_content();
+    th.client
+        .put(
+            &format!(
+                "/w/{TEST_WORKSPACE_ID}/boards/{}/teams/{}",
+                t.board_id, team.id
+            ),
+            &json!({"role":"editor"}),
+        )
+        .await
+        .check_no_content();
+    th.client
+        .delete(&format!(
+            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
+            t.board_id
+        ))
+        .await
+        .check_no_content();
+    two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
+    two.write_acked("through a team").await;
+    th.client.delete(&link).await.check_no_content();
+    let left = two.text("DOC_LEFT").await;
+    assert_eq!(left["reason"], json!("not_found"), "{left}");
+    let refused = two.join(TEST_WORKSPACE_ID, &t.card_id).await;
+    assert_eq!(refused["reason"], json!("not_found"), "{refused}");
+    one.write_acked("after the team member left").await;
+    th.teardown().await;
+}

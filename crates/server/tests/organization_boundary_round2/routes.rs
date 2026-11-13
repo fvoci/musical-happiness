@@ -22,6 +22,13 @@ use super::{answer, db_type_of_the_tests};
 // identifier of nothing; `{partNumber}` with 1.
 const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
     ("GET", "", "getWorkspace"),
+    ("GET", "/boards/{boardId}/teams", "getBoardTeams"),
+    ("PUT", "/boards/{boardId}/teams/{teamId}", "setBoardTeam"),
+    (
+        "DELETE",
+        "/boards/{boardId}/teams/{teamId}",
+        "removeBoardTeam",
+    ),
     ("GET", "/teams", "getTeams"),
     ("POST", "/teams", "createTeam"),
     ("GET", "/teams/{teamId}", "getTeam"),

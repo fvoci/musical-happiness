@@ -499,6 +499,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
+    ("getBoardTeams", "Ordered by team name and identifier"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),

@@ -461,6 +461,17 @@
             "description": "The identifier of the board.",
             "type": "string"
           },
+          "inheritedRole": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MinimumRole",
+                "description": "The highest role inherited from teams; direct flags remain unchanged."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schemeAdmin": {
             "description": "The user administers the board.",
             "type": "boolean"
@@ -475,6 +486,10 @@
           },
           "schemeViewer": {
             "description": "The user may view the board.",
+            "type": "boolean"
+          },
+          "synthetic": {
+            "description": "The membership has no directly stored role record.",
             "type": "boolean"
           },
           "userId": {
@@ -573,6 +588,37 @@
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "BoardTeam": {
+        "description": "A workspace team and the role its members inherit on a board.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "No team may administer a board."
+          },
+          "team": {
+            "$ref": "#/components/schemas/Team",
+            "description": "The group, including its current nonguest members."
+          }
+        },
+        "required": [
+          "role",
+          "team"
+        ],
+        "type": "object"
+      },
+      "BoardTeamRole": {
+        "description": "The role given to a team on a board.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The team's role, at most editor."
+          }
+        },
+        "required": [
+          "role"
+        ],
         "type": "object"
       },
       "BoardType": {
@@ -7973,6 +8019,177 @@
         "summary": "Share a board, or stop sharing it",
         "tags": [
           "sharing"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams": {
+      "get": {
+        "description": "For nonguest members allowed to list board members. Includes the team's current\npeople and its role. Ordered by team name and identifier. Direct memberships remain separate.",
+        "operationId": "getBoardTeams",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BoardTeam"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Assigned teams."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "List the teams assigned to a board",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/boards/{boardId}/teams/{teamId}": {
+      "delete": {
+        "description": "For board administrators and workspace administrators. Direct roles and the\nroles inherited from other teams remain. Idempotent for an existing team.",
+        "operationId": "removeBoardTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The team has no role on this board."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove a team's board role",
+        "tags": [
+          "members"
+        ]
+      },
+      "put": {
+        "description": "For board administrators and workspace administrators. The role is viewer,\ncommenter, or editor; admin is rejected. The board and team must belong to this\nworkspace and are checked before decoding the body. Managed access is audited.",
+        "operationId": "setBoardTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of a team within this workspace.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardTeamRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The team has this role."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Give or change a team's board role",
+        "tags": [
+          "members"
         ]
       }
     },

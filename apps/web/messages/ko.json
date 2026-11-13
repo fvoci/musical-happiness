@@ -1000,5 +1000,9 @@
   "teams_no_members": "아직 팀에 사람이 없습니다.",
   "teams_failed": "팀을 바꾸지 못했습니다. 다시 시도해 주세요.",
   "teams_load_failed": "팀을 불러오지 못했습니다.",
-  "teams_name_taken": "여기에 같은 이름의 팀이 있습니다."
+  "teams_name_taken": "여기에 같은 이름의 팀이 있습니다.",
+  "teams_board_add": "팀 추가",
+  "teams_board_choose": "팀 선택",
+  "teams_board_remove": "보드에서 {name} 빼기",
+  "teams_board_description": "각 사람은 팀과 직접 받은 역할 중 가장 높은 역할을 갖습니다."
 }

@@ -349,7 +349,7 @@ impl Store {
         &self,
         user_id: &str,
     ) -> Result<Vec<BoardMember>, StoreError> {
-        self.with_conn(async |scope| get_members_for_user(scope, user_id).await)
+        self.with_conn(async |scope| crate::team_access::get_members_for_user(scope, user_id).await)
             .await
     }
 
@@ -388,8 +388,10 @@ impl Store {
         workspace_id: &str,
         user_id: &str,
     ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| get_template_boards(scope, workspace_id, user_id).await)
-            .await
+        self.with_conn(async |scope| {
+            crate::workspaces::get_template_boards(scope, workspace_id, user_id).await
+        })
+        .await
     }
 
     /// Returns the templates the server ships with, oldest first. They are the system
@@ -535,9 +537,12 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
         PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
         PublicBoards::Exclude => sql.push(" AND ("),
     };
+    sql.push("(");
     members::push_own_membership_in_workspace(&mut sql, user_id)
         .push(members::BM_HAS_A_ROLE)
-        .push(")");
+        .push(") OR ");
+    crate::team_access::push_has_team_role(&mut sql, scope, user_id);
+    sql.push(")");
     sql
 }
 
@@ -745,6 +750,7 @@ pub(crate) async fn fetch_members(
                 scheme_commenter: row.bool(4)?,
                 scheme_viewer: row.bool(5)?,
                 synthetic: false,
+                inherited_role: None,
             })
         })
         .collect()
@@ -771,16 +777,6 @@ pub(crate) async fn get_member_for_board(
             "board member BoardID={board_id} UserID={user_id}"
         ))
     })
-}
-
-pub(crate) async fn get_members_for_user(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-) -> Result<Vec<BoardMember>, StoreError> {
-    let mut sql = select_members(scope);
-    sql.push(" JOIN boards AS b ON b.id = bm.board_id WHERE ");
-    members::push_own_membership_in_workspace(&mut sql, user_id).push(" ORDER BY bm.board_id");
-    fetch_members(scope, sql).await
 }
 
 pub(crate) async fn get_members_for_board(
@@ -889,7 +885,11 @@ pub(crate) async fn delete_member(
     let mut sql = scope.sql("DELETE FROM board_members WHERE board_id = ");
     sql.bind(Id(board_id))
         .push_bind(" AND user_id = ", Id(user_id));
-    if scope.execute(sql).await? > 0 {
+    if scope.execute(sql).await? > 0
+        && crate::team_access::role_for(scope, board_id, user_id)
+            .await?
+            .is_none()
+    {
         // Whoever may no longer see the board is no longer told what changes on it.
         subscriptions::end_subscriptions_to_board(scope, board_id, user_id).await?;
     }
@@ -954,30 +954,6 @@ pub(crate) async fn search_boards_for_user(
         BoardSearchField::Title => with_title_words(boards, term),
         BoardSearchField::PropertyName => boards,
     })
-}
-
-pub(crate) async fn get_template_boards(
-    scope: &mut Scope<'_>,
-    workspace_id: &str,
-    user_id: &str,
-) -> Result<Vec<Board>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT {} FROM boards AS b LEFT JOIN board_members AS bm \
-         ON b.id = bm.board_id AND bm.user_id = ",
-        board_select_list("b.")
-    ));
-    // Open templates are included even without a membership.
-    sql.bind(Id(user_id))
-        .push_bind(" WHERE b.is_template = ", true)
-        .push_bind(" AND b.is_builtin = ", false)
-        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
-        .push_bind(
-            " AND ((bm.board_id IS NULL AND b.type = ",
-            BoardType::Open.as_str(),
-        )
-        .push(") OR bm.board_id IS NOT NULL)")
-        .push(OLDEST_BOARD_FIRST);
-    fetch_boards(scope, sql).await
 }
 
 pub(crate) async fn get_builtin_templates(scope: &mut Scope<'_>) -> Result<Vec<Board>, StoreError> {

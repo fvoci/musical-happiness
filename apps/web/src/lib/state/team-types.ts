@@ -6,8 +6,17 @@ export interface Team {
   members: { userId: string; username: string; displayName: string }[];
 }
 
+export type TeamRole = 'viewer' | 'commenter' | 'editor';
+export interface BoardTeam {
+  team: Team;
+  role: TeamRole;
+}
+
 /** Teams are visible to nonguest members; only workspace administrators write them. */
 export interface Teams {
+  onBoard(workspaceId: string, boardId: string): Promise<BoardTeam[]>;
+  assign(workspaceId: string, boardId: string, teamId: string, role: TeamRole): Promise<void>;
+  unassign(workspaceId: string, boardId: string, teamId: string): Promise<void>;
   list(workspaceId: string): Promise<Team[]>;
   create(workspaceId: string, name: string): Promise<Team>;
   rename(workspaceId: string, teamId: string, name: string): Promise<Team>;

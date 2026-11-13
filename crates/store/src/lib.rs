@@ -10,6 +10,7 @@ mod accounts;
 mod audit;
 mod blocks;
 mod board_membership;
+mod board_teams;
 mod boards;
 mod boards_and_blocks;
 mod body_docs;
@@ -37,6 +38,7 @@ mod server_lock;
 mod sessions;
 mod sharing;
 mod subscriptions;
+mod team_access;
 mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;

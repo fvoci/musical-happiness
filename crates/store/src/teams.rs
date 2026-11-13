@@ -1,7 +1,7 @@
 //! Groups of nonguest workspace members. Writes share the organization/workspace
 //! locks with membership changes, and recheck the administrator under those locks.
 
-use fvoci_model::{Team, TeamMember, new_id};
+use fvoci_model::{BoardMember, Team, TeamMember, new_id};
 
 use crate::db::{Id, Scope};
 use crate::{Store, StoreError, Taken, org_admin, workspace_membership};
@@ -77,9 +77,10 @@ impl Store {
         workspace_id: &str,
         team_id: &str,
         by: &str,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Vec<BoardMember>, StoreError> {
         self.transaction(async |scope| {
             managing(scope, workspace_id, by).await?;
+            let changes = crate::board_teams::affected(scope, team_id, None).await?;
             let mut sql = scope.sql("DELETE FROM teams WHERE id = ");
             sql.bind(Id(team_id))
                 .push_bind(" AND workspace_id = ", Id(workspace_id))
@@ -87,7 +88,8 @@ impl Store {
             if scope.execute(sql).await? == 0 {
                 return Err(StoreError::not_found("team"));
             }
-            Ok(())
+            crate::board_teams::end_lost_subscriptions(scope, &changes).await?;
+            Ok(changes)
         })
         .await
     }
@@ -102,7 +104,7 @@ impl Store {
         team_id: &str,
         user_id: &str,
         by: &str,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Vec<BoardMember>, StoreError> {
         self.transaction(async |scope| {
             managing(scope, workspace_id, by).await?;
             require_team(scope, workspace_id, team_id).await?;
@@ -113,6 +115,7 @@ impl Store {
             if scope.fetch_optional(sql).await?.is_none() {
                 return Err(StoreError::not_found("workspace member"));
             }
+            let changes = crate::board_teams::joining(scope, team_id, user_id, by).await?;
             let mut sql = scope
                 .sql("INSERT INTO team_members (team_id, org_id, workspace_id, user_id) VALUES (");
             sql.bind(Id(team_id))
@@ -121,7 +124,7 @@ impl Store {
                 .push_bind(", ", Id(user_id))
                 .push(") ON CONFLICT (team_id, user_id, org_id) DO NOTHING");
             scope.execute(sql).await?;
-            Ok(())
+            Ok(changes)
         })
         .await
     }
@@ -136,17 +139,19 @@ impl Store {
         team_id: &str,
         user_id: &str,
         by: &str,
-    ) -> Result<(), StoreError> {
+    ) -> Result<Vec<BoardMember>, StoreError> {
         self.transaction(async |scope| {
             managing(scope, workspace_id, by).await?;
             require_team(scope, workspace_id, team_id).await?;
+            let changes = crate::board_teams::affected(scope, team_id, Some(user_id)).await?;
             let mut sql = scope.sql("DELETE FROM team_members WHERE team_id = ");
             sql.bind(Id(team_id))
                 .push_bind(" AND workspace_id = ", Id(workspace_id))
                 .push_bind(" AND user_id = ", Id(user_id))
                 .push_bind(" AND org_id = ", scope.org()?);
             scope.execute(sql).await?;
-            Ok(())
+            crate::board_teams::end_lost_subscriptions(scope, &changes).await?;
+            Ok(changes)
         })
         .await
     }
@@ -189,15 +194,34 @@ pub(crate) async fn remove_workspace_teams(
     workspace_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT DISTINCT bt.board_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE tm.workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND tm.user_id = ", Id(user_id))
+        .push_bind(" AND tm.org_id = ", scope.org()?);
+    let changes = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| {
+            Ok(BoardMember {
+                board_id: row.id(0)?,
+                user_id: user_id.to_owned(),
+                ..BoardMember::default()
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
     let mut sql = scope.sql("DELETE FROM team_members WHERE workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND user_id = ", Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
     scope.execute(sql).await?;
-    Ok(())
+    crate::board_teams::end_lost_subscriptions(scope, &changes).await
 }
 
-async fn list(scope: &mut Scope<'_>, workspace_id: &str) -> Result<Vec<Team>, StoreError> {
+pub(crate) async fn list(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+) -> Result<Vec<Team>, StoreError> {
     let mut sql = scope.sql("SELECT t.id, t.name FROM teams t JOIN workspaces w ON w.id = t.workspace_id AND w.org_id = t.org_id WHERE t.workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND t.org_id = ", scope.org()?)

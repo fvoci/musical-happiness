@@ -50,7 +50,7 @@ impl Audience {
     ///
     /// Returns the store's error if the query fails.
     pub async fn members(&self, board_id: &str) -> Result<Vec<BoardMember>, StoreError> {
-        self.store.get_members_for_board(board_id).await
+        self.store.effective_board_members(board_id).await
     }
 
     /// The properties of the board's cards whose values name users.

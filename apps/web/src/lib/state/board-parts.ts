@@ -85,9 +85,9 @@ export async function draftOfCopy(
 export function roleOf(member: BoardMember | undefined): MemberRole {
   if (!member) return '';
   if (member.schemeAdmin) return 'admin';
-  if (member.schemeEditor) return 'editor';
-  if (member.schemeCommenter) return 'commenter';
-  return member.schemeViewer ? 'viewer' : '';
+  if (member.schemeEditor || member.inheritedRole === 'editor') return 'editor';
+  if (member.schemeCommenter || member.inheritedRole === 'commenter') return 'commenter';
+  return member.schemeViewer || member.inheritedRole === 'viewer' ? 'viewer' : '';
 }
 
 /** The flags of a membership with exactly the one role. */

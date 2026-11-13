@@ -1,0 +1,431 @@
+//! Team grants reach the board and its discovery paths, and disappear at the source.
+
+use crate::boards::{board_with_admin, new_board};
+use crate::common::{ROOT_WORKSPACE_ID, Setup, TestServer};
+use fvoci_model::{AuditAction, Board, BoardMember, BoardRole, BoardType, Team};
+use reqwest::StatusCode;
+use serde_json::json;
+
+async fn group(th: &TestServer, user: &str, name: &str) -> Team {
+    let team: Team = th
+        .client
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/teams"),
+            &json!({"name":name}),
+        )
+        .await
+        .ok_json();
+    th.client
+        .put(
+            &format!("/w/{ROOT_WORKSPACE_ID}/teams/{}/members/{user}", team.id),
+            &json!({}),
+        )
+        .await
+        .check_no_content();
+    team
+}
+
+#[tokio::test]
+async fn team_roles_open_edit_find_and_export_a_board_then_end_when_removed() {
+    let th = Setup::native().start().await.init_basic().await;
+    let owner = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Inherited design"),
+        &owner,
+    )
+    .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let team = group(&th, &user, "Design").await;
+    let assignment = format!("{path}/teams/{}", team.id);
+    th.client2
+        .get(&path)
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    th.client
+        .put(&assignment, &json!({"role":"admin"}))
+        .await
+        .check_status(StatusCode::BAD_REQUEST);
+    th.client
+        .put(&assignment, &json!({"role":"editor"}))
+        .await
+        .check_no_content();
+    th.client2.get(&path).await.check_ok();
+    th.client2
+        .patch(&path, &json!({"title":"Inherited edit"}))
+        .await
+        .check_ok();
+    th.client2
+        .put(&assignment, &json!({"role":"viewer"}))
+        .await
+        .check_status(StatusCode::FORBIDDEN);
+    let members: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
+    let membership = members
+        .iter()
+        .find(|m| m.board_id == board.id)
+        .expect("inherited board in memberships");
+    assert!(membership.synthetic);
+    assert_eq!(membership.role(), Some(BoardRole::Editor));
+    for suffix in ["/boards", "/boards/search?q=Inherited"] {
+        let listed: Vec<Board> = th
+            .client2
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}{suffix}"))
+            .await
+            .ok_json();
+        assert!(
+            listed.iter().any(|b| b.id == board.id),
+            "{suffix}: team board is discoverable"
+        );
+    }
+    th.client2
+        .get(&format!("{path}/archive/export"))
+        .await
+        .check_ok();
+    th.client
+        .delete(&format!(
+            "/w/{ROOT_WORKSPACE_ID}/teams/{}/members/{user}",
+            team.id
+        ))
+        .await
+        .check_no_content();
+    th.client2
+        .get(&path)
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    th.client2
+        .get(&format!("{path}/archive/export"))
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    let members: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
+    assert!(!members.iter().any(|m| m.board_id == board.id));
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn the_highest_direct_or_team_role_survives_until_its_source_ends() {
+    let th = Setup::native().start().await.init_basic().await;
+    let owner = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Roles"),
+        &owner,
+    )
+    .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let first = group(&th, &user, "Readers").await;
+    let second = group(&th, &user, "Editors").await;
+    for (team, role) in [(&first, "commenter"), (&second, "editor")] {
+        th.client
+            .put(&format!("{path}/teams/{}", team.id), &json!({"role":role}))
+            .await
+            .check_no_content();
+    }
+    th.client
+        .post(
+            &format!("{path}/members"),
+            &json!({"userId":user,"schemeViewer":true}),
+        )
+        .await
+        .check_ok();
+    assert!(th.app.board_grant(&user, &board.id).await.unwrap().reads());
+    th.client2
+        .patch(&path, &json!({"title":"Can edit"}))
+        .await
+        .check_ok();
+    th.client
+        .delete(&format!("/w/{ROOT_WORKSPACE_ID}/teams/{}", second.id))
+        .await
+        .check_no_content();
+    th.client2
+        .patch(&path, &json!({"title":"Cannot edit"}))
+        .await
+        .check_status(StatusCode::FORBIDDEN);
+    let members: Vec<BoardMember> = th.client2.get(&format!("{path}/members")).await.ok_json();
+    let member = members.iter().find(|m| m.user_id == user).unwrap();
+    assert!(member.scheme_viewer, "direct role stays separate");
+    assert_eq!(member.role(), Some(BoardRole::Commenter));
+    th.client
+        .delete(&format!("{path}/teams/{}", first.id))
+        .await
+        .check_no_content();
+    th.client2.get(&path).await.check_ok();
+    th.client
+        .delete(&format!("{path}/members/{user}"))
+        .await
+        .check_no_content();
+    th.client2
+        .get(&path)
+        .await
+        .check_status(StatusCode::NOT_FOUND);
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn a_manager_cannot_gain_reading_through_a_team_without_a_record() {
+    let th = Setup::native().start().await.init_basic().await;
+    let manager = th.client.me().await.id;
+    let owner = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Managed"),
+        &owner,
+    )
+    .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let colleague = th.stranger().await;
+    let others = group(&th, &colleague, "Other readers").await;
+    let assignment = format!("{path}/teams/{}", others.id);
+    for _ in 0..2 {
+        th.client
+            .put(&assignment, &json!({"role":"viewer"}))
+            .await
+            .check_no_content();
+    }
+    let records = th
+        .app
+        .store()
+        .get_audit_log(ROOT_WORKSPACE_ID)
+        .await
+        .unwrap();
+    let added = records
+        .iter()
+        .filter(|r| r.target_id == board.id && r.action == AuditAction::AddedToBoard)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        added.len(),
+        1,
+        "an idempotent assignment records the new access once"
+    );
+    assert_eq!(added[0].actor_id, manager);
+    assert_eq!(added[0].subject_id, colleague);
+    let team = group(&th, &manager, "Managers").await;
+    th.client
+        .put(
+            &format!("{path}/teams/{}", team.id),
+            &json!({"role":"viewer"}),
+        )
+        .await
+        .check_no_content();
+    let records = th
+        .app
+        .store()
+        .get_audit_log(ROOT_WORKSPACE_ID)
+        .await
+        .unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToBoard)
+            .count(),
+        1
+    );
+    th.client
+        .delete(&format!(
+            "/w/{ROOT_WORKSPACE_ID}/teams/{}/members/{manager}",
+            team.id
+        ))
+        .await
+        .check_no_content();
+    assert!(
+        th.app
+            .board_grant(&manager, &board.id)
+            .await
+            .unwrap()
+            .manages_only()
+    );
+    th.client
+        .put(
+            &format!("/w/{ROOT_WORKSPACE_ID}/teams/{}/members/{manager}", team.id),
+            &json!({}),
+        )
+        .await
+        .check_no_content();
+    let records = th
+        .app
+        .store()
+        .get_audit_log(ROOT_WORKSPACE_ID)
+        .await
+        .unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|r| r.target_id == board.id && r.action == AuditAction::SelfAddedToBoard)
+            .count(),
+        2
+    );
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn losing_the_last_team_role_ends_subscriptions_and_live_board_messages() {
+    use crate::board_broadcasts::WorkspaceSocket;
+    use fvoci_model::{Block, BlockType, Subscription, new_id};
+    let th = Setup::native().start().await.init_basic().await;
+    let owner = th.client.me().await.id;
+    let user = th.client2.me().await.id;
+    let board = board_with_admin(
+        &th,
+        new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Signals"),
+        &owner,
+    )
+    .await;
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+    let team = group(&th, &user, "Listeners").await;
+    th.client
+        .put(
+            &format!("{path}/teams/{}", team.id),
+            &json!({"role":"editor"}),
+        )
+        .await
+        .check_no_content();
+    let mut block = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    };
+    th.app
+        .store()
+        .insert_block(&mut block, &owner)
+        .await
+        .unwrap();
+    th.client2.post(&format!("/w/{ROOT_WORKSPACE_ID}/subscriptions"), &json!({"blockType":"card", "blockId":block.id, "subscriberType":"user", "subscriberId":user})).await.check_created();
+    let mut socket = WorkspaceSocket::subscribe(&th, &th.client2, ROOT_WORKSPACE_ID, &user).await;
+    th.client
+        .patch(&path, &json!({"title":"Heard"}))
+        .await
+        .check_ok();
+    socket.expect("UPDATE_BOARD", "/board/title", "Heard").await;
+    th.client
+        .delete(&format!(
+            "/w/{ROOT_WORKSPACE_ID}/teams/{}/members/{user}",
+            team.id
+        ))
+        .await
+        .check_no_content();
+    socket
+        .expect("DELETE_MEMBER", "/member/userId", &user)
+        .await;
+    socket.drain().await;
+    th.client
+        .patch(&path, &json!({"title":"Not heard"}))
+        .await
+        .check_ok();
+    assert!(
+        socket.drain().await.is_empty(),
+        "a workspace subscription no longer receives this board"
+    );
+    let subscriptions: Vec<Subscription> = th
+        .client2
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/subscriptions/{user}"))
+        .await
+        .ok_json();
+    assert!(
+        subscriptions.is_empty(),
+        "stored card subscriptions are gone too"
+    );
+    th.teardown().await;
+}
+
+#[tokio::test]
+async fn workspace_demotion_or_departure_revokes_team_access_without_restoring_it() {
+    for departure in [false, true] {
+        let th = Setup::native().start().await.init_basic().await;
+        let owner = th.client.me().await.id;
+        let user = th.client2.me().await.id;
+        let board = board_with_admin(
+            &th,
+            new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Revoked"),
+            &owner,
+        )
+        .await;
+        let path = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+        let team = group(&th, &user, "Former members").await;
+        th.client
+            .put(
+                &format!("{path}/teams/{}", team.id),
+                &json!({"role":"editor"}),
+            )
+            .await
+            .check_no_content();
+        let membership = format!("/w/{ROOT_WORKSPACE_ID}/members/{user}");
+        if departure {
+            th.client.delete(&membership).await.check_no_content();
+        } else {
+            th.client
+                .put(&membership, &json!({"role":"guest"}))
+                .await
+                .check_ok();
+        }
+        th.client2
+            .get(&path)
+            .await
+            .check_status(StatusCode::NOT_FOUND);
+        th.client2
+            .get(&format!("{path}/teams"))
+            .await
+            .check_status(StatusCode::NOT_FOUND);
+        th.client2
+            .post(
+                "/invitations/accept",
+                &json!({"token":th.member_link().await}),
+            )
+            .await
+            .check_ok();
+        th.client2
+            .get(&path)
+            .await
+            .check_status(StatusCode::NOT_FOUND);
+        th.teardown().await;
+    }
+}
+
+#[tokio::test]
+async fn a_private_template_is_listed_while_a_team_role_grants_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let manager = th.client.me().await.id;
+    let owner = th.client2.me().await.id;
+    let mut template = new_board(ROOT_WORKSPACE_ID, BoardType::Private, "Team template");
+    template.is_template = true;
+    let board = board_with_admin(&th, template, &owner).await;
+    // The ordinary workspace member administers the board and can assign a team.
+    let team = group(&th, &owner, "Template authors").await;
+    let assignment = format!(
+        "/w/{ROOT_WORKSPACE_ID}/boards/{}/teams/{}",
+        board.id, team.id
+    );
+    th.client2
+        .put(&assignment, &json!({"role":"editor"}))
+        .await
+        .check_no_content();
+    // Give the direct admin role to the manager, then remove the owner's direct role.
+    th.client2
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/members", board.id),
+            &json!({"userId": manager, "schemeAdmin": true}),
+        )
+        .await
+        .check_ok();
+    th.client
+        .delete(&format!(
+            "/w/{ROOT_WORKSPACE_ID}/boards/{}/members/{owner}",
+            board.id
+        ))
+        .await
+        .check_no_content();
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/templates");
+    let listed: Vec<Board> = th.client2.get(&path).await.ok_json();
+    assert!(
+        listed.iter().any(|b| b.id == board.id),
+        "a team-only template is discoverable"
+    );
+    th.client.delete(&assignment).await.check_no_content();
+    let listed: Vec<Board> = th.client2.get(&path).await.ok_json();
+    assert!(
+        !listed.iter().any(|b| b.id == board.id),
+        "revoked template is gone"
+    );
+    th.teardown().await;
+}

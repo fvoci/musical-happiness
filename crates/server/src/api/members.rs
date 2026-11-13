@@ -92,9 +92,15 @@ async fn handle_get_members_for_board(
     )
     .await?;
 
-    Ok(json_response(
-        &ws.app.present_members_for_board(&board_id).await?,
-    ))
+    let mut members = ws.app.effective_board_members(&board_id).await?;
+    if ws.actor().workspace == Some(WorkspaceRole::Guest) {
+        for member in &mut members {
+            *member = member.clone().with_role(member.role());
+            member.inherited_role = None;
+            member.synthetic = false;
+        }
+    }
+    Ok(json_response(&members))
 }
 
 /// Make a user a member of a board

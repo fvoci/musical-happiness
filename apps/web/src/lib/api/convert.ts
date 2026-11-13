@@ -96,11 +96,16 @@ export function boardOf(board: Schemas['Board']): Board {
 }
 
 /**
- * A membership. The contract's has no `minimumRole` or `synthetic` (whether
- * the membership is one by the board being open): no screen reads either.
+ * A membership. An inherited role stays separate from the direct scheme flags.
+ * The local minimum role is empty; the server already resolves inherited access.
  */
 export function memberOf(member: Schemas['BoardMember']): BoardMember {
-  return { ...member, minimumRole: '', synthetic: false };
+  return {
+    ...member,
+    minimumRole: '',
+    synthetic: member.synthetic ?? false,
+    inheritedRole: member.inheritedRole ?? undefined,
+  };
 }
 
 /** A block of the API as the screens' block. Its body, if any, is the card's or comment's to carry. */

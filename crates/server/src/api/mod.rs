@@ -8,6 +8,7 @@ mod admin;
 mod archive;
 mod auth;
 mod blocks;
+mod board_teams;
 mod boards;
 mod boards_and_blocks;
 mod body;
@@ -117,6 +118,7 @@ fn routes() -> Routes {
         .merge(members::routes())
         .merge(workspace_members::routes())
         .merge(teams::routes())
+        .merge(board_teams::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(org_admin::routes())

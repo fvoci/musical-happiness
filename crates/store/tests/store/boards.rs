@@ -4174,7 +4174,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
             scheme_editor: true,
             scheme_commenter: true,
             scheme_viewer: true,
-            synthetic: false,
+            ..BoardMember::default()
         },
         editor_of(&board.id, &restorer_id),
     ] {

@@ -24,6 +24,7 @@ use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{LoginFlow, flow_from_row};
+use crate::team_access;
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{Store, Tenant};
 use crate::{invitations, users, workspaces};
@@ -132,14 +133,15 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
             .push_bind(" AND seer.user_id = ", Id(seer_id))
             .push_bind(") AND (id = ", Id(seer_id))
             // On a board of the workspace with the seer, and in the workspace still.
-            .push(
+            .push(&format!(
                 " OR id IN (SELECT other.user_id FROM board_members AS mine \
                  JOIN boards AS b ON b.id = mine.board_id \
-                 JOIN board_members AS other ON other.board_id = mine.board_id \
+                 JOIN {directory_members} AS other ON other.board_id = mine.board_id \
                  JOIN workspace_members AS them \
                  ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                  WHERE mine.user_id = ",
-            )
+                directory_members = team_access::directory_members(scope)
+            ))
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
             .push(ROLES_HELD)
@@ -167,18 +169,19 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                 .push_bind(" AND me.role <> ", WorkspaceRole::Guest.as_str())
                 .push(IN_USE)
                 .push(&scope.same_organization(&[("me", "t"), ("them", "t")]))
-                .push(
+                .push(&format!(
                     ") OR id IN (SELECT other.user_id FROM board_members AS mine \
                      JOIN boards AS b ON b.id = mine.board_id \
                      JOIN workspace_members AS me \
                      ON me.workspace_id = b.workspace_id AND me.user_id = mine.user_id \
                      JOIN workspaces AS t ON t.id = b.workspace_id \
                      JOIN organizations AS o ON o.id = t.org_id \
-                     JOIN board_members AS other ON other.board_id = mine.board_id \
+                     JOIN {directory_members} AS other ON other.board_id = mine.board_id \
                      JOIN workspace_members AS them \
                      ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                      WHERE mine.user_id = ",
-                )
+                    directory_members = team_access::directory_members(scope)
+                ))
                 .bind(Id(seer_id))
                 .push(IN_USE)
                 .push(ROLES_HELD)
@@ -226,6 +229,8 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     )
     .push(&scope.same_organization(&[("mine", "b")]))
     .push(")");
+    sql.push(" OR ");
+    team_access::push_has_team_role(sql, scope, seer_id);
     if open_where_seer_works {
         // Read without a role: an open template, for who works in its workspace. An
         // open board that is none is joined to be read.

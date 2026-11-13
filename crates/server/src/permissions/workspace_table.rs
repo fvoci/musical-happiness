@@ -126,7 +126,14 @@ fn who_invites_guests_to_a_board() {
     ];
     for (case, actor, role, invites) in rows {
         for scope in [InvitedOnly, Open] {
-            let granted = grant(actor, BoardFacts { scope, role });
+            let granted = grant(
+                actor,
+                BoardFacts {
+                    team_role: None,
+                    scope,
+                    role,
+                },
+            );
             assert_eq!(
                 invites_guests(granted, scope, &workspace(true)),
                 invites,
@@ -139,7 +146,14 @@ fn who_invites_guests_to_a_board() {
         }
         // A template takes no guests, whoever asks.
         for scope in [InvitedOnlyTemplate, OpenTemplate, BuiltIn] {
-            let granted = grant(actor, BoardFacts { scope, role });
+            let granted = grant(
+                actor,
+                BoardFacts {
+                    team_role: None,
+                    scope,
+                    role,
+                },
+            );
             assert!(
                 !invites_guests(granted, scope, &workspace(true)),
                 "{case}, on a template that is {scope:?}"

@@ -321,14 +321,15 @@ fn board_member_json_members() {
         scheme_commenter: true,
         scheme_viewer: false,
         synthetic: true,
+        inherited_role: Some(fvoci_model::MinimumRole::Editor),
     };
-    // What nothing stores is not sent: the roles and whether the membership is derived.
+    // Direct flags and inherited roles remain distinguishable on the wire.
     assert_eq!(
         to_json(&member),
         json!({
             "boardId": "b", "userId": "u",
             "schemeAdmin": true, "schemeEditor": false, "schemeCommenter": true,
-            "schemeViewer": false
+            "schemeViewer": false, "synthetic": true, "inheritedRole": "editor"
         })
     );
 }

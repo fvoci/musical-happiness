@@ -283,7 +283,9 @@ async fn search_boards_for_user_in_workspace(
         .push_bind(" OR (b.type = ", BoardType::Private.as_str())
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push(members::BM_HAS_A_ROLE)
-        .push("))");
+        .push(") OR ");
+    crate::team_access::push_has_team_role(&mut sql, scope, user_id);
+    sql.push(")");
     sql.push(boards::OLDEST_BOARD_FIRST);
     Ok(boards::with_title_words(
         boards::fetch_boards(scope, sql).await?,
@@ -325,4 +327,29 @@ impl Store {
         })
         .await
     }
+}
+
+pub(crate) async fn get_template_boards(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<Vec<Board>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {} FROM boards AS b LEFT JOIN board_members AS bm \
+         ON b.id = bm.board_id AND bm.user_id = ",
+        boards::board_select_list("b.")
+    ));
+    // Open templates are included even without a membership.
+    sql.bind(Id(user_id))
+        .push_bind(" WHERE b.is_template = ", true)
+        .push_bind(" AND b.is_builtin = ", false)
+        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
+        .push_bind(
+            " AND ((bm.board_id IS NULL AND b.type = ",
+            BoardType::Open.as_str(),
+        )
+        .push(") OR bm.board_id IS NOT NULL OR ");
+    crate::team_access::push_has_team_role(&mut sql, scope, user_id);
+    sql.push(")").push(boards::OLDEST_BOARD_FIRST);
+    boards::fetch_boards(scope, sql).await
 }

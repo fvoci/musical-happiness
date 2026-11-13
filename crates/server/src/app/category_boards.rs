@@ -139,7 +139,12 @@ impl App {
                     .context("createBoardsCategory error fetching user's board memberships")
             })?
             .into_iter()
-            .map(|member| (member.board_id, member.synthetic))
+            .map(|member| {
+                (
+                    member.board_id,
+                    member.synthetic && member.inherited_role.is_none(),
+                )
+            })
             .collect();
         let mut board_ids = Vec::new();
         for board in boards {

@@ -11,6 +11,7 @@ mod admins;
 mod blocks;
 mod board_broadcasts;
 mod board_copies;
+mod board_teams;
 mod boards;
 mod boards_and_blocks;
 mod bodies;

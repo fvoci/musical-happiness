@@ -290,7 +290,7 @@ impl App {
             Err(error) => return Err(error.into()),
         };
         // The memberships go with the board; who is told is who was a member.
-        let members = self.store().get_members_for_board(board_id).await?;
+        let members = self.store().effective_board_members(board_id).await?;
         self.store().delete_board(board_id, user_id).await?;
 
         self.ws()

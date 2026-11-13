@@ -42,6 +42,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import GuestInvite from './GuestInvite.svelte';
+  import BoardTeams from './BoardTeams.svelte';
   import { ROLE_ORDER, roleOfMember } from './share-logic.ts';
 
   interface Props {
@@ -106,7 +107,7 @@
 
   const candidates = $derived(
     (query.trim() === '' ? workspace.workspaceUsers : found).filter(
-      (user) => !board.members.some((member) => member.userId === user.id),
+      (user) => !board.members.some((member) => member.userId === user.id && !member.synthetic),
     ),
   );
 
@@ -260,7 +261,7 @@
       <section class="grid gap-2" aria-labelledby="{uid}-members">
         <h3 id="{uid}-members" class="font-medium">{m.share_members_title()}</h3>
         <ul class="grid gap-1" data-testid="share-members">
-          {#each board.orderedMembers as member (member.userId)}
+          {#each board.orderedMembers.filter((member) => !member.synthetic) as member (member.userId)}
             {@const name = nameOf(member.userId)}
             {@const mine = member.userId === workspace.me?.id}
             <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
@@ -339,6 +340,10 @@
             : ''}
         </p>
       </section>
+
+      {#if access?.people.teams && !isGuest(workspace)}
+        <BoardTeams {workspace} {board} teams={access.people.teams} />
+      {/if}
 
       <!-- The public link. -->
       {#if !membersOnly}

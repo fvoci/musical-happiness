@@ -202,7 +202,12 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Block", Members::AllBut(&["editedAt"])),
     ("Body", Members::AsWritten),
     ("Board", Members::All),
-    ("BoardMember", Members::All),
+    (
+        "BoardMember",
+        Members::AllBut(&["synthetic", "inheritedRole"]),
+    ),
+    ("BoardTeam", Members::All),
+    ("BoardTeamRole", Members::AsWritten),
     ("BoardsAndBlocks", Members::All),
     ("Card", Members::AllBut(&["preview"])),
     ("CardPreview", Members::All),

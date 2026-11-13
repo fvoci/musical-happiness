@@ -2,8 +2,11 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { screensDir } from '../e2e/screens.ts';
+import { boardLink } from '../e2e/shell.support.ts';
 import {
   ADMIN,
+  boardPath,
+  makeBoard,
   person,
   register,
   signedIn,
@@ -69,4 +72,92 @@ test('an administrator creates a team, changes its name and people, and deletes 
   await expect(row).toHaveCount(0);
   expect(errors).toEqual([]);
   await theirs.dispose();
+});
+
+test('a team editor opens and edits a board, then loses it when removed from the team', async ({
+  page,
+  baseURL,
+  browser,
+}) => {
+  const base = baseURL ?? '';
+  const colleague = person('team-editor');
+  await register(base, colleague);
+  const theirs = await signedIn(base, colleague);
+  const api = await signedIn(base, ADMIN);
+  const member = (await (await theirs.get('/api/v1/users/me')).json()) as Schemas['User'];
+  const title = uniqueName('Team board');
+  const board = await makeBoard(api, {
+    title,
+    cards: [{ title: 'Plan together', status: 'To do' }],
+  });
+  await page.goto('/');
+  await signInOnPage(page, ADMIN);
+  await page.getByTestId('open-people').click();
+  const panel = page.getByTestId('teams-panel');
+  const name = uniqueName('Editors');
+  await panel.getByRole('textbox', { name: 'Team name' }).fill(name);
+  await panel.getByRole('button', { name: 'Create team' }).click();
+  const row = panel.locator(`[data-team="${name}"]`);
+  await row.locator('summary').click();
+  await row.getByLabel('Choose a person').selectOption(member.id);
+  await row.getByRole('button', { name: 'Add a person' }).click();
+  await expect(row.locator(`[data-team-member="${member.id}"]`)).toBeVisible();
+  await page.keyboard.press('Escape');
+  const other = await browser.newContext({ locale: 'en-US', baseURL: base });
+  const editor = await other.newPage();
+  await editor.goto('/');
+  await signInOnPage(editor, colleague);
+  await expect(boardLink(editor, title)).toHaveCount(0);
+  await page.goto(boardPath(board, board.viewId));
+  await page.getByTestId('share-board').click();
+  const groups = page.getByTestId('board-teams');
+  await groups.getByLabel('Choose a team').selectOption({ label: name });
+  await groups.getByRole('button', { name: 'Add a team' }).click();
+  const assigned = groups.locator(`[data-board-team="${name}"]`);
+  await expect(assigned).toBeVisible();
+  await assigned.locator('summary').click();
+  await expect(assigned.getByText(colleague.username, { exact: true })).toBeVisible();
+  await expect(assigned.getByLabel(`Role of ${name}`)).toHaveValue('editor');
+  await expect(page.getByTestId('share-members').locator('li')).toHaveCount(1);
+  if (process.env.FVOCI_SCREENS === '1') {
+    const folder = screensDir('teams');
+    await groups.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(folder, 'share-wide.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect
+      .poll(async () => (await page.getByTestId('share-dialog').boundingBox())?.width ?? 1000)
+      .toBeLessThanOrEqual(390);
+    await groups.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(folder, 'share-390.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 1280, height: 720 });
+  }
+  await expect(boardLink(editor, title)).toBeVisible();
+  await boardLink(editor, title).click();
+  await expect(editor.getByTestId('board-title')).toHaveValue(title);
+  await editor.locator('[data-card]').getByText('Plan together', { exact: true }).click();
+  await editor.getByTestId('card-title').fill('Edited through the team');
+  await expect
+    .poll(
+      async () =>
+        (
+          (await (
+            await api.get(`/api/v1/w/${board.workspaceId}/cards/${board.cards['Plan together']}`)
+          ).json()) as Schemas['Card']
+        ).title,
+    )
+    .toBe('Edited through the team');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('open-people').click();
+  await row.locator('summary').click();
+  await row.getByRole('button', { name: `Remove ${colleague.username} from team` }).click();
+  await expect(row.locator(`[data-team-member="${member.id}"]`)).toHaveCount(0);
+  await expect(boardLink(editor, title)).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await theirs.get(`/api/v1/w/${board.workspaceId}/boards/${board.boardId}`)).status(),
+    )
+    .toBe(404);
+  await other.close();
+  await theirs.dispose();
+  await api.dispose();
 });

@@ -1000,5 +1000,9 @@
   "teams_no_members": "Nobody in this team yet.",
   "teams_failed": "Could not change the team. Try again.",
   "teams_load_failed": "Could not load teams.",
-  "teams_name_taken": "A team with that name already exists here."
+  "teams_name_taken": "A team with that name already exists here.",
+  "teams_board_add": "Add a team",
+  "teams_board_choose": "Choose a team",
+  "teams_board_remove": "Remove {name} from board",
+  "teams_board_description": "Each person keeps their highest role from their teams and direct membership."
 }

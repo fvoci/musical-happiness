@@ -10,6 +10,29 @@ fn name(text: &str) -> Result<&str, AppError> {
 }
 
 impl App {
+    /// Assigned groups of the board, in workspace name order.
+    ///
+    /// # Errors
+    /// Returns the store error if the list cannot be read.
+    pub async fn board_teams(
+        &self,
+        workspace_id: &str,
+        board_id: &str,
+    ) -> Result<Vec<fvoci_model::BoardTeam>, AppError> {
+        Ok(self.store().board_teams(workspace_id, board_id).await?)
+    }
+
+    /// Current people on the board, with direct and inherited roles kept separate.
+    ///
+    /// # Errors
+    /// Returns the store error if either membership source cannot be read.
+    pub async fn effective_board_members(
+        &self,
+        board_id: &str,
+    ) -> Result<Vec<fvoci_model::BoardMember>, AppError> {
+        Ok(self.store().effective_board_members(board_id).await?)
+    }
+
     /// Lists teams, including their nonguest members.
     ///
     /// # Errors
@@ -77,7 +100,9 @@ impl App {
         team_id: &str,
         by: &str,
     ) -> Result<(), AppError> {
-        Ok(self.store().delete_team(workspace_id, team_id, by).await?)
+        let changes = self.store().delete_team(workspace_id, team_id, by).await?;
+        self.tell_team_changes(workspace_id, changes).await;
+        Ok(())
     }
 
     /// Adds a nonguest workspace member to a team.
@@ -94,10 +119,12 @@ impl App {
         if !is_id(user_id) {
             return Err(AppError::not_found("workspace member"));
         }
-        Ok(self
+        let changes = self
             .store()
             .add_team_member(workspace_id, team_id, user_id, by)
-            .await?)
+            .await?;
+        self.tell_team_changes(workspace_id, changes).await;
+        Ok(())
     }
 
     /// Removes a person from a team.
@@ -114,9 +141,41 @@ impl App {
         if !is_id(user_id) {
             return Err(AppError::not_found("workspace member"));
         }
-        Ok(self
+        let changes = self
             .store()
             .remove_team_member(workspace_id, team_id, user_id, by)
-            .await?)
+            .await?;
+        self.tell_team_changes(workspace_id, changes).await;
+        Ok(())
+    }
+}
+
+impl App {
+    /// Gives or removes a board's team role and asks affected clients to read again.
+    ///
+    /// # Errors
+    /// Returns the store's refusal or database error.
+    pub async fn set_board_team(
+        &self,
+        workspace_id: &str,
+        board_id: &str,
+        team_id: &str,
+        role: Option<fvoci_model::MinimumRole>,
+        by: &str,
+    ) -> Result<(), AppError> {
+        let changes = self
+            .store()
+            .set_board_team(workspace_id, board_id, team_id, role, by)
+            .await?;
+        self.tell_team_changes(workspace_id, changes).await;
+        Ok(())
+    }
+
+    async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<fvoci_model::BoardMember>) {
+        for member in changes {
+            self.ws
+                .broadcast_member_delete(workspace_id, &member.board_id, &member.user_id)
+                .await;
+        }
     }
 }
