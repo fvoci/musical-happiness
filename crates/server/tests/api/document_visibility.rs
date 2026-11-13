@@ -3,7 +3,6 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_server::collab::AdmissionStage;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -19,10 +18,7 @@ async fn board_revocation_between_document_check_and_registration_discloses_no_b
     let user = ts.client2.me().await.id;
     give(&ts, &room.board_id, &user, "editor").await;
     let mut socket = ts.client2.connect_websocket().await;
-    let (reached, resume) = ts
-        .app
-        .collab()
-        .pause_next_admission(AdmissionStage::AfterCheck);
+    let (reached, resume) = ts.app.collab().pause_next_admission();
     socket
         .send(Message::Text(
             json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
@@ -97,62 +93,13 @@ async fn a_removed_board_member_cannot_write_or_receive_a_document_update() {
     ts.teardown().await;
 }
 
+/// A writer made a viewer is told before the next update is taken, and cannot write.
 #[tokio::test]
-async fn board_revocation_between_document_dispatch_check_and_queue_is_rechecked() {
+async fn a_downgraded_writer_is_told_and_cannot_write() {
     let ts = Setup::native().start().await.init_basic().await;
-    let (room, mut one, mut two) = two_in_a_room(&ts, &paragraphs(&["private"])).await;
-    let user = ts.client2.me().await.id;
-    let (reached, resume) = ts.app.collab().pause_next_room_dispatch();
-    one.write_acked("not for the removed member").await;
-    tokio::time::timeout(WAIT, reached.notified())
-        .await
-        .expect("dispatch checked");
-    ts.client
-        .delete(&format!(
-            "/w/{TEST_WORKSPACE_ID}/boards/{}/members/{user}",
-            room.board_id
-        ))
-        .await
-        .check_no_content();
-    resume.notify_one();
-    let message = two.incoming(WAIT).await;
-    let Incoming::Text(left) = message else {
-        panic!("expected eviction, got {message:?}");
-    };
-    assert_eq!(
-        left["action"], "DOC_LEFT",
-        "revocation wins before the payload enters the queue"
-    );
-    ts.teardown().await;
-}
-
-#[tokio::test]
-async fn document_dispatch_caches_grants_and_refreshes_a_downgraded_writer() {
-    let ts = Setup::native()
-        .configure(|config| config.collab.collab_frames_per_second = 1000)
-        .start()
-        .await
-        .init_basic()
-        .await;
     let (room, mut one, mut two) = two_in_a_room(&ts, &paragraphs(&["initial"])).await;
     one.write_acked("warm").await;
     assert!(two.step(WAIT).await, "warm update arrives");
-    let checks = ts.app.collab().room_permission_checks();
-    let started = std::time::Instant::now();
-    for n in 0..100 {
-        one.write_acked(&format!("update {n}")).await;
-        assert!(two.step(WAIT).await, "update {n} arrives");
-    }
-    let extra = ts.app.collab().room_permission_checks() - checks;
-    println!(
-        "document dispatch measurement: db={:?}, updates=100, recipients=2, permission_checks={extra}, elapsed_us={}",
-        ts.app.store().db_type(),
-        started.elapsed().as_micros()
-    );
-    assert_eq!(
-        extra, 0,
-        "unchanged grants cause no per-update permission lookup"
-    );
     let user = ts.client2.me().await.id;
     give(&ts, &room.board_id, &user, "viewer").await;
     two.write("not authorized").await;
@@ -165,10 +112,6 @@ async fn document_dispatch_caches_grants_and_refreshes_a_downgraded_writer() {
     assert_eq!(
         nack["reason"], "document_read_only",
         "downgraded writer cannot write"
-    );
-    assert!(
-        ts.app.collab().room_permission_checks() > checks,
-        "grant change refreshes the cache"
     );
     one.settle().await;
     assert!(
@@ -185,10 +128,7 @@ async fn a_writer_downgraded_during_document_admission_enters_as_a_reader() {
     let user = ts.client2.me().await.id;
     give(&ts, &room.board_id, &user, "editor").await;
     let mut socket = ts.client2.connect_websocket().await;
-    let (reached, resume) = ts
-        .app
-        .collab()
-        .pause_next_admission(AdmissionStage::AfterCheck);
+    let (reached, resume) = ts.app.collab().pause_next_admission();
     socket
         .send(Message::Text(
             json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,

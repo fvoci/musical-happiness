@@ -12,7 +12,8 @@
 //! document is sent to everyone in the room anew. Another asks again, every
 //! `collab_recheck_seconds`, whether each connection may be in the room, and how
 //! ([`admission::admit`]): who may no longer read is put out, and who may no longer
-//! write reads from then on. When an organization begins to take only sessions made
+//! write reads from then on. Permission-changing operations also ask immediately
+//! ([`Collab::recheck_access`]). When an organization begins to take only sessions made
 //! through its provider, whoever it shuts out is put out of its rooms at once
 //! ([`Collab::put_out_shut_out`]).
 //!
@@ -21,12 +22,16 @@
 //! logged and sent to the others, never logged and not sent.
 
 mod access;
-mod visibility;
+mod index;
+#[cfg(feature = "test-util")]
+mod pauses;
+mod removal;
+mod walls;
 
 pub(crate) use access::AccessScope;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -39,7 +44,7 @@ use tokio_util::sync::CancellationToken;
 use super::frame::{self, Sync};
 use super::messages::{self, reason_of};
 use super::queue::{Capacity, NotQueued, Queue, Queued};
-use super::{Collab, DocChange, DocEvent, Loaded, admission, place, refusals};
+use super::{Collab, DocChange, DocEvent, Loaded, admission, refusals};
 use crate::app::{App, Asker};
 use crate::config::collab::CollabSettings;
 use crate::error::{AppError, Reason};
@@ -53,6 +58,11 @@ const SEND_ANEW_AGAIN: Duration = Duration::from_secs(2);
 /// them once more, before they are put out.
 const ASKED_ONCE_MORE_AFTER: Duration = Duration::from_secs(2);
 
+/// How many times a connection coming into a room is admitted again because a change
+/// that reaches the room and its user came meanwhile, before it is refused as when the
+/// document cannot be worked on.
+const ADMITTED_AT_MOST: usize = 3;
+
 /// How many users of a room the store is asked about at once, when the room asks
 /// again who may be in it.
 const ASKED_AT_ONCE: usize = 8;
@@ -64,7 +74,8 @@ const QUEUE_DOCUMENTS: usize = 2;
 /// The rooms there are.
 #[derive(Debug)]
 pub(super) struct Rooms {
-    by_key: Mutex<HashMap<String, Arc<Room>>>,
+    /// By organization and board.
+    index: Mutex<index::Index>,
     /// How often a room asks again whether its members may be in it.
     recheck: Duration,
     /// In how many rooms a connection may be.
@@ -79,6 +90,12 @@ pub(super) struct Rooms {
     queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
+    /// When access facts changed: admissions and periodic answers read before a
+    /// change of their organization cannot survive its immediate check.
+    walls: walls::Walls,
+    /// Where the tests stop the rooms.
+    #[cfg(feature = "test-util")]
+    pauses: pauses::Pauses,
     /// Cancelled when the server stops: nobody comes in any more, no update is taken,
     /// and the tasks of the rooms end.
     stopping: CancellationToken,
@@ -88,7 +105,7 @@ impl Rooms {
     /// No rooms, held to what `settings` say.
     pub(super) fn new(settings: &CollabSettings) -> Self {
         Self {
-            by_key: Mutex::new(HashMap::new()),
+            index: Mutex::new(index::Index::default()),
             recheck: Duration::from_secs(settings.collab_recheck_seconds),
             per_connection: as_count(settings.collab_documents_per_connection),
             per_room: as_count(settings.collab_connections_per_document),
@@ -96,6 +113,9 @@ impl Rooms {
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
+            walls: walls::Walls::new(Duration::from_secs(settings.collab_recheck_seconds)),
+            #[cfg(feature = "test-util")]
+            pauses: pauses::Pauses::default(),
             stopping: CancellationToken::new(),
         }
     }
@@ -152,8 +172,7 @@ impl Connection {
 
     /// Takes the room the connection knows as `doc` from those it is in.
     pub(super) fn forget(&self, doc: u32) -> Option<Arc<Room>> {
-        let mut joined = self.joined();
-        joined.rooms.remove(&doc)
+        self.joined().rooms.remove(&doc)
     }
 
     /// Whether the connection is in as many rooms as `limit` and in none of the card
@@ -192,12 +211,20 @@ impl Connection {
 /// The connections that hold one card's document.
 #[derive(Debug)]
 pub(super) struct Room {
-    /// Its key among the rooms: the card's place ([`place::key_of`]).
-    key: String,
+    /// A deletion permanently disconnects this room from any restored card.
+    deleted: AtomicBool,
     card_id: String,
+    /// The board the card was on as the room was made: a card is not moved to another
+    /// board while it has a room.
+    board_id: String,
+    /// The workspace the room's first connection named: the board's, as admission
+    /// lets nobody in through another ([`admission::admit`]).
+    workspace_id: String,
     /// The application as the card's organization reaches it.
     app: App,
     turn: tokio::sync::Mutex<Turn>,
+    /// Told when an immediate check answered of members it held.
+    checked: tokio::sync::Notify,
     /// Cancelled when the room is closed: its task ends.
     gone: CancellationToken,
 }
@@ -205,8 +232,6 @@ pub(super) struct Room {
 /// What the one that works on a room holds.
 #[derive(Debug, Default)]
 struct Turn {
-    /// All member grants were read under this committed store revision.
-    visibility: Option<fvoci_store::VisibilityVersion>,
     /// Which making of the document the members hold.
     epoch: i64,
     members: Vec<Member>,
@@ -222,6 +247,9 @@ struct Member {
     /// The workspace the connection named as it came in: the card's board is of it.
     workspace_id: String,
     mode: DocMode,
+    /// The number of the change whose immediate check holds the member, if one does:
+    /// what they send waits for its answer.
+    checking: Option<u64>,
 }
 
 /// A member as a room asks about it again.
@@ -355,7 +383,7 @@ impl Collab {
                     .unwrap_or(usize::MAX)
                     .saturating_mul(QUEUE_DOCUMENTS),
             }),
-            joined: Mutex::default(),
+            joined: Mutex::new(Joined::default()),
         })
     }
 
@@ -376,13 +404,18 @@ impl Collab {
 
     /// Whether a card of `app`'s organization has a room.
     pub(super) fn has_room(&self, app: &App, card_id: &str) -> bool {
-        let key = place::key_of(app.store().tenant(), card_id);
+        self.rooms_index()
+            .get(app.store().tenant(), card_id)
+            .is_some()
+    }
+
+    /// The rooms there are, held.
+    fn rooms_index(&self) -> std::sync::MutexGuard<'_, index::Index> {
         self.inner
             .rooms
-            .by_key
+            .index
             .lock()
             .expect("the rooms are never held across a panic")
-            .contains_key(&key)
     }
 
     /// How many rooms there are, for the tests of what a connection leaves behind.
@@ -390,36 +423,31 @@ impl Collab {
     #[doc(hidden)]
     #[must_use]
     pub fn rooms(&self) -> usize {
-        self.inner
-            .rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic")
-            .len()
+        self.rooms_index().len()
     }
 
     /// The room of a card of `app`'s organization, made if there is none, with its
     /// two tasks: the one that hears what happens to its document, and the one that
     /// asks again whether its members may be in it.
-    fn room(&self, app: &App, card_id: &str) -> Arc<Room> {
-        let key = place::key_of(app.store().tenant(), card_id);
-        let mut rooms = self
-            .inner
-            .rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic");
-        if let Some(room) = rooms.get(&key) {
+    fn room(&self, admitted: &admission::Admitted, workspace_id: &str, card_id: &str) -> Arc<Room> {
+        let app = &admitted.app;
+        let tenant = app.store().tenant();
+        let mut rooms = self.rooms_index();
+        if let Some(room) = rooms.get(tenant, card_id) {
             return Arc::clone(room);
         }
         let room = Arc::new(Room {
-            key: key.clone(),
+            deleted: AtomicBool::new(false),
             card_id: card_id.to_owned(),
+            board_id: admitted.board_id.clone(),
+            workspace_id: workspace_id.to_owned(),
             app: app.clone(),
             turn: tokio::sync::Mutex::new(Turn::default()),
+            checked: tokio::sync::Notify::new(),
             gone: CancellationToken::new(),
         });
-        rooms.insert(key, Arc::clone(&room));
+        rooms.insert(tenant, Arc::clone(&room));
+        drop(rooms);
         // Subscribed before anyone is in the room: whatever happens to the document
         // from its first opening on is heard.
         let events = self.subscribe();
@@ -500,21 +528,16 @@ impl Collab {
     /// wall's own rule ([`session_opens`]), so nothing is asked of the store. It waits
     /// for each room's turn, nothing more: a room it empties is closed by a task of its
     /// own. For after that is stored, and before the request that stored it answers:
-    /// what such a connection sends after that is taken by no room. Storing it moved
-    /// the store's visibility revision on, which a connection coming in registers
-    /// under ([`Self::enter`]): one admitted before is asked again, so none is let in
-    /// past it.
+    /// what such a connection sends after that is taken by no room. A connection whose
+    /// admission was answered before is admitted again as it comes in
+    /// ([`Self::enter`]), so none is let in past it.
     pub(crate) async fn put_out_shut_out(&self, app: &App, provider_id: &str) {
         let rooms = &self.inner.rooms;
         let tenant = app.store().tenant();
-        let of_organization: Vec<Arc<Room>> = rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic")
-            .values()
-            .filter(|room| room.app.store().tenant() == tenant)
-            .cloned()
-            .collect();
+        // Before the rooms are read: a connection that comes into one later sees it.
+        rooms.walls.raise(tenant, AccessScope::organization());
+        let of_organization: Vec<Arc<Room>> =
+            self.rooms_index().of_tenant(tenant).cloned().collect();
         // As for a card that is not there: the organization is told to nobody.
         let reason = reason_of(&AppError::not_found("card"));
         for room in of_organization {
@@ -536,92 +559,6 @@ impl Collab {
                 });
             }
         }
-    }
-
-    /// Asks again whether each member of a room may be in it, and how: who may no
-    /// longer read the card's board is put out, and who is to be in the room otherwise
-    /// than they are is told so (`DOC_MODE`). Nobody stays unasked: a member the store
-    /// could not be asked about, or was not asked about within the time of one
-    /// asking, is asked about once more two seconds later, and put out if the store
-    /// does not answer then either. The store is asked while the room is not held; what
-    /// a member sent meanwhile was taken as they were.
-    async fn recheck(&self, room: &Arc<Room>) {
-        let asked: Vec<Asked> = {
-            let turn = room.turn.lock().await;
-            turn.asked()
-        };
-        // Each user once, however many connections they have in the room.
-        let mut users: Vec<Who> = asked.iter().map(|asked| asked.who.clone()).collect();
-        users.sort_unstable();
-        users.dedup();
-        let mut answers = self.answers(room, users.clone()).await;
-        // Whom the store did not answer of is asked once more, a little later: a store
-        // that fails for a moment empties no room. Who is still not answered of then
-        // is put out.
-        users.retain(|who| !matches!(answers.get(who), Some(Ok(_))));
-        if !users.is_empty() {
-            tokio::time::sleep(ASKED_ONCE_MORE_AFTER).await;
-            answers.extend(self.answers(room, users).await);
-        }
-        let mut turn = room.turn.lock().await;
-        if turn.closed || self.rooms_ended() {
-            return;
-        }
-        turn.apply_answers(asked, &answers);
-        // A periodic snapshot was read outside the turn and can predate a write.
-        turn.visibility = None;
-        self.shut_if_empty(room, &mut turn).await;
-    }
-
-    /// What the store answers of each of `users`: how they are in the room, `None` for who is not
-    /// let in, or the reason the store could not be asked, which is logged. Some at
-    /// a time, and all within the time between two askings: who is not answered by
-    /// then has no answer.
-    async fn answers(&self, room: &Room, users: Vec<Who>) -> HashMap<Who, Answer> {
-        use futures_util::StreamExt as _;
-
-        #[cfg(feature = "test-util")]
-        self.inner.room_permission_checks.fetch_add(
-            u64::try_from(users.len()).expect("room membership count fits u64"),
-            Ordering::Relaxed,
-        );
-        let (app, card_id) = (room.app.clone(), room.card_id.clone());
-        let asking = futures_util::stream::iter(users)
-            .map(move |who| {
-                let (app, card_id) = (app.clone(), card_id.clone());
-                async move {
-                    let admitted =
-                        admission::admit(&app, who.asker(), &who.workspace_id, &card_id).await;
-                    let answer = match admitted {
-                        Ok(admitted) => Ok(admitted.map(|admitted| admitted.mode)),
-                        Err(error) => {
-                            error.log();
-                            Err(reason_of(&error))
-                        }
-                    };
-                    (who, answer)
-                }
-            })
-            .buffer_unordered(ASKED_AT_ONCE);
-        tokio::pin!(asking);
-        let late = tokio::time::sleep(self.inner.rooms.recheck);
-        tokio::pin!(late);
-        let mut answers = HashMap::new();
-        loop {
-            tokio::select! {
-                answer = asking.next() => match answer {
-                    Some((who, answer)) => {
-                        answers.insert(who, answer);
-                    }
-                    None => break,
-                },
-                () = &mut late => {
-                    tracing::warn!(card_id = room.card_id, "who is in a room was not asked about in time");
-                    break;
-                }
-            }
-        }
-        answers
     }
 
     /// Lets a connection into the room of a card of a board of `workspace_id`, to be
@@ -651,62 +588,89 @@ impl Collab {
         if connection.is_full_without(limits.per_connection, card_id) {
             return Err(refusals::too_many_joined(limits.per_connection));
         }
-        #[cfg(feature = "test-util")]
-        self.paused_admission(super::AdmissionStage::BeforeCheck)
-            .await;
-        // Which organization's room: whether the user is let in is asked again at that
-        // organization's revision as they are registered.
-        let admitted = admission::admit(home, connection.asker(), workspace_id, card_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("card"))?;
-        #[cfg(feature = "test-util")]
-        self.paused_admission(super::AdmissionStage::AfterCheck)
-            .await;
+        let mut raised = limits.walls.now();
+        let mut admitted =
+            admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
+        let mut admissions = 1;
         loop {
-            let room = self.room(&admitted.app, card_id);
+            #[cfg(feature = "test-util")]
+            self.paused(pauses::Pause::AfterAdmission).await;
+            let room = self.room(&admitted, workspace_id, card_id);
             let mut turn = room.turn.lock().await;
-            if turn.closed {
+            if turn.closed || room.gone.is_cancelled() {
+                continue;
+            }
+            // A change since admission that reaches this room and user; its immediate
+            // check may have passed the room already. Ask again before adding the
+            // connection.
+            let tenant = room.app.store().tenant();
+            if limits
+                .walls
+                .since(tenant, raised)
+                .reaches(&room, &connection.user_id)
+            {
+                self.shut_if_empty(&room, &mut turn).await;
+                drop(turn);
+                if admissions == ADMITTED_AT_MOST {
+                    return Err(refusals::unavailable());
+                }
+                raised = limits.walls.now();
+                admitted =
+                    admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
+                admissions += 1;
                 continue;
             }
             if let Some(refused) = self.refusal(&turn, connection) {
                 self.shut_if_empty(&room, &mut turn).await;
                 return Err(refused);
             }
-            let loaded = match self.open(&room.app, card_id).await {
+            let loaded = match self
+                .open_while(&room.app, card_id, Some(room.gone.clone()))
+                .await
+            {
                 Ok(loaded) => loaded,
                 Err(error) => {
                     self.shut_if_empty(&room, &mut turn).await;
                     return Err(error);
                 }
             };
-            let registered = async {
-                loop {
-                    // At the revision of the room's organization, which the room's
-                    // own check below is of.
-                    let (current, revision) = admission::admit_tracked(
-                        home,
-                        room.app.store(),
-                        connection.asker(),
-                        (workspace_id, card_id),
-                    )
-                    .await?;
-                    if self.refresh_visibility(&room, &mut turn).await != revision {
-                        continue;
-                    }
-                    let mut result = Err(refusals::unavailable());
-                    if room.app.store().if_visibility_current(revision, || {
-                        result =
-                            turn.register(connection, doc, workspace_id, &current, &loaded, &room);
-                    }) {
-                        break result;
-                    }
-                }
+            if room.gone.is_cancelled() {
+                return Err(AppError::not_found("card"));
             }
-            .await;
-            if registered.is_err() {
+            let epoch = loaded.epoch;
+            let whole = frame::message(Sync::Missing, &loaded.state);
+            let joined = messages::joined(workspace_id, card_id, doc, epoch, admitted.mode);
+            let queued = connection
+                .queue
+                .push([Queued::text(doc, joined), Queued::sync(doc, epoch, &whole)]);
+            // Counted among the connection's rooms before it is a member: a connection
+            // that ended meanwhile is no member of a room nobody would take it out of.
+            if queued.is_err() || !connection.join(doc, &room) {
+                connection.queue.forget(doc);
                 self.shut_if_empty(&room, &mut turn).await;
+                return Err(refusals::too_slow());
             }
-            registered?;
+            if let Some(index) = turn
+                .members
+                .iter()
+                .position(|member| member.connection.id == connection.id)
+            {
+                let before = turn.members.swap_remove(index);
+                connection.forget(before.doc);
+                connection.queue.forget_frames(before.doc);
+            }
+            if !turn.members.is_empty() && turn.epoch != epoch {
+                // Made again since the members were sent it, and not yet told.
+                turn.send_anew(&loaded);
+            }
+            turn.epoch = epoch;
+            turn.members.push(Member {
+                connection: Arc::clone(connection),
+                doc,
+                workspace_id: workspace_id.to_owned(),
+                mode: admitted.mode,
+                checking: None,
+            });
             return Ok(());
         }
     }
@@ -766,14 +730,10 @@ impl Collab {
     #[cfg(feature = "test-util")]
     #[doc(hidden)]
     pub async fn room_members(&self, app: &App, card_id: &str) -> usize {
-        let key = place::key_of(app.store().tenant(), card_id);
-        let room = {
-            let rooms = self.inner.rooms.by_key.lock();
-            rooms
-                .expect("the rooms are never held across a panic")
-                .get(&key)
-                .map(Arc::clone)
-        };
+        let room = self
+            .rooms_index()
+            .get(app.store().tenant(), card_id)
+            .map(Arc::clone);
         match room {
             Some(room) => room.turn.lock().await.members.len(),
             None => 0,
@@ -792,10 +752,10 @@ impl Collab {
         epoch: i64,
         update: Bytes,
     ) {
-        let mut turn = room.turn.lock().await;
-        self.refresh_visibility(room, &mut turn).await;
+        let Some(mut turn) = self.turn_to_send(room, connection, doc).await else {
+            return;
+        };
         let Some(index) = turn.index_of(connection, doc) else {
-            self.shut_if_empty(room, &mut turn).await;
             return;
         };
         let sender = connection.id;
@@ -812,12 +772,13 @@ impl Collab {
         let taken = match refusal {
             Some(reason) => Err(reason),
             None => self
-                .take(
+                .take_while(
                     &room.app,
                     &room.card_id,
                     epoch,
                     &connection.user_id,
                     &update,
+                    Some(room.gone.clone()),
                 )
                 .await
                 .map_err(|error| {
@@ -838,20 +799,17 @@ impl Collab {
                     self.anew(room, &mut turn, None).await;
                 } else {
                     let update = frame::message(Sync::Update, &update);
-                    self.send_visible(room, &mut turn, |turn| {
+                    turn.send(
+                        |member| !to_sender(member),
+                        |member| [Queued::sync(member.doc, epoch, &update)],
+                    );
+                    if let Some(repair) = &taken.repair {
+                        let repair = frame::message(Sync::Update, repair);
                         turn.send(
-                            |member| !to_sender(member),
-                            |member| [Queued::sync(member.doc, epoch, &update)],
+                            |_| true,
+                            |member| [Queued::sync(member.doc, epoch, &repair)],
                         );
-                        if let Some(repair) = &taken.repair {
-                            let repair = frame::message(Sync::Update, repair);
-                            turn.send(
-                                |_| true,
-                                |member| [Queued::sync(member.doc, epoch, &repair)],
-                            );
-                        }
-                    })
-                    .await;
+                    }
                 }
             }
         }
@@ -874,19 +832,23 @@ impl Collab {
             return;
         }
         match self
-            .diff(&room.app, &room.card_id, epoch, &state_vector)
+            .diff_while(
+                &room.app,
+                &room.card_id,
+                epoch,
+                &state_vector,
+                Some(room.gone.clone()),
+            )
             .await
         {
-            Ok(missing) => {
+            Ok(missing) if !room.gone.is_cancelled() => {
                 let missing = frame::message(Sync::Missing, &missing);
-                self.send_visible(room, &mut turn, |turn| {
-                    turn.send(
-                        |member| member.connection.id == connection.id,
-                        |_| [Queued::sync(doc, epoch, &missing)],
-                    );
-                })
-                .await;
+                turn.send(
+                    |member| member.connection.id == connection.id,
+                    |_| [Queued::sync(doc, epoch, &missing)],
+                );
             }
+            Ok(_) => {}
             Err(error) => error.log(),
         }
         self.shut_if_empty(room, &mut turn).await;
@@ -902,7 +864,10 @@ impl Collab {
     /// If it cannot be opened for another reason (its card is gone, the server holds
     /// as many documents as it may) the members are put out, with that reason.
     async fn anew(&self, room: &Room, turn: &mut Turn, heard: Option<DocChange>) -> bool {
-        let loaded = match self.open(&room.app, &room.card_id).await {
+        let loaded = match self
+            .open_while(&room.app, &room.card_id, Some(room.gone.clone()))
+            .await
+        {
             Ok(loaded) => loaded,
             Err(error) if error.reason() == Some(Reason::DocumentUnavailable) => return false,
             Err(error) => {
@@ -914,13 +879,15 @@ impl Collab {
                 return true;
             }
         };
+        if room.gone.is_cancelled() {
+            return true;
+        }
         let made_again = matches!(heard, Some(DocChange::Remade | DocChange::Replaced));
         if made_again && loaded.epoch == turn.epoch {
             // Sent already, by the join or the update that found it made again.
             return true;
         }
-        self.send_visible(room, turn, |turn| turn.send_anew(&loaded))
-            .await;
+        turn.send_anew(&loaded);
         true
     }
 
@@ -933,20 +900,10 @@ impl Collab {
         }
         turn.closed = true;
         room.gone.cancel();
-        if let Err(error) = self.close(&room.app, &room.card_id).await {
+        if let Err(error) = self.close_room_document(room).await {
             tracing::error!(%error, card_id = room.card_id, "cannot write a card's body as its room closes");
         }
-        let mut rooms = self
-            .inner
-            .rooms
-            .by_key
-            .lock()
-            .expect("the rooms are never held across a panic");
-        if rooms
-            .get(&room.key)
-            .is_some_and(|there| Arc::ptr_eq(there, room))
-        {
-            rooms.remove(&room.key);
-        }
+        self.rooms_index()
+            .remove_room(room.app.store().tenant(), room);
     }
 }

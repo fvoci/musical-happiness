@@ -26,8 +26,6 @@
 //! ([`Collab::recover`]).
 
 mod admission;
-#[cfg(feature = "test-util")]
-mod admission_pause;
 #[cfg(unix)]
 mod child;
 mod frame;
@@ -36,15 +34,17 @@ mod open;
 mod place;
 mod queue;
 mod refusals;
+mod removal;
 mod rooms;
 mod seat;
 mod upkeep;
 mod whole;
 pub mod worker;
 
-#[cfg(feature = "test-util")]
-pub use admission_pause::AdmissionStage;
 pub use queue::Outgoing;
+pub(crate) use removal::Deletion;
+#[cfg(feature = "test-util")]
+pub use removal::DeletionStage;
 pub(crate) use rooms::AccessScope;
 pub use seat::{Outbox, Seat};
 pub use whole::cards_written_whole;
@@ -56,9 +56,10 @@ use std::time::Duration;
 
 use fvoci_store::Tenant;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 use crate::app::App;
-use crate::collab_worker::wire::{Answer, Limits, Refusal, Refused, Request};
+use crate::collab_worker::wire::{ASIDE_DOCUMENTS, Answer, Limits, Refusal, Refused, Request};
 use crate::config::collab::CollabSettings;
 use crate::error::AppError;
 use place::{Held, Slot};
@@ -102,8 +103,16 @@ pub struct Collab {
 #[derive(Debug)]
 struct Inner {
     workers: Vec<Worker>,
-    /// How many documents each worker was given, of those that are open.
+    /// Per organization: a deletion excludes its document work and changes to its
+    /// card tree until it is done ([`removal`]).
+    gates: Mutex<HashMap<Tenant, Arc<tokio::sync::RwLock<()>>>>,
+    /// How many documents each worker was given, of those that are open, but those
+    /// opened aside.
     loads: Vec<AtomicUsize>,
+    /// The share of documents opened aside, only to write their log to their card
+    /// ([`Share::Aside`](crate::collab_worker::wire::Share::Aside)): of the whole server, so that a worker never holds more of
+    /// them than it takes, whichever they are opened in. Who finds none free waits.
+    aside: Arc<tokio::sync::Semaphore>,
     /// The documents that are open, or were and are closed for a while, by card.
     slots: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Slot>>>>,
     /// The next number a document is opened under in a worker.
@@ -116,12 +125,9 @@ struct Inner {
     /// for the tests of what is written to the card meanwhile.
     #[cfg(feature = "test-util")]
     projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// Where the next deletion waits, for the tests of what happens meanwhile.
     #[cfg(feature = "test-util")]
-    admission_pause: Mutex<Option<admission_pause::AdmissionPause>>,
-    #[cfg(feature = "test-util")]
-    room_dispatch_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-    #[cfg(feature = "test-util")]
-    room_permission_checks: AtomicU64,
+    deletion_pause: Mutex<Option<removal::DeletionPause>>,
     /// What the next update waits for, between the worker taking it and the log
     /// having it: for the tests of what is sent on meanwhile.
     #[cfg(feature = "test-util")]
@@ -215,10 +221,12 @@ impl Collab {
         let count = usize::try_from(settings.collab_workers).unwrap_or(1).max(1);
         Ok(Self {
             inner: Arc::new(Inner {
+                gates: Mutex::new(HashMap::new()),
                 workers: (0..count)
                     .map(|_| Worker::new(worker_settings.clone()))
                     .collect(),
                 loads: (0..count).map(|_| AtomicUsize::new(0)).collect(),
+                aside: Arc::new(tokio::sync::Semaphore::new(ASIDE_DOCUMENTS)),
                 slots: Mutex::new(HashMap::new()),
                 numbers: AtomicU64::new(1),
                 limits,
@@ -227,11 +235,7 @@ impl Collab {
                 #[cfg(feature = "test-util")]
                 projection_pause: Mutex::new(None),
                 #[cfg(feature = "test-util")]
-                admission_pause: Mutex::new(None),
-                #[cfg(feature = "test-util")]
-                room_dispatch_pause: Mutex::new(None),
-                #[cfg(feature = "test-util")]
-                room_permission_checks: AtomicU64::new(0),
+                deletion_pause: Mutex::new(None),
                 #[cfg(feature = "test-util")]
                 log_pause: Mutex::new(None),
             }),
@@ -253,8 +257,28 @@ impl Collab {
         W: FnOnce(Self, App, String, Held) -> F + Send + 'static,
         F: Future<Output = Result<T, AppError>> + Send + 'static,
     {
+        self.on_slot_while(app, card_id, None, work).await
+    }
+
+    /// A detached room cannot open, read or write a restored card's document.
+    async fn on_slot_while<T, W, F>(
+        &self,
+        app: &App,
+        card_id: &str,
+        gone: Option<CancellationToken>,
+        work: W,
+    ) -> Result<T, AppError>
+    where
+        T: Send + 'static,
+        W: FnOnce(Self, App, String, Held) -> F + Send + 'static,
+        F: Future<Output = Result<T, AppError>> + Send + 'static,
+    {
         let (collab, app_of_task, card_id) = (self.clone(), app.clone(), card_id.to_owned());
         let task = app.spawn_tracked(async move {
+            let _gate = collab.reading(app_of_task.store().tenant()).await;
+            if gone.as_ref().is_some_and(CancellationToken::is_cancelled) {
+                return Err(AppError::not_found("card"));
+            }
             let slot = collab.slot(&app_of_task, &card_id).await;
             work(collab, app_of_task, card_id, slot).await
         });
@@ -275,9 +299,19 @@ impl Collab {
     /// reasons of [`crate::error::Reason`] for the document (too many open,
     /// unavailable), and the store's errors.
     pub async fn open(&self, app: &App, card_id: &str) -> Result<Loaded, AppError> {
-        self.on_slot(
+        self.open_while(app, card_id, None).await
+    }
+
+    async fn open_while(
+        &self,
+        app: &App,
+        card_id: &str,
+        gone: Option<CancellationToken>,
+    ) -> Result<Loaded, AppError> {
+        self.on_slot_while(
             app,
             card_id,
+            gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 let state = bytes(collab.ask(app, card_id, slot, Request::State).await?)?;
@@ -323,11 +357,24 @@ impl Collab {
         epoch: i64,
         state_vector: &[u8],
     ) -> Result<Vec<u8>, AppError> {
+        self.diff_while(app, card_id, epoch, state_vector, None)
+            .await
+    }
+
+    async fn diff_while(
+        &self,
+        app: &App,
+        card_id: &str,
+        epoch: i64,
+        state_vector: &[u8],
+        gone: Option<CancellationToken>,
+    ) -> Result<Vec<u8>, AppError> {
         self.held_to_update_bytes(state_vector)?;
         let state_vector = state_vector.to_vec();
-        self.on_slot(
+        self.on_slot_while(
             app,
             card_id,
+            gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 let request = |doc| Request::Diff {
@@ -363,11 +410,26 @@ impl Collab {
         user_id: &str,
         update: &[u8],
     ) -> Result<Taken, AppError> {
+        self.take_while(app, card_id, epoch, user_id, update, None)
+            .await
+    }
+
+    /// A room that was deleted cannot write later, even if its card was restored.
+    async fn take_while(
+        &self,
+        app: &App,
+        card_id: &str,
+        epoch: i64,
+        user_id: &str,
+        update: &[u8],
+        gone: Option<CancellationToken>,
+    ) -> Result<Taken, AppError> {
         self.held_to_update_bytes(update)?;
         let (user_id, update) = (user_id.to_owned(), update.to_vec());
-        self.on_slot(
+        self.on_slot_while(
             app,
             card_id,
+            gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 collab
@@ -379,7 +441,7 @@ impl Collab {
     }
 
     /// Writes the body of a card's document to the card now, if it has updates whose
-    /// body the card does not hold. Nothing if the document is not open.
+    /// body the card does not hold, including the log of a document no longer open.
     ///
     /// # Errors
     ///
@@ -390,7 +452,7 @@ impl Collab {
             card_id,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
-                let written = collab.write_now(app, card_id, slot).await;
+                let written = collab.write_first(app, card_id, slot).await;
                 collab.retire(slot);
                 written
             },
@@ -431,6 +493,10 @@ impl Collab {
         let deadline = tokio::time::Instant::now() + END_WAIT;
         for slot in self.all_slots() {
             let ended = tokio::time::timeout_at(deadline, async {
+                // The slot is let go before the gate is waited for: a deletion holds
+                // the gate while it waits for slots.
+                let tenant = slot.lock().await.tenant;
+                let _gate = self.reading(tenant).await;
                 let mut slot = slot.lock_owned().await;
                 let app = app.scoped(slot.tenant);
                 if let Some(card_id) = slot.open.is_some().then(|| slot.card_id.clone()) {
@@ -653,6 +719,8 @@ impl Collab {
     #[doc(hidden)]
     pub async fn abandon(&self) {
         for slot in self.all_slots() {
+            let tenant = slot.lock().await.tenant;
+            let _gate = self.reading(tenant).await;
             let mut slot = slot.lock_owned().await;
             self.lost(&mut slot);
             self.retire(&mut slot);

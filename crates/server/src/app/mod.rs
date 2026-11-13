@@ -30,6 +30,7 @@ mod reconcile;
 mod search;
 mod server_lock;
 mod slots;
+mod snapshots;
 
 pub(crate) use download::download;
 pub(crate) use server_lock::HeldLock;

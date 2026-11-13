@@ -8,35 +8,13 @@ use crate::permissions::{DocMode, doc_mode};
 /// A user let into the room of a card.
 #[derive(Debug, Clone)]
 pub(super) struct Admitted {
-    /// The application as the card's organization reaches it.
+    /// The application as the card's organization reaches it, in the workspace the
+    /// connection named.
     pub(super) app: App,
+    /// The board the card is on, of that workspace.
+    pub(super) board_id: String,
     /// How the user is in the room.
     pub(super) mode: DocMode,
-}
-
-/// Admits the connection ([`admit`]) at a revision of `versions` (the store of the
-/// organization the answer is used in, or of everything) that no permission write
-/// overtook while it was asked, and returns that revision.
-///
-/// # Errors
-///
-/// As [`admit`], and a not-found error for who is not let in.
-pub(super) async fn admit_tracked(
-    home: &App,
-    versions: &fvoci_store::Store,
-    asker: Asker<'_>,
-    place: (&str, &str),
-) -> Result<(Admitted, fvoci_store::VisibilityVersion), AppError> {
-    let (workspace_id, card_id) = place;
-    loop {
-        let revision = versions.visibility_version().await;
-        let admitted = admit(home, asker, workspace_id, card_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("card"))?;
-        if versions.if_visibility_current(revision, || {}) {
-            return Ok((admitted, revision));
-        }
-    }
 }
 
 /// Lets the user into the room of the card `card_id` of a board of the workspace
@@ -69,28 +47,85 @@ pub(super) async fn admit(
     if user_id.is_empty() {
         return Ok(None);
     }
-    let entered = match home.enter_workspace_as(asker, workspace_id).await {
-        Ok(Some(entered)) => entered,
-        Ok(None) => return Ok(None),
-        // Not let in, which is an answer: told as a failure, it would leave who is in
-        // the room there when the organization begins to take no password.
-        Err(error) if error.reason() == Some(Reason::SsoRequired) => return Ok(None),
-        Err(error) => return Err(error),
+    let Some(app) = entered(home, asker, workspace_id).await? else {
+        return Ok(None);
     };
-    // For the workspace the connection named: a board of another is not there for it
-    // (`App::reaches_board`), as for a request that names the workspace in its path.
-    let app = entered.app.in_workspace(workspace_id);
     // The card's board and nothing else of the card: its body is read once the user
     // is let in, so that a refusal costs the same whatever the body is.
     let board_id = app.store().board_of_card(card_id).await.map_err(|error| {
         AppError::from(error).context("reading a card's board to enter its room")
     })?;
-    let mode = app
-        .board_access(user_id, board_id.as_deref().unwrap_or_default())
+    let mode = mode_on(&app, user_id, board_id.as_deref().unwrap_or_default()).await?;
+    Ok(board_id.zip(mode).map(|(board_id, mode)| Admitted {
+        app,
+        board_id,
+        mode,
+    }))
+}
+
+/// How a connection of `asker` is let into the room of a card ([`admit`]), refused as
+/// for a card that is not there.
+///
+/// # Errors
+///
+/// As [`admit`], and a not-found error for who is not let in.
+pub(super) async fn let_in(
+    home: &App,
+    asker: Asker<'_>,
+    workspace_id: &str,
+    card_id: &str,
+) -> Result<Admitted, AppError> {
+    admit(home, asker, workspace_id, card_id)
         .await?
-        // A template the server ships with is every workspace's to read and nobody's
-        // to edit: it has no room.
+        .ok_or_else(|| AppError::not_found("card"))
+}
+
+/// How `asker` is let into the rooms of the cards of the board `board_id` of the
+/// workspace `workspace_id`, as [`admit`] lets them in, without reading which board a
+/// card is on: who asks again of a room knows its board.
+///
+/// # Errors
+///
+/// As [`admit`].
+pub(super) async fn board_mode(
+    home: &App,
+    asker: Asker<'_>,
+    workspace_id: &str,
+    board_id: &str,
+) -> Result<Option<DocMode>, AppError> {
+    match entered(home, asker, workspace_id).await? {
+        Some(app) => mode_on(&app, asker.user_id, board_id).await,
+        None => Ok(None),
+    }
+}
+
+/// The application in the workspace `workspace_id` as `asker` enters it from `home`;
+/// `None` if they are not let in.
+async fn entered(
+    home: &App,
+    asker: Asker<'_>,
+    workspace_id: &str,
+) -> Result<Option<App>, AppError> {
+    match home.enter_workspace_as(asker, workspace_id).await {
+        // For the workspace the connection named: a board of another is not there for
+        // it (`App::reaches_board`), as for a request that names the workspace in its
+        // path.
+        Ok(Some(entered)) => Ok(Some(entered.app.in_workspace(workspace_id))),
+        Ok(None) => Ok(None),
+        // Not let in, which is an answer: told as a failure, it would leave who is in
+        // the room there when the organization begins to take no password.
+        Err(error) if error.reason() == Some(Reason::SsoRequired) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// How `user_id` is in the rooms of the board `board_id` as `app` reaches it: as what
+/// they may do on it says; `None` for who may not read it. A template the server ships
+/// with is every workspace's to read and nobody's to edit: it has no room.
+async fn mode_on(app: &App, user_id: &str, board_id: &str) -> Result<Option<DocMode>, AppError> {
+    Ok(app
+        .board_access(user_id, board_id)
+        .await?
         .filter(|access| !access.board.is_builtin)
-        .and_then(|access| doc_mode(access.grant));
-    Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
+        .and_then(|access| doc_mode(access.grant)))
 }

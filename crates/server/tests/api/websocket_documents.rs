@@ -4,7 +4,6 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_server::collab::AdmissionStage;
 use serde_json::json;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -155,10 +154,7 @@ async fn document_admission_cannot_miss_concurrent_workspace_revocation() {
         let client = ending.client(&ts);
         let user = client.me().await.id;
         let mut socket = client.connect_websocket().await;
-        let (reached, resume) = ts
-            .app
-            .collab()
-            .pause_next_admission(AdmissionStage::AfterCheck);
+        let (reached, resume) = ts.app.collab().pause_next_admission();
         socket
             .send(Message::Text(
                 json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
@@ -305,10 +301,7 @@ async fn unrelated_admin_withdrawal_does_not_close_pending_document_admission() 
     let at = format!("/org/{org}/workspaces/{other}");
     ts.client.post_empty(&format!("{at}/join")).await.check_ok();
     let mut socket = ts.client.connect_websocket().await;
-    let (reached, resume) = ts
-        .app
-        .collab()
-        .pause_next_admission(AdmissionStage::BeforeCheck);
+    let (reached, resume) = ts.app.collab().pause_next_admission();
     socket
         .send(Message::Text(
             json!({"action": "JOIN_DOC", "workspaceId": TEST_WORKSPACE_ID,
@@ -372,10 +365,7 @@ async fn an_unchecked_admission_uses_permissions_after_admin_revocation() {
                 .check_no_content();
         }
         let mut socket = ts.client.connect_websocket().await;
-        let (reached, resume) = ts
-            .app
-            .collab()
-            .pause_next_admission(AdmissionStage::BeforeCheck);
+        let (reached, resume) = ts.app.collab().pause_next_admission();
         socket
             .send(Message::Text(
                 json!({"action": "JOIN_DOC", "workspaceId": workspace,

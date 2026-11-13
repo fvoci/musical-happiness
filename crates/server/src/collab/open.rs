@@ -5,13 +5,14 @@ use std::sync::atomic::Ordering;
 
 use fvoci_model::{Block, BlockType, Body};
 use fvoci_store::{LoggedUpdate, StoreError, StoredDoc};
+use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
 
 use super::place::{OpenDoc, Opening};
 use super::worker::CallError;
 use super::{Collab, DocChange, given, refusals, upkeep};
 use crate::app::App;
-use crate::collab_worker::wire::{Answer, DocNumber, Request, Source};
+use crate::collab_worker::wire::{Answer, DocNumber, Request, Share, Source};
 use crate::error::{AppError, Reason};
 
 impl Collab {
@@ -20,17 +21,32 @@ impl Collab {
     /// card holds but that is no longer the body the card has was left behind by a
     /// write of the body that did not go through it (an import, a copy, a restore):
     /// it is made again from the card's body.
-    pub(super) async fn open_stored(&self, app: &App, card_id: &str) -> Result<OpenDoc, Opening> {
+    ///
+    /// With a place of the share aside (`aside`), a stored document is opened aside
+    /// ([`Share::Aside`]), only to write its log to its card: it is not counted in its
+    /// worker's load, and no write of its body is scheduled. A document never stored is
+    /// made as any other.
+    pub(super) async fn open_stored(
+        &self,
+        app: &App,
+        card_id: &str,
+        aside: Option<OwnedSemaphorePermit>,
+    ) -> Result<OpenDoc, Opening> {
         let block = card(app, card_id).await?;
         let worker = self.least_loaded();
         let number = self.next_number();
         let mut open = match app.store().get_body_doc(card_id).await? {
             None => self.make(app, &block, worker, number).await?,
-            Some(stored) => self.reopen(app, &block, worker, number, stored).await?,
+            Some(stored) => {
+                self.reopen(app, &block, worker, number, stored, aside)
+                    .await?
+            }
         };
-        given(&self.inner.loads[worker]);
-        if open.first_unwritten.is_some() {
-            self.schedule_write(app, card_id, &mut open);
+        if open.aside.is_none() {
+            given(&self.inner.loads[worker]);
+            if open.first_unwritten.is_some() {
+                self.schedule_write(app, card_id, &mut open);
+            }
         }
         Ok(open)
     }
@@ -44,7 +60,7 @@ impl Collab {
         number: DocNumber,
     ) -> Result<OpenDoc, Opening> {
         let (generation, state, state_bytes) = self
-            .open_from_body(worker, number, block.body.as_ref())
+            .open_from_body(worker, number, block.body.as_ref(), Share::Kept)
             .await?;
         let digest = upkeep::digest_of(block.body.as_ref());
         if let Err(error) = app
@@ -71,6 +87,7 @@ impl Collab {
             last_update: Instant::now(),
             writing_scheduled: false,
             retry_at: None,
+            aside: None,
         })
     }
 
@@ -91,6 +108,7 @@ impl Collab {
         worker: usize,
         number: DocNumber,
         stored: StoredDoc,
+        aside: Option<OwnedSemaphorePermit>,
     ) -> Result<OpenDoc, Opening> {
         let unwritten = stored.projected_seq < stored.log_end;
         let mut open = OpenDoc {
@@ -115,6 +133,7 @@ impl Collab {
             last_update: Instant::now(),
             writing_scheduled: false,
             retry_at: None,
+            aside,
         };
         let opened = self
             .open_and_replay(app, &block.id, &mut open, stored.state, stored.updates)
@@ -181,6 +200,7 @@ impl Collab {
                 &Request::Open {
                     doc: open.number,
                     source: Source::State(state),
+                    share: open.share(),
                 },
             )
             .await?;
@@ -231,12 +251,14 @@ impl Collab {
         Ok(())
     }
 
-    /// Opens a document made from a body in a worker: its generation, state and size.
+    /// Opens a document made from a body in a worker, counted in `share`: its
+    /// generation, state and size.
     pub(super) async fn open_from_body(
         &self,
         worker: usize,
         number: DocNumber,
         body: Option<&Body>,
+        share: Share,
     ) -> Result<(u64, Vec<u8>, u64), Opening> {
         let json = body
             .map(|body| serde_json::to_vec(body.document()))
@@ -245,6 +267,7 @@ impl Collab {
         let request = Request::Open {
             doc: number,
             source: Source::Body(json),
+            share,
         };
         match self.call(worker, None, &request).await? {
             (
