@@ -44,6 +44,12 @@ interface Listening {
 
 /** The waits before opening again, in milliseconds, by how many tries failed; the last repeats. */
 const WAITS = [500, 1000, 2000, 5000, 10_000, 30_000];
+/**
+ * The close the server sends when it could not read what a connection may be told
+ * (`contracts/websocket.md` 3): every page it closed so comes back, so each waits
+ * a random part of its wait more, that they do not come back all at once.
+ */
+const TRY_AGAIN = 1013;
 /** How long a connection holds before the waits start again from the first. */
 const STEADY = 10_000;
 /** How long member and category messages are gathered before the sidebar is read again. */
@@ -209,20 +215,22 @@ export class LiveChanges {
       if (event.data instanceof ArrayBuffer) this.rooms.bytes(new Uint8Array(event.data));
       else if (typeof event.data === 'string') void this.#receive(event.data);
     });
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event: CloseEvent) => {
       if (this.#socket !== socket) return;
       clearTimeout(this.#steady);
       this.#socket = undefined;
       this.#subscribed = false;
       this.#failures += 1;
       this.rooms.down();
-      this.#again();
+      this.#again(event.code === TRY_AGAIN);
     });
   }
 
-  #again(): void {
+  /** Opens again after the wait of the failures so far; `spread` adds a random part of it. */
+  #again(spread = false): void {
     if (!this.#wanted() || this.#timer !== undefined) return;
-    const wait = WAITS[Math.min(this.#failures - 1, WAITS.length - 1)] ?? 30_000;
+    const base = WAITS[Math.min(this.#failures - 1, WAITS.length - 1)] ?? 30_000;
+    const wait = spread ? base + Math.floor(Math.random() * base) : base;
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
       this.#open();

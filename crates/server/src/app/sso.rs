@@ -43,10 +43,10 @@ impl SsoChange {
 /// place it is recorded. `user_id` is the administrator who did it, `None` for who
 /// runs the server.
 ///
-/// TEMPORARY: a line of the log, under the target `audit`. Its place is the
-/// organization's records (`audit_log`), which take it once a record may be of who
-/// runs the server: `actor_id` is a user's there, and a release on the administration
-/// socket has none.
+/// It is a line of the log, under the target `audit`, not one of the organization's
+/// records (`audit_log`): a record there names a user as its actor (`actor_id`), and
+/// a release on the administration socket has none. Recording it there waits on how
+/// the records name who runs the server, which is a decision about that role.
 fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
     tracing::info!(
         target: "audit",

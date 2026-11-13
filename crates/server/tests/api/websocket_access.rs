@@ -881,3 +881,53 @@ async fn a_store_that_cannot_be_read_closes_as_retryable() {
     let body = scrape_until(&ts, |body| closed(body) == Some(2.0)).await;
     assert_eq!(closed(&body), Some(2.0), "both, and for that: {body}");
 }
+
+/// A change whose check is overtaken by a permission write of its organization every
+/// time is given up after a bound, and its recipients are told to read anew (1013).
+#[tokio::test]
+async fn a_change_checked_too_often_is_given_up_as_retryable() {
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let mut socket = ts.client.connect_websocket().await;
+    subscribe(
+        &ts,
+        &mut socket,
+        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}),
+        Moment::Registered,
+    )
+    .await;
+    let mut pause = ts.app.ws().pause_next_dispatch();
+    let app = ts.app.clone();
+    let sending = tokio::spawn(async move {
+        app.ws()
+            .broadcast_board_change(ROOT_WORKSPACE_ID, &board)
+            .await;
+    });
+    // Eight checks in all, each overtaken by a write that moves the revision.
+    for check in 1..=8 {
+        tokio::time::timeout(WAIT, pause.reached())
+            .await
+            .expect("the change is checked");
+        let next = (check < 8).then(|| ts.app.ws().pause_next_dispatch());
+        ts.app
+            .store()
+            .execute_unchecked(&format!(
+                "UPDATE boards SET title = title WHERE id = '{}'",
+                new_id()
+            ))
+            .await
+            .expect("a write that moves the revision");
+        pause.resume();
+        if let Some(next) = next {
+            pause = next;
+        }
+    }
+    tokio::time::timeout(WAIT, sending)
+        .await
+        .expect("the change ends")
+        .expect("the change does not panic");
+    assert_eq!(
+        close_frame(&mut socket).await,
+        (1013, "try again".to_owned())
+    );
+}

@@ -36,8 +36,8 @@ class FakeSocket extends EventTarget {
     this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) }));
   }
 
-  drop(): void {
-    this.dispatchEvent(new Event('close'));
+  drop(code = 1006): void {
+    this.dispatchEvent(new CloseEvent('close', { code }));
   }
 }
 
@@ -327,6 +327,17 @@ describe('changes from the server', () => {
     again?.open();
     expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
     for (const changes of [board, self, other]) expect(changes).toEqual([{ kind: 'resync' }]);
+  });
+
+  it('spreads the wait after the server asks to try again, so its pages do not all come back at once', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const { socket } = await connected();
+    socket.drop(1013);
+    await vi.advanceTimersByTimeAsync(749);
+    expect(FakeSocket.made).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSocket.made).toHaveLength(2);
+    random.mockRestore();
   });
 
   it('closes the connection when nobody listens any more, and does not open it again', async () => {

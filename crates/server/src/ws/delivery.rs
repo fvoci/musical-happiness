@@ -6,6 +6,11 @@ use super::{Hub, ListenerId, Outgoing, UpdateBlockMessage};
 use crate::metrics::Disconnect;
 use crate::permissions::{role_of, session_opens};
 
+/// How many times a change is checked again because a permission write of its
+/// organization landed meanwhile, before it is given up and its recipients told to
+/// read anew.
+const CHECKED_AT_MOST: usize = 8;
+
 #[derive(Clone, Copy)]
 pub(super) enum Access<'a> {
     Workspace(&'a str),
@@ -28,7 +33,7 @@ impl Hub {
         if ids.is_empty() {
             return;
         }
-        loop {
+        for _ in 0..CHECKED_AT_MOST {
             // Not cacheable for a while after an abandoned write: the checks below
             // then read the store anew.
             let revision = self.audience.version().await;
@@ -42,6 +47,7 @@ impl Hub {
                 return;
             }
         }
+        self.give_up(ids, message.action());
     }
 
     pub(super) async fn send_public_block(
@@ -53,7 +59,7 @@ impl Hub {
         if ids.is_empty() {
             return;
         }
-        loop {
+        for _ in 0..CHECKED_AT_MOST {
             // Not cacheable for a while after an abandoned write: the checks below
             // then read the store anew.
             let revision = self.audience.version().await;
@@ -86,6 +92,18 @@ impl Hub {
                 return;
             }
         }
+        self.give_up(ids, "UPDATE_BLOCK");
+    }
+
+    /// Closes the recipients of a change whose check was overtaken by permission
+    /// writes every time, as retryable: they read anew rather than miss it.
+    fn give_up(&self, ids: &[ListenerId], action: &str) {
+        tracing::warn!(
+            action,
+            recipients = ids.len(),
+            "websocket: a change was given up, checked again too often"
+        );
+        self.close_unread(ids);
     }
 
     /// Closes connections that a change could not be checked for, as retryable
