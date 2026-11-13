@@ -188,6 +188,8 @@ struct Listener {
     closed_because: Arc<OnceLock<Disconnect>>,
     workspaces: Vec<String>,
     workspace_roles: HashMap<String, fvoci_model::WorkspaceRole>,
+    /// Current and pending document participation, independent of sidebar subscriptions.
+    documents: crate::collab::Participation,
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
     /// When such a board stops being shared under that token, the connection goes.
@@ -349,6 +351,7 @@ impl Hub {
                     closed_because: Arc::clone(&closed_because),
                     workspaces: Vec::new(),
                     workspace_roles: HashMap::new(),
+                    documents: docs.participation(),
                     blocks: Vec::new(),
                     shared_boards: Vec::new(),
                 },

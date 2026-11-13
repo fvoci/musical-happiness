@@ -14,6 +14,7 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
             closed_because: Arc::default(),
             workspaces: Vec::new(),
             workspace_roles: HashMap::new(),
+            documents: crate::collab::Participation::default(),
             blocks: Vec::new(),
             shared_boards: Vec::new(),
         },

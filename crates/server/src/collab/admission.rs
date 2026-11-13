@@ -12,6 +12,31 @@ pub(super) struct Admitted {
     pub(super) app: App,
     /// How the user is in the room.
     pub(super) mode: DocMode,
+    pub(super) workspace_role: fvoci_model::WorkspaceRole,
+}
+
+/// Publishes the admitted role atomically with respect to permission writes.
+pub(super) async fn admit_tracked(
+    home: &App,
+    user_id: &str,
+    workspace_id: &str,
+    card_id: &str,
+    watching: &mut super::participation::Admission,
+) -> Result<Admitted, AppError> {
+    loop {
+        let revision = home.store().visibility_version().await;
+        if !revision.cacheable() {
+            return Err(super::refusals::unavailable());
+        }
+        let admitted = admit(home, user_id, workspace_id, card_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("card"))?;
+        if home.store().if_visibility_current(revision, || {
+            watching.set_role(admitted.workspace_role);
+        }) {
+            return Ok(admitted);
+        }
+    }
 }
 
 /// Lets the user into the room of the card `card_id` of a board of the workspace
@@ -42,6 +67,7 @@ pub(super) async fn admit(
     };
     // For the workspace the connection named: a board of another is not there for it
     // (`App::reaches_board`), as for a request that names the workspace in its path.
+    let workspace_role = entered.role;
     let app = entered.app.in_workspace(workspace_id);
     // The card's board and nothing else of the card: its body is read once the user
     // is let in, so that a refusal costs the same whatever the body is.
@@ -55,5 +81,9 @@ pub(super) async fn admit(
         // to edit: it has no room.
         .filter(|access| !access.board.is_builtin)
         .and_then(|access| doc_mode(access.grant));
-    Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
+    Ok(board_id.zip(mode).map(|(_, mode)| Admitted {
+        app,
+        mode,
+        workspace_role,
+    }))
 }

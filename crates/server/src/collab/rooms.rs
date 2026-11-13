@@ -114,19 +114,24 @@ pub(super) struct Connection {
     /// The user of the connection's session; empty for a connection without one.
     pub(super) user_id: String,
     pub(super) queue: Queue,
-    joined: Mutex<Joined>,
+    joined: Arc<Mutex<Joined>>,
 }
 
 /// The rooms a connection is in.
 #[derive(Debug, Default)]
-struct Joined {
+pub(super) struct Joined {
     /// By the number each is known under on this connection.
     rooms: HashMap<u32, Arc<Room>>,
+    pub(super) watched: HashMap<u32, super::participation::Watch>,
     /// The connection ended: it comes into no room any more.
     ended: bool,
 }
 
 impl Connection {
+    pub(super) fn participation(&self) -> super::Participation {
+        super::Participation::new(Arc::clone(&self.joined))
+    }
+
     /// The room the connection knows as `doc`, if it is in it.
     pub(super) fn room(&self, doc: u32) -> Option<Arc<Room>> {
         self.joined().rooms.get(&doc).map(Arc::clone)
@@ -134,7 +139,9 @@ impl Connection {
 
     /// Takes the room the connection knows as `doc` from those it is in.
     pub(super) fn forget(&self, doc: u32) -> Option<Arc<Room>> {
-        self.joined().rooms.remove(&doc)
+        let mut joined = self.joined();
+        joined.watched.remove(&doc);
+        joined.rooms.remove(&doc)
     }
 
     /// Whether the connection is in as many rooms as `limit` and in none of the card
@@ -149,6 +156,7 @@ impl Connection {
     pub(super) fn end(&self) -> Vec<(u32, Arc<Room>)> {
         let mut joined = self.joined();
         joined.ended = true;
+        joined.watched.clear();
         joined.rooms.drain().collect()
     }
 
@@ -322,7 +330,7 @@ impl Collab {
                     .unwrap_or(usize::MAX)
                     .saturating_mul(QUEUE_DOCUMENTS),
             }),
-            joined: Mutex::new(Joined::default()),
+            joined: Arc::default(),
         })
     }
 
@@ -599,10 +607,16 @@ impl Collab {
         if connection.is_full_without(limits.per_connection, card_id) {
             return Err(refusals::too_many_joined(limits.per_connection));
         }
+        let mut watching = connection.participation().admitting(doc, workspace_id);
+        #[cfg(feature = "test-util")]
+        self.paused_admission(super::AdmissionStage::BeforeCheck)
+            .await;
         let user_id = &connection.user_id;
-        let admitted = admission::admit(home, user_id, workspace_id, card_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("card"))?;
+        let admitted =
+            admission::admit_tracked(home, user_id, workspace_id, card_id, &mut watching).await?;
+        #[cfg(feature = "test-util")]
+        self.paused_admission(super::AdmissionStage::AfterCheck)
+            .await;
         loop {
             let room = self.room(&admitted.app, card_id);
             let mut turn = room.turn.lock().await;
@@ -672,6 +686,7 @@ impl Collab {
                 workspace_id: workspace_id.to_owned(),
                 mode: admitted.mode,
             });
+            watching.finish();
             return Ok(());
         }
     }

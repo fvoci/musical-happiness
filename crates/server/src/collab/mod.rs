@@ -31,6 +31,7 @@ mod child;
 mod frame;
 mod messages;
 mod open;
+mod participation;
 mod place;
 mod queue;
 mod refusals;
@@ -40,6 +41,9 @@ mod upkeep;
 mod whole;
 pub mod worker;
 
+#[cfg(feature = "test-util")]
+pub use participation::AdmissionStage;
+pub use participation::Participation;
 pub use queue::Outgoing;
 pub use seat::{Outbox, Seat};
 pub use whole::cards_written_whole;
@@ -111,6 +115,8 @@ struct Inner {
     /// for the tests of what is written to the card meanwhile.
     #[cfg(feature = "test-util")]
     projection_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(feature = "test-util")]
+    admission_pause: Mutex<Option<participation::AdmissionPause>>,
     /// What the next update waits for, between the worker taking it and the log
     /// having it: for the tests of what is sent on meanwhile.
     #[cfg(feature = "test-util")]
@@ -215,6 +221,8 @@ impl Collab {
                 rooms: rooms::Rooms::new(settings),
                 #[cfg(feature = "test-util")]
                 projection_pause: Mutex::new(None),
+                #[cfg(feature = "test-util")]
+                admission_pause: Mutex::new(None),
                 #[cfg(feature = "test-util")]
                 log_pause: Mutex::new(None),
             }),

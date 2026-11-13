@@ -154,6 +154,11 @@ impl Collab {
 }
 
 impl Seat {
+    /// Current and pending rooms, for prompt connection-level access revocation.
+    pub fn participation(&self) -> super::Participation {
+        self.connection.participation()
+    }
+
     /// Cancelled when the connection is to be closed: it reads nothing of what it is
     /// sent, not even that it was put out of its rooms.
     #[must_use]

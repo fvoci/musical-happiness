@@ -86,17 +86,27 @@ impl Hub {
                 .iter()
                 .filter(|(_, listener)| listener.user_id == user_id)
                 .flat_map(|(id, listener)| {
-                    listener.workspaces.iter().map(move |workspace| {
-                        (
-                            *id,
-                            workspace.clone(),
-                            listener.workspace_roles.get(workspace).copied(),
+                    listener
+                        .workspace_roles
+                        .iter()
+                        .map(move |(workspace, role)| (*id, workspace.clone(), Some(*role)))
+                        .chain(
+                            listener
+                                .documents
+                                .workspaces()
+                                .into_iter()
+                                .map(move |(workspace, role)| (*id, workspace, role)),
                         )
-                    })
                 })
                 .collect()
         };
         for (id, workspace_id, subscribed_role) in followed {
+            // A document still checking access has no admitted role to lose. Its
+            // role is published under the store's visibility generation, so a
+            // concurrent role change makes that admission read again.
+            if subscribed_role.is_none() {
+                continue;
+            }
             let role = self.audience.workspace_role(user_id, &workspace_id).await;
             if role.is_some() && role == subscribed_role {
                 continue;
@@ -112,7 +122,9 @@ impl Hub {
     /// Ends a user's connections that subscribed to the workspace whose role changed.
     pub fn workspace_role_changed(&self, workspace_id: &str, user_id: &str) {
         self.close_where(Disconnect::AccessEnded, |listener| {
-            listener.user_id == user_id && listener.workspaces.iter().any(|id| id == workspace_id)
+            listener.user_id == user_id
+                && (listener.workspaces.iter().any(|id| id == workspace_id)
+                    || listener.documents.contains_workspace(workspace_id))
         });
     }
 
@@ -127,9 +139,15 @@ impl Listeners {
     /// Takes the workspace out of what every listener follows, and out of the index.
     pub(super) fn stop_following_workspace(&mut self, workspace_id: &str) {
         self.revision = self.revision.wrapping_add(1);
-        let Some(ids) = self.by_workspace.get(workspace_id).cloned() else {
-            return;
-        };
+        let ids: Vec<_> = self
+            .by_id
+            .iter()
+            .filter(|(_, listener)| {
+                listener.workspaces.iter().any(|id| id == workspace_id)
+                    || listener.documents.contains_workspace(workspace_id)
+            })
+            .map(|(id, _)| *id)
+            .collect();
         for id in ids {
             if let Some(listener) = self.by_id.get(&id) {
                 listener.close(Disconnect::AccessEnded);
