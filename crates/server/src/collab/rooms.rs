@@ -498,8 +498,9 @@ impl Collab {
     /// Puts out of the rooms of the organization of `app` (a handle of one
     /// organization) every connection whose session was not made through `provider_id`,
     /// as the organization begins to take only sessions made through that provider: the
-    /// wall's own rule ([`session_opens`]), so nothing is asked of the store and nothing
-    /// waits. For after that is stored, and before the request that stored it answers:
+    /// wall's own rule ([`session_opens`]), so nothing is asked of the store. It waits
+    /// for each room's turn, nothing more: a room it empties is closed by a task of its
+    /// own. For after that is stored, and before the request that stored it answers:
     /// what such a connection sends after that is taken by no room. A connection whose
     /// admission was answered before is admitted again as it comes in
     /// ([`Self::enter`]), so none is let in past it.
@@ -520,12 +521,22 @@ impl Collab {
         let reason = reason_of(&AppError::not_found("card"));
         for room in of_organization {
             let mut turn = room.turn.lock().await;
-            while let Some(index) = turn.members.iter().position(|member| {
-                !session_opens(Some(provider_id), member.connection.made_through.as_deref())
-            }) {
-                turn.put_out(index, &reason);
+            // From the last: a member put out takes the place of none not yet looked at.
+            for index in (0..turn.members.len()).rev() {
+                let made_through = turn.members[index].connection.made_through.as_deref();
+                if !session_opens(Some(provider_id), made_through) {
+                    turn.put_out(index, &reason);
+                }
             }
-            self.shut_if_empty(&room, &mut turn).await;
+            if turn.members.is_empty() {
+                drop(turn);
+                // Closing writes the body to the card: not for the request to wait on.
+                let collab = self.clone();
+                tokio::spawn(async move {
+                    let mut turn = room.turn.lock().await;
+                    collab.shut_if_empty(&room, &mut turn).await;
+                });
+            }
         }
     }
 
@@ -679,8 +690,8 @@ impl Collab {
                 continue;
             }
             // An organization began to take only its provider's sessions since the
-            // connection was admitted, and its rooms may have been asked already: it is
-            // asked again, as they were.
+            // connection was admitted, and its rooms may have put out whom it shuts out
+            // already: the connection is admitted again.
             let now = limits.walls_raised.load(Ordering::SeqCst);
             if now != raised {
                 self.shut_if_empty(&room, &mut turn).await;
