@@ -43,12 +43,8 @@ impl SsoChange {
 /// place it is recorded. `user_id` is the administrator who did it, `None` for who
 /// runs the server.
 ///
-/// It is a line of the log, under the target `audit`, not one of the organization's
-/// records (`audit_log`). An administrator's change could be a record there; a
-/// release on the administration socket could not, as a record names a user as its
-/// actor (`actor_id`). Moving them adds actions to what the records store and to
-/// what `getOrgAudit` answers, and how a record names who runs the server is a
-/// decision about that role: both are left to be decided, and all three stay here.
+/// A line of the log (target `audit`), not an organization's record (`audit_log`),
+/// because a record names a user as its actor and who runs the server is none.
 fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
     tracing::info!(
         target: "audit",

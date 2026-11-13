@@ -243,22 +243,6 @@ impl App {
             .await
     }
 
-    /// Returns the root workspace: the oldest workspace of the organization, made with
-    /// the organization.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if the workspaces cannot be read, and a server error if the
-    /// organization has none.
-    pub async fn root_workspace(&self) -> Result<Workspace, AppError> {
-        self.store()
-            .get_workspaces()
-            .await?
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::internal("the organization has no workspace"))
-    }
-
     /// Returns the workspace with the given identifier.
     ///
     /// # Errors

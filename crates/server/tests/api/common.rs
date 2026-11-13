@@ -477,14 +477,22 @@ impl TestServer {
         client
     }
 
+    /// The root workspace: the oldest workspace of the organization, made with it.
+    pub(crate) async fn root_workspace(&self) -> fvoci_model::Workspace {
+        self.app
+            .store()
+            .get_workspaces()
+            .await
+            .expect("the workspaces are read")
+            .into_iter()
+            .next()
+            .expect("the organization has a workspace")
+    }
+
     /// The token of a new link that makes members of the root workspace, made past the
     /// route on behalf of an administrator of that workspace: the oldest one it has.
     pub(crate) async fn member_link(&self) -> String {
-        let workspace = self
-            .app
-            .root_workspace()
-            .await
-            .expect("the root workspace exists");
+        let workspace = self.root_workspace().await;
         let admins = self
             .app
             .store()

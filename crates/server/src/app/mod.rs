@@ -158,6 +158,9 @@ struct Inner {
     server_lock: server_lock::Holder,
     /// The limit on reads of shared boards whose token opens nothing.
     shared_reads: SharedReads,
+    /// Sign-ups held until as many as it counts reach the store (`App::meet_next_signups`).
+    #[cfg(feature = "test-util")]
+    signups_meet: std::sync::Mutex<Option<Arc<tokio::sync::Barrier>>>,
 }
 
 /// What `ping` reports about the server.
@@ -269,6 +272,8 @@ impl App {
                 collab,
                 server_lock: server_lock::Holder::default(),
                 shared_reads: SharedReads::default(),
+                #[cfg(feature = "test-util")]
+                signups_meet: std::sync::Mutex::default(),
             }),
         })
     }

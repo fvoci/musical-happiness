@@ -174,7 +174,9 @@ async fn exercise_people_and_trash(client: &Client, path: &str, user_id: &str, b
 }
 
 /// Starting an empty server makes no customer organization. Competing first signups
-/// create exactly one organization and one administrator in a closed instance.
+/// create exactly one organization and one administrator in a closed instance: the two
+/// are held until both have found the instance without its first user, and go on to
+/// store themselves together.
 #[tokio::test]
 async fn the_first_signup_creates_the_organization_atomically() {
     let server = Setup::native().on_an_empty_database().start().await;
@@ -197,6 +199,7 @@ async fn the_first_signup_creates_the_organization_atomically() {
         })
     };
     let (alpha, beta) = (registration("alpha"), registration("beta"));
+    server.app.meet_next_signups(2);
     let (a, b) = tokio::join!(
         first.post("/register", &alpha),
         second.post("/register", &beta)
