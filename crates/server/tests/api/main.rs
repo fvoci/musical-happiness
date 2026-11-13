@@ -58,6 +58,7 @@ mod relations;
 mod rooms;
 mod rooms_access;
 mod rooms_changes;
+mod rooms_changes_held;
 mod rooms_changes_many;
 mod rooms_changes_reach;
 mod rooms_changes_stall;

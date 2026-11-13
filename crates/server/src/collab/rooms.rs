@@ -22,6 +22,7 @@
 //! logged and sent to the others, never logged and not sent.
 
 mod access;
+mod held;
 mod index;
 #[cfg(feature = "test-util")]
 mod pauses;
@@ -249,8 +250,10 @@ struct Member {
     workspace_id: String,
     mode: DocMode,
     /// The number of the change whose immediate check holds the member, if one does:
-    /// what they send waits for its answer.
+    /// what they send waits for its answer, and what the room sends waits for them.
     checking: Option<u64>,
+    /// What the room did not send them while a check held them.
+    missed: Option<held::Missed>,
 }
 
 /// A member as a room asks about it again.
@@ -355,18 +358,11 @@ impl Turn {
 
     /// Sends every member the document anew, in place of the sync messages that
     /// waited for them: those were of the document before, or are in this one.
+    /// A member a check holds is sent it once the check keeps them.
     fn send_anew(&mut self, loaded: &Loaded) {
         self.epoch = loaded.epoch;
-        let epoch = loaded.epoch;
-        let whole = frame::message(Sync::Missing, &loaded.state);
-        self.queue_for_each(|member| {
-            let doc = member.doc;
-            let anew = [
-                Queued::text(doc, messages::reset(doc, epoch)),
-                Queued::sync(doc, epoch, &whole),
-            ];
-            member.connection.queue.push_anew(doc, anew)
-        });
+        self.miss(&held::Missed::Whole);
+        self.push_anew(loaded, |member| !member.is_held());
     }
 }
 
@@ -671,6 +667,7 @@ impl Collab {
                 workspace_id: workspace_id.to_owned(),
                 mode: admitted.mode,
                 checking: None,
+                missed: None,
             });
             return Ok(());
         }
@@ -743,8 +740,9 @@ impl Collab {
 
     /// Takes an update a connection sent into the room's document, and sends it on:
     /// `DOC_ACK` to the connection once the log has it, the update to the others, and
-    /// what a repair deleted to all. An update that is not taken is answered with
-    /// `DOC_NACK` and goes to nobody.
+    /// what a repair deleted to all, but to the members an immediate check holds:
+    /// they are sent it once it keeps them. An update that is not taken is answered
+    /// with `DOC_NACK` and goes to nobody.
     pub(super) async fn update(
         &self,
         room: &Arc<Room>,
@@ -769,6 +767,15 @@ impl Collab {
             None
         } else {
             Some(reason_of(&refusals::out_of_step()))
+        };
+        // The state the held are left at, if this is the first thing they miss.
+        let before = if refusal.is_none() && turn.holds_one_missing_nothing() {
+            let state_vector = self
+                .state_vector_while(&room.app, &room.card_id, Some(room.gone.clone()))
+                .await;
+            Some(state_vector.map_or(held::Missed::Whole, held::Missed::Since))
+        } else {
+            None
         };
         let taken = match refusal {
             Some(reason) => Err(reason),
@@ -799,15 +806,18 @@ impl Collab {
                     // making and tries again.
                     self.anew(room, &mut turn, None).await;
                 } else {
+                    if let Some(before) = &before {
+                        turn.miss(before);
+                    }
                     let update = frame::message(Sync::Update, &update);
                     turn.send(
-                        |member| !to_sender(member),
+                        |member| !to_sender(member) && !member.is_held(),
                         |member| [Queued::sync(member.doc, epoch, &update)],
                     );
                     if let Some(repair) = &taken.repair {
                         let repair = frame::message(Sync::Update, repair);
                         turn.send(
-                            |_| true,
+                            |member| !member.is_held(),
                             |member| [Queued::sync(member.doc, epoch, &repair)],
                         );
                     }
@@ -819,7 +829,9 @@ impl Collab {
 
     /// Sends a connection what the room's document has that a holder of
     /// `state_vector` has not, as a sync step 2: the answer to a sync step 1. What
-    /// cannot be answered (another epoch, bytes that are no state vector) is not.
+    /// cannot be answered (another epoch, bytes that are no state vector) is not. Like
+    /// an update, it waits while an immediate check holds the connection: answered
+    /// then, if it keeps them.
     pub(super) async fn missing(
         &self,
         room: &Arc<Room>,
@@ -828,8 +840,11 @@ impl Collab {
         epoch: i64,
         state_vector: Bytes,
     ) {
-        let mut turn = room.turn.lock().await;
+        let Some(mut turn) = self.turn_to_send(room, connection, doc).await else {
+            return;
+        };
         if turn.index_of(connection, doc).is_none() || epoch != turn.epoch || self.rooms_ended() {
+            self.shut_if_empty(room, &mut turn).await;
             return;
         }
         match self

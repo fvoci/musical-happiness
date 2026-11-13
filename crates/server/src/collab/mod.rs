@@ -332,9 +332,19 @@ impl Collab {
     ///
     /// As [`Collab::open`].
     pub async fn state_vector(&self, app: &App, card_id: &str) -> Result<Vec<u8>, AppError> {
-        self.on_slot(
+        self.state_vector_while(app, card_id, None).await
+    }
+
+    async fn state_vector_while(
+        &self,
+        app: &App,
+        card_id: &str,
+        gone: Option<CancellationToken>,
+    ) -> Result<Vec<u8>, AppError> {
+        self.on_slot_while(
             app,
             card_id,
+            gone,
             move |collab, app, card_id, mut slot| async move {
                 let (collab, app, card_id, slot) = (&collab, &app, card_id.as_str(), &mut slot);
                 bytes(collab.ask(app, card_id, slot, Request::StateVector).await?)
