@@ -223,7 +223,12 @@ crates/store/src/trash.rs | board_team_access::
 # The review's tests of the workspace teams (people grouped in a workspace, not workspaces).
 crates/server/tests/api/team_review.rs
 crates/server/tests/api/main.rs | team_review
-crates/store/tests/store/order.rs | teams
+crates/store/tests/store/order.rs | the teams of a workspace
+crates/store/tests/store/order.rs | teams_come_by_name
+crates/store/tests/store/order.rs | let teams = store
+crates/store/tests/store/order.rs | .teams(&workspace_id)
+crates/store/tests/store/order.rs | the teams are read
+crates/store/tests/store/order.rs | teams.iter()
 crates/store/tests/store/order.rs | team admin
 crates/store/tests/store/order.rs | |team| team.name
 crates/store/tests/store/order.rs | create_team
@@ -232,6 +237,7 @@ crates/store/tests/store/order.rs | the team is made
 # A team is named by the one rule of the names people give things together, as an
 # organization is; another team's name is the problem team_name_taken. These are teams of
 # people, never workspaces.
+crates/model/tests/team_names.rs
 crates/model/src/name.rs | an organization, a team
 crates/model/src/name.rs | a team of people
 crates/model/src/name.rs |     team,

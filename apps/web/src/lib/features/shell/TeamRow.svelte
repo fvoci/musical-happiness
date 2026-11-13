@@ -13,6 +13,7 @@
     working,
     restrictedSelf,
     nameProblem,
+    onNameEdit,
     onRename,
     onAdd,
     onRemove,
@@ -25,6 +26,8 @@
     restrictedSelf?: string;
     /** The id of the line that says why the new name was refused, while it says so. */
     nameProblem?: string;
+    /** The new name is being changed: what was refused is no longer what is typed. */
+    onNameEdit?: () => void;
     onRename: (name: string) => Promise<boolean>;
     onAdd: (userId: string) => Promise<boolean>;
     onRemove: (userId: string) => Promise<boolean>;
@@ -63,6 +66,7 @@
               aria-invalid={nameProblem !== undefined || undefined}
               aria-describedby={nameProblem}
               bind:value={name}
+              oninput={() => onNameEdit?.()}
               disabled={working}
             />
             <Button size="sm" type="submit" disabled={working || !name.trim()}

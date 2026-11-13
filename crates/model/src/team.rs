@@ -55,8 +55,17 @@ pub fn team_name(text: &str) -> Result<String, AuthParamError> {
 /// points; the server makes it, so both databases hold, compare and order the same text.
 ///
 /// Upper case and then lower case fold what lower case alone keeps apart: `Straße` and
-/// `STRASSE`, a final sigma and another, the long s and `s`.
+/// `STRASSE`, a final sigma and another, the long s and `s`. The dotless `ı` stays apart
+/// from `i`, as Unicode's case folding keeps it (Turkish `Kırmızı` is not `Kirmizi`); its
+/// capital `I` folds to `i` as everywhere else.
 #[must_use]
 pub fn team_name_key(name: &str) -> String {
-    name.to_uppercase().to_lowercase()
+    name.split(DOTLESS_I)
+        .map(|part| part.to_uppercase().to_lowercase())
+        .collect::<Vec<_>>()
+        .join(DOTLESS_I_TEXT)
 }
+
+/// The one letter whose capital is another letter's capital: upper case would make it `I`.
+const DOTLESS_I: char = '\u{0131}';
+const DOTLESS_I_TEXT: &str = "\u{0131}";

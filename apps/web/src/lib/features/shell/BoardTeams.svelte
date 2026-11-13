@@ -1,6 +1,7 @@
 <!-- One row per team, shaped as a member's row; direct memberships remain in the people list. -->
 <script lang="ts">
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import XIcon from '@lucide/svelte/icons/x';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -164,8 +165,11 @@
         variant="outline"
         size="sm"
         class="roomy:min-h-touch"
-        disabled={busy || !selected}>{m.teams_board_add()}</Button
+        disabled={busy || !selected}
       >
+        <UserPlusIcon aria-hidden="true" />
+        {m.teams_board_add()}
+      </Button>
     </form>
   {/if}
 </section>

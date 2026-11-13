@@ -2358,7 +2358,8 @@ export interface paths {
         put?: never;
         /**
          * Create an empty team
-         * @description For workspace administrators. The name is read as an organization's: surrounding
+         * @description For workspace administrators. The name is read as an organization's at sign-up:
+         *     surrounding
          *     whitespace is removed, and a name that is then empty, longer than 64 characters or
          *     holds a control character or one that shows nothing or turns the text around is 400
          *     at `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of

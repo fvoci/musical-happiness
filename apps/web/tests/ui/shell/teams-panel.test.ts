@@ -68,4 +68,7 @@ it('says why a new name of a team is refused, and keeps the rename box with what
   expect(box).toHaveAttribute('aria-invalid', 'true');
   expect(box).toHaveAccessibleDescription(/already exists here/);
   expect(screen.getByRole('textbox', { name: 'Team name' })).not.toHaveAttribute('aria-invalid');
+  await fireEvent.input(box, { target: { value: 'Research' } });
+  expect(box).not.toHaveAttribute('aria-invalid');
+  expect(box).not.toHaveAccessibleDescription(/already exists here/);
 });

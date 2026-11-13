@@ -9829,7 +9829,7 @@
         ]
       },
       "post": {
-        "description": "For workspace administrators. The name is read as an organization's: surrounding\nwhitespace is removed, and a name that is then empty, longer than 64 characters or\nholds a control character or one that shows nothing or turns the text around is 400\nat `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of\nanother team of this workspace, in any letter case, is 409 with the reason\n`team_name_taken`.",
+        "description": "For workspace administrators. The name is read as an organization's at sign-up:\nsurrounding\nwhitespace is removed, and a name that is then empty, longer than 64 characters or\nholds a control character or one that shows nothing or turns the text around is 400\nat `/name` with the reason `required`, `too_long` or `invalid_characters`. The name of\nanother team of this workspace, in any letter case, is 409 with the reason\n`team_name_taken`.",
         "operationId": "createTeam",
         "parameters": [
           {

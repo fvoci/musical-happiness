@@ -143,6 +143,9 @@
         aria-invalid={refusedName === CREATING || undefined}
         aria-describedby={refusedName === CREATING ? problemId : undefined}
         bind:value={name}
+        oninput={() => {
+          if (refusedName === CREATING) refusedName = undefined;
+        }}
         disabled={working}
       />
       <Button type="submit" size="sm" disabled={working || !name.trim()}>{m.teams_create()}</Button>
@@ -160,6 +163,9 @@
         {working}
         {restrictedSelf}
         nameProblem={refusedName === team.id ? problemId : undefined}
+        onNameEdit={() => {
+          if (refusedName === team.id) refusedName = undefined;
+        }}
         onRename={(value: string) => act((place) => teams.rename(place, team.id, value), team.id)}
         onAdd={(userId: string) => act((place) => teams.addMember(place, team.id, userId))}
         onRemove={(userId: string) => act((place) => teams.removeMember(place, team.id, userId))}
