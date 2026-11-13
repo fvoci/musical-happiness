@@ -61,6 +61,21 @@ impl App {
     pub(crate) fn enter_org_for_sign_in(&self, org_id: &str) -> Option<Self> {
         Tenant::org(org_id).ok().map(|tenant| self.scoped(tenant))
     }
+
+    /// The same server reaching the rows of the instance's own organization (the
+    /// oldest), whose administrators follow who runs the server; `None` before the
+    /// first sign-up.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the directory cannot be read.
+    pub(crate) async fn instance_org(&self) -> Result<Option<Self>, AppError> {
+        Ok(self
+            .store()
+            .instance_organization()
+            .await?
+            .and_then(|org_id| self.enter_org_for_sign_in(&org_id)))
+    }
 }
 
 impl App {

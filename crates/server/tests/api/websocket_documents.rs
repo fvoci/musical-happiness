@@ -8,7 +8,7 @@ use fvoci_server::collab::AdmissionStage;
 use serde_json::json;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::common::{Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::common::{ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::org_admin::{make_workspace, org_of};
 use crate::rooms::{Incoming, Peer, QUIET, UPDATE, frame, give, paragraphs, table, two_in_a_room};
 
@@ -31,15 +31,18 @@ enum Revocation {
     Trash,
     WithdrawAdmin,
     DemoteAdmin,
+    /// Who runs the server no more: the organization's administrator neither.
+    NoMoreInstanceAdmin,
 }
 
 impl Revocation {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Remove,
         Self::Guest,
         Self::Trash,
         Self::WithdrawAdmin,
         Self::DemoteAdmin,
+        Self::NoMoreInstanceAdmin,
     ];
 
     /// Whether it takes the card away: a guest of the workspace who was made an editor
@@ -50,7 +53,7 @@ impl Revocation {
 
     fn client(self, ts: &TestServer) -> &crate::common::Client {
         match self {
-            Self::WithdrawAdmin | Self::DemoteAdmin => &ts.client,
+            Self::WithdrawAdmin | Self::DemoteAdmin | Self::NoMoreInstanceAdmin => &ts.client,
             _ => &ts.client2,
         }
     }
@@ -75,6 +78,17 @@ impl Revocation {
                 let org = org_of(ts).await;
                 ts.client
                     .post_empty(&format!("/org/{org}/workspaces/{TEST_WORKSPACE_ID}/leave"))
+                    .await
+                    .check_ok();
+            }
+            Self::NoMoreInstanceAdmin => {
+                let other = ts.client2.me().await.id;
+                ts.client
+                    .put(&format!("/users/{other}/admin"), &json!({"isAdmin": true}))
+                    .await
+                    .check_ok();
+                ts.client2
+                    .put(&format!("/users/{user}/admin"), &json!({"isAdmin": false}))
                     .await
                     .check_ok();
             }
@@ -409,4 +423,27 @@ async fn an_unchecked_admission_uses_permissions_after_admin_revocation() {
         );
         ts.teardown().await;
     }
+}
+
+/// Access to one workspace ending ends what the connection followed of it, and tells
+/// it; the connection's room of a card of another workspace goes on.
+#[tokio::test]
+async fn ending_one_workspace_leaves_a_room_of_another() {
+    let ts = server().await;
+    let room = table(&ts, &paragraphs(&["initial"])).await;
+    let user = ts.client2.me().await.id;
+    give(&ts, &room.board_id, &user, "editor").await;
+    let mut peer = Peer::connect(&ts.client2, 202).await;
+    peer.joined(TEST_WORKSPACE_ID, &room.card_id).await;
+    peer.send_json(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
+        .await;
+    peer.barrier().await;
+    ts.client
+        .delete(&format!("/w/{ROOT_WORKSPACE_ID}/members/{user}"))
+        .await
+        .check_no_content();
+    let ended = peer.text("UNSUBSCRIBED_WORKSPACE").await;
+    assert_eq!(ended["workspaceId"], ROOT_WORKSPACE_ID, "{ended}");
+    peer.write_acked("still in the room").await;
+    ts.teardown().await;
 }

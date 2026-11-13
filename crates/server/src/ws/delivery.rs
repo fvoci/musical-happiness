@@ -2,7 +2,7 @@
 
 use fvoci_model::{Block, BoardMember};
 
-use super::ending::Ended;
+use super::ending::{Ended, Of};
 use super::{CHECKED_AT_MOST, Hub, ListenerId, Outgoing, UpdateBlockMessage, text_of};
 use crate::metrics::Disconnect;
 use crate::permissions::{role_of, session_opens};
@@ -270,10 +270,13 @@ impl Hub {
             Access::Workspace(workspace) | Access::Members { workspace, .. } => workspace,
             Access::All | Access::Public(_) => return false,
         };
+        // What it followed when this was read: a subscription made since is not ended
+        // for what this finds.
+        let checked = subscribed_role.map_or(Of::Any, Of::Role);
         let current = match self.audience.workspace_access(&user, workspace).await {
             Ok(Some(current)) => current,
             Ok(None) => {
-                self.end_workspace(id, workspace, Ended::Access);
+                self.end_workspace(id, workspace, Ended::Access, checked);
                 return false;
             }
             // Access that cannot be read has not ended, but the change is not to be
@@ -285,14 +288,14 @@ impl Hub {
             }
         };
         if Some(current.workspace_role) != subscribed_role {
-            self.end_workspace(id, workspace, Ended::Access);
+            self.end_workspace(id, workspace, Ended::Access, checked);
             return false;
         }
         if !session_opens(
             current.required_provider.as_deref(),
             login_provider.as_deref(),
         ) {
-            self.end_workspace(id, workspace, Ended::Sso);
+            self.end_workspace(id, workspace, Ended::Sso, checked);
             return false;
         }
         match access {

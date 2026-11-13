@@ -220,7 +220,7 @@ struct Listener {
     workspace_roles: HashMap<String, fvoci_model::WorkspaceRole>,
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
-    /// When such a board stops being shared under that token, the connection goes.
+    /// When such a board stops being shared under that token, they stop being followed.
     shared_boards: Vec<ReadPermit>,
 }
 
@@ -424,8 +424,8 @@ impl Hub {
             // First: when the hub gave the connection up, its reason is the one counted,
             // also if the client closed it at the same moment.
             biased;
-            // The hub gave the connection up: it does not keep up, or its session or its
-            // read token ended.
+            // The hub gave the connection up: it does not keep up, its session ended, or
+            // what it may be told could not be read.
             () = closed.cancelled() => {
                 closed_because.get().copied().unwrap_or(Disconnect::Shutdown)
             }

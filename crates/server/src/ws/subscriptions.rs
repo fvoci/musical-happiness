@@ -3,7 +3,7 @@
 
 use fvoci_model::WorkspaceRole;
 
-use super::ending::Ended;
+use super::ending::{Ended, Of};
 use super::revocations::Followed;
 use super::{
     CHECKED_AT_MOST, Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks,
@@ -77,15 +77,22 @@ impl Hub {
     }
 
     async fn subscribe_blocks(&self, id: ListenerId, command: &Command) {
-        let mut validated = false;
+        // The board its token opened when it was first checked.
+        let mut validated: Option<String> = None;
         for _ in 0..CHECKED_AT_MOST {
             let since = self.listeners().revoked.now();
             let board_id = match self.board_of_read_token(command).await {
                 Ok(Some(board_id)) => board_id,
                 Ok(None) => {
-                    // The page believes it follows the blocks: it is told they ended.
-                    if validated {
-                        self.end_blocks(id, &command.workspace_id, &command.block_ids);
+                    // The page believes it follows the blocks: it is told they ended,
+                    // with what it followed of the board before.
+                    if let Some(board_id) = &validated {
+                        self.end_board_with(
+                            id,
+                            board_id,
+                            &command.workspace_id,
+                            &command.block_ids,
+                        );
                     }
                     return;
                 }
@@ -96,7 +103,7 @@ impl Hub {
                     return;
                 }
             };
-            validated = true;
+            validated = Some(board_id.clone());
             #[cfg(feature = "test-util")]
             self.pause_subscription().await;
             let mut listeners = self.listeners();
@@ -135,7 +142,7 @@ impl Hub {
                 Err(NotOpened::Ended(ended)) => {
                     // The page believes it follows the workspace: it is told it ended.
                     if validated_role.is_some() {
-                        self.end_workspace(id, workspace, ended);
+                        self.end_workspace(id, workspace, ended, Of::Any);
                     }
                     return;
                 }
@@ -147,7 +154,7 @@ impl Hub {
                 }
             };
             if validated_role.is_some_and(|previous| previous != role) {
-                self.end_workspace(id, workspace, Ended::Access);
+                self.end_workspace(id, workspace, Ended::Access, Of::Any);
                 return;
             }
             validated_role = Some(role);

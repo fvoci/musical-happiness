@@ -28,6 +28,18 @@ pub(super) enum Ended {
     Sso,
 }
 
+/// Which subscription an ending is of: the one the connection follows now, whatever
+/// it is, or the one it was found to follow with a role when access was checked, which
+/// is not another one made since.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Of {
+    /// Whatever it follows of the workspace now, or believes it does: a subscription
+    /// being checked is told even if it is not registered.
+    Any,
+    /// Only if it still follows the workspace with this role.
+    Role(WorkspaceRole),
+}
+
 impl Ended {
     /// The `reason` of the message, the words the connection used to be closed with.
     fn reason(self) -> &'static str {
@@ -40,13 +52,26 @@ impl Ended {
 }
 
 impl Listeners {
-    /// Stops the connection following the workspace, if it does, and tells it so,
-    /// with what its user is counted as having had taken back. Returns whether it was
-    /// told: a connection that cannot take the message is closed as too slow.
-    fn end_workspace(&mut self, id: ListenerId, workspace_id: &str, ended: Ended) -> bool {
+    /// Stops the connection following the workspace, if it does (as `of` says), and
+    /// tells it so, with what its user is counted as having had taken back. Returns
+    /// whether it was told: a connection that cannot take the message is closed as too
+    /// slow.
+    pub(super) fn end_workspace(
+        &mut self,
+        id: ListenerId,
+        workspace_id: &str,
+        ended: Ended,
+        of: Of,
+    ) -> bool {
         let Some(listener) = self.by_id.get_mut(&id) else {
             return false;
         };
+        if let Of::Role(checked) = of
+            && listener.workspace_roles.get(workspace_id) != Some(&checked)
+        {
+            // Ended already, or followed anew since, under what is current.
+            return false;
+        }
         listener
             .workspaces
             .retain(|followed| followed != workspace_id);
@@ -95,6 +120,35 @@ impl Listeners {
         self.end_blocks(id, &permit.workspace, &permit.blocks)
     }
 
+    /// Stops the connection following the board by its read token, with every block it
+    /// followed of it and those it asked for now (`block_ids`, of `workspace_id`), and
+    /// tells it so: for a subscription found ended as it was checked again.
+    fn end_board_with(
+        &mut self,
+        id: ListenerId,
+        board_id: &str,
+        workspace_id: &str,
+        block_ids: &[String],
+    ) -> bool {
+        let mut blocks: Vec<String> = self
+            .by_id
+            .get(&id)
+            .and_then(|listener| {
+                listener
+                    .shared_boards
+                    .iter()
+                    .find(|permit| permit.board == board_id)
+            })
+            .map(|permit| permit.blocks.clone())
+            .unwrap_or_default();
+        for block in block_ids {
+            if !blocks.contains(block) {
+                blocks.push(block.clone());
+            }
+        }
+        self.end_blocks(id, workspace_id, &blocks)
+    }
+
     /// Takes the workspace out of what every listener follows, and tells each that
     /// followed it. Returns how many were told.
     pub(super) fn stop_following_workspace(&mut self, workspace_id: &str) -> usize {
@@ -105,7 +159,7 @@ impl Listeners {
             .cloned()
             .unwrap_or_default();
         ids.into_iter()
-            .filter(|id| self.end_workspace(*id, workspace_id, Ended::Access))
+            .filter(|id| self.end_workspace(*id, workspace_id, Ended::Access, Of::Any))
             .count()
     }
 
@@ -131,16 +185,24 @@ impl Listeners {
 }
 
 impl Hub {
-    /// Stops the connection following the workspace and tells it why.
-    pub(super) fn end_workspace(&self, id: ListenerId, workspace_id: &str, ended: Ended) {
-        let told = self.listeners().end_workspace(id, workspace_id, ended);
+    /// Stops the connection following the workspace, as `of` says, and tells it why.
+    pub(super) fn end_workspace(&self, id: ListenerId, workspace_id: &str, ended: Ended, of: Of) {
+        let told = self.listeners().end_workspace(id, workspace_id, ended, of);
         self.count_told("UNSUBSCRIBED_WORKSPACE", usize::from(told));
     }
 
-    /// Stops the connection following the blocks it named by a read token that does
-    /// not open their board, and tells it so.
-    pub(super) fn end_blocks(&self, id: ListenerId, workspace_id: &str, block_ids: &[String]) {
-        let told = self.listeners().end_blocks(id, workspace_id, block_ids);
+    /// Stops the connection following the board by its read token, with every block it
+    /// followed of it and those it asks for now, and tells it so.
+    pub(super) fn end_board_with(
+        &self,
+        id: ListenerId,
+        board_id: &str,
+        workspace_id: &str,
+        block_ids: &[String],
+    ) {
+        let told = self
+            .listeners()
+            .end_board_with(id, board_id, workspace_id, block_ids);
         self.count_told("UNSUBSCRIBED_BLOCKS", usize::from(told));
     }
 
@@ -174,7 +236,7 @@ impl Hub {
             .collect();
         let told = picked
             .into_iter()
-            .filter(|(id, workspace)| listeners.end_workspace(*id, workspace, ended))
+            .filter(|(id, workspace)| listeners.end_workspace(*id, workspace, ended, Of::Any))
             .count();
         drop(listeners);
         self.count_told("UNSUBSCRIBED_WORKSPACE", told);
@@ -244,7 +306,10 @@ impl Hub {
                 .await
             {
                 Ok(Some(access)) if access.workspace_role == subscribed_role => {}
-                Ok(_) => self.end_workspace(id, &workspace_id, Ended::Access),
+                Ok(_) => {
+                    let of = Of::Role(subscribed_role);
+                    self.end_workspace(id, &workspace_id, Ended::Access, of);
+                }
                 // Not known to have ended: closed as retryable, so the page asks
                 // again as it connects.
                 Err(error) => {

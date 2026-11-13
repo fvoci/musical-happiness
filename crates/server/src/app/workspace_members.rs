@@ -80,10 +80,10 @@ impl App {
                 continue;
             }
             self.settle(workspace_id, by, change)?;
+            self.ws().workspace_role_changed(workspace_id, user_id);
             self.collab()
                 .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
                 .await;
-            self.ws().workspace_role_changed(workspace_id, user_id);
             tracing::info!(
                 workspace_id,
                 user_id,
@@ -124,10 +124,10 @@ impl App {
             .remove_workspace_member(workspace_id, user_id, by)
             .await?;
         self.settle(workspace_id, by, change)?;
+        self.ws().workspace_role_changed(workspace_id, user_id);
         self.collab()
             .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
             .await;
-        self.ws().workspace_role_changed(workspace_id, user_id);
         tracing::info!(
             workspace_id,
             user_id,

@@ -333,3 +333,37 @@ fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
     assert!(!shut_out(elsewhere), "follows another organization");
     assert!(!shut_out(following_nothing), "follows nothing of it");
 }
+
+/// An ending found by a check of what the connection followed with one role ends only
+/// that: a subscription made since under another role stays, and is told nothing.
+#[test]
+fn an_ending_checked_against_one_role_leaves_a_later_subscription() {
+    use ending::{Ended, Of};
+    use fvoci_model::WorkspaceRole;
+
+    let mut listeners = Listeners::default();
+    let (id, mut hears) = add_listener_reading(&mut listeners, "u");
+    subscribe_to_workspace(&mut listeners, id, "w");
+    listeners
+        .by_id
+        .get_mut(&id)
+        .expect("the listener")
+        .workspace_roles
+        .insert("w".to_owned(), WorkspaceRole::Member);
+    assert!(
+        !listeners.end_workspace(id, "w", Ended::Access, Of::Role(WorkspaceRole::Admin)),
+        "checked against the role it followed with before"
+    );
+    assert_eq!(workspaces_of(&listeners, id), ["w"], "it still follows it");
+    assert!(hears.try_recv().is_err(), "and is told nothing");
+    assert!(
+        listeners.end_workspace(id, "w", Ended::Access, Of::Role(WorkspaceRole::Member)),
+        "checked against the role it follows with"
+    );
+    assert_eq!(
+        workspaces_of(&listeners, id).len(),
+        0,
+        "it follows it no more"
+    );
+    assert!(hears.try_recv().is_ok(), "told it ended");
+}

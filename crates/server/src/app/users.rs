@@ -69,12 +69,7 @@ impl App {
         match self.store().set_user_admin(user_id, role, actor_id).await? {
             AdminChange::Done(user) => {
                 if role != InstanceRole::Administrator {
-                    self.collab()
-                        .recheck_access(self, AccessScope::organization().of_user(user_id))
-                        .await;
-                    // The workspaces they joined as the organization's administrator
-                    // are theirs no more (`Store::set_user_admin`).
-                    self.ws().follow_only_own_workspaces(user_id).await;
+                    self.left_instance_org_workspaces(user_id).await;
                 }
                 Ok(*user)
             }
@@ -87,6 +82,27 @@ impl App {
                 "the instance must keep an administrator",
             )
             .with_reason(Reason::LastAdmin)),
+        }
+    }
+
+    /// Stops what `user_id` follows of the workspaces of the instance's own organization
+    /// they joined as its administrator, which are theirs no more
+    /// (`Store::set_user_admin`), and has the rooms there ask about them again. The
+    /// change is stored: a directory that cannot be read now leaves the rooms to their
+    /// periodic asking, and the subscriptions to the checks at dispatch.
+    async fn left_instance_org_workspaces(&self, user_id: &str) {
+        match self.instance_org().await {
+            Ok(Some(org)) => {
+                org.ws().follow_only_own_workspaces(user_id).await;
+                org.collab()
+                    .recheck_access(&org, AccessScope::organization().of_user(user_id))
+                    .await;
+            }
+            Ok(None) => self.ws().follow_only_own_workspaces(user_id).await,
+            Err(error) => {
+                tracing::warn!(%error, user_id, "the instance's organization could not be read after its administrator was let go");
+                self.ws().follow_only_own_workspaces(user_id).await;
+            }
         }
     }
 
