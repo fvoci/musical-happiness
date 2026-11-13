@@ -21,24 +21,10 @@ impl Store {
     ) -> Result<bool, StoreError> {
         // Release expired-token locks before taking the foreign-key lock on a user.
         // A consumer holds that user before removing its token.
-        self.with_conn(async |scope| {
-            let mut expired = scope.sql("DELETE FROM password_resets WHERE expires_at <= ");
-            expired.bind(now);
-            scope.execute(expired).await?;
-            Ok(())
-        })
-        .await?;
-        self.with_conn(async |scope| {
-            let mut sql =
-                scope.sql("INSERT INTO password_resets (token_hash, user_id, expires_at) SELECT ");
-            sql.bind(digest)
-                .push(", id")
-                .push_bind(", ", now.saturating_add(PASSWORD_RESET_LIFETIME_MILLIS))
-                .push_bind(" FROM users WHERE id = ", Id(user_id))
-                .push(" AND delete_at = 0 AND password_hash <> ''");
-            Ok(scope.execute(sql).await? == 1)
-        })
-        .await
+        self.with_conn(async |scope| delete_expired_password_resets(scope, now).await)
+            .await?;
+        self.with_conn(async |scope| insert_password_reset(scope, user_id, digest, now).await)
+            .await
     }
 
     /// Consumes a live credential, changes its user's password and ends all sessions atomically.
@@ -104,4 +90,33 @@ pub(crate) async fn delete_password_resets_of_user(
     sql.bind(Id(user_id));
     scope.execute(sql).await?;
     Ok(())
+}
+
+/// Removes the reset credentials that expired by `now`.
+pub(crate) async fn delete_expired_password_resets(
+    scope: &mut Scope<'_>,
+    now: i64,
+) -> Result<(), StoreError> {
+    let mut expired = scope.sql("DELETE FROM password_resets WHERE expires_at <= ");
+    expired.bind(now);
+    scope.execute(expired).await?;
+    Ok(())
+}
+
+/// Stores a reset credential under `digest` for the user, if the account is in use and
+/// has a password; says whether it did.
+pub(crate) async fn insert_password_reset(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    digest: &str,
+    now: i64,
+) -> Result<bool, StoreError> {
+    let mut sql =
+        scope.sql("INSERT INTO password_resets (token_hash, user_id, expires_at) SELECT ");
+    sql.bind(digest)
+        .push(", id")
+        .push_bind(", ", now.saturating_add(PASSWORD_RESET_LIFETIME_MILLIS))
+        .push_bind(" FROM users WHERE id = ", Id(user_id))
+        .push(" AND delete_at = 0 AND password_hash <> ''");
+    Ok(scope.execute(sql).await? == 1)
 }

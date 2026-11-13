@@ -127,6 +127,62 @@ async fn sign_in(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
     );
     case.record("finishOidcLogin", &completed);
     linked(case, &newcomer, fake).await;
+    pending(case, &newcomer, fake).await;
+}
+
+/// The provider's pending settings, by an administrator whose session was made through
+/// it: the newcomer, made one, requires single sign-on, saves another secret, which
+/// waits aside, starts a trial of it and throws it away, and takes the requirement off
+/// again, so that what the founder does next is as before.
+async fn pending(case: &mut Case, newcomer: &Client, fake: &FakeProvider) {
+    let id = newcomer.me().await.id;
+    case.run("putOrgRole", &[("userId", &id)], json!({"role": "admin"}))
+        .await;
+    let path = format!("/org/{}/oidc", case.org);
+    let settings = |extra: serde_json::Value| {
+        let mut body = json!({"issuer": fake.issuer, "clientId": CLIENT_ID});
+        body.as_object_mut()
+            .expect("an object")
+            .extend(extra.as_object().expect("an object").clone());
+        body
+    };
+    for (body, aside) in [
+        (settings(json!({"ssoRequired": true})), false),
+        (settings(json!({"clientSecret": "the next secret"})), true),
+    ] {
+        let saved = Client::send(newcomer.request(Method::PUT, &path).json(&body)).await;
+        assert_eq!(saved.status, StatusCode::OK, "{}", saved.text());
+        assert_eq!(
+            !saved.value()["pending"].is_null(),
+            aside,
+            "{}",
+            saved.text()
+        );
+    }
+    let trial = format!("{path}/pending/sign-in");
+    let started = case
+        .send("startOidcTrial", newcomer.request(Method::POST, &trial))
+        .await
+        .value();
+    assert!(
+        started["authorizationUrl"]
+            .as_str()
+            .is_some_and(|url| url.starts_with(&fake.issuer)),
+        "a trial goes to this provider: {started}"
+    );
+    let discard = format!("{path}/pending");
+    case.send(
+        "deleteOidcPending",
+        newcomer.request(Method::DELETE, &discard),
+    )
+    .await;
+    let released = Client::send(
+        newcomer
+            .request(Method::PUT, &path)
+            .json(&settings(json!({"ssoRequired": false}))),
+    )
+    .await;
+    assert_eq!(released.status, StatusCode::OK, "{}", released.text());
 }
 
 /// The account the provider made in this organization lists the identity it was made

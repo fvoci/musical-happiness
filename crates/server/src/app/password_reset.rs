@@ -13,22 +13,30 @@ use crate::error::AppError;
 use crate::metrics::ResetMailDrop;
 
 impl App {
-    /// Creates a reset link for an operator to deliver through the administration socket.
+    /// Creates a reset link for an operator to deliver through the administration socket,
+    /// recorded as theirs in each organization of the user
+    /// ([`fvoci_store::Store::create_password_reset_by_operator`]).
     ///
     /// # Errors
     /// Returns not found for an unavailable account, or the storage error.
     pub async fn password_reset_link(&self, username: &str) -> Result<String, AppError> {
         let user = self.store().get_user_by_username(username).await?;
-        self.reset_link_for(&user.id).await
+        self.reset_link_for(&user.id, Asked::ByOperator).await
     }
 
-    async fn reset_link_for(&self, user_id: &str) -> Result<String, AppError> {
+    async fn reset_link_for(&self, user_id: &str, asked: Asked) -> Result<String, AppError> {
         let token = new_secret();
-        if !self
-            .store()
-            .create_password_reset(user_id, &token_digest(&token), now_millis())
-            .await?
-        {
+        let (digest, now) = (token_digest(&token), now_millis());
+        let store = self.store();
+        let stored = match asked {
+            Asked::ByOperator => {
+                store
+                    .create_password_reset_by_operator(user_id, &digest, now)
+                    .await?
+            }
+            Asked::ByMail => store.create_password_reset(user_id, &digest, now).await?,
+        };
+        if !stored {
             return Err(AppError::not_found("account with a password"));
         }
         // Fragments never reach HTTP request targets, proxy logs or Referer headers.
@@ -117,7 +125,7 @@ impl App {
         // The link is made once the message has its turn: its hour starts as it leaves.
         queued
             .deliver(&self.inner.mail, || async {
-                let link = self.reset_link_for(&user.id).await?;
+                let link = self.reset_link_for(&user.id, Asked::ByMail).await?;
                 Ok::<_, AppError>(Letter {
                     to: user.email.clone(),
                     content: Content::reset(&link, language),
@@ -163,4 +171,12 @@ impl App {
         }
         Ok(())
     }
+}
+
+/// Who asked for a reset link: the server's operator, whose act each organization of
+/// the user records, or the person by mail, which is no one's act on them.
+#[derive(Debug, Clone, Copy)]
+enum Asked {
+    ByOperator,
+    ByMail,
 }

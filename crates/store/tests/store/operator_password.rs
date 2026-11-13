@@ -74,21 +74,28 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
         None
     };
 
+    // A member of the organization without a password: no link, and no record.
+    let passwordless = common::user(&test, "no-password").await;
+
     test.reset_user_password("PAT", "replacement hash")
         .await
         .expect("set");
     let linked = test
-        .record_password_reset_link_made(&user)
-        .await
-        .expect("recorded");
-    let not_found = test.reset_user_password("nobody-at-all", "hash").await;
-    let in_none = test
-        .record_password_reset_link_made(&nobodys)
+        .create_password_reset_by_operator(&user, "pat's link", 100)
         .await
         .expect("asked");
+    let not_found = test.reset_user_password("nobody-at-all", "hash").await;
     test.reset_user_password("nobody-of-an-organization", "hash")
         .await
         .expect("set");
+    let in_none = test
+        .create_password_reset_by_operator(&nobodys, "nobody's link", 100)
+        .await
+        .expect("asked");
+    let refused = test
+        .create_password_reset_by_operator(&passwordless, "no link", 100)
+        .await
+        .expect("asked");
 
     let both = [
         AuditAction::PasswordResetLinkMade,
@@ -96,9 +103,14 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
     ];
     assert_eq!(operators_records(&test, &test.org_id, &user).await, both);
     assert!(matches!(not_found, Err(StoreError::UserNotFound(_))));
-    assert_eq!(
-        in_none, 0,
-        "a person of no organization is recorded nowhere"
+    assert!(linked, "a link for an account with a password");
+    assert!(
+        in_none,
+        "a person of no organization has a link, recorded nowhere"
+    );
+    assert!(
+        !refused,
+        "no link for an account without one, and no record"
     );
     if let Some((second, third, deleted, held)) = others {
         assert_eq!(
@@ -106,7 +118,6 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
             held,
             "no record in the deleted organization"
         );
-        assert_eq!(linked, 2);
         let second_id = second.tenant().org_id().expect("an organization");
         assert_eq!(operators_records(&second, &second_id, &user).await, both);
         assert_eq!(
@@ -114,8 +125,6 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
             [],
             "nothing in an organization not theirs"
         );
-    } else {
-        assert_eq!(linked, 1);
     }
     test.teardown().await;
 }

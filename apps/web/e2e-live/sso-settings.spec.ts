@@ -71,7 +71,9 @@ test('an administrator configures SSO without exposing its secret or locking out
     await section.getByTestId('sso-save').click();
     await expect(section.getByTestId('sso-save')).toBeEnabled();
     await expect(section.getByTestId('sso-delete')).toBeDisabled();
-    await expect(section.getByTestId('sso-issuer')).toBeDisabled();
+    // Another issuer may be typed: saved now it waits aside as pending settings.
+    await expect(section.getByTestId('sso-issuer')).toBeEnabled();
+    await expect(section.getByTestId('sso-pending-hint')).toBeVisible();
     expect(
       (
         await page.request.delete(endpoint, {

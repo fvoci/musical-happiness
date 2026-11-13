@@ -9,7 +9,7 @@ use fvoci_model::AuditAction;
 use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Id, Scope};
 use crate::error::StoreError;
-use crate::{Store, users};
+use crate::{Store, password_reset, users};
 
 impl Store {
     /// Sets the password hash of the user with the given name, in any letter case, and
@@ -38,23 +38,37 @@ impl Store {
             .await
     }
 
-    /// Records that the server's operator made a link to set the password of the user
-    /// `user_id` anew ([`AuditAction::PasswordResetLinkMade`]), in every organization
-    /// they are a member of: one record each, with neither the link nor its token, and
-    /// not which organization asked. Returns in how many organizations it was recorded.
-    /// For a link stored elsewhere; a store function that stores the link records it in
-    /// the same transaction with `record_in_organizations_of`.
+    /// Stores a reset credential under `digest` for the user `user_id`, as
+    /// [`Store::create_password_reset`] does, on the word of the server's operator (the
+    /// administration socket): in the same transaction, recorded as theirs in every
+    /// organization the user is a member of ([`AuditAction::PasswordResetLinkMade`]),
+    /// one record each, with neither the link nor its token, and not which
+    /// organization asked. Says whether it stored one: nothing is stored or recorded for
+    /// an account that is not in use or has no password.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn record_password_reset_link_made(
+    /// Returns [`StoreError::Database`] if a statement fails; nothing is stored then.
+    pub async fn create_password_reset_by_operator(
         &self,
         user_id: &str,
-    ) -> Result<usize, StoreError> {
+        digest: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        // As create_password_reset: expired credentials go first, in their own
+        // statement, before the user's row is taken.
+        self.with_conn(async |scope| {
+            password_reset::delete_expired_password_resets(scope, now).await
+        })
+        .await?;
         self.system()
             .transaction(async |scope| {
-                record_in_organizations_of(scope, user_id, AuditAction::PasswordResetLinkMade).await
+                if !password_reset::insert_password_reset(scope, user_id, digest, now).await? {
+                    return Ok(false);
+                }
+                record_in_organizations_of(scope, user_id, AuditAction::PasswordResetLinkMade)
+                    .await?;
+                Ok(true)
             })
             .await
     }
@@ -63,9 +77,7 @@ impl Store {
 /// Records `action` by the server's operator, done to the user `user_id`, in every
 /// organization in use that they are a member of, one record each, of no workspace;
 /// returns how many. Needs the system's reach: the wall hides the other organizations.
-/// What stores what is recorded (a reset link's token) calls it in its own
-/// transaction, so that neither is kept without the other.
-pub(crate) async fn record_in_organizations_of(
+async fn record_in_organizations_of(
     scope: &mut Scope<'_>,
     user_id: &str,
     action: AuditAction,

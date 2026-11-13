@@ -32,9 +32,10 @@ struct Named {
 /// too, for what the sweep names: one board and one card for every operation. Any
 /// other 404 fails the test, as an answer of the second organization equal to a
 /// wrong first one would hide a lookup in another organization.
-const NOT_THERE_FOR_A_MEMBER: [&str; 24] = [
+const NOT_THERE_FOR_A_MEMBER: [&str; 26] = [
     // The organization's own routes are its administrators'.
     "createOrgWorkspace",
+    "deleteOidcPending",
     "deleteOidcProvider",
     "deleteOrgWorkspace",
     "getOidcProvider",
@@ -49,6 +50,7 @@ const NOT_THERE_FOR_A_MEMBER: [&str; 24] = [
     "putOrgRole",
     "renameOrgWorkspace",
     "restoreOrgWorkspace",
+    "startOidcTrial",
     // A link the member did not make, and the empty body of the sweep.
     "acceptInvitation",
     "revokeInvitation",
