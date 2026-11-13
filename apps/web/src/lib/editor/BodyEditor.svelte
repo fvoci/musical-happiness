@@ -29,6 +29,7 @@
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 
   import { BODY_FIELD, type BodyEditorProps } from './body-editor.ts';
+  import { setMayWrite } from './shared-place.ts';
   import './editor.css';
   import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
@@ -55,6 +56,8 @@
     onLoad,
     collab,
     onEditor,
+    canWrite = false,
+    onImageDropped,
   }: BodyEditorProps = $props();
 
   let host: HTMLDivElement;
@@ -64,12 +67,13 @@
   let unreadable = $state(false);
   let uploads = $state(0);
   /** How the upload that ended last did, when that is to be said. */
-  let uploadEnded = $state<'failed' | 'gone'>();
+  let uploadEnded = $state<'failed' | 'gone' | 'refused'>();
 
   const status = $derived.by(() => {
     if (unreadable) return m.editor_body_unreadable();
     if (uploads > 0) return m.editor_image_uploading();
     if (uploadEnded === 'gone') return m.editor_image_gone();
+    if (uploadEnded === 'refused') return m.editor_image_refused();
     return uploadEnded === 'failed' ? m.editor_image_failed() : '';
   });
 
@@ -164,8 +168,12 @@
         ImageUpload.configure({
           upload: () => uploadImage,
           uploadingLabel: m.editor_image_uploading,
-          onProgress: (pending, outcome) => {
+          onProgress: (pending, outcome, destroyed) => {
             uploads = pending;
+            if (destroyed) {
+              if (outcome === 'gone') onImageDropped?.();
+              return;
+            }
             if (outcome !== undefined) uploadEnded = outcome === 'done' ? undefined : outcome;
           },
         }),
@@ -182,6 +190,7 @@
       onBlur: fromEditor(() => onBlur?.()),
     });
     editor = created;
+    setMayWrite(created.view, () => shared !== undefined && canWrite);
     if (!shared) onLoad?.(first === undefined ? undefined : storedOf(created));
     onEditor?.(created);
     return () => {

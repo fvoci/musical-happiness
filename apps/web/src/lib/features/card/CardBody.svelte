@@ -25,7 +25,7 @@
   import type { BoardStore, CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { LATE_NOTE, lostNote, roomNote } from './body-notes.ts';
+  import { IMAGE_DROPPED, LATE_NOTE, lostNote, roomNote } from './body-notes.ts';
   import { keepCaret } from './caret-keeper.ts';
   import { editorChunk } from './editor-chunk.svelte.ts';
 
@@ -77,8 +77,13 @@
 
   /** Joining and receiving are usually over at once: their line is put in only when they last. */
   let lateShown = $state(false);
+  const late = $derived(note?.late ?? false);
+  /** The line said under the body: none while the editor's code failed (that says so itself). */
+  const shownNote = $derived(
+    !(room && editorChunk.failed) && note && (!note.late || lateShown) ? note : undefined,
+  );
   $effect(() => {
-    if (!note?.late) return;
+    if (!late) return;
     const timer = setTimeout(() => {
       lateShown = true;
     }, LATE_NOTE);
@@ -122,6 +127,10 @@
         doc={card.body}
         collab={doc}
         editable={writable}
+        canWrite={board.canEdit && room?.mode === 'write'}
+        onImageDropped={() => {
+          card.sayLost(IMAGE_DROPPED);
+        }}
         users={people}
         {resolveUser}
         label={m.card_body()}
@@ -162,28 +171,24 @@
       </Button>
     </p>
   {/if}
-  <!-- A live region that is always there: a line put into it is said aloud. -->
-  <div role="status">
-    {#if note && (!note.late || lateShown)}
-      <p
-        class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-        data-testid="body-room-note"
-        data-reason={room?.reason}
+  <!-- The line is in a live region that is always there, so that it is said aloud; its button is not. -->
+  <div class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+    <p role="status">
+      {#if shownNote}
+        <span data-testid="body-room-note" data-reason={room?.reason}>{shownNote.text}</span>
+      {/if}
+    </p>
+    {#if shownNote?.retry}
+      <Button
+        variant="outline"
+        size="sm"
+        class="roomy:min-h-touch"
+        onclick={() => {
+          card.retryBody();
+        }}
       >
-        {note.text}
-        {#if note.retry}
-          <Button
-            variant="outline"
-            size="sm"
-            class="roomy:min-h-touch"
-            onclick={() => {
-              card.retryBody();
-            }}
-          >
-            {m.card_body_editor_retry()}
-          </Button>
-        {/if}
-      </p>
+        {m.card_body_editor_retry()}
+      </Button>
     {/if}
   </div>
 </section>

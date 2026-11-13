@@ -1,58 +1,130 @@
 /**
- * A place in a body edited together, held across what others write.
+ * Places in a body edited together, held across what others write.
  *
  * A position in the editor is a number: what others write before it moves
  * the place, and a change that comes from the shared document replaces the
  * blocks it changed in the editor's document, so the editor's own mapping
- * loses any position inside them. A place held for later (an image going
- * up, a formula or a diagram being edited) is held here as a relative
- * position of the shared document as well, which follows its spot through
- * every change, and is read back as a number when it is needed.
+ * loses any position inside them. What is held for later is held here in
+ * the shared document instead, and read back as a number when needed:
  *
- * In an editor that is not bound to a shared document there is nothing to
- * hold: the editor's mapping is all there is (`undefined` throughout).
+ * - a node (a formula, a diagram, the empty line a new formula goes into)
+ *   by its own shared element (`holdNode`): found wherever it is now, and
+ *   gone when it was deleted, never taken for a neighbour;
+ * - a spot in a line (where an image goes) by the letter before it, the
+ *   end of its block and the block (`holdPlace`): followed through what is
+ *   typed around it, after its line when the letter went into another
+ *   block (an Enter writes the rest of a line anew), gone with its block.
+ *
+ * A hold is taken once the editor's own change is in the shared document
+ * (`onShared`: after each of the binding's own writes into it). A plugin's
+ * state may come before the binding's in a transaction: places are read
+ * back with the binding of the state before it (`nodeNow`, `placeNow`
+ * take that state and the new document). In an editor bound to no shared
+ * document there is nothing to hold: the editor's mapping is all there is
+ * (`undefined`).
+ *
+ * Also here: whether a read-only editor may still write what the reader
+ * did before (`mayWrite`): an editor read-only for a moment (the
+ * connection away) may, one whose reader may only read may not.
  */
+import type { Node as DocumentNode } from '@tiptap/pm/model';
+import type { EditorState, Transaction } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
 import {
   absolutePositionToRelativePosition,
   relativePositionToAbsolutePosition,
   ySyncPluginKey,
 } from '@tiptap/y-tiptap';
-import type { EditorState, Transaction } from '@tiptap/pm/state';
 import * as Y from 'yjs';
 
+type Mapping = NonNullable<ReturnType<typeof ySyncPluginKey.getState>>['binding']['mapping'];
+/** A shared element the editor draws a node from. */
+type Shared = Mapping extends Map<infer Type, unknown> ? Type : never;
+
+/** A node held by its shared element. */
+export interface HeldNode {
+  type: Shared;
+}
+
+/** A spot in a line held in the shared document. */
 export interface HeldPlace {
-  /** The place itself. */
+  /** The spot: it names the letter before it (or the start of its block). */
   at: Y.RelativePosition;
-  /**
-   * For a place in a line of text: the letter (or inline node) before it,
-   * and the spot after its block. The letter is followed first; when it was
-   * taken away (deleted, or moved into another block, which a split does by
-   * writing the text anew) the place is taken to be the end of its line, and
-   * found after the block that is there now.
-   */
-  before?: Y.RelativePosition;
+  /** The spot after its block, when the spot is after a letter. */
   after?: Y.RelativePosition;
+  /** The block it is in. */
+  block?: Shared;
+}
+
+function bindingOf(state: EditorState) {
+  const sync = ySyncPluginKey.getState(state);
+  return sync?.binding ? { sync, mapping: sync.binding.mapping } : undefined;
+}
+
+/** The shared element an editor's node is drawn from. */
+function sharedOf(mapping: Mapping, node: DocumentNode): Shared | undefined {
+  for (const [type, drawn] of mapping) if (drawn === node) return type;
+  return undefined;
+}
+
+/** Whether a shared type, or one it is in, was deleted. */
+function deleted(type: Shared): boolean {
+  let item = (type as Y.AbstractType<unknown>)._item;
+  while (item) {
+    if (item.deleted) return true;
+    item = (item.parent as Y.AbstractType<unknown> | null)?._item ?? null;
+  }
+  return false;
+}
+
+/** Where a node of the editor's document is, if it is there. */
+function positionOf(doc: DocumentNode, node: unknown): number | undefined {
+  let found: number | undefined;
+  doc.descendants((each, pos) => {
+    if (found !== undefined) return false;
+    if (each === node) found = pos;
+    return found === undefined;
+  });
+  return found;
+}
+
+/** Holds the node at `pos` by its shared element; undefined in an editor bound to none. */
+export function holdNode(state: EditorState, pos: number): HeldNode | undefined {
+  const bound = bindingOf(state);
+  const node = state.doc.nodeAt(pos);
+  if (!bound || !node) return undefined;
+  const type = sharedOf(bound.mapping, node);
+  return type ? { type } : undefined;
 }
 
 /**
- * Holds the place at `pos` in the shared document; undefined in an editor
- * bound to none. With `line`, a place in a line of text is held also by the
- * letter before it and the end of its block (`HeldPlace`): for what goes
- * after a line (an image), not for a node that has to be found itself.
+ * Where a held node is now in `doc`; `null` when it was deleted (by
+ * anybody). `state` gives the binding: the state the change applies to.
  */
-export function holdPlace(state: EditorState, pos: number, line = false): HeldPlace | undefined {
-  const sync = ySyncPluginKey.getState(state);
-  if (!sync?.binding) return undefined;
-  const { mapping } = sync.binding;
+export function nodeNow(
+  state: EditorState,
+  held: HeldNode,
+  doc: DocumentNode = state.doc,
+): number | null | undefined {
+  const bound = bindingOf(state);
+  if (!bound) return undefined;
+  if (deleted(held.type)) return null;
+  return positionOf(doc, bound.mapping.get(held.type)) ?? null;
+}
+
+/** Holds the spot at `pos` in a line; undefined in an editor bound to none. */
+export function holdPlace(state: EditorState, pos: number): HeldPlace | undefined {
+  const bound = bindingOf(state);
+  if (!bound) return undefined;
+  const { sync, mapping } = bound;
   try {
     const at = absolutePositionToRelativePosition(pos, sync.type, mapping);
     const $pos = state.doc.resolve(pos);
-    if (!line || !$pos.parent.isTextblock || $pos.parentOffset === 0) return { at };
-    return {
-      at,
-      before: absolutePositionToRelativePosition(pos - 1, sync.type, mapping),
-      after: absolutePositionToRelativePosition($pos.after(), sync.type, mapping),
-    };
+    if (!$pos.parent.isTextblock) return { at };
+    const block = sharedOf(mapping, $pos.parent);
+    if ($pos.parentOffset === 0) return { at, block };
+    const after = absolutePositionToRelativePosition($pos.after(), sync.type, mapping);
+    return { at, after, block };
   } catch {
     return undefined;
   }
@@ -68,37 +140,61 @@ function itemDeleted(doc: Y.Doc, position: Y.RelativePosition): boolean {
   }
 }
 
-/** Whether a shared type, or one it is in, was deleted. */
-function deleted(type: Y.AbstractType<unknown> | null): boolean {
-  for (let at = type; at?._item; at = at._item.parent as Y.AbstractType<unknown> | null) {
-    if (at._item.deleted) return true;
-  }
-  return false;
-}
-
 /**
- * Where a held place is now: a position, or `null` when the block it was in
- * was deleted (by anybody). Undefined in an editor bound to no shared document.
+ * Where a held spot is now: a position, or `null` when its block was
+ * deleted (by anybody, or made anew: turned into a heading, wrapped).
  */
-export function placeNow(state: EditorState, held: HeldPlace): number | null | undefined {
-  const sync = ySyncPluginKey.getState(state);
-  if (!sync?.binding) return undefined;
-  const { doc, type, binding } = sync;
-  const absolute = Y.createAbsolutePositionFromRelativePosition(held.at, doc);
-  if (!absolute || deleted(absolute.type)) return null;
+export function placeNow(
+  state: EditorState,
+  held: HeldPlace,
+  doc: DocumentNode = state.doc,
+): number | null | undefined {
+  const bound = bindingOf(state);
+  if (!bound) return undefined;
+  const { sync, mapping } = bound;
+  if (held.block && deleted(held.block)) return null;
   const read = (position: Y.RelativePosition): number | null =>
-    relativePositionToAbsolutePosition(doc, type, position, binding.mapping);
-  let pos: number | null;
-  if (held.before && !itemDeleted(doc, held.before)) {
-    const before = read(held.before);
-    pos = before === null ? null : before + 1;
-  } else if (held.after && held.before) pos = read(held.after);
-  else pos = read(held.at);
-  return pos === null ? null : Math.min(pos, state.doc.content.size);
+    relativePositionToAbsolutePosition(sync.doc, sync.type, position, mapping);
+  const letterGone = itemDeleted(sync.doc, held.at);
+  const pos = letterGone && held.after ? read(held.after) : read(held.at);
+  return pos === null ? null : Math.min(pos, doc.content.size);
 }
 
 /** Whether a transaction is a change of the shared document (another's, or the shared undo). */
 export function fromShared(tr: Transaction): boolean {
   const meta = tr.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined;
   return meta?.isChangeOrigin === true;
+}
+
+/**
+ * Calls `then` after each write of the editor's own changes into the
+ * shared document: when places moved by them may be held
+ * again. Gives the way to stop; nothing in an editor bound to none.
+ */
+export function onShared(view: EditorView, then: () => void): () => void {
+  const bound = bindingOf(view.state);
+  if (!bound) return () => undefined;
+  const doc = bound.sync.doc;
+  const written = (transaction: Y.Transaction): void => {
+    if (transaction.origin === ySyncPluginKey && !view.isDestroyed) then();
+  };
+  doc.on('afterTransaction', written);
+  return () => {
+    doc.off('afterTransaction', written);
+  };
+}
+
+const writers = new WeakMap<EditorView, () => boolean>();
+
+/** Says whether the reader of an editor may still write while it is read-only for now. */
+export function setMayWrite(view: EditorView, may: () => boolean): void {
+  writers.set(view, may);
+}
+
+/**
+ * Whether what the reader did before may be written into the editor now: it
+ * is editable, or read-only only for a moment (the room sends it later).
+ */
+export function mayWrite(view: EditorView): boolean {
+  return view.editable || (writers.get(view)?.() ?? false);
 }

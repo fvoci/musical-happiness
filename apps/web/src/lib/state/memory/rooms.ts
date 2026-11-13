@@ -402,13 +402,14 @@ export class MemoryRooms {
   /** The card's body was written whole: the room's document is made anew from it, of the next epoch. */
   #remake(cardId: string): void {
     const room = this.#rooms.get(cardId);
-    if (!room) return;
+    const card = this.#card(room?.boardId ?? '', cardId);
+    // As the server: a body written whole that is what the document holds changes nothing.
+    if (!room || sameBody(bodyOf(room.doc) ?? null, card?.body ?? null)) return;
     clearTimeout(room.quiet);
     clearTimeout(room.longest);
     room.quiet = undefined;
     room.longest = undefined;
     room.doc.destroy();
-    const card = this.#card(room.boardId, cardId);
     room.doc = documentOf(card?.body ?? null);
     room.epoch += 1;
     room.tab = tabKey(card, cardId, room.epoch);

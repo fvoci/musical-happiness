@@ -199,6 +199,11 @@ export class CardStore {
   }
 
   /** The reader was told that changes were dropped. */
+  /** Something of the reader's that was not put into the body is said as lost, until dismissed. */
+  sayLost(why: string): void {
+    this.lost = why;
+  }
+
   dismissLost(): void {
     this.lost = undefined;
   }

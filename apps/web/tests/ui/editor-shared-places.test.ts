@@ -1,12 +1,13 @@
 /**
  * Places held across what others write, in a body edited together
  * (shared-place.ts): an image going up lands where it was put however the
- * room changes the body above it or in its block, and is not put in (and
- * that said) when its block is deleted; the place of a block formula and
- * the box of a formula in a line follow their formula, and close when it
- * is deleted.
+ * room changes the body above it or in its line, and is not put in (and
+ * that said) when its block is deleted or the reader may no longer write;
+ * the place of a formula or a diagram and the box of a formula in a line
+ * follow their own node, never a neighbour, and close when it is deleted.
  */
 import { getSchema, type Editor } from '@tiptap/core';
+import { TextSelection } from '@tiptap/pm/state';
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap';
 import { render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,7 @@ import * as Y from 'yjs';
 
 import { BODY_FIELD } from '$lib/editor/body-editor.ts';
 import BodyEditor from '$lib/editor/BodyEditor.svelte';
-import { openPlace, placeOf } from '$lib/editor/editing-place.ts';
+import { openPlace, placeKey, placeOf } from '$lib/editor/editing-place.ts';
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import { setFileUrlResolver } from '$lib/editor/files.ts';
 import type { DocNode } from '$lib/editor/schema.ts';
@@ -163,6 +164,89 @@ describe('an image going up in a body edited together', () => {
     });
   });
 
+  it('goes after its line when the room splits the line before its last letter', async () => {
+    const shared = room(doc(paragraph(text('Hello'))));
+    const { upload, finish } = slowUpload();
+    const { container } = render(BodyEditor, {
+      doc: null,
+      collab: shared.reader,
+      uploadImage: upload,
+    });
+    const editor = editorIn(container);
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    pasteImage(editor);
+    // Enter between "Hell" and "o": the "o" is written anew into a line of its own.
+    shared.others(() => {
+      const fragment = shared.server.getXmlFragment(BODY_FIELD);
+      ((fragment.get(0) as Y.XmlElement).get(0) as Y.XmlText).delete(4, 1);
+      fragment.insert(1, [paragraphOf('o')]);
+    });
+    finish();
+    await vi.waitFor(() => {
+      expect(blocks(editor)).toEqual(['Hell', 'o', 'image']);
+    });
+  });
+
+  it('is put in while the editor is read-only for a moment, and not for a reader who may only read', async () => {
+    for (const canWrite of [true, false]) {
+      const shared = room(doc(paragraph(text('first'))));
+      const { upload, finish } = slowUpload();
+      const { container, rerender } = render(BodyEditor, {
+        doc: null,
+        collab: shared.reader,
+        uploadImage: upload,
+        canWrite: true,
+      });
+      const editor = editorIn(container);
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      pasteImage(editor);
+      await rerender({
+        doc: null,
+        collab: shared.reader,
+        uploadImage: upload,
+        editable: false,
+        canWrite,
+      });
+      finish();
+      await vi.waitFor(() => {
+        expect(container.querySelector('.doc-upload')).toBeNull();
+      });
+      expect(blocks(editor)).toEqual(canWrite ? ['first', 'image'] : ['first']);
+      if (!canWrite) {
+        expect(container.querySelector('.doc-editor-status')?.textContent.trim()).toBe(
+          'The image was not put in: the description cannot be changed now.',
+        );
+      }
+      editor.destroy();
+    }
+  });
+
+  it('is not put in while the editor takes no change (content it cannot draw), and says so', async () => {
+    const shared = room(doc(paragraph(text('first'))));
+    const { upload, finish } = slowUpload();
+    const { container } = render(BodyEditor, {
+      doc: null,
+      collab: shared.reader,
+      uploadImage: upload,
+      canWrite: true,
+    });
+    const editor = editorIn(container);
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    pasteImage(editor);
+    shared.others(() => {
+      shared.server.getXmlFragment(BODY_FIELD).insert(1, [new Y.XmlElement('futureNode')]);
+    });
+    finish();
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-upload')).toBeNull();
+    });
+    // What is said is that the body cannot be edited here, which comes first.
+    expect(editor.state.doc.textContent).toBe('first');
+    expect(JSON.stringify(shared.reader.getXmlFragment(BODY_FIELD).toJSON())).not.toContain(
+      'image',
+    );
+  });
+
   it('is not put in when the room deletes its block, and says so', async () => {
     const shared = room(doc(paragraph(text('first')), paragraph(text('second'))));
     const { upload, finish } = slowUpload();
@@ -180,7 +264,7 @@ describe('an image going up in a body edited together', () => {
     finish();
     await vi.waitFor(() => {
       expect(container.querySelector('.doc-editor-status')?.textContent.trim()).toBe(
-        'The image was not put in: the text it was going into was removed.',
+        'The image was not put in: the line it was going into was removed or changed.',
       );
     });
     expect(blocks(editor)).toEqual(['first']);
@@ -211,6 +295,69 @@ describe('the place of a block formula in a body edited together', () => {
   });
 });
 
+describe('the place of a block in a body edited together, never taken for a neighbour', () => {
+  it('closes when its formula is deleted, though the next block is a formula too', () => {
+    const shared = room(doc(paragraph(text('above')), mathBlock('x^2'), mathBlock('y')));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    const at = editor.state.doc.child(0).nodeSize;
+    expect(openPlace(editor.view, at)).toBe(true);
+    shared.others(() => {
+      shared.server.getXmlFragment(BODY_FIELD).delete(1, 1);
+    });
+    expect(placeOf(editor.state)).toBeNull();
+    expect(editor.state.doc.child(1).attrs.latex).toBe('y');
+  });
+
+  it('stays open when one change of the room rewrites the blocks on both sides of it', () => {
+    const shared = room(doc(paragraph(text('above')), mathBlock('x^2'), paragraph(text('below'))));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    const at = editor.state.doc.child(0).nodeSize;
+    expect(openPlace(editor.view, at)).toBe(true);
+    // The editor replaces everything from the first block changed to the last.
+    shared.others(() => {
+      const fragment = shared.server.getXmlFragment(BODY_FIELD);
+      ((fragment.get(0) as Y.XmlElement).get(0) as Y.XmlText).insert(0, 'just ');
+      ((fragment.get(2) as Y.XmlElement).get(0) as Y.XmlText).insert(0, 'just ');
+    });
+    const moved = editor.state.doc.child(0).nodeSize;
+    expect(placeOf(editor.state)).toMatchObject({ kind: 'formula', pos: moved });
+  });
+
+  it('follows the first block of the body when the room writes above it', () => {
+    const shared = room(doc(mathBlock('x^2'), paragraph(text('below'))));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    expect(openPlace(editor.view, 0)).toBe(true);
+    shared.others(() => {
+      shared.server.getXmlFragment(BODY_FIELD).insert(0, [paragraphOf('new')]);
+    });
+    const moved = editor.state.doc.child(0).nodeSize;
+    expect(placeOf(editor.state)).toMatchObject({ kind: 'formula', pos: moved });
+  });
+
+  it('holds a diagram opened in the same change that made it, once that change is shared', () => {
+    const shared = room(doc(paragraph(text('first')), paragraph(text('last'))));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    const { schema: own } = editor.state;
+    const at = editor.state.doc.child(0).nodeSize;
+    const fence = own.nodes.codeBlock?.create({ language: 'mermaid' }, own.text('graph TD'));
+    if (!fence) throw new Error('no code block');
+    // Made and opened at once, as the fence typed in a line does, the caret in its source.
+    const tr = editor.state.tr.replaceWith(at, at + editor.state.doc.child(1).nodeSize, fence);
+    tr.setSelection(TextSelection.create(tr.doc, at + fence.nodeSize - 1));
+    editor.view.dispatch(tr.setMeta(placeKey, { open: { kind: 'diagram', pos: at } }));
+    expect(placeOf(editor.state)).toMatchObject({ kind: 'diagram', pos: at });
+    shared.others(() => {
+      shared.server.getXmlFragment(BODY_FIELD).insert(0, [paragraphOf('new')]);
+    });
+    const moved = at + editor.state.doc.child(0).nodeSize;
+    expect(placeOf(editor.state)).toMatchObject({ kind: 'diagram', pos: moved });
+  });
+});
+
 describe('the box of a formula in a line in a body edited together', () => {
   const box = (): HTMLTextAreaElement | null =>
     document.querySelector<HTMLTextAreaElement>('.doc-math-editing textarea');
@@ -233,6 +380,29 @@ describe('the box of a formula in a line in a body edited together', () => {
     });
     expect(latex).toBe('y');
     expect(blocks(editor)[0]).toBe('new');
+  });
+
+  it('stays on its formula when the room types right before it, and writes over a source changed meanwhile', () => {
+    const shared = room(doc(paragraph(text('a '), math('x'), text(' b'))));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    editor.view.dom.querySelector<HTMLElement>('.doc-math')?.click();
+    const field = box();
+    if (!field) throw new Error('no box');
+    shared.others(() => {
+      const line = shared.server.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement;
+      (line.get(0) as Y.XmlText).insert(2, 'X');
+      (line.get(1) as Y.XmlElement).setAttribute('latex', 'z');
+    });
+    expect(box()).not.toBeNull();
+    field.value = 'y';
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const found: unknown[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === 'inlineMath') found.push(node.attrs.latex);
+    });
+    expect(found).toEqual(['y']);
+    expect(editor.state.doc.textContent).toContain('a X');
   });
 
   it('closes, keeping nothing, when the room deletes the formula', () => {

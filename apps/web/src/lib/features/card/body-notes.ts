@@ -44,8 +44,12 @@ export function roomNote(room: BodyDocState, canEdit: boolean): RoomNote | undef
 }
 
 /** The notice for changes dropped, by the reason the room gave. */
+/** Why an image that went up was not put in: the editor was made anew for another document. */
+export const IMAGE_DROPPED = 'image_dropped';
+
 export function lostNote(why: string): string {
   if (why === 'document_reset') return m.card_body_lost_reset();
+  if (why === IMAGE_DROPPED) return m.card_body_lost_image();
   if (why === 'update_too_large' || why === 'document_too_large') return m.card_body_lost_large();
   return m.card_body_lost();
 }

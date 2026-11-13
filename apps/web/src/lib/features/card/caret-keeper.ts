@@ -81,19 +81,27 @@ export function keepCaret(): CaretKeeper {
         if (editor.isEditable) remember(editor);
       });
       if (!writable) return;
-      const size = editor.state.doc.content.size;
-      const clamp = (at: number): number => Math.max(0, Math.min(at, size));
+      const { doc } = editor.state;
+      const clamp = (at: number): number => Math.max(0, Math.min(at, doc.content.size));
+      /** Whether a caret may stand there: in a line of text, not between blocks. */
+      const inLine = (at: number): boolean => doc.resolve(at).parent.inlineContent;
+      // ProseMirror's own focus, which does not scroll the page.
+      const focus = (): void => {
+        editor.view.focus();
+      };
       // The caret of an editor the reader was not in is nobody's: the new editor's own stands.
       if (before?.focused) {
-        editor.commands.setTextSelection({ from: clamp(before.from), to: clamp(before.to) });
-        editor.commands.focus();
+        const from = clamp(before.from);
+        const to = clamp(before.to);
+        if (inLine(from) && inLine(to)) editor.commands.setTextSelection({ from, to });
+        focus();
         return;
       }
       if (!pressed || Date.now() - pressed.at > PRESS_KEPT) return;
       const found = editor.view.posAtCoords({ left: pressed.x, top: pressed.y });
       if (!found) return;
-      editor.commands.setTextSelection(clamp(found.pos));
-      editor.commands.focus();
+      if (inLine(clamp(found.pos))) editor.commands.setTextSelection(clamp(found.pos));
+      focus();
     },
   };
 }

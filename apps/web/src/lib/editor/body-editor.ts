@@ -66,4 +66,12 @@ export interface BodyEditorProps {
   collab?: Doc;
   /** Called once the editor is made, with it: for whoever puts the caret back where it was. */
   onEditor?: (editor: Editor) => void;
+  /**
+   * With `collab`: the reader may write, though the editor is read-only for
+   * a moment (the connection away). What they did before (an image that
+   * went up, a formula's field) is still written then; the room sends it.
+   */
+  canWrite?: boolean;
+  /** With `collab`: an image that went up had no place left, the editor being made anew meanwhile. */
+  onImageDropped?: () => void;
 }

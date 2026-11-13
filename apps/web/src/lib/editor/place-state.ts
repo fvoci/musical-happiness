@@ -17,7 +17,7 @@ import {
 import type { Decoration, EditorView } from '@tiptap/pm/view';
 
 import { DIAGRAM_LANGUAGE } from './schema.ts';
-import { fromShared, holdPlace, placeNow, type HeldPlace } from './shared-place.ts';
+import { fromShared, holdNode, nodeNow, type HeldNode } from './shared-place.ts';
 
 /** A diagram, a block formula, or a block formula that is still being written. */
 export type PlaceKind = 'diagram' | 'formula' | 'new-formula';
@@ -41,11 +41,13 @@ export interface Place {
   /** Where the block starts: the diagram, the formula, or the empty line a new formula goes into. */
   pos: number;
   /**
-   * The same place in the shared document of a body edited together: a
-   * change from there replaces the blocks it changed, which the mapping of
-   * `pos` cannot follow (shared-place.ts).
+   * The block in the shared document of a body edited together: a change
+   * from there replaces the blocks it changed, which the mapping of `pos`
+   * cannot follow (shared-place.ts). Held again by the place's view after
+   * each change of the reader's (`holdAgain`), once it is in the shared
+   * document; kept by every copy of the place.
    */
-  held?: HeldPlace;
+  anchor?: { held?: HeldNode; stale: boolean };
   /** For a new formula: its place, which the document does not hold yet. */
   panel?: NewFormulaPanel;
   /** For a formula: its field, set by its node view while the place is open. */
@@ -94,24 +96,33 @@ export function closedDiagramAt(state: EditorState, $position: ResolvedPos): num
   return place?.kind === 'diagram' && place.pos === pos ? undefined : pos;
 }
 
-export function nextPlace(value: Place | null, tr: Transaction, state: EditorState): Place | null {
+export function nextPlace(
+  value: Place | null,
+  tr: Transaction,
+  before: EditorState,
+  state: EditorState,
+): Place | null {
   const meta = tr.getMeta(placeKey) as Meta | undefined;
   if (meta && 'close' in meta) return null;
   let place = meta?.open ?? value;
   if (!place) return null;
-  if (meta) place = { ...place, held: holdPlace(state, place.pos) };
-  else if (place.held && fromShared(tr)) {
+  const held = place.anchor?.held;
+  if (meta) place = { ...place, anchor: { stale: true } };
+  else if (held && fromShared(tr)) {
     // Somebody else's change, or the shared undo: the block is found again in the shared document.
-    const now = placeNow(state, place.held);
+    const now = nodeNow(before, held, state.doc);
     if (now === null) return null;
     if (now !== undefined && now !== place.pos) place = { ...place, pos: now };
-  } else {
+  } else if (tr.docChanged) {
     const mapped = tr.mapping.mapResult(place.pos, 1);
     if (mapped.deleted) return null;
+    if (place.anchor) place.anchor.stale = true;
     if (mapped.pos !== place.pos) place = { ...place, pos: mapped.pos };
   }
   if (!fits(place.kind, state.doc.nodeAt(place.pos))) return null;
-  return selectionStays(place, state) ? place : null;
+  // A change from the room moves the selection by the binding's guess, not the reader's
+  // (`keepPlaceSelected` puts it back).
+  return fromShared(tr) || selectionStays(place, state) ? place : null;
 }
 
 /**
@@ -207,6 +218,21 @@ function madeHere(transactions: readonly Transaction[], before: EditorState, pos
  * The cursor never rests in the source of a closed diagram: it selects the
  * diagram instead. A diagram that has just been made, empty, opens.
  */
+/** After a change from the room, the selection goes back to the open place it was in. */
+export function keepPlaceSelected(
+  transactions: readonly Transaction[],
+  state: EditorState,
+): Transaction | null {
+  const place = placeOf(state);
+  if (!place || !transactions.some(fromShared) || selectionStays(place, state)) return null;
+  const node = state.doc.nodeAt(place.pos);
+  if (!node) return null;
+  if (place.kind === 'formula')
+    return state.tr.setSelection(NodeSelection.create(state.doc, place.pos));
+  const end = place.pos + node.nodeSize - 1;
+  return state.tr.setSelection(TextSelection.create(state.doc, end));
+}
+
 export function keepOutOfClosed(
   transactions: readonly Transaction[],
   before: EditorState,
@@ -222,6 +248,14 @@ export function keepOutOfClosed(
   if (madeHere(transactions, before, pos) && node.content.size === 0)
     return state.tr.setMeta(placeKey, { open: { kind: 'diagram', pos } });
   return state.tr.setSelection(NodeSelection.create(state.doc, pos));
+}
+
+/** Holds the open place's block again, once the reader's change is in the shared document. */
+export function holdAgain(state: EditorState): void {
+  const place = placeOf(state);
+  if (!place?.anchor?.stale) return;
+  place.anchor.held = holdNode(state, place.pos);
+  place.anchor.stale = false;
 }
 
 /**
@@ -251,14 +285,19 @@ export function openPlace(view: EditorView, pos: number): boolean {
  * Closes the place that is open, on purpose: a formula keeps what its field
  * holds. With `focusBlock` (a key, its button) the block is selected and the
  * editor takes the focus; without (a press or the focus elsewhere), the
- * selection and the focus are left to what was pressed. The editor made
- * read-only closes it too, keeping what it holds. A place that only goes
- * away (its block is deleted, the document replaced) writes nothing.
+ * selection and the focus are left to what was pressed. With `dropping`,
+ * nothing is written: what the field holds is given up (the reader may no
+ * longer write). A place that only goes away (its block is deleted, the
+ * document replaced) writes nothing either.
  */
-export function closePlace(view: EditorView, focusBlock: boolean): void {
+export function closePlace(view: EditorView, focusBlock: boolean, dropping = false): void {
   const place = placeOf(view.state);
   if (!place) return;
   const tr = view.state.tr.setMeta(placeKey, { close: true });
+  if (dropping) {
+    view.dispatch(tr);
+    return;
+  }
   const at = place.kind === 'diagram' ? place.pos : finishFormula(tr, place);
   if (focusBlock) {
     if (at !== undefined) tr.setSelection(NodeSelection.create(tr.doc, at));

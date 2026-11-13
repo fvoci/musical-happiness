@@ -11,25 +11,42 @@
  *
  * In a body edited together the place is held in the shared document
  * (shared-place.ts), so that what others write meanwhile, before it or in
- * its block, does not move the image elsewhere. When the block it was going
- * into is deleted (by anybody) the image is not put in, and that is said.
+ * its block, does not move the image elsewhere. The image is not put in,
+ * and that is said, when the block it was going into was deleted or made
+ * anew (by anybody), when the reader may no longer write, and when the
+ * editor takes no change for now (content it cannot draw). An editor read
+ * only for a moment (the connection away) takes it: the room sends it later.
  */
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 
-import { fromShared, holdPlace, placeNow, type HeldPlace } from './shared-place.ts';
+import {
+  fromShared,
+  holdPlace,
+  mayWrite,
+  onShared,
+  placeNow,
+  type HeldPlace,
+} from './shared-place.ts';
 
-/** How an upload ended for the reader: put in, failed (or given up), or its place was deleted. */
-export type UploadOutcome = 'done' | 'failed' | 'gone';
+/**
+ * How an upload ended for the reader: put in, failed (or given up), its
+ * place deleted, or the editor no longer taking it in.
+ */
+export type UploadOutcome = 'done' | 'failed' | 'gone' | 'refused';
 
 export interface ImageUploadOptions {
   /** Uploads a file and gives its identifier. Undefined: images cannot be added. */
   upload: () => ((file: File) => Promise<string>) | undefined;
   /** What the placeholder says to a screen reader. */
   uploadingLabel: () => string;
-  /** How many uploads are under way, whenever that changes, and how the one that just ended did. */
-  onProgress: (pending: number, outcome: UploadOutcome | undefined) => void;
+  /**
+   * How many uploads are under way, whenever that changes, and how the one
+   * that just ended did. Also once the editor is gone (`destroyed`): an
+   * image that could not be put in is said by whoever is still there.
+   */
+  onProgress: (pending: number, outcome: UploadOutcome | undefined, destroyed: boolean) => void;
 }
 
 type Change = { add: { id: number; position: number; label: string } } | { remove: number };
@@ -40,6 +57,8 @@ interface Placeholder {
   pos: number;
   /** The place in the shared document, in a body edited together. */
   held: HeldPlace | undefined;
+  /** Moved by the reader's own change: held again once it is in the shared document. */
+  stale: boolean;
   label: string;
   /** Its block was deleted: the image has nowhere to go. */
   gone: boolean;
@@ -48,14 +67,15 @@ interface Placeholder {
 const key = new PluginKey<Placeholder[]>('imageUpload');
 
 /** Where a placeholder is after a transaction. */
-function follow(placeholder: Placeholder, tr: Transaction, state: EditorState): Placeholder {
+function follow(placeholder: Placeholder, tr: Transaction, before: EditorState): Placeholder {
   if (placeholder.gone) return placeholder;
   if (placeholder.held && fromShared(tr)) {
-    const now = placeNow(state, placeholder.held);
+    const now = placeNow(before, placeholder.held, tr.doc);
     if (now === null) return { ...placeholder, gone: true };
     if (now !== undefined) return { ...placeholder, pos: now };
   }
-  return { ...placeholder, pos: tr.mapping.map(placeholder.pos) };
+  if (!tr.docChanged) return placeholder;
+  return { ...placeholder, pos: tr.mapping.map(placeholder.pos), stale: true };
 }
 
 /** Where the image of a placeholder goes now: a position, `null` when its block is gone. */
@@ -78,6 +98,31 @@ function widget(placeholder: Placeholder, size: number): Decoration {
     },
     { id, key: `doc-upload-${String(id)}` },
   );
+}
+
+/** Puts the image of an upload that ended where its placeholder is now, if it may. */
+function putIn(view: EditorView, id: number, fileId: string | undefined): UploadOutcome {
+  const placeholder = key.getState(view.state)?.find((each) => each.id === id);
+  const at = placeholder ? placeOf(view.state, placeholder) : null;
+  const remove = (): void => {
+    view.dispatch(view.state.tr.setMeta(key, { remove: id } satisfies Change));
+  };
+  const image = view.state.schema.nodes.image;
+  if (fileId === undefined || fileId === '' || !image) {
+    remove();
+    return 'failed';
+  }
+  if (at === null || !mayWrite(view)) {
+    remove();
+    return at === null ? 'gone' : 'refused';
+  }
+  const before = view.state.doc;
+  const transaction = view.state.tr.setMeta(key, { remove: id } satisfies Change);
+  view.dispatch(transaction.replaceRangeWith(at, at, image.create({ fileId })));
+  if (view.state.doc !== before) return 'done';
+  // Not taken (the editor takes no change while it holds content it cannot draw).
+  remove();
+  return 'refused';
 }
 
 /**
@@ -114,26 +159,15 @@ export const ImageUpload = Extension.create<ImageUploadOptions>({
             add: { id, position, label: options.uploadingLabel() },
           } satisfies Change),
         );
-        options.onProgress(pending, undefined);
-        const finish = (uploaded: string | undefined): void => {
-          // Put in even while the editor is read only for now (the connection away): the room
-          // sends it when it can, or says it was lost; a reader who may no longer write is refused.
-          const fileId = uploaded;
+        options.onProgress(pending, undefined, false);
+        const finish = (fileId: string | undefined): void => {
           pending -= 1;
           if (view.isDestroyed) {
-            options.onProgress(pending, fileId === undefined ? 'failed' : 'done');
+            // The editor was made anew (another document of the room): the image has no place.
+            options.onProgress(pending, fileId === undefined ? 'failed' : 'gone', true);
             return;
           }
-          // Where the placeholder is now; it has moved with whatever was written meanwhile.
-          const placeholder = key.getState(view.state)?.find((each) => each.id === id);
-          const at = placeholder ? placeOf(view.state, placeholder) : null;
-          const transaction = view.state.tr.setMeta(key, { remove: id } satisfies Change);
-          const image = view.state.schema.nodes.image;
-          const placed = fileId !== undefined && fileId !== '' && at !== null && image;
-          if (placed) transaction.replaceRangeWith(at, at, image.create({ fileId }));
-          view.dispatch(transaction);
-          if (fileId === undefined) options.onProgress(pending, 'failed');
-          else options.onProgress(pending, placed ? 'done' : 'gone');
+          options.onProgress(pending, putIn(view, id, fileId), false);
         };
         upload(file).then(finish, () => {
           finish(undefined);
@@ -147,19 +181,29 @@ export const ImageUpload = Extension.create<ImageUploadOptions>({
         key,
         state: {
           init: () => [],
-          apply(transaction, list, _before, state) {
-            let next = list.map((placeholder) => follow(placeholder, transaction, state));
+          apply(transaction, list, before) {
+            let next = list.map((placeholder) => follow(placeholder, transaction, before));
             const change = transaction.getMeta(key) as Change | undefined;
             if (change && 'add' in change) {
               const { id, position, label } = change.add;
               const pos = Math.min(position, transaction.doc.content.size);
-              next = [...next, { id, pos, held: holdPlace(state, pos, true), label, gone: false }];
+              next = [...next, { id, pos, held: undefined, stale: true, label, gone: false }];
             } else if (change && 'remove' in change) {
               next = next.filter((placeholder) => placeholder.id !== change.remove);
             }
             return next;
           },
         },
+        // Held once the change that put it there is in the shared document (shared-place.ts).
+        view: (view) => ({
+          destroy: onShared(view, () => {
+            for (const placeholder of key.getState(view.state) ?? []) {
+              if (!placeholder.stale || placeholder.gone) continue;
+              placeholder.held = holdPlace(view.state, placeholder.pos);
+              placeholder.stale = false;
+            }
+          }),
+        }),
         props: {
           decorations: (state) => {
             const list = (key.getState(state) ?? []).filter((placeholder) => !placeholder.gone);

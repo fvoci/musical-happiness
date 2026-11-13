@@ -31,12 +31,15 @@ import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { m } from '$lib/i18n/paraglide/messages.js';
 
 import { diagramKind } from './diagram-kind.ts';
+import { mayWrite, onShared } from './shared-place.ts';
 import {
   closedDiagramAt,
   closePlace,
   closesPlace,
+  holdAgain,
   isDiagramNode,
   keepOutOfClosed,
+  keepPlaceSelected,
   nextPlace,
   openPlace,
   placeKey,
@@ -204,15 +207,19 @@ function placeView(view: EditorView) {
   };
   page.addEventListener('click', onClick, true);
   page.addEventListener('focusin', onFocusIn);
+  const stopHolding = onShared(view, () => {
+    holdAgain(view.state);
+  });
   return {
     update: (_: EditorView, before: EditorState) => {
       const place = placeOf(view.state);
       if (place && !view.editable) {
-        // The editor became read-only with a place open (the connection away, the room's
-        // document sent again): what the field holds is kept as if closed on purpose; the
-        // room sends it when it can, or says it was lost. Not from inside this update.
+        // The editor became read-only with a place open. Only for a moment (the connection
+        // away): what the field holds is kept as if closed on purpose, and the room sends it
+        // when it can, or says it was lost. For a reader who may only read: nothing is written.
+        // Not from inside this update.
         queueMicrotask(() => {
-          if (!view.isDestroyed) closePlace(view, false);
+          if (!view.isDestroyed) closePlace(view, false, !mayWrite(view));
         });
         return;
       }
@@ -227,6 +234,7 @@ function placeView(view: EditorView) {
       }
     },
     destroy: () => {
+      stopHolding();
       page.removeEventListener('click', onClick, true);
       page.removeEventListener('focusin', onFocusIn);
       live.remove();
@@ -245,9 +253,10 @@ export const EditingPlace = Extension.create({
         key: placeKey,
         state: {
           init: () => null,
-          apply: (tr, value, _old, state) => nextPlace(value, tr, state),
+          apply: (tr, value, before, state) => nextPlace(value, tr, before, state),
         },
-        appendTransaction: keepOutOfClosed,
+        appendTransaction: (transactions, before, state) =>
+          keepPlaceSelected(transactions, state) ?? keepOutOfClosed(transactions, before, state),
         props: {
           handleDOMEvents: { keydown: placeKeys },
           handleKeyDown,

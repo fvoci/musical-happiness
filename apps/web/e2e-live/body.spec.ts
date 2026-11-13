@@ -346,11 +346,22 @@ test('a card duplicated right after typing copies what was typed', async ({ page
     cards: [{ title: 'Original', status: 'To do' }],
   });
   const cardId = board.cards.Original ?? '';
+  // Whether the last change sent to the room has been acknowledged (the answers come in order).
+  let answered = true;
+  page.on('websocket', (socket) => {
+    socket.on('framesent', (frame) => {
+      if (typeof frame.payload !== 'string') answered = false;
+    });
+    socket.on('framereceived', (frame) => {
+      if (typeof frame.payload === 'string' && frame.payload.includes('"DOC_ACK"')) answered = true;
+    });
+  });
   await openCard(page, boardPath(board, board.viewId, cardId), owner);
   await editor(page).click();
   await page.keyboard.type('Typed just now');
-  // Every change acknowledged by the room.
-  await expect(page.getByTestId('card-save-state')).toHaveAttribute('data-state', 'saved');
+  // Every change acknowledged by the room, and the copy asked for at once (the room writes the
+  // card 2 s after the last change).
+  await expect.poll(() => answered, { intervals: [20] }).toBe(true);
   const copied = await api.post(
     `/api/v1/w/${board.workspaceId}/boards/${board.boardId}/blocks/${cardId}/duplicate`,
   );
