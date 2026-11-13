@@ -46,9 +46,11 @@
      * (`Account.startOidc`); a refusal of the start rejects.
      */
     onOidcStart?: (orgId: string) => Promise<void>;
+    /** Where "Forgot your password?" leads; the link shows only while the server sends mail. */
+    forgotHref?: string;
   }
 
-  let { onSignIn, onRegister, optionsOf, onOidcStart }: Props = $props();
+  let { onSignIn, onRegister, optionsOf, onOidcStart, forgotHref }: Props = $props();
 
   /** What the page's address says: the organization, and what went wrong. */
   const address = new URLSearchParams(location.search);
@@ -275,6 +277,16 @@
         {mode === 'signIn' ? m.account_sign_in() : m.account_register()}
       {/if}
     </Button>
+
+    {#if mode === 'signIn' && forgotHref}
+      {#await options then read}
+        {#if read?.mailEnabled}
+          <a href={forgotHref} class="text-center text-sm underline underline-offset-4"
+            >{m.reset_forgot()}</a
+          >
+        {/if}
+      {/await}
+    {/if}
 
     <!-- Until the server has said whether it takes an account, neither is offered. -->
     {#await options then read}

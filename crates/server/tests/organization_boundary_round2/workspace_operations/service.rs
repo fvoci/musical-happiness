@@ -3,16 +3,23 @@
 use serde_json::json;
 
 use super::super::fake_oidc::FakeProvider;
+use super::super::fake_smtp::FakeSmtp;
 use super::{Case, Client, PASSWORD, TestServer, identity, shared};
 
-pub(super) async fn exercise(case: &mut Case, server: &TestServer, fake: &FakeProvider) {
+pub(super) async fn exercise(
+    case: &mut Case,
+    server: &TestServer,
+    fake: &FakeProvider,
+    smtp: &FakeSmtp,
+) {
     for operation in ["hello", "ping", "ready", "getClientConfig"] {
         case.run(operation, &[], json!({})).await;
     }
     account(case).await;
     organization(case).await;
     shared::exercise(case).await;
-    invitation(case, server).await;
+    invitation(case, server, smtp).await;
+    recovery(case, server, smtp).await;
     identity::exercise(case, server, fake).await;
     let request = case
         .request("setUserAdmin", &[("userId", &case.user)])
@@ -132,12 +139,25 @@ async fn organization(case: &mut Case) {
     case.present("getOrgAudit", &[], &workspace).await;
 }
 
-async fn invitation(case: &mut Case, server: &TestServer) {
+async fn invitation(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
     let invitation = case
         .run("createInvitation", &[], json!({"role": "member"}))
         .await
         .value();
     let token = invitation["token"].as_str().expect("invitation token");
+    let mailed = format!("{}-mailed@example.test", case.label);
+    case.run(
+        "emailInvitation",
+        &[],
+        json!({"token": token, "recipients": [mailed]}),
+    )
+    .await
+    .check_no_content();
+    let letter = mail_to(case, smtp, &mailed).await;
+    assert!(
+        letter.contains(token),
+        "the mail carries this organization's invitation"
+    );
     let preview = case
         .run("previewInvitation", &[], json!({"token": token}))
         .await
@@ -163,4 +183,65 @@ async fn invitation(case: &mut Case, server: &TestServer) {
         "invitation joins its own workspace"
     );
     case.record("acceptInvitation", &accepted);
+}
+
+/// The invited account recovers its password from the mail its own organization sent.
+async fn recovery(case: &mut Case, server: &TestServer, smtp: &FakeSmtp) {
+    let invited = format!("{}-invited", case.label);
+    let email = format!("{invited}@example.test");
+    let requested = server
+        .anonymous()
+        .post("/password-reset/request", &json!({"email": email}))
+        .await;
+    requested.check_no_content();
+    case.record("requestPasswordReset", &requested);
+    let letter = mail_to(case, smtp, &email).await;
+    let link = letter
+        .lines()
+        .find(|line| line.starts_with("http") && line.contains("/reset-password#"))
+        .expect("the reset mail has its link");
+    let token = link.split_once('#').expect("a fragment").1.trim();
+    let completed = server
+        .anonymous()
+        .post(
+            "/password-reset/complete",
+            &json!({"token": token, "password": "recovered parity password"}),
+        )
+        .await;
+    completed.check_no_content();
+    case.record("completePasswordReset", &completed);
+    let again = server
+        .anonymous()
+        .post(
+            "/login",
+            &json!({"username": invited, "password": "recovered parity password"}),
+        )
+        .await;
+    assert_eq!(again.status.as_u16(), 204, "the new password signs in");
+}
+
+/// The decoded mail to `recipient`, which must name nothing of the other organization.
+async fn mail_to(case: &Case, smtp: &FakeSmtp, recipient: &str) -> String {
+    let letter = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            if let Some(found) = smtp
+                .messages()
+                .await
+                .into_iter()
+                .find(|message| message.recipient == recipient)
+            {
+                return found.decoded;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the mail arrives");
+    for value in &case.forbidden {
+        assert!(
+            !letter.contains(value.as_str()),
+            "mail to {recipient} leaked first-organization data {value}"
+        );
+    }
+    letter
 }

@@ -32,6 +32,7 @@ mod members;
 mod observe;
 mod oidc;
 mod org_admin;
+mod password_reset;
 mod schema;
 mod server_lock;
 mod sessions;
@@ -74,6 +75,7 @@ pub use oidc::{
     StoredProvider, Unlinked,
 };
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
+pub use password_reset::PASSWORD_RESET_LIFETIME_MILLIS;
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};

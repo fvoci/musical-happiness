@@ -8,6 +8,8 @@
 //! stored only if the maker is still what was found then, where it is written
 //! (`fvoci_store::Inviter`).
 
+mod mail;
+
 use std::net::IpAddr;
 
 use fvoci_model::{
@@ -79,8 +81,20 @@ impl App {
         created_by: &str,
         inviting: Inviting<'_>,
     ) -> Result<Invitation, AppError> {
+        let ends = now_millis().saturating_add(INVITATION_LIFETIME_MILLIS);
+        self.store_link(workspace_id, created_by, inviting, ends)
+            .await
+    }
+
+    /// Stores a new link that ends at `expires_at`, and returns it with its token.
+    async fn store_link(
+        &self,
+        workspace_id: &str,
+        created_by: &str,
+        inviting: Inviting<'_>,
+        expires_at: i64,
+    ) -> Result<Invitation, AppError> {
         let token = new_secret();
-        let now = now_millis();
         let (guest_of, max_uses) = match inviting {
             Inviting::Members => (None, None),
             Inviting::Guest { board_id, role } => {
@@ -92,8 +106,8 @@ impl App {
             guest_of,
             token_hash: &token_digest(&token),
             created_by,
-            now,
-            expires_at: now.saturating_add(INVITATION_LIFETIME_MILLIS),
+            now: now_millis(),
+            expires_at,
             max_uses,
         };
         let mut invitation = match self.store().create_invitation(&link).await {

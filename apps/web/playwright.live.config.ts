@@ -54,7 +54,7 @@ export default defineConfig({
     {
       name: 'organizations',
       testMatch: ORGANIZATIONS,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${PORT + 2}` },
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${PORT + 4}` },
     },
   ],
   webServer: [
@@ -69,7 +69,7 @@ export default defineConfig({
       gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
     },
     {
-      command: `node tools/live-server.ts ${PORT + 2} --organizations`,
+      command: `node tools/live-server.ts ${PORT + 4} --organizations`,
       wait: { stdout: /live: http/ },
       stdout: 'pipe',
       stderr: 'pipe',
