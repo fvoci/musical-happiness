@@ -162,7 +162,7 @@ impl Session {
 
 /// Where a session made through a provider came from. Kept as it was when the session
 /// was made: removing the provider or changing its issuer ends the sessions of the
-/// organization and issuer, and unlinking an identity those of its issuer.
+/// organization and issuer, and unlinking an identity those made for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoginOrigin {
     /// The provider row the session was made through; a replaced row gets a new one.
@@ -171,4 +171,21 @@ pub struct LoginOrigin {
     pub org_id: String,
     /// The provider's issuer at the time.
     pub issuer: String,
+    /// The subject the provider gave: with the issuer, the identity the session was
+    /// made for. `None` for a session made before that was kept, which is taken for
+    /// one of every identity of its issuer.
+    pub subject: Option<String>,
+}
+
+impl LoginOrigin {
+    /// Whether the session was made for the identity `subject` of `issuer`, or may have
+    /// been: one that knows its issuer only answers for every subject of it.
+    #[must_use]
+    pub fn is_of_identity(&self, issuer: &str, subject: &str) -> bool {
+        self.issuer == issuer
+            && self
+                .subject
+                .as_deref()
+                .is_none_or(|made_for| made_for == subject)
+    }
 }

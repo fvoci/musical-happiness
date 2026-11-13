@@ -447,10 +447,13 @@ impl Store {
                 return Ok(Err(OidcRefusal::ProviderGone));
             };
             let auto_join = row.bool(0)?;
+            let (OidcAccount::New { identity, .. } | OidcAccount::Known { identity, .. }) =
+                &account;
             let origin = LoginOrigin {
                 provider_id: provider_id.to_owned(),
                 org_id: row.id(2)?,
                 issuer: row.text(1)?,
+                subject: Some(identity.subject.to_owned()),
             };
             let joined = match account {
                 OidcAccount::New {

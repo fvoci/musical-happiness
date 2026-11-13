@@ -476,6 +476,15 @@ impl Row {
         Ok(value.unwrap_or_default())
     }
 
+    /// Reads a text column that may be `NULL`, as `None`: for where no value and an
+    /// empty one are told apart.
+    pub(crate) fn opt_text(&self, index: usize) -> Result<Option<String>, StoreError> {
+        Ok(match self {
+            Self::Sqlite(row) => row.try_get(index)?,
+            Self::Postgres(row) => row.try_get(index)?,
+        })
+    }
+
     /// Reads an identifier column: `uuid` on PostgreSQL, text on SQLite. `NULL` reads
     /// as the empty string, which is how the model says "none".
     pub(crate) fn id(&self, index: usize) -> Result<String, StoreError> {

@@ -11,9 +11,10 @@ use fvoci_model::{LoginOrigin, Session};
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
+use crate::oidc::Identity;
 
 const SESSION_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id, \
-     login_org_id, login_issuer";
+     login_org_id, login_issuer, login_subject";
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -201,8 +202,8 @@ fn session_from_row(row: &Row) -> Result<Session, StoreError> {
     })
 }
 
-/// The origin of a session row: all three columns or none of them (the schema holds
-/// them so).
+/// The origin of a session row: the provider, its organization and its issuer, or
+/// none of them (the schema holds them so); the subject where the session knows it.
 fn login_origin(row: &Row) -> Result<Option<LoginOrigin>, StoreError> {
     let provider_id = row.id(6)?;
     if provider_id.is_empty() {
@@ -212,6 +213,7 @@ fn login_origin(row: &Row) -> Result<Option<LoginOrigin>, StoreError> {
         provider_id,
         org_id: row.id(7)?,
         issuer: row.text(8)?,
+        subject: row.opt_text(9)?,
     }))
 }
 
@@ -271,15 +273,21 @@ pub(crate) async fn end_sessions_of_origin(
     Ok(())
 }
 
-/// Ends the sessions of a user made through a provider of `issuer`, in whichever
-/// organization: for when the user unlinks their identity of that issuer.
-pub(crate) async fn end_sessions_of_issuer(
+/// Ends the sessions of a user made for `identity`, through a provider of its issuer
+/// in whichever organization, and those of its issuer that know no subject
+/// ([`LoginOrigin::is_of_identity`]): for when the user unlinks that identity.
+pub(crate) async fn end_sessions_of_identity(
     scope: &mut Scope<'_>,
     user_id: &str,
-    issuer: &str,
+    identity: Identity<'_>,
 ) -> Result<(), StoreError> {
     let mut sql = delete_sessions_where_user(scope, user_id);
-    sql.push_bind(" AND login_issuer = ", issuer);
+    sql.push_bind(" AND login_issuer = ", identity.issuer)
+        .push_bind(
+            " AND (login_subject IS NULL OR login_subject = ",
+            identity.subject,
+        )
+        .push(")");
     scope.execute(sql).await?;
     Ok(())
 }
@@ -333,6 +341,15 @@ pub(crate) async fn insert_session(
         .push_bind(
             ", ",
             Param::OptText(session.login.as_ref().map(|login| login.issuer.clone())),
+        )
+        .push_bind(
+            ", ",
+            Param::OptText(
+                session
+                    .login
+                    .as_ref()
+                    .and_then(|login| login.subject.clone()),
+            ),
         )
         .push(")");
     scope.execute(sql).await?;

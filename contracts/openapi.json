@@ -1392,7 +1392,7 @@
             "type": "string"
           },
           "madeThisSession": {
-            "description": "Whether the session that asks was made through a provider of this issuer:\nremoving the identity ends that session too.",
+            "description": "Whether the session that asks was made for this identity, or through a provider\nof its issuer before sessions knew their subject: removing the identity ends\nthat session too.",
             "type": "boolean"
           },
           "subject": {

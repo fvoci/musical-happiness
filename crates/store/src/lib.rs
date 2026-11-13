@@ -70,7 +70,7 @@ pub use invitations::{Acceptance, Accepted, Acceptor, Inviter, InviterOfBoard, N
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use oidc::{Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider};
-pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, Unlinked};
+pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;

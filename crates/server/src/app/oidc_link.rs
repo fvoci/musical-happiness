@@ -151,12 +151,20 @@ impl App {
     ///
     /// Returns the store's error.
     pub async fn identities(&self, session: &Session) -> Result<Vec<LinkedIdentity>, AppError> {
-        let mut identities = self.store().identities_of_user(&session.user_id).await?;
-        let issuer = session.login.as_ref().map(|login| login.issuer.as_str());
-        for identity in &mut identities {
-            identity.made_this_session = issuer == Some(identity.issuer.as_str());
-        }
-        Ok(identities)
+        let tied = self.store().identities_of_user(&session.user_id).await?;
+        Ok(tied
+            .into_iter()
+            .map(|tied| LinkedIdentity {
+                made_this_session: session
+                    .login
+                    .as_ref()
+                    .is_some_and(|login| login.is_of_identity(&tied.issuer, &tied.subject)),
+                issuer: tied.issuer,
+                subject: tied.subject,
+                email: tied.email,
+                create_at: tied.create_at,
+            })
+            .collect())
     }
 
     /// Removes an identity from the account of the session, whose holder shows to know
@@ -206,10 +214,10 @@ impl App {
             .await?
         {
             Unlinked::Removed => {
-                // The store ended the sessions made through that issuer: what they had
+                // The store ended the sessions made for that identity: what they had
                 // open, their seats in the rooms among it, ends with them.
                 self.ws()
-                    .close_sessions_of_issuer(&user.id, &request.issuer);
+                    .close_sessions_of_identity(&user.id, &request.issuer, &request.subject);
                 tracing::info!(user_id = %user.id, issuer = %request.issuer, "an account removed an identity from itself");
                 Ok(())
             }

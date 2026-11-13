@@ -3185,8 +3185,9 @@ export interface components {
             /** @description The issuer, as the provider names itself. */
             issuer: string;
             /**
-             * @description Whether the session that asks was made through a provider of this issuer:
-             *     removing the identity ends that session too.
+             * @description Whether the session that asks was made for this identity, or through a provider
+             *     of its issuer before sessions knew their subject: removing the identity ends
+             *     that session too.
              */
             madeThisSession: boolean;
             /** @description Who the account's owner is at the issuer. */

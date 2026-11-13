@@ -1,13 +1,11 @@
 //! The identities tied to an account: listing them, tying one at the end of a sign-in
-//! to link, and removing one again, which ends the account's sessions of its issuer.
+//! to link, and removing one again, which ends the account's sessions made for it.
 //! Signing in through a provider, and the provider itself, are in `oidc.rs`.
-
-use fvoci_model::LinkedIdentity;
 
 use crate::Store;
 use crate::db::{Dialect, Id, now_millis};
 use crate::error::StoreError;
-use crate::oidc::{Identity, insert_identity};
+use crate::oidc::Identity;
 use crate::sessions;
 
 impl Store {
@@ -17,10 +15,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn identities_of_user(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<LinkedIdentity>, StoreError> {
+    pub async fn identities_of_user(&self, user_id: &str) -> Result<Vec<TiedIdentity>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
                 "SELECT issuer, subject, email, create_at FROM user_identities WHERE user_id = ",
@@ -32,13 +27,11 @@ impl Store {
                 .await?
                 .iter()
                 .map(|row| {
-                    Ok(LinkedIdentity {
+                    Ok(TiedIdentity {
                         issuer: row.text(0)?,
                         subject: row.text(1)?,
                         email: row.text(2)?,
                         create_at: row.int(3)?,
-                        // Of the session that asks, which the store does not know.
-                        made_this_session: false,
                     })
                 })
                 .collect()
@@ -193,7 +186,7 @@ impl Store {
                 .push_bind(" AND issuer = ", identity.issuer)
                 .push_bind(" AND subject = ", identity.subject);
             scope.execute(sql).await?;
-            sessions::end_sessions_of_issuer(scope, user_id, identity.issuer).await?;
+            sessions::end_sessions_of_identity(scope, user_id, identity).await?;
             Ok(Unlinked::Removed)
         })
         .await
@@ -237,10 +230,24 @@ impl Store {
         provider_email: &str,
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            insert_identity(scope, identity, user_id, provider_email, now_millis()).await
+            crate::oidc::insert_identity(scope, identity, user_id, provider_email, now_millis())
+                .await
         })
         .await
     }
+}
+
+/// An identity tied to an account, as it is stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TiedIdentity {
+    /// The issuer, as the provider names itself.
+    pub issuer: String,
+    /// Who the account's owner is at the issuer.
+    pub subject: String,
+    /// The email address the provider gave when it was tied; empty for none.
+    pub email: String,
+    /// When it was tied, in milliseconds since the Unix epoch.
+    pub create_at: i64,
 }
 
 /// The session a sign-in to link was started from, as the browser brings it back.

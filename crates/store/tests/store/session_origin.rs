@@ -73,6 +73,7 @@ fn origin(provider: &StoredProvider) -> LoginOrigin {
         provider_id: provider.id.clone(),
         org_id: provider.org_id.clone(),
         issuer: provider.issuer.clone(),
+        subject: Some("subject".to_owned()),
     }
 }
 
@@ -210,6 +211,64 @@ async fn unlinking_ends_the_users_sessions_of_that_issuer() {
     );
 }
 
+/// Unlinking one identity of an issuer ends the user's sessions made for it, and those
+/// of the issuer that know no subject (made before migration 0029), but not those made
+/// for another identity of the same issuer.
+#[tokio::test]
+async fn unlinking_ends_the_sessions_of_that_identity_only() {
+    let test = common::setup().await;
+    let user = person(&test, "linked twice").await;
+    let stored = test
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .await
+        .expect("stored")
+        .expect("new");
+    for subject in ["first", "second"] {
+        test.add_identity(
+            &user,
+            Identity {
+                issuer: "https://one.example",
+                subject,
+            },
+            "",
+        )
+        .await
+        .expect("tied");
+    }
+    let made_for = |subject: Option<&str>| LoginOrigin {
+        subject: subject.map(str::to_owned),
+        ..origin(&stored)
+    };
+    let first = open(&test, &user, Some(made_for(Some("first")))).await;
+    let second = open(&test, &user, Some(made_for(Some("second")))).await;
+    let of_before = open(&test, &user, Some(made_for(None))).await;
+    let unlinked = test
+        .unlink_identity(
+            &user,
+            HASH,
+            Identity {
+                issuer: "https://one.example",
+                subject: "first",
+            },
+        )
+        .await
+        .expect("asked");
+    let alive_after = [
+        alive(&test, &first).await,
+        alive(&test, &second).await,
+        alive(&test, &of_before).await,
+    ];
+    let read = test.get_session(&second, T0, 0).await.expect("read");
+    test.teardown().await;
+    assert_eq!(unlinked, Unlinked::Removed);
+    assert_eq!(
+        alive_after,
+        [false, true, false],
+        "the first identity's, and the one that knows no subject, end"
+    );
+    assert_eq!(read.login, Some(made_for(Some("second"))));
+}
+
 /// Migration 0028: a session made through a provider that is still there takes its
 /// organization and issuer; one whose provider is gone has no origin to answer for,
 /// and ends; a password's stays as it was.
@@ -265,6 +324,7 @@ async fn the_migration_fills_the_origin_or_ends_the_session() {
             provider_id: provider,
             org_id: org,
             issuer: "https://one.example".to_owned(),
+            subject: None,
         })
     );
     assert!(gone.is_err(), "its provider is gone: ended");

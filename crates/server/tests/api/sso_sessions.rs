@@ -9,7 +9,7 @@ use crate::common::{Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_I
 use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider};
 use crate::oidc::{org_of, server_for, set_provider, with_key_and_private_addresses};
 use crate::rooms::{Incoming, Peer, paragraphs, table};
-use crate::sso::admin_through_provider;
+use crate::sso::{ADMIN_SUBJECT, admin_through_provider, through_provider, tie};
 use crate::websocket::{Event, PATIENCE, QUIET, Socket, subscribe_to_workspace};
 
 /// What one session holds open: a connection that follows the root workspace, and one
@@ -127,6 +127,54 @@ async fn unlinking_from_the_session_of_that_issuer_ends_it() {
     through.get("/users/me").await.check_unauthorized();
     ts.client.get("/users/me").await.check_ok();
     assert_eq!(identities(&ts.client).await, []);
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// An account with two identities of one issuer: unlinking one ends the session made
+/// for it, with its connections, and the session made for the other goes on, which
+/// alone says it was made for its own.
+#[tokio::test]
+async fn unlinking_one_identity_of_an_issuer_leaves_the_session_of_the_other() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let first = admin_through_provider(&ts, &fake, &org_id).await;
+    tie(&ts, &ts.client, &fake, "another-subject-of-user1").await;
+    let second = through_provider(&ts, &fake, &org_id, "another-subject-of-user1").await;
+    let mut made: Vec<(String, bool)> = identities(&second)
+        .await
+        .into_iter()
+        .map(|identity| (identity.subject, identity.made_this_session))
+        .collect();
+    made.sort();
+    assert_eq!(
+        made,
+        [
+            ("another-subject-of-user1".to_owned(), true),
+            (ADMIN_SUBJECT.to_owned(), false),
+        ]
+    );
+    let card = table(&ts, &paragraphs(&["first"])).await.card_id;
+    let mut of_first = Open::of(&ts, &first, &card, 101).await;
+    let mut of_second = Open::of(&ts, &second, &card, 102).await;
+    let of_first_subject = identities(&ts.client)
+        .await
+        .into_iter()
+        .find(|identity| identity.subject == ADMIN_SUBJECT)
+        .expect("tied");
+
+    unlink(&ts.client, &of_first_subject).await;
+
+    assert!(
+        of_first.closed().await,
+        "the first identity's connections closed"
+    );
+    first.get("/users/me").await.check_unauthorized();
+    assert!(of_second.open().await, "the other identity's stay");
+    second.get("/users/me").await.check_ok();
+    of_second.peer.write_acked("still in the room").await;
     ts.teardown().await;
     fake.stop();
 }

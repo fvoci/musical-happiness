@@ -46,16 +46,19 @@ impl Hub {
         });
     }
 
-    /// Closes the connections of the user's sessions made through a provider of
-    /// `issuer`, in any organization, and their seats in the rooms. For when the user
-    /// unlinked their identity of that issuer and the store ended those sessions.
-    pub fn close_sessions_of_issuer(&self, user_id: &str, issuer: &str) {
+    /// Closes the connections of the user's sessions made for the identity `subject` of
+    /// `issuer`, in any organization, and their seats in the rooms: also those of the
+    /// issuer that know no subject ([`LoginOrigin::is_of_identity`]). For when the user
+    /// unlinked that identity and the store ended those sessions.
+    ///
+    /// [`LoginOrigin::is_of_identity`]: fvoci_model::LoginOrigin::is_of_identity
+    pub fn close_sessions_of_identity(&self, user_id: &str, issuer: &str, subject: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener.user_id == user_id
                 && listener
                     .login
                     .as_ref()
-                    .is_some_and(|login| login.issuer == issuer)
+                    .is_some_and(|login| login.is_of_identity(issuer, subject))
         });
     }
 
