@@ -2,9 +2,10 @@
  * Where the reader's caret goes when the body's editor is made: where they
  * tapped the body while it was still shown read-only (the room's document
  * had not arrived), or, when the editor is made again for another document
- * of the room while the reader was in it, where the caret was in the one
- * before, with the focus. Positions past the end of the new document are
- * taken in.
+ * of the room while the reader was in it, where the caret was on the screen
+ * in the one before, with the focus. Both are points on the screen, found
+ * in the new editor when it is there: no position of one document is used
+ * in another, or after the wait.
  *
  * Only a press on the read-only view that did not move (a tap, a click, not
  * a scroll) counts. Nothing here imports the editor's code: this is part of
@@ -18,8 +19,9 @@ const PRESS_KEPT = 5000;
 const SLOP = 8;
 
 interface Held {
-  from: number;
-  to: number;
+  /** Where the caret was drawn. */
+  x: number;
+  y: number;
   focused: boolean;
 }
 
@@ -36,8 +38,13 @@ export function keepCaret(): CaretKeeper {
 
   const remember = (editor: Editor): void => {
     if (editor.isDestroyed) return;
-    const { from, to } = editor.state.selection;
-    held = { from, to, focused: editor.isFocused };
+    try {
+      const drawn = editor.view.coordsAtPos(editor.state.selection.head);
+      held = { x: drawn.left, y: (drawn.top + drawn.bottom) / 2, focused: editor.isFocused };
+    } catch {
+      // Not drawn (the editor is not in the page): nothing to go back to.
+      held = undefined;
+    }
   };
 
   return {
@@ -81,27 +88,20 @@ export function keepCaret(): CaretKeeper {
         if (editor.isEditable) remember(editor);
       });
       if (!writable) return;
-      const { doc } = editor.state;
-      const clamp = (at: number): number => Math.max(0, Math.min(at, doc.content.size));
-      /** Whether a caret may stand there: in a line of text, not between blocks. */
-      const inLine = (at: number): boolean => doc.resolve(at).parent.inlineContent;
-      // ProseMirror's own focus, which does not scroll the page.
-      const focus = (): void => {
-        editor.view.focus();
-      };
       // The caret of an editor the reader was not in is nobody's: the new editor's own stands.
-      if (before?.focused) {
-        const from = clamp(before.from);
-        const to = clamp(before.to);
-        if (inLine(from) && inLine(to)) editor.commands.setTextSelection({ from, to });
-        focus();
-        return;
+      const point = before?.focused
+        ? before
+        : pressed && Date.now() - pressed.at <= PRESS_KEPT
+          ? pressed
+          : undefined;
+      if (!point) return;
+      const found = editor.view.posAtCoords({ left: point.x, top: point.y });
+      // A caret stands in a line of text, not between blocks.
+      if (found && editor.state.doc.resolve(found.pos).parent.inlineContent) {
+        editor.commands.setTextSelection(found.pos);
       }
-      if (!pressed || Date.now() - pressed.at > PRESS_KEPT) return;
-      const found = editor.view.posAtCoords({ left: pressed.x, top: pressed.y });
-      if (!found) return;
-      if (inLine(clamp(found.pos))) editor.commands.setTextSelection(clamp(found.pos));
-      focus();
+      // ProseMirror's own focus, which does not scroll the page.
+      editor.view.focus();
     },
   };
 }

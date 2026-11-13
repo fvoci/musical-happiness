@@ -48,6 +48,11 @@ export interface Place {
    * document; kept by every copy of the place.
    */
   anchor?: { held?: HeldNode; stale: boolean };
+  /**
+   * For a new formula: somebody else wrote into its empty line meanwhile.
+   * The place stays, and the formula goes in after that line.
+   */
+  lineTaken?: boolean;
   /** For a new formula: its place, which the document does not hold yet. */
   panel?: NewFormulaPanel;
   /** For a formula: its field, set by its node view while the place is open. */
@@ -119,7 +124,12 @@ export function nextPlace(
     if (place.anchor) place.anchor.stale = true;
     if (mapped.pos !== place.pos) place = { ...place, pos: mapped.pos };
   }
-  if (!fits(place.kind, state.doc.nodeAt(place.pos))) return null;
+  const node = state.doc.nodeAt(place.pos);
+  if (place.kind === 'new-formula' && fromShared(tr) && !isEmptyParagraph(node)) {
+    if (node?.type.name === 'paragraph' && !place.lineTaken) place = { ...place, lineTaken: true };
+  }
+  const lineKept = place.lineTaken === true && node?.type.name === 'paragraph';
+  if (!lineKept && !fits(place.kind, node)) return null;
   // A change from the room moves the selection by the binding's guess, not the reader's
   // (`keepPlaceSelected` puts it back).
   return fromShared(tr) || selectionStays(place, state) ? place : null;
@@ -148,7 +158,14 @@ function finishFormula(tr: Transaction, place: Place): number | undefined {
   }
   const formula =
     written === '' ? undefined : tr.doc.type.schema.nodes.blockMath?.create({ latex: written });
-  if (!formula || !isEmptyParagraph(node)) return undefined;
+  if (!formula) return undefined;
+  if (!isEmptyParagraph(node)) {
+    // The line was written in by somebody else meanwhile: the formula goes after it.
+    if (!place.lineTaken || node.type.name !== 'paragraph') return undefined;
+    closeHistory(tr);
+    tr.insert(pos + node.nodeSize, formula);
+    return pos + node.nodeSize;
+  }
   closeHistory(tr);
   tr.replaceWith(pos, pos + node.nodeSize, formula);
   // Somewhere to go on writing when the formula ends what holds it.

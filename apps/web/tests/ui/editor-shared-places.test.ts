@@ -382,6 +382,42 @@ describe('the place of a block in a body edited together, never taken for a neig
   });
 });
 
+describe('the place of a new formula in a body edited together', () => {
+  /** Types into the editor the way a keyboard does (input rules included). */
+  function type(editor: Editor, value: string): void {
+    for (const character of value) {
+      const { from, to } = editor.state.selection;
+      const insert = () => editor.state.tr.insertText(character, from, to);
+      const handled = editor.view.someProp('handleTextInput', (handle) =>
+        handle(editor.view, from, to, character, insert),
+      );
+      if (!handled) editor.view.dispatch(insert());
+    }
+  }
+
+  it('keeps what the reader wrote when somebody else writes into its line: the formula goes after it', () => {
+    const shared = room(doc(paragraph(text('first')), paragraph()));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    type(editor, '$$ ');
+    const field = document.querySelector<HTMLTextAreaElement>('.doc-place textarea');
+    if (!field) throw new Error('no field');
+    field.value = 'x^2';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    shared.others(() => {
+      const line = shared.server.getXmlFragment(BODY_FIELD).get(1) as Y.XmlElement;
+      line.insert(0, [new Y.XmlText('theirs')]);
+    });
+    expect(placeOf(editor.state)).toMatchObject({ kind: 'new-formula', lineTaken: true });
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(placeOf(editor.state)).toBeNull();
+    expect(blocks(editor)).toEqual(['first', 'theirs', 'blockMath']);
+  });
+});
+
 describe('the box of a formula in a line in a body edited together', () => {
   const box = (): HTMLTextAreaElement | null =>
     document.querySelector<HTMLTextAreaElement>('.doc-math-editing textarea');
