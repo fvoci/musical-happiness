@@ -22,7 +22,7 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
 
-  import Avatar from '$lib/components/avatar/Avatar.svelte';
+  import PresenceRoster from './PresenceRoster.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { cardTrash, type Trash, type Workspace } from '$lib/state/index.ts';
@@ -52,9 +52,6 @@
   /** The deleted cards of the board, read anew each time they are shown. */
   let trash = $state.raw<Trash | undefined>(undefined);
 
-  /** How many faces are shown before the rest become a number. */
-  const FACES = 4;
-
   /** The board as the list of boards has it: known before the board itself is read. */
   const listed = $derived(workspace.boards.find((candidate) => candidate.id === boardId));
   /** The open board, once it is read: who is on it and what the reader may do. */
@@ -64,7 +61,6 @@
       : undefined,
   );
   const board = $derived(store?.board ?? listed);
-  const members = $derived(store?.orderedMembers ?? []);
   /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
   const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
   /** The trash of cards is for the board's editors, as the server has it. */
@@ -135,29 +131,8 @@
 
   <div class="min-w-0 flex-1"></div>
 
-  {#if members.length > 0}
-    <ul
-      data-testid="board-members"
-      aria-label={m.shell_members()}
-      class="hidden shrink-0 items-center @columns/pane:flex"
-    >
-      {#each members.slice(0, FACES) as member (member.userId)}
-        <li class="-ml-1.5 flex first:ml-0">
-          <Avatar
-            name={workspace.userName(member.userId) ?? m['centerPanel.unknown-user']()}
-            colorKey={member.userId}
-            locale={workspace.locale}
-            class="size-7 ring-2 ring-background"
-          />
-        </li>
-      {/each}
-      {#if members.length > FACES}
-        <li class="pl-1.5 text-xs text-muted-foreground">
-          <span aria-hidden="true">+{members.length - FACES}</span>
-          <span class="sr-only">{m.shell_members_more({ count: members.length - FACES })}</span>
-        </li>
-      {/if}
-    </ul>
+  {#if store && !store.missing && !store.joinable}
+    <PresenceRoster board={store} />
   {/if}
 
   {#if canShare}

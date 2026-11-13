@@ -23,6 +23,7 @@ impl Hub {
     pub fn close_readers_of_board(&self, board_id: &str) {
         self.close_where(Disconnect::ShareEnded, |listener| {
             listener.shared_boards.iter().any(|board| board == board_id)
+                || listener.presence.reads_shared_board(board_id)
         });
     }
 

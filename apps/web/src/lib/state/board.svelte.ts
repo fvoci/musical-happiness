@@ -2,12 +2,11 @@
  * One open board: its definition, views, cards and members, kept up to date
  * while it is open, and every change a screen can make to them.
  *
- * A change shows at once, is sent, and is taken back if the backend refuses
- * it. Each one can be undone (`workspace.undoLast`); the changes of one
+ * Changes show at once and are rolled back on refusal; each can be undone. Changes of one
  * gesture (`inOneStep`) are undone together. What other people change
- * arrives through the backend's change messages and is applied the same way
- * as the answers to the reader's own writes.
+ * arrives through the backend's change messages.
  */
+import { BoardPresence } from './board-presence.svelte.ts';
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
@@ -65,6 +64,7 @@ export type { CardDrop } from './board-parts.ts';
 export class BoardStore {
   readonly workspace: Workspace;
   readonly boardId: string;
+  readonly presence = new BoardPresence(this);
 
   status = $state<LoadStatus>('idle');
   /** The board does not exist, or the reader may not see it: the two look the same. */

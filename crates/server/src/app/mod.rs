@@ -25,6 +25,7 @@ mod oidc;
 mod oidc_link;
 mod onboarding;
 mod org_admin;
+mod presence;
 mod readiness;
 mod reconcile;
 mod search;

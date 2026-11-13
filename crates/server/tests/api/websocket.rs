@@ -1172,6 +1172,14 @@ async fn messages_match_the_websocket_contract() {
     ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, &members);
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
 
+    socket
+        .send(
+            json!({"action": "SET_PRESENCE", "workspaceId": ROOT_WORKSPACE_ID,
+        "boardId": board.id}),
+        )
+        .await;
+    contract_check.hear(&mut socket, "UPDATE_PRESENCE").await;
+
     // Every message of the contract was heard; those of the bodies edited together
     // are heard by `rooms_contract`.
     let listed: BTreeSet<&String> = contract["messages"]

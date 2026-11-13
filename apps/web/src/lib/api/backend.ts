@@ -78,6 +78,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
   readonly #live: LiveChanges;
+  /** Board visits share the page's connection. */
+  readonly presence: Backend['presence'];
 
   constructor(basePath: string) {
     const http = new Http(basePath);
@@ -89,6 +91,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     this.#live = new LiveChanges(socket.href, {
       members: (boardId) => this.members(boardId),
     });
+    this.presence = this.#live.presence;
   }
 
   // ------------------------------------------------------------ account
@@ -929,14 +932,11 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return this.inWorkspaceUrl('/boards/{boardId}/files/{fileId}', { boardId, fileId });
   }
 
-  // ------------------------------------------------------------ changes
-
   /** The board's changes, from the one connection of the page (`live.ts`). */
   watchBoard(boardId: string, listener: ChangeListener): () => void {
     return this.#live.watch(boardId, listener);
   }
 
-  /** The reader's own changes: boards and the sidebar. Settings have no message. */
   watchSelf(listener: ChangeListener): () => void {
     return this.#live.watch(undefined, listener);
   }

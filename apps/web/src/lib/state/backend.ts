@@ -14,8 +14,6 @@
  * room (`openDoc`). Where the design says nothing and something had to be
  * made up and is still open, it is listed in `docs/contract-assumptions.md`.
  *
- * No method promises an order. Whatever is shown in an order is sorted by
- * the client (`order.ts`).
  */
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
@@ -33,6 +31,7 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
+import type { Presence } from './presence.ts';
 import type { DocRooms } from './body-doc.ts';
 import type { WorkspaceRole } from './people-types.ts';
 import type { TrashReads } from './trash-reads.ts';
@@ -313,6 +312,7 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 // ---------------------------------------------------------------- backend
 
 export interface Backend extends DocRooms, TrashReads {
+  readonly presence: Presence;
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */

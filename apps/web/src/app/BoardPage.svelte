@@ -7,7 +7,7 @@
   `view-header`, the views (`kanban`, `table`, `gallery`, `calendar`, `gantt`), and `card`.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
 
   import CardDialog from '$lib/features/card/CardDialog.svelte';
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
@@ -36,6 +36,17 @@
     workspace.board?.boardId === router.route.boardId ? workspace.board : undefined,
   );
   const view = $derived(board?.view(router.route.viewId));
+
+  $effect(() => {
+    const shown = board;
+    if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
+      return untrack(() => shown.presence.start());
+    }
+    return undefined;
+  });
+  $effect(() => {
+    board?.presence.setCard(router.route.cardId);
+  });
 
   let page = $state<HTMLElement>();
 

@@ -1,6 +1,6 @@
 # WebSocket `/ws`의 메시지
 
-적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
+적은 때: 2026-11-11 04:14 KST(본문의 공동 편집, 6절은 2026-11-13 04:41 KST, 보드의 있음 7절은 2026-11-13 19:41 KST). 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`, 본문의 공동 편집(6절)의 `DOC_…`은 `rooms_contract.rs`의 `the_messages_of_the_rooms_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다. Binary 프레임(6절)의 바이트는 `crates/server/src/collab/frame.rs`의 테스트와 `rooms.rs`의 테스트가 따로 쓴 부호화로 견준다.
 - 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
@@ -22,7 +22,7 @@
 
 - 둘 다 오면 Bearer를 쓴다.
 - 브라우저는 같은 출처의 페이지에서 `new WebSocket(…)`으로 열면 쿠키를 저절로 싣는다. 스크립트가 토큰을 알 필요가 없다.
-- 익명 연결은 공유 보드의 블록 구독(`SUBSCRIBE_BLOCKS`)만 할 수 있다.
+- 익명 연결은 공유 보드의 블록 구독(`SUBSCRIBE_BLOCKS`)과 읽기 토큰의 방문 알림(`SET_PRESENCE`, 7절)을 할 수 있다.
 - **공유 보드는 설정 `enable_public_shared_boards`가 켜져 있을 때만 있다. 기본값은 꺼짐이고, 꺼져 있으면 어느 읽기 토큰도 맞지 않아 `SUBSCRIBE_BLOCKS`는 늘 무시된다.**
 
 ## 2. 클라이언트가 보내는 명령
@@ -37,6 +37,7 @@
 | `UNSUBSCRIBE_BLOCKS` | 없어도 된다 | 같다 | 그 블록들을 그만 따라간다. 같은 검사를 한다 |
 | `JOIN_DOC` | 필요 | `workspaceId`, `cardId` | 카드 본문을 함께 고치는 방에 들어간다(6절). 답은 `DOC_JOINED`나 `DOC_REFUSED` |
 | `LEAVE_DOC` | 필요 | `doc` | `DOC_JOINED`가 알려 준 번호의 방에서 나온다. 답이 없다 |
+| `SET_PRESENCE` | 읽기 토큰이면 불필요 | `workspaceId`, `boardId`, `cardId`, `readToken` | 보드 방문과 연 카드를 알린다(7절). 답이 없다 |
 
 - 세션이 필요한 명령을 익명 연결이 보내면 무시한다(`JOIN_DOC`은 `DOC_REFUSED`로 답한다, 6절).
 - JSON이 아니거나, 멤버의 타입이 틀리거나(`workspaceId`가 수, `blockIds`가 목록이 아님 등), `action`을 모르면 그 명령만 무시하고 연결은 그대로다.
@@ -59,6 +60,8 @@
 | `REORDER_CATEGORIES` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORY_BOARDS` | `workspaceId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
+
+방문의 `UPDATE_PRESENCE`는 구독과 별개이며 받는 사람과 멤버는 7절을 따른다.
 
 ### 받는 사람의 규칙
 
@@ -227,3 +230,26 @@ sync 종류부터 끝까지는 y-protocols의 sync 메시지 그대로다(`write
 | `connection_too_slow` | `DOC_LEFT`, `DOC_REFUSED` | 이 연결에 보낼 방의 메시지가 `collab_queue_messages`(기본 512)개, 또는 `collab_state_bytes`의 두 배(바이트)를 넘게 쌓였다(읽지 않는 연결. step 1을 답을 읽지 않고 거듭 보내도 그렇다). 방의 다른 연결은 그대로 받는다. 다시 들면 문서 전체를 받는다 |
 | `internal` 등 | 모두 | 서버의 오류(저장소 등). 로그에 남는다 |
 
+
+## 7. 보드의 있음
+
+`SET_PRESENCE`는 `workspaceId`, `boardId`, `cardId`(열지 않았으면 빈 문자열),
+`readToken`(구성원은 생략)을 받는다. `boardId`가 비면 떠난다. 답은 없다.
+연결당 한 보드·한 카드이며 새 명령이 앞의 것을 바꾼다. 보드의 읽기 권한은
+`App::board_access`, 세션의 조직 접근은 `enter_workspace_as`로 확인한다.
+카드는 같은 보드의 지우지 않은 카드여야 한다. 식별자는 방과 같은 최대 64바이트다.
+명령은 `collab_frames_per_second`의 속도와 한 초의 버스트로 제한하고, 떠나기는
+항상 받는다. 읽기 토큰은 현재 서버의 43글자 비밀 값이며 틀린 명령은 무시한다.
+
+연결마다 250ms 간격으로 변경을 모아 `UPDATE_PRESENCE`의 전체 명단을 보낸다:
+`workspaceId`, `boardId`, `people: [{userId, cardIds}]`, `anonymousCount`, `hiddenCount`.
+사람과 카드 ID는 오름차순이며 같은 사람의 탭은 하나로, 카드는 합집합으로 센다.
+사용자 조회에서 보이지 않는 사람은 `hiddenCount`로만 센다. 읽기 토큰을 명시한
+연결은 세션이 있어도 익명 하나로 세고 명단은 받지 않는다. 익명은 연결별 수다.
+같은 명단은 다시 보내지 않는다. 명단을 보내기 전에 받는 사람의 권한을 다시 본다.
+변경이 없어도 `collab_recheck_seconds`마다 다시 보고, 읽을 수 없으면 표에서 뺀다.
+확인 실패·5초의 확인 시간 초과도 방문을 끝낸다. 다음 명령으로 다시 방문할 수 있다.
+
+클라이언트는 30초마다 방문을 갱신한다. 90초간 갱신이 없으면 연결이 닫히지 않아도
+빠진다. 연결 종료·쓰기 실패·서버의 연결 작업 취소에서도 빠진다. 서버 메모리에만
+두며 DB에는 쓰지 않는다. 웹의 가려진 탭은 1분 뒤 떠나고 다시 보이면 돌아온다.

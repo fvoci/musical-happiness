@@ -1,0 +1,136 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { PresenceSnapshot } from '$lib/state/presence.ts';
+import { LivePresence } from '$lib/api/live-presence.ts';
+import { createBoardView } from '$lib/logic/wire.ts';
+import { setup } from './support.ts';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('presence in memory', () => {
+  it('two instances see visits and open cards, deduplicate tabs, and remove a departure', async () => {
+    vi.useFakeTimers();
+    const { backend, other, world } = setup();
+    const board = [...world.boards.values()][0];
+    if (!board) throw new Error('a seeded board');
+    const card = [...world.blocks.values()].find((block) => block.type === 'card');
+    if (!card) throw new Error('a seeded card');
+    await backend.addMember(board.id, other.userId, 'viewer');
+    const place = { workspaceId: board.workspaceId, boardId: board.id };
+    const heard: PresenceSnapshot[] = [];
+    const stop = backend.presence.watchPresence(board.id, (snapshot) => heard.push(snapshot));
+    backend.presence.setPresence(place);
+    other.presence.setPresence({ ...place, cardId: card.id });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(heard.at(-1)?.people).toHaveLength(2);
+    expect(heard.at(-1)?.people.find((p) => p.userId === other.userId)?.cardIds).toEqual([card.id]);
+    const anotherTab = other.as(other.userId);
+    anotherTab.presence.setPresence({ ...place, cardId: card.id });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(heard).toHaveLength(1);
+    other.presence.setPresence(null);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(heard).toHaveLength(1);
+    anotherTab.presence.setPresence(null);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(heard.at(-1)?.people).toEqual([{ userId: backend.userId, cardIds: [] }]);
+    backend.presence.setPresence(null);
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('an uninvited user cannot enter and a removed member disappears', async () => {
+    vi.useFakeTimers();
+    const { backend, other, world } = setup();
+    const { board } = await backend.createBoard(
+      world.workspace.id,
+      { title: 'Private', type: 'P' },
+      { title: 'Board', fields: createBoardView().fields },
+    );
+    const place = { workspaceId: board.workspaceId, boardId: board.id };
+    const heard: PresenceSnapshot[] = [];
+    const stop = backend.presence.watchPresence(board.id, (snapshot) => heard.push(snapshot));
+    backend.presence.setPresence(place);
+    other.presence.setPresence(place);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(heard.at(-1)?.people).toHaveLength(1);
+    await backend.addMember(board.id, other.userId, 'viewer');
+    other.presence.setPresence(place);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(heard.at(-1)?.people).toHaveLength(2);
+    await backend.removeMember(board.id, other.userId);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(heard.at(-1)?.people).toHaveLength(1);
+    other.presence.setPresence(null);
+    backend.presence.setPresence(null);
+    stop();
+  });
+});
+
+it('the live connection renews after reconnect, clears stale rosters and stops its heartbeat', () => {
+  vi.useFakeTimers();
+  const send = vi.fn();
+  const live = new LivePresence(send, vi.fn());
+  const hear = vi.fn();
+  const stop = live.watchPresence('board', hear);
+  live.setPresence({ workspaceId: 'workspace', boardId: 'board', cardId: 'card' });
+  expect(send).not.toHaveBeenCalled();
+  live.up();
+  expect(send).toHaveBeenLastCalledWith({
+    action: 'SET_PRESENCE',
+    workspaceId: 'workspace',
+    boardId: 'board',
+    cardId: 'card',
+  });
+  live.text({
+    action: 'UPDATE_PRESENCE',
+    boardId: 'board',
+    people: [{ userId: 'other', cardIds: [] }],
+    anonymousCount: 0,
+    hiddenCount: 0,
+  });
+  expect(hear).toHaveBeenCalledTimes(1);
+  live.down();
+  expect(hear).toHaveBeenLastCalledWith({ people: [], anonymousCount: 0, hiddenCount: 0 });
+  live.up();
+  expect(send).toHaveBeenCalledTimes(2);
+  live.setPresence(null);
+  stop();
+  live.down();
+  expect(live.wanted).toBe(false);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('separate worlds exchange visits through BroadcastChannel and close the channel on departure', async () => {
+  const first = setup();
+  const second = setup();
+  const channel = `presence-test-${crypto.randomUUID()}`;
+  first.world.shareRooms = channel;
+  second.world.shareRooms = channel;
+  const board = [...first.world.boards.values()][0];
+  if (!board) throw new Error('a seeded board');
+  await first.backend.addMember(board.id, second.other.userId, 'viewer');
+  await second.backend.addMember(board.id, second.other.userId, 'viewer');
+  const place = { workspaceId: board.workspaceId, boardId: board.id };
+  let latest: PresenceSnapshot | undefined;
+  const stop = first.backend.presence.watchPresence(board.id, (snapshot) => {
+    latest = snapshot;
+  });
+  try {
+    first.backend.presence.setPresence(place);
+    second.other.presence.setPresence(place);
+    await vi.waitFor(() => {
+      expect(latest?.people).toHaveLength(2);
+    });
+    second.other.presence.setPresence(null);
+    await vi.waitFor(() => {
+      expect(latest?.people).toHaveLength(1);
+    });
+  } finally {
+    first.backend.presence.setPresence(null);
+    second.other.presence.setPresence(null);
+    stop();
+  }
+});

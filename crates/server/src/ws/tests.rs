@@ -16,6 +16,7 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
             workspaces: Vec::new(),
             blocks: Vec::new(),
             shared_boards: Vec::new(),
+            presence: presence::State::default(),
         },
     );
     id

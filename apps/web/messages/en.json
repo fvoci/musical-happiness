@@ -1017,5 +1017,9 @@
   "org_rename_named": "Rename {name}",
   "org_delete_named": "Delete {name}",
   "org_restore_named": "Restore {name}",
-  "shell_switch_workspace_from": "Switch workspace: {name}"
+  "shell_switch_workspace_from": "Switch workspace: {name}",
+  "presence_viewers": "{count} people viewing this board",
+  "presence_anonymous": "{count} anonymous",
+  "presence_hidden": "{count} other people",
+  "presence_alone": "Nobody else is here."
 }

@@ -51,6 +51,16 @@
         "action": "string",
         "doc": "integer"
       }
+    },
+    "SET_PRESENCE": {
+      "session": false,
+      "members": {
+        "action": "string",
+        "workspaceId": "string",
+        "boardId": "string",
+        "cardId": "string",
+        "readToken": "string"
+      }
     }
   },
   "messages": {
@@ -181,6 +191,23 @@
         "action": "string",
         "doc": "integer",
         "reason": "string"
+      }
+    },
+    "UPDATE_PRESENCE": {
+      "members": {
+        "action": "string",
+        "workspaceId": "string",
+        "boardId": "string",
+        "people": [
+          {
+            "userId": "string",
+            "cardIds": [
+              "string"
+            ]
+          }
+        ],
+        "anonymousCount": "integer",
+        "hiddenCount": "integer"
       }
     }
   },

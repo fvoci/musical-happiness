@@ -10,6 +10,7 @@
  * The board is the only one of a place of its own (`SHARED_PLACE`), with
  * nobody in it: the server names no person to such a reader.
  */
+import { silentPresence } from '../state/presence.ts';
 import type { BoardView } from '../logic/wire.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
 import {
@@ -72,6 +73,7 @@ type SharedPath = ApiPath extends infer P
   : never;
 
 export class SharedBackend implements Backend {
+  readonly presence = silentPresence;
   readonly #http: Http;
   readonly #boardId: string;
   readonly #readToken: string;

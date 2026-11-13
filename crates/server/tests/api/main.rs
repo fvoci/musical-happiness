@@ -48,6 +48,7 @@ mod org_admin_review;
 mod organizations;
 mod paths;
 mod people;
+mod presence;
 mod properties;
 mod readiness;
 mod reconcile;
