@@ -7,15 +7,14 @@
  * joined. With `FVOCI_SCREENS` set the screens are pictured under
  * `target/screens/org/`, wide and at 390 pixels.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Page } from '@playwright/test';
 
 import { ON_A_VIEW } from '../e2e/address.ts';
 import { screensDir } from '../e2e/screens.ts';
-import { sidebar } from '../e2e/shell.support.ts';
+import { boardLink, sidebar } from '../e2e/shell.support.ts';
 
 import {
   ADMIN,
-  boardPath,
   invitation,
   makeBoard,
   person,
@@ -29,17 +28,40 @@ import {
 test.use({ locale: 'en-US' });
 
 /** Pictures the page, wide and narrow, when asked to. */
-async function picture(page: Page, name: string): Promise<void> {
+async function picture(page: Page, name: string, area = 'org'): Promise<void> {
   if (!process.env.FVOCI_SCREENS) return;
   const wide = page.viewportSize();
-  await page.screenshot({ path: `${screensDir('org')}/${name}-wide.png`, fullPage: true });
+  await page.screenshot({ path: `${screensDir(area)}/${name}-wide.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: `${screensDir('org')}/${name}-390.png`, fullPage: true });
+  await page.screenshot({ path: `${screensDir(area)}/${name}-390.png`, fullPage: true });
   if (wide) await page.setViewportSize(wide);
+}
+
+/** The same join explanation in Korean, with the signed-in account's automatic language. */
+async function koreanJoinHint(browser: Browser, page: Page, name: string): Promise<void> {
+  const context = await browser.newContext({
+    locale: 'ko-KR',
+    storageState: await page.context().storageState(),
+  });
+  const korean = await context.newPage();
+  const errors = watchErrors(korean);
+  await korean.goto(page.url());
+  await expect(korean.locator('html')).toHaveAttribute('lang', 'ko');
+  const row = korean.locator(`[data-testid="org-workspace"][data-name="${name}"]`);
+  const hint = '참여한 일은 이 워크스페이스의 구성원 모두에게 보입니다.';
+  await expect(
+    row.getByRole('button', { name: `${name}에 관리자로 참여` }),
+  ).toHaveAccessibleDescription(hint);
+  await expect(row.getByText(hint, { exact: true })).toBeVisible();
+  await expect(korean.getByTestId('org-workspaces').locator(':scope > p')).toHaveCount(0);
+  await picture(korean, 'org-join-ko', 'chores');
+  expect(errors).toEqual([]);
+  await context.close();
 }
 
 test('the organization’s administrator makes a workspace, joins it, switches to it and makes a board', async ({
   page,
+  browser,
   baseURL,
 }) => {
   const base = baseURL ?? '';
@@ -56,7 +78,15 @@ test('the organization’s administrator makes a workspace, joins it, switches t
   await screen.getByRole('button', { name: 'Create', exact: true }).click();
   const row = screen.locator(`[data-testid="org-workspace"][data-name="${name}"]`);
   await expect(row).toContainText('Members: 0');
-  await row.getByRole('button', { name: `Join ${name} as administrator` }).click();
+  const hint = 'Every member of the workspace will see that you joined.';
+  const join = row.getByRole('button', { name: `Join ${name} as administrator` });
+  await expect(join).toHaveAccessibleDescription(hint);
+  await expect(row.getByText(hint, { exact: true })).toBeVisible();
+  await expect(screen.getByTestId('org-workspaces').locator(':scope > p')).toHaveCount(0);
+  await picture(page, 'org-join-en', 'chores');
+  await koreanJoinHint(browser, page, name);
+  await join.click();
+  await expect(row.getByText(hint, { exact: true })).toHaveCount(0);
   await expect(row).toContainText('you joined as administrator');
   await expect(row.getByRole('button', { name: `Leave ${name}` })).toBeVisible();
   await expect(screen.getByTestId('org-records').locator('[data-action]').first()).toHaveAttribute(
@@ -90,7 +120,7 @@ test('the organization’s administrator makes a workspace, joins it, switches t
   expect(errors).toEqual([]);
 });
 
-test('a board one manages without reading is joined from its page, and the members read that it was', async ({
+test('a board one manages without reading opens from the sidebar and is joined from its page', async ({
   page,
   browser,
   baseURL,
@@ -108,8 +138,9 @@ test('a board one manages without reading is joined from its page, and the membe
   });
 
   const errors = watchErrors(page);
-  await page.goto(boardPath(board, board.viewId));
+  await page.goto(`/w/${board.workspaceId}`);
   await signInOnPage(page, ADMIN);
+  await boardLink(page, 'Salaries').click();
   const managed = page.getByTestId('board-managed');
   await expect(managed).toBeVisible();
   await expect(managed.getByRole('heading')).toHaveText('Salaries');
