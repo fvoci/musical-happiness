@@ -1,22 +1,29 @@
 /** The visit lasts only while its board is on screen; hidden tabs leave after a minute. */
-import { EMPTY_PRESENCE, type PresenceSnapshot } from './presence.ts';
+import { EMPTY_PRESENCE, type PresenceSnapshot, type PresentPerson } from './presence.ts';
 import type { BoardStore } from './board.svelte.ts';
 
 export class BoardPresence {
   readonly #board: BoardStore;
   snapshot = $state.raw<PresenceSnapshot>(EMPTY_PRESENCE);
-  readonly others = $derived(
-    this.snapshot.people.filter((person) => person.userId !== this.#board.workspace.me?.id),
-  );
-  readonly count = $derived(
-    this.others.length + this.snapshot.anonymousCount + this.snapshot.hiddenCount,
-  );
   #active = false;
   #hidden = false;
   #cardId: string | undefined;
 
   constructor(board: BoardStore) {
     this.#board = board;
+  }
+
+  /**
+   * Everybody on the board but the reader. A getter, not a `$derived`: the presence
+   * can be made first where a component derives it (`boardPresence`).
+   */
+  get others(): readonly PresentPerson[] {
+    return this.snapshot.people.filter((person) => person.userId !== this.#board.workspace.me?.id);
+  }
+
+  /** How many others are on the board, named or not. */
+  get count(): number {
+    return this.others.length + this.snapshot.anonymousCount + this.snapshot.hiddenCount;
   }
 
   setCard(cardId: string | undefined): void {
@@ -78,4 +85,16 @@ export class BoardPresence {
           },
     );
   }
+}
+
+const presences = new WeakMap<BoardStore, BoardPresence>();
+
+/** Who is on `board`, kept beside the board's store for as long as it is. */
+export function boardPresence(board: BoardStore): BoardPresence {
+  let presence = presences.get(board);
+  if (!presence) {
+    presence = new BoardPresence(board);
+    presences.set(board, presence);
+  }
+  return presence;
 }

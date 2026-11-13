@@ -18,7 +18,7 @@
   import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
-  import { newCardMaker, whileHere, type Workspace } from '$lib/state/index.ts';
+  import { boardPresence, newCardMaker, whileHere, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import ManagedBoard from './ManagedBoard.svelte';
@@ -40,12 +40,12 @@
   $effect(() => {
     const shown = board;
     if (shown?.status === 'ready' && !shown.missing && !shown.joinable) {
-      return untrack(() => shown.presence.start());
+      return untrack(() => boardPresence(shown).start());
     }
     return undefined;
   });
   $effect(() => {
-    board?.presence.setCard(router.route.cardId);
+    if (board) boardPresence(board).setCard(router.route.cardId);
   });
 
   let page = $state<HTMLElement>();

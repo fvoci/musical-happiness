@@ -3,17 +3,22 @@
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardStore } from '$lib/state/index.ts';
+  import { boardPresence, type BoardStore } from '$lib/state/index.ts';
 
   let { board }: { board: BoardStore } = $props();
-  const presence = $derived(board.presence);
+  const presence = $derived(boardPresence(board));
   const workspace = $derived(board.workspace);
   const presentation = new PickerPresentation();
   const label = $derived(m.presence_viewers({ count: presence.count }));
-  const faces = $derived(presence.others.slice(0, 5));
+  /** How many faces are shown before the rest become a number. */
+  const FACES = 5;
+  const faces = $derived(presence.others.slice(0, FACES));
+  /** The people not shown as faces: past the fifth, and those the reader may not see. */
+  const more = $derived(
+    Math.max(presence.others.length - FACES, 0) + presence.snapshot.hiddenCount,
+  );
 </script>
 
-<span class="sr-only" role="status">{label}</span>
 <PickerSurface presentation={presentation.current} title={label}>
   {#snippet trigger({ props })}
     <button
@@ -34,12 +39,9 @@
           />
         {/each}
       </span>
-      {#if presence.others.length > 5}<span>+{presence.others.length - 5}</span>{/if}
+      {#if more > 0}<span>+{more}</span>{/if}
       {#if presence.snapshot.anonymousCount > 0}
         <span>{m.presence_anonymous({ count: presence.snapshot.anonymousCount })}</span>
-      {/if}
-      {#if presence.snapshot.hiddenCount > 0}
-        <span>+{presence.snapshot.hiddenCount}</span>
       {/if}
       {#if presence.count === 0}<span aria-hidden="true">0</span>{/if}
     </button>

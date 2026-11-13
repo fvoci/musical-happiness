@@ -30,9 +30,14 @@ export class LivePresence implements Presence {
   }
 
   setPresence(visit: PresenceVisit | null): void {
+    const same = sameVisit(this.#visit, visit);
     this.#visit = visit;
-    this.#renew();
-    this.#keepHeartbeat();
+    // Off the board, its roster is no longer told: what was heard is not kept.
+    if (!visit) for (const watcher of this.#watchers) watcher.hear(EMPTY_PRESENCE);
+    if (!same) {
+      this.#renew();
+      this.#keepHeartbeat();
+    }
     this.#wanted();
   }
 
@@ -91,6 +96,16 @@ export class LivePresence implements Presence {
     }
     return true;
   }
+}
+
+/** Whether two visits are the same place; the server is asked only for a new one. */
+function sameVisit(a: PresenceVisit | null, b: PresenceVisit | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.workspaceId === b.workspaceId &&
+    a.boardId === b.boardId &&
+    (a.cardId ?? '') === (b.cardId ?? '')
+  );
 }
 
 function isCount(value: unknown): value is number {

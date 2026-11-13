@@ -14,6 +14,9 @@ pub(crate) struct PresenceAccess {
     pub(crate) role: Option<WorkspaceRole>,
     /// The board's organization, as its access changes are told.
     pub(crate) wall: Wall,
+    /// The card asked for if it is one of the board's, not deleted; else empty: the
+    /// visit is then on the board with no card.
+    pub(crate) card_id: String,
 }
 
 impl App {
@@ -47,24 +50,27 @@ impl App {
         {
             return Ok(None);
         }
-        if !card_id.is_empty() {
-            let card = match app.block(card_id).await {
-                Ok(card) => card,
-                Err(error) if error.kind() == crate::error::ErrorKind::NotFound => return Ok(None),
-                Err(error) => return Err(error),
-            };
-            if card.board_id != board_id
-                || card.block_type != BlockType::Card
-                || card.delete_at != 0
-            {
-                return Ok(None);
-            }
-        }
+        let card_id = if card_id.is_empty() || !is_open_card(&app, board_id, card_id).await? {
+            String::new()
+        } else {
+            card_id.to_owned()
+        };
         Ok(Some(PresenceAccess {
             wall: Wall::of(&app),
             app,
             workspace_id: access.board.workspace_id,
             role,
+            card_id,
         }))
     }
+}
+
+/// Whether `card_id` is a card of the board `board_id`, not deleted.
+async fn is_open_card(app: &App, board_id: &str, card_id: &str) -> Result<bool, AppError> {
+    let card = match app.block(card_id).await {
+        Ok(card) => card,
+        Err(error) if error.kind() == crate::error::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    Ok(card.board_id == board_id && card.block_type == BlockType::Card && card.delete_at == 0)
 }

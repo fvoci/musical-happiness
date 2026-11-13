@@ -89,7 +89,7 @@ impl Hub {
             }
             // It reads nothing of what the rooms send it.
             _ = &mut writer => Disconnect::ReadError,
-            () = Box::pin(self.presence_loop(app, id)) => Disconnect::ReadError,
+            never = Box::pin(self.presence_loop(app, id)) => match never {},
             () = docs_overrun.cancelled() => Disconnect::SlowConsumer,
             reason = self.read_commands(app, id, &mut stream, &mut docs) => reason,
             // The session ended by its idle or absolute limit, which nobody announces:

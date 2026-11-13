@@ -31,12 +31,12 @@ fn add(listeners: &mut Listeners, user: &str, visit: Visit, age: Duration) {
             blocks: Vec::new(),
             shared_boards: Vec::new(),
             presence: State {
-                visit: Some(visit),
                 renewed: Some(Instant::now() - age),
                 ..State::default()
             },
         },
     );
+    listeners.place(listeners.next_id, Some(visit));
 }
 
 #[test]
@@ -111,12 +111,23 @@ fn fifty_visits_hold_only_bounded_identifiers_in_the_connection_table() {
                 + place.card_id.capacity()
                 + place.read_token.capacity()
         })
-        .sum();
+        .sum::<usize>()
+        + listeners
+            .visits
+            .by_board
+            .iter()
+            .map(|((_, workspace, board), on)| {
+                std::mem::size_of::<(BoardKey, OnBoard)>()
+                    + workspace.capacity()
+                    + board.capacity()
+                    + on.visitors.len() * std::mem::size_of::<ListenerId>()
+            })
+            .sum::<usize>();
     assert!(
         bytes < 20_000,
         "fifty active visit states hold {bytes} bytes before allocator overhead"
     );
-    writeln!(std::io::stdout(), "presence table: 50 visits, {bytes} bytes (State plus owned identifier capacities; excludes existing sockets, allocator overhead and outgoing snapshot caches)").expect("the measurement is written");
+    writeln!(std::io::stdout(), "presence table: 50 visits, {bytes} bytes (State, owned identifier capacities and the boards' index; excludes existing sockets, allocator overhead and outgoing snapshot caches)").expect("the measurement is written");
 }
 
 /// Which users' visits `flag_reached` flagged, sorted.
@@ -228,5 +239,39 @@ fn an_admission_read_before_a_change_that_reaches_it_is_asked_again() {
     assert!(
         changed_meanwhile(&mut changes, &here),
         "changes missed by a lagging listener may have reached the admission"
+    );
+}
+
+#[test]
+fn the_boards_index_follows_every_visit_and_forgets_a_connection_that_went_away() {
+    let mut listeners = two_boards();
+    let board = visit("board", "", "").board();
+    let before = listeners.visits.changed(&board);
+    let first = *listeners.by_id.keys().min().expect("a connection");
+    listeners.place(first, Some(visit("other-board", "", "")));
+    assert_ne!(
+        listeners.visits.changed(&board),
+        before,
+        "leaving a board changes it"
+    );
+    assert_eq!(
+        snapshot(&visit("board", "", ""), &listeners).people.len(),
+        1,
+        "the roster reads the index"
+    );
+    let unchanged = listeners.visits.changed(&board);
+    listeners.place(first, Some(visit("other-board", "", "")));
+    assert_eq!(
+        listeners.visits.changed(&board),
+        unchanged,
+        "the same visit again changes nothing"
+    );
+    let ids: Vec<ListenerId> = listeners.by_id.keys().copied().collect();
+    for id in ids {
+        listeners.remove(id);
+    }
+    assert!(
+        listeners.visits.by_board.is_empty(),
+        "no board keeps a connection that went away"
     );
 }

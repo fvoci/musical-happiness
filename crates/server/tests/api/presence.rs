@@ -318,3 +318,64 @@ async fn a_member_put_out_of_the_board_leaves_the_roster_before_the_periodic_che
     );
     th.teardown().await;
 }
+
+/// The other reader's entry in `roster`.
+fn entry_of<'r>(roster: &'r Value, user_id: &str) -> Option<&'r Value> {
+    roster["people"]
+        .as_array()
+        .expect("people")
+        .iter()
+        .find(|person| person["userId"] == user_id)
+}
+
+#[tokio::test]
+async fn a_refused_visit_ends_the_one_before_and_a_deleted_card_leaves_the_board_visit() {
+    let th = Setup::native()
+        .configure(|c| c.collab.collab_recheck_seconds = 60)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let t = table(&th, &paragraphs(&["hello"])).await;
+    let other = th.client2.me().await.id;
+    give(&th, &t.board_id, &other, "viewer").await;
+    let mut one = Socket::connect_as(&th.client).await;
+    let mut two = Socket::connect_as(&th.client2).await;
+    visit(&mut one, &t.board_id, "").await;
+    visit(&mut two, &t.board_id, &t.card_id).await;
+    let shown = people(&mut one, 2).await;
+    assert_eq!(
+        entry_of(&shown, &other).expect("the other reader")["cardIds"],
+        json!([t.card_id])
+    );
+    th.client
+        .delete(&format!(
+            "{TEST_WS}/boards/{}/blocks/{}",
+            t.board_id, t.card_id
+        ))
+        .await
+        .check_no_content();
+    let after = people(&mut one, 2).await;
+    assert_eq!(
+        entry_of(&after, &other).expect("still on the board")["cardIds"],
+        json!([]),
+        "a deleted card is closed, and its reader stays on the board"
+    );
+    // A card that is not the board's opens nothing, and the visit stays.
+    visit(&mut two, &t.board_id, &t.card_id).await;
+    assert!(
+        one.next_json(QUIET).await.is_none(),
+        "asking for the deleted card again changes nothing"
+    );
+    // A board the reader may not read: the visit asked before ends as well.
+    let private = th
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::BoardType::Private)
+        .await;
+    visit(&mut two, &private.id, "").await;
+    let alone = people(&mut one, 1).await;
+    assert!(
+        entry_of(&alone, &other).is_none(),
+        "a refused visit does not leave the one before in its place"
+    );
+    th.teardown().await;
+}

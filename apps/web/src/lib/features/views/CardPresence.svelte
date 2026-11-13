@@ -1,15 +1,16 @@
 <script lang="ts">
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardStore } from '$lib/state/index.ts';
+  import { boardPresence, type BoardStore } from '$lib/state/index.ts';
 
   let {
     board,
     cardId,
     class: className,
   }: { board: BoardStore; cardId: string; class?: string } = $props();
+  /** Who else has the card open: the reader knows their own. */
   const people = $derived(
-    board.presence.snapshot.people.filter((person) => person.cardIds.includes(cardId)),
+    boardPresence(board).others.filter((person) => person.cardIds.includes(cardId)),
   );
   const names = $derived(
     people

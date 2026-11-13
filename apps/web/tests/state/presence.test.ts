@@ -142,7 +142,8 @@ it('a hidden page leaves after one minute, returns when visible, and releases it
   let hidden = false;
   const hiddenRead = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
   const send = vi.spyOn(backend.presence, 'setPresence');
-  const stop = board.presence.start();
+  const { boardPresence } = await import('$lib/state/board-presence.svelte.ts');
+  const stop = boardPresence(board).start();
   try {
     expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ boardId: board.boardId }));
     hidden = true;
@@ -164,4 +165,31 @@ it('a hidden page leaves after one minute, returns when visible, and releases it
   }
   expect(send).toHaveBeenLastCalledWith(null);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it('the live connection asks once for the same visit, and leaving forgets the roster heard', () => {
+  const send = vi.fn();
+  const live = new LivePresence(send, vi.fn());
+  const hear = vi.fn();
+  const stop = live.watchPresence('board', hear);
+  live.up();
+  const place = { workspaceId: 'workspace', boardId: 'board' };
+  live.setPresence(place);
+  live.setPresence({ ...place });
+  live.setPresence({ ...place, cardId: '' });
+  expect(send).toHaveBeenCalledTimes(1);
+  live.setPresence({ ...place, cardId: 'card' });
+  expect(send).toHaveBeenCalledTimes(2);
+  live.text({
+    action: 'UPDATE_PRESENCE',
+    boardId: 'board',
+    people: [{ userId: 'other', cardIds: ['card'] }],
+    anonymousCount: 1,
+    hiddenCount: 0,
+  });
+  live.setPresence(null);
+  expect(send).toHaveBeenLastCalledWith({ action: 'SET_PRESENCE', boardId: '' });
+  expect(hear).toHaveBeenLastCalledWith({ people: [], anonymousCount: 0, hiddenCount: 0 });
+  stop();
+  live.down();
 });

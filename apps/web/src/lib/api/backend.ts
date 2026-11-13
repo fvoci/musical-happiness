@@ -78,7 +78,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
   readonly #live: LiveChanges;
-  /** Board visits share the page's connection. */
   readonly presence: Backend['presence'];
 
   constructor(basePath: string) {
@@ -937,6 +936,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return this.#live.watch(boardId, listener);
   }
 
+  /** The reader's own changes: boards and the sidebar. Settings have no message. */
   watchSelf(listener: ChangeListener): () => void {
     return this.#live.watch(undefined, listener);
   }

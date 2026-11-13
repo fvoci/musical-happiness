@@ -1,6 +1,9 @@
-//! One visit per connection, coalesced every 250 ms and projected for each reader.
+//! One visit per connection, indexed by board, coalesced every 250 ms and projected
+//! for each reader (`batch`).
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+mod batch;
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -13,17 +16,22 @@ use crate::app::{App, Asker};
 use crate::auth::secret::SECRET_LENGTH;
 use crate::collab::{AccessChange, Wall};
 
-const BATCH: Duration = Duration::from_millis(250);
 /// A page renews its visit every 30 seconds; a stopped page disappears too.
 const LEASE: Duration = Duration::from_secs(90);
 /// A failed permission lookup must not leave a connection present indefinitely.
 const LOOKUP_WAIT: Duration = Duration::from_secs(5);
 const LONGEST_ID: usize = 64;
+/// The action of the roster a reader is sent.
+const UPDATE_PRESENCE: &str = "UPDATE_PRESENCE";
+
+/// A board as the visits of one roster share it: its organization, workspace and ID.
+type BoardKey = (Wall, String, String);
 
 #[derive(Clone, PartialEq, Eq)]
 struct Visit {
     workspace_id: String,
     board_id: String,
+    /// The open card, checked to be one of the board's; empty if none.
     card_id: String,
     read_token: String,
     /// The board's organization, as access changes are told apart by.
@@ -39,8 +47,7 @@ impl Visit {
         })
     }
 
-    /// The board, as the visits of one roster share it.
-    fn board(&self) -> (Wall, String, String) {
+    fn board(&self) -> BoardKey {
         (self.wall, self.workspace_id.clone(), self.board_id.clone())
     }
 }
@@ -57,6 +64,7 @@ impl std::fmt::Debug for Visit {
 
 #[derive(Debug, Default)]
 pub(super) struct State {
+    /// Changed only through [`Listeners::place`], which keeps the boards' index.
     visit: Option<Visit>,
     renewed: Option<Instant>,
     revision: u64,
@@ -72,6 +80,74 @@ impl State {
         self.visit
             .as_ref()
             .is_some_and(|visit| visit.board_id == board_id && !visit.read_token.is_empty())
+    }
+}
+
+/// The visits of each board, and when they last changed: a reader reads its board's
+/// roster again only when it did (or when its own access is asked again).
+#[derive(Debug, Default)]
+pub(super) struct Boards {
+    by_board: HashMap<BoardKey, OnBoard>,
+    /// How many changes the visits of every board had, numbering them.
+    changes: u64,
+}
+
+#[derive(Debug, Default)]
+struct OnBoard {
+    visitors: BTreeSet<ListenerId>,
+    /// The number of the board's latest change.
+    changed: u64,
+}
+
+impl Boards {
+    /// Forgets a connection that went away with `state`.
+    pub(super) fn forget(&mut self, id: ListenerId, state: &State) {
+        if let Some(visit) = &state.visit {
+            self.leave(&visit.board(), id);
+        }
+    }
+
+    /// The number of the latest change of `board`'s visits.
+    fn changed(&self, board: &BoardKey) -> Option<u64> {
+        self.by_board.get(board).map(|on| on.changed)
+    }
+
+    fn enter(&mut self, board: BoardKey, id: ListenerId) {
+        self.changes += 1;
+        let on = self.by_board.entry(board).or_default();
+        on.visitors.insert(id);
+        on.changed = self.changes;
+    }
+
+    fn leave(&mut self, board: &BoardKey, id: ListenerId) {
+        self.changes += 1;
+        if let Some(on) = self.by_board.get_mut(board) {
+            on.visitors.remove(&id);
+            on.changed = self.changes;
+            if on.visitors.is_empty() {
+                self.by_board.remove(board);
+            }
+        }
+    }
+}
+
+impl Listeners {
+    /// Sets the visit of `id` (`None`: it left the board), keeping the boards' index.
+    fn place(&mut self, id: ListenerId, visit: Option<Visit>) {
+        let Some(listener) = self.by_id.get_mut(&id) else {
+            return;
+        };
+        let state = &mut listener.presence;
+        if state.visit == visit {
+            return;
+        }
+        if let Some(before) = state.visit.take() {
+            self.visits.leave(&before.board(), id);
+        }
+        if let Some(visit) = &visit {
+            self.visits.enter(visit.board(), id);
+        }
+        state.visit = visit;
     }
 }
 
@@ -171,15 +247,15 @@ impl Hub {
             ),
         )
         .await;
+        // Whatever is refused, the visit asked before is not kept in its place.
         let access = match access {
             Ok(Ok(Some(access))) => access,
-            Ok(Ok(None)) => return,
-            Ok(Err(error)) => {
-                tracing::warn!(%error, "presence admission could not be read");
+            Ok(Ok(None)) | Err(_) => {
                 self.clear_presence(id, None);
                 return;
             }
-            Err(_) => {
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "presence admission could not be read");
                 self.clear_presence(id, None);
                 return;
             }
@@ -187,7 +263,7 @@ impl Hub {
         let visit = Visit {
             workspace_id: access.workspace_id,
             board_id: command.board_id,
-            card_id: command.card_id,
+            card_id: access.card_id,
             read_token: command.read_token,
             wall: access.wall,
         };
@@ -204,10 +280,10 @@ impl Hub {
         }) {
             state.entry = state.entry.wrapping_add(1);
         }
-        state.visit = Some(visit);
         state.renewed = Some(Instant::now());
         state.revision = state.revision.wrapping_add(1);
         state.recheck |= read_too_early;
+        listeners.place(id, Some(visit));
     }
 
     /// Starts, once for the hub, the task that flags the visits access changes reach
@@ -220,165 +296,19 @@ impl Hub {
         });
     }
 
+    /// Ends the visit of `id`, unless a command came since `revision` (if given).
     fn clear_presence(&self, id: ListenerId, revision: Option<u64>) {
-        if let Some(listener) = self.listeners().by_id.get_mut(&id)
-            && revision.is_none_or(|revision| revision == listener.presence.revision)
-        {
-            listener.presence.visit = None;
-            listener.presence.renewed = None;
-            listener.presence.revision = listener.presence.revision.wrapping_add(1);
+        let mut listeners = self.listeners();
+        let Some(listener) = listeners.by_id.get_mut(&id) else {
+            return;
+        };
+        let state = &mut listener.presence;
+        if revision.is_none_or(|revision| revision == state.revision) {
+            state.renewed = None;
+            state.revision = state.revision.wrapping_add(1);
+            listeners.place(id, None);
         }
     }
-
-    pub(super) async fn presence_loop(&self, app: &App, id: ListenerId) {
-        let mut ticks = tokio::time::interval(BATCH);
-        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let mut entry_before = None;
-        let mut raw_before = None;
-        let mut sent_before = None;
-        let mut next_check = Instant::now();
-        loop {
-            ticks.tick().await;
-            let current = self.listeners().by_id.get_mut(&id).and_then(|listener| {
-                let state = &mut listener.presence;
-                let recheck = std::mem::take(&mut state.recheck);
-                state.visit.clone().map(|visit| Batch {
-                    visit,
-                    revision: state.revision,
-                    recheck,
-                    entry: state.entry,
-                    renewed: state.renewed,
-                    user_id: listener.user_id.clone(),
-                    provider: listener.login_provider.clone(),
-                })
-            });
-            let Some(Batch {
-                visit,
-                revision,
-                recheck,
-                entry,
-                renewed,
-                user_id,
-                provider,
-            }) = current
-            else {
-                raw_before = None;
-                sent_before = None;
-                continue;
-            };
-            if renewed.is_none_or(|renewed| renewed.elapsed() >= LEASE) {
-                self.clear_presence(id, Some(revision));
-                continue;
-            }
-            if entry_before != Some(entry) {
-                entry_before = Some(entry);
-                raw_before = None;
-                sent_before = None;
-            }
-            let raw = snapshot(&visit, &self.listeners());
-            if raw_before.as_ref() == Some(&raw) && !recheck && Instant::now() < next_check {
-                continue;
-            }
-            let result = tokio::time::timeout(
-                LOOKUP_WAIT,
-                self.project_presence(app, &visit, &user_id, provider.as_deref(), raw.clone()),
-            )
-            .await;
-            // A later command supersedes a permission lookup that was in flight; a
-            // recheck it was for is still owed to the roster's other people.
-            let changed_meanwhile = {
-                let mut listeners = self.listeners();
-                let Some(listener) = listeners.by_id.get_mut(&id) else {
-                    continue;
-                };
-                if listener.presence.revision != revision {
-                    listener.presence.recheck |= recheck;
-                    continue;
-                }
-                listener.presence.recheck
-            };
-            match result {
-                // An access change during the lookup may not be in what it read: the
-                // roster waits for the next batch, which asks again (still flagged).
-                Ok(Ok(Some(_))) if changed_meanwhile => {}
-                Ok(Ok(Some(snapshot))) => {
-                    if snapshot != sent_before {
-                        if let Some(snapshot) = &snapshot {
-                            self.send(&[id], snapshot);
-                        }
-                        sent_before = snapshot;
-                    }
-                    raw_before = Some(raw);
-                    next_check = Instant::now()
-                        + Duration::from_secs(app.config().collab.collab_recheck_seconds);
-                }
-                Ok(Err(error)) => {
-                    tracing::warn!(%error, "presence authority could not be read");
-                    self.clear_presence(id, Some(revision));
-                }
-                Ok(Ok(None)) | Err(_) => self.clear_presence(id, Some(revision)),
-            }
-        }
-    }
-
-    /// Outer None: no board access. Inner None: a token reader, never a recipient.
-    async fn project_presence(
-        &self,
-        app: &App,
-        visit: &Visit,
-        user_id: &str,
-        provider: Option<&str>,
-        mut snapshot: Snapshot,
-    ) -> Result<Option<Option<Snapshot>>, crate::error::AppError> {
-        let asker = Asker {
-            user_id,
-            made_through: provider,
-        };
-        let Some(access) = app
-            .presence_access(
-                asker,
-                &visit.workspace_id,
-                &visit.board_id,
-                &visit.card_id,
-                &visit.read_token,
-            )
-            .await?
-        else {
-            return Ok(None);
-        };
-        let Some(role) = access.role else {
-            return Ok(Some(None));
-        };
-        let ids: Vec<String> = snapshot
-            .people
-            .iter()
-            .map(|person| person.user_id.clone())
-            .collect();
-        let visible = access
-            .app
-            .users_in_workspace(user_id, &visit.workspace_id, role, &ids)
-            .await?;
-        snapshot.people.retain(|person| {
-            let seen = visible.iter().any(|user| user.id == person.user_id);
-            if !seen {
-                snapshot.hidden_count += 1;
-            }
-            seen
-        });
-        Ok(Some(Some(snapshot)))
-    }
-}
-
-/// What a batch of a connection's loop reads of its visit, under the lock.
-struct Batch {
-    visit: Visit,
-    revision: u64,
-    /// An access change reached the visit since the last batch took this.
-    recheck: bool,
-    entry: u64,
-    renewed: Option<Instant>,
-    user_id: String,
-    provider: Option<String>,
 }
 
 /// Flags, for each access change, the visits whose roster it may have changed, until
@@ -404,7 +334,7 @@ async fn watch_access(hub: Weak<HubInner>, mut changes: broadcast::Receiver<Acce
 /// access and whom the reader may see of those present, so a change of somebody's
 /// facts elsewhere changes no roster here.
 fn flag_reached(listeners: &mut Listeners, change: Option<&AccessChange>) {
-    let boards: HashSet<(Wall, String, String)> = listeners
+    let boards: HashSet<BoardKey> = listeners
         .by_id
         .values()
         .filter_map(|listener| {
@@ -413,16 +343,20 @@ fn flag_reached(listeners: &mut Listeners, change: Option<&AccessChange>) {
             (concerned && visit.reached_by(change)).then(|| visit.board())
         })
         .collect();
-    if boards.is_empty() {
-        return;
-    }
-    for listener in listeners.by_id.values_mut() {
-        let state = &mut listener.presence;
-        if let Some(visit) = &state.visit
-            && visit.reached_by(change)
-            && boards.contains(&visit.board())
-        {
-            state.recheck = true;
+    for board in &boards {
+        let Some(on) = listeners.visits.by_board.get(board) else {
+            continue;
+        };
+        for id in &on.visitors {
+            if let Some(listener) = listeners.by_id.get_mut(id)
+                && listener
+                    .presence
+                    .visit
+                    .as_ref()
+                    .is_some_and(|visit| visit.reached_by(change))
+            {
+                listener.presence.recheck = true;
+            }
         }
     }
 }
@@ -439,17 +373,24 @@ fn changed_meanwhile(changes: &mut broadcast::Receiver<AccessChange>, visit: &Vi
     }
 }
 
+/// Everybody on `visit`'s board, before the reader's sight is applied.
 fn snapshot(visit: &Visit, listeners: &Listeners) -> Snapshot {
     let mut people: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut anonymous_count = 0;
-    for listener in listeners.by_id.values() {
+    let visitors = listeners
+        .visits
+        .by_board
+        .get(&visit.board())
+        .map(|on| &on.visitors);
+    for id in visitors.into_iter().flatten() {
+        let Some(listener) = listeners.by_id.get(id) else {
+            continue;
+        };
         let state = &listener.presence;
         let Some(other) = &state.visit else { continue };
-        if other.board_id != visit.board_id
-            || other.workspace_id != visit.workspace_id
-            || state
-                .renewed
-                .is_none_or(|renewed| renewed.elapsed() >= LEASE)
+        if state
+            .renewed
+            .is_none_or(|renewed| renewed.elapsed() >= LEASE)
         {
             continue;
         }
@@ -463,7 +404,7 @@ fn snapshot(visit: &Visit, listeners: &Listeners) -> Snapshot {
         }
     }
     Snapshot {
-        action: "UPDATE_PRESENCE",
+        action: UPDATE_PRESENCE,
         workspace_id: visit.workspace_id.clone(),
         board_id: visit.board_id.clone(),
         anonymous_count,

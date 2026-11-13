@@ -200,6 +200,8 @@ struct Listeners {
     by_id: HashMap<ListenerId, Listener>,
     by_workspace: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
+    /// The board visits of the connections, by board.
+    visits: presence::Boards,
 }
 
 impl Listener {
@@ -238,6 +240,7 @@ impl Listeners {
         for block in &listener.blocks {
             remove_from(&mut self.by_block, block, id);
         }
+        self.visits.forget(id, &listener.presence);
     }
 }
 

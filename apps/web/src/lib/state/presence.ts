@@ -22,6 +22,11 @@ export interface Presence {
   watchPresence(boardId: string, hear: (snapshot: PresenceSnapshot) => void): () => void;
 }
 
+/** Where a backend keeps who is on its boards. */
+export interface PresenceOfBoards {
+  readonly presence: Presence;
+}
+
 export const EMPTY_PRESENCE: PresenceSnapshot = {
   people: [],
   anonymousCount: 0,
