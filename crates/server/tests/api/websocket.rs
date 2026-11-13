@@ -741,6 +741,41 @@ async fn why_a_connection_ended_is_counted() {
     th.teardown().await;
 }
 
+/// A board's member and a reader without a session follow the same board by its read
+/// token: the member's connection, which sees the board, is told the block as a member
+/// is; the reader by the link alone is not told who wrote it or whom it mentions.
+#[tokio::test]
+async fn a_member_following_by_read_token_is_told_as_a_member() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let (_board, mut block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    block.body = fvoci_model::Body::parse(json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": user1.id}}]},
+    ]}))
+    .expect("a body");
+    let mention = "/block/body/content/0/content/0/attrs/userId";
+    let (mut member, _) =
+        follow_block_on(&th, Socket::connect_as(&th.client).await, &block, &token).await;
+    let (mut reader, _) = follow_block(&th, &block, &token).await;
+    th.app
+        .ws()
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
+        .await;
+    let told = member
+        .next_json(PATIENCE)
+        .await
+        .expect("the member is told");
+    assert_eq!(told["block"]["createdBy"], json!(user1.id), "{told}");
+    assert_eq!(told.pointer(mention), Some(&json!(user1.id)), "{told}");
+    let told = reader
+        .next_json(PATIENCE)
+        .await
+        .expect("the reader is told");
+    assert_eq!(told["block"]["createdBy"], json!(""), "{told}");
+    assert_eq!(told.pointer(mention), Some(&json!("")), "{told}");
+    th.teardown().await;
+}
+
 /// Whoever follows a board by its read token alone is not told who made or changed a
 /// block, over the websocket as over HTTP. A member is.
 #[tokio::test]
@@ -817,14 +852,12 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         "{message}"
     );
 
-    // A read-token subscription has the same privacy boundary with a member's session.
+    // The board's member, by the same link, is told the people as a member is.
     let member = Socket::connect_as(&th.client).await;
     let (_member, message) = follow_block_on(&th, member, &block, &token).await;
-    assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
-    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
     assert_eq!(
         message["block"]["fields"]["properties"],
-        json!({"owner": "", "workspace": ["", ""]}),
+        json!({"owner": user1.id, "workspace": [user1.id, user1.id]}),
         "{message}"
     );
 

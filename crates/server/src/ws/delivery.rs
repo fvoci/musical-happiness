@@ -57,6 +57,9 @@ impl Hub {
         self.give_up(&authorized, action);
     }
 
+    /// Tells who follows the block's board by its read token of the block: who sees
+    /// the board as its member does ([`Self::split_by_sight`]) as a member is told it,
+    /// whoever reads it by the link alone without the users it names.
     pub(super) async fn send_public_block(
         &self,
         ids: &[ListenerId],
@@ -66,6 +69,13 @@ impl Hub {
         if ids.is_empty() {
             return;
         }
+        let Some(whole) = text_of(&UpdateBlockMessage {
+            action: "UPDATE_BLOCK",
+            workspace_id,
+            block,
+        }) else {
+            return;
+        };
         let mut authorized = Vec::new();
         for _ in 0..CHECKED_AT_MOST {
             // Not cacheable for a while after an abandoned write: the checks below
@@ -75,32 +85,94 @@ impl Hub {
             if authorized.is_empty() {
                 return;
             }
-            let people = match self.audience.person_properties(&block.board_id).await {
-                Ok(people) => people,
-                Err(error) => {
-                    tracing::error!(%error, board_id = %block.board_id, "websocket: cannot redact public block");
-                    self.close_unread(&authorized);
-                    return;
+            let (members, mut readers) = self
+                .split_by_sight(&authorized, workspace_id, &block.board_id)
+                .await;
+            let hidden = if readers.is_empty() {
+                None
+            } else {
+                match self.audience.person_properties(&block.board_id).await {
+                    Ok(people) => {
+                        let mut public = block.clone();
+                        public.hide_people(&people);
+                        text_of(&UpdateBlockMessage {
+                            action: "UPDATE_BLOCK",
+                            workspace_id,
+                            block: &public,
+                        })
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, board_id = %block.board_id, "websocket: cannot redact public block");
+                        self.close_unread(&readers);
+                        readers.clear();
+                        None
+                    }
                 }
-            };
-            let mut public = block.clone();
-            public.hide_people(&people);
-            let Some(text) = text_of(&UpdateBlockMessage {
-                action: "UPDATE_BLOCK",
-                workspace_id,
-                block: &public,
-            }) else {
-                return;
             };
             #[cfg(feature = "test-util")]
             self.pause_dispatch().await;
             if self.audience.if_current(revision, || {
-                self.queue_text(&authorized, &text, "UPDATE_BLOCK");
+                self.queue_text(&members, &whole, "UPDATE_BLOCK");
+                if let Some(hidden) = &hidden {
+                    self.queue_text(&readers, hidden, "UPDATE_BLOCK");
+                }
             }) {
                 return;
             }
         }
         self.give_up(&authorized, "UPDATE_BLOCK");
+    }
+
+    /// Splits who follows the board by its read token into who sees it as its member
+    /// does, and who reads it by the link alone. A member is a connection of a user who
+    /// holds a role on the board, is in its workspace, and whose session opens the
+    /// workspace's organization; anybody else, a connection without a session, and one
+    /// whose standing cannot be read now, reads by the link.
+    async fn split_by_sight(
+        &self,
+        ids: &[ListenerId],
+        workspace_id: &str,
+        board_id: &str,
+    ) -> (Vec<ListenerId>, Vec<ListenerId>) {
+        let identities: Vec<(ListenerId, String, Option<String>)> = {
+            let listeners = self.listeners();
+            ids.iter()
+                .filter_map(|id| {
+                    let listener = listeners.by_id.get(id)?;
+                    Some((
+                        *id,
+                        listener.user_id.clone(),
+                        listener.login_provider.clone(),
+                    ))
+                })
+                .collect()
+        };
+        let (mut members, mut readers) = (Vec::new(), Vec::new());
+        if identities.iter().all(|(_, user, _)| user.is_empty()) {
+            readers.extend(identities.into_iter().map(|(id, _, _)| id));
+            return (members, readers);
+        }
+        let board_members = self.audience.members(board_id).await.unwrap_or_default();
+        for (id, user, login_provider) in identities {
+            let on_board = !user.is_empty()
+                && board_members
+                    .iter()
+                    .any(|member| member.user_id == user && role_of(member).is_some());
+            let sees = on_board
+                && match self.audience.workspace_access(&user, workspace_id).await {
+                    Ok(Some(access)) => session_opens(
+                        access.required_provider.as_deref(),
+                        login_provider.as_deref(),
+                    ),
+                    Ok(None) | Err(_) => false,
+                };
+            if sees {
+                members.push(id);
+            } else {
+                readers.push(id);
+            }
+        }
+        (members, readers)
     }
 
     /// Closes the recipients of a change whose check was overtaken by permission

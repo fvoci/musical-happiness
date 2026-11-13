@@ -522,8 +522,8 @@ impl Hub {
     /// Tells the board's members in the workspace, and the listeners of the block and of its
     /// parent, that a block changed.
     ///
-    /// A read-token subscription receives no user identifiers, including when its
-    /// connection also has a session ([`Block::hide_people`]), as over public HTTP.
+    /// A read-token subscription receives no user identifiers ([`Block::hide_people`]),
+    /// as over public HTTP, unless its connection's user sees the board as its member.
     pub async fn broadcast_block_change(&self, workspace_id: &str, block: &Block) {
         let followers = self.block_followers(block);
         // Most changes happen with nobody listening; do not ask the store then.

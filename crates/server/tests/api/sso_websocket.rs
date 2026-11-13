@@ -175,9 +175,10 @@ async fn told_of(th: &TestServer, socket: &mut Socket, block: &Block) -> Value {
 }
 
 /// A board's public link is followed as before when its organization takes no
-/// password: by anybody, as a reader, who is told nobody's identifier, a member of the
-/// board too and whatever their session was made through. No such connection is
-/// closed: it follows no workspace.
+/// password: by anybody. A reader by the link alone is told nobody's identifier, and
+/// so is a member of the board whose session the organization does not take; one whose
+/// session it takes is told the block as a member is. No such connection ends: it
+/// follows no workspace.
 #[tokio::test]
 async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing() {
     let fake = FakeProvider::start().await;
@@ -193,7 +194,7 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
     let (mut reader, _) = follow_block_on(&ts, Socket::connect(&ts).await, &block, &token).await;
     let (mut with_password, as_member) =
         follow_block_on(&ts, Socket::connect_as(&ts.client).await, &block, &token).await;
-    assert_eq!(as_member["block"]["createdBy"], json!(""), "{as_member}");
+    assert_eq!(as_member["block"]["createdBy"], json!(user1), "{as_member}");
 
     require_sso(&admin, &org_id, &fake, Passwords::Refused)
         .await
@@ -204,7 +205,7 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
     assert_eq!(
         wrote(told_of(&ts, &mut with_password, &block).await),
         json!(""),
-        "the member's password session, which followed before, still reads as anybody"
+        "the member's password session, which followed before, now reads as anybody"
     );
     let mut again = Socket::connect_as(&ts.client).await;
     again.send(subscription.clone()).await;
@@ -217,8 +218,8 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
     through.send(subscription).await;
     assert_eq!(
         wrote(told_of(&ts, &mut through, &block).await),
-        json!(""),
-        "the provider's session follows the link as a reader too"
+        json!(user1),
+        "the member's session through the provider is told as a member"
     );
 
     require_sso(&admin, &org_id, &fake, Passwords::Taken)
@@ -226,8 +227,8 @@ async fn a_public_link_is_followed_as_a_reader_by_a_session_that_opens_nothing()
         .check_ok();
     assert_eq!(
         wrote(told_of(&ts, &mut with_password, &block).await),
-        json!(""),
-        "released, the connection still follows the link as a reader"
+        json!(user1),
+        "released, the password session is told as a member again"
     );
     ts.teardown().await;
     fake.stop();

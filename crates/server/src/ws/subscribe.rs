@@ -7,8 +7,8 @@
 //! provider moves that revision on. When an organization begins to take only the
 //! sessions of its provider, the connections of other sessions that follow its
 //! workspaces stop following them at once ([`Hub::end_subscriptions_shut_out`]).
-//! Blocks followed by a read token are told no user's identifier whoever follows them,
-//! so the wall asks nothing of them.
+//! Blocks followed by a read token stay followed: whom the wall shuts out is told them
+//! as a reader by the link alone is (`delivery.rs`).
 
 use super::{Identity, Listener};
 use crate::app::Asker;
