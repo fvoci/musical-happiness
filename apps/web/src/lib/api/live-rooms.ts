@@ -1,0 +1,171 @@
+/**
+ * The rooms of the page's one connection (`live.ts`): which of the server's
+ * `DOC_` messages and binary frames goes to which room, and the commands a
+ * room sends (`contracts/websocket.md`, section 6).
+ *
+ * A room is named by a number the server gives when it lets a connection
+ * in, another on every joining. The answer to a join names the card, not a
+ * number, and answers come in the order of the joins: so the joins of a card
+ * wait in a line. A card has one room on a connection: joining it again
+ * takes the place of the number before.
+ */
+import { decodeDocFrame } from '../logic/doc-frame.ts';
+import type { RoomHears, RoomLine } from '../logic/doc-room-types.ts';
+
+interface Seat {
+  key: string;
+  workspaceId: string;
+  cardId: string;
+  hears: RoomHears;
+  doc: number | undefined;
+  closed: boolean;
+}
+
+/** What goes out; false when there is no connection to send on. */
+export interface RoomSends {
+  text(command: object): boolean;
+  bytes(frame: Uint8Array<ArrayBuffer>): boolean;
+}
+
+const isMode = (value: unknown): value is 'write' | 'read' => value === 'write' || value === 'read';
+
+export class LiveRooms {
+  readonly #sends: RoomSends;
+  /** Told when the first room is opened and the last closed: the connection is kept for them. */
+  readonly #wanted: () => void;
+  readonly #seats = new Set<Seat>();
+  readonly #byDoc = new Map<number, Seat>();
+  /** The joins of each card that have no answer yet, oldest first. */
+  readonly #joins = new Map<string, Seat[]>();
+  #up = false;
+
+  constructor(sends: RoomSends, wanted: () => void) {
+    this.#sends = sends;
+    this.#wanted = wanted;
+  }
+
+  /** How many rooms are open. */
+  get size(): number {
+    return this.#seats.size;
+  }
+
+  line(workspaceId: string, cardId: string): RoomLine {
+    return (hears) => {
+      const seat: Seat = {
+        key: `${workspaceId}\n${cardId}`,
+        workspaceId,
+        cardId,
+        hears,
+        doc: undefined,
+        closed: false,
+      };
+      this.#seats.add(seat);
+      this.#wanted();
+      const up = (): boolean => this.#up;
+      return {
+        get connected() {
+          return up();
+        },
+        join: () => {
+          if (!this.#up || seat.closed) return;
+          const waiting = this.#joins.get(seat.key) ?? [];
+          waiting.push(seat);
+          this.#joins.set(seat.key, waiting);
+          this.#sends.text({ action: 'JOIN_DOC', workspaceId, cardId });
+        },
+        send: (frame) => {
+          if (this.#up && !seat.closed) this.#sends.bytes(frame);
+        },
+        close: () => {
+          if (seat.closed) return;
+          seat.closed = true;
+          this.#seats.delete(seat);
+          this.#leave(seat);
+          this.#wanted();
+        },
+      };
+    };
+  }
+
+  #leave(seat: Seat): void {
+    if (seat.doc === undefined) return;
+    this.#byDoc.delete(seat.doc);
+    if (this.#up) this.#sends.text({ action: 'LEAVE_DOC', doc: seat.doc });
+    seat.doc = undefined;
+  }
+
+  /** The connection opened. */
+  up(): void {
+    this.#up = true;
+    for (const seat of [...this.#seats]) seat.hears.up();
+  }
+
+  /** The connection is gone: the server has taken its rooms away. */
+  down(): void {
+    if (!this.#up) return;
+    this.#up = false;
+    this.#byDoc.clear();
+    this.#joins.clear();
+    for (const seat of [...this.#seats]) {
+      seat.doc = undefined;
+      seat.hears.down();
+    }
+  }
+
+  /** A text message: true when it was one of the rooms'. */
+  text(message: Record<string, unknown>): boolean {
+    const { action, doc, epoch, mode, reason } = message;
+    if (typeof action !== 'string' || !action.startsWith('DOC_')) return false;
+    if (action === 'DOC_JOINED' || action === 'DOC_REFUSED') {
+      const key = `${String(message.workspaceId)}\n${String(message.cardId)}`;
+      const waiting = this.#joins.get(key);
+      const seat = waiting?.shift();
+      if (waiting?.length === 0) this.#joins.delete(key);
+      if (!seat) return true;
+      if (action === 'DOC_REFUSED') {
+        // The room before, if there was one, is still the server's: it is left.
+        this.#leave(seat);
+        if (!seat.closed) seat.hears.message({ action, reason: String(reason) });
+        return true;
+      }
+      if (typeof doc !== 'number' || typeof epoch !== 'number' || !isMode(mode)) return true;
+      // The number before is no room any more.
+      if (seat.doc !== undefined) this.#byDoc.delete(seat.doc);
+      seat.doc = doc;
+      if (seat.closed) {
+        // Let in after it was closed: left, unless a later join of the card takes this one's place.
+        if (waiting && waiting.length > 0) seat.doc = undefined;
+        else this.#leave(seat);
+        return true;
+      }
+      this.#byDoc.set(doc, seat);
+      seat.hears.message({ action, doc, epoch, mode });
+      return true;
+    }
+    if (typeof doc !== 'number') return true;
+    const seat = this.#byDoc.get(doc);
+    // A room that was left: what was on its way is dropped.
+    if (!seat) return true;
+    if (action === 'DOC_ACK' && typeof epoch === 'number') {
+      seat.hears.message({ action, doc, epoch });
+    } else if (action === 'DOC_NACK' && typeof epoch === 'number') {
+      seat.hears.message({ action, doc, epoch, reason: String(reason) });
+    } else if (action === 'DOC_RESET' && typeof epoch === 'number') {
+      seat.hears.message({ action, doc, epoch });
+    } else if (action === 'DOC_MODE' && isMode(mode)) {
+      seat.hears.message({ action, doc, mode });
+    } else if (action === 'DOC_LEFT') {
+      this.#byDoc.delete(doc);
+      seat.doc = undefined;
+      seat.hears.message({ action, doc, reason: String(reason) });
+    }
+    return true;
+  }
+
+  /** A binary frame. One that is no sync message, or of no room of this connection, is dropped. */
+  bytes(data: Uint8Array): void {
+    const frame = decodeDocFrame(data);
+    if (!frame) return;
+    this.#byDoc.get(frame.doc)?.hears.frame(frame);
+  }
+}

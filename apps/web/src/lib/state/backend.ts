@@ -32,10 +32,12 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
+import type { BodyDoc, BodyDocHears } from './body-doc.ts';
 import type { TrashReads } from './trash-reads.ts';
 
 export type { Account, LoginOrganization, Registration } from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
+export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus } from './body-doc.ts';
 
 /** What an import did beyond making the archive's boards. */
 export interface Imported {
@@ -480,4 +482,13 @@ export interface Backend extends TrashReads {
    * backend that hears every workspace's (the one in memory) has none.
    */
   enter?(workspaceId: string): void;
+
+  /**
+   * Opens a card's body in its room, to be read and written together with
+   * whoever else has it open. The document is the server's: the reader gets
+   * none until it arrives (`hears.state`). A backend without rooms (the one
+   * of a reader by a public link) has none of this: the body is read as it
+   * was stored.
+   */
+  openDoc?(workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc;
 }

@@ -13,7 +13,7 @@
  * and `latency`.
  */
 import { cardPreviewOf, type CardPreview } from '../../editor/card-preview.ts';
-import { storedSize, validateDoc, type DocNode } from '../../editor/schema.ts';
+import type { DocNode } from '../../editor/schema.ts';
 import { readDisplaySettings, type DisplaySettings } from '../../logic/display.ts';
 import { isTimeZone, readRegionalSettings } from '../../logic/regional.ts';
 import { DEFAULT_ACCOUNT_SETTINGS } from '../../logic/account-settings.ts';
@@ -34,6 +34,8 @@ import {
   type Backend,
   type BoardDraft,
   type BoardRole,
+  type BodyDoc,
+  type BodyDocHears,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
@@ -70,6 +72,7 @@ import {
   type Role,
 } from './comments.ts';
 import { changeDisplayName } from './account.ts';
+import { checkedBody, openMemoryRoom } from './bodies.ts';
 import { checkRelations, renameCopied } from './references.ts';
 import { fail } from './refuse.ts';
 import {
@@ -87,7 +90,6 @@ import {
   commentOf,
   copy,
   detailOf,
-  imageFileIds,
   inPropertyOrder,
   LIMITS,
   MEMORY_ARCHIVE,
@@ -188,24 +190,6 @@ export class MemoryBackend implements Backend {
 
   #memberIds(boardId: string): string[] {
     return (this.world.members.get(boardId) ?? []).map((member) => member.userId);
-  }
-
-  #checkBody(boardId: string, body: DocNode | null): DocNode | null {
-    if (body === null) return null;
-    const problems = validateDoc(body);
-    if (problems.length > 0) fail(400, problems[0] ?? 'invalid body', { field: 'body' });
-    if (storedSize(body) > LIMITS.bodyBytes) {
-      fail(400, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
-    }
-    for (const fileId of imageFileIds(body)) {
-      if (this.world.files.get(fileId)?.boardId !== boardId) {
-        fail(400, 'an image names a file that is not of this board', { field: 'body' });
-      }
-    }
-    // An empty paragraph alone is an empty body, stored as none.
-    const only = body.content?.length === 1 ? body.content[0] : undefined;
-    const empty = only?.type === 'paragraph' && (only.content?.length ?? 0) === 0;
-    return empty ? null : copy(body);
   }
 
   #touch(block: StoredBlock): void {
@@ -942,7 +926,7 @@ export class MemoryBackend implements Backend {
       isTemplate: draft.isTemplate ?? false,
       properties: copy(draft.properties ?? {}),
     };
-    block.body = this.#checkBody(boardId, draft.body ?? null);
+    block.body = checkedBody(this.world, boardId, draft.body ?? null);
     checkRelations(this.world, board, block, undefined, 'properties');
     this.world.blocks.set(block.id, block);
     this.#tellBlocks(boardId, [block]);
@@ -963,7 +947,7 @@ export class MemoryBackend implements Backend {
   async writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
     await this.#enter('writeCardBody');
     const card = this.#block(boardId, cardId, 'card') as StoredCard;
-    const body = this.#checkBody(boardId, write.body);
+    const body = checkedBody(this.world, boardId, write.body);
     if (card.updateAt !== write.readAt) {
       fail(409, 'the card changed since it was read');
     }
@@ -986,7 +970,7 @@ export class MemoryBackend implements Backend {
   async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
     await this.#enter('createComment');
     this.#block(boardId, cardId, 'card');
-    const checked = this.#checkBody(boardId, body);
+    const checked = checkedBody(this.world, boardId, body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     const block = this.#newBlock(boardId, cardId, 'comment');
     block.body = checked;
@@ -1004,7 +988,7 @@ export class MemoryBackend implements Backend {
     if (!mayChangeComment(role, block.createdBy === this.userId)) {
       fail(403, "access denied to change other users' comments");
     }
-    const checked = this.#checkBody(boardId, write.body);
+    const checked = checkedBody(this.world, boardId, write.body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     if (block.updateAt !== write.readAt) {
       fail(409, 'the comment changed since it was read');
@@ -1157,5 +1141,10 @@ export class MemoryBackend implements Backend {
 
   watchSelf(listener: ChangeListener): () => void {
     return this.world.watch({ boardId: undefined, userId: this.userId, listener });
+  }
+
+  /** The body in the world's room of the card (`bodies.ts`). */
+  openDoc(_workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc {
+    return openMemoryRoom(this.world, this, boardId, cardId, hears);
   }
 }

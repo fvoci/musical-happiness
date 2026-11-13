@@ -1,15 +1,11 @@
 /**
  * The backend that calls the server: the data boundary
  * (`lib/state/backend.ts`) over the server's API (`contracts/openapi.json`).
- *
- * It is wired one feature at a time. What is not wired yet refuses with a
- * `BackendError` of the reason `not_wired` (see `notWired`), so that a
- * screen that reaches it says that the change was not saved instead of
- * failing quietly. What is not wired is what calls `notWired` below.
  */
 import type { CardPreview } from '../editor/card-preview.ts';
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
+import { openRoomLater } from '../state/doc-opener.ts';
 import { applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
@@ -21,6 +17,8 @@ import {
   type Backend,
   type BoardDraft,
   type BoardRole,
+  type BodyDoc,
+  type BodyDocHears,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
@@ -69,18 +67,6 @@ import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
 import { ServerRequests, underWorkspace } from './requests.ts';
 import { importInParts, uploadInParts } from './upload.ts';
-
-/**
- * Refuses an operation that is not wired to the server yet. 405 is the
- * status the boundary has for "this cannot be done here"; the reason tells
- * it apart from a refusal of the server.
- */
-export function notWired(operation: string): never {
-  throw new BackendError(405, {
-    detail: `${operation} is not wired to the server yet`,
-    reason: 'not_wired',
-  });
-}
 
 /** How many files go up at once; the server allows a reader 8 open uploads. */
 const UPLOADS_AT_ONCE = 3;
@@ -974,6 +960,11 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** The reader's own changes: boards and the sidebar. Settings have no message. */
   watchSelf(listener: ChangeListener): () => void {
     return this.#live.watch(undefined, listener);
+  }
+
+  /** The body in its room, on the page's one connection (its client is fetched then). */
+  openDoc(workspaceId: string, _boardId: string, cardId: string, hears: BodyDocHears): BodyDoc {
+    return openRoomLater(this.#live.rooms.line(workspaceId, cardId), hears);
   }
 
   /** The connection follows this workspace from now on, and no other. */
