@@ -53,7 +53,6 @@ ALTER TABLE oidc_login_flows ADD COLUMN pending_by UUID;
 
 -- The records of the pending settings, and of the server operator setting a member's
 -- password or making a link to set it: each of the organization, of no workspace.
-SELECT set_config('fvoci.system', 'on', true);
 ALTER TABLE audit_log DROP CONSTRAINT audit_log_action_check;
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check CHECK (action IN (
     'self_added_to_board', 'added_to_board',

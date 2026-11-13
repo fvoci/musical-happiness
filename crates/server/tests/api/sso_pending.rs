@@ -421,7 +421,9 @@ async fn another_issuer_is_applied_by_its_administrators_trial() {
         )
         .await
         .check_ok();
+    let users_before = ts.app.store().count_rows("users").await.expect("counted");
     let untied = try_pending(&ts, &other, &admin, &org_id).await;
+    let users_after = ts.app.store().count_rows("users").await.expect("counted");
     let tied_by_it = ts
         .app
         .store()
@@ -447,6 +449,7 @@ async fn another_issuer_is_applied_by_its_administrators_trial() {
         "an identity of nobody's is not tied by a trial"
     );
     assert!(tied_by_it.is_none(), "tied to nobody");
+    assert_eq!(users_after, users_before, "no account made");
     assert!(
         still.pending.is_some() && still.issuer == fake.issuer,
         "nothing applied"

@@ -1073,7 +1073,7 @@
   "org_sso_pending_applied": "Signed in with the new settings. They are now in use.",
   "org_sso_pending_failed": "Signing in with the new settings failed, so nothing was changed.",
   "org_sso_pending_refused": "The provider did not accept the client ID or secret.",
-  "org_sso_pending_other_account": "Sign in as yourself: new settings are put in use only by a sign-in into your own account, through an identity already connected to it. For another issuer that you have no connected identity at, switch off the requirement first, then change the issuer.",
+  "org_sso_pending_other_account": "Sign in as yourself: new settings are put in use only by a sign-in into your own account, through an identity already connected to it. For another issuer without one, switch off the requirement first, but only if you can then sign in with your account's password: an account made through single sign-on has none until the server operator sets one.",
   "org_sso_pending_discarded": "The pending settings were discarded.",
   "org_sso_pending_hint": "While single sign-on is required, a changed issuer, client ID or secret is saved as pending and put in use only after a sign-in through it succeeds.",
   "org_sso_keep_secret": "Keep the stored secret"

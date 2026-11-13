@@ -527,11 +527,12 @@ fn describe_linking_and_enforcing(reason: Reason) -> Option<&'static str> {
         }
         Reason::OidcTrialAccount => {
             "On the organization's page, after a trial of its provider's pending settings \
-             (`startOidcTrial`): the provider vouched for somebody who is not the \
-             administrator who started it, by an identity tied to their account, or that \
-             administrator administers the organization no more. Nothing is changed and \
-             no account is made: settings no administrator signs in through are not put \
-             in use."
+             (`startOidcTrial`): the identity the provider vouched for is not one tied \
+             to the account of the administrator who started it (another account's, or \
+             tied to none, as at another issuer), or that administrator administers the \
+             organization no more. Nothing is changed, no account is made and no \
+             identity is tied: settings no administrator signs in through are not put in \
+             use."
         }
         Reason::OidcEmailMismatch => {
             "On the login page, after a sign-in through a provider that was started to \

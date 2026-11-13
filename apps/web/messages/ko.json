@@ -1073,7 +1073,7 @@
   "org_sso_pending_applied": "새 설정으로 로그인했습니다. 이제 이 설정을 씁니다.",
   "org_sso_pending_failed": "새 설정으로 로그인하지 못해 아무것도 바꾸지 않았습니다.",
   "org_sso_pending_refused": "공급자가 client ID나 secret을 받지 않았습니다.",
-  "org_sso_pending_other_account": "본인으로 로그인하세요. 새 설정은 내 계정에 이미 연결된 신원으로 로그인해야 적용됩니다. 연결된 신원이 없는 다른 issuer로 옮기려면 먼저 강제를 끄고 issuer를 바꾸세요.",
+  "org_sso_pending_other_account": "본인으로 로그인하세요. 새 설정은 내 계정에 이미 연결된 신원으로 로그인해야 적용됩니다. 그런 신원이 없는 다른 issuer라면 먼저 강제를 끄되, 그 뒤 내 계정의 비밀번호로 로그인할 수 있을 때만 그렇게 하세요. SSO로 만든 계정은 서버 운영자가 정해 주기 전에는 비밀번호가 없습니다.",
   "org_sso_pending_discarded": "대기 설정을 버렸습니다.",
   "org_sso_pending_hint": "SSO를 강제하는 동안 issuer, client ID, secret을 바꿔 저장하면 대기 설정이 되고, 그 설정으로 로그인에 성공해야 적용됩니다.",
   "org_sso_keep_secret": "저장된 secret 유지"

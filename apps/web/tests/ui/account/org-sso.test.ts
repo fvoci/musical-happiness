@@ -137,6 +137,9 @@ describe('the SSO settings', () => {
       target: { value: 'https://next.example.com' },
     });
     expect(screen.queryByTestId('sso-issuer-change')).not.toBeInTheDocument();
+    // Switched off in the same save, it is taken at once, and signs people out.
+    await fireEvent.click(screen.getByTestId('sso-required-switch'));
+    expect(screen.getByTestId('sso-issuer-change')).toHaveTextContent('signs out everyone');
   });
 
   it('says a change saved while enforced waits aside, and tries or discards it', async () => {

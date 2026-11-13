@@ -228,10 +228,13 @@ async fn handle_delete_oidc_pending(org: OrgAdmin) -> ApiResult {
 /// before. A sign-in that fails changes nothing; one that ends in another account (the
 /// provider vouches for an identity that is not tied to this administrator's account,
 /// or they administer the organization no more) is refused with
-/// `oidc_trial_account`, and makes no account and ties no identity: another issuer is
-/// put in use by a trial only for an administrator whose identity there is tied to
-/// their account already; otherwise the requirement is switched off first. 409 with the reason `oidc_unavailable`
-/// if there are no pending settings, the provider is off, or their issuer cannot be
+/// `oidc_trial_account`, and makes no account and ties no identity. So another issuer
+/// is put in use by a trial only for an administrator whose identity there is tied to
+/// their account already. Without one, the requirement is switched off before the
+/// issuer is changed, which leaves an administrator only the password of their account
+/// to sign in and link with (one made through the provider has none: the operator's
+/// socket sets one). 409 with the reason `oidc_unavailable` if there are no pending
+/// settings, the provider is off, or their issuer cannot be
 /// reached; 429 when this address made too many sign-ins of late.
 #[utoipa::path(
     post,

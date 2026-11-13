@@ -213,8 +213,9 @@
           placeholder="https://login.example.com"
           data-testid="sso-issuer"
         />
-        <!-- While enforced, another issuer waits aside and signs nobody out yet. -->
-        {#if provider && !enforced && issuer.trim() !== provider.issuer}
+        <!-- While enforced and kept so, another issuer waits aside and signs nobody out
+             yet; switched off in the same save, it is taken at once. -->
+        {#if provider && !(enforced && required) && issuer.trim() !== provider.issuer}
           <p class="text-xs text-muted-foreground" data-testid="sso-issuer-change">
             {m.org_sso_issuer_change()}
           </p>
