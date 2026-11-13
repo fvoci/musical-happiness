@@ -35,6 +35,7 @@ struct Maker {
     workspace_role: Option<WorkspaceRole>,
     /// Their membership of the board of a guest's link.
     member: Option<BoardMember>,
+    team_role: Option<fvoci_model::BoardRole>,
     of_board: InviterOfBoard,
 }
 
@@ -281,6 +282,7 @@ impl App {
                 Ok(invites.then_some(Maker {
                     workspace_role: actor.workspace,
                     member: None,
+                    team_role: None,
                     of_board: InviterOfBoard::Member,
                 }))
             }
@@ -298,6 +300,7 @@ impl App {
                         InviterOfBoard::Member
                     },
                     member: access.member,
+                    team_role: access.team_role,
                 })),
             (WorkspaceRole::Guest, None) | (WorkspaceRole::Admin, _) => Ok(None),
         }
@@ -391,6 +394,7 @@ impl App {
                     user_id: &invitation.created_by,
                     workspace_role: maker.workspace_role,
                     member: maker.member.as_ref(),
+                    team_role: maker.team_role,
                 },
                 of_board: maker.of_board,
             };

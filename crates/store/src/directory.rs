@@ -19,12 +19,12 @@ use fvoci_model::{
 };
 use subtle::ConstantTimeEq as _;
 
+use crate::board_team_access;
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::loose_objects::LooseState;
 use crate::oidc::{LoginFlow, flow_from_row};
-use crate::team_access;
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{Store, Tenant};
 use crate::{invitations, users, workspaces};
@@ -140,7 +140,7 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                  JOIN workspace_members AS them \
                  ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                  WHERE mine.user_id = ",
-                directory_members = team_access::directory_members(scope)
+                directory_members = board_team_access::directory_members(scope)
             ))
             .bind(Id(seer_id))
             .push_bind(" AND b.workspace_id = ", Id(workspace_id))
@@ -180,7 +180,7 @@ fn push_seen(sql: &mut Sql, scope: &Scope<'_>, sight: Sight<'_>) {
                      JOIN workspace_members AS them \
                      ON them.workspace_id = b.workspace_id AND them.user_id = other.user_id \
                      WHERE mine.user_id = ",
-                    directory_members = team_access::directory_members(scope)
+                    directory_members = board_team_access::directory_members(scope)
                 ))
                 .bind(Id(seer_id))
                 .push(IN_USE)
@@ -230,7 +230,7 @@ fn push_writer(sql: &mut Sql, scope: &Scope<'_>, seer_id: &str, within: Option<(
     .push(&scope.same_organization(&[("mine", "b")]))
     .push(")");
     sql.push(" OR ");
-    team_access::push_has_team_role(sql, scope, seer_id);
+    board_team_access::push_has_team_role(sql, scope, seer_id);
     if open_where_seer_works {
         // Read without a role: an open template, for who works in its workspace. An
         // open board that is none is joined to be read.

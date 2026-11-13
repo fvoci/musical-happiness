@@ -25,6 +25,9 @@
   const workspaceName = $derived(workspace.info?.title || m.shell_workspace_unnamed());
   let groups = $state.raw<Team[]>([]);
   let members = $state.raw<WorkspaceMember[]>([]);
+  const restrictedSelf = $derived(
+    members.find((member) => member.userId === workspace.me?.id && member.joinedAsOrgAdmin)?.userId,
+  );
   let loaded = $state(false);
   let working = $state(false);
   let problem = $state('');
@@ -65,7 +68,11 @@
       await step(workspaceId);
     } catch (error) {
       problem =
-        isBackendError(error) && error.status === 409 ? m.teams_name_taken() : m.teams_failed();
+        isBackendError(error) && error.reason === 'team_self_joining'
+          ? m.teams_self_joining()
+          : isBackendError(error) && error.status === 409
+            ? m.teams_name_taken()
+            : m.teams_failed();
     } finally {
       await read(workspaceId, managing);
       working = false;
@@ -111,6 +118,7 @@
         {members}
         {managing}
         {working}
+        {restrictedSelf}
         onRename={(value: string) => act((place) => teams.rename(place, team.id, value))}
         onAdd={(userId: string) => act((place) => teams.addMember(place, team.id, userId))}
         onRemove={(userId: string) => act((place) => teams.removeMember(place, team.id, userId))}

@@ -748,7 +748,7 @@ async fn end_joining(
 ) -> Result<(), StoreError> {
     joinings::give_back_roles(scope, workspace_id, user_id, &joined.held).await?;
     if joined.prior.is_none() || joined.prior == Some(WorkspaceRole::Guest) {
-        crate::teams::remove_workspace_teams(scope, workspace_id, user_id).await?;
+        crate::board_team_membership::remove_workspace_teams(scope, workspace_id, user_id).await?;
     }
     let mut sql = match joined.prior {
         Some(prior) => {

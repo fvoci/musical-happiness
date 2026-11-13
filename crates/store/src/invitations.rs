@@ -296,11 +296,11 @@ impl Store {
         inviter: Inviter<'_>,
     ) -> Result<Acceptance, StoreError> {
         self.transaction(async |scope| {
-            // The board of a guest's link is held first, as every write of a board's
-            // members holds it and as its deletion does, which takes the link along:
-            // in that order nothing waits for what waits for it, and the role the
-            // acceptor has on the board is still the one that was read when theirs is
-            // written.
+            // Team changes take this lock too: inherited access cannot change after
+            // the inviter is checked but before their grant is recorded.
+            crate::org_admin::hold_organization_row(scope).await?;
+            // Hold the board before its invitation and membership, as removal does.
+            // The acceptor's role then stays what was read until its write.
             let sql = select_live_by_token(scope, token_hash, now)?;
             let Some(row) = scope.fetch_optional(sql).await? else {
                 return Ok(Acceptance::Unavailable);
@@ -462,7 +462,15 @@ async fn inviter_still(
             member.scheme_viewer,
         ]
     };
-    Ok(role == found.workspace_role && member.as_ref().map(flags) == found.member.map(flags))
+    let team_role = match &link.board_id {
+        Some(board_id) => {
+            crate::board_team_access::role_for(scope, board_id, &link.created_by).await?
+        }
+        None => None,
+    };
+    Ok(role == found.workspace_role
+        && member.as_ref().map(flags) == found.member.map(flags)
+        && team_role == found.team_role)
 }
 
 /// What letting a guest in changed.

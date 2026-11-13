@@ -20,6 +20,8 @@ export interface WorkspaceMember {
   /** The name they are shown by; empty for none. */
   displayName: string;
   role: WorkspaceRole;
+  /** Temporary administration ends when the organization-admin joining ends. */
+  joinedAsOrgAdmin?: boolean;
 }
 
 /** A link that lets somebody into a workspace. */

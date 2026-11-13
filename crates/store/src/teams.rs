@@ -1,7 +1,7 @@
 //! Groups of nonguest workspace members. Writes share the organization/workspace
 //! locks with membership changes, and recheck the administrator under those locks.
 
-use fvoci_model::{BoardMember, Team, TeamMember, new_id};
+use fvoci_model::{Team, TeamMember, new_id};
 
 use crate::db::{Id, Scope};
 use crate::{Store, StoreError, Taken, org_admin, workspace_membership};
@@ -67,98 +67,14 @@ impl Store {
         })
         .await
     }
-
-    /// Deletes a team, its members, and every role it was given on a board.
-    ///
-    /// # Errors
-    /// As [`Store::rename_team`].
-    pub async fn delete_team(
-        &self,
-        workspace_id: &str,
-        team_id: &str,
-        by: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
-        self.transaction(async |scope| {
-            managing(scope, workspace_id, by).await?;
-            let changes = crate::board_teams::affected(scope, team_id, None).await?;
-            let mut sql = scope.sql("DELETE FROM teams WHERE id = ");
-            sql.bind(Id(team_id))
-                .push_bind(" AND workspace_id = ", Id(workspace_id))
-                .push_bind(" AND org_id = ", scope.org()?);
-            if scope.execute(sql).await? == 0 {
-                return Err(StoreError::not_found("team"));
-            }
-            crate::board_teams::end_lost_subscriptions(scope, &changes).await?;
-            Ok(changes)
-        })
-        .await
-    }
-
-    /// Adds a nonguest workspace member to a team, idempotently.
-    ///
-    /// # Errors
-    /// As [`Store::rename_team`]; not found for a guest or a person outside the workspace.
-    pub async fn add_team_member(
-        &self,
-        workspace_id: &str,
-        team_id: &str,
-        user_id: &str,
-        by: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
-        self.transaction(async |scope| {
-            managing(scope, workspace_id, by).await?;
-            require_team(scope, workspace_id, team_id).await?;
-            let mut sql = scope.sql("SELECT user_id FROM workspace_members WHERE workspace_id = ");
-            sql.bind(Id(workspace_id))
-                .push_bind(" AND user_id = ", Id(user_id))
-                .push(" AND role IN ('admin', 'member')");
-            if scope.fetch_optional(sql).await?.is_none() {
-                return Err(StoreError::not_found("workspace member"));
-            }
-            let changes = crate::board_teams::joining(scope, team_id, user_id, by).await?;
-            let mut sql = scope
-                .sql("INSERT INTO team_members (team_id, org_id, workspace_id, user_id) VALUES (");
-            sql.bind(Id(team_id))
-                .push_bind(", ", scope.org()?)
-                .push_bind(", ", Id(workspace_id))
-                .push_bind(", ", Id(user_id))
-                .push(") ON CONFLICT (team_id, user_id, org_id) DO NOTHING");
-            scope.execute(sql).await?;
-            Ok(changes)
-        })
-        .await
-    }
-
-    /// Removes a person from a team, idempotently.
-    ///
-    /// # Errors
-    /// As [`Store::rename_team`].
-    pub async fn remove_team_member(
-        &self,
-        workspace_id: &str,
-        team_id: &str,
-        user_id: &str,
-        by: &str,
-    ) -> Result<Vec<BoardMember>, StoreError> {
-        self.transaction(async |scope| {
-            managing(scope, workspace_id, by).await?;
-            require_team(scope, workspace_id, team_id).await?;
-            let changes = crate::board_teams::affected(scope, team_id, Some(user_id)).await?;
-            let mut sql = scope.sql("DELETE FROM team_members WHERE team_id = ");
-            sql.bind(Id(team_id))
-                .push_bind(" AND workspace_id = ", Id(workspace_id))
-                .push_bind(" AND user_id = ", Id(user_id))
-                .push_bind(" AND org_id = ", scope.org()?);
-            scope.execute(sql).await?;
-            crate::board_teams::end_lost_subscriptions(scope, &changes).await?;
-            Ok(changes)
-        })
-        .await
-    }
 }
 
 /// Team writes and workspace membership changes take these locks in the same order.
-async fn managing(scope: &mut Scope<'_>, workspace_id: &str, by: &str) -> Result<(), StoreError> {
+pub(crate) async fn managing(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    by: &str,
+) -> Result<(), StoreError> {
     org_admin::hold_organization_row(scope).await?;
     if !workspace_membership::hold_workspace(scope, workspace_id).await? {
         return Err(StoreError::not_found("workspace"));
@@ -188,36 +104,6 @@ pub(crate) async fn require_team(
     Ok(())
 }
 
-/// Demotion removes the stored links, so promoting the person later restores none.
-pub(crate) async fn remove_workspace_teams(
-    scope: &mut Scope<'_>,
-    workspace_id: &str,
-    user_id: &str,
-) -> Result<(), StoreError> {
-    let mut sql = scope.sql("SELECT DISTINCT bt.board_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE tm.workspace_id = ");
-    sql.bind(Id(workspace_id))
-        .push_bind(" AND tm.user_id = ", Id(user_id))
-        .push_bind(" AND tm.org_id = ", scope.org()?);
-    let changes = scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| {
-            Ok(BoardMember {
-                board_id: row.id(0)?,
-                user_id: user_id.to_owned(),
-                ..BoardMember::default()
-            })
-        })
-        .collect::<Result<Vec<_>, StoreError>>()?;
-    let mut sql = scope.sql("DELETE FROM team_members WHERE workspace_id = ");
-    sql.bind(Id(workspace_id))
-        .push_bind(" AND user_id = ", Id(user_id))
-        .push_bind(" AND org_id = ", scope.org()?);
-    scope.execute(sql).await?;
-    crate::board_teams::end_lost_subscriptions(scope, &changes).await
-}
-
 pub(crate) async fn list(
     scope: &mut Scope<'_>,
     workspace_id: &str,
@@ -238,10 +124,10 @@ pub(crate) async fn list(
             })
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
-    let mut sql = scope.sql("SELECT tm.team_id, u.id, u.username, u.display_name FROM team_members tm JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id JOIN users u ON u.id = tm.user_id WHERE tm.workspace_id = ");
+    let mut sql = scope.sql(&format!("SELECT tm.team_id, u.id, u.username, u.display_name FROM {} tm JOIN users u ON u.id = tm.user_id WHERE tm.workspace_id = ", present_members(scope)));
     sql.bind(Id(workspace_id))
         .push_bind(" AND tm.org_id = ", scope.org()?)
-        .push(" AND wm.role IN ('admin', 'member') ORDER BY tm.team_id, tm.user_id");
+        .push(" ORDER BY tm.team_id, tm.user_id");
     for row in scope.fetch_all(sql).await? {
         let id = row.id(0)?;
         if let Some(team) = teams.iter_mut().find(|team| team.id == id) {
@@ -266,4 +152,96 @@ fn name_error(error: StoreError) -> StoreError {
         }
         other => other,
     }
+}
+
+/// The shared source of current team membership, for any workspace module.
+/// System directory queries bind the organization through their resource's workspace.
+pub(crate) fn present_members(scope: &Scope<'_>) -> String {
+    let wall = scope.same_organization(&[("wm", "tm")]);
+    format!(
+        "(SELECT tm.team_id, tm.workspace_id, tm.org_id, tm.user_id FROM team_members tm JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id JOIN workspaces w ON w.id = tm.workspace_id AND w.org_id = tm.org_id WHERE wm.role IN ('admin', 'member') AND w.delete_at = 0{wall})"
+    )
+}
+
+pub(crate) async fn delete(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    team_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM teams WHERE id = ");
+    sql.bind(Id(team_id))
+        .push_bind(" AND workspace_id = ", Id(workspace_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    if scope.execute(sql).await? == 0 {
+        return Err(StoreError::not_found("team"));
+    }
+    Ok(())
+}
+
+pub(crate) async fn require_addition(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+    by: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT user_id FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push(" AND role IN ('admin', 'member')");
+    if scope.fetch_optional(sql).await?.is_none() {
+        return Err(StoreError::not_found("workspace member"));
+    }
+    if user_id == by
+        && org_admin::membership(scope, workspace_id, by)
+            .await?
+            .is_some_and(|(_, joining)| joining.is_some())
+    {
+        return Err(StoreError::TeamSelfJoining);
+    }
+    Ok(())
+}
+
+pub(crate) async fn add_member(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    team_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql =
+        scope.sql("INSERT INTO team_members (team_id, org_id, workspace_id, user_id) VALUES (");
+    sql.bind(Id(team_id))
+        .push_bind(", ", scope.org()?)
+        .push_bind(", ", Id(workspace_id))
+        .push_bind(", ", Id(user_id))
+        .push(") ON CONFLICT (team_id, user_id, org_id) DO NOTHING");
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+pub(crate) async fn remove_member(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    team_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM team_members WHERE team_id = ");
+    sql.bind(Id(team_id))
+        .push_bind(" AND workspace_id = ", Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+pub(crate) async fn remove_workspace_memberships(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM team_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push_bind(" AND org_id = ", scope.org()?);
+    scope.execute(sql).await?;
+    Ok(())
 }

@@ -60,19 +60,3 @@ pub fn team_name(text: &str) -> Result<&str, TeamNameError> {
     }
     Ok(text)
 }
-
-/// A workspace team and the role its members inherit on a board.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct BoardTeam {
-    /// The group, including its current nonguest members.
-    pub team: Team,
-    /// No team may administer a board.
-    pub role: crate::MinimumRole,
-}
-
-/// The role given to a team on a board.
-#[derive(Debug, Clone, Copy, Deserialize, utoipa::ToSchema)]
-pub struct BoardTeamRole {
-    /// The team's role, at most editor.
-    pub role: crate::MinimumRole,
-}

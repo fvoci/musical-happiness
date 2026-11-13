@@ -6,7 +6,7 @@ use fvoci_model::{
 
 use crate::audit::{self, AuditEntry};
 use crate::db::{Id, Scope};
-use crate::{Store, StoreError, boards, org_admin, team_access, teams, workspace_membership};
+use crate::{Store, StoreError, board_team_access, boards, org_admin, teams, workspace_membership};
 
 impl Store {
     /// Lists a board's assigned teams, including their current members.
@@ -31,7 +31,7 @@ impl Store {
                     if row.id(0)? == team.id {
                         assigned.push(BoardTeam {
                             team,
-                            role: team_access::parse_role(&row.text(1)?)?,
+                            role: board_team_access::parse_role(&row.text(1)?)?,
                         });
                         break;
                     }
@@ -101,10 +101,13 @@ async fn require_manager(scope: &mut Scope<'_>, board: &Board, by: &str) -> Resu
 }
 
 async fn people(scope: &mut Scope<'_>, team_id: &str) -> Result<Vec<String>, StoreError> {
-    let mut sql = scope.sql("SELECT tm.user_id FROM team_members tm JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id WHERE tm.team_id = ");
+    let mut sql = scope.sql(&format!(
+        "SELECT tm.user_id FROM {} tm WHERE tm.team_id = ",
+        teams::present_members(scope)
+    ));
     sql.bind(Id(team_id))
         .push_bind(" AND tm.org_id = ", scope.org()?)
-        .push(" AND wm.role IN ('admin', 'member') ORDER BY tm.user_id");
+        .push(" ORDER BY tm.user_id");
     scope
         .fetch_all(sql)
         .await?
@@ -118,7 +121,7 @@ async fn reads(scope: &mut Scope<'_>, board_id: &str, user_id: &str) -> Result<b
         .await?
         .and_then(|m| m.role());
     Ok(direct
-        .max(team_access::role_for(scope, board_id, user_id).await?)
+        .max(board_team_access::role_for(scope, board_id, user_id).await?)
         .is_some())
 }
 

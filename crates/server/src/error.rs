@@ -184,6 +184,8 @@ reasons! {
     AdminRequired => "admin_required", "Administrator required";
     /// A guest of the workspace is given no role on a board above editor.
     GuestRoleLimit => "guest_role_limit", "A guest is no more than an editor";
+    /// A temporary organization administrator cannot add themselves to a team.
+    TeamSelfJoining => "team_self_joining", "Cannot add yourself to a team during administrative joining";
     /// Public sharing is turned off in the server's configuration.
     SharingDisabled => "sharing_disabled", "Public sharing turned off";
     /// The user has as many uploads in parts open as one may.
@@ -745,6 +747,9 @@ impl From<anyhow::Error> for AppError {
 impl From<StoreError> for AppError {
     fn from(error: StoreError) -> Self {
         match error {
+            StoreError::TeamSelfJoining => {
+                Self::forbidden(error).with_reason(Reason::TeamSelfJoining)
+            }
             // What was not found is in the store's message, which names identifiers; the
             // answer does not repeat it. Routes say what kind of thing they miss.
             StoreError::NotFound(_) | StoreError::NotAllFound { .. } | StoreError::NoRows => {

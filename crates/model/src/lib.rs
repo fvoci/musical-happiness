@@ -13,6 +13,7 @@ mod auth;
 mod block;
 mod block_ids;
 mod board;
+mod board_teams;
 mod boards_and_blocks;
 mod body;
 mod card;
@@ -57,6 +58,7 @@ pub use board::{
     Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
     MinimumRole, ParseBoardSearchFieldError,
 };
+pub use board_teams::{BoardTeam, BoardTeamRole};
 pub use boards_and_blocks::{
     BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
@@ -112,7 +114,7 @@ pub use settings::{
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
-pub use team::{BoardTeam, BoardTeamRole, Team, TeamMember, TeamName, TeamNameError, team_name};
+pub use team::{Team, TeamMember, TeamName, TeamNameError, team_name};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};

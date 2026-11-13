@@ -11,6 +11,7 @@
     members,
     managing,
     working,
+    restrictedSelf,
     onRename,
     onAdd,
     onRemove,
@@ -20,6 +21,7 @@
     members: WorkspaceMember[];
     managing: boolean;
     working: boolean;
+    restrictedSelf?: string;
     onRename: (name: string) => Promise<void>;
     onAdd: (userId: string) => Promise<void>;
     onRemove: (userId: string) => Promise<void>;
@@ -106,12 +108,15 @@
           </li>
         {/each}
       </ul>
+      {#if managing && restrictedSelf}
+        <p class="text-sm text-muted-foreground">{m.teams_self_joining()}</p>
+      {/if}
       {#if managing && candidates.length > 0}
         <form
           class="flex flex-wrap gap-2"
           onsubmit={(event) => {
             event.preventDefault();
-            if (selected)
+            if (selected && selected !== restrictedSelf)
               void onAdd(selected).then(() => {
                 selected = '';
               });
@@ -125,10 +130,15 @@
           >
             <option value="">{m.teams_choose_member()}</option>
             {#each candidates as person (person.userId)}
-              <option value={person.userId}>{userDisplayName(person)}</option>
+              <option value={person.userId} disabled={person.userId === restrictedSelf}
+                >{userDisplayName(person)}</option
+              >
             {/each}
           </select>
-          <Button size="sm" type="submit" disabled={working || !selected}
+          <Button
+            size="sm"
+            type="submit"
+            disabled={working || !selected || selected === restrictedSelf}
             >{m.teams_add_member()}</Button
           >
         </form>

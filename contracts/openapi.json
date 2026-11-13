@@ -2423,6 +2423,11 @@
             "type": "/problems/guest-role-limit"
           },
           {
+            "reason": "team_self_joining",
+            "title": "Cannot add yourself to a team during administrative joining",
+            "type": "/problems/team-self-joining"
+          },
+          {
             "reason": "sharing_disabled",
             "title": "Public sharing turned off",
             "type": "/problems/sharing-disabled"
@@ -3363,6 +3368,10 @@
             "description": "The name the user is shown by; empty if they have none.",
             "type": "string"
           },
+          "joinedAsOrgAdmin": {
+            "description": "Whether this membership is a temporary joining as organization administrator.",
+            "type": "boolean"
+          },
           "role": {
             "$ref": "#/components/schemas/WorkspaceRole",
             "description": "What the user is in the workspace."
@@ -3379,6 +3388,7 @@
         "required": [
           "createAt",
           "displayName",
+          "joinedAsOrgAdmin",
           "role",
           "userId",
           "username"
@@ -9851,7 +9861,7 @@
         ]
       },
       "put": {
-        "description": "For workspace administrators. Idempotent. A guest or somebody outside the\nworkspace is 404. Removing a workspace member or making them a guest removes\nthem from every team of that workspace.",
+        "description": "For workspace administrators. Idempotent. A guest or somebody outside the\nworkspace is 404. Removing a workspace member or making them a guest removes\nthem from every team of that workspace. A person joined as organization administrator\ncannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.",
         "operationId": "addTeamMember",
         "parameters": [
           {

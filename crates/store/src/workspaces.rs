@@ -284,7 +284,7 @@ async fn search_boards_for_user_in_workspace(
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push(members::BM_HAS_A_ROLE)
         .push(") OR ");
-    crate::team_access::push_has_team_role(&mut sql, scope, user_id);
+    crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");
     sql.push(boards::OLDEST_BOARD_FIRST);
     Ok(boards::with_title_words(
@@ -349,7 +349,7 @@ pub(crate) async fn get_template_boards(
             BoardType::Open.as_str(),
         )
         .push(") OR bm.board_id IS NOT NULL OR ");
-    crate::team_access::push_has_team_role(&mut sql, scope, user_id);
+    crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")").push(boards::OLDEST_BOARD_FIRST);
     boards::fetch_boards(scope, sql).await
 }

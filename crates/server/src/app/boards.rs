@@ -837,6 +837,7 @@ fn standing<'a>(user_id: &'a str, access: &'a BoardAccess) -> Standing<'a> {
         user_id,
         workspace_role: access.actor.workspace,
         member: access.member.as_ref(),
+        team_role: access.team_role,
     }
 }
 

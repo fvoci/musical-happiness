@@ -7,6 +7,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum StoreError {
+    /// A temporary organization administrator cannot add themselves to a team.
+    #[error("cannot add yourself to a team while joined as organization administrator")]
+    TeamSelfJoining,
+
     /// A record that the operation needs does not exist.
     #[error("{{{0}}} not found")]
     NotFound(String),

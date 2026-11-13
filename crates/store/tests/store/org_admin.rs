@@ -936,6 +936,7 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         user_id: &admin,
         workspace_role: Some(WorkspaceRole::Admin),
         member: Some(&seen),
+        team_role: None,
     };
     test.set_org_role(&admin, OrgRole::Member, &other_admin)
         .await
@@ -971,6 +972,7 @@ async fn a_change_let_in_before_a_joining_was_taken_back_is_not_made() {
         user_id: &owner,
         workspace_role: Some(WorkspaceRole::Member),
         member: Some(&owner_row),
+        team_role: None,
     };
     let viewer = BoardMember {
         board_id: theirs.clone(),

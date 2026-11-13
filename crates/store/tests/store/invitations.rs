@@ -80,6 +80,10 @@ async fn accept(
             user_id: maker,
             workspace_role,
             member: member.as_ref(),
+            team_role: match board_id {
+                Some(id) => store.board_team_role(id, maker).await?,
+                None => None,
+            },
         },
         of_board: InviterOfBoard::Member,
     };

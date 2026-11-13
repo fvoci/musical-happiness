@@ -6,7 +6,7 @@
 //! Every check of a route that names a board asks [`App::board_access`], and decides by
 //! the [`Grant`] it gives; nothing else reads a membership to decide what a user may do.
 
-use fvoci_model::{Board, BoardMember, Upload, UploadPart, UploadPurpose};
+use fvoci_model::{Board, BoardMember, BoardRole, Upload, UploadPart, UploadPurpose};
 use fvoci_store::DeletedBoard;
 
 use super::App;
@@ -22,6 +22,8 @@ pub struct BoardAccess {
     pub actor: Actor,
     /// The user's membership of the board as stored; `None` for who is no member.
     pub member: Option<BoardMember>,
+    /// The inherited role observed with the direct membership.
+    pub team_role: Option<BoardRole>,
     /// What the user may do on the board.
     pub grant: Grant,
 }
@@ -96,6 +98,7 @@ impl App {
             board,
             actor,
             member,
+            team_role,
             grant,
         }))
     }

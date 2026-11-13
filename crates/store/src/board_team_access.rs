@@ -5,13 +5,6 @@ use fvoci_model::{BoardMember, BoardRole, MinimumRole};
 use crate::db::{Id, Scope, Sql};
 use crate::{Store, StoreError, boards};
 
-/// Joins only current nonguest members, within the same workspace and organization.
-const INHERITED: &str = "SELECT bt.board_id, tm.user_id, bt.role FROM board_teams bt \
-    JOIN team_members tm ON tm.team_id = bt.team_id AND tm.workspace_id = bt.workspace_id AND tm.org_id = bt.org_id \
-    JOIN workspace_members wm ON wm.workspace_id = tm.workspace_id AND wm.user_id = tm.user_id \
-    JOIN workspaces w ON w.id = tm.workspace_id AND w.org_id = tm.org_id \
-    WHERE wm.role IN ('admin', 'member') AND w.delete_at = 0";
-
 impl Store {
     /// The highest team role of a current nonguest member on this board.
     ///
@@ -74,7 +67,7 @@ pub(crate) fn parse_role(value: &str) -> Result<MinimumRole, StoreError> {
 }
 
 fn inherited(scope: &Scope<'_>) -> Result<Sql, StoreError> {
-    let mut sql = scope.sql(INHERITED);
+    let mut sql = scope.sql(&format!("SELECT bt.board_id, tm.user_id, bt.role FROM board_teams bt JOIN {} tm ON tm.team_id = bt.team_id AND tm.workspace_id = bt.workspace_id AND tm.org_id = bt.org_id WHERE true", crate::teams::present_members(scope)));
     sql.push_bind(" AND bt.org_id = ", scope.org()?);
     Ok(sql)
 }
@@ -126,16 +119,16 @@ async fn extend(
 /// A role from a team on board `b`, for the named user expression. This is also used
 /// by the system directory, so the organization is bound through the board's workspace.
 pub(crate) fn push_has_team_role(sql: &mut Sql, scope: &Scope<'_>, user_id: &str) {
-    sql.push("EXISTS (SELECT 1 FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id JOIN workspaces tw ON tw.id = bt.workspace_id AND tw.org_id = bt.org_id JOIN workspace_members tmw ON tmw.workspace_id = tm.workspace_id AND tmw.user_id = tm.user_id WHERE bt.board_id = b.id AND bt.workspace_id = b.workspace_id AND tw.delete_at = 0 AND tmw.role IN ('admin', 'member') AND tm.user_id = ")
-        .bind(Id(user_id)).push(&scope.same_organization(&[("tmw", "bt"), ("bt", "b")])).push(")");
+    sql.push(&format!("EXISTS (SELECT 1 FROM board_teams bt JOIN {} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id WHERE bt.board_id = b.id AND bt.workspace_id = b.workspace_id AND tm.user_id = ", crate::teams::present_members(scope)))
+        .bind(Id(user_id)).push(&scope.same_organization(&[("bt", "b")])).push(")");
 }
 
 /// Directory membership rows. Inherited rows only need a presence flag, not their rank.
 pub(crate) fn directory_members(scope: &Scope<'_>) -> String {
     let direct_wall = scope.same_organization(&[("dm", "db"), ("db", "dw")]);
-    let team_wall = scope.same_organization(&[("gw", "tm")]);
+    let team_members = crate::teams::present_members(scope);
     format!(
-        "(SELECT dm.board_id, dm.user_id, dm.scheme_admin, dm.scheme_editor, dm.scheme_commenter, dm.scheme_viewer, dw.org_id FROM board_members dm JOIN boards db ON db.id = dm.board_id JOIN workspaces dw ON dw.id = db.workspace_id WHERE true{direct_wall} UNION ALL SELECT bt.board_id, tm.user_id, false, true, false, false, bt.org_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id JOIN workspace_members gw ON gw.workspace_id = tm.workspace_id AND gw.user_id = tm.user_id WHERE gw.role IN ('admin', 'member'){team_wall})"
+        "(SELECT dm.board_id, dm.user_id, dm.scheme_admin, dm.scheme_editor, dm.scheme_commenter, dm.scheme_viewer, dw.org_id FROM board_members dm JOIN boards db ON db.id = dm.board_id JOIN workspaces dw ON dw.id = db.workspace_id WHERE true{direct_wall} UNION ALL SELECT bt.board_id, tm.user_id, false, true, false, false, bt.org_id FROM board_teams bt JOIN {team_members} tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id AND tm.workspace_id = bt.workspace_id)"
     )
 }
 

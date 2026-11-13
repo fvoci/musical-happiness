@@ -2329,7 +2329,8 @@ export interface paths {
          * Add a nonguest workspace member to a team
          * @description For workspace administrators. Idempotent. A guest or somebody outside the
          *     workspace is 404. Removing a workspace member or making them a guest removes
-         *     them from every team of that workspace.
+         *     them from every team of that workspace. A person joined as organization administrator
+         *     cannot add themselves: 403, reason `team_self_joining`. Other administrators may add them.
          */
         put: operations["addTeamMember"];
         post?: never;
@@ -4097,6 +4098,8 @@ export interface components {
             createAt: number;
             /** @description The name the user is shown by; empty if they have none. */
             displayName: string;
+            /** @description Whether this membership is a temporary joining as organization administrator. */
+            joinedAsOrgAdmin: boolean;
             /** @description What the user is in the workspace. */
             role: components["schemas"]["WorkspaceRole"];
             /** @description The identifier of the user. */

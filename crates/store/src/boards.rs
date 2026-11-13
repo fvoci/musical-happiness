@@ -349,8 +349,10 @@ impl Store {
         &self,
         user_id: &str,
     ) -> Result<Vec<BoardMember>, StoreError> {
-        self.with_conn(async |scope| crate::team_access::get_members_for_user(scope, user_id).await)
-            .await
+        self.with_conn(async |scope| {
+            crate::board_team_access::get_members_for_user(scope, user_id).await
+        })
+        .await
     }
 
     /// Returns the boards, of any workspace, that match a search term and that a user is a
@@ -541,7 +543,7 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
     members::push_own_membership_in_workspace(&mut sql, user_id)
         .push(members::BM_HAS_A_ROLE)
         .push(") OR ");
-    crate::team_access::push_has_team_role(&mut sql, scope, user_id);
+    crate::board_team_access::push_has_team_role(&mut sql, scope, user_id);
     sql.push(")");
     sql
 }
@@ -886,7 +888,7 @@ pub(crate) async fn delete_member(
     sql.bind(Id(board_id))
         .push_bind(" AND user_id = ", Id(user_id));
     if scope.execute(sql).await? > 0
-        && crate::team_access::role_for(scope, board_id, user_id)
+        && crate::board_team_access::role_for(scope, board_id, user_id)
             .await?
             .is_none()
     {

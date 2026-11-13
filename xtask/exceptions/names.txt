@@ -109,8 +109,8 @@ crates/store/src/teams.rs
 crates/store/src/schema.rs | team
 crates/store/src/error.rs | Team
 crates/store/src/lib.rs | team
-crates/store/src/workspace_membership.rs | teams
-crates/store/src/org_admin.rs | teams
+crates/store/src/workspace_membership.rs | team
+crates/store/src/org_admin.rs | team
 crates/server/src/app/teams.rs
 crates/server/src/app/mod.rs | teams
 crates/server/src/api/teams.rs
@@ -140,7 +140,7 @@ crates/store/tests/store/tenancy.rs | team
 
 # Workspace people groups, not the retired workspace name (O7b board roles).
 crates/store/src/board_teams.rs
-crates/store/src/team_access.rs
+crates/store/src/board_team_access.rs
 crates/server/src/api/board_teams.rs
 crates/server/src/permissions/team_table.rs
 crates/server/tests/api/board_teams.rs
@@ -155,3 +155,19 @@ crates/server/src/permissions/workspace_table.rs | team_role
 crates/server/src/app/access.rs | team_role
 crates/server/tests/api/rooms_access.rs | team
 apps/web/src/lib/features/shell/ShareDialog.svelte | team
+
+# Team membership is reusable across workspace modules; board effects live on the board side.
+crates/model/src/board_teams.rs
+crates/store/src/board_team_membership.rs
+crates/server/tests/api/team_standing.rs
+apps/web/tests/ui/shell/team-row.test.ts
+crates/store/src/board_membership.rs | team
+crates/store/src/invitations.rs | team
+crates/store/src/observe.rs | TeamSelfJoining
+crates/server/src/error.rs | team
+crates/server/src/problems.rs | team
+crates/server/src/app/boards.rs | team_role
+crates/server/src/app/invitations.rs | team_role
+crates/store/tests/store/invitations.rs | team
+crates/store/tests/store/org_admin.rs | team_role
+crates/server/tests/api/main.rs | team_standing

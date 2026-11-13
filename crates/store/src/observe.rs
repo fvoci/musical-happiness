@@ -96,7 +96,8 @@ impl Outcome {
             | StoreError::Config(_)
             | StoreError::InvalidPath(_)
             | StoreError::NoOrganization => Self::Failed,
-            StoreError::NotFound(_)
+            StoreError::TeamSelfJoining
+            | StoreError::NotFound(_)
             | StoreError::TooManyPreferences { .. }
             | StoreError::NotFirstUser
             | StoreError::NoRows
