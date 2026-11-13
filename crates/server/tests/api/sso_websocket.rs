@@ -283,10 +283,10 @@ async fn the_session_of_another_organizations_provider_follows_nothing() {
 }
 
 /// The room of a card's body is behind the wall, as the card is: when its organization
-/// begins to take no password, the connection of a password session is put out at the
-/// next asking, as for a card that is not there, and comes into no room of it again,
-/// nor does a new one; the connection of the provider's session stays and writes.
-/// Released, the password comes in again.
+/// begins to take no password, the connection of a password session is put out at
+/// once (the room's own asking is an hour away), as for a card that is not there, and
+/// comes into no room of it again, nor does a new one; the connection of the
+/// provider's session stays and writes. Released, the password comes in again.
 #[tokio::test]
 async fn the_room_of_a_body_is_behind_the_wall() {
     let fake = FakeProvider::start().await;
@@ -294,7 +294,7 @@ async fn the_room_of_a_body_is_behind_the_wall() {
         .trusting_oidc_provider(&fake.certificate_der)
         .configure(|config| {
             with_key_and_private_addresses(config);
-            config.collab.collab_recheck_seconds = 1;
+            config.collab.collab_recheck_seconds = 3600;
         })
         .start()
         .await

@@ -12,7 +12,8 @@
 //! document is sent to everyone in the room anew. Another asks again, every
 //! `collab_recheck_seconds`, whether each connection may be in the room, and how
 //! ([`admission::admit`]): who may no longer read is put out, and who may no longer
-//! write reads from then on.
+//! write reads from then on. When an organization begins to take only sessions made
+//! through its provider, its rooms ask at once ([`Collab::ask_again_now`]).
 //!
 //! Every step of a room runs in a task of its own that the caller waits for
 //! (`Seat`): a connection that ends while its update is taken leaves the update
@@ -72,6 +73,9 @@ pub(super) struct Rooms {
     queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
+    /// How many times an organization began to take only sessions made through its
+    /// provider: a connection let in before that is asked again as it comes in.
+    walls_raised: AtomicU64,
     /// Cancelled when the server stops: nobody comes in any more, no update is taken,
     /// and the tasks of the rooms end.
     stopping: CancellationToken,
@@ -89,6 +93,7 @@ impl Rooms {
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
+            walls_raised: AtomicU64::new(0),
             stopping: CancellationToken::new(),
         }
     }
@@ -113,7 +118,8 @@ pub(super) struct Connection {
     id: u64,
     /// The user of the connection's session; empty for a connection without one.
     pub(super) user_id: String,
-    /// The provider the connection's session was made through; none for a password.
+    /// The provider the connection's session was made through; none for a password,
+    /// and for a connection without a session.
     pub(super) made_through: Option<String>,
     pub(super) queue: Queue,
     joined: Mutex<Joined>,
@@ -230,6 +236,16 @@ struct Who {
     workspace_id: String,
 }
 
+impl Who {
+    /// Who asks, for what is asked of an organization for them.
+    fn asker(&self) -> Asker<'_> {
+        Asker {
+            user_id: &self.user_id,
+            made_through: self.made_through.as_deref(),
+        }
+    }
+}
+
 /// What the store answered of one: how they are in the room, `None` for who is not
 /// let in; or the reason it could not be asked.
 type Answer = Result<Option<DocMode>, String>;
@@ -318,6 +334,19 @@ impl Turn {
             member.connection.queue.push_anew(doc, anew)
         });
     }
+}
+
+/// How a connection is let into the room of a card ([`admission::admit`]), refused
+/// as for a card that is not there.
+async fn admit(
+    home: &App,
+    connection: &Connection,
+    workspace_id: &str,
+    card_id: &str,
+) -> Result<admission::Admitted, AppError> {
+    admission::admit(home, connection.asker(), workspace_id, card_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("card"))
 }
 
 impl Collab {
@@ -473,6 +502,35 @@ impl Collab {
         }
     }
 
+    /// Asks again at once whether each member of the rooms of `app`'s organization may
+    /// be in them, as the organization begins to take only sessions made through its
+    /// provider: who it shuts out is put out now, not at the room's next asking. For
+    /// after that is stored. A connection whose admission was answered before is
+    /// admitted again as it comes in ([`Self::enter`]), so none is let in past it.
+    pub(crate) fn ask_again_now(&self, app: &App) {
+        let rooms = &self.inner.rooms;
+        // Before the rooms are read: a connection that comes into one later sees it.
+        rooms.walls_raised.fetch_add(1, Ordering::SeqCst);
+        let tenant = app.store().tenant();
+        let of_organization: Vec<Arc<Room>> = rooms
+            .by_key
+            .lock()
+            .expect("the rooms are never held across a panic")
+            .values()
+            .filter(|room| room.app.store().tenant() == tenant)
+            .cloned()
+            .collect();
+        for room in of_organization {
+            let (collab, stopping) = (self.clone(), rooms.stopping.clone());
+            tokio::spawn(async move {
+                tokio::select! {
+                    () = stopping.cancelled() => {}
+                    () = collab.recheck(&room) => {}
+                }
+            });
+        }
+    }
+
     /// Asks again whether each member of a room may be in it, and how: who may no
     /// longer read the card's board is put out, and who is to be in the room otherwise
     /// than they are is told so (`DOC_MODE`). Nobody stays unasked: a member the store
@@ -551,11 +609,8 @@ impl Collab {
             .map(move |who| {
                 let (app, card_id) = (app.clone(), card_id.clone());
                 async move {
-                    let asker = Asker {
-                        user_id: &who.user_id,
-                        made_through: who.made_through.as_deref(),
-                    };
-                    let admitted = admission::admit(&app, asker, &who.workspace_id, &card_id).await;
+                    let admitted =
+                        admission::admit(&app, who.asker(), &who.workspace_id, &card_id).await;
                     let answer = match admitted {
                         Ok(admitted) => Ok(admitted.map(|admitted| admitted.mode)),
                         Err(error) => {
@@ -615,13 +670,23 @@ impl Collab {
         if connection.is_full_without(limits.per_connection, card_id) {
             return Err(refusals::too_many_joined(limits.per_connection));
         }
-        let admitted = admission::admit(home, connection.asker(), workspace_id, card_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("card"))?;
+        let mut raised = limits.walls_raised.load(Ordering::SeqCst);
+        let mut admitted = admit(home, connection, workspace_id, card_id).await?;
         loop {
             let room = self.room(&admitted.app, card_id);
             let mut turn = room.turn.lock().await;
             if turn.closed {
+                continue;
+            }
+            // An organization began to take only its provider's sessions since the
+            // connection was admitted, and its rooms may have been asked already: it is
+            // asked again, as they were.
+            let now = limits.walls_raised.load(Ordering::SeqCst);
+            if now != raised {
+                self.shut_if_empty(&room, &mut turn).await;
+                drop(turn);
+                raised = now;
+                admitted = admit(home, connection, workspace_id, card_id).await?;
                 continue;
             }
             let is_member = turn

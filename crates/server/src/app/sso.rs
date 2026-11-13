@@ -142,7 +142,7 @@ pub(crate) fn check_change(
 /// Who asks for what is an organization's: the user, and the provider their session
 /// was made through, `None` for one made with a password. A request has its session;
 /// a websocket connection keeps these two of the session its handshake came with.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Asker<'a> {
     /// The user of the session.
     pub user_id: &'a str,
@@ -227,12 +227,15 @@ impl App {
     /// Closes the websocket connections that the handle's organization shuts out as it
     /// takes only sessions made through `provider`: what a connection follows of a
     /// workspace was asked when it subscribed. For after that is stored; also when it
-    /// was on already, which closes again what a failure may have left.
+    /// was on already, which closes again what a failure may have left. The rooms of
+    /// the organization's cards' bodies ask at once who may be in them
+    /// (`Collab::ask_again_now`): a connection that follows no workspace may be in one.
     ///
     /// If the organization's workspaces cannot be read, every connection that follows a
     /// workspace with a session made otherwise is closed, whose workspace it may be:
     /// the pages connect again, and are asked then.
     pub(crate) async fn close_connections_shut_out(&self, provider: &StoredProvider) {
+        self.collab().ask_again_now(self);
         match self.store().get_workspaces().await {
             Ok(workspaces) => {
                 let ids: Vec<String> = workspaces
