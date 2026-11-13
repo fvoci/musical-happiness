@@ -4,8 +4,10 @@
 //! The check is [`require_session_opens`]. A workspace is entered through it
 //! (`App::enter_workspace`), an organization (`App::enter_org_as_admin`), and the
 //! organization the two routes that name neither work in
-//! (`App::require_session_opens_here`). It is asked of every request: the sessions
-//! stay, and one that does not open an organization still opens the others.
+//! (`App::require_session_opens_here`), and the organization the link of an
+//! invitation leads into (`App::require_session_opens_organization`). It is asked of
+//! every request: the sessions stay, and one that does not open an organization still
+//! opens the others.
 
 use fvoci_model::Session;
 use fvoci_store::StoredProvider;
@@ -177,9 +179,9 @@ impl<'a> From<&'a Session> for Asker<'a> {
 /// # Errors
 ///
 /// Returns 401 with the reason `sso_required`, naming the organization. It is for
-/// who has a place in the organization only: the caller asks after it knows the
-/// user has one, so that the answer tells nobody else that the organization is
-/// there.
+/// who has a place in the organization, or holds a good link of an invitation into
+/// it, only: the caller asks after it knows that, so that the answer tells nobody
+/// else that the organization is there.
 pub(crate) fn require_session_opens(
     asker: Asker<'_>,
     org_id: &str,
@@ -250,7 +252,11 @@ impl App {
 
     /// Refuses `asker` if its session does not open what is the organization this handle
     /// stands in, whether the user has a place in it yet or not: for one who holds the
-    /// link of an invitation into it, which names the organization to them.
+    /// link of an invitation into it, which names the organization to them. The handle
+    /// is the link's organization's (on PostgreSQL another one's would answer for that
+    /// one). Asked before the acceptance is written, not with it: an organization that
+    /// begins to take no password in between has the membership written, which opens
+    /// nothing to that session from the next request on.
     ///
     /// # Errors
     ///
@@ -261,11 +267,7 @@ impl App {
         &self,
         asker: Asker<'_>,
     ) -> Result<(), AppError> {
-        let Some(org_id) = self.store().tenant().org_id() else {
-            return Err(AppError::internal(
-                "an invitation's organization is asked of a handle of none",
-            ));
-        };
+        let org_id = self.org_of_handle()?;
         let required = self
             .store()
             .oidc_provider()
@@ -293,17 +295,20 @@ impl App {
         &self,
         session: &Session,
     ) -> Result<(), AppError> {
-        // A handle of no organization, or of all, is no route's: nothing is opened
-        // for want of an organization to ask.
-        let Some(org_id) = self.store().tenant().org_id() else {
-            return Err(AppError::internal(
-                "a route that names no workspace stands in no organization",
-            ));
-        };
+        let org_id = self.org_of_handle()?;
         let required = self
             .store()
             .required_provider_for(&session.user_id, &org_id)
             .await?;
         require_session_opens(session.into(), &org_id, required.as_deref())
+    }
+
+    /// The organization this handle stands in. A handle of no organization, or of all,
+    /// is an error: nothing is opened for want of an organization to ask.
+    fn org_of_handle(&self) -> Result<String, AppError> {
+        self.store()
+            .tenant()
+            .org_id()
+            .ok_or_else(|| AppError::internal("the handle stands in no organization"))
     }
 }

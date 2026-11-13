@@ -104,7 +104,8 @@
     const { unknown, workspaceId, orgId: organization } = router.route;
     if (kept === undefined || unknown || workspaceId || organization) return;
     const route = parseRoute(kept, router.basePath);
-    if (!route.unknown) router.go(route, { replace: true });
+    if (route.invitation !== undefined) location.replace(router.inviteHref(route.invitation));
+    else if (!route.unknown) router.go(route, { replace: true });
   }
 
   /** A session that is over is signing out, whatever was being asked: told, and passed on. */
@@ -322,6 +323,7 @@
     preview={(token: string) => accounts.previewInvitation(token)}
     accept={(token: string, made?: NewAccount) => accounts.acceptInvitation(token, made)}
     onSignIn={(login: string, password: string) => accounts.signIn(login, password)}
+    onSso={(orgId: string) => toProvider(orgId)}
     onJoined={(accepted: AcceptedInvitation) => {
       // Loaded afresh where the invitation let the reader in: what the page
       // has in memory is of whoever was, or was not, signed in before. In

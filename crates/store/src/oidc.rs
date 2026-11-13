@@ -380,8 +380,9 @@ impl Store {
     /// unchecked, and holds no account's place. `user` is updated to what was stored:
     /// the current time as creation and modification time, not deleted, no
     /// administrator of the instance. It joins the organization and its default
-    /// workspace. A known account ([`OidcAccount::Known`]) joins them if it is no
-    /// member, as often as that is asked at once.
+    /// workspace. A known account ([`OidcAccount::Known`]) joins them if it has no
+    /// place in the organization (a guest of one of its workspaces has one), as often
+    /// as that is asked at once.
     ///
     /// # Errors
     ///
@@ -434,7 +435,9 @@ impl Store {
                         return Ok(Err(OidcRefusal::AccountChanged));
                     }
                     user_id.clone_into(&mut session.user_id);
-                    if is_member(scope, user_id).await? {
+                    // A guest of one of its workspaces is let in as they are, and joins
+                    // nothing: their board is what they have there.
+                    if has_place(scope, user_id).await? {
                         false
                     } else if auto_join {
                         join_as_member(scope, user_id).await?
@@ -825,6 +828,22 @@ async fn join_as_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, St
 }
 
 /// Whether the user is a member of the scope's organization.
+/// Whether the user has a place in the transaction's organization: a member of it, or
+/// of one of its workspaces in use (a guest of a workspace is no member of the
+/// organization), as the wall counts them.
+async fn has_place(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
+    if is_member(scope, user_id).await? {
+        return Ok(true);
+    }
+    let mut sql = scope.sql(
+        "SELECT 1 FROM workspace_members AS wm JOIN workspaces AS t ON t.id = wm.workspace_id \
+         WHERE t.delete_at = 0 AND t.org_id = ",
+    );
+    sql.bind(scope.org()?)
+        .push_bind(" AND wm.user_id = ", Id(user_id));
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
 async fn is_member(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE org_id = ");
     sql.bind(scope.org()?)

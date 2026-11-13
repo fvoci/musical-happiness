@@ -3446,8 +3446,9 @@ export interface components {
          */
         OidcProvider: {
             /**
-             * @description Whether somebody the provider vouches for who is no member of the organization
-             *     becomes one, and a member of its default workspace, by signing in.
+             * @description Whether somebody the provider vouches for who has no place in the organization
+             *     (no member of it, nor a guest of one of its workspaces) becomes a member of it,
+             *     and of its default workspace, by signing in. A guest signs in as a guest.
              */
             autoJoin: boolean;
             /** @description The client identifier the provider gave this server. */

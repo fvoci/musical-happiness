@@ -1929,7 +1929,7 @@
         "description": "The provider of an organization, as its administrators read it. The client secret\nis not in it: only whether there is one.",
         "properties": {
           "autoJoin": {
-            "description": "Whether somebody the provider vouches for who is no member of the organization\nbecomes one, and a member of its default workspace, by signing in.",
+            "description": "Whether somebody the provider vouches for who has no place in the organization\n(no member of it, nor a guest of one of its workspaces) becomes a member of it,\nand of its default workspace, by signing in. A guest signs in as a guest.",
             "type": "boolean"
           },
           "clientId": {

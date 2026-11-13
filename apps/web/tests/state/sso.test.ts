@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ServerBackend } from '$lib/api/backend.ts';
 import { workspacesOf } from '$lib/api/convert.ts';
 import { BackendError, isSignedOut, ssoOrgOf, type WorkspaceInfo } from '$lib/state/index.ts';
+import { firstChoiceOf } from '$lib/state/workspace-entry.ts';
 
 import { setup, type Setup } from './support.ts';
 
@@ -204,5 +205,33 @@ describe('connecting a single sign-on to the account', () => {
         body: { issuer: identity.issuer, subject: 'there', password: 'the password' },
       },
     ]);
+  });
+});
+
+describe('the workspace to start in', () => {
+  const one = (id: string, role: 'admin' | 'member' | 'guest', closed: boolean): WorkspaceInfo => ({
+    id,
+    title: id,
+    role,
+    orgId: ORG,
+    ssoRequired: closed,
+  });
+
+  it('is one open to the session that the reader works in, before a guest one', () => {
+    expect(
+      firstChoiceOf([one('guest', 'guest', false), one('works', 'member', false)], undefined),
+    ).toBe('works');
+  });
+
+  it('is an open one the reader is a guest of before a closed one they work in', () => {
+    expect(
+      firstChoiceOf([one('closed', 'member', true), one('guest', 'guest', false)], undefined),
+    ).toBe('guest');
+  });
+
+  it('is the first when all are closed, and the last one when it is still theirs', () => {
+    const all = [one('a', 'guest', true), one('b', 'member', true)];
+    expect(firstChoiceOf(all, undefined)).toBe('a');
+    expect(firstChoiceOf(all, 'b')).toBe('b');
   });
 });

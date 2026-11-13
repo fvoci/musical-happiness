@@ -29,8 +29,9 @@ pub struct OidcProvider {
     pub client_id: String,
     /// Whether a client secret is stored.
     pub has_client_secret: bool,
-    /// Whether somebody the provider vouches for who is no member of the organization
-    /// becomes one, and a member of its default workspace, by signing in.
+    /// Whether somebody the provider vouches for who has no place in the organization
+    /// (no member of it, nor a guest of one of its workspaces) becomes a member of it,
+    /// and of its default workspace, by signing in. A guest signs in as a guest.
     pub auto_join: bool,
     /// Whether signing in through the provider is on.
     pub enabled: bool,

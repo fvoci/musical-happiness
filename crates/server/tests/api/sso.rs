@@ -1028,6 +1028,7 @@ async fn a_link_into_an_organization_that_takes_no_password_lets_no_password_in(
         .await
         .check_ok();
 
+    let used_before = used(&ts, &ours).await;
     let refused = outsider_client
         .post("/invitations/accept", &json!({ "token": link }))
         .await;
@@ -1038,11 +1039,111 @@ async fn a_link_into_an_organization_that_takes_no_password_lets_no_password_in(
         theirs_only.iter().all(|workspace| workspace.org_id != ours),
         "let in nowhere: {theirs_only:?}"
     );
-    // The refusal used nothing of the link.
-    ts.anonymous()
-        .post("/invitations/preview", &json!({ "token": link }))
-        .await
-        .check_ok();
+    assert_eq!(
+        used(&ts, &ours).await,
+        used_before,
+        "the refusal used nothing of the link"
+    );
     ts.teardown().await;
     fake.stop();
+}
+
+/// How many links of the organization were used.
+async fn used(ts: &TestServer, org_id: &str) -> i64 {
+    ts.app
+        .store()
+        .for_org(org_id)
+        .expect("an identifier")
+        .count_rows("invitations WHERE uses > 0")
+        .await
+        .expect("the links are counted")
+}
+
+/// A guest of a board of an organization that takes no password gets in through its
+/// provider as the guest they are, whether the organization lets newcomers in through
+/// it or not: their board opens, and they join nothing else.
+#[tokio::test]
+async fn a_guest_signs_in_through_the_provider_as_a_guest() {
+    for auto_join in [false, true] {
+        let fake = FakeProvider::start().await;
+        let ts = server_for(&fake).await;
+        let org_id = org_of(&ts).await;
+        set_provider(&ts, &org_id, &fake).await;
+        let board: Board = ts
+            .client
+            .post(
+                &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
+                &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "For a guest"}),
+            )
+            .await
+            .created_json();
+        ts.client
+            .put(
+                &format!("/w/{ROOT_WORKSPACE_ID}/guest-invitations"),
+                &json!({"enabled": true}),
+            )
+            .await
+            .check_ok();
+        let link: Value = ts
+            .client
+            .post(
+                &format!("/w/{ROOT_WORKSPACE_ID}/invitations"),
+                &json!({"role": "guest", "boardId": board.id}),
+            )
+            .await
+            .value();
+        let account = json!({
+            "username": "guest",
+            "email": "guest@example.com",
+            "password": PASSWORD,
+        });
+        ts.anonymous()
+            .post(
+                "/invitations/accept",
+                &json!({"token": link["token"], "account": account}),
+            )
+            .await
+            .check_ok();
+        let guest = ts.login("guest", PASSWORD).await;
+        let guest_id = guest.me().await.id;
+        tie(&ts, &guest, &fake, "guest").await;
+        let admin = admin_through_provider(&ts, &fake, &org_id).await;
+        admin
+            .put(
+                &format!("/org/{org_id}/oidc"),
+                &json!({
+                    "issuer": fake.issuer,
+                    "clientId": CLIENT_ID,
+                    "autoJoin": auto_join,
+                    "ssoRequired": true,
+                }),
+            )
+            .await
+            .check_ok();
+        let on_the_board = format!("/w/{ROOT_WORKSPACE_ID}/boards/{}", board.id);
+        check_sso_required(&guest.get(&on_the_board).await, &org_id);
+
+        let through = through_provider(&ts, &fake, &org_id, "guest").await;
+        assert_eq!(through.me().await.id, guest_id, "autoJoin {auto_join}");
+        through.get(&on_the_board).await.check_ok();
+        let workspaces: Vec<UserWorkspace> = through.get("/users/me/workspaces").await.ok_json();
+        assert_eq!(
+            workspaces
+                .iter()
+                .map(|workspace| (workspace.id.as_str(), workspace.role))
+                .collect::<Vec<_>>(),
+            [(ROOT_WORKSPACE_ID, fvoci_model::WorkspaceRole::Guest)],
+            "autoJoin {auto_join}: a guest still, of that workspace alone"
+        );
+        assert!(
+            !ts.app
+                .store()
+                .is_organization_member(&guest_id)
+                .await
+                .expect("the membership is read"),
+            "autoJoin {auto_join}: no member of the organization"
+        );
+        ts.teardown().await;
+        fake.stop();
+    }
 }

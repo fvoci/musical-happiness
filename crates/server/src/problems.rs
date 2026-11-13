@@ -506,9 +506,9 @@ fn describe_sign_in(reason: Reason) -> Option<&'static str> {
              is no account's own, and refuses nobody."
         }
         Reason::OidcJoinClosed => {
-            "On the login page, after a sign-in through a provider: the person is no member \
-             of the organization, and the organization does not let newcomers in through \
-             its provider."
+            "On the login page, after a sign-in through a provider: the person has no place \
+             in the organization (no member of it, nor a guest of one of its workspaces), \
+             and the organization does not let newcomers in through its provider."
         }
         other => return describe_linking_and_enforcing(other),
     })

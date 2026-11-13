@@ -10,6 +10,9 @@
 
   Making an account does not sign in on the server, so the page signs in
   right after with what was typed. A refusal is told as `problems.ts` says.
+  An organization that takes no password lets in no session but one of its
+  single sign-on: the page says so and offers the way through it, which comes back
+  to this page.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -17,6 +20,8 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import {
     isBackendError,
+    isSignedOut,
+    ssoOrgOf,
     type AcceptedInvitation,
     type InvitationPreview,
     type NewAccount,
@@ -48,12 +53,23 @@
      * open): the page is to be shown again, to nobody.
      */
     onSessionEnded: () => void;
+    /** Starts a sign-in through the organization's single sign-on, to come back here. */
+    onSso: (orgId: string) => Promise<void>;
     /** The address of the app's first page, for a link that lets nobody in. */
     homeHref: string;
   }
 
-  let { token, signedInAs, preview, accept, onSignIn, onJoined, onSessionEnded, homeHref }: Props =
-    $props();
+  let {
+    token,
+    signedInAs,
+    preview,
+    accept,
+    onSignIn,
+    onJoined,
+    onSessionEnded,
+    onSso,
+    homeHref,
+  }: Props = $props();
 
   /** What the link shows; `undefined` for one that lets nobody in. */
   const shown = $derived(
@@ -80,6 +96,8 @@
   let gone = $state(false);
   /** Signed in on this page with an account they had: joining is one more step, taken at once. */
   let signedIn = $state(false);
+  /** The organization of the link takes no session but one of its single sign-on. */
+  let ssoOrg = $state<string | undefined>(undefined);
 
   /** The field of each form by the member of its request, a JSON Pointer. */
   const FIELDS: Record<'register' | 'signIn', Record<string, AccountField>> = {
@@ -102,6 +120,9 @@
         gone = true;
         return;
       }
+      // Not the name or the password: the session is good, and not one it takes.
+      ssoOrg = ssoOrgOf(error);
+      if (ssoOrg !== undefined) return;
       const said = formProblemsOf(error, form ? FIELDS[form] : {});
       fieldProblems = said.fields;
       problem = said.problem;
@@ -122,7 +143,7 @@
       } catch (error) {
         // The session ended meanwhile: there is nobody to join as, and nothing
         // on this form of the page to sign in with.
-        if (isBackendError(error) && error.status === 401) onSessionEnded();
+        if (isSignedOut(error)) onSessionEnded();
         else throw error;
       }
     });
@@ -153,6 +174,19 @@
       signedIn = true;
       onJoined(await accept(token));
     });
+  }
+
+  /** To the single sign-on of `orgId`: the browser leaves, the button as it is. */
+  async function toSso(orgId: string): Promise<void> {
+    if (working) return;
+    working = true;
+    problem = undefined;
+    try {
+      await onSso(orgId);
+    } catch {
+      problem = m.account_oidc_failed();
+      working = false;
+    }
   }
 
   function switchTo(next: 'register' | 'signIn'): void {
@@ -202,6 +236,13 @@
   </div>
 {/snippet}
 
+<!-- Back from the provider by the browser's "back", the page is as it was left: usable again. -->
+<svelte:window
+  onpageshow={(event: PageTransitionEvent) => {
+    if (event.persisted) working = false;
+  }}
+/>
+
 <main class="grid min-h-dvh place-items-center p-4">
   <div class="grid w-full max-w-sm gap-4" data-testid="invite-page">
     <p class="text-center text-2xl font-semibold tracking-tight" translate="no">{m.app_name()}</p>
@@ -220,6 +261,22 @@
         >
           {m.app_retry()}
         </Button>
+      {:else if ssoOrg !== undefined}
+        {@const orgId = ssoOrg}
+        <div class="grid gap-4 text-center" data-testid="invite-sso">
+          {@render invitedTo(found)}
+          <p class="text-sm text-muted-foreground">{m.account_sso_required_text()}</p>
+          <!-- In the page from the start: a live region that appears with its words is often not read. -->
+          <p class="text-sm text-destructive empty:hidden" role="alert">{problem ?? ''}</p>
+          <Button
+            class="roomy:min-h-touch"
+            disabled={working}
+            onclick={() => void toSso(orgId)}
+            data-testid="invite-sso-continue"
+          >
+            {working ? m.account_working() : m.account_sso_continue()}
+          </Button>
+        </div>
       {:else if signedInAs !== undefined}
         <div class="grid gap-4 text-center">
           {@render invitedTo(found)}
