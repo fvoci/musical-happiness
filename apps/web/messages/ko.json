@@ -983,5 +983,22 @@
   "org_delete_named": "{name} 지우기",
   "org_restore_named": "{name} 되살리기",
   "shell_switch_workspace_from": "워크스페이스 바꾸기: {name}",
-  "shell_workspace_unnamed": "이 워크스페이스"
+  "shell_workspace_unnamed": "이 워크스페이스",
+  "teams_title": "팀",
+  "teams_description": "{workspace} 안의 사람 묶음입니다. 이곳의 관리자가 팀을 관리합니다.",
+  "teams_empty": "아직 팀이 없습니다.",
+  "teams_name": "팀 이름",
+  "teams_create": "팀 만들기",
+  "teams_rename": "이름 바꾸기",
+  "teams_save": "이름 저장",
+  "teams_delete": "팀 삭제",
+  "teams_delete_title": "{name} 팀을 삭제할까요?",
+  "teams_delete_description": "팀에 부여한 보드 역할이 사라집니다. 각자 직접 받은 보드 역할은 유지됩니다.",
+  "teams_add_member": "사람 추가",
+  "teams_choose_member": "사람 선택",
+  "teams_remove_member": "{name} 님을 팀에서 빼기",
+  "teams_no_members": "아직 팀에 사람이 없습니다.",
+  "teams_failed": "팀을 바꾸지 못했습니다. 다시 시도해 주세요.",
+  "teams_load_failed": "팀을 불러오지 못했습니다.",
+  "teams_name_taken": "여기에 같은 이름의 팀이 있습니다."
 }

@@ -70,6 +70,7 @@ mod sidebar;
 mod sidebar_messages;
 mod subscriptions;
 mod system;
+mod teams;
 mod templates;
 mod uploads;
 mod users;

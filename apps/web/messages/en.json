@@ -983,5 +983,22 @@
   "org_delete_named": "Delete {name}",
   "org_restore_named": "Restore {name}",
   "shell_switch_workspace_from": "Switch workspace: {name}",
-  "shell_workspace_unnamed": "this workspace"
+  "shell_workspace_unnamed": "this workspace",
+  "teams_title": "Teams",
+  "teams_description": "Groups of people in {workspace}, managed by its administrators.",
+  "teams_empty": "No teams yet.",
+  "teams_name": "Team name",
+  "teams_create": "Create team",
+  "teams_rename": "Rename",
+  "teams_save": "Save name",
+  "teams_delete": "Delete team",
+  "teams_delete_title": "Delete {name}?",
+  "teams_delete_description": "Its board roles will be removed. People keep their individual board roles.",
+  "teams_add_member": "Add a person",
+  "teams_choose_member": "Choose a person",
+  "teams_remove_member": "Remove {name} from team",
+  "teams_no_members": "Nobody in this team yet.",
+  "teams_failed": "Could not change the team. Try again.",
+  "teams_load_failed": "Could not load teams.",
+  "teams_name_taken": "A team with that name already exists here."
 }

@@ -4,6 +4,8 @@
  * are the server's.
  */
 
+import type { Teams } from './team-types.ts';
+
 /** What somebody is in a workspace. A guest is on the boards they were invited to, and nothing else of it. */
 export type WorkspaceRole = 'admin' | 'member' | 'guest';
 
@@ -44,6 +46,8 @@ export interface Invitation {
  * admins make and see.
  */
 export interface People {
+  /** Present where the backend supports workspace groups. */
+  readonly teams?: Teams;
   members(workspaceId: string): Promise<WorkspaceMember[]>;
   /** A change that is not made so (a guest to a member) is 400; the last administrator stays one (409, `last_admin`). */
   setRole(workspaceId: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMember>;

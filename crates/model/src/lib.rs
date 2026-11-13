@@ -35,6 +35,7 @@ mod serde_util;
 mod settings;
 mod sharing;
 mod subscription;
+mod team;
 mod upload;
 mod user;
 mod workspace;
@@ -111,6 +112,7 @@ pub use settings::{
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
+pub use team::{Team, TeamMember, TeamName, TeamNameError, team_name};
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{Session, User, UserPreferencesPatch};
 pub use workspace::{GuestInvitationsChange, Workspace};

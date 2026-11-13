@@ -100,3 +100,40 @@ crates/server/tests/regression/golden/templates.json | across teams
 PORTING.md
 crates/*/PORTING.md
 docs/s6-design.md
+
+# Workspace groups of people, introduced in 0026: these are teams, never workspaces.
+crates/model/src/team.rs
+crates/model/src/lib.rs | team
+crates/store/schema/*/0026_teams.sql
+crates/store/src/teams.rs
+crates/store/src/schema.rs | team
+crates/store/src/error.rs | Team
+crates/store/src/lib.rs | teams
+crates/store/src/workspace_membership.rs | teams
+crates/store/src/org_admin.rs | teams
+crates/server/src/app/teams.rs
+crates/server/src/app/mod.rs | teams
+crates/server/src/api/teams.rs
+crates/server/src/api/mod.rs | teams
+crates/server/src/api/contract/params.rs | Team
+crates/server/src/api/contract.rs | Team
+crates/server/src/api/contract/tests.rs | getTeams
+crates/server/tests/api/teams.rs
+crates/server/tests/api/main.rs | teams
+crates/server/tests/organization_boundary_round2/routes.rs | team
+contracts/openapi.json | team
+apps/web/src/lib/api/teams.ts
+apps/web/src/lib/state/team-types.ts
+apps/web/src/lib/api/people.ts | team
+apps/web/src/lib/state/people-types.ts | team
+apps/web/src/lib/features/shell/TeamRow.svelte
+apps/web/src/lib/features/shell/TeamsPanel.svelte
+apps/web/src/lib/features/shell/PeopleDialog.svelte | team
+apps/web/src/lib/features/shell/PeoplePanel.svelte | team
+apps/web/src/lib/features/shell/Sidebar.svelte | teams
+apps/web/src/lib/api/contract.ts | team
+apps/web/messages/en.json | teams_
+apps/web/messages/ko.json | teams_
+apps/web/e2e-live/teams.spec.ts
+crates/store/tests/store/users.rs | Taken::TeamName
+crates/store/tests/store/tenancy.rs | team

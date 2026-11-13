@@ -89,7 +89,16 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const exceptions = parseExceptions(readFileSync(path.join(WEB_ROOT, EXCEPTIONS), 'utf8'));
+const shared = path.resolve(WEB_ROOT, '../../xtask/exceptions/names.txt');
+const sharedExceptions = existsSync(shared)
+  ? parseExceptions(readFileSync(shared, 'utf8'))
+      .filter((entry) => entry.pattern.startsWith('apps/web/'))
+      .map((entry) => ({ ...entry, pattern: entry.pattern.slice('apps/web/'.length) }))
+  : [];
+const exceptions = [
+  ...parseExceptions(readFileSync(path.join(WEB_ROOT, EXCEPTIONS), 'utf8')),
+  ...sharedExceptions,
+];
 const used = exceptions.map(() => false);
 const hits: string[] = [];
 const workspaceHits: string[] = [];

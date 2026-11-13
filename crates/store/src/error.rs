@@ -155,6 +155,8 @@ pub enum Taken {
     Identity,
     /// The name of a workspace: another workspace in use of the organization has it.
     WorkspaceName,
+    /// The name of a team: another team in the workspace has it.
+    TeamName,
 }
 
 impl std::fmt::Display for Taken {
@@ -164,6 +166,7 @@ impl std::fmt::Display for Taken {
             Self::Email => "the email address",
             Self::Identity => "the identity at the provider",
             Self::WorkspaceName => "the name of the workspace",
+            Self::TeamName => "the name of the team",
         })
     }
 }

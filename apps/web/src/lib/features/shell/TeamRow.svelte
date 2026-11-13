@@ -1,0 +1,138 @@
+<!-- A team stays one row until expanded, then shows its people. -->
+<script lang="ts">
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import { userDisplayName } from '$lib/logic/users.ts';
+  import type { WorkspaceMember } from '$lib/state/people-types.ts';
+  import type { Team } from '$lib/state/team-types.ts';
+  import { Button } from '$lib/ui/button/index.js';
+
+  let {
+    team,
+    members,
+    managing,
+    working,
+    onRename,
+    onAdd,
+    onRemove,
+    onDelete,
+  }: {
+    team: Team;
+    members: WorkspaceMember[];
+    managing: boolean;
+    working: boolean;
+    onRename: (name: string) => Promise<void>;
+    onAdd: (userId: string) => Promise<void>;
+    onRemove: (userId: string) => Promise<void>;
+    onDelete: () => void;
+  } = $props();
+  let renaming = $state(false);
+  let name = $state('');
+  let selected = $state('');
+  const candidates = $derived(
+    members.filter((person) => !team.members.some((member) => member.userId === person.userId)),
+  );
+</script>
+
+<li class="rounded-md border border-border" data-team={team.name}>
+  <details>
+    <summary class="cursor-pointer p-2 font-medium break-words">
+      <span translate="no">{team.name}</span>
+      <span class="text-sm text-muted-foreground">({team.members.length})</span>
+    </summary>
+    <div class="grid gap-3 border-t p-2">
+      {#if managing}
+        {#if renaming}
+          <form
+            class="flex flex-wrap gap-2"
+            onsubmit={(event) => {
+              event.preventDefault();
+              if (name.trim())
+                void onRename(name).then(() => {
+                  renaming = false;
+                });
+            }}
+          >
+            <input
+              class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
+              aria-label={m.teams_name()}
+              bind:value={name}
+              disabled={working}
+            />
+            <Button size="sm" type="submit" disabled={working || !name.trim()}
+              >{m.teams_save()}</Button
+            >
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={working}
+              onclick={() => {
+                renaming = false;
+              }}>{m.shared_cancel()}</Button
+            >
+          </form>
+        {:else}
+          <div class="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={working}
+              onclick={() => {
+                name = team.name;
+                renaming = true;
+              }}>{m.teams_rename()}</Button
+            >
+            <Button size="sm" variant="ghost" disabled={working} onclick={onDelete}
+              >{m.teams_delete()}</Button
+            >
+          </div>
+        {/if}
+      {/if}
+      {#if team.members.length === 0}<p class="text-sm text-muted-foreground">
+          {m.teams_no_members()}
+        </p>{/if}
+      <ul class="grid gap-1">
+        {#each team.members as member (member.userId)}
+          <li class="flex min-h-9 items-center gap-2" data-team-member={member.userId}>
+            <span class="min-w-0 flex-1 break-words" translate="no">{userDisplayName(member)}</span>
+            {#if managing}
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={working}
+                aria-label={m.teams_remove_member({ name: userDisplayName(member) })}
+                onclick={() => void onRemove(member.userId)}>{m.people_remove()}</Button
+              >
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      {#if managing && candidates.length > 0}
+        <form
+          class="flex flex-wrap gap-2"
+          onsubmit={(event) => {
+            event.preventDefault();
+            if (selected)
+              void onAdd(selected).then(() => {
+                selected = '';
+              });
+          }}
+        >
+          <select
+            class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
+            aria-label={m.teams_choose_member()}
+            bind:value={selected}
+            disabled={working}
+          >
+            <option value="">{m.teams_choose_member()}</option>
+            {#each candidates as person (person.userId)}
+              <option value={person.userId}>{userDisplayName(person)}</option>
+            {/each}
+          </select>
+          <Button size="sm" type="submit" disabled={working || !selected}
+            >{m.teams_add_member()}</Button
+          >
+        </form>
+      {/if}
+    </div>
+  </details>
+</li>

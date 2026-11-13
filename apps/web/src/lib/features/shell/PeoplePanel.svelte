@@ -26,6 +26,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import InviteLink from './InviteLink.svelte';
+  import TeamsPanel from './TeamsPanel.svelte';
 
   interface Props {
     workspace: Workspace;
@@ -193,6 +194,10 @@
       <p class="text-sm text-destructive" role="alert" data-testid="people-problem">
         {problem}
       </p>
+    {/if}
+
+    {#if people.teams}
+      <TeamsPanel {workspace} {people} teams={people.teams} membersChanged={version} />
     {/if}
 
     <section class="grid gap-2" aria-labelledby="{uid}-invite">

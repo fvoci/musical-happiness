@@ -212,6 +212,7 @@ async fn change_role(
     }
     let mut taken_over = Vec::new();
     if to == WorkspaceRole::Guest {
+        crate::teams::remove_workspace_teams(scope, workspace_id, user_id).await?;
         taken_over = hand_over(scope, workspace_id, &boards, user_id, by).await?;
         let mut sql = scope.sql("UPDATE board_members SET scheme_admin = ");
         sql.bind(false)

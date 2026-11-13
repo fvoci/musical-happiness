@@ -29,6 +29,7 @@ mod shared;
 mod sharing;
 mod subscriptions;
 mod system;
+mod teams;
 mod templates;
 mod trash;
 mod uploads;
@@ -115,6 +116,7 @@ fn routes() -> Routes {
         .merge(invitations::routes())
         .merge(members::routes())
         .merge(workspace_members::routes())
+        .merge(teams::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(org_admin::routes())

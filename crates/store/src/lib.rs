@@ -37,6 +37,7 @@ mod server_lock;
 mod sessions;
 mod sharing;
 mod subscriptions;
+mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod trash;

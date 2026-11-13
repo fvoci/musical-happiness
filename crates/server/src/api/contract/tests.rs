@@ -526,6 +526,7 @@ const ORDERS: &[(&str, &str)] = &[
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
     ),
+    ("getTeams", "ordered by name and identifier"),
     ("getTemplates", "Each of the two oldest first"),
     ("getWorkspaceAudit", "the newest first"),
     ("getWorkspaceBoards", "Oldest first"),
