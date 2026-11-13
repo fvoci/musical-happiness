@@ -4,7 +4,7 @@ use fvoci_model::{Block, BoardMember};
 
 use super::{Hub, ListenerId, Outgoing, UpdateBlockMessage};
 use crate::metrics::Disconnect;
-use crate::permissions::role_of;
+use crate::permissions::{role_of, session_opens};
 
 #[derive(Clone, Copy)]
 pub(super) enum Access<'a> {
@@ -132,14 +132,16 @@ impl Hub {
                     .shared_boards
                     .iter()
                     .find(|permit| permit.board == board)
-                    .map(|permit| (String::new(), None, Some(permit.clone()))),
-                Access::Workspace(workspace) | Access::Members { workspace, .. } => listener
-                    .workspace_roles
-                    .get(workspace)
-                    .map(|role| (listener.user_id.clone(), Some(*role), None)),
+                    .map(|permit| (String::new(), None, Some(permit.clone()), None)),
+                Access::Workspace(workspace) | Access::Members { workspace, .. } => {
+                    listener.workspace_roles.get(workspace).map(|role| {
+                        let login = listener.login_provider.clone();
+                        (listener.user_id.clone(), Some(*role), None, login)
+                    })
+                }
             }
         };
-        let Some((user, subscribed_role, permit)) = identity else {
+        let Some((user, subscribed_role, permit, login_provider)) = identity else {
             return false;
         };
         if let Some(permit) = permit {
@@ -157,9 +159,19 @@ impl Hub {
             Access::Workspace(workspace) | Access::Members { workspace, .. } => workspace,
             Access::All | Access::Public(_) => return false,
         };
-        let role = self.audience.workspace_role(&user, workspace).await;
-        if role.is_none() || role != subscribed_role {
+        let Some(current) = self.audience.workspace_access(&user, workspace).await else {
             self.close_listener(id, Disconnect::AccessEnded);
+            return false;
+        };
+        if Some(current.workspace_role) != subscribed_role {
+            self.close_listener(id, Disconnect::AccessEnded);
+            return false;
+        }
+        if !session_opens(
+            current.required_provider.as_deref(),
+            login_provider.as_deref(),
+        ) {
+            self.close_listener(id, Disconnect::SsoRequired);
             return false;
         }
         match access {

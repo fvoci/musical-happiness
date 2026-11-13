@@ -609,6 +609,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             enabled: true,
             create_at: 0,
             update_at: 0,
+            sso_required: false,
         })
         .await
         .expect("a provider is stored");
@@ -622,6 +623,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             provider_id: provider.id,
             create_at: 0,
             expires_at: i64::MAX,
+            link_session_id: None,
         })
         .await
         .expect("a sign-in is stored");
@@ -751,7 +753,7 @@ async fn a_member_does_not_find_a_workspace_that_is_not_in_use() {
     };
     let listed = async || {
         unset
-            .workspaces_of_user(&user_id)
+            .workspaces_of_user(&user_id, None)
             .await
             .expect("the workspaces are listed")
             .into_iter()
@@ -1154,7 +1156,7 @@ async fn assert_the_workspaces_are_its_workspaces(
         ("left", OrgRole::Member, WorkspaceRole::Member),
     ] {
         let listed = unset
-            .workspaces_of_user(before.id(user))
+            .workspaces_of_user(before.id(user), None)
             .await
             .expect("the workspaces are listed");
         let listed: Vec<(&str, &str, WorkspaceRole)> = listed
@@ -1194,7 +1196,7 @@ async fn assert_the_workspaces_are_its_workspaces(
         .expect("a user registers");
     assert!(!newcomer.is_admin, "the instance had its first user");
     let listed = unset
-        .workspaces_of_user(&newcomer.id)
+        .workspaces_of_user(&newcomer.id, None)
         .await
         .expect("the workspaces are listed");
     let ids: Vec<&str> = listed
@@ -1662,7 +1664,7 @@ async fn a_database_with_one_workspace_becomes_one_organization_with_one_workspa
             "a member of both"
         );
         let listed = unset
-            .workspaces_of_user(user)
+            .workspaces_of_user(user, None)
             .await
             .expect("the workspaces are listed");
         assert_eq!(listed.len(), 1, "one workspace: {listed:?}");
@@ -1831,7 +1833,7 @@ async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
         "the row lets nobody into their workspace"
     );
     let listed = test
-        .workspaces_of_user(&user_id)
+        .workspaces_of_user(&user_id, None)
         .await
         .expect("the workspaces are listed");
     assert!(

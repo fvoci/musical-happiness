@@ -289,6 +289,12 @@ function insertAt(
 
 export interface BodyExtensionOptions {
   placeholder?: string;
+  /**
+   * The editor's own history of changes (`UndoRedo`); true unless given. A
+   * body edited together has the shared document's instead, which takes
+   * back the reader's own changes only (`@tiptap/extension-collaboration`).
+   */
+  history?: boolean;
   mention?: MentionOptions;
   emoji?: EmojiOptions;
 }
@@ -322,7 +328,7 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     BodyLink,
     // Behaviour that leaves no trace in the document
     ListKeymap,
-    UndoRedo,
+    ...(options.history === false ? [] : [UndoRedo]),
     Dropcursor,
     Gapcursor,
     Placeholder.configure({ placeholder: options.placeholder ?? '' }),

@@ -181,6 +181,9 @@ struct Listener {
     user_id: String,
     /// The session the handshake came with; empty for a connection without one.
     session_id: String,
+    /// The provider that session was made through; `None` for a password, and without
+    /// a session.
+    login_provider: Option<String>,
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
     closed: CancellationToken,
@@ -326,15 +329,9 @@ impl Hub {
         let (outbox, inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
         let closed_because = Arc::new(OnceLock::new());
-        let (user_id, session_id, token) = match identity {
-            Some(identity) => (
-                identity.session.user_id,
-                identity.session.id,
-                Some(identity.token),
-            ),
-            None => (String::new(), String::new(), None),
-        };
-        let (mut docs, docs_outbox) = app.collab().seat(app, &user_id);
+        let who = subscribe::Who::of(identity);
+        let (mut docs, docs_outbox) = app.collab().seat(app, who.asker());
+        let token = who.token;
         let docs_overrun = docs.overrun();
 
         let id = {
@@ -344,8 +341,9 @@ impl Hub {
             listeners.by_id.insert(
                 id,
                 Listener {
-                    user_id,
-                    session_id,
+                    user_id: who.user_id,
+                    session_id: who.session_id,
+                    login_provider: who.login_provider,
                     outbox,
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),
@@ -870,6 +868,7 @@ fn unsubscribe_from_blocks(listeners: &mut Listeners, id: ListenerId, block_ids:
 }
 
 mod closing;
+mod subscribe;
 
 /// Ports of `server/ws/server_test.go`, on the listener table.
 #[cfg(test)]

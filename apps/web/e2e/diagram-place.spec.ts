@@ -8,7 +8,7 @@
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { diagramBody, drawnDiagram, openCardWithBody } from './embeds.support.ts';
+import { diagramBody, drawnDiagram, focusAtEnd, openCardWithBody } from './embeds.support.ts';
 
 const FLOW = 'flowchart LR\n  A[Start] --> B{Choice}\n  B -->|yes| C[End]';
 
@@ -72,10 +72,8 @@ test('with the keys alone: arrows reach the diagram, Enter opens, Escape closes'
     ],
   });
   await closedAndDrawn(body);
-  // The focus puts the cursor where the editor keeps it, at the end of "Below". (Not
-  // Ctrl+Home: an arrow right behind it can come before the editor has read where
-  // the browser moved the cursor, which no hand is quick enough for.)
-  await body.locator('.ProseMirror').focus();
+  // The cursor at the end of "Below".
+  await focusAtEnd(body);
   await page.keyboard.press('ArrowUp');
   await selectedWithFocus(page, body);
   // Passing over it does not open it.
@@ -125,7 +123,7 @@ test('a source that cannot be drawn shows, closed, with what went wrong; open, t
 
 test('where the body may only be read, the picture does not open', async ({ page }) => {
   const body = await openCardWithBody(page, 'Company Goals', diagramBody(FLOW));
-  await expect(body).toHaveAttribute('data-editor', 'none');
+  await expect(body).toHaveAttribute('data-editor', 'reading');
   await drawnDiagram(body);
   await expect(body.locator('pre:has(code.language-mermaid)')).toBeHidden();
   await body.locator('.doc-diagram').click();

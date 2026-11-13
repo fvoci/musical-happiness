@@ -357,7 +357,8 @@ impl TestServer {
         self.client2 = self.client.clone();
         let workspaces = self
             .app
-            .workspaces_of_user(&self.client.me().await.id)
+            .store()
+            .workspaces_of_user(&self.client.me().await.id, None)
             .await
             .expect("the founder's workspace");
         self.app = self.app.scoped(

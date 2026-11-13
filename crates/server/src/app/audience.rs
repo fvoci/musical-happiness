@@ -6,8 +6,8 @@ mod cache;
 use std::sync::Arc;
 
 use cache::Cache;
-use fvoci_model::{BoardMember, PersonProperties, WorkspaceRole};
-use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion};
+use fvoci_model::{BoardMember, PersonProperties};
+use fvoci_store::{Store, StoreError, Tenant, VisibilityVersion, WorkspaceAccess};
 
 /// The boards as the websocket hub asks about them: who the members of a board are,
 /// which of its properties name users, and which board a block is of. The hub is made
@@ -22,7 +22,7 @@ pub struct Audience {
 
 #[derive(Debug, Default)]
 struct Caches {
-    workspaces: Cache<(String, String), Option<WorkspaceRole>>,
+    workspaces: Cache<(String, String), Option<WorkspaceAccess>>,
     members: Cache<(Tenant, String), Vec<BoardMember>>,
     people: Cache<(Tenant, String), PersonProperties>,
     shares: Cache<(String, String), bool>,
@@ -89,29 +89,29 @@ impl Audience {
             .await
     }
 
-    /// What the user is in the workspace, a guest too (`App::actor`). What
-    /// a subscription of the workspace is told of a board goes to the board's members
-    /// only, so a guest hears the boards they were invited to and no other. A
-    /// membership that cannot be read is no membership here: the connection is not
-    /// subscribed.
-    pub async fn workspace_role(&self, user_id: &str, workspace_id: &str) -> Option<WorkspaceRole> {
+    /// What the user is in the workspace, a guest too (`App::actor`), with the provider
+    /// a session must be made through to open the workspace's organization; `None` for
+    /// who is no member. What a subscription of the workspace is told of a board goes
+    /// to the board's members only, so a guest hears the boards they were invited to
+    /// and no other. A membership that cannot be read is no membership here: the
+    /// connection is not subscribed. Cached at the store's visibility revision, which a
+    /// change of a membership or of an organization's provider moves on.
+    pub async fn workspace_access(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Option<WorkspaceAccess> {
         match self
             .cache
             .workspaces
             .read(
                 &self.store,
                 (user_id.to_owned(), workspace_id.to_owned()),
-                || async {
-                    Ok(self
-                        .store
-                        .resolve_workspace(user_id, workspace_id)
-                        .await?
-                        .map(|access| access.workspace_role))
-                },
+                || async { self.store.resolve_workspace(user_id, workspace_id).await },
             )
             .await
         {
-            Ok(role) => role,
+            Ok(access) => access,
             Err(error) => {
                 tracing::error!(%error, workspace_id, "websocket: reading a workspace's membership failed");
                 None

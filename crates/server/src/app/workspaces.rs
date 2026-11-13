@@ -4,10 +4,10 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{Board, OrgRole, UserWorkspace, Workspace, WorkspaceRole};
+use fvoci_model::{Board, OrgRole, Session, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
-use super::{App, as_managed};
+use super::{App, Asker, as_managed, sso};
 use crate::error::AppError;
 
 /// A workspace as a member of it enters it: the application behind the wall between
@@ -32,19 +32,27 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the membership cannot be read.
+    /// Returns 401 with the reason `sso_required` for an administrator whose session
+    /// does not open the organization (`sso::require_session_opens`), and the store's
+    /// error if the membership or the provider cannot be read.
     pub async fn enter_org_as_admin(
         &self,
-        user_id: &str,
+        session: &Session,
         org_id: &str,
     ) -> Result<Option<Self>, AppError> {
         let Ok(tenant) = Tenant::org(org_id) else {
             return Ok(None);
         };
-        let actor = self.org_actor(user_id, org_id).await?;
-        Ok(actor
-            .administers_the_organization()
-            .then(|| self.scoped(tenant)))
+        let actor = self.org_actor(&session.user_id, org_id).await?;
+        if !actor.administers_the_organization() {
+            return Ok(None);
+        }
+        let required = self
+            .store()
+            .required_provider_for(&session.user_id, org_id)
+            .await?;
+        sso::require_session_opens(session.into(), org_id, required.as_deref())?;
+        Ok(Some(self.scoped(tenant)))
     }
 
     /// The same server reaching the rows of the organization `org_id`, for a sign-in
@@ -56,25 +64,42 @@ impl App {
 }
 
 impl App {
-    /// Lets a member into a workspace; `None` unless the user is a member of it,
-    /// whether it exists or not.
+    /// Lets a member into a workspace; `None` unless the session's user is a member of
+    /// it, whether it exists or not.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the membership cannot be read: that is no "not a
-    /// member".
+    /// Returns 401 with the reason `sso_required` for a member whose session does not
+    /// open the workspace's organization (`sso::require_session_opens`), and the
+    /// store's error if the membership cannot be read: that is no "not a member".
     pub async fn enter_workspace(
         &self,
-        user_id: &str,
+        session: &Session,
+        workspace_id: &str,
+    ) -> Result<Option<Entered>, AppError> {
+        self.enter_workspace_as(session.into(), workspace_id).await
+    }
+
+    /// As [`Self::enter_workspace`], for who is known by their user and the provider
+    /// their session was made through: a request by its session, a websocket
+    /// connection by what it kept of the session its handshake came with.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::enter_workspace`].
+    pub async fn enter_workspace_as(
+        &self,
+        asker: Asker<'_>,
         workspace_id: &str,
     ) -> Result<Option<Entered>, AppError> {
         let Some(access) = self
             .store()
-            .resolve_workspace(user_id, workspace_id)
+            .resolve_workspace(asker.user_id, workspace_id)
             .await?
         else {
             return Ok(None);
         };
+        sso::require_session_opens(asker, &access.org_id, access.required_provider.as_deref())?;
         let app = self.in_organization(&access.org_id)?;
         Ok(Some(Entered {
             app,
@@ -141,14 +166,22 @@ impl App {
         Ok(self.actor(user_id, workspace_id).await?.works_there())
     }
 
-    /// The workspaces the user is a member of, in every organization: by organization,
-    /// the oldest first, and in each the oldest workspace first.
+    /// The workspaces the session's user is a member of, in every organization: by
+    /// organization, the oldest first, and in each the oldest workspace first. One the
+    /// session does not open says so (`UserWorkspace::sso_required`) and is listed all
+    /// the same: the user is told where to sign in through a provider.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn workspaces_of_user(&self, user_id: &str) -> Result<Vec<UserWorkspace>, AppError> {
-        Ok(self.store().workspaces_of_user(user_id).await?)
+    pub async fn workspaces_of_user(
+        &self,
+        session: &Session,
+    ) -> Result<Vec<UserWorkspace>, AppError> {
+        Ok(self
+            .store()
+            .workspaces_of_user(&session.user_id, session.login_provider_id.as_deref())
+            .await?)
     }
 
     /// The boards of a workspace as the user lists them: an administrator of the

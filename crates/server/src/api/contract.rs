@@ -215,6 +215,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("FileInfo", Members::All),
     ("ImportResult", Members::All),
     ("InvalidInput", Members::Only(&["detail", "reason"])),
+    ("LinkedIdentity", Members::All),
     (
         "Invitation",
         Members::AllBut(&["boardId", "boardRole", "maxUses", "token"]),
@@ -295,6 +296,7 @@ const SCHEMAS: &[(&str, Members)] = &[
         "OidcProviderSettings",
         Members::Only(&["issuer", "clientId"]),
     ),
+    ("OidcStartRequest", Members::Only(&[])),
     (
         "PatchBoardsAndBlocks",
         Members::Only(&["boardIds", "boardPatches"]),
@@ -305,6 +307,10 @@ const SCHEMAS: &[(&str, Members)] = &[
     ),
     ("SettingsChange", Members::AsWritten),
     ("SharingRequest", Members::AsWritten),
+    (
+        "UnlinkRequest",
+        Members::Only(&["issuer", "subject", "password"]),
+    ),
     ("UserIds", Members::AsWritten),
     ("UserPreferencesPatch", Members::Only(&[])),
     // Closed sets of words.

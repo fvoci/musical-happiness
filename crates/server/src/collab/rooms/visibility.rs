@@ -73,6 +73,7 @@ impl Turn {
                 doc: member.doc,
                 who: Who {
                     user_id: member.connection.user_id.clone(),
+                    made_through: member.connection.made_through.clone(),
                     workspace_id: member.workspace_id.clone(),
                 },
             })

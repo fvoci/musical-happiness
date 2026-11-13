@@ -156,7 +156,7 @@ impl Drop for Writing<'_> {
 /// Ordinary card/body writes stay cacheable; type changes invalidate explicitly,
 /// and deleting or restoring cards changes their visibility through the trash.
 fn affects_visibility(text: &str) -> bool {
-    const TABLES: [&str; 10] = [
+    const TABLES: [&str; 11] = [
         "workspace_members",
         "organization_members",
         "board_members",
@@ -167,6 +167,8 @@ fn affects_visibility(text: &str) -> bool {
         "users",
         "deleted_boards",
         "deleted_blocks",
+        // Which provider an organization takes sessions of (`sso_required`).
+        "oidc_providers",
     ];
     let mut deletes = false;
     let mut blocks = false;

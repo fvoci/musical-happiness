@@ -22,6 +22,9 @@ pub(crate) enum Disconnect {
     ShareEnded,
     /// Access to a subscribed workspace ended or its role changed.
     AccessEnded,
+    /// An organization of its user began to take only sessions made through its
+    /// provider, and its session was not.
+    SsoRequired,
     /// It did not read its messages as fast as they came.
     SlowConsumer,
     /// The server stopped. Counted as it stops, after the metrics listener closed, so a
@@ -30,12 +33,13 @@ pub(crate) enum Disconnect {
 }
 
 impl Disconnect {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::ClientClosed,
         Self::ReadError,
         Self::SessionEnded,
         Self::ShareEnded,
         Self::AccessEnded,
+        Self::SsoRequired,
         Self::SlowConsumer,
         Self::Shutdown,
     ];
@@ -48,6 +52,7 @@ impl Disconnect {
             Self::SessionEnded => "session_ended",
             Self::ShareEnded => "share_ended",
             Self::AccessEnded => "access_ended",
+            Self::SsoRequired => "sso_required",
             Self::SlowConsumer => "slow_consumer",
             Self::Shutdown => "shutdown",
         }

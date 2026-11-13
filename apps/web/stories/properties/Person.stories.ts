@@ -15,17 +15,17 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WithValue: Story = { args: { value: 'u-jisoo' } };
+export const WithValue: Story = { args: { value: 'example-member-1' } };
 
 export const Empty: Story = {};
 
-export const ReadOnly: Story = { args: { value: 'u-ada', readOnly: true } };
+export const ReadOnly: Story = { args: { value: 'example-member-3', readOnly: true } };
 
 /** Starts with the list open. */
-export const Editing: Story = { args: { value: 'u-minho', startOpen: true } };
+export const Editing: Story = { args: { value: 'example-member-2', startOpen: true } };
 
 /** Someone who is no longer among the people of the board. */
 export const UnknownUser: Story = { args: { value: 'u-gone' } };
 
 /** Somebody without a display name: the login name alone. */
-export const LoginNameOnly: Story = { args: { value: 'u-bot' } };
+export const LoginNameOnly: Story = { args: { value: 'example-member-6' } };

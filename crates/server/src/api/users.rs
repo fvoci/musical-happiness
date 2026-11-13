@@ -3,10 +3,10 @@
 use std::collections::BTreeMap;
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use fvoci_model::{
-    BoardMember, RefusalReason, Refusals, User, UserPreferencesPatch, UserSettings,
-    UserSettingsPatch, display_name, shown_name,
+    BoardMember, LinkedIdentity, Problem, RefusalReason, Refusals, UnlinkRequest, User,
+    UserPreferencesPatch, UserSettings, UserSettingsPatch, display_name, shown_name,
 };
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
@@ -17,11 +17,13 @@ use super::contract::bodies::{AccountChange, AdminChange, SettingsChange};
 use super::contract::params::UserId;
 use super::contract::tag;
 
+use super::auth::address_of;
 use super::{
-    ApiResult, RequiredSession, decode_json, decode_object, json_object, json_response,
+    ApiResult, RequiredSession, decode_json, decode_object, json_object, json_response, no_content,
     require_admin,
 };
 use crate::app::App;
+use crate::client_address::ClientAddress;
 use crate::error::AppError;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -33,6 +35,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
             handle_get_user_settings,
             handle_patch_user_settings
         ))
+        .routes(routes!(handle_get_my_identities, handle_unlink_identity))
         .routes(routes!(handle_set_user_admin))
 }
 
@@ -123,7 +126,9 @@ async fn handle_patch_me(
 /// The boards the user is a member of
 ///
 /// The user's memberships, with the roles of each, of the boards of the workspaces the
-/// user is a member of. By the identifier of the board.
+/// user is a member of, in every organization the session opens: one that takes only
+/// sessions made through its provider leaves its boards out of another session's list.
+/// By the identifier of the board.
 #[utoipa::path(
     get,
     path = "/users/me/memberships",
@@ -135,8 +140,67 @@ async fn handle_get_my_memberships(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let members = app.board_memberships(&session.user_id).await?;
+    let members = app.board_memberships(&session).await?;
     Ok(json_response(&members))
+}
+
+/// The identities linked to the account
+///
+/// Who the user of the session is at the providers they linked to the account, or
+/// first signed in through: an organization's provider with that issuer signs in to
+/// this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.
+#[utoipa::path(
+    get,
+    path = "/users/me/identities",
+    operation_id = "getMyIdentities",
+    tag = tag::AUTH,
+    responses((status = 200, description = "The identities.", body = Vec<LinkedIdentity>)),
+)]
+async fn handle_get_my_identities(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+) -> ApiResult {
+    Ok(json_response(&app.identities(&session.user_id).await?))
+}
+
+/// Remove an identity from the account
+///
+/// Removes the identity of `issuer` and `subject` from the account of the session: the
+/// providers of that issuer no longer sign in to it. Asks for the account's password,
+/// as `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,
+/// naming `/password`, and too many are 429. An identity that is not the account's is
+/// 404. An account without a password keeps its last identity, which is all that lets
+/// its owner in: 409 with the reason `last_sign_in`; and has no password to confirm
+/// removing another with: 409 with the reason `password_not_set`. The sessions made
+/// through a provider go on.
+#[utoipa::path(
+    delete,
+    path = "/users/me/identities",
+    operation_id = "unlinkIdentity",
+    tag = tag::AUTH,
+    request_body = UnlinkRequest,
+    responses(
+        (status = 204, description = "The identity is removed."),
+        (
+            status = 429,
+            description = "The password was wrong too often, or the server has too much password work to do at the moment.",
+            body = Problem,
+            content_type = "application/problem+json",
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
+async fn handle_unlink_identity(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    client: Option<Extension<ClientAddress>>,
+    body: Bytes,
+) -> ApiResult {
+    let request: UnlinkRequest = decode_object(&body)?;
+    request.validate()?;
+    app.unlink_identity(&session, &request, address_of(client))
+        .await?;
+    Ok(no_content())
 }
 
 /// A user
@@ -170,6 +234,8 @@ async fn handle_set_user_admin(
     Path(user_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
+    // Who administers the instance administers its own organization too.
+    app.require_session_opens_instance(&session).await?;
     require_admin(&app, &session.user_id).await?;
     let flag: AdminFlag = decode_object(&body)?;
     let role = match flag.is_admin {

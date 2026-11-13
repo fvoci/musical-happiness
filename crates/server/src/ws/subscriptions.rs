@@ -1,5 +1,7 @@
 //! Validating and registering subscriptions under the same revocation generation.
 
+use fvoci_model::WorkspaceRole;
+
 use super::{
     Command, Hub, ListenerId, ReadPermit, remove_from, subscribe_to_blocks, subscribe_to_workspace,
     unsubscribe_from_blocks,
@@ -91,7 +93,7 @@ impl Hub {
         let mut validated_role = None;
         loop {
             let revision = self.listeners().revision;
-            let Some(role) = self.audience.workspace_role(user_id, workspace).await else {
+            let Some(role) = self.opened_role(id, user_id, workspace).await else {
                 if validated_role.is_some() {
                     self.close_listener(id, Disconnect::AccessEnded);
                 }
@@ -114,6 +116,23 @@ impl Hub {
             }
             return;
         }
+    }
+
+    /// What the connection's user is in the workspace, if they are a member of it and
+    /// the connection's session opens the workspace's organization; `None` otherwise,
+    /// and for a connection that is gone.
+    pub(super) async fn opened_role(
+        &self,
+        id: ListenerId,
+        user_id: &str,
+        workspace: &str,
+    ) -> Option<WorkspaceRole> {
+        let access = self.audience.workspace_access(user_id, workspace).await?;
+        let opens =
+            self.listeners().by_id.get(&id).is_some_and(|listener| {
+                listener.session_opens(access.required_provider.as_deref())
+            });
+        opens.then_some(access.workspace_role)
     }
 
     /// A block subscription needs a workspace, blocks that all belong to one board, and that

@@ -107,7 +107,11 @@ impl Hub {
             if subscribed_role.is_none() {
                 continue;
             }
-            let role = self.audience.workspace_role(user_id, &workspace_id).await;
+            let role = self
+                .audience
+                .workspace_access(user_id, &workspace_id)
+                .await
+                .map(|access| access.workspace_role);
             if role.is_some() && role == subscribed_role {
                 continue;
             }

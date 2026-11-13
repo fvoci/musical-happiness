@@ -397,22 +397,16 @@ impl App {
         address: Option<IpAddr>,
     ) -> Result<String, AppError> {
         let user = self.store().get_user_by_id(&session.user_id).await?;
-        // Counted with the logins to the account by its name, and one at a time from an
-        // address, like them.
-        let attempt = self
-            .login_limiter()
-            .admit_login(&[&user.username], address, Instant::now())
-            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
-        let right = old_password.len() <= MAXIMUM_PASSWORD_BYTES
-            && self.verify(&user.password_hash, old_password).await? != Verdict::Mismatch;
-        if !right {
-            tracing::debug!(user_id = %user.id, "invalid password for user");
-            attempt.failed(Instant::now());
-            return Err(AppError::bad_request("the old password is wrong")
-                .with_reason(Reason::InvalidCredentials)
-                .with_field("oldPassword"));
-        }
-        attempt.succeeded(&user.username);
+        self.confirm_password(
+            &user,
+            old_password,
+            WrongPassword {
+                words: "the old password is wrong",
+                field: "oldPassword",
+            },
+            address,
+        )
+        .await?;
         let token = new_secret();
         let changed = self
             .store()
@@ -436,6 +430,51 @@ impl App {
         self.ws()
             .close_other_sessions_of_user(&user.id, &session.id);
         Ok(token)
+    }
+}
+
+/// How a password that does not confirm the account is refused: in which words, and
+/// naming which member of the request.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct WrongPassword {
+    pub(crate) words: &'static str,
+    pub(crate) field: &'static str,
+}
+
+impl App {
+    /// Checks that whoever holds a session of `user` knows the account's password,
+    /// before something is done that the session alone is not to do.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 429 with the time to wait if the password was got wrong too often, as
+    /// for a login to the account by its name: a session is not the password, and
+    /// whoever holds one must not get to guess at it without end. Returns 400 with the
+    /// reason `invalid_credentials`, naming `wrong.field`, if the password is wrong.
+    pub(crate) async fn confirm_password(
+        &self,
+        user: &User,
+        password: &str,
+        wrong: WrongPassword,
+        address: Option<IpAddr>,
+    ) -> Result<(), AppError> {
+        // Counted with the logins to the account by its name, and one at a time from an
+        // address, like them.
+        let attempt = self
+            .login_limiter()
+            .admit_login(&[&user.username], address, Instant::now())
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+        let right = password.len() <= MAXIMUM_PASSWORD_BYTES
+            && self.verify(&user.password_hash, password).await? != Verdict::Mismatch;
+        if !right {
+            tracing::debug!(user_id = %user.id, "invalid password for user");
+            attempt.failed(Instant::now());
+            return Err(AppError::bad_request(wrong.words)
+                .with_reason(Reason::InvalidCredentials)
+                .with_field(wrong.field));
+        }
+        attempt.succeeded(&user.username);
+        Ok(())
     }
 }
 
