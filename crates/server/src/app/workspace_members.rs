@@ -8,6 +8,7 @@ use fvoci_model::{BoardMember, BoardRole, WorkspaceMember, WorkspaceRole, is_id}
 use fvoci_store::MembershipChange;
 
 use super::App;
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
 use crate::permissions;
 
@@ -78,7 +79,9 @@ impl App {
                 member.role = current;
                 continue;
             }
-            self.settle(workspace_id, by, change)?;
+            let taken_over = self.settle(workspace_id, by, change)?;
+            self.recheck_member(workspace_id, user_id, by, &taken_over)
+                .await;
             tracing::info!(
                 workspace_id,
                 user_id,
@@ -118,7 +121,9 @@ impl App {
             .store()
             .remove_workspace_member(workspace_id, user_id, by)
             .await?;
-        self.settle(workspace_id, by, change)?;
+        let taken_over = self.settle(workspace_id, by, change)?;
+        self.recheck_member(workspace_id, user_id, by, &taken_over)
+            .await;
         tracing::info!(
             workspace_id,
             user_id,
@@ -126,6 +131,26 @@ impl App {
             "a member was taken out of a workspace"
         );
         Ok(())
+    }
+
+    /// The rooms of the workspace ask again about the member whose place in it changed,
+    /// and those of the boards that passed to `by` (their only admin was the member)
+    /// about `by`, who may write there now.
+    async fn recheck_member(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+        by: &str,
+        taken_over: &[String],
+    ) {
+        self.collab()
+            .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
+            .await;
+        for board_id in taken_over {
+            self.collab()
+                .recheck_access(self, AccessScope::board(board_id).of_user(by))
+                .await;
+        }
     }
 
     /// One member of the workspace; 404 for somebody who is none.
@@ -150,10 +175,10 @@ impl App {
         workspace_id: &str,
         by: &str,
         change: MembershipChange,
-    ) -> Result<(), AppError> {
+    ) -> Result<Vec<String>, AppError> {
         match change {
             MembershipChange::Done { taken_over } => {
-                for board_id in taken_over {
+                for board_id in taken_over.iter().cloned() {
                     tracing::info!(
                         workspace_id,
                         board_id,
@@ -168,7 +193,7 @@ impl App {
                     .with_role(Some(BoardRole::Admin));
                     self.broadcast_member_change_in_background(workspace_id.to_owned(), admin);
                 }
-                Ok(())
+                Ok(taken_over)
             }
             MembershipChange::NotAMember => Err(no_such_member()),
             MembershipChange::RoleIs(_) | MembershipChange::Unsettled => {
