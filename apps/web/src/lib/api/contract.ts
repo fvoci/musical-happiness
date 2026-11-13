@@ -549,6 +549,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a password reset
+         * @description Answers 204 with an empty body for an existing account, an absent account and
+         *     an account without a password. Lookup and SMTP delivery run in the background;
+         *     the request never waits for either. Accounts without passwords receive no mail.
+         *     Requests are limited by address and normalized email using the login limit settings,
+         *     with separate counters. Without SMTP this route answers 404.
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ping": {
         parameters: {
             query?: never;
@@ -3113,6 +3137,8 @@ export interface components {
         };
         /** @description What the login page shows: the organization it is for, if it is for one. */
         LoginOptions: {
+            /** @description Whether this server can deliver password recovery and invitation mail. */
+            mailEnabled: boolean;
             organization: components["schemas"]["LoginOrganization"] | null;
             /**
              * @description Whether somebody without an invitation may register and start an organization: on a
@@ -3644,6 +3670,12 @@ export interface components {
             password: string;
             /** @description The login name. */
             username: string;
+        };
+        RequestPasswordReset: {
+            /** @description The account's email address. */
+            email: string;
+            /** @description Preferred language, normally en or ko; English if absent or unsupported. */
+            language?: string;
         };
         /** @description What `ping` reports about the server. */
         ServerMetadata: {
@@ -4876,6 +4908,37 @@ export interface operations {
         };
         responses: {
             /** @description The password was reset; sign in again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestPasswordReset"];
+            };
+        };
+        responses: {
+            /** @description If eligible, the account will receive a reset link. */
             204: {
                 headers: {
                     [name: string]: unknown;

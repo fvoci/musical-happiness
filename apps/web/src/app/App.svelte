@@ -291,6 +291,7 @@
       await account?.register(registration);
       registered = { username: registration.username, email: registration.email };
     }}
+    forgotHref={`${router.href({}).replace(/\/$/, '')}/forgot-password`}
     optionsOf={(orgId: string | undefined) =>
       account?.loginOptions(orgId) ?? Promise.resolve({ registrationOpen: true })}
     onOidcStart={async (orgId: string) => {

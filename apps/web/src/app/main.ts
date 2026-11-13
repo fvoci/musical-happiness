@@ -32,7 +32,7 @@ router.listen();
 
 // A board's public link is read without the app around it, signed in or not;
 // so is an address under `/shared` that is no whole link (not found there).
-export default router.route.passwordReset
+export default router.route.passwordReset || router.route.passwordForgot
   ? mount(ResetPasswordApp, { target, props: { router } })
   : router.route.shared
     ? mount(SharedApp, { target, props: { router } })

@@ -21,6 +21,7 @@ mod import;
 mod invitations;
 mod limits;
 mod loose_objects;
+mod mail;
 mod oidc;
 mod onboarding;
 mod org_admin;
@@ -123,6 +124,8 @@ struct Inner {
     config: Configuration,
     auth: Authenticator,
     login_limiter: LoginLimiter,
+    reset_limiter: LoginLimiter,
+    mail: mail::Mailer,
     password_work: HashQueue,
     files: FileBackend,
     web: WebRoot,
@@ -247,6 +250,8 @@ impl App {
             ws,
             workspace: None,
             inner: Arc::new(Inner {
+                reset_limiter: LoginLimiter::new(Limits::from_config(&config)),
+                mail: mail::Mailer::new(&config.smtp)?,
                 config,
                 auth,
                 login_limiter,

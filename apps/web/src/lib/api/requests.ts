@@ -218,6 +218,7 @@ export class ServerRequests implements TrashReads {
     return {
       ...(options.organization ? { organization: options.organization } : {}),
       registrationOpen: options.registrationOpen,
+      mailEnabled: options.mailEnabled,
     };
   }
 

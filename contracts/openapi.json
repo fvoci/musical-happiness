@@ -1371,6 +1371,10 @@
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
         "properties": {
+          "mailEnabled": {
+            "description": "Whether this server can deliver password recovery and invitation mail.",
+            "type": "boolean"
+          },
           "organization": {
             "oneOf": [
               {
@@ -1388,6 +1392,7 @@
           }
         },
         "required": [
+          "mailEnabled",
           "organization",
           "registrationOpen"
         ],
@@ -2680,6 +2685,22 @@
           "email",
           "password",
           "organizationName"
+        ],
+        "type": "object"
+      },
+      "RequestPasswordReset": {
+        "properties": {
+          "email": {
+            "description": "The account's email address.",
+            "type": "string"
+          },
+          "language": {
+            "description": "Preferred language, normally en or ko; English if absent or unsupported.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
         ],
         "type": "object"
       },
@@ -4685,6 +4706,44 @@
           {}
         ],
         "summary": "Finish resetting a password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/password-reset/request": {
+      "post": {
+        "description": "Answers 204 with an empty body for an existing account, an absent account and\nan account without a password. Lookup and SMTP delivery run in the background;\nthe request never waits for either. Accounts without passwords receive no mail.\nRequests are limited by address and normalized email using the login limit settings,\nwith separate counters. Without SMTP this route answers 404.",
+        "operationId": "requestPasswordReset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestPasswordReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "If eligible, the account will receive a reset link."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Request a password reset",
         "tags": [
           "auth"
         ]

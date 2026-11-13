@@ -42,6 +42,8 @@ export interface LoginOptions {
    * organization. Where they may not, the link of an invitation is the way in.
    */
   registrationOpen: boolean;
+  /** Whether the server can deliver recovery and invitation mail. */
+  mailEnabled?: boolean;
 }
 
 /** What the login page may know of an organization before anybody signs in. */

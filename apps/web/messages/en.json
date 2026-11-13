@@ -988,5 +988,10 @@
   "reset_done": "Your password has been reset. Sign in again on each device.",
   "reset_invalid": "This reset link is invalid or has expired. Ask for a new link.",
   "reset_password": "New password",
-  "reset_sign_in": "Back to sign in"
+  "reset_sign_in": "Back to sign in",
+  "reset_forgot": "Forgot your password?",
+  "reset_request_title": "Reset your password",
+  "reset_request_submit": "Send reset link",
+  "reset_request_done": "If this email belongs to an account with a password, a reset link will arrive shortly.",
+  "reset_unavailable": "Email recovery is unavailable. Contact your server administrator for a reset link."
 }

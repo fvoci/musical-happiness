@@ -10,6 +10,16 @@ export class ServerPasswordRecovery implements PasswordRecovery {
     this.#http = http;
   }
 
+  async available(): Promise<boolean> {
+    const options = await this.#http.request<Schemas['LoginOptions']>('/api/v1/login-options', {});
+    return options.mailEnabled;
+  }
+
+  async request(email: string, language: string): Promise<void> {
+    const json: Schemas['RequestPasswordReset'] = { email, language };
+    await this.#http.request('/api/v1/password-reset/request', {}, { method: 'POST', json });
+  }
+
   async complete(token: string, password: string): Promise<void> {
     const json: Schemas['FinishPasswordReset'] = { token, password };
     await this.#http.request('/api/v1/password-reset/complete', {}, { method: 'POST', json });

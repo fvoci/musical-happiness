@@ -25,6 +25,7 @@ import { buildUrl, normalizeBasePath, type BoardPlace } from '$lib/logic/urls.ts
 export interface Route {
   /** The standalone password reset page; its token is in the URL fragment. */
   passwordReset?: true;
+  passwordForgot?: true;
   /** The organization whose screen is shown; then nothing else is. */
   orgId?: string | undefined;
   workspaceId: string | undefined;
@@ -83,6 +84,9 @@ export function parseRoute(pathname: string, basePath: string, search = ''): Rou
       }
     });
   if (segments.length === 0) return NOWHERE;
+  if (segments[0] === 'forgot-password' && segments.length === 1) {
+    return { ...NOWHERE, passwordForgot: true };
+  }
   if (segments[0] === 'reset-password' && segments.length === 1) {
     return { ...NOWHERE, passwordReset: true };
   }
@@ -185,6 +189,7 @@ export class Router {
       const now = this.route;
       if (
         next.passwordReset === now.passwordReset &&
+        next.passwordForgot === now.passwordForgot &&
         next.orgId === now.orgId &&
         next.workspaceId === now.workspaceId &&
         next.boardId === now.boardId &&

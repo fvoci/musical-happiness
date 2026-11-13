@@ -97,7 +97,7 @@ fn the_contract_says_when_each_reason_comes() {
 }
 
 /// The operations that need no session at all.
-const NO_SESSION: [&str; 11] = [
+const NO_SESSION: [&str; 12] = [
     "completePasswordReset",
     "finishOidcLogin",
     "getClientConfig",
@@ -108,6 +108,7 @@ const NO_SESSION: [&str; 11] = [
     "previewInvitation",
     "ready",
     "register",
+    "requestPasswordReset",
     "startOidcLogin",
 ];
 /// The operations that read a shared board with its read token, and look at no session.
