@@ -897,15 +897,17 @@ fn rust_sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
 /// every organization: the store itself, the directory, the changes of the data after
 /// a migration, and the one function of the server that its housekeeping works
-/// through. Anywhere else, a request would be let past the wall it is there to be held
-/// by. (The system organization, which holds the built-in templates, is an
+/// through; and the revisions of the cached checks, which name it to tell what its
+/// writes move. Anywhere else, a request would be let past the wall it is there to be
+/// held by. (The system organization, which holds the built-in templates, is an
 /// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
-    const ALLOWED: [&str; 4] = [
+    const ALLOWED: [&str; 5] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
         "store/src/data_steps.rs",
+        "store/src/visibility.rs",
         "server/src/app/housekeeping.rs",
     ];
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
