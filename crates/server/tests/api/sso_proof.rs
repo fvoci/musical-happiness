@@ -145,3 +145,37 @@ async fn the_same_secret_keeps_the_proof_and_the_switch_does_not() {
     ts.teardown().await;
     fake.stop();
 }
+
+/// A session that proves the provider does not switch taking no password on with a new
+/// secret in the same request: the new one has let nobody in. Nothing of the request
+/// is stored.
+#[tokio::test]
+async fn a_new_secret_and_the_requirement_are_not_saved_together() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    let path = format!("/org/{org_id}/oidc");
+    set_provider(&ts, &org_id, &fake).await;
+    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+
+    let together = admin
+        .put(
+            &path,
+            &json!({
+                "issuer": fake.issuer, "clientId": CLIENT_ID, "clientSecret": WRONG_SECRET,
+                "ssoRequired": true,
+            }),
+        )
+        .await;
+    let read: OidcProvider = admin.get(&path).await.ok_json();
+
+    assert_eq!(together.status, StatusCode::CONFLICT, "{}", together.text());
+    assert_eq!(together.error_reason(), "sso_unproven");
+    assert!(!read.sso_required);
+    assert!(
+        read.can_require_sso,
+        "the secret it was made with is still the one"
+    );
+    ts.teardown().await;
+    fake.stop();
+}

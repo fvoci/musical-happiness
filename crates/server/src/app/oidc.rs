@@ -718,7 +718,7 @@ impl App {
         };
         let joined = self
             .store()
-            .finish_oidc_sign_in(&stored.id, account, session, digest)
+            .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
             .await
             .map_err(|error| logged(&error, "storing a sign-in"))?
             .map_err(|refusal| refused(refusal, stored))?;
@@ -769,7 +769,7 @@ impl App {
             };
             match self
                 .store()
-                .finish_oidc_sign_in(&stored.id, account, session, digest)
+                .finish_oidc_sign_in(&stored.id, stored.revision, account, session, digest)
                 .await
             {
                 Ok(Ok(_)) => {

@@ -366,6 +366,7 @@ async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
     let finished = test
         .finish_oidc_sign_in(
             &stored.id,
+            stored.revision,
             OidcAccount::Known {
                 user_id: &user,
                 password_hash: HASH,
@@ -383,8 +384,9 @@ async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
 }
 
 /// The revision of a provider's sign-in: raised by a change of the issuer, the client,
-/// the sealed secret or the switch, and by nothing else; a sign-in through it keeps the
-/// revision it was made at.
+/// the sealed secret or the switch, and by nothing else, the operator's release among
+/// it; a sign-in through it keeps the revision it was made at, and one begun at another
+/// revision makes no session.
 #[tokio::test]
 async fn a_change_of_what_signing_in_takes_raises_the_revision() {
     let test = common::setup().await;
@@ -415,36 +417,51 @@ async fn a_change_of_what_signing_in_takes_raises_the_revision() {
             .expect("as read");
         revisions.push(read.revision);
     }
-    let released = test.release_sso_by_operator().await.expect("asked");
+    next.sso_required = true;
+    let enforced = test
+        .put_oidc_provider_as_read(&next, Some(&read), &user)
+        .await
+        .expect("stored")
+        .expect("as read");
+    let released = test
+        .release_sso_by_operator()
+        .await
+        .expect("asked")
+        .expect("it was enforced");
+    revisions.extend([enforced.revision, released.revision]);
+    read = released;
     let identity = Identity {
         issuer: "https://two.example",
         subject: "subject",
     };
     test.add_identity(&user, identity, "").await.expect("tied");
-    let mut session = Session {
-        id: new_id(),
-        created_at: T0,
-        expires_at: T0 + 1000,
-        ..Session::default()
+    let sign_in = async |revision: i64, digest: &str| {
+        let mut session = Session {
+            id: new_id(),
+            created_at: T0,
+            expires_at: T0 + 1000,
+            ..Session::default()
+        };
+        let account = OidcAccount::Known {
+            user_id: &user,
+            password_hash: HASH,
+            identity,
+        };
+        test.finish_oidc_sign_in(&read.id, revision, account, &mut session, digest)
+            .await
+            .expect("asked")
     };
-    let finished = test
-        .finish_oidc_sign_in(
-            &read.id,
-            OidcAccount::Known {
-                user_id: &user,
-                password_hash: HASH,
-                identity,
-            },
-            &mut session,
-            "digest",
-        )
-        .await
-        .expect("asked");
+    // Begun at the revision before, it ends at none: the secret it was made with is
+    // not the one stored.
+    let stale = sign_in(read.revision - 1, "stale").await;
+    let finished = sign_in(read.revision, "digest").await;
+    let stale_made = alive(&test, "stale").await;
     let made = test.get_session("digest", T0, 0).await.expect("made");
     test.teardown().await;
 
-    assert_eq!(revisions, [1, 1, 2, 2, 2, 3, 4, 5, 6]);
-    assert_eq!(released, None, "nothing to release");
+    assert_eq!(revisions, [1, 1, 2, 2, 2, 3, 4, 5, 6, 6, 6]);
+    assert_eq!(stale, Err(OidcRefusal::ProviderGone));
+    assert!(!stale_made, "no session of the revision before");
     assert!(finished.is_ok(), "{finished:?}");
     assert_eq!(
         made.login,

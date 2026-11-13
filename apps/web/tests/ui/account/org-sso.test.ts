@@ -99,6 +99,26 @@ describe('the SSO settings', () => {
     expect(screen.getByTestId('sso-required-switch')).toBeDisabled();
   });
 
+  it('turns the requirement off while a new secret is typed, and sends what it shows', async () => {
+    const { save } = mount({ ...provider, canRequireSso: true });
+    const required = await screen.findByTestId('sso-required-switch');
+    await fireEvent.click(required);
+    expect(required).toBeChecked();
+    await fireEvent.click(screen.getByText('Change secret'));
+    expect(required).not.toBeChecked();
+    expect(required).toBeDisabled();
+    expect(screen.getByTestId('sso-secret-unproven')).toBeInTheDocument();
+    await fireEvent.input(screen.getByTestId('sso-secret'), { target: { value: 'replacement' } });
+    await fireEvent.click(screen.getByTestId('sso-save'));
+    await vi.waitFor(() => {
+      expect(save).toHaveBeenCalledOnce();
+    });
+    expect(save.mock.calls[0]?.[0]).toMatchObject({
+      clientSecret: 'replacement',
+      ssoRequired: false,
+    });
+  });
+
   it('does not disable, replace or delete a provider while enforcement is stored', async () => {
     mount({ ...provider, canRequireSso: true, ssoRequired: true });
     await screen.findByTestId('sso-client');

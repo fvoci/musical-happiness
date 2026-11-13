@@ -60,7 +60,8 @@ impl StoredProvider {
     /// Whether signing in through `other` takes the same as through this one: the same
     /// issuer, client and sealed secret, on or off alike. A change that keeps it keeps
     /// the revision; any other raises it. A secret given again is sealed anew and
-    /// counts as another.
+    /// counts as another here; the server keeps the sealed one for a secret sent again
+    /// as it is stored.
     #[must_use]
     pub fn signs_in_like(&self, other: &Self) -> bool {
         self.issuer == other.issuer
@@ -433,9 +434,10 @@ impl Store {
     }
 
     /// Ends a sign-in through the provider `provider_id` of the handle's organization,
-    /// in one transaction: reads the provider again, and holds it on PostgreSQL, so that
-    /// a provider switched off, removed, replaced or closed to newcomers while the
-    /// person was at the provider lets nobody in; then makes or lets in the account,
+    /// at its `revision`, in one transaction: reads the provider again, and holds it on
+    /// PostgreSQL, so that a provider switched off, removed, replaced, given another
+    /// secret or closed to newcomers while the person was at the provider lets nobody
+    /// in, and the session proves the revision it was signed in at; then makes or lets in the account,
     /// and stores `session` (for `account`'s user) under `token_digest`. Says whether
     /// the account joined the organization, or why nothing was stored.
     ///
@@ -458,6 +460,7 @@ impl Store {
     pub async fn finish_oidc_sign_in(
         &self,
         provider_id: &str,
+        revision: i64,
         account: OidcAccount<'_>,
         session: &mut Session,
         token_digest: &str,
@@ -468,7 +471,8 @@ impl Store {
             );
             sql.bind(scope.org()?)
                 .push_bind(" AND id = ", Id(provider_id))
-                .push_bind(" AND enabled = ", true);
+                .push_bind(" AND enabled = ", true)
+                .push_bind(" AND revision = ", revision);
             if scope.dialect() == Dialect::Postgres {
                 sql.push(" FOR SHARE");
             }
@@ -654,7 +658,8 @@ pub enum OidcAccount<'a> {
 /// Why a sign-in through a provider stored nothing at its end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OidcRefusal {
-    /// The provider is switched off, removed, or another one, since the sign-in began.
+    /// The provider is switched off, removed, another one, or given another secret,
+    /// since the sign-in began.
     ProviderGone,
     /// The organization lets no newcomer in through its provider.
     JoinClosed,

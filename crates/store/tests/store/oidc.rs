@@ -39,7 +39,7 @@ fn join_task(
             },
         };
         store
-            .finish_oidc_sign_in(&provider_id, account, &mut session, &new_id())
+            .finish_oidc_sign_in(&provider_id, 1, account, &mut session, &new_id())
             .await
     })
 }
