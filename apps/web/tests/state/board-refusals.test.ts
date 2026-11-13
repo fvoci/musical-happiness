@@ -13,7 +13,7 @@ function held() {
   return { promise, release };
 }
 
-it.each(['title', 'description'])(
+it.each(['title', 'description'] as const)(
   'keeps the later %s while its write still waits',
   async (field) => {
     const { board, backend, workspace } = await openFirstBoard();
