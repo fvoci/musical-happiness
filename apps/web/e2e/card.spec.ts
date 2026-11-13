@@ -375,6 +375,8 @@ test('values are edited with the shared editors: select, person, date, checkbox,
   await status.locator('[data-slot="property-select"]').click();
   await page.getByRole('option', { name: 'Later' }).click();
   await expect(status.locator('dd')).toContainText('Later');
+  // Closed, and gone: the person's options below are not taken from a list on its way out.
+  await expect(page.getByRole('option')).toHaveCount(0);
   const statusId = await idOf('Status');
   await expect.poll(async () => typeof (await values())[statusId]).toBe('string');
 
