@@ -226,7 +226,7 @@ async fn manager_still(scope: &mut Scope<'_>, entry: &AuditEntry) -> Result<(), 
     if org_admin::still_workspace_admin(
         scope,
         &entry.workspace_id,
-        entry.actor_id.as_deref().unwrap_or_default(),
+        entry.actor.person_id().unwrap_or_default(),
     )
     .await?
     {

@@ -99,7 +99,7 @@ async fn log_of(store: &Store, workspace_id: &str) -> Vec<(AuditAction, String, 
         .map(|entry| {
             (
                 entry.action,
-                entry.actor_id.unwrap_or_default(),
+                entry.actor.person_id().unwrap_or_default().to_owned(),
                 entry.subject_id,
             )
         })

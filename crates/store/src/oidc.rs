@@ -10,7 +10,7 @@ use fvoci_model::{AuditAction, LinkedIdentity, OrgRole, Session, User, Workspace
 
 use crate::Store;
 use crate::accounts::{self, Which};
-use crate::audit::{self, AuditEntry};
+use crate::audit::{self, AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::sessions;
@@ -188,19 +188,17 @@ impl Store {
     ) -> Result<Option<StoredProvider>, StoreError> {
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
-            let mut sql =
-                scope.sql("SELECT id, update_at, sso_required FROM oidc_providers WHERE org_id = ");
+            let mut sql = scope.sql(&format!(
+                "SELECT {PROVIDER_COLUMNS} FROM oidc_providers WHERE org_id = "
+            ));
             sql.bind(scope.org()?);
-            let row = scope.fetch_optional(sql).await?;
-            let previously_required = row
+            let before = match scope.fetch_optional(sql).await? {
+                Some(row) => Some(provider_from_row(&row)?),
+                None => None,
+            };
+            let there = before
                 .as_ref()
-                .map(|row| row.bool(2))
-                .transpose()?
-                .unwrap_or(false);
-            let there = row
-                .as_ref()
-                .map(|row| Ok::<_, StoreError>((row.id(0)?, row.int(1)?)))
-                .transpose()?;
+                .map(|before| (before.id.clone(), before.update_at));
             if let AsRead::Was(read) = &as_read
                 && there != *read
             {
@@ -241,14 +239,7 @@ impl Store {
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             let stored = provider_from_row(&row)?;
             if let Some(actor_id) = actor_id {
-                let enforcement_change = (previously_required != stored.sso_required).then_some(
-                    if stored.sso_required {
-                        AuditAction::SsoRequired
-                    } else {
-                        AuditAction::SsoReleased
-                    },
-                );
-                record_provider_change(scope, actor_id, enforcement_change, &stored).await?;
+                record_provider_change(scope, actor_id, before.as_ref(), &stored).await?;
             }
             Ok(Some(stored))
         })
@@ -313,7 +304,12 @@ impl Store {
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             let stored = provider_from_row(&row)?;
-            let entry = AuditEntry::by_operator(AuditAction::SsoReleased, &stored.org_id);
+            let entry = AuditEntry::by(
+                &AuditActor::ServerOperator,
+                "",
+                AuditAction::SsoReleased,
+                &stored.org_id,
+            );
             audit::record_entry(scope, &entry).await?;
             Ok(Some(stored))
         })
@@ -746,21 +742,41 @@ pub enum Removal {
     Enforced,
 }
 
-/// Records what this save changed, in the transaction that stores it.
+/// Records what this save changed from `before`, in the transaction that stores it:
+/// the provider's settings, and the switch of enforcement, each when it changed. A
+/// save that changes nothing records nothing.
 async fn record_provider_change(
     scope: &mut Scope<'_>,
     actor_id: &str,
-    enforcement_change: Option<AuditAction>,
+    before: Option<&StoredProvider>,
     stored: &StoredProvider,
 ) -> Result<(), StoreError> {
-    let entry = AuditEntry::new(
-        "",
-        actor_id,
-        AuditAction::OidcProviderConfigured,
-        &stored.org_id,
-    );
-    audit::record_entry(scope, &entry).await?;
-    if let Some(action) = enforcement_change {
+    let configured = before.is_none_or(|before| {
+        (
+            &before.issuer,
+            &before.client_id,
+            &before.sealed_client_secret,
+            before.auto_join,
+            before.enabled,
+        ) != (
+            &stored.issuer,
+            &stored.client_id,
+            &stored.sealed_client_secret,
+            stored.auto_join,
+            stored.enabled,
+        )
+    });
+    let was_required = before.is_some_and(|before| before.sso_required);
+    let enforcement = match (was_required, stored.sso_required) {
+        (false, true) => Some(AuditAction::SsoRequired),
+        (true, false) => Some(AuditAction::SsoReleased),
+        _ => None,
+    };
+    let actions = configured
+        .then_some(AuditAction::OidcProviderConfigured)
+        .into_iter()
+        .chain(enforcement);
+    for action in actions {
         let entry = AuditEntry::new("", actor_id, action, &stored.org_id);
         audit::record_entry(scope, &entry).await?;
     }

@@ -14,7 +14,7 @@ use fvoci_model::{
 };
 
 use crate::Store;
-use crate::audit::Actor;
+use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::{StoreError, Taken};
 use crate::members;
@@ -209,8 +209,8 @@ impl Store {
         let is_admin = role == InstanceRole::Administrator;
         let follows = self.is_the_instances_organization().await?;
         let actor = match asker {
-            Asker::Administrator => Actor::Person(actor_id),
-            Asker::Operator => Actor::ServerOperator,
+            Asker::Administrator => AuditActor::Person(actor_id.to_owned()),
+            Asker::Operator => AuditActor::ServerOperator,
         };
         self.transaction(async |scope| {
             lock_instance(scope).await?;
@@ -246,7 +246,7 @@ impl Store {
                     .push_bind(" WHERE id = ", Id(user_id));
                 scope.execute(sql).await?;
                 if follows {
-                    members::follow_instance_role(scope, user_id, role, actor).await?;
+                    members::follow_instance_role(scope, user_id, role, &actor).await?;
                 }
             }
             let user = get_user_by_id(scope, user_id).await?;

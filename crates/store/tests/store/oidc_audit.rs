@@ -239,3 +239,57 @@ async fn an_operator_role_change_is_recorded_only_in_the_instances_organization(
     );
     test.teardown().await;
 }
+
+#[tokio::test]
+async fn a_save_records_only_what_it_changed() {
+    let test = common::setup().await;
+    let actor = common::user(&test, "administrator").await;
+    let mut provider = settings();
+    provider.sso_required = false;
+    let first = test
+        .put_oidc_provider_as_read(&provider, None, &actor)
+        .await
+        .expect("stored")
+        .expect("new");
+    let unchanged = test
+        .put_oidc_provider_as_read(&provider, Some(&first), &actor)
+        .await
+        .expect("stored")
+        .expect("as read");
+    provider.sso_required = true;
+    let enforced = test
+        .put_oidc_provider_as_read(&provider, Some(&unchanged), &actor)
+        .await
+        .expect("stored")
+        .expect("as read");
+    provider.auto_join = false;
+    test.put_oidc_provider_as_read(&provider, Some(&enforced), &actor)
+        .await
+        .expect("stored")
+        .expect("as read");
+    let mut actions: Vec<AuditAction> = test
+        .audit_records(
+            AuditPlace::Organization,
+            Paging {
+                page: 0,
+                per_page: 100,
+            },
+        )
+        .await
+        .expect("records")
+        .into_iter()
+        .map(|record| record.action)
+        .collect();
+    test.teardown().await;
+    // The newest first, as the list reads.
+    actions.reverse();
+    assert_eq!(
+        actions,
+        [
+            AuditAction::OidcProviderConfigured,
+            AuditAction::SsoRequired,
+            AuditAction::OidcProviderConfigured,
+        ],
+        "the first save, the switch alone, and the change of joining; nothing for the save that changed nothing"
+    );
+}

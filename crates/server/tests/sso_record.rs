@@ -451,6 +451,28 @@ async fn global_commands_stay_out_of_the_organizations_log(
         );
     }
     operator_lines_name_no_secret(captured, me, secrets, password, refused);
+    the_release_has_its_line(&http, captured, org_id).await;
+}
+
+/// The socket's release of an organization is a line of the log as the global commands
+/// are, naming the organization; its record is the organization's.
+#[cfg(unix)]
+async fn the_release_has_its_line(http: &reqwest::Client, captured: &Captured, org_id: &str) {
+    let release = format!("orgs/{org_id}/sso/release");
+    assert_eq!(
+        operator_post(http, &release, &json!(null)).await,
+        204,
+        "released, or released already"
+    );
+    let record = captured.record();
+    let released = record
+        .iter()
+        .rfind(|line| line.contains("command=\"release_sso\""))
+        .expect("the release has its line");
+    assert!(
+        released.contains(org_id) && released.contains("result=\"succeeded\""),
+        "{released}"
+    );
 }
 
 /// Sends one command to the administration socket and answers its status.

@@ -5,7 +5,7 @@
 
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
-use crate::audit::Actor;
+use crate::audit::AuditActor;
 use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
@@ -158,7 +158,7 @@ pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,
     instance_role: InstanceRole,
-    actor: Actor<'_>,
+    actor: &AuditActor,
 ) -> Result<(), StoreError> {
     let org_role = org_role_of_instance(instance_role);
     let org = org_admin::lock_organization(scope).await?;

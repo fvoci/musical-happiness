@@ -223,6 +223,22 @@ impl AuditActorKind {
     }
 }
 
+/// Text that names no kind of actor of the audit log.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0:?} is no audit actor kind")]
+pub struct UnknownAuditActorKind(pub String);
+
+impl FromStr for AuditActorKind {
+    type Err = UnknownAuditActorKind;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        [Self::Person, Self::ServerOperator]
+            .into_iter()
+            .find(|kind| kind.as_str() == text)
+            .ok_or_else(|| UnknownAuditActorKind(text.to_owned()))
+    }
+}
+
 /// A user as a record of the audit log names them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]

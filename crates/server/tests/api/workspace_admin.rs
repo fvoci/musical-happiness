@@ -187,7 +187,7 @@ async fn a_workspace_admin_lists_and_manages_a_private_board_and_reads_none_of_i
         .map(|entry| {
             (
                 entry.action,
-                entry.actor_id.as_deref().unwrap_or_default(),
+                entry.actor.person_id().unwrap_or_default(),
                 entry.target_id.as_str(),
                 entry.subject_id.as_str(),
             )
@@ -233,7 +233,7 @@ async fn a_workspace_admin_who_makes_themselves_a_member_reads_the_board_and_is_
     assert_eq!(
         (
             entry.action,
-            entry.actor_id.as_deref().unwrap_or_default(),
+            entry.actor.person_id().unwrap_or_default(),
             entry.target_id.as_str(),
             entry.workspace_id.as_str()
         ),
@@ -331,7 +331,7 @@ async fn a_workspace_admin_who_gives_a_membership_without_a_role_a_role_is_recor
         .map(|entry| {
             (
                 entry.action,
-                entry.actor_id.as_deref().unwrap_or_default(),
+                entry.actor.person_id().unwrap_or_default(),
                 entry.target_id.as_str(),
             )
         })

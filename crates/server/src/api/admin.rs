@@ -80,7 +80,7 @@ async fn handle_admin_set_password(
         Ok(no_content())
     }
     .await;
-    record_operator("reset_password", user_id.as_deref(), result)
+    record_operator("reset_password", Target::User(user_id.as_deref()), result)
 }
 
 /// Makes a user an administrator of the instance: the way back in when no
@@ -89,12 +89,11 @@ async fn handle_admin_make_admin(
     State(app): State<App>,
     Path(username): Path<String>,
 ) -> ApiResult {
-    let user_id = app.operator_user_id(&username).await;
-    let result = app
-        .make_admin_by_username(&username)
-        .await
-        .map(|_| no_content());
-    record_operator("make_admin", user_id.as_deref(), result)
+    let (user_id, result) = match app.make_admin_by_username(&username).await {
+        Ok(user) => (Some(user.id), Ok(no_content())),
+        Err(error) => (app.operator_user_id(&username).await, Err(error)),
+    };
+    record_operator("make_admin", Target::User(user_id.as_deref()), result)
 }
 
 /// Releases an organization from taking no password (`ssoRequired` of its provider):
@@ -103,8 +102,12 @@ async fn handle_admin_make_admin(
 /// otherwise, and the release is recorded. 204 also for an organization that takes a
 /// password already; 404 for an identifier that names no organization in use.
 async fn handle_release_sso(State(app): State<App>, Path(org_id): Path<String>) -> ApiResult {
-    app.release_sso_as_operator(&org_id).await?;
-    Ok(no_content())
+    let result = app
+        .release_sso_as_operator(&org_id)
+        .await
+        .map(|()| no_content());
+    let org_id = fvoci_model::is_id(&org_id).then_some(org_id.as_str());
+    record_operator("release_sso", Target::Organization(org_id), result)
 }
 
 /// The body of a request to compare the file storage with the records; none for a
@@ -147,17 +150,42 @@ async fn handle_reconcile_files(State(app): State<App>, body: Bytes) -> ApiResul
         Ok(json_response(&report))
     }
     .await;
-    record_operator("reconcile_files", None, result)
+    record_operator("reconcile_files", Target::Server, result)
 }
 
-/// Every executed command has one outcome, including validation and hashing failures.
-fn record_operator(command: &str, user_id: Option<&str>, result: ApiResult) -> ApiResult {
+/// What an operator's command was about, as its line in the log names it.
+#[derive(Debug, Clone, Copy)]
+enum Target<'a> {
+    /// A user, by identifier where the name was one's.
+    User(Option<&'a str>),
+    /// An organization, by identifier where the path held one.
+    Organization(Option<&'a str>),
+    /// The whole server.
+    Server,
+}
+
+/// Writes one line of the log for each command the socket carried out, failures of
+/// validation and hashing included: the command, its target, and its outcome. Never
+/// what was sent with it. The changes an organization holds are in its records too.
+fn record_operator(command: &str, target: Target<'_>, result: ApiResult) -> ApiResult {
     let status = match &result {
         Ok(response) => response.status().as_u16(),
         Err(error) => error.status(),
     };
-    tracing::info!(target: "audit", actor = "operator", command, user_id = user_id.unwrap_or_default(),
-        result = if result.is_ok() { "succeeded" } else { "failed" }, status);
+    let (user_id, org_id) = match target {
+        Target::User(user_id) => (user_id, None),
+        Target::Organization(org_id) => (None, org_id),
+        Target::Server => (None, None),
+    };
+    tracing::info!(
+        target: "audit",
+        actor = "operator",
+        command,
+        user_id = user_id.unwrap_or_default(),
+        org_id = org_id.unwrap_or_default(),
+        result = if result.is_ok() { "succeeded" } else { "failed" },
+        status,
+    );
     result
 }
 

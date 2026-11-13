@@ -93,7 +93,7 @@ async fn boards_taken_by(th: &TestServer, user_id: &str) -> Vec<String> {
         .expect("the audit log")
         .into_iter()
         .filter(|entry| {
-            entry.actor_id.as_deref() == Some(user_id)
+            entry.actor.person_id() == Some(user_id)
                 && entry.action == AuditAction::SelfAddedToBoard
         })
         .map(|entry| entry.target_id)

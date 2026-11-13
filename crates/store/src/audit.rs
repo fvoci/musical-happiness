@@ -5,32 +5,41 @@
 //! good. A record is a workspace's (read by its members) or the organization's (read by
 //! its administrators).
 
-use fvoci_model::{AuditAction, AuditActorKind, AuditPerson, AuditRecord, new_id};
+use fvoci_model::{
+    AuditAction, AuditActorKind, AuditPerson, AuditRecord, UnknownAuditActorKind, new_id,
+};
 
 use crate::db::{Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::{Paging, Store};
 
-/// The trusted origin of a change, chosen by its entry point rather than request data.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Actor<'a> {
-    Person(&'a str),
+/// Who did what a record says: a person by their account, or the server's operator
+/// (through the local administration socket), who has none. Chosen by the entry point
+/// of the change, never taken from what a request says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuditActor {
+    /// The user with this identifier, kept when the account goes.
+    Person(String),
+    /// Who runs the server.
     ServerOperator,
 }
 
-impl Actor<'_> {
-    pub(crate) fn entry(
-        self,
-        workspace_id: &str,
-        action: AuditAction,
-        target_id: &str,
-    ) -> AuditEntry {
+impl AuditActor {
+    /// The identifier of the person, or `None` for the server's operator.
+    #[must_use]
+    pub fn person_id(&self) -> Option<&str> {
         match self {
-            Self::Person(id) => AuditEntry::new(workspace_id, id, action, target_id),
-            Self::ServerOperator => AuditEntry {
-                workspace_id: workspace_id.to_owned(),
-                ..AuditEntry::by_operator(action, target_id)
-            },
+            Self::Person(id) => Some(id),
+            Self::ServerOperator => None,
+        }
+    }
+
+    /// Which of the two it is, as the API names it.
+    #[must_use]
+    pub const fn kind(&self) -> AuditActorKind {
+        match self {
+            Self::Person(_) => AuditActorKind::Person,
+            Self::ServerOperator => AuditActorKind::ServerOperator,
         }
     }
 }
@@ -41,10 +50,8 @@ impl Actor<'_> {
 pub struct AuditEntry {
     /// The workspace it was done in; empty for what was done to the organization.
     pub workspace_id: String,
-    /// The user who did it, absent for an operator of the server.
-    pub actor_id: Option<String>,
-    /// Whether an account or the administration socket made the change.
-    pub actor_kind: AuditActorKind,
+    /// Who did it.
+    pub actor: AuditActor,
     /// What was done.
     pub action: AuditAction,
     /// What it was done to: a board, a workspace or the organization.
@@ -59,23 +66,28 @@ impl AuditEntry {
     /// A record of `actor_id` doing `action` to `target_id` in the workspace, to nobody.
     #[must_use]
     pub fn new(workspace_id: &str, actor_id: &str, action: AuditAction, target_id: &str) -> Self {
+        Self::by(
+            &AuditActor::Person(actor_id.to_owned()),
+            workspace_id,
+            action,
+            target_id,
+        )
+    }
+
+    /// A record of `actor` doing `action` to `target_id` in the workspace, to nobody.
+    pub(crate) fn by(
+        actor: &AuditActor,
+        workspace_id: &str,
+        action: AuditAction,
+        target_id: &str,
+    ) -> Self {
         Self {
             workspace_id: workspace_id.to_owned(),
-            actor_id: Some(actor_id.to_owned()),
-            actor_kind: AuditActorKind::Person,
+            actor: actor.clone(),
             action,
             target_id: target_id.to_owned(),
             subject_id: String::new(),
             create_at: 0,
-        }
-    }
-
-    /// An operator's action on the organization, made by no account.
-    pub(crate) fn by_operator(action: AuditAction, target_id: &str) -> Self {
-        Self {
-            actor_id: None,
-            actor_kind: AuditActorKind::ServerOperator,
-            ..Self::new("", "", action, target_id)
         }
     }
 
@@ -118,8 +130,7 @@ impl Store {
                 .map(|row| {
                     Ok(AuditEntry {
                         workspace_id: row.id(0)?,
-                        actor_id: Some(row.id(1)?).filter(|id| !id.is_empty()),
-                        actor_kind: actor_kind(row, 6)?,
+                        actor: actor(row, 6, 1)?,
                         action: action(row, 2)?,
                         target_id: row.id(3)?,
                         subject_id: row.id(4)?,
@@ -189,14 +200,20 @@ fn action(row: &Row, index: usize) -> Result<AuditAction, StoreError> {
 }
 
 fn actor_kind(row: &Row, index: usize) -> Result<AuditActorKind, StoreError> {
-    match row.text(index)?.as_str() {
-        "person" => Ok(AuditActorKind::Person),
-        "server_operator" => Ok(AuditActorKind::ServerOperator),
-        other => Err(StoreError::Corrupt {
+    row.text(index)?
+        .parse()
+        .map_err(|error: UnknownAuditActorKind| StoreError::Corrupt {
             column: "actor_kind",
-            reason: format!("unknown actor kind {other:?}"),
-        }),
-    }
+            reason: error.to_string(),
+        })
+}
+
+/// The actor of a row, from its kind at `kind` and the person's identifier at `id`.
+fn actor(row: &Row, kind: usize, id: usize) -> Result<AuditActor, StoreError> {
+    Ok(match actor_kind(row, kind)? {
+        AuditActorKind::Person => AuditActor::Person(row.id(id)?),
+        AuditActorKind::ServerOperator => AuditActor::ServerOperator,
+    })
 }
 
 fn record(row: &Row) -> Result<AuditRecord, StoreError> {
@@ -244,12 +261,12 @@ pub(crate) async fn record_entry(
     sql.bind(Id(&new_id()))
         .push_bind(", ", scope.org()?)
         .push_bind(", ", OptId(&entry.workspace_id))
-        .push_bind(", ", OptId(entry.actor_id.as_deref().unwrap_or_default()))
+        .push_bind(", ", OptId(entry.actor.person_id().unwrap_or_default()))
         .push_bind(", ", entry.action.as_str())
         .push_bind(", ", Id(&entry.target_id))
         .push_bind(", ", OptId(&entry.subject_id))
         .push_bind(", ", now_millis())
-        .push_bind(", ", entry.actor_kind.as_str())
+        .push_bind(", ", entry.actor.kind().as_str())
         .push(")");
     scope.execute(sql).await?;
     Ok(())

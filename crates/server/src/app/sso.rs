@@ -37,12 +37,10 @@ impl SsoChange {
     }
 }
 
-/// Writes down that an organization began or stopped taking no password: the one
-/// place it is recorded. `user_id` is the administrator who did it, `None` for who
-/// runs the server.
-///
-/// Mirrors the durable audit entry written in the provider's transaction to the
-/// operational log; the store owns the durable record.
+/// Writes a line of the log when an organization began or stopped taking no password.
+/// `user_id` is the administrator who did it, `None` for who runs the server. The
+/// record that stays is the organization's, written by the store in the provider's
+/// transaction; this line is for whoever reads the server's log.
 fn record(provider: &StoredProvider, change: SsoChange, user_id: Option<&str>) {
     tracing::info!(
         target: "audit",
