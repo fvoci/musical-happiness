@@ -357,7 +357,9 @@ impl App {
 
     /// Sets the password of the user with the given name, ends that user's sessions and
     /// closes their websocket connections, so that nobody stays signed in with the old
-    /// password. For a password an administrator sets; the caller has checked it.
+    /// password. For a password the server's operator sets, recorded as theirs in each
+    /// organization of the user ([`fvoci_store::Store::reset_user_password`]); the
+    /// caller has checked it.
     ///
     /// # Errors
     ///

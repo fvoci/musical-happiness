@@ -15,10 +15,12 @@
 use std::collections::BTreeSet;
 
 use fvoci_model::{
-    BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace, WorkspaceRole, new_id,
+    AuditAction, BoardType, LoginOrganization, OrgRole, User, UserWorkspace, Workspace,
+    WorkspaceRole, new_id,
 };
 use subtle::ConstantTimeEq as _;
 
+use crate::audit::{AuditActor, AuditEntry};
 use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 use crate::file_info;
@@ -26,7 +28,7 @@ use crate::loose_objects::LooseState;
 use crate::oidc::{FLOW_COLUMNS, LoginFlow, flow_from_row};
 use crate::uploads::{OpenUploads, UploadUsage};
 use crate::{Store, Tenant};
-use crate::{invitations, users, workspaces};
+use crate::{audit, invitations, users, workspaces};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -833,6 +835,51 @@ impl Store {
             .await
     }
 
+    /// Sets the password hash of the user with the given name, in any letter case, and
+    /// deletes their sessions, so that nobody stays signed in with the old password. For
+    /// a password the server's operator sets: recorded as theirs in every organization
+    /// the user is a member of ([`AuditAction::PasswordSetByOperator`]), with no word
+    /// of the password. Returns the identifier of that user.
+    ///
+    /// All of it happens or none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::UserNotFound`] if no user has that name.
+    pub async fn reset_user_password(
+        &self,
+        username: &str,
+        password_hash: &str,
+    ) -> Result<String, StoreError> {
+        self.system()
+            .transaction(async |scope| {
+                let user_id = users::reset_password(scope, username, password_hash).await?;
+                record_in_organizations_of(scope, &user_id, AuditAction::PasswordSetByOperator)
+                    .await?;
+                Ok(user_id)
+            })
+            .await
+    }
+
+    /// Records that the server's operator made a link to set the password of the user
+    /// `user_id` anew ([`AuditAction::PasswordResetLinkMade`]), in every organization
+    /// they are a member of: one record each, with neither the link nor its token, and
+    /// not which organization asked. Returns in how many organizations it was recorded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn record_password_reset_link_made(
+        &self,
+        user_id: &str,
+    ) -> Result<usize, StoreError> {
+        self.system()
+            .transaction(async |scope| {
+                record_in_organizations_of(scope, user_id, AuditAction::PasswordResetLinkMade).await
+            })
+            .await
+    }
+
     /// Whether the handle's organization is the instance's own: the oldest one in use,
     /// which the routes that name no workspace work in ([`Store::only_organization`]) and
     /// whose administrators are the instance's (`members::follow_instance_role`). Asked
@@ -914,4 +961,32 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
             column: "role",
             reason: error.to_string(),
         })
+}
+
+/// Records `action` by the server's operator, done to the user `user_id`, in every
+/// organization in use that they are a member of, one record each, of no workspace;
+/// returns how many. Needs the system's reach: the wall hides the other organizations.
+async fn record_in_organizations_of(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    action: AuditAction,
+) -> Result<usize, StoreError> {
+    let mut sql = scope.sql(
+        "SELECT m.org_id FROM organization_members AS m \
+         JOIN organizations AS o ON o.id = m.org_id WHERE m.user_id = ",
+    );
+    sql.bind(Id(user_id))
+        .push(" AND o.delete_at = 0 AND o.is_system = false ORDER BY m.org_id");
+    let organizations = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.id(0))
+        .collect::<Result<Vec<_>, _>>()?;
+    for org_id in &organizations {
+        let entry =
+            AuditEntry::by(&AuditActor::ServerOperator, "", action, org_id).with_subject(user_id);
+        audit::record_entry_in(scope, org_id, &entry).await?;
+    }
+    Ok(organizations.len())
 }

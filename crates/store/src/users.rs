@@ -255,36 +255,6 @@ impl Store {
         .await
     }
 
-    /// Sets the password hash of the user with the given name, in any letter case, and
-    /// deletes their sessions, so that nobody stays signed in with the old password. For
-    /// a password an administrator sets. Returns the identifier of that user.
-    ///
-    /// Either both happen or neither does.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::UserNotFound`] if no user has that name.
-    pub async fn reset_user_password(
-        &self,
-        username: &str,
-        password_hash: &str,
-    ) -> Result<String, StoreError> {
-        self.transaction(async |scope| {
-            let lookup = Lookup::Username(username);
-            update_password(scope, lookup, password_hash).await?;
-            let mut sql = scope.sql("SELECT id FROM users WHERE ");
-            lookup.push_condition(&mut sql);
-            let row = scope
-                .fetch_optional(sql)
-                .await?
-                .ok_or_else(|| StoreError::UserNotFound(username.to_owned()))?;
-            let user_id = row.id(0)?;
-            sessions::delete_sessions_of_user(scope, &user_id).await?;
-            Ok(user_id)
-        })
-        .await
-    }
-
     /// Sets the password hash of the user with the given identifier and deletes their
     /// sessions, except the one named: the session the password was changed through
     /// stays, every other device has to sign in again with the new password. The
@@ -864,4 +834,28 @@ pub(crate) async fn follow_org_role(
         .push_bind(" AND is_admin <> ", is_admin);
     scope.execute(sql).await?;
     Ok(true)
+}
+
+/// Sets the password hash of the user with the given name, in any letter case, and
+/// deletes their sessions; returns the identifier of that user.
+///
+/// # Errors
+///
+/// Returns [`StoreError::UserNotFound`] if no user has that name.
+pub(crate) async fn reset_password(
+    scope: &mut Scope<'_>,
+    username: &str,
+    password_hash: &str,
+) -> Result<String, StoreError> {
+    let lookup = Lookup::Username(username);
+    update_password(scope, lookup, password_hash).await?;
+    let mut sql = scope.sql("SELECT id FROM users WHERE ");
+    lookup.push_condition(&mut sql);
+    let row = scope
+        .fetch_optional(sql)
+        .await?
+        .ok_or_else(|| StoreError::UserNotFound(username.to_owned()))?;
+    let user_id = row.id(0)?;
+    sessions::delete_sessions_of_user(scope, &user_id).await?;
+    Ok(user_id)
 }

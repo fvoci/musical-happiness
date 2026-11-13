@@ -65,6 +65,8 @@ async fn require_unix_connection(request: Request, next: Next) -> Response {
     }
 }
 
+/// Sets a user's password and ends their sessions; recorded as the operator's in each
+/// organization the user is a member of, and as every command is in the log.
 async fn handle_admin_set_password(
     State(app): State<App>,
     Path(username): Path<String>,

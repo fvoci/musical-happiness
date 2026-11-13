@@ -234,15 +234,6 @@ async fn an_operator_role_change_is_recorded_only_in_the_instances_organization(
             []
         );
     }
-    test.reset_user_password("next-admin", "replacement hash")
-        .await
-        .expect("reset");
-    assert_eq!(
-        test.audit_records(AuditPlace::Organization, paging)
-            .await
-            .expect("records"),
-        records
-    );
     test.teardown().await;
 }
 

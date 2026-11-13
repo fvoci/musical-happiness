@@ -406,14 +406,7 @@ async fn global_commands_stay_out_of_the_organizations_log(
     ] {
         assert_eq!(operator_post(&http, &route, &body).await, status, "{route}");
     }
-    assert_eq!(
-        store
-            .audit_records(fvoci_store::AuditPlace::Organization, paging)
-            .await
-            .expect("records"),
-        before,
-        "global commands add nothing to the organization's records"
-    );
+    only_the_password_set_is_recorded(&store, &before, org_id, me).await;
     for (route, body) in [
         (
             format!("users/{}/password", me.username),
@@ -447,11 +440,47 @@ async fn global_commands_stay_out_of_the_organizations_log(
                 .await
                 .expect("other records"),
             [],
-            "nor to another organization's"
+            "nothing to an organization the person is no member of"
         );
     }
     operator_lines_name_no_secret(captured, me, secrets, password, refused);
     the_release_has_its_line(&http, captured, org_id).await;
+}
+
+/// The password the operator set is the one record the global commands add: the
+/// person's organization's, the operator's, naming nothing of the password.
+#[cfg(unix)]
+async fn only_the_password_set_is_recorded(
+    store: &fvoci_store::Store,
+    before: &[fvoci_model::AuditRecord],
+    org_id: &str,
+    me: &User,
+) {
+    let paging = fvoci_store::Paging {
+        page: 0,
+        per_page: 100,
+    };
+    let after = store
+        .audit_records(fvoci_store::AuditPlace::Organization, paging)
+        .await
+        .expect("records");
+    let (set, kept) = after.split_first().expect("a record of the password set");
+    assert_eq!(kept, before, "the other global commands add nothing");
+    let subject = set.subject.as_ref().map(|subject| subject.id.as_str());
+    assert_eq!(
+        (set.action, set.actor_kind, set.actor.as_ref()),
+        (
+            fvoci_model::AuditAction::PasswordSetByOperator,
+            fvoci_model::AuditActorKind::ServerOperator,
+            None
+        ),
+        "the operator's password set"
+    );
+    assert_eq!(
+        (set.target_id.as_str(), subject),
+        (org_id, Some(me.id.as_str())),
+        "the organization's record of the person"
+    );
 }
 
 /// The socket's release of an organization is a line of the log as the global commands

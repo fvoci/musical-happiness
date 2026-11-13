@@ -23,6 +23,7 @@ mod observe;
 mod oidc;
 mod oidc_audit;
 mod oidc_pending;
+mod operator_password;
 mod order;
 mod org_admin;
 mod registration;

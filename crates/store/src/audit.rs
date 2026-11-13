@@ -9,7 +9,7 @@ use fvoci_model::{
     AuditAction, AuditActorKind, AuditPerson, AuditRecord, UnknownAuditActorKind, new_id,
 };
 
-use crate::db::{Id, OptId, Row, Scope, now_millis};
+use crate::db::{Bound, Id, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::{Paging, Store};
 
@@ -254,12 +254,31 @@ pub(crate) async fn record_entry(
     scope: &mut Scope<'_>,
     entry: &AuditEntry,
 ) -> Result<(), StoreError> {
+    let org = scope.org()?;
+    insert_entry(scope, org, entry).await
+}
+
+/// Writes a record in the organization `org_id`, at this moment: for a handle with the
+/// system's reach, which names no organization of its own.
+pub(crate) async fn record_entry_in(
+    scope: &mut Scope<'_>,
+    org_id: &str,
+    entry: &AuditEntry,
+) -> Result<(), StoreError> {
+    insert_entry(scope, Id(org_id), entry).await
+}
+
+async fn insert_entry(
+    scope: &mut Scope<'_>,
+    org: impl Into<Bound>,
+    entry: &AuditEntry,
+) -> Result<(), StoreError> {
     let mut sql = scope.sql(
         "INSERT INTO audit_log (id, org_id, workspace_id, actor_id, action, target_id, \
          subject_id, create_at, actor_kind) VALUES (",
     );
     sql.bind(Id(&new_id()))
-        .push_bind(", ", scope.org()?)
+        .push_bind(", ", org)
         .push_bind(", ", OptId(&entry.workspace_id))
         .push_bind(", ", OptId(entry.actor.person_id().unwrap_or_default()))
         .push_bind(", ", entry.action.as_str())
