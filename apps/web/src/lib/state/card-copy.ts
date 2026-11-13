@@ -17,10 +17,12 @@ export function copyOfCard(
   if (!board.card(cardId)) return Promise.resolve(undefined);
   return board.inOneStep(async (groupId) => {
     try {
-      return await board.createCard(
+      const copy = await board.createCard(
         await draftOfCopy(board.workspace.backend, board, cardId, asTemplate),
         groupId,
       );
+      // Undo will delete this identifier; even a queued redo creates a different one.
+      return board.workspace.undo.undoRequestedFor(groupId) ? undefined : copy;
     } catch (error) {
       board.workspace.report('save', error);
       return undefined;
