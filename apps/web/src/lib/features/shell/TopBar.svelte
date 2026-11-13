@@ -214,7 +214,7 @@
     {workspace}
     board={store}
     membersOnly={!canShare}
-    readOnly={!store.canShare}
+    readOnly={!canShare}
     at={sharingMembers ? 'members' : undefined}
     linkOf={(readToken: string) =>
       new URL(sharedHref(store.boardId, readToken), location.href).href}

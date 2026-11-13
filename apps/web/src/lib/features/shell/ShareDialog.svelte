@@ -230,7 +230,7 @@
   >
     <Dialog.Header class="shrink-0 flex-row items-center gap-2 border-b py-2 pr-2 pl-4">
       <Dialog.Title class="min-w-0 flex-1 text-base font-semibold">
-        {m['ShareBoard.Title']()}
+        {readOnly ? m.share_members_title() : m['ShareBoard.Title']()}
       </Dialog.Title>
       <Dialog.Close>
         {#snippet child({ props }: { props: Record<string, unknown> })}
@@ -292,7 +292,7 @@
           {#each board.orderedMembers as member (member.userId)}
             {@const name = nameOf(member.userId)}
             {@const mine = member.userId === workspace.me?.id}
-            {@const role = roleOfMember(member)}
+            {@const memberRole = roleOfMember(member)}
             <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch" data-member={name}>
               <Avatar {name} colorKey={member.userId} locale={workspace.locale} decorative />
               <span class="min-w-0 flex-1 truncate">
@@ -303,7 +303,7 @@
               </span>
               {#if readOnly}
                 <span class="shrink-0 text-muted-foreground" data-testid="share-member-role">
-                  {role === 'none' ? m.share_role_none() : ROLE_LABELS[role]()}
+                  {memberRole === 'none' ? m.share_role_none() : ROLE_LABELS[memberRole]()}
                 </span>
               {:else}
                 <!-- The reader's own role is another admin's to change: no locking oneself out. -->
@@ -312,11 +312,11 @@
                   aria-label={m.share_role_of({ name })}
                   title={mine ? m.share_you_note() : undefined}
                   disabled={mine}
-                  value={role}
+                  value={memberRole}
                   onchange={(event) =>
                     void board.setMemberRole(member.userId, event.currentTarget.value as BoardRole)}
                 >
-                  {#if role === 'none'}
+                  {#if memberRole === 'none'}
                     <option value="none" disabled>{m.share_role_none()}</option>
                   {/if}
                   {#each ROLE_ORDER as role (role)}

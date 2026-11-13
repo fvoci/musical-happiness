@@ -84,15 +84,19 @@ async function membersOfTheBoard(admin: Page, viewer: Page, adminName: string): 
     await expect(page.getByTestId('board-members-count')).toHaveText('Members 2');
     await expect(page.getByTestId('board-people')).toHaveAttribute(
       'aria-label',
-      'Viewing now: 1, members: 2',
+      'People viewing this board: 1, members: 2',
     );
   }
   await viewer.getByTestId('board-members-count').click();
   const dialog = viewer.getByTestId('share-dialog');
   await expect(dialog.getByTestId('share-members-title')).toBeFocused();
   await expect(dialog.getByTestId('share-members')).toContainText(adminName);
-  await expect(dialog.getByTestId('share-search')).toHaveCount(0);
+  await expect(dialog.locator('[data-slot="dialog-title"]')).toHaveText('Members');
+  for (const control of ['share-search', 'share-guest', 'share-open', 'share-public']) {
+    await expect(dialog.getByTestId(control)).toHaveCount(0);
+  }
   await expect(dialog.getByRole('combobox')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /^Remove / })).toHaveCount(0);
   await viewer.keyboard.press('Escape');
   await admin.getByTestId('board-members-count').click();
   await expect(admin.getByTestId('share-dialog').getByTestId('share-search')).toBeVisible();

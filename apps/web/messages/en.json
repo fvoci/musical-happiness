@@ -1022,5 +1022,5 @@
   "presence_alone": "Nobody else is here.",
   "presence_card_viewers": "{count} viewing this card: {names}",
   "presence_members_short": "Members {count}",
-  "presence_and_members": "Viewing now: {count}, members: {members}"
+  "presence_and_members": "People viewing this board: {count}, members: {members}"
 }

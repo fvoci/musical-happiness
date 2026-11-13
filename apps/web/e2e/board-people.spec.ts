@@ -18,7 +18,7 @@ interface Dev {
     };
   };
   backend: {
-    world: { users: Map<string, unknown> };
+    world: { users: Map<string, Record<string, unknown>> };
     as(userId: string): {
       presence: { setPresence(visit: { workspaceId: string; boardId: string } | null): void };
     };
@@ -26,16 +26,26 @@ interface Dev {
 }
 
 /**
- * Makes `count` other users members of the open board and has them come onto it; the
- * number of its members then.
+ * Makes `count` other users (made in the world where it has too few) members of the
+ * open board and has them come onto it; the number of its members then.
  */
 async function othersArrive(page: Page, count: number): Promise<number> {
   return page.evaluate(async (wanted) => {
     const dev = (window as unknown as { fvociDev: Dev }).fvociDev;
+    const { users } = dev.backend.world;
+    for (let made = users.size; made <= wanted; made += 1) {
+      const id = crypto.randomUUID();
+      users.set(id, {
+        id,
+        username: `visitor${String(made)}`,
+        email: `visitor${String(made)}@example.com`,
+        createAt: 0,
+        updateAt: 0,
+        deleteAt: 0,
+      });
+    }
     const store = dev.workspace.board;
-    const others = [...dev.backend.world.users.keys()]
-      .filter((id) => id !== dev.workspace.me?.id)
-      .slice(0, wanted);
+    const others = [...users.keys()].filter((id) => id !== dev.workspace.me?.id).slice(0, wanted);
     for (const id of others) {
       if (!store.members.some((member) => member.userId === id))
         await store.addMember(id, 'editor');
@@ -50,8 +60,10 @@ async function othersArrive(page: Page, count: number): Promise<number> {
 }
 
 const people = (page: Page) => topBar(page).getByTestId('board-people');
-const faces = (page: Page) =>
-  topBar(page).getByTestId('board-presence').locator('[data-avatar]:visible');
+const presence = (page: Page) => topBar(page).getByTestId('board-presence');
+const faces = (page: Page) => presence(page).locator('[data-avatar]:visible');
+/** The "+k" that shows, if any. */
+const plus = (page: Page) => presence(page).locator('span:visible', { hasText: '+' });
 
 test('alone, the head of the board shows nobody here and the number of members', async ({
   page,
@@ -61,8 +73,12 @@ test('alone, the head of the board shows nobody here and the number of members',
     () => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board.members.length,
   );
   await expect(topBar(page).getByTestId('board-members-count')).toHaveText(`Members ${members}`);
-  await expect(people(page)).toHaveAttribute('aria-label', `Viewing now: 0, members: ${members}`);
+  await expect(people(page)).toHaveAttribute(
+    'aria-label',
+    `People viewing this board: 0, members: ${members}`,
+  );
   await expect(faces(page)).toHaveCount(0);
+  await expect(plus(page)).toHaveCount(0);
 });
 
 test('five faces in a wide pane and two in a narrow one, then the rest as a number', async ({
@@ -70,19 +86,19 @@ test('five faces in a wide pane and two in a narrow one, then the rest as a numb
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openApp(page);
-  const members = await othersArrive(page, 3);
-  const presence = topBar(page).getByTestId('board-presence');
-  await expect(presence).toHaveAccessibleName('People viewing this board: 3');
-  await expect(people(page)).toHaveAttribute('aria-label', `Viewing now: 3, members: ${members}`);
-  await expect(faces(page)).toHaveCount(3);
-  // "+k" shows only when there are more than the faces shown.
-  const plus = presence.locator('span:visible', { hasText: '+' });
-  await expect(plus).toHaveCount(0);
+  const members = await othersArrive(page, 7);
+  await expect(presence(page)).toHaveAccessibleName('People viewing this board: 7');
+  await expect(people(page)).toHaveAttribute(
+    'aria-label',
+    `People viewing this board: 7, members: ${members}`,
+  );
+  await expect(faces(page)).toHaveCount(5);
+  await expect(plus(page)).toHaveText('+2');
   await expect(topBar(page).getByTestId('board-members-count')).toHaveText(`Members ${members}`);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(faces(page)).toHaveCount(2);
-  await expect(plus).toHaveText('+1');
+  await expect(plus(page)).toHaveText('+5');
   await expect(topBar(page).getByTestId('board-members-count')).toBeVisible();
 });
 
@@ -97,10 +113,11 @@ test('the number of members opens the sharing dialog at its members', async ({ p
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 
-  // The share button opens the same dialog at its top.
+  // The share button opens the same dialog at its top, with the focus in it.
   await topBar(page).getByTestId('share-board').click();
-  await expect(dialog.getByTestId('share-members-title')).not.toBeFocused();
   await expect(dialog.getByTestId('share-open')).toBeVisible();
+  await expect(dialog.locator(':focus')).toHaveCount(1);
+  await expect(dialog.getByTestId('share-members-title')).not.toBeFocused();
 });
 
 test('a reader who is no admin sees the members and changes nothing', async ({ page }) => {
@@ -112,9 +129,11 @@ test('a reader who is no admin sees the members and changes nothing', async ({ p
   await topBar(page).getByTestId('board-members-count').click();
   const dialog = page.getByTestId('share-dialog');
   await expect(dialog.getByTestId('share-members-title')).toBeFocused();
+  await expect(dialog.locator('[data-slot="dialog-title"]')).toHaveText('Members');
   await expect(dialog.getByTestId('share-member-role').first()).toBeVisible();
-  for (const control of ['share-search', 'share-open', 'share-public']) {
+  for (const control of ['share-search', 'share-guest', 'share-open', 'share-public']) {
     await expect(dialog.getByTestId(control)).toHaveCount(0);
   }
   await expect(dialog.getByRole('combobox')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /^Remove / })).toHaveCount(0);
 });

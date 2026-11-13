@@ -2,7 +2,8 @@
   Who is on the board now and how many members it has, at the head of the board.
 
   The faces of the others here now (five, two in a narrow pane, then "+k" for the
-  rest and for those the reader may not see) open the list of who is here and
+  rest and for those the reader may not see; in a narrow pane also for the anonymous
+  readers of its public link) open the list of who is here and
   which cards they have open. Beside them the number of the board's members opens
   the members of the sharing dialog (`onMembers`); it is there also when nobody
   else is. A screen reader hears both numbers together on the group.
@@ -29,7 +30,7 @@
   const moreThan = (shown: number): number =>
     Math.max(presence.others.length - shown, 0) + presence.snapshot.hiddenCount;
   const more = $derived(moreThan(FACES));
-  const narrowMore = $derived(moreThan(NARROW_FACES));
+  const narrowMore = $derived(moreThan(NARROW_FACES) + presence.snapshot.anonymousCount);
 </script>
 
 <div
@@ -63,7 +64,9 @@
         {#if narrowMore > 0}<span class="@columns/pane:hidden">+{narrowMore}</span>{/if}
         {#if more > 0}<span class="hidden @columns/pane:inline">+{more}</span>{/if}
         {#if presence.snapshot.anonymousCount > 0}
-          <span>{m.presence_anonymous({ count: presence.snapshot.anonymousCount })}</span>
+          <span class="hidden @columns/pane:inline">
+            {m.presence_anonymous({ count: presence.snapshot.anonymousCount })}
+          </span>
         {/if}
         {#if presence.count === 0}<span aria-hidden="true">0</span>{/if}
       </button>
