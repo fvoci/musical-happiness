@@ -47,7 +47,7 @@ impl App {
     /// answer cannot tell (`mail_reset_per_account_hour`).
     ///
     /// # Errors
-    /// Returns 404 without SMTP, 400 for a malformed email, or 429 for too many
+    /// Returns 404 without mail, 400 for a malformed email, or 429 for too many
     /// requests from this address, independently of login limits.
     pub fn prepare_password_reset(
         &self,
@@ -55,7 +55,7 @@ impl App {
         language: &str,
         address: Option<IpAddr>,
     ) -> Result<impl Future<Output = ()> + Send + 'static + use<>, AppError> {
-        if !self.config().smtp.enabled() {
+        if !self.config().mail_enabled() {
             return Err(AppError::not_found("route"));
         }
         let email = email.trim().to_lowercase();

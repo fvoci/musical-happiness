@@ -13,7 +13,7 @@ impl App {
     /// Queues individual messages carrying this workspace's existing invitation.
     ///
     /// # Errors
-    /// Returns 404 without SMTP or a usable link in this workspace, 403 when the
+    /// Returns 404 without mail or a usable link in this workspace, 403 when the
     /// sender cannot invite, 400 if any recipient is not a single email address or
     /// there are more than `invitation_mail_recipients`, 429 when the workspace's or the
     /// organization's hourly limit would be passed, and 503 when the organization's half
@@ -25,7 +25,7 @@ impl App {
         sender: &str,
         mut request: InvitationMail,
     ) -> Result<(), AppError> {
-        if !self.config().smtp.enabled() {
+        if !self.config().mail_enabled() {
             return Err(AppError::not_found("route"));
         }
         let limit = self.config().smtp.invitation_mail_recipients;

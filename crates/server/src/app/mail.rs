@@ -4,19 +4,20 @@
 mod content;
 mod outbound;
 mod pace;
+mod provider;
 mod quota;
 mod share;
 mod smtp;
 #[cfg(test)]
 mod tests;
 
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::auth::limiter::RetryAfter;
+use crate::config::mail::{MailSettings, Way, is_loopback_url};
 use crate::config::smtp::SmtpSettings;
 use crate::metrics::{MailFailure, MailKind, Metrics, ResetMailDrop};
 
@@ -87,28 +88,33 @@ impl std::fmt::Debug for Mailer {
 }
 
 impl Mailer {
-    /// `server_root` is where the links of the mail lead; the way of sending is SMTP
-    /// when `smtp_host` is set.
+    /// `server_root` is where the links of the mail lead; the way of sending is the one
+    /// `way` reads from the settings (`mail_transport`, or SMTP when `smtp_host` is set).
     ///
     /// # Errors
     /// Returns an error for settings that are invalid or cannot make the way.
     pub(super) fn new(
         settings: &SmtpSettings,
+        way: &MailSettings,
         server_root: &str,
         metrics: Metrics,
     ) -> anyhow::Result<Self> {
         settings.check()?;
-        if settings.enabled() && is_loopback_root(server_root) {
+        let way = way.way(settings)?;
+        if way.is_some() && is_loopback_root(server_root) {
             tracing::warn!(
                 server_root,
                 "mail is sent, but serverroot is a loopback address: its links lead nowhere \
                  for their recipients"
             );
         }
-        let outbound: Option<Arc<dyn Outbound>> = if settings.enabled() {
-            Some(Arc::new(smtp::Smtp::new(settings, ATTEMPT_TIMEOUT)?))
-        } else {
-            None
+        let outbound: Option<Arc<dyn Outbound>> = match way {
+            None => None,
+            Some(Way::Smtp) => Some(Arc::new(smtp::Smtp::new(settings, ATTEMPT_TIMEOUT)?)),
+            Some(Way::Cloudflare(keys)) => Some(Arc::new(provider::cloudflare::Cloudflare::new(
+                &keys,
+                provider::client(ATTEMPT_TIMEOUT)?,
+            ))),
         };
         Self::with_outbound(settings, outbound, metrics)
     }
@@ -219,25 +225,7 @@ impl Mailer {
 /// `localhost`, a loopback address (also one mapped into IPv6), or the unspecified one.
 /// A root that is no URL is left to the configuration's own checks.
 fn is_loopback_root(server_root: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(server_root) else {
-        return false;
-    };
-    let Some(host) = url.host_str() else {
-        return false;
-    };
-    // A URL writes an IPv6 address in brackets, and an IPv4 one in its usual form.
-    if let Ok(address) = host
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse::<IpAddr>()
-    {
-        let address = address.to_canonical();
-        address.is_loopback() || address.is_unspecified()
-    } else {
-        // The parser writes the name in lower case; a trailing dot names the same host.
-        let name = host.trim_end_matches('.');
-        name == "localhost" || name.ends_with(".localhost")
-    }
+    reqwest::Url::parse(server_root).is_ok_and(|url| is_loopback_url(&url))
 }
 
 /// One message's place in its queue, held until the message was delivered or given up.

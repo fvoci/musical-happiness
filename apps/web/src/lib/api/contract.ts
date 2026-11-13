@@ -603,12 +603,12 @@ export interface paths {
         /**
          * Request a password reset
          * @description Answers 204 with an empty body for an existing account, an absent account and
-         *     an account without a password. Lookup and SMTP delivery run in the background;
+         *     an account without a password. Lookup and delivery run in the background;
          *     the request never waits for either. Accounts without passwords receive no mail.
          *     Requests are limited by address only, with the login setting of attempts per minute
          *     and a separate counter (429); never by email. An account is sent at most
          *     `mail_reset_per_account_hour` messages an hour: more requests are answered the same
-         *     and send nothing. Without SMTP this route answers 404.
+         *     and send nothing. A server that sends no mail answers 404.
          */
         post: operations["requestPasswordReset"];
         delete?: never;
@@ -2174,7 +2174,7 @@ export interface paths {
          *     out only while it is live and unused. Invalid recipients reject the whole request
          *     before sending.
          *     Each message is in the recipient's language when the mail is written in it, else the
-         *     sender's setting, else `language`, else English. No SMTP means 404.
+         *     sender's setting, else `language`, else English. A server that sends no mail answers 404.
          *     A request names at most `invitation_mail_recipients` addresses, repeats counted
          *     (400, `too_many_recipients`). Its messages are queued all or none: 429
          *     (`invitation_mail_limit`, with `Retry-After`) when the workspace would pass

@@ -51,7 +51,7 @@ pub struct SmtpSettings {
     pub smtp_user: String,
     /// SMTP authentication password; omitted from debug output.
     pub smtp_password: String,
-    /// Sender email address, without a display name.
+    /// The sender's address of all mail, whatever its way, without a display name.
     pub smtp_from: String,
     /// How many attempts to send all mail makes a second, recovery first; at least one.
     pub mail_per_second: u32,
@@ -132,7 +132,9 @@ impl SmtpSettings {
         !self.smtp_host.is_empty()
     }
 
-    /// Validates the transport settings without contacting the mail server.
+    /// Validates the limits and the relay's settings without contacting it; the
+    /// sender, and whether the relay is the way mail leaves, are
+    /// [`MailSettings::way`](super::mail::MailSettings::way)'s.
     ///
     /// # Errors
     /// Returns an error naming invalid or incomplete settings, without credentials.
@@ -178,21 +180,12 @@ impl SmtpSettings {
         if self.smtp_user.is_empty() != self.smtp_password.is_empty() {
             bail!("smtp_user and smtp_password must be supplied together");
         }
-        if !self.enabled() {
-            if !self.smtp_from.is_empty() || !self.smtp_user.is_empty() {
-                bail!("smtp_host is required when mail settings are supplied");
-            }
-            return Ok(());
-        }
         if self
             .smtp_host
             .chars()
             .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '/' | '@' | '#' | '?'))
         {
             bail!("smtp_host must be a host name or IP address");
-        }
-        if !fvoci_model::is_email_valid(&self.smtp_from) {
-            bail!("smtp_from must be a single email address");
         }
         Ok(())
     }

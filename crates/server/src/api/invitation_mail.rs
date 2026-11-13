@@ -26,7 +26,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// out only while it is live and unused. Invalid recipients reject the whole request
 /// before sending.
 /// Each message is in the recipient's language when the mail is written in it, else the
-/// sender's setting, else `language`, else English. No SMTP means 404.
+/// sender's setting, else `language`, else English. A server that sends no mail answers 404.
 /// A request names at most `invitation_mail_recipients` addresses, repeats counted
 /// (400, `too_many_recipients`). Its messages are queued all or none: 429
 /// (`invitation_mail_limit`, with `Retry-After`) when the workspace would pass
