@@ -23,6 +23,7 @@ mod limits;
 mod loose_objects;
 mod mail;
 mod oidc;
+mod oidc_link;
 mod onboarding;
 mod org_admin;
 mod password_reset;
@@ -40,6 +41,7 @@ pub use slots::Slot;
 pub(crate) use startup::{open_store, prepare_store};
 mod shared_reads;
 mod sharing;
+mod sso;
 mod startup;
 mod store_metrics;
 mod subscriptions;
@@ -70,6 +72,7 @@ pub use org_admin::{DEFAULT_PER_PAGE, MAX_PER_PAGE, PageAsked};
 pub use readiness::{Readiness, ReadinessCheck};
 pub use reconcile::{Found, Reconciliation, UNRECORDED_MIN_AGE_MILLIS, Unrecorded};
 pub use shared_reads::{MAX_SHARED_READ_FAILURES, SHARED_READ_WINDOW, SharedReads};
+pub use sso::Asker;
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,

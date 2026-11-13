@@ -246,7 +246,6 @@ export class SharedBackend implements Backend {
   patchView: Backend['patchView'] = refused;
   createCard: Backend['createCard'] = refused;
   patchCard: Backend['patchCard'] = refused;
-  writeCardBody: Backend['writeCardBody'] = refused;
   createComment: Backend['createComment'] = refused;
   patchComment: Backend['patchComment'] = refused;
   createAttachment: Backend['createAttachment'] = refused;

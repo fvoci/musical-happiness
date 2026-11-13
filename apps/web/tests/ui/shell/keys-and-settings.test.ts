@@ -80,6 +80,12 @@ describe('the keys for undo and redo', () => {
     expect(undoKey(press({ key: 'z', ctrlKey: true }, plain))).toBe('undo');
   });
 
+  it('an editor of a body read-only for now is still a field', () => {
+    const editor = element('<div data-body-editor contenteditable="false"><p>text</p></div>');
+    expect(inField(editor.firstElementChild)).toBe(true);
+    expect(undoKey(press({ key: 'z', ctrlKey: true }, editor))).toBeUndefined();
+  });
+
   it('a press something else has already handled is left alone', () => {
     const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true });
     event.preventDefault();

@@ -28,7 +28,13 @@ const config: StorybookConfig = {
             ),
         ),
       experimental: {},
-      build: { ...viteConfig.build, license: false, rolldownOptions: {}, assetsDir: 'assets' },
+      build: {
+        ...viteConfig.build,
+        sourcemap: false,
+        license: false,
+        rolldownOptions: {},
+        assetsDir: 'assets',
+      },
     };
   },
 };

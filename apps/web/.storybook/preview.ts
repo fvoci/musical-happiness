@@ -1,4 +1,6 @@
 import type { Preview } from '@storybook/svelte';
+import { STORY_FINISHED } from 'storybook/internal/core-events';
+import { addons } from 'storybook/preview-api';
 
 import { loadFontFaces } from '$lib/fonts.js';
 import { setLocale } from '$lib/i18n/paraglide/runtime.js';
@@ -6,11 +8,26 @@ import { page } from '$lib/layout/room.svelte.ts';
 import { applyTheme } from '$lib/theme.svelte.js';
 
 import '../src/styles/app.css';
+import './preview.css';
+import './clock.ts';
+import StoryLocale from './StoryLocale.svelte';
+
+// The browser check waits for Storybook's result, including failures in play functions.
+addons.getChannel().on(STORY_FINISHED, (result: { storyId: string; status: string }) => {
+  document.documentElement.dataset.storyFinished = result.storyId;
+  document.documentElement.dataset.storyResult = result.status;
+});
 
 // Parts that open as a sheet on a compact page ask the page for its width.
-page.attach(document.body);
+page.attach(document.documentElement);
 
 const preview: Preview = {
+  decorators: [
+    (_story, context) => ({
+      Component: StoryLocale,
+      props: { locale: context.globals.locale === 'ko' ? 'ko' : 'en' },
+    }),
+  ],
   globalTypes: {
     locale: {
       description: 'Language',
@@ -46,6 +63,8 @@ const preview: Preview = {
   initialGlobals: { locale: 'en', theme: 'light', textSize: '100' },
   parameters: { layout: 'padded' },
   async beforeEach({ globals }) {
+    delete document.documentElement.dataset.storyFinished;
+    delete document.documentElement.dataset.storyResult;
     const locale = globals.locale === 'ko' ? 'ko' : 'en';
     await setLocale(locale, { reload: false });
     document.documentElement.lang = locale;

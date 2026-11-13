@@ -122,6 +122,8 @@ async function startMemory(): Promise<StartedBackend> {
     import('$lib/state/memory/seed.ts'),
   ]);
   const { world, readerId } = seedWorld(await loadTemplates());
+  // The tabs of this browser edit their bodies together, as through one server.
+  world.shareRooms = 'fvoci:memory-rooms';
   const backend = new MemoryBackend(world, readerId);
   // Long enough to see that a change shows before it is answered.
   backend.latency = 40;

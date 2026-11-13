@@ -15,15 +15,17 @@ use fvoci_model::{
     display_name, is_email_valid, new_id,
 };
 use fvoci_store::{
-    Identity, LoginFlow, OidcAccount, OidcRefusal, StoreError, StoredProvider, Taken,
+    Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoreError, StoredProvider, Taken,
 };
 
 use super::App;
+use super::sso;
 use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
 use crate::auth::oidc::provider::{
     self, Client, Discovery, Expected, Grant, IdClaims, ProviderError,
 };
+use crate::auth::sealed::SecretKey;
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, Reason};
 
@@ -95,6 +97,9 @@ pub struct Callback {
     pub org_id: String,
     /// The `iss` parameter (RFC 9207): the issuer that answered, if it says.
     pub issuer: Option<String>,
+    /// The token of the session cookie the browser came back with, if it has one: a
+    /// sign-in that links ends only for the session it was started from.
+    pub session_token: Option<String>,
 }
 
 impl std::fmt::Debug for Callback {
@@ -105,16 +110,26 @@ impl std::fmt::Debug for Callback {
     }
 }
 
-/// A sign-in that ended in a session: the token of the session.
+/// How a sign-in through a provider ended well.
 #[derive(Clone)]
-pub struct FinishedLogin {
-    /// The token of the new session.
-    pub token: String,
+pub enum FinishedLogin {
+    /// In a session.
+    SignedIn {
+        /// The token of the new session.
+        token: String,
+    },
+    /// In an identity tied to the account of the session it was started from: no
+    /// session is made, and the one there goes on.
+    Linked,
 }
 
 impl std::fmt::Debug for FinishedLogin {
+    /// Leaves out the token.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FinishedLogin").finish_non_exhaustive()
+        f.write_str(match self {
+            Self::SignedIn { .. } => "SignedIn",
+            Self::Linked => "Linked",
+        })
     }
 }
 
@@ -145,16 +160,20 @@ impl App {
     }
 
     /// Sets the provider of the organization `org_id`, which the handle reaches, after
-    /// reading its discovery document to see that the issuer is what it says.
+    /// reading the discovery document of an issuer that is new to the organization, to
+    /// see that it is what it says.
     ///
     /// # Errors
     ///
     /// Returns 400 for settings that are refused or an issuer that is not verified,
     /// 409 (`secret_key_required`) if the server has no key to seal the secret with,
-    /// and the store's error.
+    /// 409 (`sso_unproven`, `sso_enforced`) for what the organization's taking no
+    /// password does not let `session` do (`sso::check_change`), and the store's
+    /// error.
     pub async fn put_oidc_provider(
         &self,
         org_id: &str,
+        session: &Session,
         settings: &OidcProviderSettings,
     ) -> Result<OidcProvider, AppError> {
         settings.validate()?;
@@ -164,7 +183,16 @@ impl App {
             )
             .with_reason(Reason::SecretKeyRequired));
         };
-        if let Err(error) = provider::discover(self.oidc_fetcher(), &settings.issuer).await {
+        let existing = self.store().oidc_provider().await?;
+        // The issuer that stays was read when it was set. Not read again: a change of
+        // what else there is, taking a password again among it, does not wait for a
+        // provider that does not answer.
+        let issuer_stays = existing
+            .as_ref()
+            .is_some_and(|existing| existing.issuer == settings.issuer);
+        if !issuer_stays
+            && let Err(error) = provider::discover(self.oidc_fetcher(), &settings.issuer).await
+        {
             tracing::info!(%error, "the issuer of a provider could not be verified");
             return Err(AppError::bad_request(format_args!(
                 "the issuer could not be verified: {error}"
@@ -172,58 +200,38 @@ impl App {
             .with_reason(Reason::OidcIssuerUnverified)
             .with_field("issuer"));
         }
-        let existing = self.store().oidc_provider().await?;
         let kept = existing
             .as_ref()
             .map(|existing| (existing.auto_join, existing.enabled));
-        let sealed_client_secret = match settings.client_secret.as_deref() {
-            // The secret stays with the client it was given for: one that went on to
-            // another issuer or client would be sent to it.
-            None => match &existing {
-                Some(existing)
-                    if existing.issuer == settings.issuer
-                        && existing.client_id == settings.client_id =>
-                {
-                    existing.sealed_client_secret.clone()
-                }
-                Some(existing) if !existing.sealed_client_secret.is_empty() => {
-                    let mut refused = Refusals::new();
-                    refused.refuse(
-                        "clientSecret",
-                        RefusalReason::Required,
-                        "clientSecret is required with another issuer or client",
-                    );
-                    return Err(refused.into());
-                }
-                _ => String::new(),
-            },
-            Some("") => String::new(),
-            Some(secret) => key.seal(
-                secret,
-                &secret_context(org_id, &settings.issuer, &settings.client_id),
-            ),
+        let sealed_client_secret = sealed_secret(key, org_id, settings, existing.as_ref())?;
+        let next = StoredProvider {
+            id: String::new(),
+            org_id: org_id.to_owned(),
+            issuer: settings.issuer.clone(),
+            client_id: settings.client_id.clone(),
+            sealed_client_secret,
+            // Left out, what is stored stays, as the secret does, also for another
+            // client; on when the organization has none.
+            auto_join: settings
+                .auto_join
+                .or(kept.map(|kept| kept.0))
+                .unwrap_or(true),
+            enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
+            create_at: 0,
+            update_at: 0,
+            // Left out, it stays, also for another client, which is then refused: off
+            // when the organization has none.
+            sso_required: settings
+                .sso_required
+                .or(existing.as_ref().map(|existing| existing.sso_required))
+                .unwrap_or(false),
         };
+        // Decided from the provider as it was read; the store takes the change only if
+        // that is still the provider, so no other change slips between the two.
+        sso::check_change(session, existing.as_ref(), &next)?;
         let stored = self
             .store()
-            .put_oidc_provider_as_read(
-                &StoredProvider {
-                    id: String::new(),
-                    org_id: org_id.to_owned(),
-                    issuer: settings.issuer.clone(),
-                    client_id: settings.client_id.clone(),
-                    sealed_client_secret,
-                    // Left out, what is stored stays, as the secret does, also for another
-                    // client; on when the organization has none.
-                    auto_join: settings
-                        .auto_join
-                        .or(kept.map(|kept| kept.0))
-                        .unwrap_or(true),
-                    enabled: settings.enabled.or(kept.map(|kept| kept.1)).unwrap_or(true),
-                    create_at: 0,
-                    update_at: 0,
-                },
-                existing.as_ref(),
-            )
+            .put_oidc_provider_as_read(&next, existing.as_ref())
             .await?
             // Changed by another request since it was read here: what was kept from it
             // may be kept no more.
@@ -231,6 +239,18 @@ impl App {
                 AppError::conflict("the provider was changed meanwhile; read it and try again")
             })?;
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
+        sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
+        if stored.sso_required {
+            if !existing
+                .as_ref()
+                .is_some_and(|existing| existing.sso_required)
+            {
+                // Begun now: who it shuts out is out of the rooms of its cards' bodies
+                // before the request answers. A connection in one may follow no workspace.
+                self.collab().put_out_shut_out(self, &stored.id).await;
+            }
+            self.close_connections_shut_out(&stored).await;
+        }
         Ok(self.provider_view(&stored))
     }
 
@@ -239,10 +259,13 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error.
+    /// Returns 409 with the reason `sso_enforced` while the organization takes no
+    /// password, and the store's error.
     pub async fn delete_oidc_provider(&self) -> Result<(), AppError> {
-        if self.store().delete_oidc_provider().await? {
-            tracing::info!("the provider of an organization was removed");
+        match self.store().delete_oidc_provider().await? {
+            Removal::Removed => tracing::info!("the provider of an organization was removed"),
+            Removal::NoneThere => {}
+            Removal::Enforced => return Err(sso::enforced()),
         }
         Ok(())
     }
@@ -254,6 +277,7 @@ impl App {
             has_client_secret: !stored.sealed_client_secret.is_empty(),
             auto_join: stored.auto_join,
             enabled: stored.enabled,
+            sso_required: stored.sso_required,
             redirect_uri: self.oidc_redirect_uri(&stored.org_id),
             create_at: stored.create_at,
             update_at: stored.update_at,
@@ -295,6 +319,17 @@ impl App {
         &self,
         org_id: &str,
         address: Option<IpAddr>,
+    ) -> Result<StartedLogin, AppError> {
+        self.start_oidc_flow(org_id, address, None).await
+    }
+
+    /// Starts a sign-in as [`Self::start_oidc_login`] does: to sign in, or, from the
+    /// session `link_session_id`, to link (`App::start_oidc_link`).
+    pub(super) async fn start_oidc_flow(
+        &self,
+        org_id: &str,
+        address: Option<IpAddr>,
+        link_session_id: Option<&str>,
     ) -> Result<StartedLogin, AppError> {
         // Counted against the address as a login is, and let go at once: the requests
         // to the provider below are no password work, and must not keep the address's
@@ -366,6 +401,7 @@ impl App {
                 provider_id: stored.id.clone(),
                 create_at: now,
                 expires_at: now.saturating_add(LOGIN_FLOW_LIFETIME_MILLIS),
+                link_session_id: link_session_id.map(str::to_owned),
             })
             .await
             .map_err(|error| AppError::from(error).context("storing a sign-in"))?;
@@ -487,9 +523,20 @@ impl App {
             tracing::info!(org_id = %flow.org_id, "a sign-in came back with another issuer than its provider's");
             return Err(Reason::OidcStateInvalid.into());
         }
+        // A link that comes back without a session ends here, before the provider is
+        // asked for anything: which session it is, is asked where the link is stored.
+        if flow.link_session_id.is_some() && callback.session_token.is_none() {
+            tracing::info!(org_id = %flow.org_id, "a sign-in to link came back without a session");
+            return Err(Reason::OidcStateInvalid.into());
+        }
         let claims = self
             .checked_claims(&discovery, &stored, secret.as_deref(), flow, &callback.code)
             .await?;
+        if let Some(session_id) = &flow.link_session_id {
+            org.link_through(&claims, &stored, session_id, callback)
+                .await?;
+            return Ok(FinishedLogin::Linked);
+        }
         let token = new_secret();
         let now = now_millis();
         let mut session = Session {
@@ -501,7 +548,7 @@ impl App {
         };
         org.sign_in_through(&claims, &stored, &mut session, &token_digest(&token))
             .await?;
-        Ok(FinishedLogin { token })
+        Ok(FinishedLogin::SignedIn { token })
     }
 
     /// Whether `org_id` names an organization in use that is not the system's: none
@@ -727,6 +774,48 @@ impl App {
         tracing::warn!("no free user name was found for a new account");
         Err(Reason::OidcUnavailable.into())
     }
+}
+
+/// The client secret to store with the settings, sealed for the organization: the one
+/// given; or, left out, the stored one while the issuer and the client stay.
+///
+/// # Errors
+///
+/// Returns 400 naming `clientSecret` if it is left out for another issuer or client
+/// while one is stored: the stored secret is the old client's.
+fn sealed_secret(
+    key: &SecretKey,
+    org_id: &str,
+    settings: &OidcProviderSettings,
+    existing: Option<&StoredProvider>,
+) -> Result<String, AppError> {
+    Ok(match settings.client_secret.as_deref() {
+        // The secret stays with the client it was given for: one that went on to
+        // another issuer or client would be sent to it.
+        None => match existing {
+            Some(existing)
+                if existing.issuer == settings.issuer
+                    && existing.client_id == settings.client_id =>
+            {
+                existing.sealed_client_secret.clone()
+            }
+            Some(existing) if !existing.sealed_client_secret.is_empty() => {
+                let mut refused = Refusals::new();
+                refused.refuse(
+                    "clientSecret",
+                    RefusalReason::Required,
+                    "clientSecret is required with another issuer or client",
+                );
+                return Err(refused.into());
+            }
+            _ => String::new(),
+        },
+        Some("") => String::new(),
+        Some(secret) => key.seal(
+            secret,
+            &secret_context(org_id, &settings.issuer, &settings.client_id),
+        ),
+    })
 }
 
 /// The failure of a sign-in that the store refused at its end, logged.

@@ -70,12 +70,12 @@
   };
 
   const users: PropertyUser[] = [
-    { id: 'u-jisoo', username: 'jisoo', displayName: '김지수' },
-    { id: 'u-minho', username: 'minho', displayName: '민호' },
-    { id: 'u-ada', username: 'ada', displayName: 'Ada Lovelace' },
-    { id: 'u-grace', username: 'grace', displayName: 'Grace Hopper' },
-    { id: 'u-haru', username: 'haru', displayName: '박하루' },
-    { id: 'u-bot', username: 'deploy-bot', displayName: '' },
+    { id: 'example-member-1', username: 'example-member-1', displayName: '예시 구성원 1' },
+    { id: 'example-member-2', username: 'example-member-2', displayName: '예시 구성원 2' },
+    { id: 'example-member-3', username: 'example-member-3', displayName: 'Example member 3' },
+    { id: 'example-member-4', username: 'example-member-4', displayName: 'Example member 4' },
+    { id: 'example-member-5', username: 'example-member-5', displayName: '예시 구성원 5' },
+    { id: 'example-member-6', username: 'example-bot', displayName: '' },
   ];
 
   const BASE_OPTIONS = ['할 일 To do', '진행 중 In progress', '검토 Review', '완료 Done'];
@@ -93,8 +93,8 @@
   let log = $state<string[]>([]);
 
   const card = createCard();
-  card.createdBy = 'u-jisoo';
-  card.modifiedBy = 'u-minho';
+  card.createdBy = 'example-member-1';
+  card.modifiedBy = 'example-member-2';
   // Half past nine in the evening of 9 November 2026 in Seoul, and 01:05 the next night.
   card.createAt = Date.UTC(2026, 10, 9, 12, 30);
   card.updateAt = Date.UTC(2026, 10, 10, 16, 5);

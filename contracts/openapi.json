@@ -1393,6 +1393,35 @@
         ],
         "type": "object"
       },
+      "LinkedIdentity": {
+        "description": "An identity tied to an account: who its owner is at a provider, by which they sign\nin to it through the provider of an organization.",
+        "properties": {
+          "createAt": {
+            "description": "When it was tied, in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "email": {
+            "description": "The email address the provider gave when the identity was tied: its word,\nchecked by nobody. Empty if it gave none.",
+            "type": "string"
+          },
+          "issuer": {
+            "description": "The issuer, as the provider names itself.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Who the account's owner is at the issuer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "createAt",
+          "email",
+          "issuer",
+          "subject"
+        ],
+        "type": "object"
+      },
       "LoginOptions": {
         "description": "What the login page shows: the organization it is for, if it is for one.",
         "properties": {
@@ -1947,7 +1976,7 @@
         "description": "The provider of an organization, as its administrators read it. The client secret\nis not in it: only whether there is one.",
         "properties": {
           "autoJoin": {
-            "description": "Whether somebody the provider vouches for who is no member of the organization\nbecomes one, and a member of its default workspace, by signing in.",
+            "description": "Whether somebody the provider vouches for who has no place in the organization\n(no member of it, nor a guest of one of its workspaces) becomes a member of it,\nand of its default workspace, by signing in. A guest signs in as a guest.",
             "type": "boolean"
           },
           "clientId": {
@@ -1975,6 +2004,10 @@
             "description": "The address the provider sends people back to, to be registered with it exactly:\nthe organization's own, which does not change with the provider.",
             "type": "string"
           },
+          "ssoRequired": {
+            "description": "Whether the organization takes no password: what is the organization's opens\nonly for a session made through this provider.",
+            "type": "boolean"
+          },
           "updateAt": {
             "description": "When the provider was last changed, in milliseconds since the Unix epoch.",
             "format": "int64",
@@ -1989,6 +2022,7 @@
           "hasClientSecret",
           "issuer",
           "redirectUri",
+          "ssoRequired",
           "updateAt"
         ],
         "type": "object"
@@ -2024,6 +2058,13 @@
           "issuer": {
             "description": "The issuer: an `https` address without query or fragment.",
             "type": "string"
+          },
+          "ssoRequired": {
+            "description": "Whether the organization takes no password. Left out, it stays as it is; off\nwhen the organization has no provider.",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -2043,6 +2084,16 @@
         "required": [
           "authorizationUrl"
         ],
+        "type": "object"
+      },
+      "OidcStartRequest": {
+        "description": "What a sign-in through a provider is started with. Nothing, to sign in.",
+        "properties": {
+          "linkPassword": {
+            "description": "The password of the account of the request's session. With it the sign-in\nlinks: what the provider vouches for is tied to that account, in place of\nsigning in.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "OnboardingStart": {
@@ -2275,6 +2326,10 @@
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "orgId": {
+            "description": "The organization whose provider the session must be made through, with the\nreason `sso_required`: what the sign-in is started for.",
+            "type": "string"
           },
           "reason": {
             "description": "Why, where a client must tell causes of the same status apart, such as\n`invalid_credentials` or `last_admin`.",
@@ -2582,6 +2637,41 @@
             "reason": "oidc_join_closed",
             "title": "Organization closed to newcomers",
             "type": "/problems/oidc-join-closed"
+          },
+          {
+            "reason": "oidc_identity_taken",
+            "title": "Sign-in of another account",
+            "type": "/problems/oidc-identity-taken"
+          },
+          {
+            "reason": "oidc_email_mismatch",
+            "title": "Email address of the provider not the account's",
+            "type": "/problems/oidc-email-mismatch"
+          },
+          {
+            "reason": "password_not_set",
+            "title": "Account without a password",
+            "type": "/problems/password-not-set"
+          },
+          {
+            "reason": "last_sign_in",
+            "title": "Last way to sign in",
+            "type": "/problems/last-sign-in"
+          },
+          {
+            "reason": "sso_required",
+            "title": "Sign-in through the provider required",
+            "type": "/problems/sso-required"
+          },
+          {
+            "reason": "sso_unproven",
+            "title": "Provider not signed in through",
+            "type": "/problems/sso-unproven"
+          },
+          {
+            "reason": "sso_enforced",
+            "title": "Provider held while no password is taken",
+            "type": "/problems/sso-enforced"
           },
           {
             "reason": "relation_not_a_list",
@@ -2975,6 +3065,29 @@
         ],
         "type": "string"
       },
+      "UnlinkRequest": {
+        "description": "A request to remove an identity from the account of the session.",
+        "properties": {
+          "issuer": {
+            "description": "The issuer of the identity.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The account's password.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Its subject.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "issuer",
+          "subject",
+          "password"
+        ],
+        "type": "object"
+      },
       "UploadOpened": {
         "description": "An upload that is open.",
         "properties": {
@@ -3241,13 +3354,18 @@
           "role": {
             "$ref": "#/components/schemas/WorkspaceRole",
             "description": "What the user is in the workspace."
+          },
+          "ssoRequired": {
+            "description": "Whether the workspace is closed to the session that asks: its organization\ntakes only sessions made through its provider, and this one was not. What is\nunder the workspace then answers 401 with the reason `sso_required`; signing in\nthrough the provider of `orgId` opens it.",
+            "type": "boolean"
           }
         },
         "required": [
           "id",
           "name",
           "orgId",
-          "role"
+          "role",
+          "ssoRequired"
         ],
         "type": "object"
       },
@@ -3399,7 +3517,7 @@
   "paths": {
     "/api/v1/auth/oidc/callback/{orgId}": {
       "get": {
-        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303).\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed` or\n`oidc_unavailable`.",
+        "description": "Where a provider sends the browser back to: each organization has an address of its\nown, its provider's `redirectUri`, and a sign-in started for one organization does\nnot finish at another's address, nor with an `iss` (RFC 9207) other than the\nprovider's, before any code is exchanged. The sign-in is taken by its `state`, once, and only from the\nbrowser that started it; another browser takes nothing. The code is\nexchanged for an ID token, whose signature, issuer, audience, time and nonce are\nchecked. The person is known by the issuer and the subject: an account of theirs\nsigns in, and somebody who has none gets one, if the organization lets newcomers in\nand no account has their email address. The session comes in the `Set-Cookie`\nheader, and the browser goes to the web app (303). A sign-in that was started to\nlink sets no session: the browser goes to the web app with `oidc_linked=1` in the\nquery.\n\nOtherwise the browser goes to the login page of the organization (`/login?org=…`),\nwith the reason of what went wrong in `oidc_error`, by the name of its problem\n(`oidc_state_invalid` as `oidc-state-invalid`): `oidc_state_invalid`, `oidc_denied`,\n`oidc_token_refused`, `oidc_token_invalid`, `oidc_email_missing`,\n`oidc_email_unverified`, `oidc_email_taken`, `oidc_join_closed`,\n`oidc_identity_taken`, `oidc_email_mismatch` or `oidc_unavailable`.",
         "operationId": "finishOidcLogin",
         "parameters": [
           {
@@ -3450,7 +3568,7 @@
         ],
         "responses": {
           "303": {
-            "description": "To the web app, signed in, or to the login page.",
+            "description": "To the web app, signed in or (with `oidc_linked=1`) linked, or to the login page.",
             "headers": {
               "Location": {
                 "description": "Where the browser goes.",
@@ -3459,7 +3577,7 @@
                 }
               },
               "Set-Cookie": {
-                "description": "The session cookie, and the cookie of the sign-in cleared.",
+                "description": "The session cookie, unless the sign-in linked or failed, and the cookie of the sign-in cleared.",
                 "schema": {
                   "type": "string"
                 }
@@ -3488,7 +3606,7 @@
     },
     "/api/v1/auth/oidc/start": {
       "post": {
-        "description": "For the login page of the server, as a request of its own, not an address a browser\nis sent to: like every request that changes something it needs the header\n`X-Requested-With: XMLHttpRequest` and no foreign `Origin`, which a page of another\nsite cannot send, so that no such page can sign a browser in to an account of its\nchoosing. Starts a sign-in for the organization `org` and answers where the page\nsends the browser (the provider), with a cookie that ties the sign-in to this\nbrowser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if\nthe organization has no provider that is on, or it cannot be reached; 429 when\nthis address made too many sign-ins of late.",
+        "description": "For the login page of the server, as a request of its own, not an address a browser\nis sent to: like every request that changes something it needs the header\n`X-Requested-With: XMLHttpRequest` and no foreign `Origin`, which a page of another\nsite cannot send, so that no such page can sign a browser in to an account of its\nchoosing. Starts a sign-in for the organization `org` and answers where the page\nsends the browser (the provider), with a cookie that ties the sign-in to this\nbrowser, and ten minutes to come back. 409 with the reason `oidc_unavailable` if\nthe organization has no provider that is on, or it cannot be reached; 429 when\nthis address made too many sign-ins of late.\n\nWith `linkPassword` in the body the sign-in links: it needs the session of the\nbrowser's cookie (401 without; a bearer token does not do, as the browser comes back\nwith its cookie), whose account's password that is, and when the browser comes back, who the provider\nvouches for is tied to that account in place of signing in (`getMyIdentities`);\nafter that the provider signs in to the account. No account is made and none is\njoined to another: an identity that is another account's is refused\n(`oidc_identity_taken`), and so is one whose email address, as the provider has\nchecked it, is not the account's own (`oidc_email_mismatch`): the password ties no\nother person of the provider to the account. It ends only in the browser that started it and still has\nthe session it was started from (`oidc_state_invalid` otherwise). A wrong password\nis 400 with the reason `invalid_credentials`, naming `/linkPassword`, counted as a\nwrong one of `changePassword` is; an account without a password is 409 with the\nreason `password_not_set`. The session need not open the organization. A body with\nanother member, or a `linkPassword` that is no text, is 400 naming it: what was\nmeant to link does not sign in instead.",
         "operationId": "startOidcLogin",
         "parameters": [
           {
@@ -3501,6 +3619,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/OidcStartRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "description": "May be left out, to sign in."
+        },
         "responses": {
           "200": {
             "content": {
@@ -3652,7 +3787,7 @@
     },
     "/api/v1/invitations/accept": {
       "post": {
-        "description": "Lets somebody into the workspace the link of `token` leads into, and answers where\nthat is. A request with a session lets in the user of the session, and names no\n`account` (400 if it does). A request without one makes the `account` it names and\nlets that in: the account's members are checked as `register` checks them (400,\nwith `errors`, which name them under `/account`), and a name or an email address\nthat is taken is 409 with the reason `username_taken` or `email_taken`. Accepting\ndoes not sign in.\n\nA member's link makes the account a member of the workspace and of its\norganization; who is a guest of the workspace becomes a member, and who works there\nalready stays what they are. A guest's link puts the account on its board, in the\nlink's role or the higher one the account has there: who is no member of the\nworkspace becomes a guest of it (and no member of its organization), and who is one\nstays what they are in it. The answer names the board then (`boardId`). The account\nis made, the membership stored and the use of the link counted together or not at\nall, and an acceptance that changes nothing uses nothing of the link.\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`,\nwhatever is wrong with it: there is no such link, it ended, it was used as often as\nit may be, it was revoked, or who made it may no longer invite. Requests are counted\nby where they come from, and too many are 429.",
+        "description": "Lets somebody into the workspace the link of `token` leads into, and answers where\nthat is. A request with a session lets in the user of the session, and names no\n`account` (400 if it does). A request without one makes the `account` it names and\nlets that in: the account's members are checked as `register` checks them (400,\nwith `errors`, which name them under `/account`), and a name or an email address\nthat is taken is 409 with the reason `username_taken` or `email_taken`. Accepting\ndoes not sign in.\n\nA member's link makes the account a member of the workspace and of its\norganization; who is a guest of the workspace becomes a member, and who works there\nalready stays what they are. A guest's link puts the account on its board, in the\nlink's role or the higher one the account has there: who is no member of the\nworkspace becomes a guest of it (and no member of its organization), and who is one\nstays what they are in it. The answer names the board then (`boardId`). The account\nis made, the membership stored and the use of the link counted together or not at\nall, and an acceptance that changes nothing uses nothing of the link.\n\nA session that the link's organization does not take (it takes no password,\n`ssoRequired`, and the session was not made through its provider) is 401 with the\nreason `sso_required` and its `orgId`, and lets nobody in.\n\nA token that lets nobody in is 404 with the reason `invitation_unavailable`,\nwhatever is wrong with it: there is no such link, it ended, it was used as often as\nit may be, it was revoked, or who made it may no longer invite. Requests are counted\nby where they come from, and too many are 429.",
         "operationId": "acceptInvitation",
         "requestBody": {
           "content": {
@@ -4214,7 +4349,7 @@
     },
     "/api/v1/org/{orgId}/oidc": {
       "delete": {
-        "description": "Removes the organization's provider and the sign-ins under way through it. The\nsessions made through it go on. An organization without one answers the same.",
+        "description": "Removes the organization's provider and the sign-ins under way through it. The\nsessions made through it go on. An organization without one answers the same.\nWhile the organization takes no password (`ssoRequired`) the provider stays: 409\nwith the reason `sso_enforced`.",
         "operationId": "deleteOidcProvider",
         "parameters": [
           {
@@ -4289,7 +4424,7 @@
         ]
       },
       "put": {
-        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\nissuer's discovery document is read first: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
+        "description": "Sets the organization's `OpenID Connect` provider, in place of the one it has. The\ndiscovery document of an issuer that is not the organization's already is read\nfirst: it must name the issuer exactly and have\n`https` endpoints, or the request is 400 with the reason `oidc_issuer_unverified`\nand `errors` naming `/issuer`. The server reaches only `https` addresses, follows no\nredirect, and reaches only public addresses unless its configuration lets it\n(`oidc_allow_private_addresses`).\n\n`clientSecret` left out keeps the stored secret while the issuer and the client stay\nthe same; with another issuer or client it is required when a secret is stored (400,\n`required` at `/clientSecret`), as the secret is the old client's. The empty string\nstores none. The secret is stored sealed with the server's key and never answered:\nwithout the key the request is 409 with the reason `secret_key_required`. `autoJoin`\nand `enabled` left out stay as they are, also for another issuer or client, and are\non when the organization has no provider.\n\n`ssoRequired` true makes the organization take no password: from the next request\non, what is the organization's (the routes under `/w/{workspaceId}` and\n`/org/{orgId}`, and `getMyMemberships` and `setUserAdmin` where the organization is\nthe one the server stands in) answers 401 with the reason `sso_required` to every\nsession that was not made through this provider, and the websocket follows none of\nits workspaces for one. The\nsessions stay, and open what is of other organizations. It is switched on by a\nsession that was itself made through this provider, switched on, or the request is\n409 with the reason `sso_unproven`: who asks has then shown that it lets them in.\nWhile it is on, the provider is not switched off (`enabled` false), not set to\nanother issuer or client, and not removed: 409 with the reason `sso_enforced`,\nunless the same request switches `ssoRequired` off. Left out it stays as it is,\nand is off when the organization has no provider. A provider changed by another request\nsince this one read it is 409, to be read and sent again. The answer's `redirectUri`\nis the address to register with the provider, exactly: the organization's own,\n`…/api/v1/auth/oidc/callback/{orgId}`, the same before the provider is set and after\nit is changed.",
         "operationId": "putOidcProvider",
         "parameters": [
           {
@@ -5452,6 +5587,94 @@
         ]
       }
     },
+    "/api/v1/users/me/identities": {
+      "delete": {
+        "description": "Removes the identity of `issuer` and `subject` from the account of the session: the\nproviders of that issuer no longer sign in to it. Asks for the account's password,\nas `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,\nnaming `/password`, and too many are 429. An identity that is not the account's is\n404. An account without a password keeps its last identity, which is all that lets\nits owner in: 409 with the reason `last_sign_in`; and has no password to confirm\nremoving another with: 409 with the reason `password_not_set`. The sessions made\nthrough a provider go on.",
+        "operationId": "unlinkIdentity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnlinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The identity is removed."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The password was wrong too often, or the server has too much password work to do at the moment.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Remove an identity from the account",
+        "tags": [
+          "auth"
+        ]
+      },
+      "get": {
+        "description": "Who the user of the session is at the providers they linked to the account, or\nfirst signed in through: an organization's provider with that issuer signs in to\nthis account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.",
+        "operationId": "getMyIdentities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedIdentity"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The identities."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The identities linked to the account",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/users/me/memberships": {
       "get": {
         "description": "The user's memberships, with the roles of each, of the boards of the workspaces the\nuser is a member of. By the identifier of the board.",
@@ -5624,7 +5847,7 @@
     },
     "/api/v1/users/me/workspaces": {
       "get": {
-        "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first.",
+        "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first. A workspace of an organization that takes only sessions made\nthrough its provider is listed for any session, with `ssoRequired` true for one that\nwas not made so: what is under it answers 401 with the reason `sso_required` until\nthe user signs in through the provider of `orgId`.",
         "operationId": "getMyWorkspaces",
         "responses": {
           "200": {

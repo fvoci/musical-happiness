@@ -87,8 +87,9 @@ pub use invitation::{
     Invitation, InvitationMail, InvitationPreview, InvitationToken, NewInvitation,
 };
 pub use oidc::{
-    LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES, OIDC_ISSUER_MAX_BYTES,
-    OidcProvider, OidcProviderSettings, OidcStart,
+    LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
+    OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,
+    UnlinkRequest,
 };
 pub use org_admin::{
     AuditAction, AuditPerson, AuditRecord, MAX_NAME_CHARS, OrgMember, OrgRoleChange, OrgWorkspace,

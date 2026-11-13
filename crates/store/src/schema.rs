@@ -37,7 +37,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 23] = [
+const STEPS: [Step; 24] = [
     Step {
         version: 1,
         description: "baseline",
@@ -171,7 +171,12 @@ const STEPS: [Step; 23] = [
         sqlite: include_str!("../schema/sqlite/0023_org_management.sql"),
         postgres: include_str!("../schema/postgres/0023_org_management.sql"),
     },
-    // 24 belongs to the enforcement of organizational SSO.
+    Step {
+        version: 24,
+        description: "sso",
+        sqlite: include_str!("../schema/sqlite/0024_sso.sql"),
+        postgres: include_str!("../schema/postgres/0024_sso.sql"),
+    },
     Step {
         version: 25,
         description: "password resets",

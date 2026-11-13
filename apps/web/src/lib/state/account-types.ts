@@ -55,6 +55,23 @@ export interface LoginOrganization {
   oidc: boolean;
 }
 
+/** Who the reader is at a single sign-on they connected to the account, or first signed in through. */
+export interface LinkedIdentity {
+  /** The provider, as it names itself: an address. */
+  issuer: string;
+  /** Who the reader is there. */
+  subject: string;
+  /** The email address the provider gave when it was connected; empty for none. */
+  email: string;
+  createAt: number;
+}
+
+/** An organization of the reader's that signs in through a provider, as the settings name it. */
+export interface SignInOrganization {
+  orgId: string;
+  name: string;
+}
+
 /**
  * Signing in and out, where a backend has accounts: the server has, the one
  * in memory has not. Until somebody is signed in, every read of a backend
@@ -91,7 +108,16 @@ export interface Account {
   loginOptions(orgId: string | undefined): Promise<LoginOptions>;
   /**
    * Starts a sign-in through the organization's provider for this browser:
-   * the provider's address the browser is then sent to.
+   * the provider's address the browser is then sent to. With `linkPassword`,
+   * the reader's password, it connects instead: the sign-in comes back to
+   * tie who the provider says they are to the account they are signed in to.
    */
-  startOidc(orgId: string): Promise<string>;
+  startOidc(orgId: string, linkPassword?: string): Promise<string>;
+  /** The sign-ins connected to the reader's account, oldest first. */
+  identities(): Promise<LinkedIdentity[]>;
+  /**
+   * Disconnects one; `password` proves the reader knows the account's. An
+   * account without a password keeps its last (409, `last_sign_in`).
+   */
+  unlinkIdentity(identity: LinkedIdentity, password: string): Promise<void>;
 }

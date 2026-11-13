@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use fvoci_collab::testing::Editor;
-use fvoci_model::{BoardType, Card};
+use fvoci_model::{BoardType, Card, Session};
 use fvoci_server::app::App;
 use fvoci_server::collab::{Collab, DocChange};
 use serde_json::{Value, json};
@@ -43,7 +43,13 @@ pub(crate) async fn editing(th: &TestServer, body: &Value) -> Editing {
     let user2 = th.client2.me().await.id;
     let entered = th
         .app
-        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .enter_workspace(
+            &Session {
+                user_id: user1.clone(),
+                ..Session::default()
+            },
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("the membership is read")
         .expect("a member");
@@ -515,7 +521,13 @@ pub(crate) async fn editing_app(th: &TestServer) -> Editing {
     let user2 = th.client2.me().await.id;
     let entered = th
         .app
-        .enter_workspace(&user1, TEST_WORKSPACE_ID)
+        .enter_workspace(
+            &Session {
+                user_id: user1.clone(),
+                ..Session::default()
+            },
+            TEST_WORKSPACE_ID,
+        )
         .await
         .expect("the membership is read")
         .expect("a member");

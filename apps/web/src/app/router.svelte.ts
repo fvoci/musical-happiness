@@ -131,9 +131,11 @@ function sharedRoute(segments: string[], search: string): Route {
 
 /**
  * The route as far as it goes: each part only under the one before it
- * (a card only on a view, a view only on a board, a board only in a workspace).
+ * (a card only on a view, a view only on a board, a board only in a workspace),
+ * and an organization's screen alone.
  */
 function settled(route: Partial<Route>): Route {
+  if (route.orgId) return { ...NOWHERE, orgId: route.orgId };
   const readToken = route.readToken || undefined;
   const workspaceId = (!readToken && route.workspaceId) || undefined;
   const boardId = ((workspaceId || readToken) && route.boardId) || undefined;

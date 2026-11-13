@@ -69,6 +69,8 @@ export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceI
     id: workspace.id,
     title: workspace.name,
     role: workspace.role,
+    orgId: workspace.orgId,
+    ssoRequired: workspace.ssoRequired,
   }));
 }
 

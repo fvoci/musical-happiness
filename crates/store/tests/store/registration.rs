@@ -47,7 +47,7 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
     assert_eq!(access(&first, "no identifier").await, None);
     assert_eq!(
         unset
-            .workspaces_of_user(&outside)
+            .workspaces_of_user(&outside, None)
             .await
             .expect("the workspaces are listed"),
         [],
@@ -59,7 +59,7 @@ async fn whoever_registers_joins_the_organization_and_its_default_workspace() {
         .await
         .expect("the member is added");
     let listed = unset
-        .workspaces_of_user(&second)
+        .workspaces_of_user(&second, None)
         .await
         .expect("the workspaces are listed");
     let listed: Vec<(&str, WorkspaceRole)> = listed
