@@ -115,3 +115,77 @@ async fn a_slow_permission_read_puts_out_nobody_whose_read_was_not_slow() {
     );
     th.teardown().await;
 }
+
+/// Two changes of the same member: the first one's read is slow, the second one's is
+/// not. The second answers for the member at once, and the first one's answer, which
+/// comes at its deadline, is dropped: it was read before the later change.
+#[tokio::test]
+async fn a_later_change_answers_in_place_of_a_slow_earlier_one() {
+    let th = slow_store_deadline().start().await.init_basic().await;
+    let (table, _owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let user = th.client2.me().await.id;
+    let waiting = th.app.collab().stall_next_access_check();
+    let demote = give(&th, &table.board_id, &user, "viewer");
+    let promote_and_write = async {
+        waiting.notified().await;
+        give(&th, &table.board_id, &user, "editor").await;
+        let started = Instant::now();
+        member
+            .write("written once the later change was answered")
+            .await;
+        let acked = tokio::time::timeout(PROMPT, member.text("DOC_ACK"))
+            .await
+            .is_ok();
+        (acked, started.elapsed())
+    };
+    let ((), (acked, waited)) = tokio::join!(demote, promote_and_write);
+    assert!(
+        acked,
+        "the member's update was not acknowledged within {PROMPT:?} (waited {waited:?}) \
+         after the later change was answered"
+    );
+    member
+        .write_acked("the earlier answer took no effect")
+        .await;
+    assert!(
+        !member
+            .unread()
+            .iter()
+            .any(|message| message["action"] == "DOC_LEFT" || message["action"] == "DOC_MODE"),
+        "{:?}",
+        member.unread()
+    );
+    th.teardown().await;
+}
+
+/// What a member sends while the store is asked about them waits for the answer: a
+/// member the store does not answer of is put out, and what they sent is not taken.
+#[tokio::test]
+async fn what_a_member_sends_while_they_are_checked_waits_for_the_answer() {
+    let th = Setup::native()
+        .configure(|config| config.collab.collab_recheck_seconds = 2)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let (table, mut owner, mut member) = two_in_a_room(&th, &paragraphs(&["first"])).await;
+    let user = th.client2.me().await.id;
+    let waiting = th.app.collab().stall_next_access_check();
+    let demote = give(&th, &table.board_id, &user, "viewer");
+    let sent_meanwhile = async {
+        waiting.notified().await;
+        member
+            .write("sent while the store is asked about the writer")
+            .await;
+        member.one_of(&["DOC_ACK", "DOC_NACK", "DOC_LEFT"]).await
+    };
+    let ((), answered) = tokio::join!(demote, sent_meanwhile);
+    assert_eq!(
+        (&answered["action"], &answered["reason"]),
+        (&json!("DOC_LEFT"), &json!("document_unavailable")),
+        "{answered}"
+    );
+    owner.write_acked("the room goes on").await;
+    assert_eq!(owner.lines(), ["first", "the room goes on"]);
+    th.teardown().await;
+}

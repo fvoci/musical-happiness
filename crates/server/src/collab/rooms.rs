@@ -215,11 +215,17 @@ pub(super) struct Room {
     /// Its key among the rooms: the card's place ([`place::key_of`]).
     key: String,
     card_id: String,
+    /// The board the card was on as the room was made: a card is not moved to another
+    /// board while it has a room.
     board_id: String,
+    /// The workspace the room's first connection named: the board's, as admission
+    /// lets nobody in through another ([`admission::admit`]).
     workspace_id: String,
     /// The application as the card's organization reaches it.
     app: App,
     turn: tokio::sync::Mutex<Turn>,
+    /// Told when an immediate check answered of members it held.
+    checked: tokio::sync::Notify,
     /// Cancelled when the room is closed: its task ends.
     gone: CancellationToken,
 }
@@ -242,6 +248,9 @@ struct Member {
     /// The workspace the connection named as it came in: the card's board is of it.
     workspace_id: String,
     mode: DocMode,
+    /// The number of the change whose immediate check holds the member, if one does:
+    /// what they send waits for its answer.
+    checking: Option<u64>,
 }
 
 /// A member as a room asks about it again.
@@ -441,6 +450,7 @@ impl Collab {
             workspace_id: workspace_id.to_owned(),
             app: app.clone(),
             turn: tokio::sync::Mutex::new(Turn::default()),
+            checked: tokio::sync::Notify::new(),
             gone: CancellationToken::new(),
         });
         rooms.insert(key, Arc::clone(&room));
@@ -663,6 +673,7 @@ impl Collab {
                 doc,
                 workspace_id: workspace_id.to_owned(),
                 mode: admitted.mode,
+                checking: None,
             });
             return Ok(());
         }
@@ -749,7 +760,9 @@ impl Collab {
         epoch: i64,
         update: Bytes,
     ) {
-        let mut turn = room.turn.lock().await;
+        let Some(mut turn) = self.turn_to_send(room, connection, doc).await else {
+            return;
+        };
         let Some(index) = turn.index_of(connection, doc) else {
             return;
         };

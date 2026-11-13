@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use fvoci_store::Tenant;
 
@@ -15,9 +15,6 @@ use fvoci_store::Tenant;
 #[derive(Debug)]
 pub(super) struct Walls<T = Tenant> {
     raised: Mutex<Raised<T>>,
-    /// Per organization, the immediate checks one after another: an answer never
-    /// overtakes a later change of the same organization.
-    turns: Mutex<HashMap<T, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 #[derive(Debug)]
@@ -35,7 +32,6 @@ impl<T> Default for Walls<T> {
                 now: 0,
                 by_tenant: HashMap::new(),
             }),
-            turns: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -47,12 +43,13 @@ impl<T: Copy + Eq + Hash> Walls<T> {
         self.raised.lock().expect("the walls are not poisoned").now
     }
 
-    /// Records that `tenant`'s access facts changed.
-    pub(super) fn raise(&self, tenant: T) {
+    /// Records that `tenant`'s access facts changed; the number of the change.
+    pub(super) fn raise(&self, tenant: T) -> u64 {
         let mut raised = self.raised.lock().expect("the walls are not poisoned");
         raised.now += 1;
         let now = raised.now;
         raised.by_tenant.insert(tenant, now);
+        now
     }
 
     /// Whether `tenant`'s access facts changed after the change numbered `since`.
@@ -63,12 +60,6 @@ impl<T: Copy + Eq + Hash> Walls<T> {
             .by_tenant
             .get(&tenant)
             .is_some_and(|at| *at > since)
-    }
-
-    /// The turn of `tenant`'s immediate checks.
-    pub(super) fn turn(&self, tenant: T) -> Arc<tokio::sync::Mutex<()>> {
-        let mut turns = self.turns.lock().expect("the walls are not poisoned");
-        Arc::clone(turns.entry(tenant).or_default())
     }
 }
 
