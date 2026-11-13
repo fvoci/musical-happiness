@@ -36,6 +36,7 @@ fn provider(issuer: &str) -> StoredProvider {
         auto_join: true,
         enabled: true,
         sso_required: false,
+        revision: 0,
         create_at: 0,
         update_at: 0,
     }
@@ -74,6 +75,7 @@ fn origin(provider: &StoredProvider) -> LoginOrigin {
         org_id: provider.org_id.clone(),
         issuer: provider.issuer.clone(),
         subject: Some("subject".to_owned()),
+        revision: Some(provider.revision),
     }
 }
 
@@ -325,6 +327,7 @@ async fn the_migration_fills_the_origin_or_ends_the_session() {
             org_id: org,
             issuer: "https://one.example".to_owned(),
             subject: None,
+            revision: None,
         })
     );
     assert!(gone.is_err(), "its provider is gone: ended");
@@ -377,4 +380,78 @@ async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
     test.teardown().await;
     assert_eq!(finished, Err(OidcRefusal::AccountChanged));
     assert!(!made, "no session");
+}
+
+/// The revision of a provider's sign-in: raised by a change of the issuer, the client,
+/// the sealed secret or the switch, and by nothing else; a sign-in through it keeps the
+/// revision it was made at.
+#[tokio::test]
+async fn a_change_of_what_signing_in_takes_raises_the_revision() {
+    let test = common::setup().await;
+    let user = person(&test, "admin").await;
+    let first = test
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .await
+        .expect("stored")
+        .expect("new");
+    let mut next = first.clone();
+    let mut revisions = vec![first.revision];
+    let mut read = first;
+    for change in [
+        |p: &mut StoredProvider| p.auto_join = false,
+        |p: &mut StoredProvider| p.sealed_client_secret = "another sealed secret".to_owned(),
+        |p: &mut StoredProvider| p.sso_required = true,
+        |p: &mut StoredProvider| p.sso_required = false,
+        |p: &mut StoredProvider| p.enabled = false,
+        |p: &mut StoredProvider| p.enabled = true,
+        |p: &mut StoredProvider| p.client_id = "another client".to_owned(),
+        |p: &mut StoredProvider| p.issuer = "https://two.example".to_owned(),
+    ] {
+        change(&mut next);
+        read = test
+            .put_oidc_provider_as_read(&next, Some(&read), &user)
+            .await
+            .expect("stored")
+            .expect("as read");
+        revisions.push(read.revision);
+    }
+    let released = test.release_sso_by_operator().await.expect("asked");
+    let identity = Identity {
+        issuer: "https://two.example",
+        subject: "subject",
+    };
+    test.add_identity(&user, identity, "").await.expect("tied");
+    let mut session = Session {
+        id: new_id(),
+        created_at: T0,
+        expires_at: T0 + 1000,
+        ..Session::default()
+    };
+    let finished = test
+        .finish_oidc_sign_in(
+            &read.id,
+            OidcAccount::Known {
+                user_id: &user,
+                password_hash: HASH,
+                identity,
+            },
+            &mut session,
+            "digest",
+        )
+        .await
+        .expect("asked");
+    let made = test.get_session("digest", T0, 0).await.expect("made");
+    test.teardown().await;
+
+    assert_eq!(revisions, [1, 1, 2, 2, 2, 3, 4, 5, 6]);
+    assert_eq!(released, None, "nothing to release");
+    assert!(finished.is_ok(), "{finished:?}");
+    assert_eq!(
+        made.login,
+        Some(LoginOrigin {
+            subject: Some("subject".to_owned()),
+            ..origin(&read)
+        })
+    );
+    assert_eq!(made.login.and_then(|login| login.revision), Some(6));
 }

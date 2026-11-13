@@ -384,7 +384,8 @@ export interface paths {
          * @description The `OpenID Connect` provider people of the organization sign in through, without
          *     its client secret: `hasClientSecret` says whether there is one. 404 if the
          *     organization has none. `canRequireSso` says whether the requesting session was
-         *     made through this enabled provider; it is false after its issuer or client changes.
+         *     made through this enabled provider as it is stored now; it is false after its
+         *     issuer, client, secret or `enabled` changes, until somebody signs in through it again.
          */
         get: operations["getOidcProvider"];
         /**
@@ -412,8 +413,10 @@ export interface paths {
          *     session that was not made through this provider, and the websocket follows none of
          *     its workspaces for one. The
          *     sessions stay, and open what is of other organizations. It is switched on by a
-         *     session that was itself made through this provider, switched on, or the request is
-         *     409 with the reason `sso_unproven`: who asks has then shown that it lets them in.
+         *     session that was itself made through this provider, switched on, as it is stored
+         *     (`canRequireSso`), by a request that does not change its issuer, client, secret or
+         *     `enabled`, or the request is 409 with the reason `sso_unproven`: who asks has then
+         *     shown that it lets them in. A `clientSecret` sent as it is stored is no change.
          *     While it is on, the provider is not switched off (`enabled` false), not set to
          *     another issuer or client, and not removed: 409 with the reason `sso_enforced`,
          *     unless the same request switches `ssoRequired` off. Left out it stays as it is,
@@ -427,8 +430,9 @@ export interface paths {
         post?: never;
         /**
          * Remove the provider of an organization
-         * @description Removes the organization's provider and the sign-ins under way through it. The
-         *     sessions made through it go on. An organization without one answers the same.
+         * @description Removes the organization's provider and the sign-ins under way through it, and
+         *     ends the sessions made through a provider of the organization under its issuer. An
+         *     organization without one answers the same.
          *     While the organization takes no password (`ssoRequired`) the provider stays: 409
          *     with the reason `sso_enforced`.
          */
@@ -3467,8 +3471,9 @@ export interface components {
              */
             autoJoin: boolean;
             /**
-             * @description Whether this session was made through this enabled provider. Changing the
-             *     issuer or client requires signing in through the replacement before enforcing it.
+             * @description Whether this session was made through this provider, switched on, as it is
+             *     stored now: a change of the issuer, the client, the secret or the switch since
+             *     asks for signing in through it again before `ssoRequired` is switched on.
              */
             canRequireSso: boolean;
             /** @description The client identifier the provider gave this server. */

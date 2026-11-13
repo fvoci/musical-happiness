@@ -1037,7 +1037,7 @@
   "org_sso_auto_join": "Automatically add newcomers to the organization",
   "org_sso_required": "Require single sign-on",
   "org_sso_lockout_hint": "To avoid locking everyone out, only a session signed in through this provider can require it. If it stops working, the server operator can release the requirement using the local administration socket.",
-  "org_sso_unproven": "Sign in through this provider first. Save any issuer or client changes before signing in.",
+  "org_sso_unproven": "Sign in through this provider as it is saved now. After changing the issuer, client ID, secret or the sign-in switch, save first, then sign in again.",
   "org_sso_sign_in": "Sign in through this provider",
   "org_sso_link_hint": "For an existing password account, connect this sign-in in Settings → Connected sign-ins first.",
   "org_sso_enforced": "Turn off the requirement and save before disabling, deleting or replacing the provider.",
@@ -1059,5 +1059,6 @@
   "audit_sso_released": "{actor} released the organization's single sign-on requirement",
   "account_linked_ends_session": "You are signed in here through this one: disconnecting it signs you out, and you sign in again with your password.",
   "org_sso_issuer_change": "Saving another issuer signs out everyone who signed in through the current one, you too if you did.",
+  "org_sso_secret_unproven": "A new secret is proved only by signing in with it: save it, then sign in through the provider before requiring single sign-on.",
   "org_sso_keep_secret": "Keep the stored secret"
 }

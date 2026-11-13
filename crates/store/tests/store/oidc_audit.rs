@@ -13,6 +13,7 @@ fn settings() -> StoredProvider {
         auto_join: true,
         enabled: true,
         sso_required: true,
+        revision: 0,
         create_at: 0,
         update_at: 0,
     }

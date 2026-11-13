@@ -485,6 +485,14 @@ impl Row {
         })
     }
 
+    /// Reads a 64-bit integer column that may be `NULL`, as `None`.
+    pub(crate) fn opt_int(&self, index: usize) -> Result<Option<i64>, StoreError> {
+        Ok(match self {
+            Self::Sqlite(row) => row.try_get(index)?,
+            Self::Postgres(row) => row.try_get(index)?,
+        })
+    }
+
     /// Reads an identifier column: `uuid` on PostgreSQL, text on SQLite. `NULL` reads
     /// as the empty string, which is how the model says "none".
     pub(crate) fn id(&self, index: usize) -> Result<String, StoreError> {

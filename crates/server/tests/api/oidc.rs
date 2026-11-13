@@ -758,6 +758,7 @@ async fn a_provider_is_reached_only_where_it_may_be() {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("stored");
@@ -884,6 +885,7 @@ async fn a_sign_in_lets_into_the_organization_it_was_started_for() {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("their provider");
@@ -986,6 +988,7 @@ async fn the_same_address_from_two_providers_is_two_accounts() {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("their provider");

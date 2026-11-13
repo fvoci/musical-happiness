@@ -85,10 +85,10 @@ pub(crate) fn enforced() -> AppError {
 /// Checks a change of an organization's provider, from `existing` (as it was read) to
 /// `next`, against what keeps the organization from locking itself out.
 ///
-/// - Taking no password is switched on by a session that was made through this very
-///   provider, which is on and stays on: who asks has shown that it lets them in. A
-///   provider of another issuer or client is another provider, which nobody has
-///   signed in through yet.
+/// - Taking no password is switched on by a session that proves the provider as it
+///   is stored ([`proves`]), with a change that keeps what signing in takes
+///   ([`StoredProvider::signs_in_like`]): who asks has shown that it lets them in. A
+///   provider of another issuer, client or secret has not let anybody in yet.
 /// - While it is on and stays on, the provider is not switched off or set to another
 ///   issuer or client. Switching it off (`ssoRequired` false) comes first, or with
 ///   the change.
@@ -105,8 +105,6 @@ pub(crate) fn check_change(
     if !next.sso_required {
         return Ok(());
     }
-    let same_provider = existing
-        .filter(|existing| existing.issuer == next.issuer && existing.client_id == next.client_id);
     if let Some(held) = existing.filter(|existing| existing.sso_required) {
         // Named: what of the request would let nobody in.
         let refused = if held.issuer != next.issuer {
@@ -120,11 +118,8 @@ pub(crate) fn check_change(
         };
         return Err(enforced().with_field(refused));
     }
-    let proven = same_provider.is_some_and(|provider| {
-        provider.enabled
-            && next.enabled
-            && session.login_provider_id() == Some(provider.id.as_str())
-    });
+    let proven =
+        existing.is_some_and(|existing| existing.signs_in_like(next) && proves(session, existing));
     if proven {
         Ok(())
     } else {
@@ -135,6 +130,17 @@ pub(crate) fn check_change(
         .with_reason(Reason::SsoUnproven)
         .with_field("ssoRequired"))
     }
+}
+
+/// Whether `session` shows that signing in through the provider, as it is stored,
+/// lets people in: it was made through this very provider at its revision, and the
+/// provider is on. A session made before a change of the issuer, the client, the
+/// secret or the switch proves nothing of the provider after it.
+pub(crate) fn proves(session: &Session, provider: &StoredProvider) -> bool {
+    provider.enabled
+        && session.login.as_ref().is_some_and(|login| {
+            login.provider_id == provider.id && login.revision == Some(provider.revision)
+        })
 }
 
 /// Who asks for what is an organization's: the user, and the provider their session

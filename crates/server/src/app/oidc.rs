@@ -225,6 +225,7 @@ impl App {
                 .sso_required
                 .or(existing.as_ref().map(|existing| existing.sso_required))
                 .unwrap_or(false),
+            revision: 0,
         };
         // Decided from the provider as it was read; the store takes the change only if
         // that is still the provider, so no other change slips between the two.
@@ -296,8 +297,7 @@ impl App {
             auto_join: stored.auto_join,
             enabled: stored.enabled,
             sso_required: stored.sso_required,
-            can_require_sso: stored.enabled
-                && session.login_provider_id() == Some(stored.id.as_str()),
+            can_require_sso: sso::proves(session, stored),
             redirect_uri: self.oidc_redirect_uri(&stored.org_id),
             create_at: stored.create_at,
             update_at: stored.update_at,
@@ -798,7 +798,8 @@ impl App {
 }
 
 /// The client secret to store with the settings, sealed for the organization: the one
-/// given; or, left out, the stored one while the issuer and the client stay.
+/// given; or, left out or given as it is stored, the stored one while the issuer and
+/// the client stay, so that the provider's revision stays with it.
 ///
 /// # Errors
 ///
@@ -832,11 +833,35 @@ fn sealed_secret(
             _ => String::new(),
         },
         Some("") => String::new(),
-        Some(secret) => key.seal(
-            secret,
-            &secret_context(org_id, &settings.issuer, &settings.client_id),
-        ),
+        Some(secret) => match existing {
+            Some(existing) if is_stored_secret(key, existing, settings, secret) => {
+                existing.sealed_client_secret.clone()
+            }
+            _ => key.seal(
+                secret,
+                &secret_context(org_id, &settings.issuer, &settings.client_id),
+            ),
+        },
     })
+}
+
+/// Whether `secret` is the one `existing` keeps for the issuer and client of
+/// `settings`: given again, it is no change.
+fn is_stored_secret(
+    key: &SecretKey,
+    existing: &StoredProvider,
+    settings: &OidcProviderSettings,
+    secret: &str,
+) -> bool {
+    existing.issuer == settings.issuer
+        && existing.client_id == settings.client_id
+        && !existing.sealed_client_secret.is_empty()
+        && key
+            .open(
+                &existing.sealed_client_secret,
+                &secret_context(&existing.org_id, &existing.issuer, &existing.client_id),
+            )
+            .is_ok_and(|stored| stored == secret)
 }
 
 /// The failure of a sign-in that the store refused at its end, logged.

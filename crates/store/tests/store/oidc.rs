@@ -75,6 +75,7 @@ async fn known_account_and_provider(test: &Store) -> (String, String, String) {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("a provider")
@@ -182,6 +183,7 @@ async fn a_change_of_the_provider_made_from_an_old_reading_is_not_stored() {
         create_at: 0,
         update_at: 0,
         sso_required: false,
+        revision: 0,
     };
     let none_read = test
         .put_oidc_provider_as_read(&provider("first", ""), None, &new_id())
@@ -247,6 +249,7 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
         create_at: 0,
         update_at: 0,
         sso_required: false,
+        revision: 0,
     };
     let read = test.put_oidc_provider(&provider).await.expect("stored");
     assert_eq!(
@@ -290,6 +293,7 @@ fn provider_that(sso_required: Enforcement) -> StoredProvider {
         create_at: 0,
         update_at: 0,
         sso_required: sso_required == Enforcement::On,
+        revision: 0,
     }
 }
 

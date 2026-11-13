@@ -294,6 +294,7 @@ fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
                 org_id: "org".to_owned(),
                 issuer: "https://issuer.example".to_owned(),
                 subject: Some("subject".to_owned()),
+                revision: Some(1),
             });
         }
         if let Some(workspace) = workspace {

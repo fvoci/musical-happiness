@@ -851,6 +851,7 @@ pub(crate) async fn two_organizations(fake: &FakeProvider) -> Two {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("their provider");

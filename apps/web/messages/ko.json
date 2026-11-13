@@ -1037,7 +1037,7 @@
   "org_sso_auto_join": "처음 로그인한 사람을 조직에 자동 가입",
   "org_sso_required": "통합 로그인 강제",
   "org_sso_lockout_hint": "모두가 로그인하지 못하는 일을 막기 위해 이 공급자로 로그인한 세션에서만 강제를 켤 수 있습니다. 공급자가 고장 나면 서버 운영자가 로컬 관리 소켓으로 강제를 해제할 수 있습니다.",
-  "org_sso_unproven": "먼저 이 공급자로 로그인하세요. issuer나 client ID를 바꿨다면 먼저 저장한 뒤 로그인하세요.",
+  "org_sso_unproven": "지금 저장된 이 공급자로 먼저 로그인하세요. issuer, client ID, secret이나 로그인 허용을 바꿨다면 먼저 저장한 뒤 다시 로그인하세요.",
   "org_sso_sign_in": "이 공급자로 로그인",
   "org_sso_link_hint": "비밀번호로 쓰던 계정이라면 먼저 설정의 ‘연결된 로그인’에서 이 공급자를 연결하세요.",
   "org_sso_enforced": "공급자를 끄거나 지우거나 바꾸려면 먼저 강제를 끄고 저장하세요.",
@@ -1059,5 +1059,6 @@
   "audit_sso_released": "{actor} 님이 조직의 통합 로그인 강제를 해제했습니다",
   "account_linked_ends_session": "지금 이 로그인으로 들어와 있습니다. 연결을 끊으면 여기서 로그아웃되고, 비밀번호로 다시 로그인하게 됩니다.",
   "org_sso_issuer_change": "다른 issuer로 저장하면 지금 issuer로 로그인한 사람이 모두 로그아웃됩니다. 내가 그렇게 로그인했다면 나도 포함됩니다.",
+  "org_sso_secret_unproven": "새 secret은 그것으로 로그인해야 증명됩니다. 저장한 뒤 공급자로 다시 로그인하고 나서 강제를 켜세요.",
   "org_sso_keep_secret": "저장된 secret 유지"
 }

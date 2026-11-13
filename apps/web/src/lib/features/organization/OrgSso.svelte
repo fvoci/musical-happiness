@@ -38,7 +38,16 @@
       (issuer.trim() !== provider.issuer || clientId.trim() !== provider.clientId),
   );
   const askSecret = $derived(replaceSecret || changed);
-  const proven = $derived(provider?.canRequireSso === true && enabled && !changed);
+  /** A secret that may differ from the stored one: proved only by signing in after saving. */
+  const secretChanges = $derived(
+    askSecret && (secret !== '' || provider?.hasClientSecret === true),
+  );
+  /** The server's answer for the provider as stored, kept only while nothing that signing in takes changes. */
+  const proven = $derived(
+    provider?.canRequireSso === true && enabled && !changed && !secretChanges,
+  );
+  /** Off where it cannot be switched on: what is shown is what is saved. */
+  const requires = $derived(required && (enforced || proven));
 
   function accept(value: OidcProvider | undefined): void {
     provider = value;
@@ -80,7 +89,7 @@
           clientId: clientId.trim(),
           autoJoin,
           enabled,
-          ssoRequired: required,
+          ssoRequired: requires,
           ...(askSecret ? { clientSecret: secret } : {}),
         }),
       );
@@ -252,12 +261,15 @@
         <label class="flex items-start justify-between gap-3">
           <span class="text-sm">{m.org_sso_required()}</span>
           <Switch
-            bind:checked={required}
-            disabled={busy || (!required && !proven)}
+            bind:checked={() => requires, (value: boolean) => (required = value)}
+            disabled={busy || (!enforced && !proven)}
             data-testid="sso-required-switch"
           />
         </label>
         <p class="text-xs text-muted-foreground">{m.org_sso_lockout_hint()}</p>
+        {#if secretChanges && !enforced}
+          <p class="text-sm" data-testid="sso-secret-unproven">{m.org_sso_secret_unproven()}</p>
+        {/if}
         {#if !proven && !enforced}
           <p class="text-sm">{m.org_sso_unproven()}</p>
           {#if provider?.enabled}

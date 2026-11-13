@@ -175,6 +175,10 @@ pub struct LoginOrigin {
     /// made for. `None` for a session made before that was kept, which is taken for
     /// one of every identity of its issuer.
     pub subject: Option<String>,
+    /// The revision of the provider's sign-in settings it was made at: it proves that
+    /// revision only. `None` for a session made before that was kept, which proves
+    /// none.
+    pub revision: Option<i64>,
 }
 
 impl LoginOrigin {
@@ -200,6 +204,7 @@ mod tests {
             org_id: "org".to_owned(),
             issuer: "https://one.example".to_owned(),
             subject: subject.map(str::to_owned),
+            revision: Some(1),
         }
     }
 

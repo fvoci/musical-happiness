@@ -610,6 +610,7 @@ async fn sign_in_under_way(store: &Store, name: &str) {
             create_at: 0,
             update_at: 0,
             sso_required: false,
+            revision: 0,
         })
         .await
         .expect("a provider is stored");

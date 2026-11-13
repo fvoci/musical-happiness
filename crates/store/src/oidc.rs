@@ -23,7 +23,7 @@ pub(crate) const FLOW_COLUMNS: &str = "state_hash, browser_hash, nonce, pkce_ver
 
 /// The columns of a provider, in the order [`provider_from_row`] reads them.
 const PROVIDER_COLUMNS: &str = "id, org_id, issuer, client_id, client_secret, auto_join, enabled, \
-                                create_at, update_at, sso_required";
+                                create_at, update_at, sso_required, revision";
 
 /// The provider of an organization, as it is stored.
 #[derive(Clone, PartialEq, Eq)]
@@ -49,6 +49,25 @@ pub struct StoredProvider {
     pub update_at: i64,
     /// Whether what is the organization's opens only for a session made through it.
     pub sso_required: bool,
+    /// Which state of what signing in through it takes (issuer, client, secret, and
+    /// whether it is on): raised by every change of that, kept by the others. A
+    /// session made through the provider keeps the revision it was made at, and
+    /// proves this one only ([`Self::signs_in_like`]). The store's.
+    pub revision: i64,
+}
+
+impl StoredProvider {
+    /// Whether signing in through `other` takes the same as through this one: the same
+    /// issuer, client and sealed secret, on or off alike. A change that keeps it keeps
+    /// the revision; any other raises it. A secret given again is sealed anew and
+    /// counts as another.
+    #[must_use]
+    pub fn signs_in_like(&self, other: &Self) -> bool {
+        self.issuer == other.issuer
+            && self.client_id == other.client_id
+            && self.sealed_client_secret == other.sealed_client_secret
+            && self.enabled == other.enabled
+    }
 }
 
 impl std::fmt::Debug for StoredProvider {
@@ -62,6 +81,7 @@ impl std::fmt::Debug for StoredProvider {
             .field("auto_join", &self.auto_join)
             .field("enabled", &self.enabled)
             .field("sso_required", &self.sso_required)
+            .field("revision", &self.revision)
             .finish_non_exhaustive()
     }
 }
@@ -212,6 +232,12 @@ impl Store {
             let now = there.as_ref().map_or_else(now_millis, |(_, before)| {
                 now_millis().max(before.saturating_add(1))
             });
+            // Raised across a replacement too: no session of the one before names it.
+            let revision = match &before {
+                None => 1,
+                Some(before) if before.signs_in_like(provider) => before.revision,
+                Some(before) => before.revision.saturating_add(1),
+            };
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?)
                 .push_bind(" AND (issuer <> ", &provider.issuer)
@@ -231,12 +257,14 @@ impl Store {
                 .push_bind(", ", now)
                 .push_bind(", ", now)
                 .push_bind(", ", provider.sso_required)
+                .push_bind(", ", revision)
                 .push(
                     ") ON CONFLICT (org_id) DO UPDATE SET \
                      issuer = excluded.issuer, client_id = excluded.client_id, \
                      client_secret = excluded.client_secret, \
                      auto_join = excluded.auto_join, enabled = excluded.enabled, \
-                     update_at = excluded.update_at, sso_required = excluded.sso_required",
+                     update_at = excluded.update_at, sso_required = excluded.sso_required, \
+                     revision = excluded.revision",
                 )
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
@@ -435,8 +463,9 @@ impl Store {
         token_digest: &str,
     ) -> Result<Result<bool, OidcRefusal>, StoreError> {
         self.transaction(async |scope| {
-            let mut sql =
-                scope.sql("SELECT auto_join, issuer, org_id FROM oidc_providers WHERE org_id = ");
+            let mut sql = scope.sql(
+                "SELECT auto_join, issuer, org_id, revision FROM oidc_providers WHERE org_id = ",
+            );
             sql.bind(scope.org()?)
                 .push_bind(" AND id = ", Id(provider_id))
                 .push_bind(" AND enabled = ", true);
@@ -454,6 +483,7 @@ impl Store {
                 org_id: row.id(2)?,
                 issuer: row.text(1)?,
                 subject: Some(identity.subject.to_owned()),
+                revision: Some(row.int(3)?),
             };
             let joined = match account {
                 OidcAccount::New {
@@ -723,6 +753,7 @@ fn provider_from_row(row: &Row) -> Result<StoredProvider, StoreError> {
         create_at: row.int(7)?,
         update_at: row.int(8)?,
         sso_required: row.bool(9)?,
+        revision: row.int(10)?,
     })
 }
 

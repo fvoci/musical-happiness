@@ -14,7 +14,7 @@ use crate::error::StoreError;
 use crate::oidc::Identity;
 
 const SESSION_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id, \
-     login_org_id, login_issuer, login_subject";
+     login_org_id, login_issuer, login_subject, login_revision";
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -214,6 +214,7 @@ fn login_origin(row: &Row) -> Result<Option<LoginOrigin>, StoreError> {
         org_id: row.id(7)?,
         issuer: row.text(8)?,
         subject: row.opt_text(9)?,
+        revision: row.opt_int(10)?,
     }))
 }
 
@@ -350,6 +351,10 @@ pub(crate) async fn insert_session(
                     .as_ref()
                     .and_then(|login| login.subject.clone()),
             ),
+        )
+        .push_bind(
+            ", ",
+            Param::OptInt(session.login.as_ref().and_then(|login| login.revision)),
         )
         .push(")");
     scope.execute(sql).await?;

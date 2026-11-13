@@ -38,8 +38,9 @@ pub struct OidcProvider {
     /// Whether the organization takes no password: what is the organization's opens
     /// only for a session made through this provider.
     pub sso_required: bool,
-    /// Whether this session was made through this enabled provider. Changing the
-    /// issuer or client requires signing in through the replacement before enforcing it.
+    /// Whether this session was made through this provider, switched on, as it is
+    /// stored now: a change of the issuer, the client, the secret or the switch since
+    /// asks for signing in through it again before `ssoRequired` is switched on.
     pub can_require_sso: bool,
     /// The address the provider sends people back to, to be registered with it exactly:
     /// the organization's own, which does not change with the provider.

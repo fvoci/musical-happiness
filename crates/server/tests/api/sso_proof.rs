@@ -106,3 +106,42 @@ async fn the_session_of_a_replaced_client_opens_nothing_once_the_new_one_is_requ
     ts.teardown().await;
     fake.stop();
 }
+
+/// The secret given again as it is stored changes nothing of what signing in takes:
+/// the session made with it still proves the provider. Switched off and on again, the
+/// provider proves nothing until somebody signs in through it again.
+#[tokio::test]
+async fn the_same_secret_keeps_the_proof_and_the_switch_does_not() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    let path = format!("/org/{org_id}/oidc");
+    set_provider(&ts, &org_id, &fake).await;
+    let admin = admin_through_provider(&ts, &fake, &org_id).await;
+    let with = |enabled: bool| {
+        json!({
+            "issuer": fake.issuer, "clientId": CLIENT_ID, "clientSecret": CLIENT_SECRET,
+            "enabled": enabled,
+        })
+    };
+
+    let again: OidcProvider = admin.put(&path, &with(true)).await.ok_json();
+    assert!(again.can_require_sso, "the same secret, the same provider");
+    admin.put(&path, &with(false)).await.check_ok();
+    let back: OidcProvider = admin.put(&path, &with(true)).await.ok_json();
+    let refused = require_sso(&admin, &org_id, &fake, Passwords::Refused).await;
+    let new = through_provider(&ts, &fake, &org_id, ADMIN_SUBJECT).await;
+    let proven: OidcProvider = new.get(&path).await.ok_json();
+    let required = require_sso(&new, &org_id, &fake, Passwords::Refused).await;
+
+    assert!(
+        !back.can_require_sso,
+        "switched off since the session was made"
+    );
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.text());
+    assert_eq!(refused.error_reason(), "sso_unproven");
+    assert!(proven.can_require_sso, "made at the revision there is now");
+    required.check_ok();
+    ts.teardown().await;
+    fake.stop();
+}
