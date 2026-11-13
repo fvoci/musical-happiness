@@ -47,6 +47,16 @@ const SEND_ANEW_AGAIN: Duration = Duration::from_secs(2);
 /// them once more, before they are put out.
 const ASKED_ONCE_MORE_AFTER: Duration = Duration::from_secs(2);
 
+/// How long a request that has the rooms of an organization ask again at once waits
+/// for their answers ([`Collab::ask_again_now`]): what is not answered by then is
+/// answered after, as the store answers.
+const ASKED_AGAIN_WITHIN: Duration = Duration::from_secs(5);
+
+/// How many times a connection coming into a room is admitted again because an
+/// organization began to take only its provider's sessions meanwhile, before it is
+/// refused as when the document cannot be worked on.
+const ADMITTED_AT_MOST: usize = 3;
+
 /// How many users of a room the store is asked about at once, when the room asks
 /// again who may be in it.
 const ASKED_AT_ONCE: usize = 8;
@@ -195,6 +205,9 @@ pub(super) struct Room {
     /// The application as the card's organization reaches it.
     app: App,
     turn: tokio::sync::Mutex<Turn>,
+    /// Held while the room asks again who may be in it: one asking at a time, so that
+    /// an answer older than another's is never told after it.
+    asking: tokio::sync::Mutex<()>,
     /// Cancelled when the room is closed: its task ends.
     gone: CancellationToken,
 }
@@ -336,19 +349,6 @@ impl Turn {
     }
 }
 
-/// How a connection is let into the room of a card ([`admission::admit`]), refused
-/// as for a card that is not there.
-async fn admit(
-    home: &App,
-    connection: &Connection,
-    workspace_id: &str,
-    card_id: &str,
-) -> Result<admission::Admitted, AppError> {
-    admission::admit(home, connection.asker(), workspace_id, card_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("card"))
-}
-
 impl Collab {
     /// A connection of `asker` for the rooms, in none yet.
     pub(super) fn connection(&self, asker: Asker<'_>) -> Arc<Connection> {
@@ -425,6 +425,7 @@ impl Collab {
             card_id: card_id.to_owned(),
             app: app.clone(),
             turn: tokio::sync::Mutex::new(Turn::default()),
+            asking: tokio::sync::Mutex::new(()),
             gone: CancellationToken::new(),
         });
         rooms.insert(key, Arc::clone(&room));
@@ -502,12 +503,14 @@ impl Collab {
         }
     }
 
-    /// Asks again at once whether each member of the rooms of `app`'s organization may
-    /// be in them, as the organization begins to take only sessions made through its
-    /// provider: who it shuts out is put out now, not at the room's next asking. For
-    /// after that is stored. A connection whose admission was answered before is
-    /// admitted again as it comes in ([`Self::enter`]), so none is let in past it.
-    pub(crate) fn ask_again_now(&self, app: &App) {
+    /// Asks again at once whether each member of the rooms of the organization of `app`
+    /// (a handle of one organization) may be in them, as it begins to take only
+    /// sessions made through its provider: who it shuts out is put out now, not at the
+    /// room's next asking. For after that is stored. Returns once the rooms have asked,
+    /// or after [`ASKED_AGAIN_WITHIN`]; the askings go on if the caller is given up. A
+    /// connection whose admission was answered before is admitted again as it comes
+    /// in ([`Self::enter`]), so none is let in past it.
+    pub(crate) async fn ask_again_now(&self, app: &App) {
         let rooms = &self.inner.rooms;
         // Before the rooms are read: a connection that comes into one later sees it.
         rooms.walls_raised.fetch_add(1, Ordering::SeqCst);
@@ -520,14 +523,26 @@ impl Collab {
             .filter(|room| room.app.store().tenant() == tenant)
             .cloned()
             .collect();
-        for room in of_organization {
-            let (collab, stopping) = (self.clone(), rooms.stopping.clone());
-            tokio::spawn(async move {
-                tokio::select! {
-                    () = stopping.cancelled() => {}
-                    () = collab.recheck(&room) => {}
-                }
-            });
+        let asking: Vec<_> = of_organization
+            .into_iter()
+            .map(|room| {
+                let (collab, stopping) = (self.clone(), rooms.stopping.clone());
+                tokio::spawn(async move {
+                    tokio::select! {
+                        () = stopping.cancelled() => {}
+                        () = collab.recheck(&room) => {}
+                    }
+                })
+            })
+            .collect();
+        let asked = futures_util::future::join_all(asking);
+        if tokio::time::timeout(ASKED_AGAIN_WITHIN, asked)
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                "the rooms of an organization that takes no password did not ask again in time"
+            );
         }
     }
 
@@ -539,6 +554,7 @@ impl Collab {
     /// does not answer then either. The store is asked while the room is not held; what
     /// a member sent meanwhile was taken as they were.
     async fn recheck(&self, room: &Arc<Room>) {
+        let _asking = room.asking.lock().await;
         let asked: Vec<Asked> = {
             let turn = room.turn.lock().await;
             turn.members
@@ -671,7 +687,9 @@ impl Collab {
             return Err(refusals::too_many_joined(limits.per_connection));
         }
         let mut raised = limits.walls_raised.load(Ordering::SeqCst);
-        let mut admitted = admit(home, connection, workspace_id, card_id).await?;
+        let mut admitted =
+            admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
+        let mut admissions = 1;
         loop {
             let room = self.room(&admitted.app, card_id);
             let mut turn = room.turn.lock().await;
@@ -685,30 +703,16 @@ impl Collab {
             if now != raised {
                 self.shut_if_empty(&room, &mut turn).await;
                 drop(turn);
+                if admissions == ADMITTED_AT_MOST {
+                    return Err(refusals::unavailable());
+                }
                 raised = now;
-                admitted = admit(home, connection, workspace_id, card_id).await?;
+                admitted =
+                    admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
+                admissions += 1;
                 continue;
             }
-            let is_member = turn
-                .members
-                .iter()
-                .any(|member| member.connection.id == connection.id);
-            let refused = if self.rooms_ended() {
-                Some(refusals::unavailable())
-            } else if is_member {
-                // In the room anew: one more neither of the connection's rooms nor of
-                // the room's connections.
-                None
-            } else if connection.joined().rooms.len() >= limits.per_connection {
-                Some(refusals::too_many_joined(limits.per_connection))
-            } else if turn.of_user(&connection.user_id) >= limits.per_user {
-                Some(refusals::too_many_of_user(limits.per_user))
-            } else if turn.members.len() >= limits.per_room {
-                Some(refusals::full(limits.per_room))
-            } else {
-                None
-            };
-            if let Some(refused) = refused {
+            if let Some(refused) = self.refusal(&turn, connection) {
                 self.shut_if_empty(&room, &mut turn).await;
                 return Err(refused);
             }
@@ -753,6 +757,31 @@ impl Collab {
                 mode: admitted.mode,
             });
             return Ok(());
+        }
+    }
+
+    /// Why a connection that was admitted is not let into a room as it is, if it is not:
+    /// the server stops, or one more would be more than the limits take.
+    fn refusal(&self, turn: &Turn, connection: &Connection) -> Option<AppError> {
+        let limits = &self.inner.rooms;
+        let is_member = turn
+            .members
+            .iter()
+            .any(|member| member.connection.id == connection.id);
+        if self.rooms_ended() {
+            Some(refusals::unavailable())
+        } else if is_member {
+            // In the room anew: one more neither of the connection's rooms nor of the
+            // room's connections.
+            None
+        } else if connection.joined().rooms.len() >= limits.per_connection {
+            Some(refusals::too_many_joined(limits.per_connection))
+        } else if turn.of_user(&connection.user_id) >= limits.per_user {
+            Some(refusals::too_many_of_user(limits.per_user))
+        } else if turn.members.len() >= limits.per_room {
+            Some(refusals::full(limits.per_room))
+        } else {
+            None
         }
     }
 

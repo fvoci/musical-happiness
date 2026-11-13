@@ -69,3 +69,20 @@ pub(super) async fn admit(
         .and_then(|access| doc_mode(access.grant));
     Ok(board_id.zip(mode).map(|(_, mode)| Admitted { app, mode }))
 }
+
+/// How a connection of `asker` is let into the room of a card ([`admit`]), refused as
+/// for a card that is not there.
+///
+/// # Errors
+///
+/// As [`admit`], and a not-found error for who is not let in.
+pub(super) async fn let_in(
+    home: &App,
+    asker: Asker<'_>,
+    workspace_id: &str,
+    card_id: &str,
+) -> Result<Admitted, AppError> {
+    admit(home, asker, workspace_id, card_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("card"))
+}

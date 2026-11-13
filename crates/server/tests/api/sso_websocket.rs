@@ -283,10 +283,11 @@ async fn the_session_of_another_organizations_provider_follows_nothing() {
 }
 
 /// The room of a card's body is behind the wall, as the card is: when its organization
-/// begins to take no password, the connection of a password session is put out at
-/// once (the room's own asking is an hour away), as for a card that is not there, and
-/// comes into no room of it again, nor does a new one; the connection of the
-/// provider's session stays and writes. Released, the password comes in again.
+/// begins to take no password, the connection of a password session is out of the
+/// room by the time the request answers (the room's own asking is an hour away), as
+/// for a card that is not there: what it sends then goes to nobody. It comes into no
+/// room of it again, nor does a new one; the connection of the provider's session
+/// stays and writes. Released, a password connection comes in again.
 #[tokio::test]
 async fn the_room_of_a_body_is_behind_the_wall() {
     let fake = FakeProvider::start().await;
@@ -313,8 +314,18 @@ async fn the_room_of_a_body_is_behind_the_wall() {
     require_sso(&admin, &org_id, &fake, Passwords::Refused)
         .await
         .check_ok();
+    with_password.write("after the wall").await;
     let left = with_password.text("DOC_LEFT").await;
     assert_eq!(left["reason"], json!("not_found"), "{left}");
+    with_password.settle().await;
+    assert!(
+        with_password
+            .unread()
+            .iter()
+            .all(|message| message["action"] != json!("DOC_ACK")),
+        "nothing is taken after the wall: {:?}",
+        with_password.unread()
+    );
     let mut late = Peer::connect(&ts.client, 103).await;
     for peer in [&mut with_password, &mut late] {
         let refused = peer.join(TEST_WORKSPACE_ID, &t.card_id).await;

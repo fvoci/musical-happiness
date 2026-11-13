@@ -241,6 +241,14 @@ impl App {
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
         sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
         if stored.sso_required {
+            if !existing
+                .as_ref()
+                .is_some_and(|existing| existing.sso_required)
+            {
+                // Begun now: the rooms of its cards' bodies ask who may be in them before
+                // the request answers. A connection in one may follow no workspace.
+                self.collab().ask_again_now(self).await;
+            }
             self.close_connections_shut_out(&stored).await;
         }
         Ok(self.provider_view(&stored))
