@@ -1,10 +1,10 @@
-//! Ending what connections hear: closing them when what let them in is over, and
-//! stopping them following a workspace their user is no member of any more, or one in
-//! the trash.
+//! Closing connections: when the session they were made with ends, when they do not
+//! keep up, and when what they may be told cannot be read. What ends of a workspace or
+//! of a shared board ends only what follows it (`ending.rs`).
 
 use crate::metrics::Disconnect;
 
-use super::{Hub, Listener, ListenerId, Listeners, remove_from};
+use super::{Hub, Listener, ListenerId};
 
 impl Hub {
     /// Closes every connection of the user. For when the user's sessions are ended: a
@@ -13,17 +13,6 @@ impl Hub {
     pub fn close_user(&self, user_id: &str) {
         self.close_where(Disconnect::SessionEnded, |listener| {
             listener.user_id == user_id
-        });
-    }
-
-    /// Closes the connections that follow blocks of a board by its read token. For when
-    /// that token stops opening the board: sharing is turned off, the board is shared
-    /// anew under another token, or the board is deleted. A reader with the new link
-    /// connects again.
-    pub fn close_readers_of_board(&self, board_id: &str) {
-        self.close_where(Disconnect::ShareEnded, |listener| {
-            listener.shared_boards.iter().any(|board| board == board_id)
-                || listener.presence.reads_shared_board(board_id)
         });
     }
 
@@ -44,9 +33,20 @@ impl Hub {
         });
     }
 
-    /// Closes the connections `closes` picks, for `reason`.
-    pub(super) fn close_where(&self, reason: Disconnect, closes: impl Fn(&Listener) -> bool) {
+    /// Ends one connection without invalidating other subscriptions' admission checks.
+    pub(super) fn close_listener(&self, id: ListenerId, reason: Disconnect) {
         let mut listeners = self.listeners();
+        if let Some(listener) = listeners.by_id.get(&id) {
+            listener.close(reason);
+        }
+        listeners.remove(id);
+    }
+
+    /// Closes the connections `closes` picks, for `reason`: a subscription of their
+    /// users being checked is checked again.
+    pub(super) fn close_where(&self, reason: Disconnect, closes: impl Fn(&Listener) -> bool) {
+        let mut guard = self.listeners();
+        let listeners = &mut *guard;
         let ids: Vec<ListenerId> = listeners
             .by_id
             .iter()
@@ -56,68 +56,9 @@ impl Hub {
         for id in ids {
             if let Some(listener) = listeners.by_id.get(&id) {
                 listener.close(reason);
+                listeners.revoked.user(&listener.user_id);
             }
             listeners.remove(id);
-        }
-    }
-
-    /// Stops the user's connections following the workspaces they are no member of
-    /// now. For when what they were in a workspace was taken back (an organization's
-    /// administrator whose joining ended): following one again asks whether they are in
-    /// it.
-    pub async fn follow_only_own_workspaces(&self, user_id: &str) {
-        let followed: Vec<(ListenerId, String)> = {
-            let listeners = self.listeners();
-            listeners
-                .by_id
-                .iter()
-                .filter(|(_, listener)| listener.user_id == user_id)
-                .flat_map(|(id, listener)| {
-                    listener
-                        .workspaces
-                        .iter()
-                        .map(move |workspace| (*id, workspace.clone()))
-                })
-                .collect()
-        };
-        for (id, workspace_id) in followed {
-            let still_in_it = self
-                .audience
-                .workspace_access(user_id, &workspace_id)
-                .await
-                .is_some();
-            if still_in_it {
-                continue;
-            }
-            let mut listeners = self.listeners();
-            if let Some(listener) = listeners.by_id.get_mut(&id) {
-                listener
-                    .workspaces
-                    .retain(|workspace| *workspace != workspace_id);
-            }
-            remove_from(&mut listeners.by_workspace, &workspace_id, id);
-        }
-    }
-
-    /// Stops every connection following the workspace. For when it goes to the trash:
-    /// it is there for nobody, and who follows it once it is restored asks again.
-    pub fn stop_following_workspace(&self, workspace_id: &str) {
-        self.listeners().stop_following_workspace(workspace_id);
-    }
-}
-
-impl Listeners {
-    /// Takes the workspace out of what every listener follows, and out of the index.
-    pub(super) fn stop_following_workspace(&mut self, workspace_id: &str) {
-        let Some(ids) = self.by_workspace.remove(workspace_id) else {
-            return;
-        };
-        for id in ids {
-            if let Some(listener) = self.by_id.get_mut(&id) {
-                listener
-                    .workspaces
-                    .retain(|workspace| workspace != workspace_id);
-            }
         }
     }
 }

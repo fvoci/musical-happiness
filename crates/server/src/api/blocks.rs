@@ -25,7 +25,7 @@ use super::{
     BlockAction, require_block_patch_permission, require_block_permission,
     require_delete_permission, require_deletion_permission,
 };
-use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
+use super::{change_notification, duplicate_as, require_board_permission};
 use super::{
     decode_object_with, element_pointer, objects_mut, put_patch_bodies, take_block_bodies,
     take_patch_bodies,
@@ -77,7 +77,8 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 
 /// Checks that a signed-in user may read the blocks of a board: the members of the
 /// board, and for an open template everyone who works in its workspace besides.
-async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<(), AppError> {
+async fn require_read_access(ws: &Ws, board: &Board) -> Result<(), AppError> {
+    let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
     require_board_permission(
         app,
         user_id,
@@ -86,7 +87,12 @@ async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<
         "access denied to board",
     )
     .await?;
-    if board.is_template && user_is_guest(app, user_id).await? {
+    // A guest of the path's workspace reads a template only as a member of it: not an
+    // open template of the workspace, nor one the server ships with.
+    if board.is_template
+        && ws.role == fvoci_model::WorkspaceRole::Guest
+        && !app.invited_to_board(user_id, &board.id).await?
+    {
         return Err(AppError::forbidden(
             "guest are not allowed to get board templates",
         ));
@@ -99,11 +105,7 @@ async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<
 /// Security fix: the original copies the files without looking at the source board
 /// (`server/api/blocks.go:297-303`), so a user could make the server copy files out of a
 /// board they cannot see. Whoever may read the board's blocks may copy from it.
-async fn require_source_board_access(
-    app: &App,
-    user_id: &str,
-    source_board_id: &str,
-) -> Result<(), AppError> {
+async fn require_source_board_access(ws: &Ws, source_board_id: &str) -> Result<(), AppError> {
     // The same answer for a board that is not there and one the user may not read. A
     // store that failed is neither: it is answered as what it is.
     let refused = |error: AppError| {
@@ -113,15 +115,15 @@ async fn require_source_board_access(
             error
         }
     };
-    let board = app.board(source_board_id).await.map_err(refused)?;
-    require_read_access(app, user_id, &board)
-        .await
-        .map_err(refused)
+    let board = ws.app.board(source_board_id).await.map_err(refused)?;
+    require_read_access(ws, &board).await.map_err(refused)
 }
 
 /// The blocks of a board
 ///
-/// For the board's members, and for an open template everyone in its workspace.
+/// For the board's members, and for an open template everyone who works in its workspace.
+/// A guest of the path's workspace reads a template's blocks only as a member of that
+/// template (403 otherwise).
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -142,7 +144,7 @@ async fn handle_get_blocks(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let board = ws.app.board(&board_id).await?;
-    require_read_access(&ws.app, &ws.session.user_id, &board).await?;
+    require_read_access(&ws, &board).await?;
     let blocks = asked_blocks(&ws.app, &board_id, query.as_deref()).await?;
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     Ok(json_response(&blocks))
@@ -172,12 +174,12 @@ pub(super) async fn asked_blocks(
 /// Checks that the images of the blocks' bodies show files of the board, or of the board
 /// named by `sourceBoardId`, and copies the files the blocks show from that board.
 async fn check_and_copy_body_files(
-    app: &App,
-    user_id: &str,
+    ws: &Ws,
     board_id: &str,
     query: Option<&str>,
     blocks: &mut [Block],
 ) -> Result<(), AppError> {
+    let (app, user_id) = (&ws.app, ws.session.user_id.as_str());
     // Set when a template is made from a board or a board from a template: the files
     // the blocks refer to are then copied over from that board.
     let source_board_id = query_param(query, "sourceBoardId");
@@ -204,7 +206,7 @@ async fn check_and_copy_body_files(
     let files_board_id = if source_board_id.is_empty() {
         board_id
     } else {
-        require_source_board_access(app, user_id, &source_board_id).await?;
+        require_source_board_access(ws, &source_board_id).await?;
         &source_board_id
     };
     for (index, block) in blocks.iter().enumerate() {
@@ -344,7 +346,7 @@ async fn handle_post_blocks(
     renew_request_ids(&ws.app, &board_id, &mut blocks).await?;
     stamp_modification_metadata(user_id, &mut blocks, now_millis());
 
-    check_and_copy_body_files(&ws.app, user_id, &board_id, query, &mut blocks).await?;
+    check_and_copy_body_files(&ws, &board_id, query, &mut blocks).await?;
 
     // The store names a block it refuses by its identifier.
     let ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();

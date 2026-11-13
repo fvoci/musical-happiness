@@ -152,7 +152,7 @@ const fn org_role_of_instance(role: InstanceRole) -> OrgRole {
 /// what they joined as its administrator, on behalf of `actor_id`. No role in a
 /// workspace changes. Somebody who is no member stays none.
 ///
-/// TEMPORARY: while the instance's administrators are the organization's.
+/// Instance administrators stay coupled to the oldest organization by product policy.
 pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,

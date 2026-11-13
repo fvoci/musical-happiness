@@ -1,6 +1,13 @@
 //! The lifetime of a websocket connection and its command reader.
 
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
+use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::StreamExt as _;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::{
     Command, Hub, Identity, Listener, ListenerId, OUTBOX_CAPACITY, SESSION_CHECK_WITHOUT_PING,
@@ -10,11 +17,6 @@ use crate::app::App;
 use crate::collab::Seat;
 use crate::error::ErrorKind;
 use crate::metrics::Disconnect;
-use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 impl Hub {
     /// Serves one websocket connection until it closes. `identity` is the session the
@@ -45,6 +47,7 @@ impl Hub {
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),
                     workspaces: Vec::new(),
+                    workspace_roles: HashMap::new(),
                     blocks: Vec::new(),
                     shared_boards: Vec::new(),
                     presence: presence::State::default(),
@@ -66,24 +69,36 @@ impl Hub {
         if let Some(token) = &token
             && let Err(error) = self.inner.auth.find_session(token).await
         {
-            if error.kind() != ErrorKind::Unauthorized {
-                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
-            }
             self.listeners().remove(id);
-            metrics.websocket_closed(Disconnect::SessionEnded);
+            if error.kind() == ErrorKind::Unauthorized {
+                metrics.websocket_closed(Disconnect::SessionEnded);
+            } else {
+                // Not ended, unread: the page is told to connect again, and does with
+                // its spread wait.
+                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
+                metrics.websocket_closed(Disconnect::StoreUnavailable);
+                writer::close(sink, Some(Disconnect::StoreUnavailable)).await;
+            }
             return;
         }
 
         let ping_interval = self.inner.ping_interval;
         let session_check = ping_interval.unwrap_or(SESSION_CHECK_WITHOUT_PING);
-        let mut writer = writer::spawn(sink, inbox, docs_outbox, ping_interval);
+        let mut writer = writer::spawn(
+            sink,
+            inbox,
+            docs_outbox,
+            ping_interval,
+            closed.clone(),
+            Arc::clone(&closed_because),
+        );
 
         let reason = tokio::select! {
             // First: when the hub gave the connection up, its reason is the one counted,
             // also if the client closed it at the same moment.
             biased;
-            // The hub gave the connection up: it does not keep up, or its session or its
-            // read token ended.
+            // The hub gave the connection up: it does not keep up, its session ended, or
+            // what it may be told could not be read.
             () = closed.cancelled() => {
                 closed_because.get().copied().unwrap_or(Disconnect::Shutdown)
             }
@@ -96,12 +111,13 @@ impl Hub {
             // the sessions that ended so are deleted only by the hourly clean-up.
             () = self.session_ends(token.as_deref(), session_check) => Disconnect::SessionEnded,
         };
+        let _ = closed_because.set(reason);
+        closed.cancel();
         metrics.websocket_closed(reason);
-        self.listeners().remove(id);
         docs.leave_all().await;
 
-        // Removing the listener drops its outbox, which ends the writer once it has sent
-        // what was queued. A peer that does not read would hold the writer forever.
+        // The cancelled writer discards queued changes. A peer that does not read
+        // must not hold its closing handshake forever.
         self.listeners().remove(id);
         if !writer.is_finished()
             && tokio::time::timeout(WRITER_GRACE, &mut writer)

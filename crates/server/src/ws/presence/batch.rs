@@ -14,6 +14,7 @@ use std::time::Duration;
 use fvoci_model::WorkspaceRole;
 use tokio::time::Instant;
 
+use super::super::{Outgoing as _, text_of};
 use super::{Hub, LEASE, LOOKUP_WAIT, ListenerId, Snapshot, Visit, snapshot};
 use crate::app::{App, Asker, PresenceAccess};
 use crate::error::AppError;
@@ -65,7 +66,8 @@ enum Sight {
     /// A read token: counted on the board, sent nothing.
     Token,
     Member {
-        app: App,
+        /// Boxed: an application handle is far larger than the token's nothing.
+        app: Box<App>,
         role: WorkspaceRole,
         /// The people met so far, by whether the reader may name them.
         named: HashSet<String>,
@@ -78,7 +80,7 @@ impl Sight {
         match access.role {
             None => Self::Token,
             Some(role) => Self::Member {
-                app: access.app,
+                app: Box::new(access.app),
                 role,
                 named: HashSet::new(),
                 unnamed: HashSet::new(),
@@ -207,7 +209,10 @@ impl Hub {
             return;
         };
         if reader.sent.as_ref() != Some(&projected) {
-            self.send(&[id], &projected);
+            // Its sight was read for this reader alone: no other check applies.
+            if let Some(text) = text_of(&projected) {
+                self.queue_text(&[id], &text, projected.action());
+            }
             reader.sent = Some(projected);
         }
     }

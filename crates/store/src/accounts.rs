@@ -17,8 +17,8 @@ use crate::workspaces;
 /// The organization somebody who signs up with the name of an organization starts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Founding {
-    /// The organization of the handle, which is there and nobody's: the one the server
-    /// made when it started. Only the first user of the instance takes it.
+    /// The first organization, created with the first account. If a migrated database
+    /// already has an organization but no account, the first user takes it.
     First,
     /// A new organization, under an identifier the store gives it, whatever
     /// organization the handle names.
@@ -53,8 +53,7 @@ impl Store {
     /// deleted or not, has the name or the email address in any letter case, or
     /// (`Taken::WorkspaceName`) another workspace in use of the organization there is
     /// has the organization's name already;
-    /// [`StoreError::NoOrganization`] if [`Founding::First`] is asked of a handle that
-    /// names no organization; and [`StoreError::Database`] if a statement fails, as it
+    /// and [`StoreError::Database`] if a statement fails, as it
     /// does for [`Founding::New`] on an SQLite database, which holds one organization.
     pub async fn sign_up(
         &self,
@@ -62,12 +61,15 @@ impl Store {
         organization_name: &str,
         founding: Founding,
     ) -> Result<String, StoreError> {
-        // A new organization is made behind its own wall: the handle of the
-        // transaction names it before it is there.
-        let store = match founding {
-            Founding::First => self.clone(),
-            Founding::New => self.for_org(&new_id())?,
+        // The first-user flag is claimed in the same transaction as the organization:
+        // a competing first signup rolls back without leaving an empty organization.
+        let existing = match founding {
+            Founding::First => self.instance_organization().await?,
+            Founding::New => None,
         };
+        let adopting = existing.is_some();
+        let org_id = existing.unwrap_or_else(new_id);
+        let store = self.for_org(&org_id)?;
         store
             .transaction(async |scope| {
                 let role = become_first(scope).await?;
@@ -75,8 +77,10 @@ impl Store {
                     Founding::First if role == InstanceRole::User => {
                         return Err(StoreError::NotFirstUser);
                     }
-                    Founding::First => name_organization(scope, organization_name).await?,
-                    Founding::New => {
+                    Founding::First if adopting => {
+                        name_organization(scope, organization_name).await?
+                    }
+                    Founding::First | Founding::New => {
                         let workspace_id = new_id();
                         found_organization(scope, organization_name, &workspace_id).await?;
                         workspace_id

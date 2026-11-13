@@ -36,8 +36,8 @@ class FakeSocket extends EventTarget {
     this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) }));
   }
 
-  drop(): void {
-    this.dispatchEvent(new Event('close'));
+  drop(code = 1006): void {
+    this.dispatchEvent(new CloseEvent('close', { code }));
   }
 }
 
@@ -229,6 +229,28 @@ describe('changes from the server', () => {
     expect(board).toEqual([]);
   });
 
+  it('asks again for a workspace whose subscription the server ended, and has everyone read again', async () => {
+    const { socket, board, self } = await connected();
+    socket.message({
+      action: 'UNSUBSCRIBED_WORKSPACE',
+      workspaceId: 't',
+      reason: 'workspace access ended',
+    });
+    socket.message({
+      action: 'UNSUBSCRIBED_WORKSPACE',
+      workspaceId: 'left',
+      reason: 'workspace access ended',
+    });
+    await settle();
+    expect(socket.closed).toBe(false);
+    expect(socket.sent).toEqual([
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+      { action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' },
+    ]);
+    expect(board).toEqual([{ kind: 'resync' }]);
+    expect(self).toEqual([{ kind: 'resync' }]);
+  });
+
   it('opens again at once after signing in, and has everyone read again', async () => {
     const { live, socket, board } = await connected();
     live.restart();
@@ -327,6 +349,20 @@ describe('changes from the server', () => {
     again?.open();
     expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_WORKSPACE', workspaceId: 't' }]);
     for (const changes of [board, self, other]) expect(changes).toEqual([{ kind: 'resync' }]);
+  });
+
+  it('spreads the wait after the server asks to try again, so its pages do not all come back at once', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const { socket } = await connected();
+      socket.drop(1013);
+      await vi.advanceTimersByTimeAsync(749);
+      expect(FakeSocket.made).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(FakeSocket.made).toHaveLength(2);
+    } finally {
+      random.mockRestore();
+    }
   });
 
   it('closes the connection when nobody listens any more, and does not open it again', async () => {

@@ -10,7 +10,7 @@ use super::cards::page_params;
 use super::contract::params::MemberWorkspaceId;
 use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
-use super::workspace::WorksIn;
+use super::workspace::TextWs;
 use super::workspace::Ws;
 use super::{ApiResult, json_response, require_board_permission};
 use crate::app::App;
@@ -74,7 +74,8 @@ async fn handle_get_deleted_cards(
     params(WorkspaceId, Page, PerPage),
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),
 )]
-async fn handle_get_deleted_boards(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) -> ApiResult {
+async fn handle_get_deleted_boards(TextWs(ws): TextWs, RawQuery(query): RawQuery) -> ApiResult {
+    let ws = ws.require_no_guest()?;
     let (page, per_page) = page_params(query.as_deref())?;
     Ok(json_response(
         &ws.app

@@ -28,6 +28,7 @@ fn add(listeners: &mut Listeners, user: &str, visit: Visit, age: Duration) {
             closed: CancellationToken::new(),
             closed_because: Arc::default(),
             workspaces: Vec::new(),
+            workspace_roles: std::collections::HashMap::new(),
             blocks: Vec::new(),
             shared_boards: Vec::new(),
             presence: State {

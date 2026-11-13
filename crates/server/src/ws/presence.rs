@@ -76,7 +76,7 @@ pub(super) struct State {
 }
 
 impl State {
-    pub(super) fn reads_shared_board(&self, board_id: &str) -> bool {
+    fn reads_shared_board(&self, board_id: &str) -> bool {
         self.visit
             .as_ref()
             .is_some_and(|visit| visit.board_id == board_id && !visit.read_token.is_empty())
@@ -141,6 +141,25 @@ impl Boards {
 }
 
 impl Listeners {
+    /// Ends the visits made by a read token of `board_id`: the token stops opening the
+    /// board (sharing ended, a new token, the board deleted).
+    pub(super) fn end_shared_visits(&mut self, board_id: &str) {
+        let ids: Vec<ListenerId> = self
+            .by_id
+            .iter()
+            .filter(|(_, listener)| listener.presence.reads_shared_board(board_id))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            if let Some(listener) = self.by_id.get_mut(&id) {
+                let state = &mut listener.presence;
+                state.renewed = None;
+                state.revision = state.revision.wrapping_add(1);
+            }
+            self.place(id, None);
+        }
+    }
+
     /// Sets the visit of `id` (`None`: it left the board), keeping the boards' index.
     fn place(&mut self, id: ListenerId, visit: Option<Visit>) {
         let Some(listener) = self.by_id.get_mut(&id) else {
