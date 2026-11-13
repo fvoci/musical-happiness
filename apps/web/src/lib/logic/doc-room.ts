@@ -26,67 +26,19 @@
  * took, that is said (`discarded`).
  */
 
-import { packUpdates } from './doc-frame.ts';
-import type { DocMode, RoomFrame, RoomMessage } from './doc-room-types.ts';
+import { packUpdates, SYNC_STEP_2 as STEP_2, SYNC_UPDATE as UPDATE } from './doc-frame.ts';
+import type {
+  DocMode,
+  RoomEffect,
+  RoomEvent,
+  RoomFrame,
+  RoomMessage,
+  RoomPhase,
+  RoomStatus,
+  RoomTimer,
+} from './doc-room-types.ts';
 
 export type * from './doc-room-types.ts';
-
-const STEP_2 = 1;
-const UPDATE = 2;
-
-export type RoomTimer = 'flush' | 'reset' | 'retry';
-
-export type RoomEvent =
-  /** The connection is there, or is gone. */
-  | { type: 'up' }
-  | { type: 'down' }
-  | { type: 'message'; message: RoomMessage }
-  | { type: 'frame'; frame: RoomFrame }
-  /** The reader changed the document held. */
-  | { type: 'local'; update: Uint8Array }
-  /** The answer to `offer`: what the document held has that the server's lacks, if anything. */
-  | { type: 'missing'; update: Uint8Array | undefined }
-  | { type: 'timer'; timer: RoomTimer }
-  /** The reader asks to be let in again. */
-  | { type: 'retry' }
-  /** Everything waiting is to be sent now: the card is being left. */
-  | { type: 'settle' };
-
-export type RoomEffect =
-  /** Send `JOIN_DOC`. */
-  | { type: 'join' }
-  | { type: 'send'; frame: RoomFrame }
-  /** Merge into the document held. */
-  | { type: 'apply'; update: Uint8Array }
-  /** Drop the document held, if any, and hold a new one made of this. */
-  | { type: 'fresh'; update: Uint8Array }
-  /** Drop the document held: there is none to show. */
-  | { type: 'drop' }
-  /** Say (`missing`) what the document held has that `have` lacks. */
-  | { type: 'offer'; have: Uint8Array }
-  /** Changes of the reader were dropped with their document; `why` is a reason of the server's, or `document_reset`. */
-  | { type: 'discarded'; why: string }
-  | { type: 'timer'; timer: RoomTimer; wait: number }
-  | { type: 'cancel'; timer: RoomTimer }
-  /** `status` is another now. */
-  | { type: 'changed' };
-
-export type RoomPhase = 'offline' | 'joining' | 'joined' | 'receiving' | 'out';
-
-export interface RoomStatus {
-  phase: RoomPhase;
-  mode: DocMode;
-  /** Why it is `out`. */
-  reason: string | undefined;
-  /** A document is held. */
-  held: boolean;
-  /** The reader may write now: joined, to write, and not waiting for the document to be sent again. */
-  writable: boolean;
-  /** The document held has changes of the reader the server is not known to have. */
-  pending: boolean;
-  /** Being `out`, it is tried again by itself. */
-  retrying: boolean;
-}
 
 export interface RoomLimits {
   /** The largest update the server takes, in bytes (`collab_update_bytes`). */
@@ -108,8 +60,11 @@ export const PACE_WAIT = 1000;
 /** The waits before trying again what was refused for now, by tries; the last repeats. */
 export const RETRY_WAITS = [1000, 2000, 5000, 15_000, 30_000];
 
-/** Reasons that do not pass by waiting: the card is not there for the reader, or the page is in too many rooms. */
-const FINAL = new Set(['not_found', 'too_many_documents_joined']);
+/** How long a join waits for its answer before it is taken as refused for now. */
+export const ANSWER_WAIT = 10_000;
+
+/** A reason that does not pass by waiting: the card is not there for the reader. */
+const FINAL = new Set(['not_found']);
 /** Being put out for these says nothing against the document: the room is joined again as it was left. */
 const PACE = new Set(['too_many_frames', 'connection_too_slow']);
 
@@ -141,6 +96,10 @@ export class DocRoom {
   #tainted = false;
   #tries = 0;
   #retrying = false;
+  /** A `JOIN_DOC` is on its way: another is not sent until it is answered. */
+  #joinSent = false;
+  /** Answers still to come for frames given up while the room's number stayed: they are about nothing now. */
+  #stale = 0;
   #effects: RoomEffect[] = [];
 
   constructor(merge: (updates: Uint8Array[]) => Uint8Array, limits: RoomLimits = ROOM_LIMITS) {
@@ -167,14 +126,16 @@ export class DocRoom {
     switch (event.type) {
       case 'up':
         this.#up = true;
-        this.#join();
+        // Out for good stays out; anything else is joined anew on the new connection.
+        if (!this.#outForGood()) this.#join();
         break;
       case 'down':
         this.#up = false;
+        this.#answered();
         this.#leaveRoom();
         this.#cancel('retry');
         this.#retrying = false;
-        this.#phase = 'offline';
+        if (!this.#outForGood()) this.#phase = 'offline';
         break;
       case 'message':
         this.#message(event.message);
@@ -205,23 +166,36 @@ export class DocRoom {
     return this.#effects;
   }
 
+  #outForGood(): boolean {
+    return this.#phase === 'out' && FINAL.has(this.#reason ?? '');
+  }
+
   #cancel(timer: RoomTimer): void {
     this.#effects.push({ type: 'cancel', timer });
   }
 
   /** Asks to be let in. The number held, if any, stays the room's until the answer. */
   #join(): void {
-    if (!this.#up) return;
+    if (!this.#up || this.#joinSent) return;
     this.#cancel('retry');
     this.#retrying = false;
     this.#expect = undefined;
     this.#phase = this.#epoch === undefined ? 'joining' : 'receiving';
+    this.#joinSent = true;
     this.#effects.push({ type: 'join' });
+    this.#effects.push({ type: 'timer', timer: 'answer', wait: ANSWER_WAIT });
+  }
+
+  /** The join on its way was answered, or will not be. */
+  #answered(): void {
+    this.#joinSent = false;
+    this.#cancel('answer');
   }
 
   /** Forgets the room's number and what waited to go to it: none of it will be answered. */
   #leaveRoom(): void {
     this.#doc = undefined;
+    this.#stale = 0;
     this.#expect = undefined;
     this.#waiting = false;
     this.#cancel('reset');
@@ -231,17 +205,17 @@ export class DocRoom {
   #unqueue(): void {
     this.#buffer = [];
     this.#outbox = [];
+    // In the same room, the answers to what was sent still come: they are not about what is sent next.
+    if (this.#doc !== undefined) this.#stale += this.#unacked;
     this.#unacked = 0;
     this.#cancel('flush');
   }
 
-  /** Joins again for the server's document: with `keep`, to go on from the one held. */
-  #rejoin(keep: boolean, why = ''): void {
+  /** Joins again for the server's document, dropping the one held: what it had of the reader's is lost for `why`. */
+  #rejoin(why: string): void {
     this.#leaveRoom();
-    if (!keep) {
-      this.#keep = false;
-      this.#why = why;
-    }
+    this.#keep = false;
+    this.#why = why;
     if (this.#up) this.#join();
   }
 
@@ -275,14 +249,18 @@ export class DocRoom {
 
   #message(message: RoomMessage): void {
     if (message.action === 'DOC_JOINED') {
+      this.#answered();
       this.#leaveRoom();
       this.#doc = message.doc;
       this.#mode = message.mode;
       this.#expect = message.epoch;
       this.#tries = 0;
+      // Nothing is written until the whole document has come.
+      if (this.#epoch !== undefined) this.#phase = 'receiving';
       return;
     }
     if (message.action === 'DOC_REFUSED') {
+      this.#answered();
       // Still held: an answer to the try of a room that is out, or to joining again.
       if (PACE.has(message.reason)) this.#paced();
       else this.#out(message.reason);
@@ -298,12 +276,18 @@ export class DocRoom {
         break;
       case 'DOC_NACK':
         if (this.#answersDropped(message.epoch)) return;
+        // Answered: whatever is given up next does not wait for this answer.
+        this.#unacked = Math.max(0, this.#unacked - 1);
         this.#refused(message.reason);
         break;
       case 'DOC_MODE':
         if (message.mode === 'write' && this.#mode === 'read' && this.#tainted) {
           this.#mode = 'write';
-          this.#rejoin(false);
+          this.#rejoin('');
+        } else if (message.mode === 'read' && this.#buffer.length + this.#outbox.length > 0) {
+          // What was gathered and not sent cannot go any more: it is the reader's document alone.
+          this.#mode = 'read';
+          this.#rejoin('document_read_only');
         } else this.#mode = message.mode;
         break;
       case 'DOC_RESET':
@@ -311,6 +295,8 @@ export class DocRoom {
         this.#expect = message.epoch;
         if (message.epoch !== this.#epoch) {
           this.#unqueue();
+          // What is still to be answered is of the old epoch, and is told apart by it.
+          this.#stale = 0;
           this.#keep = false;
           this.#why = 'document_reset';
           this.#waiting = false;
@@ -331,7 +317,13 @@ export class DocRoom {
    * `DOC_RESET`.
    */
   #answersDropped(epoch: number): boolean {
-    if (epoch !== this.#epoch || this.#waiting) return true;
+    // Of another document: told apart by its epoch alone.
+    if (epoch !== this.#epoch) return true;
+    if (this.#stale > 0) {
+      this.#stale -= 1;
+      return true;
+    }
+    if (this.#waiting) return true;
     return this.#expect !== undefined && this.#expect !== this.#epoch;
   }
 
@@ -356,7 +348,7 @@ export class DocRoom {
       this.#effects.push({ type: 'timer', timer: 'retry', wait: PACE_WAIT });
     } else {
       if (reason === 'document_read_only') this.#mode = 'read';
-      this.#rejoin(false, reason);
+      this.#rejoin(reason);
     }
   }
 
@@ -407,7 +399,7 @@ export class DocRoom {
       return;
     }
     // Let in to read only since: the changes cannot go, and the document is not the server's.
-    if (this.#mode === 'read') this.#rejoin(false, 'document_read_only');
+    if (this.#mode === 'read') this.#rejoin('document_read_only');
     else this.#queue(update);
   }
 
@@ -439,7 +431,12 @@ export class DocRoom {
   #timer(timer: RoomTimer): void {
     if (timer === 'flush') this.#flush(false);
     else if (timer === 'reset') {
-      if (this.#waiting) this.#rejoin(false, 'update_out_of_step');
+      if (this.#waiting) this.#rejoin('update_out_of_step');
+    } else if (timer === 'answer') {
+      if (this.#joinSent) {
+        this.#answered();
+        this.#out('document_unavailable');
+      }
     } else if (this.#doc === undefined && this.#phase !== 'joined') this.#join();
   }
 
@@ -449,20 +446,25 @@ export class DocRoom {
     const epoch = this.#epoch;
     if (this.#phase !== 'joined' || this.#mode !== 'write' || this.#waiting) return;
     if (doc === undefined || epoch === undefined) return;
+    let tooLarge = false;
     if (this.#buffer.length > 0) {
-      const frames = packUpdates(this.#buffer, this.#limits.updateBytes, this.#merge);
-      if (!frames) {
-        // One change larger than the server takes: it cannot stay in the document.
-        this.#rejoin(false, 'update_too_large');
-        return;
-      }
+      const limit = this.#limits.updateBytes;
+      const over = this.#buffer.findIndex((update) => update.length > limit);
+      // One change larger than the server takes cannot stay in the document;
+      // what was written before it goes first.
+      tooLarge = over !== -1;
+      const fits = tooLarge ? this.#buffer.slice(0, over) : this.#buffer;
+      this.#outbox.push(...(packUpdates(fits, limit, this.#merge) ?? []));
       this.#buffer = [];
-      this.#outbox.push(...frames);
     }
     for (let payload = this.#outbox.shift(); payload; payload = this.#outbox.shift()) {
       this.#effects.push({ type: 'send', frame: { doc, epoch, sync: UPDATE, payload } });
       this.#unacked += 1;
-      if (!all) break;
+      if (!all && !tooLarge) break;
+    }
+    if (tooLarge) {
+      this.#rejoin('update_too_large');
+      return;
     }
     if (this.#outbox.length > 0) {
       this.#effects.push({ type: 'timer', timer: 'flush', wait: FLUSH_WAIT });

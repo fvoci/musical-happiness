@@ -14,11 +14,10 @@
 # file <lines> <path>
 # function <lines> <path> <name>
 
-file 975 src/lib/api/backend.ts
+file 954 src/lib/api/backend.ts
 file 532 src/lib/features/shell/SidebarList.svelte
 file 902 src/lib/logic/wire.ts
 file 818 src/lib/state/board.svelte.ts
-file 529 src/lib/state/card.svelte.ts
 file 1150 src/lib/state/memory/backend.ts
 file 833 src/lib/state/workspace.svelte.ts
 function 223 src/lib/state/memory/seed.ts seedWorld

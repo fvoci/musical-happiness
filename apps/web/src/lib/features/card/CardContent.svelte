@@ -12,7 +12,7 @@
   it, also while it was open) says so and can be closed.
 -->
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { untrack } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CardFrame } from '$lib/layout/presentation.ts';
@@ -20,7 +20,6 @@
   import { whileHere, type BoardStore, type CardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { BodySaver } from './body-saver.svelte.ts';
   import CardAttachments from './CardAttachments.svelte';
   import CardBody from './CardBody.svelte';
   import CardComments from './CardComments.svelte';
@@ -28,6 +27,7 @@
   import CardProperties from './CardProperties.svelte';
   import CardTitle from './CardTitle.svelte';
   import CommentComposer from './CommentComposer.svelte';
+  import { saveStateOf } from './save-state.ts';
   import { keepScroll } from './scroll-keeper.ts';
 
   interface Props {
@@ -43,11 +43,6 @@
 
   let { board, view, card, frame, cardHref, onClose, onOpenCard }: Props = $props();
 
-  const saver = new BodySaver(untrack(() => card));
-  onDestroy(() => {
-    saver.dispose();
-  });
-
   const summary = $derived(card.summary);
   const ready = $derived(card.status === 'ready');
   /** A card that starts without a title and a body was just made: the caret goes to its title. */
@@ -57,25 +52,13 @@
   /** The reader is deleting the card: it closes as soon as it is gone. */
   let deleting = $state(false);
 
-  // The app tells of a conflict with a line at the bottom of the screen, over
-  // the comment field. The card says the same above its body, with the two
-  // choices: the line is taken away.
-  $effect(() => {
-    if (!card.conflict) return;
-    untrack(() => {
-      for (const problem of board.workspace.problems) {
-        if (problem.action === 'conflict') board.workspace.dismissProblem(problem.id);
-      }
-    });
-  });
-
   // What these two need is taken before they wait: by the time a write has
   // answered, this component may be gone (the card was deleted, or changed
   // for another), and its arguments with it.
   async function duplicate(): Promise<void> {
     const [store, cardId, open] = [board, card.cardId, onOpenCard];
-    // The copy is made from what is stored: store what was typed first.
-    await saver.flush();
+    // The copy is made from what is stored: what was typed goes to the server first.
+    await card.settleBody();
     const copy = await whileHere(store, () => store.duplicateCard(cardId));
     if (copy) open?.(copy.id);
   }
@@ -83,10 +66,9 @@
   async function remove(): Promise<void> {
     const [store, cardId, close] = [board, card.cardId, onClose];
     deleting = true;
-    // What was typed is stored first (tried: a body that cannot be saved is
-    // lost with the card), so that undo brings the card back with it and no
-    // write of the body meets the card in the trash.
-    await saver.flush();
+    // What was typed goes to the server first, so that undo brings the card
+    // back with it.
+    await card.settleBody();
     await store.deleteCards([cardId]);
     // Refused: the card is still there, and stays open.
     if (store.card(cardId)) deleting = false;
@@ -106,7 +88,7 @@
   {card}
   {frame}
   {cardHref}
-  saveState={saver.state}
+  saveState={saveStateOf(card)}
   {onClose}
   onDuplicate={() => void duplicate()}
   onDelete={() => void remove()}
@@ -148,7 +130,7 @@
       <CardTitle {board} card={summary} autofocus={blank} />
       <CardProperties {board} {view} card={summary} {onOpenCard} />
       {#if ready}
-        <CardBody {board} {card} {saver} />
+        <CardBody {board} {card} />
         <CardAttachments {board} {card} />
         <CardComments {board} {card} />
       {:else if card.status === 'failed'}

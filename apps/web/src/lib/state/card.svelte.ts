@@ -5,24 +5,22 @@
  * card list of the board store (`summary`), so that the card and the board
  * behind it never disagree.
  *
- * The body is one document and is written whole, with the version it was
- * read at. When the card changed in between, the write is refused (409):
- *
- * - if the body itself is still what this card store last knew, only
- *   something else about the card changed, and the write is sent again on
- *   the new version without bothering the reader;
- * - otherwise somebody else wrote the body. Nothing is overwritten: the
- *   store holds both (`conflict`) and the screen asks the reader which to
- *   keep.
+ * The body is edited together in the card's room (`openBody`,
+ * `Backend.openDoc`): the room's document is what the reader sees and
+ * writes, and the server writes the card's body from it. `body` is that body
+ * as the card was last read, shown until the room's document has arrived,
+ * and where there is no room (a reader by a public link). While the room's
+ * document is held, a change of the card does not read the body again: the
+ * room's is the newer.
  */
-import { validateDoc, type DocNode } from '../editor/schema.ts';
+import type { DocNode } from '../editor/schema.ts';
 
 import {
-  BackendError,
   isBackendError,
   isConflict,
-  refusedMember,
   type Attachment,
+  type BodyDoc,
+  type BodyDocState,
   type CardDetail,
   type CardSummary,
   type Comment,
@@ -31,13 +29,6 @@ import type { BoardStore } from './board.svelte.ts';
 import { byCreation } from './order.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
 import { reread, take } from './write.ts';
-
-export interface BodyConflict {
-  /** What the reader wrote. */
-  mine: DocNode | null;
-  /** The card as it is stored now. */
-  theirs: CardDetail;
-}
 
 /** How a change of a comment ended: stored, refused for a newer version, or failed (and told). */
 export type CommentEdit = 'saved' | 'conflict' | 'failed';
@@ -52,8 +43,8 @@ export interface Upload {
   cancel: () => void;
 }
 
-/** How many times a body is sent on a newer version when only something else of the card changed. */
-const MAX_TRIES = 4;
+/** How long the line at the top of the card says "saving" after the server had it all. */
+export const SAVING_SHOWN = 600;
 
 const sameDoc = (first: DocNode | null, second: DocNode | null): boolean =>
   JSON.stringify(first) === JSON.stringify(second);
@@ -69,17 +60,21 @@ export class CardStore {
   missing = $state(false);
   /** The body as it is stored, as far as this store knows. */
   body = $state.raw<DocNode | null>(null);
+  /** The body in its room, while it is open there (`openBody`). */
+  room = $state.raw<BodyDocState | undefined>(undefined);
   /**
-   * Goes up whenever `body` was replaced by something the reader did not
-   * type: the first load, somebody else's change, the other side of a
-   * conflict. An editor takes the body again when this changes.
+   * Why changes of the reader were last dropped with the document they were
+   * in (a reason of the server's, or `document_reset`), until it is said and
+   * dismissed (`dismissLost`).
    */
-  bodyRevision = $state(0);
-  /** A body is being written, or waits to be. */
-  saving = $state(false);
-  /** The reader wrote something that is not stored yet. */
-  dirty = $state(false);
-  conflict = $state.raw<BodyConflict | undefined>(undefined);
+  lost = $state<string | undefined>(undefined);
+  /** The reader wrote in the body in this visit. */
+  bodyEdited = $state(false);
+  /**
+   * What the reader wrote is on its way, or reached the server less than
+   * `SAVING_SHOWN` ago: the line that says so does not blink at every key.
+   */
+  bodySaving = $state(false);
   uploads = $state.raw<Upload[]>([]);
 
   #comments = $state.raw<Comment[]>([]);
@@ -91,11 +86,10 @@ export class CardStore {
   /** Title, icon and properties, from the board's list. */
   readonly summary = $derived.by<CardSummary | undefined>(() => this.board.card(this.cardId));
 
-  /** The version of the card the stored body was read at. */
+  /** The version of the card the body was read at. */
   #readAt = 0;
-  /** What the reader wrote and has not been stored yet. */
-  #unsaved: { body: DocNode | null } | undefined;
-  #writing: Promise<void> | undefined;
+  #bodyDoc: BodyDoc | undefined;
+  #savingShown: ReturnType<typeof setTimeout> | undefined;
   #uploadCount = 0;
   #closed = false;
 
@@ -133,6 +127,7 @@ export class CardStore {
 
   close(): void {
     this.#closed = true;
+    this.closeBody();
     for (const upload of this.uploads) upload.cancel();
     for (const upload of this.#imageUploads) upload.abort();
   }
@@ -142,142 +137,94 @@ export class CardStore {
     this.#readAt = detail.updateAt;
     this.missing = false;
     this.board.receiveCard(summary);
-    if (!sameDoc(body, this.body) || this.bodyRevision === 0) {
-      this.body = body;
-      this.bodyRevision += 1;
-    }
+    if (!sameDoc(body, this.body)) this.body = body;
   }
 
   // --------------------------------------------------------------- body
 
   /**
-   * The reader changed the body. Nothing is sent yet: the screen calls this
-   * on every change and `saveBody` when it is time to store (a pause in the
-   * typing, leaving the field, closing the card). From this moment the body
-   * counts as unsaved, and what arrives from other people does not replace
-   * it on screen.
+   * Opens the body in its room, unless it is open there or the backend has
+   * no rooms. What the room says is in `room`; closing the card leaves it.
    */
-  editBody(body: DocNode | null): void {
-    this.#unsaved = { body };
-    this.dirty = true;
-  }
-
-  /**
-   * Stores the body: the one given, or the last one `editBody` was told.
-   * Writes do not overlap: while one is under way the newest body waits and
-   * goes next. Returns when everything given so far is stored, refused, or
-   * waiting for the reader in `conflict`.
-   */
-  async saveBody(body?: DocNode | null): Promise<void> {
-    if (body !== undefined) this.editBody(body);
-    if (!this.#unsaved) {
-      // Nothing new to send, but what was given before may still be on its way.
-      await this.#writing;
-      return;
-    }
-    this.saving = true;
-    this.#writing ??= this.#drain().finally(() => {
-      this.#writing = undefined;
-      this.saving = false;
-      this.#catchUp();
+  openBody(): void {
+    const backend = this.#backend;
+    if (this.#bodyDoc || this.#closed || !backend.openDoc) return;
+    const workspaceId = this.board.workspace.info?.id ?? '';
+    const opened = backend.openDoc(workspaceId, this.#boardId, this.cardId, {
+      state: (state) => {
+        if (this.#bodyDoc !== opened) return;
+        this.room = state;
+        this.#showSaving(state.pending);
+        // Without the room's document the body is the card's again: read what was missed.
+        if (!state.doc) this.#catchUp();
+      },
+      discarded: (why) => {
+        if (this.#bodyDoc === opened) this.lost = why;
+      },
     });
-    await this.#writing;
+    this.#bodyDoc = opened;
+    this.room = opened.state;
   }
 
-  async #drain(): Promise<void> {
-    while (this.#unsaved && !this.conflict && !this.#closed) {
-      const { body } = this.#unsaved;
-      this.#unsaved = undefined;
-      try {
-        await this.#write(body);
-      } catch (error) {
-        // Not stored: it stays unsaved, and the next `saveBody` sends it again.
-        this.#unsaved ??= { body };
-        this.board.workspace.report('save', error);
-        return;
-      }
-    }
-    this.dirty = this.#unsaved !== undefined || this.conflict !== undefined;
-  }
-
-  async #write(body: DocNode | null, tries = 1): Promise<void> {
-    // Always the version the body was read at, never a newer one the card
-    // list has heard of: that one may carry somebody else's body. When the
-    // newer version is only a change of something else (a property, the
-    // reader's own or not), the write is refused and sent again below, as
-    // long as the body stays what this store knows, a few times at most.
-    const readAt = this.#readAt;
-    // A body the server would refuse is not sent (one with a mention that
-    // names nobody, as a body read anonymously has them).
-    const problems = body ? validateDoc(body) : [];
-    if (problems.length > 0) {
-      const detail = problems[0] ?? 'invalid body';
-      throw new BackendError(400, { detail, errors: [refusedMember('body', detail)] });
-    }
-    try {
-      const stored = await this.#backend.writeCardBody(this.#boardId, this.cardId, {
-        body,
-        readAt,
-      });
-      const { body: storedBody, ...summary } = stored;
-      this.#readAt = stored.updateAt;
-      this.body = storedBody;
-      this.board.receiveCard(summary);
-    } catch (error) {
-      if (!isConflict(error)) throw error;
-      const theirs = await this.#backend.card(this.#boardId, this.cardId);
-      if (tries < MAX_TRIES && sameDoc(theirs.body, this.body)) {
-        // Only something else about the card changed. Same body, new version: send again.
-        const { body: _body, ...summary } = theirs;
-        this.#readAt = theirs.updateAt;
-        this.board.receiveCard(summary);
-        await this.#write(body, tries + 1);
-        return;
-      }
-      this.conflict = { mine: body, theirs };
-      this.board.workspace.report('conflict', error);
-    }
-  }
-
-  /**
-   * Settles a conflict. `mine` stores what the reader wrote over what is
-   * there now; `theirs` drops what the reader wrote and shows what is stored.
-   */
-  async resolveConflict(keep: 'mine' | 'theirs'): Promise<void> {
-    const conflict = this.conflict;
-    if (!conflict) return;
-    this.conflict = undefined;
-    const { body: theirBody, ...summary } = conflict.theirs;
-    this.#readAt = conflict.theirs.updateAt;
-    this.board.receiveCard(summary);
-    this.body = theirBody;
-    if (keep === 'theirs') {
-      this.#unsaved = undefined;
-      this.dirty = false;
-      this.bodyRevision += 1;
-      this.#catchUp();
+  #showSaving(pending: boolean): void {
+    clearTimeout(this.#savingShown);
+    if (pending) {
+      this.bodyEdited = true;
+      this.bodySaving = true;
       return;
     }
-    await this.saveBody(conflict.mine);
+    this.#savingShown = setTimeout(() => {
+      this.bodySaving = false;
+    }, SAVING_SHOWN);
+  }
+
+  /** Leaves the body's room; what waits is sent first. */
+  closeBody(): void {
+    clearTimeout(this.#savingShown);
+    const opened = this.#bodyDoc;
+    this.#bodyDoc = undefined;
+    this.room = undefined;
+    opened?.close();
+  }
+
+  /** Sends what the reader wrote at once; settles when the server has it, or cannot now. */
+  settleBody(): Promise<void> {
+    return this.#bodyDoc?.settle() ?? Promise.resolve();
+  }
+
+  /** Asks to be let into the room again now. */
+  retryBody(): void {
+    this.#bodyDoc?.retry();
+  }
+
+  /** The reader was told that changes were dropped. */
+  dismissLost(): void {
+    this.lost = undefined;
+  }
+
+  /** What the reader wrote has not all reached the server. */
+  get bodyPending(): boolean {
+    return this.room?.pending ?? false;
   }
 
   /**
-   * The card changed in the board's list. If that is news, and the reader
-   * has nothing unsaved, the body is read again so that somebody else's
-   * writing shows up while the card is open.
+   * The card changed in the board's list. If that is news, and the body is
+   * not the room's now, it is read again so that somebody else's writing
+   * shows where the room's document is not.
    */
   cardChanged(card: CardSummary): void {
     // A card that was deleted and is back (restored) is read again whatever its time.
     const back = this.missing;
     if (card.id !== this.cardId || (!back && card.updateAt <= this.#readAt)) return;
-    if (this.#busy()) {
+    // A card back from the trash is read whatever the room holds: it was missing.
+    if (this.#busy() && !back) {
       this.#news = card;
       return;
     }
     void this.#backend
       .card(this.#boardId, this.cardId)
       .then((detail) => {
-        if (this.#busy()) {
+        if (this.#busy() && !back) {
           this.#news = card;
           return;
         }
@@ -290,15 +237,14 @@ export class CardStore {
   }
 
   /**
-   * The latest news of the card heard while the body could not be read again
-   * (`#busy`): it is read once the store is idle again (`#catchUp`), so that
-   * somebody else's writing is not missed until the reader next types.
+   * The latest news of the card heard while the body was the room's
+   * (`#busy`): it is read once the room's document is gone (`#catchUp`).
    */
   #news: CardSummary | undefined;
 
-  /** The reader's body is unsaved or on its way, or an image is going up for it. */
+  /** The body shown is the room's document, or the card is closed. */
   #busy(): boolean {
-    return this.dirty || this.saving || this.#closed || this.#imageUploads.length > 0;
+    return this.#closed || this.room?.doc !== undefined;
   }
 
   #catchUp(): void {
@@ -481,11 +427,8 @@ export class CardStore {
 
   /**
    * Uploads an image for the body and gives the identifier an image node
-   * names. The editor shows its place meanwhile (not the list of uploads),
-   * and that place is no part of the body: so while an image goes up, the
-   * body is not replaced by somebody else's (`cardChanged`), which would take
-   * the place away and lose the image. A body written meanwhile meets the
-   * reader's when the image is in (409, then the reader chooses).
+   * names. The editor shows its place meanwhile (not the list of uploads);
+   * the place follows the room's document, whatever others write meanwhile.
    */
   async uploadImage(file: File): Promise<string> {
     const controller = new AbortController();
@@ -500,7 +443,6 @@ export class CardStore {
       throw error;
     } finally {
       this.#imageUploads = this.#imageUploads.filter((other) => other !== controller);
-      this.#catchUp();
     }
   }
 

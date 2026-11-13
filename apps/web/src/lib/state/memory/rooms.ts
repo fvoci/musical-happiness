@@ -15,21 +15,33 @@
  *   change, 10 at most after the first, and when the last reader leaves:
  *   the board's listeners are told the card, as `UPDATE_BLOCK` tells them.
  * - The roles are asked again whenever the board's members change.
+ * - A body written whole (`MemoryBackend.writeCardBody`, as another client
+ *   of the server's API does it) makes the document anew: the room is told
+ *   `DOC_RESET` of the next `epoch` and sent the new document.
  *
- * Unlike the server, a document is never made anew (no `DOC_RESET`): the
- * backend in memory has no way of writing a body whole any more. And the
- * tabs of one browser that each run a world in memory can be joined
- * (`shareRooms`): their documents are made alike from the seed, so that
- * the changes of each go to the others' as they would through one server.
+ * The tabs of one browser that each run a world in memory can be joined
+ * (`shareRooms`): their documents are made alike from the seed, so that the
+ * changes of each go to the others' as they would through one server. Two
+ * rooms are one only when they are of the same card (board, identifier and
+ * time of making: the worlds make identifiers alike) and their documents
+ * were made from the same body in the same epoch.
+ *
+ * Unlike the server, a change that would leave the document no body is
+ * refused (`update_refused`), not taken and mended; limits of frames,
+ * rooms and connections are not kept; the roles are asked again when the
+ * members change, not on a timer; and a room is kept for the life of the
+ * world, as the server keeps a document stored.
  */
 import { getSchema } from '@tiptap/core';
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 
+import { BODY_FIELD } from '../../editor/body-editor.ts';
 import { bodyExtensions } from '../../editor/extensions.ts';
 import {
   emptyDoc,
   isEmptyDoc,
+  storedSize,
   toStoredDoc,
   validateDoc,
   type DocNode,
@@ -50,11 +62,11 @@ import type {
 } from '../../logic/doc-room-types.ts';
 
 import { roleOn } from './comments.ts';
-import { LIMITS, wireOf } from './shapes.ts';
+import { imageFileIds, LIMITS, wireOf } from './shapes.ts';
 import type { StoredCard, World } from './world.ts';
 
 /** The shared type the editor binds to (`@tiptap/extension-collaboration`). */
-export const FIELD = 'default';
+export const FIELD = BODY_FIELD;
 /** The largest update taken, in bytes (`collab_update_bytes`). */
 export const UPDATE_BYTES = 64 * 1024;
 /** When a body is written after a change: after a pause, at most after the first change. */
@@ -76,7 +88,13 @@ interface Seat {
   /** The room's number while the seat is in it. */
   doc: number | undefined;
   mode: DocMode;
+  /** In the room's view: until what the seat said before leaving has been taken. */
   up: boolean;
+  /** The seat's client still listens: nothing is said to it once it has closed. */
+  hearing: boolean;
+  /** When the last thing each way arrives: nothing overtakes what was sent before it. */
+  inAt: number;
+  outAt: number;
 }
 
 interface Room {
@@ -89,12 +107,29 @@ interface Room {
   lastWriter: string | undefined;
   quiet: ReturnType<typeof setTimeout> | undefined;
   longest: ReturnType<typeof setTimeout> | undefined;
-  stopWatching: () => void;
+  /** What another tab's room has to be to be this one (`tabKey`). */
+  tab: string;
 }
 
+/** What the worlds of two tabs say of a room; of a room another than this tab's (`tab`) it is not heard. */
 type TabMessage =
-  | { kind: 'update'; cardId: string; update: Uint8Array }
-  | { kind: 'ask'; cardId: string; vector: Uint8Array };
+  | { kind: 'update'; cardId: string; tab: string; update: Uint8Array }
+  | { kind: 'ask'; cardId: string; tab: string; vector: Uint8Array };
+
+/** A short sum of a text (FNV-1a), to tell apart bodies a document was made from. */
+function sum(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+/** What makes two tabs' rooms one: the card, its making, the epoch and the body the document came from. */
+function tabKey(card: StoredCard | undefined, cardId: string, epoch: number): string {
+  const made = sum(JSON.stringify(card?.body ?? null));
+  return `${card?.boardId ?? ''} ${cardId} ${String(card?.createAt ?? 0)} ${String(epoch)} ${made}`;
+}
 
 const schema = getSchema(bodyExtensions());
 
@@ -127,6 +162,9 @@ export class MemoryRooms {
 
   constructor(world: World, channel?: string) {
     this.#world = world;
+    world.bodyWritten = (cardId) => {
+      this.#remake(cardId);
+    };
     if (channel !== undefined && typeof BroadcastChannel !== 'undefined') {
       this.#channel = new BroadcastChannel(channel);
       this.#channel.onmessage = (event: MessageEvent<TabMessage>) => {
@@ -138,18 +176,36 @@ export class MemoryRooms {
   /** A way into a card's room for a user. */
   line(user: RoomUser, boardId: string, cardId: string): RoomLine {
     return (hears) => {
-      const seat: Seat = { user, hears, doc: undefined, mode: 'read', up: true };
+      const seat: Seat = {
+        user,
+        hears,
+        doc: undefined,
+        mode: 'read',
+        up: true,
+        hearing: true,
+        inAt: 0,
+        outAt: 0,
+      };
       const port: RoomPort = {
         connected: true,
+        // What a seat says reaches the room after the user's latency, as over a network.
         join: () => {
-          if (seat.up) this.#join(seat, boardId, cardId);
+          this.#hear(seat, () => {
+            this.#join(seat, boardId, cardId);
+          });
         },
         send: (bytes) => {
-          if (seat.up) this.#take(seat, cardId, bytes);
+          this.#hear(seat, () => {
+            this.#take(seat, cardId, bytes);
+          });
         },
+        // Leaving comes after what was sent before it, as `LEAVE_DOC` does.
         close: () => {
-          seat.up = false;
-          this.#leave(seat, cardId);
+          seat.hearing = false;
+          this.#hear(seat, () => {
+            seat.up = false;
+            this.#leave(seat, cardId);
+          });
         },
       };
       return port;
@@ -166,16 +222,25 @@ export class MemoryRooms {
     for (const room of this.#rooms.values()) this.#write(room);
   }
 
+  /** Takes what a seat said after the user's latency, in the order said; not once it has left. */
+  #hear(seat: Seat, take: () => void): void {
+    seat.inAt = Math.max(Date.now() + seat.user.latency, seat.inAt);
+    setTimeout(() => {
+      if (seat.up) take();
+    }, seat.inAt - Date.now());
+  }
+
   /** Says something to a seat after the user's latency, in the order said. */
   #say(seat: Seat, what: { message: RoomMessage } | { frame: Uint8Array }): void {
+    seat.outAt = Math.max(Date.now() + seat.user.latency, seat.outAt);
     setTimeout(() => {
-      if (!seat.up) return;
+      if (!seat.hearing) return;
       if ('message' in what) seat.hears.message(what.message);
       else {
         const frame = decodeDocFrame(what.frame);
         if (frame) seat.hears.frame(frame);
       }
-    }, seat.user.latency);
+    }, seat.outAt - Date.now());
   }
 
   #card(boardId: string, cardId: string): StoredCard | undefined {
@@ -195,7 +260,8 @@ export class MemoryRooms {
   #room(boardId: string, cardId: string): Room {
     const known = this.#rooms.get(cardId);
     if (known) return known;
-    const doc = documentOf(this.#card(boardId, cardId)?.body ?? null);
+    const card = this.#card(boardId, cardId);
+    const doc = documentOf(card?.body ?? null);
     const room: Room = {
       boardId,
       cardId,
@@ -205,29 +271,33 @@ export class MemoryRooms {
       lastWriter: undefined,
       quiet: undefined,
       longest: undefined,
-      stopWatching: this.#world.watch({
-        boardId,
-        userId: '',
-        listener: (change) => {
-          if (change.kind === 'members') this.#recheck(room);
-        },
-      }),
+      tab: tabKey(card, cardId, 1),
     };
+    this.#world.watch({
+      boardId,
+      userId: '',
+      listener: (change) => {
+        if (change.kind === 'members') this.#recheck(room);
+      },
+    });
     this.#rooms.set(cardId, room);
     // Another tab may have written in it already.
-    this.#channel?.postMessage({ kind: 'ask', cardId, vector: Y.encodeStateVector(doc) });
+    this.#post({ kind: 'ask', cardId, tab: room.tab, vector: Y.encodeStateVector(doc) });
     return room;
+  }
+
+  #post(message: TabMessage): void {
+    this.#channel?.postMessage(message);
   }
 
   #join(seat: Seat, boardId: string, cardId: string): void {
     const mode = this.#modeOf(seat.user, boardId, cardId);
-    // A join takes the place of the one before.
-    if (seat.doc !== undefined) this.#rooms.get(cardId)?.seats.delete(seat);
-    seat.doc = undefined;
+    // Refused, the room before (if any) stays the seat's.
     if (mode === undefined) {
       this.#say(seat, { message: { action: 'DOC_REFUSED', reason: 'not_found' } });
       return;
     }
+    // A join takes the place of the one before.
     const room = this.#room(boardId, cardId);
     this.#numbers += 1;
     const doc = this.#numbers;
@@ -278,7 +348,7 @@ export class MemoryRooms {
     room.lastWriter = seat.user.userId;
     this.#say(seat, { message: { action: 'DOC_ACK', doc, epoch: frame.epoch } });
     this.#spread(room, frame.payload, seat);
-    this.#channel?.postMessage({ kind: 'update', cardId, update: frame.payload });
+    this.#post({ kind: 'update', cardId, tab: room.tab, update: frame.payload });
     this.#changed(room);
   }
 
@@ -306,8 +376,12 @@ export class MemoryRooms {
     }
     const body = bodyOf(probe);
     if (body === undefined) return 'update_refused';
-    if (body !== null && new TextEncoder().encode(JSON.stringify(body)).length > LIMITS.bodyBytes) {
-      return 'document_too_large';
+    if (body === null) return undefined;
+    if (storedSize(body) > LIMITS.bodyBytes) return 'document_too_large';
+    // An image shows a file of this board, or none.
+    const files = this.#world.files;
+    if (imageFileIds(body).some((fileId) => files.get(fileId)?.boardId !== room.boardId)) {
+      return 'update_refused';
     }
     return undefined;
   }
@@ -357,6 +431,28 @@ export class MemoryRooms {
     });
   }
 
+  /** The card's body was written whole: the room's document is made anew from it, of the next epoch. */
+  #remake(cardId: string): void {
+    const room = this.#rooms.get(cardId);
+    if (!room) return;
+    clearTimeout(room.quiet);
+    clearTimeout(room.longest);
+    room.quiet = undefined;
+    room.longest = undefined;
+    room.doc.destroy();
+    const card = this.#card(room.boardId, cardId);
+    room.doc = documentOf(card?.body ?? null);
+    room.epoch += 1;
+    room.tab = tabKey(card, cardId, room.epoch);
+    const whole = Y.encodeStateAsUpdate(room.doc);
+    for (const seat of room.seats) {
+      const doc = seat.doc;
+      if (doc === undefined) continue;
+      this.#say(seat, { message: { action: 'DOC_RESET', doc, epoch: room.epoch } });
+      this.#sendWhole(seat, room, whole);
+    }
+  }
+
   /** The roles were changed: each seat is let stay as it may now, or put out. */
   #recheck(room: Room): void {
     for (const seat of [...room.seats]) {
@@ -378,10 +474,10 @@ export class MemoryRooms {
   /** What another tab's world said. */
   #fromTab(message: TabMessage): void {
     const room = this.#rooms.get(message.cardId);
-    if (!room) return;
+    if (room?.tab !== message.tab) return;
     if (message.kind === 'ask') {
       const update = Y.encodeStateAsUpdate(room.doc, message.vector);
-      this.#channel?.postMessage({ kind: 'update', cardId: room.cardId, update });
+      this.#post({ kind: 'update', cardId: room.cardId, tab: room.tab, update });
       return;
     }
     Y.applyUpdate(room.doc, message.update, this);

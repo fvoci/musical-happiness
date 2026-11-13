@@ -31,11 +31,20 @@ export function openLater(
   let opened: BodyDoc | undefined;
   let closed = false;
   let failed = false;
+  // Asked as a function: `closed` can change while `open` runs, which a reading of it does not show.
+  const isClosed = (): boolean => closed;
   const fetch = (): void => {
     failed = false;
     load().then(
       (open) => {
-        if (!closed) opened = open(hears);
+        if (closed) return;
+        const made = open(hears);
+        // Closed by what it told while it was being made.
+        if (isClosed()) made.close();
+        else {
+          opened = made;
+          hears.state(made.state);
+        }
       },
       () => {
         if (closed) return;

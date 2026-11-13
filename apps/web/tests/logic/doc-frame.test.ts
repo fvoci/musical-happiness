@@ -8,7 +8,6 @@ import * as Y from 'yjs';
 import {
   decodeDocFrame,
   encodeDocFrame,
-  frameSize,
   SYNC_STEP_1,
   SYNC_STEP_2,
   SYNC_UPDATE,
@@ -23,7 +22,6 @@ describe('a frame of a room', () => {
     const bytes = encodeDocFrame(frame);
     expect(hex(bytes)).toBe('03 00 ac 02 02 02 aa bb');
     expect(decodeDocFrame(bytes)).toEqual(frame);
-    expect(frameSize(frame, 2)).toBe(bytes.length);
   });
 
   it('writes large numbers as varuints of lib0, seven bits a byte from the low end', () => {

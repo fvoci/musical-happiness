@@ -36,7 +36,7 @@ export {
 } from './backend.ts';
 export { BoardStore, type CardDrop } from './board.svelte.ts';
 export { CardPreviews } from './card-previews.svelte.ts';
-export { CardStore, type BodyConflict, type CommentEdit, type Upload } from './card.svelte.ts';
+export { CardStore, type CommentEdit, type Upload } from './card.svelte.ts';
 export { changeDisplayName } from './account.ts';
 export { whileHere } from './here.ts';
 export { newCardMaker, registerNewCard, type NewCardMaker } from './new-card.ts';

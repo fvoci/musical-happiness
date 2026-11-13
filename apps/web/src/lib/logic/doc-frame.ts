@@ -8,6 +8,10 @@
  * Nothing here knows Yjs: a payload is bytes.
  */
 
+import type { RoomFrame as DocFrame } from './doc-room-types.ts';
+
+export type { DocFrame };
+
 /** The kinds of sync message. */
 export const SYNC_STEP_1 = 0;
 export const SYNC_STEP_2 = 1;
@@ -16,10 +20,6 @@ export const SYNC_UPDATE = 2;
 /** The one kind of frame there is: a sync message. Awareness (1) is not read yet. */
 const KIND_SYNC = 0;
 
-import type { RoomFrame as DocFrame } from './doc-room-types.ts';
-
-export type { DocFrame };
-
 function writeVaruint(out: number[], value: number): void {
   let rest = value;
   while (rest > 127) {
@@ -27,18 +27,6 @@ function writeVaruint(out: number[], value: number): void {
     rest = Math.floor(rest / 128);
   }
   out.push(rest);
-}
-
-/** How many bytes a varuint of `value` takes. */
-function varuintSize(value: number): number {
-  let size = 1;
-  for (let rest = value; rest > 127; rest = Math.floor(rest / 128)) size += 1;
-  return size;
-}
-
-/** How many bytes the frame of a payload of `length` bytes is. */
-export function frameSize(frame: Omit<DocFrame, 'payload'>, length: number): number {
-  return varuintSize(frame.doc) + 1 + varuintSize(frame.epoch) + 1 + varuintSize(length) + length;
 }
 
 export function encodeDocFrame(frame: DocFrame): Uint8Array<ArrayBuffer> {
@@ -97,6 +85,7 @@ export function packUpdates(
   limit: number,
   merge: (updates: Uint8Array[]) => Uint8Array,
 ): Uint8Array[] | undefined {
+  if (updates.length === 0) return [];
   const one = updates.length === 1 ? updates[0] : undefined;
   const merged = one ?? merge([...updates]);
   if (merged.length <= limit) return [merged];

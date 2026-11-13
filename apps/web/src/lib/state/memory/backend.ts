@@ -103,7 +103,7 @@ import {
 
 export { LIMITS, memberOf };
 
-type MethodName = keyof Backend;
+type MethodName = keyof Backend | 'writeCardBody';
 
 export class MemoryBackend implements Backend {
   readonly world: World;
@@ -944,15 +944,15 @@ export class MemoryBackend implements Backend {
     return this.#commented(summaryOf(card));
   }
 
+  /** A body written whole, as another client of the server's API does it; its room gets a new document. */
   async writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
     await this.#enter('writeCardBody');
     const card = this.#block(boardId, cardId, 'card') as StoredCard;
     const body = checkedBody(this.world, boardId, write.body);
-    if (card.updateAt !== write.readAt) {
-      fail(409, 'the card changed since it was read');
-    }
+    if (card.updateAt !== write.readAt) fail(409, 'the card changed since it was read');
     card.body = body;
     this.#touch(card);
+    this.world.bodyWritten?.(cardId);
     this.#tellBlocks(boardId, [card]);
     return this.#commented(detailOf(card));
   }

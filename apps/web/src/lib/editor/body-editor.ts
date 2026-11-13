@@ -5,8 +5,15 @@
  */
 import type { Editor } from '@tiptap/core';
 import type { Snippet } from 'svelte';
+import type { Doc } from 'yjs';
 
 import type { DocNode } from './schema.ts';
+
+/**
+ * The shared type of a body's Y document that the editor binds to, and the
+ * server makes the document in (`contracts/ydoc-vectors.json`).
+ */
+export const BODY_FIELD = 'default';
 
 /** What a toolbar gets: the editor to run commands on, and a count that changes with its state. */
 export interface BodyEditorTools {
@@ -50,4 +57,13 @@ export interface BodyEditorProps {
    * way (the marks of a text come in the editor's order).
    */
   onLoad?: (stored: DocNode | null | undefined) => void;
+  /**
+   * A body edited together: the editor is bound to this shared document
+   * (its type `default`) instead of `doc`, which is then not read, nor is
+   * `revision`. The undo of the editor takes back the reader's own changes
+   * only. Another document needs another editor.
+   */
+  collab?: Doc;
+  /** Called once the editor is made, with it: for whoever puts the caret back where it was. */
+  onEditor?: (editor: Editor) => void;
 }

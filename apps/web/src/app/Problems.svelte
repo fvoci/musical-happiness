@@ -1,8 +1,7 @@
 <!--
   Tells the reader what went wrong: a change that was refused and taken back,
-  a file that did not upload, a write that met somebody else's. One line each,
-  in a live region, until dismissed (or, for all but a conflict, a while has
-  passed).
+  a file that did not upload. One line each, in a live region, until
+  dismissed or a while has passed.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -54,21 +53,17 @@
         return m.app_problem_undo();
       case 'upload':
         return m.app_problem_upload();
-      case 'conflict':
-        return m.app_problem_conflict();
       default:
         return m.app_problem_save();
     }
   }
 
   $effect(() => {
-    const timers = workspace.problems
-      .filter((problem) => problem.action !== 'conflict')
-      .map((problem) =>
-        setTimeout(() => {
-          workspace.dismissProblem(problem.id);
-        }, STAY),
-      );
+    const timers = workspace.problems.map((problem) =>
+      setTimeout(() => {
+        workspace.dismissProblem(problem.id);
+      }, STAY),
+    );
     return () => {
       for (const timer of timers) clearTimeout(timer);
     };

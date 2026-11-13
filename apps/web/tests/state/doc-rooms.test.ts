@@ -11,7 +11,7 @@ import * as Y from 'yjs';
 import { LiveChanges } from '$lib/api/live.ts';
 import { decodeDocFrame, encodeDocFrame, SYNC_STEP_2, SYNC_UPDATE } from '$lib/logic/doc-frame.ts';
 import type { BodyDoc, BodyDocHears, BodyDocState, Change } from '$lib/state/backend.ts';
-import { openRoom } from '$lib/state/doc-client.ts';
+import { missingFrom, openRoom } from '$lib/state/doc-client.ts';
 import { bodyOf, FIELD, roomsOf } from '$lib/state/memory/rooms.ts';
 
 import { setup } from './support.ts';
@@ -92,7 +92,9 @@ describe('the rooms of the backend in memory', () => {
     });
     mine.close();
     theirs.close();
-    expect(roomsOf(stored).members(cardId)).toBe(0);
+    await vi.waitFor(() => {
+      expect(roomsOf(stored).members(cardId)).toBe(0);
+    });
   });
 
   it('lets a viewer in to read: they see the changes and cannot write', async () => {
@@ -324,6 +326,47 @@ describe('a room on the page connection', () => {
     two.close();
   });
 
+  it('refuses a second opening of a card on the page while the first is open, and lets it in after', async () => {
+    const { live, socket } = server();
+    const first = openRoom(live.rooms.line('w1', 'c1'), listener());
+    socket().open();
+    const second = openRoom(live.rooms.line('w1', 'c1'), listener());
+    await Promise.resolve();
+    expect(second.state).toMatchObject({ status: 'out', reason: 'already_open', retrying: true });
+    expect(socket().texts.filter((text) => text.action === 'JOIN_DOC')).toHaveLength(1);
+    first.close();
+    vi.advanceTimersByTime(1000);
+    expect(socket().texts.filter((text) => text.action === 'JOIN_DOC')).toHaveLength(2);
+    second.close();
+  });
+
+  it('leaves the room of a card closed before its answer when the join after it is refused', () => {
+    const { live, socket } = server();
+    // A listener keeps the connection while no room is open.
+    live.watch(undefined, () => undefined);
+    socket().open();
+    const first = openRoom(live.rooms.line('w1', 'c1'), listener());
+    first.close();
+    const second = openRoom(live.rooms.line('w1', 'c1'), listener());
+    socket().message({
+      action: 'DOC_JOINED',
+      workspaceId: 'w1',
+      cardId: 'c1',
+      doc: 4,
+      epoch: 1,
+      mode: 'write',
+    });
+    expect(socket().texts.some((text) => text.action === 'LEAVE_DOC')).toBe(false);
+    socket().message({
+      action: 'DOC_REFUSED',
+      workspaceId: 'w1',
+      cardId: 'c1',
+      reason: 'too_many_frames',
+    });
+    expect(socket().texts.at(-1)).toEqual({ action: 'LEAVE_DOC', doc: 4 });
+    second.close();
+  });
+
   it('closes the connection once neither a room nor a listener needs it', () => {
     const { live, socket } = server();
     const body = openRoom(live.rooms.line('w1', 'c1'), listener());
@@ -331,5 +374,22 @@ describe('a room on the page connection', () => {
     const closing = vi.spyOn(socket(), 'close');
     body.close();
     expect(closing).toHaveBeenCalled();
+  });
+});
+
+describe('what a document held has that the server lacks', () => {
+  it('is nothing when it has nothing more, and a deletion made here alone is something', () => {
+    const server = new Y.Doc();
+    append(server, 'one');
+    append(server, 'two');
+    const whole = Y.encodeStateAsUpdate(server);
+    const held = new Y.Doc();
+    Y.applyUpdate(held, whole);
+    expect(missingFrom(held, whole)).toBeUndefined();
+    held.getXmlFragment(FIELD).delete(0, 1);
+    const missing = missingFrom(held, whole);
+    expect(missing).toBeDefined();
+    Y.applyUpdate(server, missing ?? new Uint8Array());
+    expect(texts(server)).toEqual(texts(held));
   });
 });

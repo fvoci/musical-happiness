@@ -1,12 +1,14 @@
 /**
- * An open card: its body is written whole with the version it was read at,
- * and a refused write never overwrites what somebody else wrote.
+ * An open card: its body in its room, its comments and attachments, and who
+ * may change and delete a comment.
  */
 import { describe, expect, it, vi } from 'vitest';
+import * as Y from 'yjs';
 
 import { BackendError } from '$lib/state/index.ts';
+import { bodyOf, FIELD, roomsOf } from '$lib/state/memory/rooms.ts';
 
-import { openFirstBoard, settle, STATUS, text } from './support.ts';
+import { openFirstBoard, settle, text } from './support.ts';
 
 async function openAlpha() {
   const made = await openFirstBoard();
@@ -21,7 +23,6 @@ describe('an open card', () => {
     const { card } = await openAlpha();
     expect(card.status).toBe('ready');
     expect(card.body).toEqual(text('first body'));
-    expect(card.bodyRevision).toBe(1);
     expect(card.comments).toHaveLength(2);
     expect(card.comments[0]?.createAt).toBeLessThan(card.comments[1]?.createAt ?? 0);
     expect(card.attachments.map((attachment) => attachment.name)).toEqual(['kick-off-notes.txt']);
@@ -34,161 +35,63 @@ describe('an open card', () => {
     expect(card.missing).toBe(true);
   });
 
-  it('stores the body and does not make the editor take it again', async () => {
-    const { card, backend, board, cardId } = await openAlpha();
-    await card.saveBody(text('edited'));
-    expect(card.saving).toBe(false);
-    expect(card.dirty).toBe(false);
-    expect(card.bodyRevision).toBe(1);
-    expect((await backend.card(board.boardId, cardId)).body).toEqual(text('edited'));
-  });
-
-  it('stores the newest of several bodies given while one was being written', async () => {
-    const { card, backend, board, cardId } = await openAlpha();
-    backend.latency = 5;
-    const first = card.saveBody(text('one'));
-    void card.saveBody(text('two'));
-    const last = card.saveBody(text('three'));
-    expect(card.saving).toBe(true);
-    await Promise.all([first, last]);
-    expect(card.saving).toBe(false);
-    expect((await backend.card(board.boardId, cardId)).body).toEqual(text('three'));
-  });
-
-  it('waits for a write that is under way when asked to store with nothing new', async () => {
-    const { card, backend, board, cardId } = await openAlpha();
-    backend.latency = 5;
-    void card.saveBody(text('on its way'));
-    expect(card.saving).toBe(true);
-    // The caller that closes the card asks once more and leaves when this answers.
-    await card.saveBody();
-    expect(card.saving).toBe(false);
-    expect(card.dirty).toBe(false);
-    expect((await backend.card(board.boardId, cardId)).body).toEqual(text('on its way'));
-  });
-
-  it('writes on the newest version it knows after the reader changed a property', async () => {
-    const { card, board, backend, workspace, cardId } = await openAlpha();
-    await board.setCardProperty(cardId, STATUS, 'done');
-    await card.saveBody(text('after a property change'));
-    expect(card.conflict).toBeUndefined();
-    expect(workspace.problems).toHaveLength(0);
-    expect((await backend.card(board.boardId, cardId)).body).toEqual(
-      text('after a property change'),
-    );
-  });
-
-  it('sends the body again by itself when only something else about the card changed', async () => {
-    const { card, other, backend, board, cardId } = await openAlpha();
-    card.editBody(text('mine'));
-    await other.patchCard(board.boardId, cardId, { title: 'Alpha, renamed' });
-    await settle();
-    await card.saveBody();
-    expect(card.conflict).toBeUndefined();
-    const stored = await backend.card(board.boardId, cardId);
-    expect(stored.body).toEqual(text('mine'));
-    expect(stored.title).toBe('Alpha, renamed');
-  });
-
-  it('keeps sending the body when something else changes again while it is sent again', async () => {
-    const { card, other, backend, board, cardId } = await openAlpha();
-    card.editBody(text('mine'));
-    await other.patchCard(board.boardId, cardId, { title: 'Renamed once' });
-    // Right after the store reads the card again, the title changes once more.
-    const read = backend.card.bind(backend);
-    let reads = 0;
-    vi.spyOn(backend, 'card').mockImplementation(async (...args) => {
-      const found = await read(...args);
-      reads += 1;
-      if (reads === 1) await other.patchCard(board.boardId, cardId, { title: 'Renamed twice' });
-      return found;
-    });
-    await card.saveBody();
-    expect(reads).toBe(2);
-    expect(card.conflict).toBeUndefined();
-    const stored = await read(board.boardId, cardId);
-    expect(stored).toMatchObject({ body: text('mine'), title: 'Renamed twice' });
-  });
-
-  it('does not send a body the server would refuse: a mention that names nobody', async () => {
-    const { card, backend, workspace } = await openAlpha();
-    const write = vi.spyOn(backend, 'writeCardBody');
-    const anonymous = {
-      type: 'doc',
-      content: [{ type: 'paragraph', content: [{ type: 'mention', attrs: { userId: '' } }] }],
-    };
-    await card.saveBody(anonymous);
-    expect(write).not.toHaveBeenCalled();
-    expect(card.dirty).toBe(true);
-    expect(workspace.problems.at(-1)).toMatchObject({
-      action: 'save',
-      error: { status: 400, errors: [{ pointer: '/body', reason: 'invalid' }] },
-    });
-  });
-
-  it('holds both sides when somebody else wrote the body, and overwrites nothing', async () => {
-    const { card, other, backend, board, workspace, cardId } = await openAlpha();
-    const theirs = await other.card(board.boardId, cardId);
-    await other.writeCardBody(board.boardId, cardId, {
-      body: text('theirs'),
-      readAt: theirs.updateAt,
-    });
-    await card.saveBody(text('mine'));
-    expect(card.conflict?.mine).toEqual(text('mine'));
-    expect(card.conflict?.theirs.body).toEqual(text('theirs'));
-    expect(card.dirty).toBe(true);
-    expect(workspace.problems.at(-1)?.action).toBe('conflict');
-    expect((await backend.card(board.boardId, cardId)).body).toEqual(text('theirs'));
-  });
-
-  it("settles a conflict the reader's way: theirs is shown, or mine is stored", async () => {
-    const first = await openAlpha();
-    first.card.editBody(text('mine'));
-    const stale = await first.other.card(first.board.boardId, first.cardId);
-    await first.other.writeCardBody(first.board.boardId, first.cardId, {
-      body: text('theirs'),
-      readAt: stale.updateAt,
-    });
-    await first.card.saveBody();
-    const revision = first.card.bodyRevision;
-    await first.card.resolveConflict('theirs');
-    expect(first.card.body).toEqual(text('theirs'));
-    expect(first.card.bodyRevision).toBe(revision + 1);
-    expect(first.card.dirty).toBe(false);
-
-    const second = await openAlpha();
-    second.card.editBody(text('mine'));
-    const before = await second.other.card(second.board.boardId, second.cardId);
-    await second.other.writeCardBody(second.board.boardId, second.cardId, {
-      body: text('theirs'),
-      readAt: before.updateAt,
-    });
-    await second.card.saveBody();
-    await second.card.resolveConflict('mine');
-    expect(second.card.conflict).toBeUndefined();
-    expect((await second.backend.card(second.board.boardId, second.cardId)).body).toEqual(
-      text('mine'),
-    );
-  });
-
-  it("takes somebody else's body while the reader has nothing unsaved", async () => {
+  it("takes somebody else's body while it is not in the body's room", async () => {
     const { card, other, board, cardId } = await openAlpha();
     const read = await other.card(board.boardId, cardId);
     await other.writeCardBody(board.boardId, cardId, { body: text('news'), readAt: read.updateAt });
     await settle();
     await settle();
     expect(card.body).toEqual(text('news'));
-    expect(card.bodyRevision).toBe(2);
   });
 
-  it('keeps what the reader wrote when a write fails for another reason', async () => {
-    const { card, backend, workspace } = await openAlpha();
-    backend.failNext('writeCardBody', new BackendError(500));
-    await card.saveBody(text('kept'));
-    expect(card.dirty).toBe(true);
-    expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 500 } });
-    await card.saveBody(text('kept'));
-    expect(card.dirty).toBe(false);
+  it("opens the body in its room, where the room's document wins over the card's body, and leaves it when closed", async () => {
+    const { card, other, board, cardId, world } = await openAlpha();
+    card.openBody();
+    await vi.waitFor(() => {
+      expect(card.room?.status).toBe('joined');
+    });
+    expect(card.room?.writable).toBe(true);
+    expect(roomsOf(world).members(cardId)).toBe(1);
+    // A change of the card heard meanwhile does not read the body: the room's is newer.
+    const read = vi.spyOn(board.workspace.backend, 'card');
+    await other.patchCard(board.boardId, cardId, { title: 'Renamed' });
+    await settle();
+    expect(read).not.toHaveBeenCalled();
+    card.close();
+    expect(card.room).toBeUndefined();
+    await vi.waitFor(() => {
+      expect(roomsOf(world).members(cardId)).toBe(0);
+    });
+  });
+
+  it('says when what the reader wrote was dropped with a document made anew', async () => {
+    const { card, other, board, cardId, backend } = await openAlpha();
+    card.openBody();
+    await vi.waitFor(() => {
+      expect(card.room?.status).toBe('joined');
+    });
+    const doc = card.room?.doc;
+    if (!doc) throw new Error('no document');
+    // The reader's change is on its way when the body is written whole elsewhere.
+    backend.latency = 50;
+    const paragraph = new Y.XmlElement('paragraph');
+    paragraph.insert(0, [new Y.XmlText('mine')]);
+    doc.getXmlFragment(FIELD).insert(0, [paragraph]);
+    expect(card.bodyPending).toBe(true);
+    const read = await other.card(board.boardId, cardId);
+    await other.writeCardBody(board.boardId, cardId, {
+      body: text('theirs'),
+      readAt: read.updateAt,
+    });
+    await vi.waitFor(() => {
+      expect(card.room?.doc).not.toBe(doc);
+      expect(card.room?.status).toBe('joined');
+    });
+    expect(card.lost).toBe('document_reset');
+    expect(bodyOf(card.room?.doc ?? doc)).toEqual(text('theirs'));
+    card.dismissLost();
+    expect(card.lost).toBeUndefined();
+    card.close();
   });
 });
 
@@ -262,47 +165,14 @@ describe('comments and attachments', () => {
     expect(card.fileUrl(card.attachments[1]?.fileId ?? '')).toMatch(/^blob:/);
   });
 
-  it('uploads an image for the body out of the list, and keeps the body while it goes up', async () => {
-    const { card, other, backend, board, cardId } = await openAlpha();
+  it('uploads an image for the body out of the list', async () => {
+    const { card, backend } = await openAlpha();
     backend.latency = 5;
     const uploading = card.uploadImage(new File(['png'], 'a.png', { type: 'image/png' }));
     expect(card.uploads).toHaveLength(0);
-    // Somebody else writes the body meanwhile: it does not replace the one shown.
-    const theirs = await other.card(board.boardId, cardId);
-    await other.writeCardBody(board.boardId, cardId, {
-      body: text('theirs'),
-      readAt: theirs.updateAt,
-    });
-    await settle();
-    expect(card.body).toEqual(text('first body'));
     expect(card.imagesGoingUp).toBe(true);
     expect(await uploading).toMatch(/./);
-    // Once the image is in, what was heard meanwhile is read: the reader does not miss it.
     expect(card.imagesGoingUp).toBe(false);
-    await vi.waitFor(() => {
-      expect(card.body).toEqual(text('theirs'));
-    });
-  });
-
-  it('reads the body somebody else wrote while a save of the reader was under way, once it ends', async () => {
-    const { card, other, backend, board, cardId } = await openAlpha();
-    const write = backend.writeCardBody.bind(backend);
-    // The reader's body is stored; somebody else writes after it, and that
-    // news comes before the answer to the reader's write.
-    vi.spyOn(backend, 'writeCardBody').mockImplementationOnce(async (...args) => {
-      const stored = await write(...args);
-      await other.writeCardBody(board.boardId, cardId, {
-        body: text('theirs'),
-        readAt: stored.updateAt,
-      });
-      await settle();
-      return stored;
-    });
-    await card.saveBody(text('mine'));
-    await vi.waitFor(() => {
-      expect(card.body).toEqual(text('theirs'));
-    });
-    expect(card.dirty).toBe(false);
   });
 
   it('gives up an image upload when the card is closed, telling nothing', async () => {

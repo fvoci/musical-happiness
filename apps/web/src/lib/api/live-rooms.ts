@@ -7,7 +7,10 @@
  * in, another on every joining. The answer to a join names the card, not a
  * number, and answers come in the order of the joins: so the joins of a card
  * wait in a line. A card has one room on a connection: joining it again
- * takes the place of the number before.
+ * takes the place of the number before. So a page opens a card's room once
+ * at a time: a second opening of the same card is refused here
+ * (`already_open`, tried again by the room as any refusal for now) while the
+ * first is open.
  */
 import { decodeDocFrame } from '../logic/doc-frame.ts';
 import type { RoomHears, RoomLine } from '../logic/doc-room-types.ts';
@@ -19,6 +22,11 @@ interface Seat {
   hears: RoomHears;
   doc: number | undefined;
   closed: boolean;
+  /**
+   * A number of the card that this seat's join, once let in, takes the place
+   * of (the room of a seat closed meanwhile): left if the join is refused.
+   */
+  replaces: number | undefined;
 }
 
 /** What goes out; false when there is no connection to send on. */
@@ -58,6 +66,7 @@ export class LiveRooms {
         hears,
         doc: undefined,
         closed: false,
+        replaces: undefined,
       };
       this.#seats.add(seat);
       this.#wanted();
@@ -68,6 +77,13 @@ export class LiveRooms {
         },
         join: () => {
           if (!this.#up || seat.closed) return;
+          if (this.#another(seat)) {
+            queueMicrotask(() => {
+              if (!seat.closed)
+                seat.hears.message({ action: 'DOC_REFUSED', reason: 'already_open' });
+            });
+            return;
+          }
           const waiting = this.#joins.get(seat.key) ?? [];
           waiting.push(seat);
           this.#joins.set(seat.key, waiting);
@@ -85,6 +101,12 @@ export class LiveRooms {
         },
       };
     };
+  }
+
+  /** Another open seat of the same card. */
+  #another(seat: Seat): boolean {
+    for (const other of this.#seats) if (other !== seat && other.key === seat.key) return true;
+    return false;
   }
 
   #leave(seat: Seat): void {
@@ -125,6 +147,10 @@ export class LiveRooms {
       if (action === 'DOC_REFUSED') {
         // The room before, if there was one, is still the server's: it is left.
         this.#leave(seat);
+        if (seat.replaces !== undefined && this.#up) {
+          this.#sends.text({ action: 'LEAVE_DOC', doc: seat.replaces });
+        }
+        seat.replaces = undefined;
         if (!seat.closed) seat.hears.message({ action, reason: String(reason) });
         return true;
       }
@@ -132,10 +158,14 @@ export class LiveRooms {
       // The number before is no room any more.
       if (seat.doc !== undefined) this.#byDoc.delete(seat.doc);
       seat.doc = doc;
+      seat.replaces = undefined;
       if (seat.closed) {
         // Let in after it was closed: left, unless a later join of the card takes this one's place.
-        if (waiting && waiting.length > 0) seat.doc = undefined;
-        else this.#leave(seat);
+        const next = waiting?.[0];
+        if (next) {
+          seat.doc = undefined;
+          next.replaces = doc;
+        } else this.#leave(seat);
         return true;
       }
       this.#byDoc.set(doc, seat);

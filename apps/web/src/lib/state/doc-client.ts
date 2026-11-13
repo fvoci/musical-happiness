@@ -143,10 +143,7 @@ export class RoomClient implements BodyDoc {
       case 'offer': {
         const doc = this.#doc;
         if (!doc) break;
-        // Everything the server's lacks, and every deletion: one made here alone
-        // shows in no state vector, so none can be told to be missing.
-        const have = Y.encodeStateVectorFromUpdate(effect.have);
-        this.#take({ type: 'missing', update: Y.encodeStateAsUpdate(doc, have) });
+        this.#take({ type: 'missing', update: missingFrom(doc, effect.have) });
         break;
       }
       case 'discarded':
@@ -191,6 +188,26 @@ export class RoomClient implements BodyDoc {
     this.#doc = doc;
     doc?.on('update', this.#changed);
     before?.destroy();
+  }
+}
+
+/**
+ * What `doc` has that the document of `whole` (the server's, as it sent it)
+ * lacks; undefined when nothing. A deletion made here alone shows in no
+ * state vector, so the two are compared as snapshots (states and deletions).
+ */
+export function missingFrom(doc: Y.Doc, whole: Uint8Array): Uint8Array | undefined {
+  const theirs = new Y.Doc();
+  try {
+    Y.applyUpdate(theirs, whole);
+    const before = Y.snapshot(theirs);
+    const update = Y.encodeStateAsUpdate(doc, Y.encodeStateVector(theirs));
+    Y.applyUpdate(theirs, update);
+    return Y.equalSnapshots(before, Y.snapshot(theirs)) ? undefined : update;
+  } catch {
+    return undefined;
+  } finally {
+    theirs.destroy();
   }
 }
 

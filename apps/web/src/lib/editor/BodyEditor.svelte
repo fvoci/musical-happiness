@@ -18,12 +18,13 @@
 -->
 <script lang="ts">
   import { Editor } from '@tiptap/core';
+  import { Collaboration } from '@tiptap/extension-collaboration';
   import { onMount, untrack } from 'svelte';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
 
-  import type { BodyEditorProps } from './body-editor.ts';
+  import { BODY_FIELD, type BodyEditorProps } from './body-editor.ts';
   import './editor.css';
   import './editing-place.css';
   import { loadEmoji, searchEmoji } from './emoji.ts';
@@ -48,6 +49,8 @@
     label,
     toolbar,
     onLoad,
+    collab,
+    onEditor,
   }: BodyEditorProps = $props();
 
   let host: HTMLDivElement;
@@ -100,16 +103,20 @@
     };
 
   onMount(() => {
-    const first = loadable(doc);
+    // Bound to a shared document, the editor takes what is in it; `doc` is not read.
+    const shared = collab;
+    const first = shared ? emptyDoc() : loadable(doc);
     unreadable = first === undefined;
     const created = new Editor({
       element: host,
       // The styles the library would put into the page are in editor.css.
       injectCSS: false,
       editable: editable && first !== undefined,
-      content: first ?? emptyDoc(),
+      ...(shared ? {} : { content: first ?? emptyDoc() }),
       extensions: [
+        ...(shared ? [Collaboration.configure({ document: shared, field: BODY_FIELD })] : []),
         ...bodyExtensions({
+          history: !shared,
           placeholder,
           mention: {
             search: (query) => {
@@ -150,7 +157,8 @@
       onBlur: fromEditor(() => onBlur?.()),
     });
     editor = created;
-    onLoad?.(first === undefined ? undefined : storedOf(created));
+    if (!shared) onLoad?.(first === undefined ? undefined : storedOf(created));
+    onEditor?.(created);
     return () => {
       cancelMathEditing();
       created.destroy();
@@ -159,11 +167,12 @@
 
   // A change from outside: read `doc` again. Not on the first run, which the
   // editor's own creation covers, and never because `doc` itself changed.
+  // A shared document is its own: nothing is read into it from outside.
   let seen: number | undefined;
   $effect(() => {
     const next = revision;
     const current = editor;
-    if (!current) return;
+    if (!current || untrack(() => collab)) return;
     if (seen === undefined || seen === next) {
       seen = next;
       return;

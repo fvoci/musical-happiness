@@ -68,6 +68,7 @@ describe('joining', () => {
     expect(room.take({ type: 'up' }).map((effect) => effect.type)).toEqual([
       'cancel',
       'join',
+      'timer',
       'changed',
     ]);
     expect(room.room.status.phase).toBe('joining');
@@ -390,5 +391,95 @@ describe('the way of writing', () => {
     });
     expect(room.room.status.mode).toBe('read');
     expect(room.of('join')).toHaveLength(1);
+  });
+});
+
+describe('answers that come late, and joins that cross', () => {
+  it('a change gathered when the room turns to reading is said lost, and the document received again', () => {
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'local', update: update() });
+    room.take({ type: 'message', message: { action: 'DOC_MODE', doc: 1, mode: 'read' } });
+    expect(room.of('join')).toHaveLength(1);
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'read' },
+    });
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('discarded')).toEqual([{ type: 'discarded', why: 'document_read_only' }]);
+    expect(room.room.status).toMatchObject({ mode: 'read', pending: false, writable: false });
+  });
+
+  it('asks to be let in once while a join is on its way, and takes a join with no answer as refused for now', () => {
+    const room = new Harness();
+    room.take({ type: 'up' });
+    expect(room.take({ type: 'retry' }).some((effect) => effect.type === 'join')).toBe(false);
+    room.take({ type: 'timer', timer: 'answer' });
+    expect(room.room.status).toMatchObject({
+      phase: 'out',
+      reason: 'document_unavailable',
+      retrying: true,
+    });
+    expect(room.take({ type: 'retry' }).some((effect) => effect.type === 'join')).toBe(true);
+  });
+
+  it('sends what was written before a change too large, then receives the document again', () => {
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'local', update: update(10) });
+    room.take({ type: 'local', update: update(2000) });
+    room.take({ type: 'timer', timer: 'flush' });
+    expect(room.sent()).toHaveLength(1);
+    expect(room.of('join')).toHaveLength(1);
+  });
+
+  it('does not count the late answer of a change given up as the answer of the one sent after it', () => {
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'local', update: update() });
+    room.take({ type: 'settle' });
+    room.take({ type: 'local', update: update() });
+    room.take({ type: 'settle' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_NACK', doc: 1, epoch: 7, reason: 'update_out_of_step' },
+    });
+    room.take({ type: 'message', message: { action: 'DOC_RESET', doc: 1, epoch: 7 } });
+    room.take({ type: 'frame', frame: { doc: 1, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('offer')).toHaveLength(1);
+    room.take({ type: 'missing', update: update() });
+    room.take({ type: 'settle' });
+    expect(room.sent()).toHaveLength(1);
+    // The answer of the second change, sent before the refusal, comes now.
+    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 1, epoch: 7 } });
+    expect(room.room.status.pending).toBe(true);
+    room.take({ type: 'message', message: { action: 'DOC_ACK', doc: 1, epoch: 7 } });
+    expect(room.room.status.pending).toBe(false);
+  });
+
+  it('offers nothing when the document held has nothing the server lacks', () => {
+    const room = new Harness();
+    room.joined(1, 7);
+    room.write();
+    room.take({ type: 'down' });
+    room.take({ type: 'up' });
+    room.take({
+      type: 'message',
+      message: { action: 'DOC_JOINED', doc: 2, epoch: 7, mode: 'write' },
+    });
+    room.take({ type: 'frame', frame: { doc: 2, epoch: 7, sync: STEP_2, payload: WHOLE } });
+    expect(room.of('offer')).toHaveLength(1);
+    room.take({ type: 'missing', update: undefined });
+    expect(room.room.status.pending).toBe(false);
+    room.take({ type: 'timer', timer: 'flush' });
+    expect(room.sent()).toEqual([]);
+  });
+
+  it('stays out after not_found when the connection comes back', () => {
+    const room = new Harness();
+    room.joined(1, 7);
+    room.take({ type: 'message', message: { action: 'DOC_LEFT', doc: 1, reason: 'not_found' } });
+    room.take({ type: 'down' });
+    expect(room.take({ type: 'up' }).some((effect) => effect.type === 'join')).toBe(false);
   });
 });

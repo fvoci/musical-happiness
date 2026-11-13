@@ -663,27 +663,6 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return cardOf(card);
   }
 
-  /**
-   * Replaces the body by the card patch, with the version it was read at:
-   * the server refuses with 409 when the card changed since, and changes
-   * nothing. An empty document is sent as it is; the server stores it as no
-   * body. The body goes in the same turn as the card's other changes.
-   */
-  writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
-    return this.#inTurn(cardId, async () => {
-      const request: Schemas['CardPatch'] = {
-        body: write.body ? wireBody(write.body) : null,
-        readAt: write.readAt,
-      };
-      const card = await this.inWorkspace<Schemas['Card']>(
-        '/cards/{cardId}',
-        { cardId, boardId },
-        { method: 'PATCH', json: request },
-      );
-      return cardDetailOf(card);
-    });
-  }
-
   /** The comments of a card: blocks of the type `comment` under it. */
   async comments(boardId: string, cardId: string): Promise<Comment[]> {
     return (await this.#children(boardId, cardId, 'comment')).map(commentOf);
