@@ -89,26 +89,30 @@ async fn a_relay_that_wants_credentials_closes_the_way_and_invitations_wait() {
 }
 
 #[tokio::test]
-async fn a_relay_that_cannot_be_reached_closes_the_way() {
-    let smtp = FakeSmtp::start_on(0).await;
-    let mut settings = smtp.settings();
-    // The sink speaks plain SMTP: the TLS handshake cannot be made.
-    settings.smtp_tls = fvoci_server::config::smtp::SmtpTls::Tls;
-    let th = Setup::native()
-        .smtp(settings)
-        .metrics_at("127.0.0.1:0")
-        .start()
-        .await
-        .init_basic()
-        .await;
-    let body = close_the_way_with_a_reset(&th).await;
-    assert_eq!(
-        sample(&body, "fvoci_mail_path_down", &[]),
-        Some(1.0),
-        "{body}"
-    );
-    assert_nothing_given_up(&body);
-    assert!(smtp.messages().await.is_empty());
-    th.teardown().await;
-    smtp.stop().await;
+async fn a_relay_that_cannot_be_reached_as_asked_closes_the_way() {
+    use fvoci_server::config::smtp::SmtpTls;
+    // The sink speaks plain SMTP and offers no STARTTLS: neither a TLS handshake nor
+    // the upgrade can be made.
+    for tls in [SmtpTls::Tls, SmtpTls::Starttls] {
+        let smtp = FakeSmtp::start_on(0).await;
+        let mut settings = smtp.settings();
+        settings.smtp_tls = tls;
+        let th = Setup::native()
+            .smtp(settings)
+            .metrics_at("127.0.0.1:0")
+            .start()
+            .await
+            .init_basic()
+            .await;
+        let body = close_the_way_with_a_reset(&th).await;
+        assert_eq!(
+            sample(&body, "fvoci_mail_path_down", &[]),
+            Some(1.0),
+            "{tls:?}: {body}"
+        );
+        assert_nothing_given_up(&body);
+        assert!(smtp.messages().await.is_empty());
+        th.teardown().await;
+        smtp.stop().await;
+    }
 }

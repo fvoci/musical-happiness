@@ -36,9 +36,9 @@ const CLOSED: &str = "the mail semaphores are never closed";
 /// The longest a message waits for another attempt: a way that asks for longer has its
 /// message given up then, rather than asked again before it said.
 const LONGEST_RETRY_WAIT: Duration = Duration::from_mins(1);
-/// The longest a message waits for a closed way to open, from its first attempt the way
-/// refused so: a reset link is good for an hour, and the queue's places are for mail
-/// that may still go.
+/// The longest a recovery message waits for a closed way to open, from the first of its
+/// attempts the way refused so: a reset link is good for an hour, and the queue's
+/// places are for mail that may still go. Invitations wait as long as it stays closed.
 const LONGEST_PATH_WAIT: Duration = Duration::from_mins(15);
 
 /// Why invitation messages were not queued; nothing of the request was.
@@ -264,8 +264,8 @@ impl Queued {
     /// `write` creates (a reset token) is as young as can be.
     /// Attempts follow the way's [`Outcome`]: up to three while it asks for later, one
     /// when it refuses; while the way is closed, the message waits for the pace's next
-    /// attempt at it, which counts against none of the three, for up to
-    /// [`LONGEST_PATH_WAIT`]. What became of the message is logged and counted here,
+    /// attempt at it, which counts against none of the three (a recovery message for
+    /// up to [`LONGEST_PATH_WAIT`]). What became of the message is logged and counted here,
     /// without a reply text, an address or a token.
     ///
     /// # Errors
@@ -286,15 +286,26 @@ impl Queued {
         let kind = self.kind;
         let mut write = Some(write);
         let mut message = None;
-        let mut waits = RETRY_DELAYS.into_iter();
-        // When the way first refused this message's attempt as closed.
-        let mut closed_since = None;
+        let mut tried = Tried {
+            waits: RETRY_DELAYS.into_iter(),
+            closed_since: None,
+        };
         for attempt in 1.. {
             // An invitation's sendings first, its organization's and the invitations':
             // they keep waiting only invitations, and an invitation that has its turn
             // has them, so it neither spends a turn waiting nor uses one after a pause.
             let held = mailer.invitation_sendings(self.org.as_ref()).await;
-            mailer.pace.turn(kind).await;
+            if !mailer.turn(kind, tried.closed_since).await {
+                delivered = Delivered::GivenUp;
+                tracing::warn!(
+                    kind = kind.as_str(),
+                    way = outbound.name(),
+                    attempt,
+                    "mail given up: the way stayed closed"
+                );
+                mailer.metrics.mail_failed(kind, MailFailure::Temporary);
+                break;
+            }
             let sending = mailer.sending(held).await;
             let message: &Outgoing = if let Some(ref message) = message {
                 message
@@ -313,58 +324,119 @@ impl Queued {
             drop(sending);
             let way = outbound.name();
             mailer.observe(way, outcome);
-            let wait = match outcome {
-                Outcome::Sent => {
-                    delivered = Delivered::Sent;
+            match mailer.after_attempt(
+                kind,
+                Attempt {
+                    way,
+                    number: attempt,
+                    outcome,
+                },
+                &mut tried,
+            ) {
+                Next::Done(done) => {
+                    delivered = done;
                     break;
                 }
-                Outcome::Refused { code } => {
-                    delivered = Delivered::Refused;
-                    tracing::warn!(
-                        kind = kind.as_str(),
-                        way,
-                        attempt,
-                        code,
-                        "mail refused for good"
-                    );
-                    mailer.metrics.mail_failed(kind, MailFailure::Permanent);
-                    break;
-                }
-                Outcome::Later { after, code } => {
-                    tracing::warn!(kind = kind.as_str(), way, attempt, code, "mail deferred");
-                    // A way that asks for longer than another attempt may wait is
-                    // not asked again before it said.
-                    let wait = waits.next().map(|backoff| after.unwrap_or(backoff));
-                    let Some(wait) = wait.filter(|wait| *wait <= LONGEST_RETRY_WAIT) else {
-                        delivered = Delivered::GivenUp;
-                        tracing::warn!(kind = kind.as_str(), way, attempt, "mail given up");
-                        mailer.metrics.mail_failed(kind, MailFailure::Temporary);
-                        break;
-                    };
-                    wait
-                }
-                Outcome::PathDown { code } => {
-                    let since = *closed_since.get_or_insert_with(tokio::time::Instant::now);
-                    if since.elapsed() >= LONGEST_PATH_WAIT {
-                        delivered = Delivered::GivenUp;
-                        tracing::warn!(
-                            kind = kind.as_str(),
-                            way,
-                            attempt,
-                            code,
-                            "mail given up: the way stayed closed"
-                        );
-                        mailer.metrics.mail_failed(kind, MailFailure::Temporary);
-                        break;
-                    }
-                    // The pace holds the next attempt until the way may be tried again.
-                    Duration::ZERO
-                }
-            };
-            tokio::time::sleep(wait).await;
+                Next::Wait(wait) => tokio::time::sleep(wait).await,
+            }
         }
         drop((self.place, self.org));
         Ok(delivered)
+    }
+}
+
+/// What a message has had of its attempts so far.
+struct Tried {
+    /// The waits before the attempts that are left after the way asked for later.
+    waits: std::array::IntoIter<Duration, 2>,
+    /// Since when the way has been closed to this message's attempts, if it is.
+    closed_since: Option<tokio::time::Instant>,
+}
+
+/// One attempt and what it became.
+#[derive(Clone, Copy)]
+struct Attempt {
+    way: &'static str,
+    /// The attempt's number, from 1.
+    number: u32,
+    outcome: Outcome,
+}
+
+/// What a message does after an attempt.
+enum Next {
+    /// No more attempts: this became of it.
+    Done(Delivered),
+    /// Another attempt, after this; a closed way's attempt waits for the pace instead.
+    Wait(Duration),
+}
+
+impl Mailer {
+    /// Waits for the turn of a message of `kind`. A recovery message that the way has
+    /// been closed to since `closed_since` waits until [`LONGEST_PATH_WAIT`] from then
+    /// at most: its link ages, and its place is for mail that may still go. An
+    /// invitation waits for as long as the way stays closed. Returns whether the turn
+    /// came.
+    async fn turn(&self, kind: MailKind, closed_since: Option<tokio::time::Instant>) -> bool {
+        let turn = self.pace.turn(kind);
+        match closed_since {
+            Some(since) if kind == MailKind::PasswordReset => {
+                tokio::time::timeout_at(since + LONGEST_PATH_WAIT, turn)
+                    .await
+                    .is_ok()
+            }
+            _ => {
+                turn.await;
+                true
+            }
+        }
+    }
+
+    /// Decides what follows `attempt` of a message of `kind`, and logs and counts a
+    /// message given up.
+    fn after_attempt(&self, kind: MailKind, attempt: Attempt, tried: &mut Tried) -> Next {
+        let Attempt {
+            way,
+            number: attempt,
+            outcome,
+        } = attempt;
+        if !matches!(outcome, Outcome::PathDown { .. }) {
+            tried.closed_since = None;
+        }
+        match outcome {
+            Outcome::Sent => Next::Done(Delivered::Sent),
+            Outcome::Refused { code } => {
+                tracing::warn!(
+                    kind = kind.as_str(),
+                    way,
+                    attempt,
+                    code,
+                    "mail refused for good"
+                );
+                self.metrics.mail_failed(kind, MailFailure::Permanent);
+                Next::Done(Delivered::Refused)
+            }
+            Outcome::Later { after, code } => {
+                tracing::warn!(kind = kind.as_str(), way, attempt, code, "mail deferred");
+                // A way that asks for longer than another attempt may wait is not asked
+                // again before it said.
+                let wait = tried.waits.next().map(|backoff| after.unwrap_or(backoff));
+                if let Some(wait) = wait.filter(|wait| *wait <= LONGEST_RETRY_WAIT) {
+                    Next::Wait(wait)
+                } else {
+                    tracing::warn!(kind = kind.as_str(), way, attempt, "mail given up");
+                    self.metrics.mail_failed(kind, MailFailure::Temporary);
+                    Next::Done(Delivered::GivenUp)
+                }
+            }
+            Outcome::PathDown { .. } => {
+                tried
+                    .closed_since
+                    .get_or_insert_with(tokio::time::Instant::now);
+                // The pace holds the next attempt until the way may be tried again, and
+                // [`Mailer::turn`] ends a recovery message's wait.
+                Next::Wait(Duration::ZERO)
+            }
+        }
     }
 }
 

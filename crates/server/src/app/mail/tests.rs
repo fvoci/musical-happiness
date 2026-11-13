@@ -546,3 +546,63 @@ async fn a_message_the_way_refuses_opens_a_closed_way_again() {
     let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
     assert_eq!(times, [0, 60, 61]);
 }
+
+#[tokio::test(start_paused = true)]
+async fn an_invitation_is_held_while_the_way_stays_closed_and_never_given_up_for_it() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    let invitation = send(&mailer, invitation(&mailer), "i@example.test");
+    tokio::time::sleep(Duration::from_mins(40)).await;
+    assert!(!invitation.is_finished(), "held, not given up");
+    assert_eq!(
+        failed(&metrics, MailKind::Invitation, MailFailure::Temporary),
+        0
+    );
+    let times: Vec<u64> = fake.attempts().into_iter().map(|(at, _)| at).collect();
+    assert_eq!(
+        times,
+        (0..40 * 60).step_by(60).collect::<Vec<u64>>(),
+        "with no recovery message waiting, it tries the way once a minute"
+    );
+    invitation.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_recovery_message_waiting_for_a_closed_way_gives_up_without_its_turn() {
+    let mailer = mailer_of(&Fake::new(&[]), Metrics::none());
+    let _ = mailer.pace.observe(DOWN);
+    let now = tokio::time::Instant::now();
+    assert!(
+        mailer.turn(MailKind::PasswordReset, Some(now)).await,
+        "the next attempt comes within its quarter of an hour"
+    );
+    let _ = mailer.pace.observe(DOWN);
+    let waited_long = now
+        .checked_sub(LONGEST_PATH_WAIT)
+        .expect("the paused clock starts later than a quarter of an hour")
+        + Duration::from_secs(30);
+    let started = tokio::time::Instant::now();
+    assert!(
+        !mailer
+            .turn(MailKind::PasswordReset, Some(waited_long))
+            .await,
+        "its quarter of an hour ends before the next attempt"
+    );
+    assert!(started.elapsed() <= Duration::from_secs(30));
+    assert!(
+        mailer.turn(MailKind::Invitation, Some(waited_long)).await,
+        "an invitation waits for as long as it takes"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refusal_without_a_reply_of_the_way_leaves_it_closed() {
+    let metrics = Metrics::kept().expect("metrics");
+    let fake = Fake::new(&[DOWN, Outcome::Refused { code: None }, Outcome::Sent]);
+    let mailer = mailer_of(&fake, metrics.clone());
+    send(&mailer, reset(&mailer, "a"), "a@example.test")
+        .await
+        .expect("refused");
+    assert_eq!(path_down(&metrics), 1, "nothing was read of the way");
+}

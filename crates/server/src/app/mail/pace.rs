@@ -23,7 +23,7 @@ const LONGEST_PAUSE: Duration = Duration::from_mins(15);
 /// While the way is closed ([`Outcome::PathDown`]), one attempt goes this often, a
 /// waiting recovery message before any invitation: enough to find out it opened again,
 /// few enough not to hammer a provider that refuses the keys.
-pub(super) const PROBE_INTERVAL: Duration = Duration::from_mins(1);
+const PROBE_INTERVAL: Duration = Duration::from_mins(1);
 
 /// The turns of the attempts to send, shared by every message.
 #[derive(Debug)]
@@ -54,7 +54,8 @@ struct State {
 pub(super) enum PathChange {
     /// The way was open and is closed now.
     Closed,
-    /// The way was closed and took a message (or refused one, which it reads first).
+    /// The way was closed and took a message, or refused one with a reply of its own,
+    /// which it gives after it read the server's keys.
     Opened,
 }
 
@@ -165,9 +166,13 @@ impl Pace {
                     Some(PathChange::Closed)
                 }
             }
-            // One message refused says nothing of the way's limits, but the way read the
-            // server's keys before it.
-            Outcome::Refused { .. } => state.next_probe.take().map(|_| PathChange::Opened),
+            // One message refused says nothing of the way's limits, but a reply of the
+            // way came after it read the server's keys. A refusal without a reply (a
+            // message that could not be made) says nothing of the way.
+            Outcome::Refused { code: Some(_) } => {
+                state.next_probe.take().map(|_| PathChange::Opened)
+            }
+            Outcome::Refused { code: None } => None,
         };
         drop(state);
         self.changed.notify_waiters();

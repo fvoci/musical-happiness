@@ -38,11 +38,11 @@ impl fmt::Debug for Outgoing {
 pub(crate) enum Outcome {
     /// The way took the message.
     Sent,
-    /// Not now: the way is busy, unreachable, throttled, past a quota or paused, or
-    /// anything else that another attempt later may get past. Whatever stops the whole
-    /// way rather than this message belongs here: three in a row hold invitations back
-    /// while recovery goes on. `after` is how long the way asked to be left alone, if
-    /// it said; `code` is its reply or status code, if it gave one.
+    /// Not now: the way is busy, does not answer in time, is throttled or past a quota,
+    /// or anything else that another attempt later may get past. Three in a row hold
+    /// invitations back for a while as recovery goes on. `after` is how long the way
+    /// asked to be left alone, if it said; `code` is its reply or status code, if it
+    /// gave one.
     Later {
         after: Option<Duration>,
         code: Option<u16>,
@@ -51,10 +51,11 @@ pub(crate) enum Outcome {
     /// message it will not carry); another attempt would get the same.
     Refused { code: Option<u16> },
     /// The whole way is closed to this server: it refuses the server's keys, token,
-    /// signature or permissions (SMTP `530`, `535`; HTTP `401`, `403`), or cannot be
-    /// reached at all. No message goes until it opens again, so this counts against
-    /// none of the message's attempts: the queue holds invitations back and tries one
-    /// message now and then. `code` is the reply or status code, if there was one.
+    /// signature or permissions (SMTP `530`, `534`, `535`, `538`; HTTP `401`, `403`),
+    /// or a connection to it cannot be made (each way says which of its failures are
+    /// such). No message goes until it opens again, so this counts against none of the
+    /// message's attempts: the queue holds invitations back and tries one message a
+    /// minute. `code` is the reply or status code, if there was one.
     PathDown { code: Option<u16> },
 }
 
