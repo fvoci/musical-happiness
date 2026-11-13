@@ -26,6 +26,7 @@ mod deleted_item;
 mod file_info;
 mod id;
 mod invitation;
+mod name;
 mod oidc;
 mod org_admin;
 mod organization;
@@ -44,9 +45,9 @@ mod workspace;
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
     AuthParamError, ChangePasswordRequest, DISPLAY_NAME_MAX_LENGTH, LoginRequest,
-    MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, Named, NewAccount,
+    MAXIMUM_EMAIL_BYTES, MAXIMUM_PASSWORD_BYTES, MINIMUM_PASSWORD_LENGTH, NewAccount,
     ORGANIZATION_NAME_MAX_LENGTH, RegisterRequest, check_new_password, display_name,
-    is_email_valid, organization_name, required_name,
+    is_email_valid, organization_name,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
@@ -89,6 +90,7 @@ pub use invitation::{
     AcceptInvitation, AcceptedInvitation, GUEST_INVITATION_USES, INVITATION_LIFETIME_MILLIS,
     Invitation, InvitationPreview, InvitationToken, NewInvitation,
 };
+pub use name::{Named, required_name};
 pub use oidc::{
     LinkedIdentity, LoginOptions, LoginOrganization, OIDC_CLIENT_FIELD_MAX_BYTES,
     OIDC_ISSUER_MAX_BYTES, OidcProvider, OidcProviderSettings, OidcStart, OidcStartRequest,

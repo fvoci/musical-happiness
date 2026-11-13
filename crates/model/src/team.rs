@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::auth::{AuthParamError, Named, required_name};
+use crate::auth::AuthParamError;
+use crate::name::{Named, required_name};
 
 /// A named group of people within a workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]

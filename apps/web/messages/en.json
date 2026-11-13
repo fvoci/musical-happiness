@@ -1026,6 +1026,7 @@
   "teams_empty": "No teams yet.",
   "teams_name": "Team name",
   "teams_create": "Create team",
+  "teams_new_name": "New name for {name}",
   "teams_rename": "Rename",
   "teams_save": "Save name",
   "teams_delete": "Delete team",

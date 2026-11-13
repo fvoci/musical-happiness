@@ -74,7 +74,7 @@ test('an administrator creates a team, changes its name and people, and deletes 
   await box.fill('');
   await row.getByRole('button', { name: 'Rename', exact: true }).click();
   const renamed = `${name}-research`;
-  await row.getByRole('textbox', { name: 'Team name' }).fill(renamed);
+  await row.getByRole('textbox', { name: `New name for ${name}` }).fill(renamed);
   await row.getByRole('button', { name: 'Save name' }).click();
   row = panel.locator(`[data-team="${renamed}"]`);
   await expect(row).toBeVisible();

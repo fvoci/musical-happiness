@@ -31,6 +31,10 @@
   let loaded = $state(false);
   let working = $state(false);
   let problem = $state('');
+  /** Whose name the last refusal was about: `CREATING` for the new team's, else a team's id. */
+  let refusedName = $state<string | undefined>(undefined);
+  const CREATING = 'creating';
+  const problemId = `${id}-problem`;
   let unread = $state(false);
   let name = $state('');
   let deleting = $state.raw<Team | undefined>(undefined);
@@ -81,16 +85,29 @@
     }
   }
 
-  /** Whether the step was done; on failure, what was typed for it stays. */
-  async function act(step: (place: string) => Promise<unknown>): Promise<boolean> {
+  /** Whether the refusal is about the name typed, which then is marked as refused. */
+  function aboutName(error: unknown): boolean {
+    return (
+      isBackendError(error) &&
+      (error.reason === 'team_name_taken' || error.refusalAt('/name') !== undefined)
+    );
+  }
+
+  /**
+   * Whether the step was done; on failure, what was typed for it stays. `naming`
+   * says whose name the step sends, if it sends one.
+   */
+  async function act(step: (place: string) => Promise<unknown>, naming?: string): Promise<boolean> {
     if (!workspaceId || working) return false;
     working = true;
     problem = '';
+    refusedName = undefined;
     try {
       await step(workspaceId);
       return true;
     } catch (error) {
       problem = told(error);
+      if (aboutName(error)) refusedName = naming;
       return false;
     } finally {
       await read(workspaceId, managing);
@@ -104,7 +121,7 @@
     <h3 id="{id}-title" class="font-medium">{m.teams_title()}</h3>
     <p class="text-sm text-muted-foreground">{m.teams_description({ workspace: workspaceName })}</p>
   </div>
-  {#if problem || unread}<p role="alert" class="text-sm text-destructive">
+  {#if problem || unread}<p id={problemId} role="alert" class="text-sm text-destructive">
       {problem || m.teams_load_failed()}
     </p>{/if}
   {#if managing}
@@ -116,13 +133,15 @@
           void act(async (place) => {
             await teams.create(place, name);
             name = '';
-          });
+          }, CREATING);
       }}
     >
       <input
         class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
         aria-label={m.teams_name()}
         placeholder={m.teams_name()}
+        aria-invalid={refusedName === CREATING || undefined}
+        aria-describedby={refusedName === CREATING ? problemId : undefined}
         bind:value={name}
         disabled={working}
       />
@@ -140,7 +159,8 @@
         {managing}
         {working}
         {restrictedSelf}
-        onRename={(value: string) => act((place) => teams.rename(place, team.id, value))}
+        nameProblem={refusedName === team.id ? problemId : undefined}
+        onRename={(value: string) => act((place) => teams.rename(place, team.id, value), team.id)}
         onAdd={(userId: string) => act((place) => teams.addMember(place, team.id, userId))}
         onRemove={(userId: string) => act((place) => teams.removeMember(place, team.id, userId))}
         onDelete={() => {

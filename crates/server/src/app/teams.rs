@@ -3,12 +3,8 @@
 
 use super::App;
 use crate::error::{AppError, Reason};
-use fvoci_model::{Team, is_id};
+use fvoci_model::{Team, is_id, team_name};
 use fvoci_store::{StoreError, Taken};
-
-fn name(text: &str) -> Result<String, AppError> {
-    Ok(fvoci_model::team_name(text)?)
-}
 
 /// A store's refusal of a team name another team of the workspace has, as the problem
 /// `team_name_taken` about `/name`.
@@ -84,7 +80,7 @@ impl App {
     ) -> Result<Team, AppError> {
         let id = self
             .store()
-            .create_team(workspace_id, &name(text)?, by)
+            .create_team(workspace_id, &team_name(text)?, by)
             .await
             .map_err(name_taken)?;
         self.team(workspace_id, &id).await
@@ -102,7 +98,7 @@ impl App {
         by: &str,
     ) -> Result<Team, AppError> {
         self.store()
-            .rename_team(workspace_id, team_id, &name(text)?, by)
+            .rename_team(workspace_id, team_id, &team_name(text)?, by)
             .await
             .map_err(name_taken)?;
         self.team(workspace_id, team_id).await

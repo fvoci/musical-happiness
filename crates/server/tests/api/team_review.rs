@@ -99,13 +99,17 @@ async fn a_team_name_is_taken_in_any_letter_case() {
         .post(&teams_path(), &json!({"name":"Research"}))
         .await
         .ok_json();
-    th.client
+    let taken = th
+        .client
         .put(
             &format!("{}/{}", teams_path(), other.id),
             &json!({"name":"design"}),
         )
-        .await
-        .check_status(StatusCode::CONFLICT);
+        .await;
+    taken.check_status(StatusCode::CONFLICT);
+    assert_eq!(taken.error_reason(), "team_name_taken");
+    assert_eq!(taken.problem_type(), "/problems/team-name-taken");
+    assert_eq!(taken.refused_at(), "/name");
     let renamed: Team = th
         .client
         .put(

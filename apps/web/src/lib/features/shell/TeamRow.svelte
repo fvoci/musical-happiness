@@ -12,6 +12,7 @@
     managing,
     working,
     restrictedSelf,
+    nameProblem,
     onRename,
     onAdd,
     onRemove,
@@ -22,6 +23,8 @@
     managing: boolean;
     working: boolean;
     restrictedSelf?: string;
+    /** The id of the line that says why the new name was refused, while it says so. */
+    nameProblem?: string;
     onRename: (name: string) => Promise<boolean>;
     onAdd: (userId: string) => Promise<boolean>;
     onRemove: (userId: string) => Promise<boolean>;
@@ -56,7 +59,9 @@
           >
             <input
               class="h-9 min-w-0 flex-1 rounded-md border border-input-border bg-background px-2"
-              aria-label={m.teams_name()}
+              aria-label={m.teams_new_name({ name: team.name })}
+              aria-invalid={nameProblem !== undefined || undefined}
+              aria-describedby={nameProblem}
               bind:value={name}
               disabled={working}
             />

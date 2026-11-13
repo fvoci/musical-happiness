@@ -43,10 +43,10 @@ it('keeps the rename box and the typed name open when the new name is refused', 
   });
   await fireEvent.click(screen.getByText('Design'));
   await fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
-  const input = screen.getByRole('textbox', { name: 'Team name' });
+  const input = screen.getByRole('textbox', { name: 'New name for Design' });
   await fireEvent.input(input, { target: { value: 'Taken' } });
   await fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
   expect(onRename).toHaveBeenCalledWith('Taken');
   await Promise.resolve();
-  expect(screen.getByRole('textbox', { name: 'Team name' })).toHaveValue('Taken');
+  expect(screen.getByRole('textbox', { name: 'New name for Design' })).toHaveValue('Taken');
 });
