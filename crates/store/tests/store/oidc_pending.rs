@@ -6,7 +6,7 @@
 use fvoci_model::{AuditAction, OrgRole, Session, User, new_id};
 use fvoci_store::{
     AuditPlace, Identity, OidcAccount, OidcRefusal, Paging, PendingProvider, PendingSettings,
-    Store, StoredProvider, TrialAccount,
+    Store, StoredProvider,
 };
 
 use crate::common;
@@ -118,7 +118,7 @@ async fn trial(
             provider_id,
             pending_at,
             user_id,
-            TrialAccount::Tied(account),
+            account,
             &mut session,
             digest,
         )
@@ -287,7 +287,7 @@ async fn a_trial_ends_only_in_its_administrators_account() {
             &enforced.id,
             pending.create_at,
             &started_by_another,
-            TrialAccount::Tied(account),
+            account,
             &mut session,
             "another",
         )
@@ -312,168 +312,4 @@ async fn a_trial_ends_only_in_its_administrators_account() {
     assert_eq!(left, Some(pending), "still aside");
     assert_eq!(read, Some(enforced), "the provider as it was");
     assert_eq!(made, [false, false], "no session");
-}
-
-/// Ends a trial of another issuer's identity tied to nobody, `subject`, started by
-/// `trier`, with the session under `digest`.
-async fn untied_trial(
-    store: &Store,
-    provider_id: &str,
-    pending_at: i64,
-    trier: &str,
-    subject: &str,
-    digest: &str,
-) -> Result<fvoci_store::Applied, OidcRefusal> {
-    let mut session = Session {
-        id: new_id(),
-        created_at: 1,
-        expires_at: i64::MAX,
-        ..Session::default()
-    };
-    let account = TrialAccount::Untied {
-        identity: Identity {
-            issuer: "https://next.example.test",
-            subject,
-        },
-        provider_email: "admin@next.example.test",
-    };
-    store
-        .finish_oidc_trial(
-            provider_id,
-            pending_at,
-            trier,
-            account,
-            &mut session,
-            digest,
-        )
-        .await
-        .expect("asked")
-}
-
-/// A trial of another issuer whose identity is tied to nobody ties it to the
-/// administrator who started it and applies the settings; one whose trier has an
-/// identity at that issuer already, or whose identity is another account's, changes
-/// nothing.
-#[tokio::test]
-async fn a_trial_ties_an_identity_of_nobody_to_its_administrator() {
-    let test = common::setup().await;
-    let user = person(&test).await;
-    let other = common::user(&test, "another-person").await;
-    test.add_identity(
-        &other,
-        Identity {
-            issuer: "https://next.example.test",
-            subject: "anothers",
-        },
-        "",
-    )
-    .await
-    .expect("tied to another");
-    let enforced = test
-        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user)
-        .await
-        .expect("stored")
-        .expect("new");
-    let next = PendingSettings {
-        issuer: "https://next.example.test".to_owned(),
-        ..pending("next")
-    };
-    let (_, pending) = test
-        .put_oidc_pending_provider(&next, &enforced, &enforced, &user)
-        .await
-        .expect("asked")
-        .expect("set aside");
-
-    let anothers = untied_trial(
-        &test,
-        &enforced.id,
-        pending.create_at,
-        &user,
-        "anothers",
-        "a",
-    )
-    .await;
-    let tied = untied_trial(&test, &enforced.id, pending.create_at, &user, "admins", "b").await;
-    let admins = test
-        .user_of_identity(Identity {
-            issuer: "https://next.example.test",
-            subject: "admins",
-        })
-        .await
-        .expect("read")
-        .map(|found| found.id);
-    let read = test
-        .oidc_provider()
-        .await
-        .expect("read")
-        .expect("a provider");
-    let session = test
-        .get_session("b", 1, 0)
-        .await
-        .expect("the trial's session");
-    test.teardown().await;
-
-    assert_eq!(
-        anothers.err(),
-        Some(OidcRefusal::NotTheTrier),
-        "another's identity"
-    );
-    let applied = tied.expect("applied");
-    assert_eq!(admins, Some(user.clone()), "tied to the administrator");
-    assert_eq!(read.issuer, "https://next.example.test");
-    assert_eq!(applied.provider, read);
-    assert_eq!(session.user_id, user);
-}
-
-/// A trier who has an identity at the issuer already is not given a second one.
-#[tokio::test]
-async fn a_trial_ties_no_second_identity_at_an_issuer() {
-    let test = common::setup().await;
-    let user = person(&test).await;
-    let enforced = test
-        .put_oidc_provider_as_read(&provider(Passwords::Refused), None, &user)
-        .await
-        .expect("stored")
-        .expect("new");
-    let pending = set_aside(&test, "next", &enforced, &user)
-        .await
-        .expect("set aside");
-    // The same issuer, at which the trier is "subject": another subject is not theirs.
-    let mut session = Session {
-        id: new_id(),
-        created_at: 1,
-        expires_at: i64::MAX,
-        ..Session::default()
-    };
-    let account = TrialAccount::Untied {
-        identity: Identity {
-            issuer: ISSUER,
-            subject: "somebody else",
-        },
-        provider_email: "",
-    };
-    let refused = test
-        .finish_oidc_trial(
-            &enforced.id,
-            pending.create_at,
-            &user,
-            account,
-            &mut session,
-            "c",
-        )
-        .await
-        .expect("asked");
-    let left = test.oidc_pending_provider().await.expect("read");
-    let somebody = test
-        .user_of_identity(Identity {
-            issuer: ISSUER,
-            subject: "somebody else",
-        })
-        .await
-        .expect("read");
-    test.teardown().await;
-
-    assert_eq!(refused.err(), Some(OidcRefusal::NotTheTrier));
-    assert_eq!(left, Some(pending), "still aside");
-    assert!(somebody.is_none(), "tied to nobody");
 }

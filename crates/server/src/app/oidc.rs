@@ -13,7 +13,7 @@ use std::time::Instant;
 use fvoci_model::{LoginOptions, Session, User, display_name, is_email_valid, new_id};
 use fvoci_store::{
     Applied, FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, PendingProvider,
-    StoreError, StoredProvider, Taken, TrialAccount,
+    StoreError, StoredProvider, Taken,
 };
 
 use super::App;
@@ -626,24 +626,13 @@ impl App {
                 .let_in(&user, identity, stored, ending, session, digest)
                 .await;
         }
-        // A trial makes no account: an identity of nobody's, as at another issuer, is
-        // tied to the administrator who started it, or the trial is refused.
-        if let Ending::Trial {
-            pending_at,
-            trier_id,
-        } = ending
-        {
-            return self
-                .tie_by_trial(
-                    claims,
-                    identity,
-                    stored,
-                    (pending_at, trier_id),
-                    session,
-                    digest,
-                )
-                .await
-                .map(Some);
+        // A trial ends in the account of the administrator who started it, which the
+        // identity is not: no account is made for it, and no identity tied. (Tying one
+        // by a trial would let whoever saved the issuer, or holds the session, tie an
+        // identity of their own to the trier's account.)
+        if matches!(ending, Ending::Trial { .. }) {
+            tracing::info!(org_id = %stored.org_id, "a trial of pending settings signed in somebody without an account");
+            return Err(Reason::OidcTrialAccount.into());
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         if self
@@ -707,42 +696,6 @@ impl App {
         Ok(applied)
     }
 
-    /// Ends a trial whose identity no account has, `identity`: tied to the administrator
-    /// `trier_id` who started the trial of the pending settings saved at `pending_at`,
-    /// if they have no identity at its issuer, with the settings applied. The identity
-    /// of a deleted account is refused.
-    async fn tie_by_trial(
-        &self,
-        claims: &IdClaims,
-        identity: Identity<'_>,
-        stored: &StoredProvider,
-        (pending_at, trier_id): (i64, &str),
-        session: &mut Session,
-        digest: &str,
-    ) -> Result<Applied, LoginFailure> {
-        if self
-            .store()
-            .is_identity_known(identity)
-            .await
-            .map_err(|error| logged(&error, "looking up an identity"))?
-        {
-            tracing::info!(org_id = %stored.org_id, "a trial of pending settings signed in the identity of a deleted account");
-            return Err(Reason::OidcTrialAccount.into());
-        }
-        let account = TrialAccount::Untied {
-            identity,
-            provider_email: claims.email.as_deref().map(str::trim).unwrap_or_default(),
-        };
-        let applied = self
-            .store()
-            .finish_oidc_trial(&stored.id, pending_at, trier_id, account, session, digest)
-            .await
-            .map_err(|error| logged(&error, "storing a sign-in"))?
-            .map_err(|refusal| refused(refusal, stored))?;
-        tracing::info!(org_id = %stored.org_id, "a trial tied an identity at the pending issuer to its administrator");
-        Ok(applied)
-    }
-
     /// Stores the end of a sign-in as `ending` says: a session through the provider as
     /// it is, or through the pending settings, which become the provider's.
     async fn finish_in_store(
@@ -764,14 +717,7 @@ impl App {
                 trier_id,
             } => self
                 .store()
-                .finish_oidc_trial(
-                    &stored.id,
-                    pending_at,
-                    trier_id,
-                    TrialAccount::Tied(account),
-                    session,
-                    digest,
-                )
+                .finish_oidc_trial(&stored.id, pending_at, trier_id, account, session, digest)
                 .await?
                 .map(|applied| (applied.joined, Some(applied))),
         })

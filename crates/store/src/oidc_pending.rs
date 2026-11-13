@@ -12,8 +12,8 @@ use crate::audit::{self, AuditEntry};
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::oidc::{
-    self, Identity, Newcomers, OidcAccount, OidcRefusal, StoredProvider,
-    hold_provider_of_organization, read_provider,
+    self, Newcomers, OidcAccount, OidcRefusal, StoredProvider, hold_provider_of_organization,
+    read_provider,
 };
 use crate::org_admin;
 use crate::sessions;
@@ -84,24 +84,6 @@ impl std::fmt::Debug for PendingSettings {
             .field("client_id", &self.client_id)
             .finish_non_exhaustive()
     }
-}
-
-/// Whom a trial of the pending settings signs in.
-#[derive(Debug)]
-pub enum TrialAccount<'a> {
-    /// The account the identity is tied to, as a sign-in reads it
-    /// ([`OidcAccount::Known`]); a trial ends only in the one of the administrator who
-    /// started it.
-    Tied(OidcAccount<'a>),
-    /// An identity tied to no account, as at another issuer: the trial ties it to the
-    /// administrator who started it, if they have none at that issuer yet, with the
-    /// address the provider gave, unchecked.
-    Untied {
-        /// Who the provider vouches for.
-        identity: Identity<'a>,
-        /// The address the provider gave; empty for none.
-        provider_email: &'a str,
-    },
 }
 
 /// What a trial of the pending settings that ended well did.
@@ -236,10 +218,9 @@ impl Store {
     /// `provider_id` of the handle's organization, started by the administrator
     /// `trier_id`, in one transaction that holds the provider: they must still be the
     /// provider's pending settings, it must still be on, and `account` must be the
-    /// trier's own, or an identity tied to nobody, which is tied to the trier if they
-    /// have none at its issuer; and the trier must still administer the organization.
-    /// No account is made by a trial: one that ended in a newcomer or another person
-    /// would put settings in use that no administrator can sign in through. Lets `account` in as a sign-in
+    /// trier's own, who must still administer the organization (no account is made by
+    /// a trial: one that ended in a newcomer or another person would put settings in
+    /// use that no administrator can sign in through). Lets `account` in as a sign-in
     /// does (`Store::finish_oidc_sign_in`), makes
     /// the pending settings the provider's, as a save of them would (another issuer
     /// ends the sessions of the one before), records that as the account's doing, and
@@ -257,7 +238,7 @@ impl Store {
         provider_id: &str,
         pending_at: i64,
         trier_id: &str,
-        account: TrialAccount<'_>,
+        account: OidcAccount<'_>,
         session: &mut Session,
         token_digest: &str,
     ) -> Result<Result<Applied, OidcRefusal>, StoreError> {
@@ -275,34 +256,13 @@ impl Store {
             {
                 return Ok(Err(OidcRefusal::ProviderGone));
             }
-            if org_admin::org_role_of(scope, trier_id).await? != Some(OrgRole::Admin) {
+            let is_the_trier =
+                matches!(&account, OidcAccount::Known { user_id, .. } if *user_id == trier_id);
+            if !is_the_trier
+                || org_admin::org_role_of(scope, trier_id).await? != Some(OrgRole::Admin)
+            {
                 return Ok(Err(OidcRefusal::NotTheTrier));
             }
-            let password_hash;
-            let account = match account {
-                TrialAccount::Tied(account @ OidcAccount::Known { user_id, .. })
-                    if user_id == trier_id =>
-                {
-                    account
-                }
-                TrialAccount::Tied(_) => return Ok(Err(OidcRefusal::NotTheTrier)),
-                TrialAccount::Untied {
-                    identity,
-                    provider_email,
-                } => {
-                    let Some(hash) =
-                        tie_to_trier(scope, trier_id, identity, provider_email).await?
-                    else {
-                        return Ok(Err(OidcRefusal::NotTheTrier));
-                    };
-                    password_hash = hash;
-                    OidcAccount::Known {
-                        user_id: trier_id,
-                        password_hash: &password_hash,
-                        identity,
-                    }
-                }
-            };
             let subject = account.identity().subject.to_owned();
             let newcomers = Newcomers::from(&before);
             let joined = match oidc::admit(scope, account, newcomers, session).await? {
@@ -339,33 +299,6 @@ impl Store {
         })
         .await
     }
-}
-
-/// Ties `identity`, which no account has, to the account of the administrator
-/// `trier_id`, if that account is in use and has no identity at the identity's issuer
-/// yet; returns its password hash as read. `None`, and nothing tied, otherwise: the
-/// identity is somebody's, or the trier signed in at that issuer as somebody else.
-async fn tie_to_trier(
-    scope: &mut Scope<'_>,
-    trier_id: &str,
-    identity: Identity<'_>,
-    provider_email: &str,
-) -> Result<Option<String>, StoreError> {
-    let mut sql = scope.sql("SELECT 1 FROM user_identities WHERE issuer = ");
-    sql.bind(identity.issuer)
-        .push_bind(" AND (subject = ", identity.subject)
-        .push_bind(" OR user_id = ", Id(trier_id))
-        .push(")");
-    if scope.fetch_optional(sql).await?.is_some() {
-        return Ok(None);
-    }
-    let mut sql = scope.sql("SELECT password_hash FROM users WHERE delete_at = 0 AND id = ");
-    sql.bind(Id(trier_id));
-    let Some(row) = scope.fetch_optional(sql).await? else {
-        return Ok(None);
-    };
-    oidc::insert_identity(scope, identity, trier_id, provider_email, now_millis()).await?;
-    Ok(Some(row.text(0)?))
 }
 
 /// The pending settings of the transaction's organization's provider, if there are.

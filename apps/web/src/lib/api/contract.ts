@@ -495,12 +495,12 @@ export interface paths {
          *     (`finishOidcLogin`) and the sign-in ends well, in the account of the administrator
          *     who started it, the pending settings become the provider's, at a new revision that the
          *     new session proves (`canRequireSso`); another issuer ends the sessions of the one
-         *     before. An identity the provider vouches for that is tied to no account (as at
-         *     another issuer) is tied to this administrator's account by it, if they have no
-         *     identity at that issuer yet. A sign-in that fails changes nothing; one that ends in
-         *     another account (the identity is another account's, or another one than theirs at
-         *     that issuer, or they administer the organization no more) is refused with
-         *     `oidc_trial_account`, and makes no account. 409 with the reason `oidc_unavailable`
+         *     before. A sign-in that fails changes nothing; one that ends in another account (the
+         *     provider vouches for an identity that is not tied to this administrator's account,
+         *     or they administer the organization no more) is refused with
+         *     `oidc_trial_account`, and makes no account and ties no identity: another issuer is
+         *     put in use by a trial only for an administrator whose identity there is tied to
+         *     their account already; otherwise the requirement is switched off first. 409 with the reason `oidc_unavailable`
          *     if there are no pending settings, the provider is off, or their issuer cannot be
          *     reached; 429 when this address made too many sign-ins of late.
          */
