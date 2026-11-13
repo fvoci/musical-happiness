@@ -106,7 +106,7 @@ crates/model/src/team.rs
 crates/model/src/lib.rs | mod board_teams
 crates/model/src/lib.rs | pub use board_teams::{boardteam, boardteamrole}
 crates/model/src/lib.rs | mod team;
-crates/model/src/lib.rs | pub use team::{team, teammember, teamname, teamnameerror, team_name}
+crates/model/src/lib.rs | pub use team::{team, teammember, teamname, teamnameerror, team_name, team_name_key}
 crates/store/schema/*/0026_teams.sql
 crates/store/src/teams.rs
 crates/store/src/schema.rs | workspace teams

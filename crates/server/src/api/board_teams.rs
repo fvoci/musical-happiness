@@ -35,7 +35,8 @@ struct TeamPlace {
 /// List the teams assigned to a board
 ///
 /// For nonguest members allowed to list board members. Includes the team's current
-/// people and its role. Ordered by team name and identifier. Direct memberships remain separate.
+/// people and its role. Ordered by team name in any letter case, then by identifier.
+/// Direct memberships remain separate.
 #[utoipa::path(get, path = "/w/{workspaceId}/boards/{boardId}/teams", operation_id = "getBoardTeams", tag = tag::MEMBERS,
     params(WorkerWorkspaceId, BoardId), responses((status = 200, description = "Assigned teams.", body = Vec<BoardTeam>)))]
 async fn list(ws: Ws, Path(place): Path<BoardPlace>) -> ApiResult {

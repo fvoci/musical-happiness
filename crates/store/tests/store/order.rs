@@ -639,10 +639,9 @@ async fn the_trash_comes_the_last_deleted_first() {
     test.teardown().await;
 }
 
-/// The teams of a workspace come by name, and in the same order on both databases: a
-/// name in capitals sorts where it would on the other database too. The contract says
-/// "ordered by name and identifier" and the snapshots are shared, so the order cannot
-/// follow the collation of PostgreSQL's database (that of the locale of its image)
+/// The teams of a workspace come by name in any letter case, and in the same order on
+/// both databases: a name in capitals sorts among the others as in lower case. The order
+/// cannot follow the collation of PostgreSQL's database (that of the locale of its image)
 /// while SQLite compares bytes.
 #[tokio::test]
 async fn teams_come_by_name_alike_on_both_databases() {
@@ -666,10 +665,7 @@ async fn teams_come_by_name_alike_on_both_databases() {
         .await
         .expect("the teams are read");
     let names: Vec<&str> = teams.iter().map(|team| team.name.as_str()).collect();
-    // By the characters of the names, which both databases can be made to agree on.
-    let mut expected = names.clone();
-    expected.sort_unstable();
-    assert_eq!(names, expected, "{:?}", common::db_type());
+    assert_eq!(names, ["alpha", "Beta", "gamma"], "{:?}", common::db_type());
 
     test.teardown().await;
 }

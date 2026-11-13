@@ -37,6 +37,44 @@ async fn a_team_name_has_a_length_limit() {
     th.teardown().await;
 }
 
+/// Names that differ only in letter case are one name in a workspace, on making a
+/// team and on renaming another; a team may change the case of its own name.
+#[tokio::test]
+async fn a_team_name_is_taken_in_any_letter_case() {
+    let th = Setup::native().start().await.init_basic().await;
+    let design: Team = th
+        .client
+        .post(&teams_path(), &json!({"name":"Design"}))
+        .await
+        .ok_json();
+    th.client
+        .post(&teams_path(), &json!({"name":"DESIGN"}))
+        .await
+        .check_status(StatusCode::CONFLICT);
+    let other: Team = th
+        .client
+        .post(&teams_path(), &json!({"name":"Research"}))
+        .await
+        .ok_json();
+    th.client
+        .put(
+            &format!("{}/{}", teams_path(), other.id),
+            &json!({"name":"design"}),
+        )
+        .await
+        .check_status(StatusCode::CONFLICT);
+    let renamed: Team = th
+        .client
+        .put(
+            &format!("{}/{}", teams_path(), design.id),
+            &json!({"name":"design"}),
+        )
+        .await
+        .ok_json();
+    assert_eq!(renamed.name, "design");
+    th.teardown().await;
+}
+
 /// The second user is in a team with the editor role on a private board of the first
 /// user, and follows a card of it.
 async fn following_through_a_team(th: &TestServer, name: &str) -> (String, Team) {

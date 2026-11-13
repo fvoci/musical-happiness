@@ -49,7 +49,8 @@ struct MemberPlace {
 /// List the workspace's teams
 ///
 /// Includes the login and display names of their nonguest members, ordered by user
-/// identifier. Teams are ordered by name and identifier. Guests are answered 404.
+/// identifier. Teams are ordered by name in any letter case, then by identifier, alike
+/// on every database. Guests are answered 404.
 #[utoipa::path(get, path = "/w/{workspaceId}/teams", operation_id = "getTeams", tag = tag::WORKSPACES,
     params(WorkerWorkspaceId), responses((status = 200, description = "Teams.", body = Vec<Team>)))]
 async fn list_teams(ws: Ws) -> ApiResult {
@@ -60,7 +61,8 @@ async fn list_teams(ws: Ws) -> ApiResult {
 /// Create an empty team
 ///
 /// For workspace administrators. Surrounding whitespace is removed from the name;
-/// an empty name is 400 at `/name`, a duplicate in this workspace is 409.
+/// an empty name is 400 at `/name`, and a name of another team of this workspace, in any
+/// letter case, is 409.
 #[utoipa::path(post, path = "/w/{workspaceId}/teams", operation_id = "createTeam", tag = tag::WORKSPACES,
     params(WorkerWorkspaceId), request_body = TeamName,
     responses((status = 200, description = "The new team.", body = Team)))]

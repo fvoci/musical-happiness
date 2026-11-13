@@ -1,9 +1,9 @@
 //! Groups of nonguest workspace members. Writes share the organization/workspace
 //! locks with membership changes, and recheck the administrator under those locks.
 
-use fvoci_model::{Team, TeamMember, new_id};
+use fvoci_model::{Team, TeamMember, new_id, team_name_key};
 
-use crate::db::{Id, Scope};
+use crate::db::{Dialect, Id, Scope};
 use crate::{Store, StoreError, Taken, org_admin, workspace_membership};
 
 impl Store {
@@ -16,7 +16,7 @@ impl Store {
             .await
     }
 
-    /// Creates an empty team; its name is unique in the workspace.
+    /// Creates an empty team; its name is unique in the workspace in any letter case.
     ///
     /// # Errors
     /// Returns a conflict for a duplicate name, not found when the workspace or its
@@ -30,11 +30,13 @@ impl Store {
         self.transaction(async |scope| {
             managing(scope, workspace_id, by).await?;
             let id = new_id();
-            let mut sql = scope.sql("INSERT INTO teams (id, org_id, workspace_id, name) VALUES (");
+            let mut sql =
+                scope.sql("INSERT INTO teams (id, org_id, workspace_id, name, name_key) VALUES (");
             sql.bind(Id(&id))
                 .push_bind(", ", scope.org()?)
                 .push_bind(", ", Id(workspace_id))
                 .push_bind(", ", name)
+                .push_bind(", ", team_name_key(name))
                 .push(")");
             scope.execute(sql).await.map_err(name_error)?;
             Ok(id)
@@ -57,6 +59,7 @@ impl Store {
             managing(scope, workspace_id, by).await?;
             let mut sql = scope.sql("UPDATE teams SET name = ");
             sql.bind(name)
+                .push_bind(", name_key = ", team_name_key(name))
                 .push_bind(" WHERE id = ", Id(team_id))
                 .push_bind(" AND workspace_id = ", Id(workspace_id))
                 .push_bind(" AND org_id = ", scope.org()?);
@@ -104,6 +107,8 @@ pub(crate) async fn require_team(
     Ok(())
 }
 
+/// Lists the workspace's teams by name in any letter case. PostgreSQL compares the
+/// key by its bytes, as SQLite does, rather than by the collation of its database.
 pub(crate) async fn list(
     scope: &mut Scope<'_>,
     workspace_id: &str,
@@ -111,7 +116,10 @@ pub(crate) async fn list(
     let mut sql = scope.sql("SELECT t.id, t.name FROM teams t JOIN workspaces w ON w.id = t.workspace_id AND w.org_id = t.org_id WHERE t.workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND t.org_id = ", scope.org()?)
-        .push(" AND w.delete_at = 0 ORDER BY t.name, t.id");
+        .push(match scope.dialect() {
+            Dialect::Postgres => " AND w.delete_at = 0 ORDER BY t.name_key COLLATE \"C\", t.id",
+            Dialect::Sqlite => " AND w.delete_at = 0 ORDER BY t.name_key, t.id",
+        });
     let rows = scope.fetch_all(sql).await?;
     let mut teams = rows
         .iter()

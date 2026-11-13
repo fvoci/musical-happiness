@@ -10,7 +10,7 @@ pub struct Team {
     pub id: String,
     /// The workspace it belongs to.
     pub workspace_id: String,
-    /// Its name, unique within the workspace.
+    /// Its name, unique within the workspace in any letter case.
     pub name: String,
     /// Its people, ordered by user identifier.
     pub members: Vec<TeamMember>,
@@ -59,4 +59,12 @@ pub fn team_name(text: &str) -> Result<&str, TeamNameError> {
         return Err(TeamNameError::Null);
     }
     Ok(text)
+}
+
+/// The form of a team name that names differing only in letter case share. A name is
+/// unique in its workspace by this form, and teams are listed in its order; the server
+/// makes it, so both databases hold, compare and order the same text.
+#[must_use]
+pub fn team_name_key(name: &str) -> String {
+    name.to_lowercase()
 }
