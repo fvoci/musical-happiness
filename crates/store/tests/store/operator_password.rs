@@ -58,7 +58,19 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
         let (third, _) = common::organization(&test.system(), "Third").await;
         let third = test.for_org(&third).expect("organization");
         common::user(&third, "a-member-of-the-third").await;
-        Some((second, third))
+        // An organization of theirs that is deleted records nothing.
+        let (deleted, _) = common::organization(&test.system(), "Deleted").await;
+        let deleted = test.for_org(&deleted).expect("organization");
+        deleted
+            .add_organization_member(&user, fvoci_model::OrgRole::Member)
+            .await
+            .expect("a member of the deleted one");
+        deleted
+            .execute_unchecked("UPDATE organizations SET delete_at = 1")
+            .await
+            .expect("deleted");
+        let held = deleted.count_rows("audit_log").await.expect("counted");
+        Some((second, third, deleted, held))
     } else {
         None
     };
@@ -89,7 +101,12 @@ async fn the_operators_password_acts_are_recorded_in_each_organization_of_the_pe
         in_none, 0,
         "a person of no organization is recorded nowhere"
     );
-    if let Some((second, third)) = others {
+    if let Some((second, third, deleted, held)) = others {
+        assert_eq!(
+            deleted.count_rows("audit_log").await.expect("counted"),
+            held,
+            "no record in the deleted organization"
+        );
         assert_eq!(linked, 2);
         let second_id = second.tenant().org_id().expect("an organization");
         assert_eq!(operators_records(&second, &second_id, &user).await, both);

@@ -4,7 +4,9 @@
 //! through a provider comes back, what a login page shows of an organization, and which
 //! organization the token of an invitation leads into.
 //! And whether an object of the file storage is held, which is asked of every
-//! organization: an object's place is one across them.
+//! organization: an object's place is one across them. And the records of what the
+//! server's operator does to a person's password, written in each organization of
+//! theirs.
 //!
 //! Every function here runs one statement, or one short transaction, that reaches the
 //! rows of every organization ([`Tenant::System`](crate::Tenant::System)) and is
@@ -865,6 +867,8 @@ impl Store {
     /// `user_id` anew ([`AuditAction::PasswordResetLinkMade`]), in every organization
     /// they are a member of: one record each, with neither the link nor its token, and
     /// not which organization asked. Returns in how many organizations it was recorded.
+    /// For a link stored elsewhere; a store function that stores the link records it in
+    /// the same transaction with `record_in_organizations_of`.
     ///
     /// # Errors
     ///
@@ -966,7 +970,9 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
 /// Records `action` by the server's operator, done to the user `user_id`, in every
 /// organization in use that they are a member of, one record each, of no workspace;
 /// returns how many. Needs the system's reach: the wall hides the other organizations.
-async fn record_in_organizations_of(
+/// What stores what is recorded (a reset link's token) calls it in its own
+/// transaction, so that neither is kept without the other.
+pub(crate) async fn record_in_organizations_of(
     scope: &mut Scope<'_>,
     user_id: &str,
     action: AuditAction,

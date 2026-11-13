@@ -45,7 +45,8 @@ impl AuditActor {
 }
 
 /// One record of the audit log as it is written: who did what to what (and whom), in
-/// which workspace, and when. The organization is the one of the store's handle.
+/// which workspace, and when. The organization is the one of the store's handle, or
+/// the one named to [`record_entry_in`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditEntry {
     /// The workspace it was done in; empty for what was done to the organization.
@@ -259,7 +260,9 @@ pub(crate) async fn record_entry(
 }
 
 /// Writes a record in the organization `org_id`, at this moment: for a handle with the
-/// system's reach, which names no organization of its own.
+/// system's reach, which names no organization of its own. Nothing here checks that
+/// the caller may write there (on SQLite no wall would); the caller has chosen
+/// `org_id` by what it read in the same transaction.
 pub(crate) async fn record_entry_in(
     scope: &mut Scope<'_>,
     org_id: &str,
