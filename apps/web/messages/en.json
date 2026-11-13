@@ -993,5 +993,10 @@
   "reset_request_title": "Reset your password",
   "reset_request_submit": "Send reset link",
   "reset_request_done": "If this email belongs to an account with a password, a reset link will arrive shortly.",
-  "reset_unavailable": "Email recovery is unavailable. Contact your server administrator for a reset link."
+  "reset_unavailable": "Email recovery is unavailable. Contact your server administrator for a reset link.",
+  "mail_addresses": "Email invitation to",
+  "mail_addresses_hint": "Separate addresses with commas or new lines. Each person receives a separate email with this same link.",
+  "mail_addresses_invalid": "Enter valid email addresses, separated by commas or new lines.",
+  "mail_queued": "Invitation mail queued.",
+  "mail_send": "Send invitation email"
 }

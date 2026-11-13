@@ -52,6 +52,35 @@ impl Content {
         Self::link(subject, intro, ending, link, language)
     }
 
+    pub(crate) fn invitation(
+        link: &str,
+        language: Language,
+        role: fvoci_model::WorkspaceRole,
+    ) -> Self {
+        let (subject, intro) = match language {
+            Language::English => (
+                "You are invited to fvoci",
+                "Use this invitation link to join:",
+            ),
+            Language::Korean => ("fvoci 초대", "다음 초대 링크로 참여하세요:"),
+        };
+        let ending = match (language, role) {
+            (Language::English, fvoci_model::WorkspaceRole::Guest) => {
+                "This link invites one person to a board and can be used once. It keeps its original expiry."
+            }
+            (Language::Korean, fvoci_model::WorkspaceRole::Guest) => {
+                "이 링크로 한 사람을 보드에 초대합니다. 한 번만 쓸 수 있으며 원래 만료일을 유지합니다."
+            }
+            (Language::English, _) => {
+                "This link invites members to a workspace. It keeps its original expiry."
+            }
+            (Language::Korean, _) => {
+                "이 링크로 워크스페이스에 구성원을 초대합니다. 원래 만료일을 유지합니다."
+            }
+        };
+        Self::link(subject, intro, ending, link, language)
+    }
+
     fn link(
         subject: &'static str,
         intro: &str,

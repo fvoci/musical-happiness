@@ -993,5 +993,10 @@
   "reset_request_title": "비밀번호 재설정",
   "reset_request_submit": "재설정 링크 보내기",
   "reset_request_done": "이 이메일로 비밀번호가 있는 계정이 등록되어 있다면 잠시 후 재설정 링크가 도착합니다.",
-  "reset_unavailable": "이메일로 재설정할 수 없습니다. 서버 운영자에게 재설정 링크를 요청하세요."
+  "reset_unavailable": "이메일로 재설정할 수 없습니다. 서버 운영자에게 재설정 링크를 요청하세요.",
+  "mail_addresses": "초대 메일을 받을 주소",
+  "mail_addresses_hint": "쉼표나 줄바꿈으로 주소를 구분하세요. 같은 링크를 각 주소로 따로 보냅니다.",
+  "mail_addresses_invalid": "올바른 이메일 주소를 쉼표나 줄바꿈으로 구분해 입력하세요.",
+  "mail_queued": "초대 메일을 보내도록 요청했습니다.",
+  "mail_send": "초대 메일 보내기"
 }

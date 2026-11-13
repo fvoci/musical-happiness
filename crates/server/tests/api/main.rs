@@ -32,6 +32,7 @@ mod fake_smtp;
 mod files;
 mod guests;
 mod imports;
+mod invitation_mail;
 mod invitations;
 mod limits;
 mod login_limits;

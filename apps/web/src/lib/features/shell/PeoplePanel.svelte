@@ -43,7 +43,7 @@
   let links = $state.raw<Invitation[]>([]);
   let guestsInvited = $state(true);
   /** The link that was just made: its address is shown this once. */
-  let made = $state.raw<{ id: string; address: string } | undefined>(undefined);
+  let made = $state.raw<{ id: string; address: string; token: string } | undefined>(undefined);
   /** `undefined` while the lists are read; then whether they were, or why not. */
   let failure = $state<string | undefined | false>(undefined);
   let working = $state(false);
@@ -126,7 +126,8 @@
     act(async (id) => {
       made = undefined;
       const link = await people.inviteMembers(id);
-      if (link.token !== undefined) made = { id: link.id, address: inviteLink(link.token) };
+      if (link.token !== undefined)
+        made = { id: link.id, address: inviteLink(link.token), token: link.token };
     });
 
   const revoke = (link: Invitation): Promise<void> =>
@@ -201,6 +202,9 @@
             label={m.people_invite_link()}
             note={m.people_invite_note()}
             testId="people-link"
+            delivery={people.mail && workspaceId
+              ? { mail: people.mail, workspaceId, token: made.token, language: workspace.locale }
+              : undefined}
           />
         {/key}
       {:else}

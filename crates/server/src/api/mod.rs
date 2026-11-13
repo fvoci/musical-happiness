@@ -16,6 +16,7 @@ mod categories;
 mod config;
 pub mod contract;
 mod files;
+mod invitation_mail;
 mod invitations;
 mod limits;
 mod members;
@@ -114,6 +115,7 @@ fn routes() -> Routes {
         .merge(config::routes())
         .merge(files::routes())
         .merge(invitations::routes())
+        .merge(invitation_mail::routes())
         .merge(members::routes())
         .merge(workspace_members::routes())
         .merge(onboarding::routes())

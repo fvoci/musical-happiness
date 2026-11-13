@@ -8,6 +8,8 @@
 //! stored only if the maker is still what was found then, where it is written
 //! (`fvoci_store::Inviter`).
 
+mod mail;
+
 use std::net::IpAddr;
 
 use fvoci_model::{

@@ -274,6 +274,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("RequestPasswordReset", Members::Only(&["email"])),
     ("GuestInvitationsChange", Members::All),
     ("ImportRequest", Members::AsWritten),
+    ("InvitationMail", Members::Only(&["token", "recipients"])),
     ("InvitationToken", Members::All),
     ("LoginRequest", Members::Only(&["password"])),
     ("MemberRoles", Members::AsWritten),

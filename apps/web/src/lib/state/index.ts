@@ -47,6 +47,7 @@ export { administers, isGuest, peopleOf, providePeople, type PeopleAccess } from
 export type {
   GuestBoardRole,
   Invitation,
+  InvitationMail,
   People,
   WorkspaceMember,
   WorkspaceRole,

@@ -1330,6 +1330,31 @@
         ],
         "type": "object"
       },
+      "InvitationMail": {
+        "description": "A request to email an existing invitation to one or more recipients.",
+        "properties": {
+          "language": {
+            "description": "Sender's interface language when their account setting is auto.",
+            "type": "string"
+          },
+          "recipients": {
+            "description": "Email addresses, each delivered separately; duplicates are sent once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token": {
+            "description": "The secret of the existing invitation, sent only in the request body.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "recipients"
+        ],
+        "type": "object"
+      },
       "InvitationPreview": {
         "description": "What a link shows of where it leads, to whoever holds it.",
         "properties": {
@@ -8969,6 +8994,52 @@
           }
         },
         "summary": "Make an invitation",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/invitations/mail": {
+      "post": {
+        "description": "Queues a separate message for each unique email address with an existing link.\nThe token must name a live invitation of this workspace, and the sender must\nstill be allowed to make that kind of invitation. The same checks are repeated\nbefore each delivery. Member and one-use guest links retain their original\nexpiry and use limits. Invalid recipients reject the whole request before sending.\nThe recipient's language wins when known, otherwise the sender's language is used;\n`language` is the fallback for a sender whose setting is auto. No SMTP means 404.",
+        "operationId": "emailInvitation",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationMail"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Delivery queued; the existing invitation is unchanged."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Email an invitation",
         "tags": [
           "workspaces"
         ]

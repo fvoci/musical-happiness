@@ -2068,6 +2068,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}/invitations/mail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email an invitation
+         * @description Queues a separate message for each unique email address with an existing link.
+         *     The token must name a live invitation of this workspace, and the sender must
+         *     still be allowed to make that kind of invitation. The same checks are repeated
+         *     before each delivery. Member and one-use guest links retain their original
+         *     expiry and use limits. Invalid recipients reject the whole request before sending.
+         *     The recipient's language wins when known, otherwise the sender's language is used;
+         *     `language` is the fallback for a sender whose setting is auto. No SMTP means 404.
+         */
+        post: operations["emailInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/invitations/{invitationId}": {
         parameters: {
             query?: never;
@@ -3117,6 +3143,15 @@ export interface components {
             uses: number;
             /** @description The workspace the link leads into. */
             workspaceId: string;
+        };
+        /** @description A request to email an existing invitation to one or more recipients. */
+        InvitationMail: {
+            /** @description Sender's interface language when their account setting is auto. */
+            language?: string;
+            /** @description Email addresses, each delivered separately; duplicates are sent once. */
+            recipients: string[];
+            /** @description The secret of the existing invitation, sent only in the request body. */
+            token: string;
         };
         /** @description What a link shows of where it leads, to whoever holds it. */
         InvitationPreview: {
@@ -7620,6 +7655,40 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Invitation"];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    emailInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationMail"];
+            };
+        };
+        responses: {
+            /** @description Delivery queued; the existing invitation is unchanged. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
             default: {
