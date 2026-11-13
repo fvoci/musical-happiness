@@ -366,11 +366,14 @@ impl Hub {
         if let Some(token) = &token
             && let Err(error) = self.inner.auth.find_session(token).await
         {
-            if error.kind() != ErrorKind::Unauthorized {
+            let reason = if error.kind() == ErrorKind::Unauthorized {
+                Disconnect::SessionEnded
+            } else {
                 tracing::warn!(%error, "a websocket connection ends: its session could not be read");
-            }
+                Disconnect::StoreUnavailable
+            };
             self.listeners().remove(id);
-            metrics.websocket_closed(Disconnect::SessionEnded);
+            metrics.websocket_closed(reason);
             return;
         }
 

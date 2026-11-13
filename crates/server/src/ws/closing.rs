@@ -100,11 +100,13 @@ impl Hub {
                 })
                 .collect()
         };
+        // A connection closed for one workspace is not asked about its others.
+        let mut closed = std::collections::HashSet::new();
         for (id, workspace_id, subscribed_role) in followed {
             // A document still checking access has no admitted role to lose. Its
             // role is published under the store's visibility generation, so a
             // concurrent role change makes that admission read again.
-            if subscribed_role.is_none() {
+            if subscribed_role.is_none() || closed.contains(&id) {
                 continue;
             }
             let role = match self
@@ -118,12 +120,14 @@ impl Hub {
                 Err(error) => {
                     tracing::error!(%error, %workspace_id, "websocket: reading a workspace's membership failed");
                     self.close_unread(&[id]);
+                    closed.insert(id);
                     continue;
                 }
             };
             if role.is_some() && role == subscribed_role {
                 continue;
             }
+            closed.insert(id);
             let mut listeners = self.listeners();
             if let Some(listener) = listeners.by_id.get(&id) {
                 listener.close(Disconnect::AccessEnded);

@@ -86,7 +86,13 @@ async fn write<S: Sink<Message> + Unpin>(
         Some(Disconnect::SessionEnded) => Some((close_code::POLICY, "session ended")),
         Some(Disconnect::SsoRequired) => Some((close_code::POLICY, "sso required")),
         Some(Disconnect::StoreUnavailable) => Some((close_code::AGAIN, "try again")),
-        _ => None,
+        Some(
+            Disconnect::ClientClosed
+            | Disconnect::ReadError
+            | Disconnect::SlowConsumer
+            | Disconnect::Shutdown,
+        )
+        | None => None,
     };
     if let Some((code, reason)) = frame {
         let _ = sink

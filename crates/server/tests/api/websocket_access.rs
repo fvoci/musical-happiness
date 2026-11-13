@@ -807,3 +807,77 @@ async fn a_subscription_checked_too_often_is_given_up_as_retryable() {
     assert_eq!(frame.reason.as_str(), "try again");
     ts.teardown().await;
 }
+
+/// The code and reason the server closes the socket with.
+async fn close_frame(socket: &mut Socket) -> (u16, String) {
+    let frame = tokio::time::timeout(WAIT, async {
+        while let Some(message) = socket.next().await {
+            if let Message::Close(frame) = message.expect("the close is a protocol frame") {
+                return frame;
+            }
+        }
+        None
+    })
+    .await
+    .expect("the connection is closed")
+    .expect("the page is told why");
+    (u16::from(frame.code), frame.reason.to_string())
+}
+
+/// A store that cannot be read closes the connections it could not check as
+/// retryable (1013 "try again", counted as `store_unavailable`), not as access ended:
+/// a recipient of a change, and a subscription.
+#[tokio::test]
+async fn a_store_that_cannot_be_read_closes_as_retryable() {
+    use crate::metrics::{sample, scrape_until};
+
+    let ts = Setup::local_mode()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let subscription = json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID});
+    let mut following = ts.client.connect_websocket().await;
+    subscribe(
+        &ts,
+        &mut following,
+        subscription.clone(),
+        Moment::Registered,
+    )
+    .await;
+    let mut asking = ts.client.connect_websocket().await;
+    barrier(&mut asking).await;
+    // Nothing is left cached: the change is checked against the store.
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE boards SET title = title WHERE id = '{}'",
+            new_id()
+        ))
+        .await
+        .expect("a write that moves the revision");
+    ts.app.store().close().await;
+
+    ts.app
+        .ws()
+        .broadcast_board_change(ROOT_WORKSPACE_ID, &board)
+        .await;
+    let try_again = (1013, "try again".to_owned());
+    assert_eq!(close_frame(&mut following).await, try_again, "a recipient");
+    asking
+        .send(Message::Text(subscription.to_string().into()))
+        .await
+        .expect("subscription sent");
+    assert_eq!(close_frame(&mut asking).await, try_again, "a subscription");
+    let closed = |body: &str| {
+        sample(
+            body,
+            "fvoci_websocket_disconnections_total",
+            &[("reason", "store_unavailable")],
+        )
+    };
+    let body = scrape_until(&ts, |body| closed(body) == Some(2.0)).await;
+    assert_eq!(closed(&body), Some(2.0), "both, and for that: {body}");
+}
