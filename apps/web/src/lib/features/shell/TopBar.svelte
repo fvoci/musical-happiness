@@ -4,9 +4,10 @@
   motion) while one asked for waits for a write.
 
   What it shows follows the width of the pane it is in, not of the window:
-  the faces of the members from where two kanban columns fit, the
-  description of the board from where the whole header of a view fits. A
-  narrow pane keeps the title and the two arrows.
+  five faces of who is here from where two kanban columns fit (two below),
+  the description of the board from where the whole header of a view fits.
+  The number of the board's members, there at every width, opens its members
+  in the sharing dialog, which shows them alone to a reader who is no admin.
 
   Its editors find the board's deleted cards here ("Deleted cards").
 
@@ -48,6 +49,8 @@
   let { workspace, boardId, sharedHref, menuButton, onOpenSidebar }: Props = $props();
 
   let sharing = $state(false);
+  /** The sharing dialog was opened from the number of members: it begins at them. */
+  let sharingMembers = $state(false);
   let trashOpen = $state(false);
   /** The deleted cards of the board, read anew each time they are shown. */
   let trash = $state.raw<Trash | undefined>(undefined);
@@ -132,7 +135,13 @@
   <div class="min-w-0 flex-1"></div>
 
   {#if store && !store.missing && !store.joinable}
-    <PresenceRoster board={store} />
+    <PresenceRoster
+      board={store}
+      onMembers={() => {
+        sharingMembers = true;
+        sharing = true;
+      }}
+    />
   {/if}
 
   {#if canShare}
@@ -143,6 +152,7 @@
       aria-haspopup="dialog"
       class="shrink-0 roomy:min-h-touch"
       onclick={() => {
+        sharingMembers = false;
         sharing = true;
       }}
     >
@@ -197,11 +207,15 @@
   />
 {/if}
 
-{#if store?.board && canShare}
+<!-- Whoever reads the board may see its members; only its admins change them or share it. -->
+{#if store?.board}
   <ShareDialog
     bind:open={sharing}
     {workspace}
     board={store}
+    membersOnly={!canShare}
+    readOnly={!store.canShare}
+    at={sharingMembers ? 'members' : undefined}
     linkOf={(readToken: string) =>
       new URL(sharedHref(store.boardId, readToken), location.href).href}
   />

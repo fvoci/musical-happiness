@@ -1016,9 +1016,11 @@
   "org_delete_named": "{name} 지우기",
   "org_restore_named": "{name} 되살리기",
   "shell_switch_workspace_from": "워크스페이스 바꾸기: {name}",
-  "presence_viewers": "{count}명이 이 보드를 보고 있음",
+  "presence_viewers": "지금 보고 있는 사람 {count}명",
   "presence_anonymous": "익명 {count}명",
   "presence_hidden": "그 밖의 {count}명",
   "presence_alone": "다른 사람은 아직 없습니다.",
-  "presence_card_viewers": "{names}: {count}명이 이 카드를 보고 있음"
+  "presence_card_viewers": "{names}: {count}명이 이 카드를 보고 있음",
+  "presence_members_short": "구성원 {count}명",
+  "presence_and_members": "지금 보고 있는 사람 {count}명, 구성원 {members}명"
 }

@@ -59,6 +59,7 @@ test('board presence shows another person and removes their closed browser', asy
     await expect(first.getByTestId('presence-list')).toContainText(other.username);
     await expect(first.getByTestId('presence-list')).not.toContainText(owner.username);
     await first.keyboard.press('Escape');
+    await membersOfTheBoard(first, second, owner.username);
     await cardsInEveryView(first, second, api, board);
     await anonymousVisit(first, browser, base, api, board);
     await secondContext.close();
@@ -73,6 +74,30 @@ test('board presence shows another person and removes their closed browser', asy
     await otherApi.dispose();
   }
 });
+
+/**
+ * Beside the faces, the number of the board's members opens them in the sharing dialog:
+ * to change for its admin, to read for a viewer.
+ */
+async function membersOfTheBoard(admin: Page, viewer: Page, adminName: string): Promise<void> {
+  for (const page of [admin, viewer]) {
+    await expect(page.getByTestId('board-members-count')).toHaveText('Members 2');
+    await expect(page.getByTestId('board-people')).toHaveAttribute(
+      'aria-label',
+      'Viewing now: 1, members: 2',
+    );
+  }
+  await viewer.getByTestId('board-members-count').click();
+  const dialog = viewer.getByTestId('share-dialog');
+  await expect(dialog.getByTestId('share-members-title')).toBeFocused();
+  await expect(dialog.getByTestId('share-members')).toContainText(adminName);
+  await expect(dialog.getByTestId('share-search')).toHaveCount(0);
+  await expect(dialog.getByRole('combobox')).toHaveCount(0);
+  await viewer.keyboard.press('Escape');
+  await admin.getByTestId('board-members-count').click();
+  await expect(admin.getByTestId('share-dialog').getByTestId('share-search')).toBeVisible();
+  await admin.keyboard.press('Escape');
+}
 
 async function cardsInEveryView(
   first: Page,
