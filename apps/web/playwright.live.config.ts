@@ -16,6 +16,7 @@ import { defineConfig, devices } from '@playwright/test';
 const PORT = Number(process.env.FVOCI_LIVE_PORT ?? 18510);
 /** The tests of the first use of a server (e2e-live/first-use.spec.ts). */
 const FIRST_USE = /first-use\.spec\.ts$/;
+const ORGANIZATIONS = /organizations\.spec\.ts$/;
 
 export default defineConfig({
   testDir: 'e2e-live',
@@ -34,19 +35,34 @@ export default defineConfig({
     { name: 'first-use', testMatch: FIRST_USE, use: { ...devices['Desktop Chrome'] } },
     {
       name: 'desktop',
-      testIgnore: FIRST_USE,
+      testIgnore: [FIRST_USE, ORGANIZATIONS],
       dependencies: ['first-use'],
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      name: 'organizations',
+      testMatch: ORGANIZATIONS,
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${PORT + 2}` },
+    },
   ],
-  webServer: {
-    command: `node tools/live-server.ts ${PORT}`,
-    // No `url` or `port`: on this host a connection to a closed port hangs
-    // instead of being refused (playwright.config.ts says more).
-    wait: { stdout: /live: http/ },
-    stdout: 'pipe',
-    stderr: 'pipe',
-    timeout: 60_000,
-    gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
-  },
+  webServer: [
+    {
+      command: `node tools/live-server.ts ${PORT}`,
+      // No `url` or `port`: on this host a connection to a closed port hangs
+      // instead of being refused (playwright.config.ts says more).
+      wait: { stdout: /live: http/ },
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60_000,
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
+    },
+    {
+      command: `node tools/live-server.ts ${PORT + 2} --organizations`,
+      wait: { stdout: /live: http/ },
+      stdout: 'pipe',
+      stderr: 'pipe',
+      timeout: 60_000,
+      gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
+    },
+  ],
 });
