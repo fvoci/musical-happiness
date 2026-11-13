@@ -83,11 +83,13 @@ test('an administrator configures SSO without exposing its secret or locking out
     await section.getByTestId('sso-save').click();
     await expect(section.getByTestId('sso-delete')).toBeEnabled();
     await section.getByTestId('sso-delete').click();
-    await page
-      .getByRole('alertdialog')
-      .getByRole('button', { name: 'Delete provider', exact: true })
-      .click();
-    await expect(section.getByRole('status')).toHaveText('The provider was removed.');
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toContainText('everyone signed in through it is signed out');
+    await dialog.getByRole('button', { name: 'Delete provider', exact: true }).click();
+    // This page's session was made through it: it ends with it, and the page signs in again.
+    await expect(page.getByTestId('sign-in-form')).toBeVisible();
+    expect((await page.request.get('/api/v1/users/me')).status()).toBe(401);
+    expect((await api.get(endpoint)).status()).toBe(404);
   } finally {
     if ((await page.request.get(endpoint)).ok()) {
       await page.request.put(endpoint, {
@@ -104,6 +106,16 @@ test('an administrator configures SSO without exposing its secret or locking out
       },
     });
     expect((await api.delete(endpoint)).status()).toBe(204);
+    // The identity it connected goes too: the administrator is left as found.
+    const tied = (await (
+      await api.get('/api/v1/users/me/identities')
+    ).json()) as Schemas['LinkedIdentity'][];
+    for (const { issuer: of, subject } of tied) {
+      const removed = await api.delete('/api/v1/users/me/identities', {
+        data: { issuer: of, subject, password: ADMIN.password },
+      });
+      expect.soft(removed.status(), 'the identity is removed').toBe(204);
+    }
     await api.dispose();
   }
 });
