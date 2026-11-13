@@ -1,7 +1,8 @@
 //! Sending through a mail provider's HTTP API: the client all of them use, and what an
 //! answer makes of the attempt by its status. Each provider's module reads its own
 //! body on top of that. Nothing of an answer is kept but its status, how long it asked
-//! to be left alone, and what its body says of the attempt: never its text.
+//! to be left alone, the name of its error, and what its body says of the attempt:
+//! never its text.
 
 mod clock;
 pub(super) mod cloudflare;

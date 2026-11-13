@@ -22,7 +22,7 @@ const PATH: &str = "/v2/email/outbound-emails";
 /// SES's way of sending; constructing it performs no network I/O.
 pub(in crate::app::mail) struct Ses {
     client: reqwest::Client,
-    url: String,
+    url: reqwest::Url,
     /// The `Host` header the requests are signed with.
     host: String,
     region: String,
@@ -31,16 +31,18 @@ pub(in crate::app::mail) struct Ses {
 }
 
 impl Ses {
+    /// SES at the endpoint of `keys`, whose requests `client` makes.
+    ///
     /// # Errors
     /// Returns an error if the endpoint names no host.
     pub(in crate::app::mail) fn new(
         keys: SesKeys,
         client: reqwest::Client,
     ) -> anyhow::Result<Self> {
-        let url = format!("{}{PATH}", keys.endpoint);
+        let url = reqwest::Url::parse(&format!("{}{PATH}", keys.endpoint))?;
         Ok(Self {
             client,
-            host: host_of(&reqwest::Url::parse(&url)?)?,
+            host: host_of(&url)?,
             url,
             region: keys.region,
             access_key_id: keys.access_key_id,
@@ -59,7 +61,9 @@ impl Ses {
             "Content": {"Raw": {"Data": STANDARD.encode(raw)}},
         })
         .to_string();
-        let amz_date = Moment::now().amz_date();
+        let now = Moment::now();
+        let amz_date = now.amz_date();
+        // What is signed is what is sent: the host is the one reqwest writes.
         let headers = [
             ("content-type", "application/json"),
             ("host", self.host.as_str()),
@@ -78,13 +82,15 @@ impl Ses {
                 headers: &headers,
                 body: body.as_bytes(),
             },
-            &amz_date,
+            now,
         );
-        let request = self
-            .client
-            .post(&self.url)
-            .header("content-type", "application/json")
-            .header("x-amz-date", amz_date)
+        let request = headers
+            .iter()
+            .filter(|(name, _)| *name != "host")
+            .fold(
+                self.client.post(self.url.clone()),
+                |request, (name, value)| request.header(*name, *value),
+            )
             .header("authorization", authorization)
             .body(body);
         match super::send(request).await {
@@ -116,7 +122,7 @@ impl Outbound for Ses {
 /// the operator's to set up, and refuses the message as any other `400`.
 fn outcome_of(answer: &Answer) -> Outcome {
     let code = Some(answer.status);
-    match answer.error_type.as_deref() {
+    match error_name(answer).as_deref() {
         Some("ThrottlingException" | "TooManyRequestsException" | "LimitExceededException") => {
             Outcome::Later {
                 after: answer.retry_after,
@@ -126,6 +132,18 @@ fn outcome_of(answer: &Answer) -> Outcome {
         Some("SendingPausedException" | "AccountSuspendedException") => Outcome::PathDown { code },
         _ => super::outcome_of(answer),
     }
+}
+
+/// The name of SES's error: `X-Amzn-ErrorType`, or else the body's `__type` or `code`
+/// (`com.amazonaws.sesv2#ThrottlingException`), as AWS's JSON protocols give it. Only
+/// the name is kept, never the message.
+fn error_name(answer: &Answer) -> Option<String> {
+    answer.error_type.clone().or_else(|| {
+        let body: serde_json::Value = serde_json::from_slice(&answer.body).ok()?;
+        let name = body.get("__type").or_else(|| body.get("code"))?.as_str()?;
+        let name = name.rsplit('#').next()?.split(':').next()?.trim();
+        (!name.is_empty()).then(|| name.to_owned())
+    })
 }
 
 #[cfg(test)]
@@ -177,5 +195,43 @@ mod tests {
             );
         }
         assert_eq!(outcome_of(&answer(500, "InternalFailure")), later(500));
+    }
+
+    #[test]
+    fn a_throttled_answer_keeps_its_retry_after_and_a_name_in_the_body_counts() {
+        let throttled = Answer {
+            retry_after: Some(std::time::Duration::from_secs(7)),
+            ..answer(400, "ThrottlingException")
+        };
+        assert_eq!(
+            outcome_of(&throttled),
+            Outcome::Later {
+                after: Some(std::time::Duration::from_secs(7)),
+                code: Some(400)
+            }
+        );
+        for body in [
+            r#"{"__type":"com.amazonaws.sesv2#ThrottlingException","message":"Maximum sending rate exceeded."}"#,
+            r#"{"__type":"ThrottlingException:http://internal.amazon.com/","message":"…"}"#,
+            r#"{"code":"ThrottlingException","message":"…"}"#,
+        ] {
+            let named_in_body = Answer {
+                body: body.as_bytes().to_vec(),
+                ..answer(400, "")
+            };
+            assert_eq!(
+                outcome_of(&named_in_body),
+                Outcome::Later {
+                    after: None,
+                    code: Some(400)
+                },
+                "{body}"
+            );
+        }
+        let unnamed = Answer {
+            body: br#"{"message":"rejected"}"#.to_vec(),
+            ..answer(400, "")
+        };
+        assert_eq!(outcome_of(&unnamed), Outcome::Refused { code: Some(400) });
     }
 }

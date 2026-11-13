@@ -8,6 +8,9 @@ use std::fmt::Write as _;
 use aws_lc_rs::hmac;
 use sha2::{Digest as _, Sha256};
 
+use super::clock::Moment;
+use crate::auth::secret::token_digest;
+
 /// The algorithm a `SigV4` signature names.
 const ALGORITHM: &str = "AWS4-HMAC-SHA256";
 
@@ -82,13 +85,13 @@ impl Signer<'_> {
         format!("{day}/{}/{}/aws4_request", self.region, self.service)
     }
 
-    /// The string to sign of `canonical`, for a request at `amz_date`
-    /// (`20150830T123600Z`).
-    fn string_to_sign(&self, amz_date: &str, canonical: &str) -> String {
+    /// The string to sign of `canonical`, for a request made `at`.
+    fn string_to_sign(&self, at: Moment, canonical: &str) -> String {
         format!(
-            "{ALGORITHM}\n{amz_date}\n{}\n{}",
-            self.scope(&amz_date[..8]),
-            hex(&Sha256::digest(canonical.as_bytes()))
+            "{ALGORITHM}\n{}\n{}\n{}",
+            at.amz_date(),
+            self.scope(&at.amz_day()),
+            token_digest(canonical)
         )
     }
 
@@ -102,20 +105,17 @@ impl Signer<'_> {
         hex(sign(signing.as_ref(), string_to_sign).as_ref())
     }
 
-    /// The `Authorization` header of `request`, made at `amz_date`, which is also the
-    /// request's `X-Amz-Date`.
-    ///
-    /// # Panics
-    /// If `amz_date` is shorter than its day: the caller makes it from the clock.
-    pub(super) fn authorization(&self, request: &Request<'_>, amz_date: &str) -> String {
+    /// The `Authorization` header of `request`, made `at`: the request's `X-Amz-Date`
+    /// is `at.amz_date()`.
+    pub(super) fn authorization(&self, request: &Request<'_>, at: Moment) -> String {
         let (signed, canonical) = request.canonical();
-        let string_to_sign = self.string_to_sign(amz_date, &canonical);
-        let day = &amz_date[..8];
+        let string_to_sign = self.string_to_sign(at, &canonical);
+        let day = at.amz_day();
         format!(
             "{ALGORITHM} Credential={}/{}, SignedHeaders={signed}, Signature={}",
             self.access_key_id,
-            self.scope(day),
-            self.signature(day, &string_to_sign)
+            self.scope(&day),
+            self.signature(&day, &string_to_sign)
         )
     }
 }
@@ -136,16 +136,19 @@ mod tests {
         service: "service",
     };
     const AMZ_DATE: &str = "20150830T123600Z";
+    /// The suite's time, 2015-08-30T12:36:00Z.
+    const AT: u64 = 1_440_938_160;
 
     fn check(request: &Request<'_>, canonical: &str, string_to_sign: &str, authorization: &str) {
         let (_, made) = request.canonical();
         assert_eq!(made, canonical, "the canonical request");
+        assert_eq!(Moment::at(AT).amz_date(), AMZ_DATE);
         assert_eq!(
-            SIGNER.string_to_sign(AMZ_DATE, &made),
+            SIGNER.string_to_sign(Moment::at(AT), &made),
             string_to_sign,
             "the string to sign"
         );
-        assert_eq!(SIGNER.authorization(request, AMZ_DATE), authorization);
+        assert_eq!(SIGNER.authorization(request, Moment::at(AT)), authorization);
     }
 
     #[test]

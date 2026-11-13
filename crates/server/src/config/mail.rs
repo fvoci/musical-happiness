@@ -264,6 +264,14 @@ impl MailSettings {
                     c.is_ascii_alphanumeric()
                 })?;
                 secret_shaped("ses_secret_access_key", secret_access_key)?;
+                // A temporary key is good only with a session token, which this server
+                // does not send: every request would be refused.
+                if access_key_id.starts_with("ASIA") {
+                    bail!(
+                        "ses_access_key_id is a temporary key (ASIA…), which needs a session \
+                         token; give the long-term key of an IAM user (AKIA…)"
+                    );
+                }
                 Way::Ses(SesKeys {
                     endpoint: self.endpoint(format!("https://email.{region}.amazonaws.com"))?,
                     region: region.to_owned(),
@@ -627,6 +635,10 @@ mod tests {
             assert!(error.contains(key), "{key}: {error}");
             assert!(!error.contains(value), "{error}");
         }
+        let mut temporary = ses();
+        temporary["ses_access_key_id"] = Value::from("ASIAEXAMPLE");
+        let error = checked(&temporary).expect_err("a temporary key");
+        assert!(error.contains("ses_access_key_id"), "{error}");
         let mut both = ses();
         both["cloudflare_api_token"] = Value::from(TOKEN);
         let error = checked(&both).expect_err("a key of Cloudflare");
