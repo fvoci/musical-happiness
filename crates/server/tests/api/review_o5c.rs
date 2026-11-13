@@ -98,3 +98,180 @@ async fn a_pending_system_write_does_not_hold_an_organizations_request() {
     drop(socket);
     ts.teardown().await;
 }
+
+/// Reads frames until a pong answers `ping`, and fails if the server closes first.
+async fn still_open(socket: &mut crate::common::WebSocket, why: &str) {
+    socket
+        .send(Message::Ping(vec![5].into()))
+        .await
+        .expect("ping sent");
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(frame) = socket.next().await {
+            match frame {
+                Ok(Message::Pong(_)) => return None,
+                Ok(Message::Close(frame)) => return Some(format!("{frame:?}")),
+                Ok(_) => {}
+                Err(error) => return Some(error.to_string()),
+            }
+        }
+        Some("ended without a close frame".to_owned())
+    })
+    .await
+    .expect("the socket answers or ends");
+    if let Some(ended) = ended {
+        panic!("{why}: the connection was closed ({ended})");
+    }
+}
+
+async fn subscribed(socket: &mut crate::common::WebSocket, workspace_id: &str) {
+    socket
+        .send(Message::Text(
+            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .expect("subscription sent");
+    still_open(socket, "subscribing").await;
+}
+
+/// The listeners' revision is one for every organization, and every session that ends
+/// (a logout, the hourly clean-up of ended sessions, which ends them one by one) moves
+/// it on. A subscription being checked meanwhile is checked again, and after eight
+/// such checks it is given up and its connection closed (1013). Here another user's
+/// logouts, which take nothing of this user's, end this user's connection.
+#[tokio::test]
+async fn other_users_logouts_do_not_end_a_subscription() {
+    use crate::common::{PASSWORD, USER2_USERNAME};
+
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let mut socket = ts.client.connect_websocket().await;
+    let mut pause = ts.app.ws().pause_next_subscription();
+    socket
+        .send(Message::Text(
+            json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .expect("subscription sent");
+    tokio::time::timeout(Duration::from_secs(5), pause.reached())
+        .await
+        .expect("the subscription is checked");
+    for _ in 0..8 {
+        let next = ts.app.ws().pause_next_subscription();
+        let other = ts.login(USER2_USERNAME, PASSWORD).await;
+        other.post_empty("/logout").await.check_no_content();
+        pause.resume();
+        let checked_again = tokio::time::timeout(Duration::from_secs(1), next.reached())
+            .await
+            .is_ok();
+        pause = next;
+        if !checked_again {
+            break;
+        }
+    }
+    drop(pause);
+    still_open(&mut socket, "after another user's logouts").await;
+    ts.teardown().await;
+}
+
+/// A workspace that goes to the trash now closes every connection that followed it,
+/// with what else that connection followed: the member's other workspace stops being
+/// followed too, and the page has to connect again to hear of it.
+#[tokio::test]
+async fn trashing_one_workspace_leaves_a_members_other_subscription_open() {
+    use crate::common::TEST_WORKSPACE_ID;
+
+    let ts = Setup::local_mode().start().await.init_basic().await;
+    let mut socket = ts.client2.connect_websocket().await;
+    subscribed(&mut socket, ROOT_WORKSPACE_ID).await;
+    subscribed(&mut socket, TEST_WORKSPACE_ID).await;
+    let org = crate::org_admin::org_of(&ts).await;
+    ts.client
+        .delete(&format!("/org/{org}/workspaces/{TEST_WORKSPACE_ID}"))
+        .await
+        .check_no_content();
+    still_open(&mut socket, "after another workspace went to the trash").await;
+    ts.teardown().await;
+}
+
+/// `user_is_guest` asked the account, which no member of a workspace is a guest of;
+/// its replacement asks the role in the path's workspace. So a guest of the workspace
+/// who was made a member of one of its template boards, and opens that board, is now
+/// refused its blocks (403), as only a guest of the instance was before.
+#[tokio::test]
+async fn a_guest_member_of_a_template_board_reads_its_blocks() {
+    use crate::common::{TEST_WORKSPACE_ID, TEST_WS};
+    use fvoci_model::{Board, BoardMember, BoardType, WorkspaceRole};
+
+    let ts = Setup::native().start().await.init_basic().await;
+    let guest = ts.client2.me().await.id;
+    ts.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = '{}' WHERE user_id = '{guest}' \
+             AND workspace_id = '{TEST_WORKSPACE_ID}'",
+            WorkspaceRole::Guest.as_str()
+        ))
+        .await
+        .expect("the second user becomes a guest of the workspace");
+    let template: Board = ts
+        .client
+        .create_board(&Board {
+            is_template: true,
+            ..crate::boards::new_board(TEST_WORKSPACE_ID, BoardType::Private, "Guest's template")
+        })
+        .await
+        .created_json();
+    ts.client
+        .add_member(&BoardMember {
+            scheme_viewer: true,
+            ..crate::boards::member(&template.id, &guest)
+        })
+        .await
+        .check_ok();
+    let at = format!("{TEST_WS}/boards/{}", template.id);
+    ts.client2.get(&at).await.check_ok();
+    ts.client2.get(&format!("{at}/blocks")).await.check_ok();
+    ts.teardown().await;
+}
+
+/// What a dispatch does once it is checked (serializing its message and queueing it,
+/// `Hub::queue`) runs inside `Store::if_visibility_current`, under the one lock of
+/// every organization's revisions, which each write of an authorization table takes
+/// as its first such statement starts. So a slow dispatch of one organization holds
+/// another organization's writes. The dispatch is made slow here on purpose; a large
+/// message to many listeners is the real one.
+#[tokio::test]
+async fn one_organizations_dispatch_does_not_hold_anothers_writes() {
+    const DISPATCH: Duration = Duration::from_secs(3);
+
+    let ts = Setup::native().start().await.init_basic().await;
+    let ours = ts.app.store().clone();
+    let version = ours.visibility_version().await;
+    let dispatch = std::thread::spawn(move || {
+        ours.if_visibility_current(version, || std::thread::sleep(DISPATCH))
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let theirs = ts
+        .app
+        .store()
+        .for_org(&fvoci_model::new_id())
+        .expect("an identifier");
+    let started = Instant::now();
+    theirs
+        .execute_unchecked(&format!(
+            "UPDATE boards SET title = title WHERE id = '{}'",
+            fvoci_model::new_id()
+        ))
+        .await
+        .expect("a write of another organization");
+    let took = started.elapsed();
+    assert!(dispatch.join().expect("the dispatch ran"), "it was current");
+    assert!(
+        took < SLACK,
+        "another organization's write took {took:?} while this one dispatched"
+    );
+    ts.teardown().await;
+}
