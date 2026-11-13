@@ -103,7 +103,7 @@
 | Storybook Playwright                   | `test:storybook`                  | 18369, `FVOCI_STORYBOOK_PORT` | 스스로 띄우고 끈다 |
 | Storybook 개발 서버                    | `pnpm --filter web run storybook` | 6006                          | `/`                |
 
-병렬 묶음마다 `FVOCI_E2E_PORT`·`FVOCI_LIVE_PORT`·`FVOCI_STORYBOOK_PORT`를 함께 정한다(이 묶음: `FVOCI_E2E_PORT=18368 FVOCI_LIVE_PORT=18540 FVOCI_STORYBOOK_PORT=18370`). `e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server --bins --examples`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고(그 다음 포트에 서버 테스트의 가짜 OIDC 공급자도) 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
+병렬 묶음마다 `FVOCI_E2E_PORT`·`FVOCI_LIVE_PORT`·`FVOCI_STORYBOOK_PORT`를 함께 정한다(지시문이 묶음마다 준다). `e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server --bins --examples`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고(그 다음 포트에 서버 테스트의 가짜 OIDC 공급자도) 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
 
 `look`에 관해:
 
