@@ -1,3 +1,7 @@
+-- Its policies and checks name the rows of organizations' tables: reached as the
+-- migrator's transaction names no organization.
+SELECT set_config('fvoci.system', 'on', true);
+
 -- Which state of a provider's sign-in a session proves. `oidc_providers.revision` is
 -- raised by every change of what signing in through the provider takes (its issuer,
 -- client, secret, and whether it is on), and kept by the others; a session made

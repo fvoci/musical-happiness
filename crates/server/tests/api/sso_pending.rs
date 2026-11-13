@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TestServer};
 use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider, NEXT_CLIENT_SECRET, Person};
 use crate::oidc::{Browser, org_of, server_for, set_provider, with_key_and_private_addresses};
-use crate::sso::{ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso, tie};
+use crate::sso::{ADMIN_SUBJECT, Passwords, admin_through_provider, require_sso};
 
 /// A secret the fake provider does not take at its token endpoint.
 const WRONG_SECRET: &str = "a secret the provider never issued";
@@ -390,9 +390,10 @@ async fn a_trial_in_another_account_changes_nothing() {
     fake.stop();
 }
 
-/// Another issuer is put in use by a trial in the account of the administrator, whose
-/// identity at it is tied: the sessions made through the issuer before end, the
-/// trial's goes on and proves the provider.
+/// Another issuer is put in use by a trial of the administrator: their identity at it,
+/// tied to nobody, is tied to them by the trial, as nothing else could tie it while
+/// the organization signs in through the issuer before. The sessions made through
+/// that one end; the trial's goes on, proves the provider, and is of the same account.
 #[tokio::test]
 async fn another_issuer_is_applied_by_its_administrators_trial() {
     let fake = FakeProvider::start().await;
@@ -411,7 +412,6 @@ async fn another_issuer_is_applied_by_its_administrators_trial() {
     require_sso(&admin, &org_id, &fake, Passwords::Refused)
         .await
         .check_ok();
-    tie(&ts, &ts.client, &other, ADMIN_SUBJECT).await;
     let path = format!("/org/{org_id}/oidc");
     admin
         .put(
@@ -428,6 +428,11 @@ async fn another_issuer_is_applied_by_its_administrators_trial() {
     assert_eq!(
         tried.location,
         format!("/org/{org_id}?oidc_pending=applied")
+    );
+    assert_eq!(
+        applied.me().await.id,
+        ts.client.me().await.id,
+        "the administrator's own account"
     );
     assert_eq!(read.issuer, other.issuer);
     assert!(read.sso_required && read.can_require_sso && read.pending.is_none());

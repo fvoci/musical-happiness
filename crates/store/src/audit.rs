@@ -77,7 +77,7 @@ impl FromStr for ActorKind {
 
 /// One record of the audit log as it is written: who did what to what (and whom), in
 /// which workspace, and when. The organization is the one of the store's handle, or
-/// the one named to [`record_entry_in`].
+/// the one named to `record_entry_in`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditEntry {
     /// The workspace it was done in; empty for what was done to the organization.

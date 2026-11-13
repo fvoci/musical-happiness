@@ -75,7 +75,7 @@ pub use oidc::{
     FlowPurpose, Identity, LoginFlow, OidcAccount, OidcRefusal, Removal, StoredProvider,
 };
 pub use oidc_identities::{LinkRefusal, Linked, LinkingSession, TiedIdentity, Unlinked};
-pub use oidc_pending::{Applied, PendingProvider, PendingSettings};
+pub use oidc_pending::{Applied, PendingProvider, PendingSettings, TrialAccount};
 pub use org_admin::{Joining, OrgRoleChange, WorkspaceTrashing};
 pub use server_lock::ServerLock;
 pub use sharing::SharingChange;

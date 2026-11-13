@@ -132,6 +132,11 @@ describe('the SSO settings', () => {
       expect(screen.getByTestId(id)).toBeEnabled();
     }
     expect(screen.getByTestId('sso-pending-hint')).toBeInTheDocument();
+    // Another issuer only waits aside: nobody is signed out by saving it.
+    await fireEvent.input(screen.getByTestId('sso-issuer'), {
+      target: { value: 'https://next.example.com' },
+    });
+    expect(screen.queryByTestId('sso-issuer-change')).not.toBeInTheDocument();
   });
 
   it('says a change saved while enforced waits aside, and tries or discards it', async () => {
