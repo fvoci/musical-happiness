@@ -1,5 +1,5 @@
-//! The time of a signed request, in the form AWS reads: basic ISO 8601
-//! (`20150830T123600Z`).
+//! The time of a signed request, in the two forms the providers read: the date of
+//! HTTP (`Thu, 05 Jan 2014 21:31:40 GMT`) and AWS's basic ISO 8601 (`20150830T123600Z`).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -12,7 +12,14 @@ pub(super) struct Moment {
     hour: u64,
     minute: u64,
     second: u64,
+    /// 0 for Sunday.
+    weekday: usize,
 }
+
+const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 impl Moment {
     /// Now, by the system's clock; a clock before 1970 reads as the epoch.
@@ -37,7 +44,23 @@ impl Moment {
             hour: of_day / 3600,
             minute: of_day % 3600 / 60,
             second: of_day % 60,
+            // 1970-01-01 was a Thursday.
+            weekday: usize::try_from((seconds / 86_400 + 4) % 7).expect("a weekday is 0 to 6"),
         }
+    }
+
+    /// `Thu, 05 Jan 2014 21:31:40 GMT` (RFC 7231's IMF-fixdate).
+    pub(super) fn http_date(self) -> String {
+        format!(
+            "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
+            WEEKDAYS[self.weekday],
+            self.day,
+            MONTHS[usize::try_from(self.month - 1).expect("a month is 1 to 12")],
+            self.year,
+            self.hour,
+            self.minute,
+            self.second
+        )
     }
 
     /// `20150830T123600Z`, as `X-Amz-Date` gives it.
@@ -62,14 +85,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_moment_reads_as_the_date_of_the_published_examples() {
+    fn a_moment_reads_as_the_dates_of_the_published_examples() {
         // The time of AWS's signature test suite: 2015-08-30T12:36:00Z.
         let aws = Moment::at(1_440_938_160);
         assert_eq!(aws.amz_date(), "20150830T123600Z");
         assert_eq!(aws.amz_day(), "20150830");
+        // The time of OCI's signing examples (which call the day a Thursday).
+        assert_eq!(
+            Moment::at(1_388_957_500).http_date(),
+            "Sun, 05 Jan 2014 21:31:40 GMT"
+        );
+        assert_eq!(Moment::at(0).http_date(), "Thu, 01 Jan 1970 00:00:00 GMT");
         assert_eq!(Moment::at(0).amz_date(), "19700101T000000Z");
         // A leap day, and the end of a year.
         assert_eq!(Moment::at(1_709_208_000).amz_date(), "20240229T120000Z");
         assert_eq!(Moment::at(1_735_689_599).amz_date(), "20241231T235959Z");
+        assert_eq!(
+            Moment::at(1_735_689_599).http_date(),
+            "Tue, 31 Dec 2024 23:59:59 GMT"
+        );
     }
 }

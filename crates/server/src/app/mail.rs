@@ -120,6 +120,10 @@ impl Mailer {
                 keys,
                 provider::client(ATTEMPT_TIMEOUT)?,
             )?)),
+            Some(Way::Oci(keys)) => Some(Arc::new(provider::oci::Oci::new(
+                keys,
+                provider::client(ATTEMPT_TIMEOUT)?,
+            )?)),
         };
         Self::with_outbound(settings, outbound, metrics)
     }

@@ -4,6 +4,7 @@
 
 use std::fmt;
 use std::net::IpAddr;
+use std::path::PathBuf;
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Deserializer};
@@ -11,7 +12,7 @@ use serde_json::{Map, Value};
 
 use super::smtp::SmtpSettings;
 
-pub(super) const ENV_KEYS: [(&str, super::EnvKind); 7] = [
+pub(super) const ENV_KEYS: [(&str, super::EnvKind); 13] = [
     ("mail_transport", super::EnvKind::Text),
     ("mail_api_endpoint", super::EnvKind::Text),
     ("cloudflare_account_id", super::EnvKind::Text),
@@ -19,6 +20,12 @@ pub(super) const ENV_KEYS: [(&str, super::EnvKind); 7] = [
     ("ses_region", super::EnvKind::Text),
     ("ses_access_key_id", super::EnvKind::Text),
     ("ses_secret_access_key", super::EnvKind::Text),
+    ("oci_region", super::EnvKind::Text),
+    ("oci_tenancy", super::EnvKind::Text),
+    ("oci_user", super::EnvKind::Text),
+    ("oci_fingerprint", super::EnvKind::Text),
+    ("oci_private_key_file", super::EnvKind::Text),
+    ("oci_compartment", super::EnvKind::Text),
 ];
 
 /// The keys whose values are secrets: a value of the wrong type is refused without
@@ -37,6 +44,8 @@ pub enum MailTransport {
     Cloudflare,
     /// Amazon SES's API v2 (`ses_*`).
     Ses,
+    /// OCI Email Delivery's HTTPS submission (`oci_*`).
+    Oci,
 }
 
 impl MailTransport {
@@ -46,6 +55,7 @@ impl MailTransport {
             Self::Smtp => "smtp",
             Self::Cloudflare => "cloudflare",
             Self::Ses => "ses",
+            Self::Oci => "oci",
         }
     }
 }
@@ -55,7 +65,7 @@ impl MailTransport {
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 pub struct MailSettings {
-    /// `smtp`, `cloudflare` or `ses`; empty for SMTP when `smtp_host` is set and
+    /// `smtp`, `cloudflare`, `ses` or `oci`; empty for SMTP when `smtp_host` is set and
     /// no mail otherwise.
     #[serde(deserialize_with = "transport_or_none")]
     #[cfg_attr(test, serde(serialize_with = "transport_as_text"))]
@@ -73,6 +83,19 @@ pub struct MailSettings {
     pub ses_access_key_id: String,
     /// Its secret access key; omitted from debug output.
     pub ses_secret_access_key: String,
+    /// The OCI region whose Email Delivery sends (`us-ashburn-1`).
+    pub oci_region: String,
+    /// The OCID of the tenancy.
+    pub oci_tenancy: String,
+    /// The OCID of the user whose API key signs.
+    pub oci_user: String,
+    /// The fingerprint of that API key (`12:34:…`).
+    pub oci_fingerprint: String,
+    /// The file of the API key's private half (PEM, unencrypted), read at the start;
+    /// its contents are never shown.
+    pub oci_private_key_file: String,
+    /// The OCID of the compartment of the approved sender.
+    pub oci_compartment: String,
 }
 
 impl fmt::Debug for MailSettings {
@@ -86,6 +109,12 @@ impl fmt::Debug for MailSettings {
             .field("cloudflare_account_id", &self.cloudflare_account_id)
             .field("ses_region", &self.ses_region)
             .field("ses_access_key_id", &self.ses_access_key_id)
+            .field("oci_region", &self.oci_region)
+            .field("oci_tenancy", &self.oci_tenancy)
+            .field("oci_user", &self.oci_user)
+            .field("oci_fingerprint", &self.oci_fingerprint)
+            .field("oci_private_key_file", &self.oci_private_key_file)
+            .field("oci_compartment", &self.oci_compartment)
             .finish_non_exhaustive()
     }
 }
@@ -155,6 +184,25 @@ pub struct SesKeys {
     pub secret_access_key: Secret,
 }
 
+/// What OCI Email Delivery needs; the key is read from its file when the server starts.
+#[derive(Debug, Clone)]
+pub struct OciKeys {
+    /// Where the requests go:
+    /// `https://cell0.submit.email.{region}.oci.oraclecloud.com`, or
+    /// `mail_api_endpoint`.
+    pub endpoint: String,
+    /// `oci_tenancy`.
+    pub tenancy: String,
+    /// `oci_user`.
+    pub user: String,
+    /// `oci_fingerprint`.
+    pub fingerprint: String,
+    /// `oci_private_key_file`.
+    pub private_key_file: PathBuf,
+    /// `oci_compartment`.
+    pub compartment: String,
+}
+
 /// The way mail leaves, with what it needs, as [`MailSettings::way`] reads it.
 #[derive(Debug, Clone)]
 pub enum Way {
@@ -164,6 +212,8 @@ pub enum Way {
     Cloudflare(CloudflareKeys),
     /// Amazon SES.
     Ses(SesKeys),
+    /// OCI Email Delivery.
+    Oci(OciKeys),
 }
 
 impl MailSettings {
@@ -173,7 +223,7 @@ impl MailSettings {
     }
 
     /// Each provider's keys, with the transport that reads them and their values.
-    fn provider_keys(&self) -> [(MailTransport, &'static str, &str); 5] {
+    fn provider_keys(&self) -> [(MailTransport, &'static str, &str); 11] {
         [
             (
                 MailTransport::Cloudflare,
@@ -196,6 +246,16 @@ impl MailSettings {
                 "ses_secret_access_key",
                 &self.ses_secret_access_key,
             ),
+            (MailTransport::Oci, "oci_region", &self.oci_region),
+            (MailTransport::Oci, "oci_tenancy", &self.oci_tenancy),
+            (MailTransport::Oci, "oci_user", &self.oci_user),
+            (MailTransport::Oci, "oci_fingerprint", &self.oci_fingerprint),
+            (
+                MailTransport::Oci,
+                "oci_private_key_file",
+                &self.oci_private_key_file,
+            ),
+            (MailTransport::Oci, "oci_compartment", &self.oci_compartment),
         ]
     }
 
@@ -205,7 +265,7 @@ impl MailSettings {
     /// # Errors
     /// Returns an error naming the key that is missing, malformed, or set for a way that
     /// is not the chosen one; never a secret's value.
-    pub fn way<'a>(&'a self, smtp: &SmtpSettings) -> anyhow::Result<Option<Way>> {
+    pub fn way(&self, smtp: &SmtpSettings) -> anyhow::Result<Option<Way>> {
         let transport = match self.mail_transport {
             Some(transport) => transport,
             None if smtp.enabled() => MailTransport::Smtp,
@@ -223,15 +283,9 @@ impl MailSettings {
         if !fvoci_model::is_email_valid(&smtp.smtp_from) {
             bail!("smtp_from must be a single email address: the sender of all mail");
         }
-        let needed = |key: &str, value: &'a str| -> anyhow::Result<&'a str> {
-            if value.is_empty() {
-                bail!(
-                    "mail_transport is \"{}\", which needs {key}",
-                    transport.as_str()
-                );
-            }
-            Ok(value)
-        };
+        if transport != MailTransport::Smtp {
+            refuse_relay(smtp, transport)?;
+        }
         Ok(Some(match transport {
             MailTransport::Smtp => {
                 if !smtp.enabled() {
@@ -239,46 +293,101 @@ impl MailSettings {
                 }
                 Way::Smtp
             }
-            MailTransport::Cloudflare => {
-                refuse_relay(smtp, transport)?;
-                let account_id = needed("cloudflare_account_id", &self.cloudflare_account_id)?;
-                let api_token = needed("cloudflare_api_token", &self.cloudflare_api_token)?;
-                shaped("cloudflare_account_id", account_id, |c| {
-                    c.is_ascii_alphanumeric()
-                })?;
-                secret_shaped("cloudflare_api_token", api_token)?;
-                Way::Cloudflare(CloudflareKeys {
-                    endpoint: self.endpoint("https://api.cloudflare.com".to_owned())?,
-                    account_id: account_id.to_owned(),
-                    api_token: Secret(api_token.to_owned()),
-                })
-            }
-            MailTransport::Ses => {
-                refuse_relay(smtp, transport)?;
-                let region = needed("ses_region", &self.ses_region)?;
-                let access_key_id = needed("ses_access_key_id", &self.ses_access_key_id)?;
-                let secret_access_key =
-                    needed("ses_secret_access_key", &self.ses_secret_access_key)?;
-                shaped("ses_region", region, is_region_char)?;
-                shaped("ses_access_key_id", access_key_id, |c| {
-                    c.is_ascii_alphanumeric()
-                })?;
-                secret_shaped("ses_secret_access_key", secret_access_key)?;
-                // A temporary key is good only with a session token, which this server
-                // does not send: every request would be refused.
-                if access_key_id.starts_with("ASIA") {
-                    bail!(
-                        "ses_access_key_id is a temporary key (ASIA…), which needs a session \
-                         token; give the long-term key of an IAM user (AKIA…)"
-                    );
-                }
-                Way::Ses(SesKeys {
-                    endpoint: self.endpoint(format!("https://email.{region}.amazonaws.com"))?,
-                    region: region.to_owned(),
-                    access_key_id: access_key_id.to_owned(),
-                    secret_access_key: Secret(secret_access_key.to_owned()),
-                })
-            }
+            MailTransport::Cloudflare => self.cloudflare()?,
+            MailTransport::Ses => self.ses()?,
+            MailTransport::Oci => self.oci()?,
+        }))
+    }
+
+    /// Cloudflare's way, from its keys.
+    fn cloudflare(&self) -> anyhow::Result<Way> {
+        let account_id = needed(
+            MailTransport::Cloudflare,
+            "cloudflare_account_id",
+            &self.cloudflare_account_id,
+        )?;
+        let api_token = needed(
+            MailTransport::Cloudflare,
+            "cloudflare_api_token",
+            &self.cloudflare_api_token,
+        )?;
+        shaped("cloudflare_account_id", account_id, |c| {
+            c.is_ascii_alphanumeric()
+        })?;
+        secret_shaped("cloudflare_api_token", api_token)?;
+        Ok(Way::Cloudflare(CloudflareKeys {
+            endpoint: self.endpoint("https://api.cloudflare.com".to_owned())?,
+            account_id: account_id.to_owned(),
+            api_token: Secret(api_token.to_owned()),
+        }))
+    }
+
+    /// SES's way, from its keys.
+    fn ses(&self) -> anyhow::Result<Way> {
+        let region = needed(MailTransport::Ses, "ses_region", &self.ses_region)?;
+        let access_key_id = needed(
+            MailTransport::Ses,
+            "ses_access_key_id",
+            &self.ses_access_key_id,
+        )?;
+        let secret_access_key = needed(
+            MailTransport::Ses,
+            "ses_secret_access_key",
+            &self.ses_secret_access_key,
+        )?;
+        shaped("ses_region", region, is_region_char)?;
+        shaped("ses_access_key_id", access_key_id, |c| {
+            c.is_ascii_alphanumeric()
+        })?;
+        secret_shaped("ses_secret_access_key", secret_access_key)?;
+        // A temporary key is good only with a session token, which this server
+        // does not send: every request would be refused.
+        if access_key_id.starts_with("ASIA") {
+            bail!(
+                "ses_access_key_id is a temporary key (ASIA…), which needs a session \
+                 token; give the long-term key of an IAM user (AKIA…)"
+            );
+        }
+        Ok(Way::Ses(SesKeys {
+            endpoint: self.endpoint(format!("https://email.{region}.amazonaws.com"))?,
+            region: region.to_owned(),
+            access_key_id: access_key_id.to_owned(),
+            secret_access_key: Secret(secret_access_key.to_owned()),
+        }))
+    }
+
+    /// OCI's way, from its keys.
+    fn oci(&self) -> anyhow::Result<Way> {
+        let region = needed(MailTransport::Oci, "oci_region", &self.oci_region)?;
+        let tenancy = needed(MailTransport::Oci, "oci_tenancy", &self.oci_tenancy)?;
+        let user = needed(MailTransport::Oci, "oci_user", &self.oci_user)?;
+        let fingerprint = needed(MailTransport::Oci, "oci_fingerprint", &self.oci_fingerprint)?;
+        let private_key_file = needed(
+            MailTransport::Oci,
+            "oci_private_key_file",
+            &self.oci_private_key_file,
+        )?;
+        let compartment = needed(MailTransport::Oci, "oci_compartment", &self.oci_compartment)?;
+        shaped("oci_region", region, is_region_char)?;
+        for (key, value) in [
+            ("oci_tenancy", tenancy),
+            ("oci_user", user),
+            ("oci_compartment", compartment),
+        ] {
+            shaped(key, value, is_ocid_char)?;
+        }
+        shaped("oci_fingerprint", fingerprint, |c| {
+            c.is_ascii_hexdigit() || c == ':'
+        })?;
+        Ok(Way::Oci(OciKeys {
+            endpoint: self.endpoint(format!(
+                "https://cell0.submit.email.{region}.oci.oraclecloud.com"
+            ))?,
+            tenancy: tenancy.to_owned(),
+            user: user.to_owned(),
+            fingerprint: fingerprint.to_owned(),
+            private_key_file: PathBuf::from(private_key_file),
+            compartment: compartment.to_owned(),
         }))
     }
 
@@ -330,6 +439,17 @@ impl MailSettings {
     }
 }
 
+/// `value` of `key`, which `transport` needs.
+fn needed<'a>(transport: MailTransport, key: &str, value: &'a str) -> anyhow::Result<&'a str> {
+    if value.is_empty() {
+        bail!(
+            "mail_transport is \"{}\", which needs {key}",
+            transport.as_str()
+        );
+    }
+    Ok(value)
+}
+
 /// Refuses the relay's keys for a provider's `transport`: they would be passed over.
 fn refuse_relay(smtp: &SmtpSettings, transport: MailTransport) -> anyhow::Result<()> {
     if smtp.enabled() || !smtp.smtp_user.is_empty() {
@@ -355,6 +475,12 @@ fn shown_endpoint(endpoint: &str) -> &str {
 /// host name.
 fn is_region_char(c: char) -> bool {
     c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
+}
+
+/// Whether `c` may be in an OCID (`ocid1.tenancy.oc1..aaaa`), which becomes a part of
+/// the key's name in a header and of a request's body.
+fn is_ocid_char(c: char) -> bool {
+    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_')
 }
 
 /// Refuses a value with a character `allowed` does not take: these become parts of a
@@ -649,6 +775,60 @@ mod tests {
             .expect_err("a number is no secret")
             .to_string();
         assert!(!error.contains("1234567890"), "{error}");
+    }
+
+    fn oci() -> Value {
+        json!({
+            "mail_transport": "oci",
+            "oci_region": "ap-seoul-1",
+            "oci_tenancy": "ocid1.tenancy.oc1..aaaaaaaaba3pv6wkcr4jqae5f15p2b2m2yt2j6rx32uzr4h25vqstifsfdsq",
+            "oci_user": "ocid1.user.oc1..aaaaaaaat5nvwcna5j6aqzjcaty5eqbb6qt2jvpkanghtgdaqedqw3rynjq",
+            "oci_fingerprint": "73:61:a2:21:67:e0:df:be:7e:4b:93:1e:15:98:a5:b7",
+            "oci_private_key_file": "oci_api_key.pem",
+            "oci_compartment": "ocid1.compartment.oc1..aaaaaaaam3we6vgnherjq5q2idnccdflvjsnog7mlr6rtdb25gilchfeyjxa",
+            "smtp_from": "sender@example.test",
+        })
+    }
+
+    #[test]
+    fn oci_needs_its_keys_and_names_its_host_by_the_region() {
+        let Ok(Some(Way::Oci(keys))) = checked(&oci()) else {
+            panic!("OCI");
+        };
+        assert_eq!(
+            keys.endpoint,
+            "https://cell0.submit.email.ap-seoul-1.oci.oraclecloud.com"
+        );
+        assert_eq!(keys.private_key_file, PathBuf::from("oci_api_key.pem"));
+        for key in [
+            "oci_region",
+            "oci_tenancy",
+            "oci_user",
+            "oci_fingerprint",
+            "oci_private_key_file",
+            "oci_compartment",
+        ] {
+            let mut keys = oci();
+            keys.as_object_mut().expect("an object").remove(key);
+            let error = checked(&keys).expect_err("a missing key");
+            assert!(error.contains(key), "{key}: {error}");
+        }
+        for (key, value) in [
+            ("oci_region", "ap-seoul-1.evil.test"),
+            ("oci_tenancy", "ocid1.tenancy\"/x"),
+            ("oci_user", "OCID1.USER"),
+            ("oci_compartment", "ocid1.compartment oc1"),
+            ("oci_fingerprint", "73:61:zz"),
+        ] {
+            let mut keys = oci();
+            keys[key] = Value::from(value);
+            let error = checked(&keys).expect_err(value);
+            assert!(error.contains(key), "{key}: {error}");
+        }
+        let mut both = oci();
+        both["ses_region"] = Value::from("eu-west-2");
+        let error = checked(&both).expect_err("a key of SES");
+        assert!(error.contains("ses_region"), "{error}");
     }
 
     /// Environment variables for [`Configuration::parse`].

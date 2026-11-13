@@ -1,7 +1,7 @@
 //! The HTTP APIs of the mail providers, faked for the tests: the sending requests of
-//! Cloudflare and Amazon SES are recorded with whether they were authorized or signed
-//! as the provider checks it, and answered as it answers: by default as taken, or with
-//! the statuses (and SES's error names) the test queues, in its own shape.
+//! Cloudflare, Amazon SES and OCI are recorded with whether they were authorized or
+//! signed as the provider checks it, and answered as it answers: by default as taken,
+//! or with the statuses (and error names) the test queues, in its own shape.
 #![allow(dead_code, reason = "each provider's tests use a part of it")]
 
 use std::collections::VecDeque;
@@ -10,7 +10,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use aws_lc_rs::encoding::AsDer as _;
 use aws_lc_rs::hmac;
+use aws_lc_rs::rsa::{KeyPair, KeySize};
+use aws_lc_rs::signature::{KeyPair as _, RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey};
 use axum::Router;
 use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode, Uri};
@@ -31,6 +34,7 @@ use tokio::task::JoinHandle;
 pub(crate) enum Provider {
     Cloudflare,
     Ses,
+    Oci,
 }
 
 /// The account of the fake Cloudflare.
@@ -43,6 +47,12 @@ pub(crate) const SES_REGION: &str = "eu-west-2";
 pub(crate) const SES_ACCESS_KEY: &str = "AKIDFAKEMAILAPI";
 /// Its secret.
 pub(crate) const SES_SECRET: &str = "fake/ses+secret-0123456789";
+/// The region of the fake OCI.
+pub(crate) const OCI_REGION: &str = "ap-seoul-1";
+/// The tenancy, user and fingerprint of the fake OCI's API key: its `keyId`.
+pub(crate) const OCI_KEY_ID: &str = "ocid1.tenancy.oc1..fake/ocid1.user.oc1..fake/12:34:56:78";
+/// The compartment of its approved sender.
+pub(crate) const OCI_COMPARTMENT: &str = "ocid1.compartment.oc1..fake";
 
 /// One request the fake was sent.
 #[derive(Debug, Clone)]
@@ -73,8 +83,9 @@ struct Scripted {
     name: Option<&'static str>,
 }
 
-#[derive(Default)]
 struct State {
+    /// The API key of the fake OCI, whose public half checks the signatures.
+    oci_public_key: Vec<u8>,
     recorded: Mutex<Vec<Recorded>>,
     /// The next answers; an empty queue answers as taken.
     script: Mutex<VecDeque<Scripted>>,
@@ -85,6 +96,8 @@ pub(crate) struct FakeProvider {
     pub(crate) address: SocketAddr,
     state: Arc<State>,
     serving: JoinHandle<()>,
+    /// The file of the fake OCI's API key, as the server reads it (PKCS#8 PEM).
+    oci_key_file: std::path::PathBuf,
 }
 
 impl FakeProvider {
@@ -93,7 +106,18 @@ impl FakeProvider {
             .await
             .expect("a local port is free");
         let address = listener.local_addr().expect("the listener's address");
-        let state = Arc::new(State::default());
+        let key = KeyPair::generate(KeySize::Rsa2048).expect("an RSA key");
+        let pkcs8 = key.as_der().expect("the key as PKCS#8");
+        let oci_key_file = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("fake-oci-key-{}.pem", address.port()));
+        std::fs::write(&oci_key_file, pem("PRIVATE KEY", pkcs8.as_ref()))
+            .expect("the key's file is written");
+        let state = Arc::new(State {
+            oci_public_key: key.public_key().as_ref().to_vec(),
+            recorded: Mutex::default(),
+            script: Mutex::default(),
+            changed: Notify::new(),
+        });
         let serving_state = Arc::clone(&state);
         let app = Router::new().fallback(move |uri: Uri, headers: HeaderMap, body: Bytes| {
             let state = Arc::clone(&serving_state);
@@ -106,6 +130,7 @@ impl FakeProvider {
             address,
             state,
             serving,
+            oci_key_file,
         }
     }
 
@@ -139,6 +164,21 @@ impl FakeProvider {
                 ses_secret_access_key: SES_SECRET.to_owned(),
                 ..MailSettings::default()
             },
+            Provider::Oci => {
+                let mut parts = OCI_KEY_ID.split('/');
+                let mut part = || parts.next().expect("three parts").to_owned();
+                MailSettings {
+                    mail_transport: Some(MailTransport::Oci),
+                    mail_api_endpoint: self.endpoint(),
+                    oci_region: OCI_REGION.to_owned(),
+                    oci_tenancy: part(),
+                    oci_user: part(),
+                    oci_fingerprint: part(),
+                    oci_private_key_file: self.oci_key_file.display().to_string(),
+                    oci_compartment: OCI_COMPARTMENT.to_owned(),
+                    ..MailSettings::default()
+                }
+            }
         };
         (smtp, mail)
     }
@@ -166,7 +206,8 @@ impl FakeProvider {
         });
     }
 
-    /// Answers the next request with `status` and SES's error `name`.
+    /// Answers the next request with `status` and the error `name` (SES's
+    /// `X-Amzn-ErrorType`, OCI's `code`).
     pub(crate) async fn answer_next_named(&self, status: u16, name: &'static str) {
         self.state.script.lock().await.push_back(Scripted {
             status,
@@ -214,6 +255,7 @@ impl FakeProvider {
 
     pub(crate) fn stop(self) {
         self.serving.abort();
+        let _ = std::fs::remove_file(&self.oci_key_file);
     }
 }
 
@@ -224,38 +266,13 @@ async fn answer(state: &State, uri: &Uri, headers: HeaderMap, body: &[u8]) -> Re
         Provider::Cloudflare
     } else if path == "/v2/email/outbound-emails" {
         Provider::Ses
+    } else if path == "/20220926/actions/submitEmail" {
+        Provider::Oci
     } else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let json: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
-    let (to, text, mime, signed) = match provider {
-        Provider::Cloudflare => (
-            json["to"].as_str().unwrap_or_default().to_owned(),
-            json["text"].as_str().unwrap_or_default().to_owned(),
-            String::new(),
-            header(&headers, "authorization") == format!("Bearer {CLOUDFLARE_TOKEN}"),
-        ),
-        Provider::Ses => {
-            let mime = json["Content"]["Raw"]["Data"]
-                .as_str()
-                .and_then(|data| STANDARD.decode(data).ok())
-                .and_then(|bytes| String::from_utf8(bytes).ok())
-                .unwrap_or_default();
-            let text = MessageParser::default()
-                .parse(mime.as_bytes())
-                .and_then(|parsed| parsed.body_text(0).map(std::borrow::Cow::into_owned))
-                .unwrap_or_default();
-            (
-                json["Destination"]["ToAddresses"][0]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned(),
-                text,
-                mime,
-                ses_signed(&headers, body),
-            )
-        }
-    };
+    let (to, text, mime, signed) = read(state, provider, &json, &headers, body);
     let Scripted {
         status,
         retry_after,
@@ -281,6 +298,15 @@ async fn answer(state: &State, uri: &Uri, headers: HeaderMap, body: &[u8]) -> Re
         )
             .into_response(),
         (Provider::Ses, status) => ses_error(status, name),
+        (Provider::Oci, 200) => (
+            StatusCode::OK,
+            axum::Json(json!({
+                "messageId": "fake-message-id", "envelopeId": "fake-envelope-id",
+                "suppressedRecipients": [],
+            })),
+        )
+            .into_response(),
+        (Provider::Oci, status) => oci_error(status, name),
     };
     if let Some(seconds) = retry_after {
         response.headers_mut().insert(
@@ -403,4 +429,124 @@ fn ses_signed(headers: &HeaderMap, body: &[u8]) -> bool {
         |key, part| sign(key.as_ref(), part),
     );
     hex(sign(key.as_ref(), &string_to_sign).as_ref()) == signature
+}
+
+/// OCI's error answer of `status`: its `code`, as the API reference gives it.
+fn oci_error(status: u16, name: Option<&'static str>) -> Response {
+    let code = name.unwrap_or(match status {
+        400 => "InvalidParameter",
+        401 => "NotAuthenticated",
+        404 => "NotAuthorizedOrNotFound",
+        413 => "RequestEntityTooLarge",
+        429 => "TooManyRequests",
+        _ => "InternalServerError",
+    });
+    (
+        StatusCode::from_u16(status).expect("a status"),
+        axum::Json(json!({"code": code, "message": "fake"})),
+    )
+        .into_response()
+}
+
+/// `der` as a PEM block of `label`.
+fn pem(label: &str, der: &[u8]) -> String {
+    let text = STANDARD.encode(der);
+    let lines: Vec<&str> = text
+        .as_bytes()
+        .chunks(64)
+        .map(|line| std::str::from_utf8(line).expect("base64 is ASCII"))
+        .collect();
+    format!(
+        "-----BEGIN {label}-----\n{}\n-----END {label}-----\n",
+        lines.join("\n")
+    )
+}
+
+/// Whether the request carries a signature OCI would take: of the key [`OCI_KEY_ID`]
+/// names, `rsa-sha256`, over the date, the request target, the host, the length, the
+/// type and the hash of the body as it arrived, each of these as it was sent. Written
+/// apart from the server's signer, after OCI's description of request signatures.
+fn oci_signed(public_key: &[u8], headers: &HeaderMap, body: &[u8]) -> bool {
+    let authorization = header(headers, "authorization");
+    let Some(parameters) = authorization.strip_prefix("Signature ") else {
+        return false;
+    };
+    let parameter = |name: &str| {
+        parameters.split(',').find_map(|part| {
+            part.strip_prefix(&format!("{name}=\""))
+                .and_then(|value| value.strip_suffix('"'))
+        })
+    };
+    let signed = "date (request-target) host content-length content-type x-content-sha256";
+    if parameter("version") != Some("1")
+        || parameter("keyId") != Some(OCI_KEY_ID)
+        || parameter("algorithm") != Some("rsa-sha256")
+        || parameter("headers") != Some(signed)
+        || header(headers, "x-content-sha256") != STANDARD.encode(Sha256::digest(body))
+        || header(headers, "content-length") != body.len().to_string()
+        || header(headers, "date").is_empty()
+    {
+        return false;
+    }
+    let lines: Vec<String> = signed
+        .split(' ')
+        .map(|name| match name {
+            "(request-target)" => format!("{name}: post /20220926/actions/submitEmail"),
+            _ => format!("{name}: {}", header(headers, name)),
+        })
+        .collect();
+    let Some(signature) = parameter("signature").and_then(|text| STANDARD.decode(text).ok()) else {
+        return false;
+    };
+    UnparsedPublicKey::new(&RSA_PKCS1_2048_8192_SHA256, public_key)
+        .verify(lines.join("\n").as_bytes(), &signature)
+        .is_ok()
+}
+
+/// The recipient, the plain text and the MIME text of a request to `provider`, and
+/// whether it was signed or authorized as the provider checks it.
+fn read(
+    state: &State,
+    provider: Provider,
+    json: &Value,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> (String, String, String, bool) {
+    match provider {
+        Provider::Cloudflare => (
+            json["to"].as_str().unwrap_or_default().to_owned(),
+            json["text"].as_str().unwrap_or_default().to_owned(),
+            String::new(),
+            header(headers, "authorization") == format!("Bearer {CLOUDFLARE_TOKEN}"),
+        ),
+        Provider::Ses => {
+            let mime = json["Content"]["Raw"]["Data"]
+                .as_str()
+                .and_then(|data| STANDARD.decode(data).ok())
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .unwrap_or_default();
+            let text = MessageParser::default()
+                .parse(mime.as_bytes())
+                .and_then(|parsed| parsed.body_text(0).map(std::borrow::Cow::into_owned))
+                .unwrap_or_default();
+            (
+                json["Destination"]["ToAddresses"][0]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                text,
+                mime,
+                ses_signed(headers, body),
+            )
+        }
+        Provider::Oci => (
+            json["recipients"]["to"][0]["email"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            json["bodyText"].as_str().unwrap_or_default().to_owned(),
+            String::new(),
+            oci_signed(&state.oci_public_key, headers, body),
+        ),
+    }
 }

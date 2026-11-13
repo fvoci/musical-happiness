@@ -6,6 +6,8 @@
 
 mod clock;
 pub(super) mod cloudflare;
+mod http_signature;
+pub(super) mod oci;
 pub(super) mod ses;
 mod sigv4;
 
