@@ -253,42 +253,38 @@ impl Hub {
                     .iter()
                     .find(|permit| permit.board == board)
                     .map(|permit| Following::Link(permit.clone())),
-                Access::Workspace(workspace) | Access::Members { workspace, .. } => listener
-                    .workspace_roles
-                    .get(workspace)
-                    .map(|role| Following::Workspace {
-                        user: listener.user_id.clone(),
-                        role: *role,
-                        login_provider: listener.login_provider.clone(),
-                    }),
+                Access::Workspace(workspace) => {
+                    following_workspace(listener, workspace, BoardOnly::No)
+                }
+                Access::Members {
+                    workspace, also, ..
+                } => following_workspace(listener, workspace, BoardOnly::Members { also }),
             }
         };
         match following {
             None => false,
             Some(Following::Link(permit)) => self.link_opens(id, &permit).await,
             Some(Following::Workspace {
+                workspace,
                 user,
                 role,
                 login_provider,
+                board_only,
             }) => {
-                let (Access::Workspace(workspace) | Access::Members { workspace, .. }) = access
-                else {
-                    return false;
-                };
                 if !self
-                    .still_in_workspace(id, workspace, (&user, role), login_provider.as_deref())
+                    .still_in_workspace(id, workspace, &user, role, login_provider.as_deref())
                     .await
                 {
                     return false;
                 }
-                match access {
-                    Access::Members { also, .. } => {
+                match board_only {
+                    BoardOnly::No => true,
+                    BoardOnly::Members { also } => {
                         also == Some(user.as_str())
                             || members
                                 .iter()
                                 .any(|member| member.user_id == user && role_of(member).is_some())
                     }
-                    _ => true,
                 }
             }
         }
@@ -324,7 +320,8 @@ impl Hub {
         &self,
         id: ListenerId,
         workspace: &str,
-        (user, role): (&str, WorkspaceRole),
+        user: &str,
+        role: WorkspaceRole,
         login_provider: Option<&str>,
     ) -> bool {
         let checked = Of::Role(role);
@@ -355,13 +352,41 @@ impl Hub {
 }
 
 /// What a connection follows that a change is checked against.
-enum Following {
+enum Following<'a> {
     /// The board, by its read token.
     Link(ReadPermit),
     /// The workspace, as `user` with `role`, by a session made through `login_provider`.
     Workspace {
+        workspace: &'a str,
         user: String,
         role: WorkspaceRole,
         login_provider: Option<String>,
+        board_only: BoardOnly<'a>,
     },
+}
+
+/// Whether a change of a workspace is told only to the members of its board.
+#[derive(Clone, Copy)]
+enum BoardOnly<'a> {
+    No,
+    /// Only to the board's members, and to `also` (who made it).
+    Members {
+        also: Option<&'a str>,
+    },
+}
+
+/// What `listener` follows of `workspace`, if it does.
+fn following_workspace<'a>(
+    listener: &super::Listener,
+    workspace: &'a str,
+    board_only: BoardOnly<'a>,
+) -> Option<Following<'a>> {
+    let role = listener.workspace_roles.get(workspace)?;
+    Some(Following::Workspace {
+        workspace,
+        user: listener.user_id.clone(),
+        role: *role,
+        login_provider: listener.login_provider.clone(),
+        board_only,
+    })
 }

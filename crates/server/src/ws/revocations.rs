@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 
 /// How many things taken back are kept by name before they are forgotten together.
+/// Forgetting has every check in flight read once more: a larger bound forgets less
+/// often, for more memory.
 const KEPT: usize = 4096;
 
 /// When each thing a revocation concerns was last taken back, numbered in one
@@ -21,6 +23,8 @@ pub(super) struct Revocations {
     now: u64,
     /// The number at which what was kept by name was last forgotten.
     forgotten: u64,
+    /// How many things are kept by name now.
+    kept: usize,
     /// What may end anybody's access in any workspace: an organization whose
     /// workspaces could not be read beginning to take no password.
     everyone: u64,
@@ -82,34 +86,41 @@ impl Revocations {
     pub(super) fn user(&mut self, user_id: &str) {
         if !user_id.is_empty() {
             let now = self.next();
-            self.users.insert(user_id.to_owned(), now);
+            let earlier = self.users.insert(user_id.to_owned(), now);
+            self.count(earlier);
         }
     }
 
     pub(super) fn user_in_workspace(&mut self, user_id: &str, workspace_id: &str) {
         let now = self.next();
-        self.users_in_workspaces
+        let earlier = self
+            .users_in_workspaces
             .entry(user_id.to_owned())
             .or_default()
             .insert(workspace_id.to_owned(), now);
+        self.count(earlier);
     }
 
     pub(super) fn user_in_org(&mut self, user_id: &str, org_id: &str) {
         let now = self.next();
-        self.users_in_orgs
+        let earlier = self
+            .users_in_orgs
             .entry(user_id.to_owned())
             .or_default()
             .insert(org_id.to_owned(), now);
+        self.count(earlier);
     }
 
     pub(super) fn workspace(&mut self, workspace_id: &str) {
         let now = self.next();
-        self.workspaces.insert(workspace_id.to_owned(), now);
+        let earlier = self.workspaces.insert(workspace_id.to_owned(), now);
+        self.count(earlier);
     }
 
     pub(super) fn board(&mut self, board_id: &str) {
         let now = self.next();
-        self.boards.insert(board_id.to_owned(), now);
+        let earlier = self.boards.insert(board_id.to_owned(), now);
+        self.count(earlier);
     }
 
     /// Whether everything may have been taken back after `since`, or what was may
@@ -121,25 +132,24 @@ impl Revocations {
     /// The number of a new revocation, after forgetting what is kept by name if it
     /// is as much as may be kept.
     fn next(&mut self) -> u64 {
-        let kept = self.users.len()
-            + self
-                .users_in_workspaces
-                .values()
-                .map(HashMap::len)
-                .sum::<usize>()
-            + self.users_in_orgs.values().map(HashMap::len).sum::<usize>()
-            + self.workspaces.len()
-            + self.boards.len();
-        if kept >= KEPT {
+        if self.kept >= KEPT {
             self.users.clear();
             self.users_in_workspaces.clear();
             self.users_in_orgs.clear();
             self.workspaces.clear();
             self.boards.clear();
+            self.kept = 0;
             self.forgotten = self.now;
         }
         self.now += 1;
         self.now
+    }
+
+    /// Counts what was just kept by name, unless it was kept already.
+    fn count(&mut self, earlier: Option<u64>) {
+        if earlier.is_none() {
+            self.kept += 1;
+        }
     }
 }
 
@@ -209,8 +219,7 @@ mod tests {
         for board in 0..=KEPT {
             revoked.board(&format!("b{board}"));
         }
-        let kept = revoked.users.len() + revoked.workspaces.len() + revoked.boards.len();
-        assert!(kept <= KEPT, "{kept} kept by name");
+        assert!(revoked.kept <= KEPT, "{} kept by name", revoked.kept);
         assert!(
             revoked.of_workspace_since(followed("one", "w1", "o1"), before),
             "begun before it was forgotten"
@@ -220,5 +229,24 @@ mod tests {
         revoked.board("b-late");
         assert!(revoked.of_board_since("", "b-late", after));
         assert!(!revoked.of_board_since("", "b0", after));
+    }
+
+    /// A check begun as much is kept as may be is not checked again by the forgetting
+    /// that the next revocation does, only by what that revocation concerns.
+    #[test]
+    fn a_check_begun_at_the_bound_is_measured_as_before() {
+        let mut revoked = Revocations::default();
+        for board in 0..KEPT {
+            revoked.board(&format!("b{board}"));
+        }
+        assert_eq!(revoked.kept, KEPT, "as much as may be kept");
+        let edge = revoked.now();
+        revoked.board("x");
+        assert_eq!(revoked.kept, 1, "the rest forgotten");
+        assert!(
+            !revoked.of_workspace_since(followed("one", "w1", "o1"), edge),
+            "nothing it concerns was forgotten after it began"
+        );
+        assert!(revoked.of_board_since("", "x", edge));
     }
 }

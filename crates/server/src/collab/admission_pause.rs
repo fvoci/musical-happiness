@@ -4,16 +4,14 @@
 use std::sync::Arc;
 
 /// The admission stage a deterministic test pauses.
-#[cfg(feature = "test-util")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdmissionStage {
     /// The document is asked for, and permissions have not been read.
     BeforeCheck,
-    /// Permissions are published but the document has not been opened.
+    /// Access was checked, and the document has not been opened.
     AfterCheck,
 }
 
-#[cfg(feature = "test-util")]
 #[derive(Debug)]
 pub(super) struct AdmissionPause {
     stage: AdmissionStage,
@@ -21,7 +19,6 @@ pub(super) struct AdmissionPause {
     resume: Arc<tokio::sync::Notify>,
 }
 
-#[cfg(feature = "test-util")]
 impl super::Collab {
     /// Pauses the next admitted document before the document or room is opened.
     ///

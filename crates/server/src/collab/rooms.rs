@@ -654,13 +654,11 @@ impl Collab {
         #[cfg(feature = "test-util")]
         self.paused_admission(super::AdmissionStage::BeforeCheck)
             .await;
-        let (admitted, _) = admission::admit_tracked(
-            home,
-            home.store(),
-            connection.asker(),
-            (workspace_id, card_id),
-        )
-        .await?;
+        // Which organization's room: whether the user is let in is asked again at that
+        // organization's revision as they are registered.
+        let admitted = admission::admit(home, connection.asker(), workspace_id, card_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("card"))?;
         #[cfg(feature = "test-util")]
         self.paused_admission(super::AdmissionStage::AfterCheck)
             .await;
