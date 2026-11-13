@@ -20,7 +20,12 @@ impl Store {
             teams::managing(scope, workspace_id, by).await?;
             let changes = board_teams::affected(scope, team_id, None).await?;
             teams::delete(scope, workspace_id, team_id).await?;
-            board_teams::end_lost_subscriptions(scope, &changes).await?;
+            board_teams::end_lost_subscriptions(
+                scope,
+                &changes,
+                board_teams::TemplateAccess::CurrentMembership,
+            )
+            .await?;
             Ok(changes)
         })
         .await
@@ -64,7 +69,12 @@ impl Store {
             teams::require_team(scope, workspace_id, team_id).await?;
             let changes = board_teams::affected(scope, team_id, Some(user_id)).await?;
             teams::remove_member(scope, workspace_id, team_id, user_id).await?;
-            board_teams::end_lost_subscriptions(scope, &changes).await?;
+            board_teams::end_lost_subscriptions(
+                scope,
+                &changes,
+                board_teams::TemplateAccess::CurrentMembership,
+            )
+            .await?;
             Ok(changes)
         })
         .await
@@ -72,6 +82,7 @@ impl Store {
 }
 
 /// Demotion removes the stored links, so promoting the person later restores none.
+/// Open templates must also be checked after their last team assignment has gone.
 pub(crate) async fn remove_workspace_teams(
     scope: &mut Scope<'_>,
     workspace_id: &str,
@@ -80,7 +91,13 @@ pub(crate) async fn remove_workspace_teams(
     let mut sql = scope.sql("SELECT DISTINCT bt.board_id FROM board_teams bt JOIN team_members tm ON tm.team_id = bt.team_id AND tm.org_id = bt.org_id WHERE tm.workspace_id = ");
     sql.bind(Id(workspace_id))
         .push_bind(" AND tm.user_id = ", Id(user_id))
-        .push_bind(" AND tm.org_id = ", scope.org()?);
+        .push_bind(" AND tm.org_id = ", scope.org()?)
+        .push_bind(
+            " UNION SELECT id FROM boards WHERE workspace_id = ",
+            Id(workspace_id),
+        )
+        .push_bind(" AND type = ", "O")
+        .push_bind(" AND is_template = ", true);
     let changes = scope
         .fetch_all(sql)
         .await?
@@ -94,5 +111,5 @@ pub(crate) async fn remove_workspace_teams(
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
     teams::remove_workspace_memberships(scope, workspace_id, user_id).await?;
-    board_teams::end_lost_subscriptions(scope, &changes).await
+    board_teams::end_lost_subscriptions(scope, &changes, board_teams::TemplateAccess::Ending).await
 }

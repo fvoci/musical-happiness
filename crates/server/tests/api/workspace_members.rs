@@ -165,7 +165,14 @@ async fn the_administrators_of_a_workspace_list_its_members() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        ["createAt", "displayName", "role", "userId", "username"],
+        [
+            "createAt",
+            "displayName",
+            "joinedAsOrgAdmin",
+            "role",
+            "userId",
+            "username"
+        ],
         "no address, and nothing of the password"
     );
 

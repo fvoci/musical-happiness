@@ -735,6 +735,8 @@ pub(crate) async fn delete_board(
         .push(")");
     scope.execute(sql).await?;
 
+    crate::board_team_trash::keep(scope, board_id).await?;
+
     // The blocks first: a board does not go while it has any. With the board go its
     // memberships, its sharing, its file records and where users filed it (kept above).
     let mut sql = scope.sql("DELETE FROM blocks WHERE board_id = ");
@@ -778,6 +780,7 @@ pub(crate) async fn undelete_board(
         .forget_if_gone(scope, &mut board.created_by)
         .await?;
     boards::insert_board_row(scope, &board).await?;
+    crate::board_team_trash::restore(scope, &board).await?;
 
     for member in &members {
         // A membership of a user whose row is gone since does not come back.
@@ -805,7 +808,10 @@ pub(crate) async fn undelete_board(
     // place but cannot see the board).
     for place in places.into_iter().map(BoardPlace::from) {
         let sees = board.board_type == BoardType::Open
-            || members.iter().any(|member| member.user_id == place.user_id);
+            || members.iter().any(|member| member.user_id == place.user_id)
+            || crate::board_team_access::role_for(scope, board_id, &place.user_id)
+                .await?
+                .is_some();
         if sees && known_users.has(scope, &place.user_id).await? {
             category_boards::put_back(scope, board_id, &board.workspace_id, &place).await?;
         }

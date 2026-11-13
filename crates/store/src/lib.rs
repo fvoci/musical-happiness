@@ -12,6 +12,7 @@ mod blocks;
 mod board_membership;
 mod board_team_access;
 mod board_team_membership;
+mod board_team_trash;
 mod board_teams;
 mod boards;
 mod boards_and_blocks;

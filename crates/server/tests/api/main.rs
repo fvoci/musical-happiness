@@ -71,6 +71,7 @@ mod sidebar;
 mod sidebar_messages;
 mod subscriptions;
 mod system;
+mod team_lifecycle;
 mod team_standing;
 mod teams;
 mod templates;

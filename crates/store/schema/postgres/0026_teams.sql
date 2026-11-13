@@ -54,3 +54,6 @@ ALTER TABLE board_teams FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_wall ON board_teams USING (
     org_id = (SELECT NULLIF(current_setting('fvoci.org', true), '')::uuid)
     OR (SELECT current_setting('fvoci.system', true)) = 'on');
+
+-- Saved assignments grant nothing until the board is restored.
+ALTER TABLE deleted_boards ADD COLUMN team_roles JSONB NOT NULL DEFAULT '[]';

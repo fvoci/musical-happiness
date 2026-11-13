@@ -303,6 +303,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_workspace_users() {
             "schemeEditor": false,
             "schemeCommenter": false,
             "schemeViewer": true,
+            "synthetic": true,
         }),
         "a viewer"
     );

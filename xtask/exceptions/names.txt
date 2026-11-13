@@ -171,3 +171,10 @@ crates/server/src/app/invitations.rs | team_role
 crates/store/tests/store/invitations.rs | team
 crates/store/tests/store/org_admin.rs | team_role
 crates/server/tests/api/main.rs | team_standing
+
+# Saved assignments of workspace people groups, never the retired workspace name.
+crates/store/src/board_team_trash.rs
+crates/server/tests/api/team_lifecycle.rs
+crates/server/tests/api/main.rs | team_lifecycle
+crates/server/src/api/boards.rs | team
+crates/store/src/trash.rs | team

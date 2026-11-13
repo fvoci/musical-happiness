@@ -80,7 +80,7 @@ impl Store {
                 sql.bind(Id(board_id)).push_bind(" AND team_id = ", Id(team_id)).push_bind(" AND org_id = ", scope.org()?);
                 scope.execute(sql).await?;
             }
-            end_lost_subscriptions(scope, &changes).await?;
+            end_lost_subscriptions(scope, &changes, TemplateAccess::CurrentMembership).await?;
             Ok(changes)
         }).await
     }
@@ -222,13 +222,23 @@ pub(crate) async fn joining(
     Ok(changes)
 }
 
-/// Removing one source preserves subscriptions while a direct or other team role remains.
+/// Whether workspace membership will remain after this transaction.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TemplateAccess {
+    CurrentMembership,
+    Ending,
+}
+
+/// Removing one source preserves subscriptions while another reading permission remains.
 pub(crate) async fn end_lost_subscriptions(
     scope: &mut Scope<'_>,
     changes: &[BoardMember],
+    template_access: TemplateAccess,
 ) -> Result<(), StoreError> {
     for member in changes {
-        if !reads(scope, &member.board_id, &member.user_id).await? {
+        if !reads(scope, &member.board_id, &member.user_id).await?
+            && !reads_template(scope, member, template_access).await?
+        {
             crate::subscriptions::end_subscriptions_to_board(
                 scope,
                 &member.board_id,
@@ -238,4 +248,23 @@ pub(crate) async fn end_lost_subscriptions(
         }
     }
     Ok(())
+}
+
+async fn reads_template(
+    scope: &mut Scope<'_>,
+    member: &BoardMember,
+    access: TemplateAccess,
+) -> Result<bool, StoreError> {
+    if matches!(access, TemplateAccess::Ending) {
+        return Ok(false);
+    }
+    let board = boards::get_board(scope, &member.board_id).await?;
+    if !board.is_template || board.board_type != BoardType::Open {
+        return Ok(false);
+    }
+    Ok(
+        org_admin::membership(scope, &board.workspace_id, &member.user_id)
+            .await?
+            .is_some_and(|(role, _)| role != WorkspaceRole::Guest),
+    )
 }

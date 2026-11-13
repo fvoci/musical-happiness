@@ -34,3 +34,6 @@ CREATE TABLE board_teams (
     FOREIGN KEY (team_id, workspace_id, org_id) REFERENCES teams (id, workspace_id, org_id) ON DELETE CASCADE
 );
 CREATE INDEX board_teams_team_idx ON board_teams (team_id, org_id);
+
+-- Saved assignments grant nothing until the board is restored.
+ALTER TABLE deleted_boards ADD COLUMN team_roles TEXT NOT NULL DEFAULT '[]';

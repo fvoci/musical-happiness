@@ -270,7 +270,8 @@ async fn handle_reorder_card_properties(
 /// Delete a board
 ///
 /// The board goes to the trash with its blocks and its members, and `undeleteBoard`
-/// brings it back until the trash is emptied of it. Its sharing ends, with its read
+/// brings it back until the trash is emptied of it. Team IDs and their roles are kept,
+/// but grant no access while the board is in the trash. Its sharing ends, with its read
 /// token, and so do its places in the users' sidebars and the subscriptions to its
 /// blocks; those do not come back with the board. For the board's admins.
 #[utoipa::path(
@@ -364,9 +365,10 @@ async fn handle_duplicate_board(
 /// category and place, hidden or not) or in the default category if that one was
 /// deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
 /// `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-/// the deletion and stay ended. For who was an admin of the board when it was deleted,
-/// and for the workspace's administrators (who, if they were no member, get it without
-/// its description and properties); to anybody else there is no such board.
+/// the deletion and stay ended. Surviving teams regain their saved roles for their
+/// current members; deleted teams are skipped. For who was an admin of the board when
+/// it was deleted, and for the workspace's administrators (who, if they were no member,
+/// get it without its description and properties); to anybody else there is no such board.
 #[utoipa::path(
     post,
     path = "/w/{workspaceId}/boards/{boardId}/undelete",
