@@ -1003,7 +1003,7 @@ pub(crate) async fn open_session_under(
         last_used_at: SESSION_MADE,
         expires_at: SESSION_MADE + 1000,
         user_agent: "a browser".to_owned(),
-        login_provider_id: None,
+        login: None,
     };
     let stored = store
         .create_session(&session, digest, seen)

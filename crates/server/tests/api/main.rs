@@ -72,6 +72,7 @@ mod sidebar;
 mod sidebar_messages;
 mod sso;
 mod sso_review;
+mod sso_sessions;
 mod sso_websocket;
 mod subscriptions;
 mod system;

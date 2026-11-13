@@ -161,6 +161,11 @@
           placeholder="https://login.example.com"
           data-testid="sso-issuer"
         />
+        {#if provider && issuer.trim() !== provider.issuer}
+          <p class="text-xs text-muted-foreground" data-testid="sso-issuer-change">
+            {m.org_sso_issuer_change()}
+          </p>
+        {/if}
       </div>
       <div class="grid gap-1.5">
         <Label for="{uid}-client">{m.org_sso_client()}</Label>

@@ -6,7 +6,9 @@
 //! is nobody's. What is asked before the organization is known (which sign-in comes
 //! back, which organization a login page is for) is in `directory.rs`.
 
-use fvoci_model::{AuditAction, LinkedIdentity, OrgRole, Session, User, WorkspaceRole, new_id};
+use fvoci_model::{
+    AuditAction, LinkedIdentity, LoginOrigin, OrgRole, Session, User, WorkspaceRole, new_id,
+};
 
 use crate::Store;
 use crate::accounts::{self, Which};
@@ -160,7 +162,9 @@ impl Store {
     /// from it (the secret kept, the settings kept) is to be decided again. A provider whose issuer and client stay keeps its
     /// identifier and the time it was first set; one with another issuer or client is
     /// another provider, under a new identifier, and the sign-ins under way through the
-    /// one before end with it. `provider.id`, `org_id` and the times are the store's;
+    /// one before end with it; with another issuer, so do the sessions made through a
+    /// provider of the organization under the issuer before. `provider.id`, `org_id`
+    /// and the times are the store's;
     /// the time of a change of a provider is always later than that of the one before,
     /// and a provider removed and set again is another, so that a reading names one
     /// state of the provider.
@@ -238,6 +242,11 @@ impl Store {
                 .push(&format!(" RETURNING {PROVIDER_COLUMNS}"));
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             let stored = provider_from_row(&row)?;
+            if let Some(before) = &before
+                && before.issuer != stored.issuer
+            {
+                sessions::end_sessions_of_origin(scope, &before.org_id, &before.issuer).await?;
+            }
             if let Some(actor_id) = actor_id {
                 record_provider_change(scope, actor_id, before.as_ref(), &stored).await?;
             }
@@ -246,8 +255,9 @@ impl Store {
         .await
     }
 
-    /// Removes the provider of the handle's organization, and the sign-ins under way
-    /// through it, unless it is the one the organization takes nothing else than
+    /// Removes the provider of the handle's organization, the sign-ins under way
+    /// through it, and the sessions made through a provider of the organization under
+    /// its issuer, unless it is the one the organization takes nothing else than
     /// (`sso_required`): that one stays, and is released first. Asked and removed in
     /// one transaction that holds the provider, so that no removal passes an
     /// enforcement that is switched on beside it.
@@ -260,19 +270,21 @@ impl Store {
         let org_id = self.tenant().org_id().ok_or(StoreError::NoOrganization)?;
         self.transaction(async |scope| {
             hold_provider_of_organization(scope).await?;
-            let mut sql = scope.sql("SELECT sso_required FROM oidc_providers WHERE org_id = ");
+            let mut sql =
+                scope.sql("SELECT sso_required, issuer FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
-            match scope.fetch_optional(sql).await? {
+            let issuer = match scope.fetch_optional(sql).await? {
                 None => return Ok(Removal::NoneThere),
                 Some(row) if row.bool(0)? => return Ok(Removal::Enforced),
-                Some(_) => {}
-            }
+                Some(row) => row.text(1)?,
+            };
             let mut sql = scope.sql("DELETE FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?);
             scope.execute(sql).await?;
+            sessions::end_sessions_of_origin(scope, &org_id, &issuer).await?;
             let entry = AuditEntry::new("", actor_id, AuditAction::OidcProviderRemoved, &org_id);
             audit::record_entry(scope, &entry).await?;
-            Ok(Removal::Removed)
+            Ok(Removal::Removed { issuer })
         })
         .await
     }
@@ -422,7 +434,8 @@ impl Store {
         token_digest: &str,
     ) -> Result<Result<bool, OidcRefusal>, StoreError> {
         self.transaction(async |scope| {
-            let mut sql = scope.sql("SELECT auto_join FROM oidc_providers WHERE org_id = ");
+            let mut sql =
+                scope.sql("SELECT auto_join, issuer, org_id FROM oidc_providers WHERE org_id = ");
             sql.bind(scope.org()?)
                 .push_bind(" AND id = ", Id(provider_id))
                 .push_bind(" AND enabled = ", true);
@@ -433,6 +446,11 @@ impl Store {
                 return Ok(Err(OidcRefusal::ProviderGone));
             };
             let auto_join = row.bool(0)?;
+            let origin = LoginOrigin {
+                provider_id: provider_id.to_owned(),
+                org_id: row.id(2)?,
+                issuer: row.text(1)?,
+            };
             let joined = match account {
                 OidcAccount::New {
                     user,
@@ -470,7 +488,7 @@ impl Store {
                     }
                 }
             };
-            session.login_provider_id = Some(provider_id.to_owned());
+            session.login = Some(origin);
             sessions::insert_session(scope, session, token_digest).await?;
             Ok(Ok(joined))
         })
@@ -503,6 +521,8 @@ impl Store {
                         subject: row.text(1)?,
                         email: row.text(2)?,
                         create_at: row.int(3)?,
+                        // Of the session that asks, which the store does not know.
+                        made_this_session: false,
                     })
                 })
                 .collect()
@@ -657,6 +677,7 @@ impl Store {
                 .push_bind(" AND issuer = ", identity.issuer)
                 .push_bind(" AND subject = ", identity.subject);
             scope.execute(sql).await?;
+            sessions::end_sessions_of_issuer(scope, user_id, identity.issuer).await?;
             Ok(Unlinked::Removed)
         })
         .await
@@ -732,10 +753,14 @@ async fn hold_provider_of_organization(scope: &mut Scope<'_>) -> Result<(), Stor
 }
 
 /// What came of removing the provider of an organization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Removal {
-    /// It is removed.
-    Removed,
+    /// It is removed, and the sessions made through a provider of the organization
+    /// under its issuer ended with it.
+    Removed {
+        /// The issuer the removed provider had.
+        issuer: String,
+    },
     /// The organization had none.
     NoneThere,
     /// It stays: the organization takes only sessions made through it.

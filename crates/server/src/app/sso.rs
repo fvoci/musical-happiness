@@ -123,7 +123,7 @@ pub(crate) fn check_change(
     let proven = same_provider.is_some_and(|provider| {
         provider.enabled
             && next.enabled
-            && session.login_provider_id.as_deref() == Some(provider.id.as_str())
+            && session.login_provider_id() == Some(provider.id.as_str())
     });
     if proven {
         Ok(())
@@ -163,7 +163,7 @@ impl<'a> From<&'a Session> for Asker<'a> {
     fn from(session: &'a Session) -> Self {
         Self {
             user_id: &session.user_id,
-            made_through: session.login_provider_id.as_deref(),
+            made_through: session.login_provider_id(),
         }
     }
 }

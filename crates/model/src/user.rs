@@ -147,8 +147,28 @@ pub struct Session {
     pub expires_at: i64,
     /// The `User-Agent` the session was made by, for telling a user's sessions apart.
     pub user_agent: String,
-    /// The identifier of the `OpenID Connect` provider the session was made through;
-    /// `None` for a session made with a password. A provider that was removed since is
-    /// still named.
-    pub login_provider_id: Option<String>,
+    /// The `OpenID Connect` provider the session was made through; `None` for a session
+    /// made with a password.
+    pub login: Option<LoginOrigin>,
+}
+
+impl Session {
+    /// The identifier of the provider the session was made through, if any.
+    #[must_use]
+    pub fn login_provider_id(&self) -> Option<&str> {
+        self.login.as_ref().map(|login| login.provider_id.as_str())
+    }
+}
+
+/// Where a session made through a provider came from. Kept as it was when the session
+/// was made: removing the provider or changing its issuer ends the sessions of the
+/// organization and issuer, and unlinking an identity those of its issuer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoginOrigin {
+    /// The provider row the session was made through; a replaced row gets a new one.
+    pub provider_id: String,
+    /// The organization whose provider it was.
+    pub org_id: String,
+    /// The provider's issuer at the time.
+    pub issuer: String,
 }

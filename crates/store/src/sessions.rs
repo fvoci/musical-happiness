@@ -6,14 +6,14 @@
 //! at its `expires_at` whatever its use. All times are milliseconds since the Unix
 //! epoch; the callers pass the current time and the limits.
 
-use fvoci_model::Session;
+use fvoci_model::{LoginOrigin, Session};
 
 use crate::Store;
-use crate::db::{Dialect, Id, OptId, Row, Scope, Sql};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql};
 use crate::error::StoreError;
 
-const SESSION_COLUMNS: &str =
-    "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id";
+const SESSION_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent, login_provider_id, \
+     login_org_id, login_issuer";
 
 impl Store {
     /// Stores a new session under the digest of its token, provided the password hash of
@@ -197,8 +197,22 @@ fn session_from_row(row: &Row) -> Result<Session, StoreError> {
         last_used_at: row.int(3)?,
         expires_at: row.int(4)?,
         user_agent: row.text(5)?,
-        login_provider_id: Some(row.id(6)?).filter(|id| !id.is_empty()),
+        login: login_origin(row)?,
     })
+}
+
+/// The origin of a session row: all three columns or none of them (the schema holds
+/// them so).
+fn login_origin(row: &Row) -> Result<Option<LoginOrigin>, StoreError> {
+    let provider_id = row.id(6)?;
+    if provider_id.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(LoginOrigin {
+        provider_id,
+        org_id: row.id(7)?,
+        issuer: row.text(8)?,
+    }))
 }
 
 /// Starts the deletion of a user's sessions; the caller may narrow it further.
@@ -243,6 +257,33 @@ pub(crate) async fn delete_other_sessions_of_user(
     Ok(())
 }
 
+/// Ends the sessions made through a provider of the organization `org_id` under
+/// `issuer`, whoever's: for when that provider is removed or takes another issuer.
+pub(crate) async fn end_sessions_of_origin(
+    scope: &mut Scope<'_>,
+    org_id: &str,
+    issuer: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("DELETE FROM sessions WHERE login_org_id = ");
+    sql.bind(Id(org_id))
+        .push_bind(" AND login_issuer = ", issuer);
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// Ends the sessions of a user made through a provider of `issuer`, in whichever
+/// organization: for when the user unlinks their identity of that issuer.
+pub(crate) async fn end_sessions_of_issuer(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    issuer: &str,
+) -> Result<(), StoreError> {
+    let mut sql = delete_sessions_where_user(scope, user_id);
+    sql.push_bind(" AND login_issuer = ", issuer);
+    scope.execute(sql).await?;
+    Ok(())
+}
+
 /// Holds the row of a user who is not deleted and whose password hash is still
 /// `seen_password_hash`, till the end of the transaction; false for anybody else. A
 /// reset of the password waits for this, or this for it. On SQLite a transaction that
@@ -279,9 +320,19 @@ pub(crate) async fn insert_session(
         .push_bind(", ", session.created_at)
         .push_bind(", ", session.expires_at)
         .push_bind(", ", &session.user_agent)
+        .push_bind(", ", OptId(session.login_provider_id().unwrap_or_default()))
         .push_bind(
             ", ",
-            OptId(session.login_provider_id.as_deref().unwrap_or_default()),
+            OptId(
+                session
+                    .login
+                    .as_ref()
+                    .map_or("", |login| login.org_id.as_str()),
+            ),
+        )
+        .push_bind(
+            ", ",
+            Param::OptText(session.login.as_ref().map(|login| login.issuer.clone())),
         )
         .push(")");
     scope.execute(sql).await?;

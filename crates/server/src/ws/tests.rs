@@ -9,7 +9,7 @@ fn add_listener(listeners: &mut Listeners, user_id: &str) -> ListenerId {
         Listener {
             user_id: user_id.to_owned(),
             session_id: String::new(),
-            login_provider: None,
+            login: None,
             outbox,
             closed: CancellationToken::new(),
             closed_because: Arc::default(),
@@ -289,7 +289,11 @@ fn a_wall_shuts_out_who_follows_the_organization_with_another_session() {
     let follows = |listeners: &mut Listeners, provider: Option<&str>, workspace: Option<&str>| {
         let id = add_listener(listeners, "user");
         if let Some(listener) = listeners.by_id.get_mut(&id) {
-            listener.login_provider = provider.map(str::to_owned);
+            listener.login = provider.map(|provider_id| LoginOrigin {
+                provider_id: provider_id.to_owned(),
+                org_id: "org".to_owned(),
+                issuer: "https://issuer.example".to_owned(),
+            });
         }
         if let Some(workspace) = workspace {
             subscribe_to_workspace(listeners, id, workspace);

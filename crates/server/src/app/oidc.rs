@@ -239,6 +239,11 @@ impl App {
                 AppError::conflict("the provider was changed meanwhile; read it and try again")
             })?;
         tracing::info!(org_id, issuer = %stored.issuer, "the provider of an organization was set");
+        if let Some(existing) = &existing
+            && existing.issuer != stored.issuer
+        {
+            self.close_sessions_of_origin(&existing.issuer);
+        }
         sso::record_if_changed(existing.as_ref(), &stored, &session.user_id);
         if stored.sso_required {
             if !existing
@@ -263,11 +268,24 @@ impl App {
     /// password, and the store's error.
     pub async fn delete_oidc_provider(&self, actor_id: &str) -> Result<(), AppError> {
         match self.store().delete_oidc_provider(actor_id).await? {
-            Removal::Removed => tracing::info!("the provider of an organization was removed"),
+            Removal::Removed { issuer } => {
+                // The store ended the sessions made through it: what they had open, their
+                // seats in the rooms among it, ends with them.
+                self.close_sessions_of_origin(&issuer);
+                tracing::info!("the provider of an organization was removed");
+            }
             Removal::NoneThere => {}
             Removal::Enforced => return Err(sso::enforced()),
         }
         Ok(())
+    }
+
+    /// Closes the connections of the sessions made through a provider of the handle's
+    /// organization under `issuer`, which the store ended.
+    fn close_sessions_of_origin(&self, issuer: &str) {
+        if let Some(org_id) = self.store().tenant().org_id() {
+            self.ws().close_sessions_of_origin(&org_id, issuer);
+        }
     }
 
     fn provider_view(&self, stored: &StoredProvider, session: &Session) -> OidcProvider {
@@ -279,7 +297,7 @@ impl App {
             enabled: stored.enabled,
             sso_required: stored.sso_required,
             can_require_sso: stored.enabled
-                && session.login_provider_id.as_deref() == Some(stored.id.as_str()),
+                && session.login_provider_id() == Some(stored.id.as_str()),
             redirect_uri: self.oidc_redirect_uri(&stored.org_id),
             create_at: stored.create_at,
             update_at: stored.update_at,

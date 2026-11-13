@@ -1046,7 +1046,7 @@
   "org_sso_removed": "공급자를 삭제했습니다.",
   "org_sso_delete": "공급자 삭제",
   "org_sso_delete_title": "이 로그인 공급자를 삭제할까요?",
-  "org_sso_delete_info": "이 공급자로 새로 로그인할 수 없게 됩니다. 계정에 연결된 신원은 남습니다.",
+  "org_sso_delete_info": "이 공급자로 새로 로그인할 수 없게 되고, 이 공급자로 로그인한 사람은 모두 로그아웃됩니다. 나도 그렇게 로그인했다면 포함됩니다. 계정에 연결된 신원은 남습니다.",
   "org_sso_issuer_unverified": "Issuer의 discovery를 확인하지 못했습니다. HTTPS 주소와 인증서, 서버에서의 접근 가능 여부, 공급자가 알려 주는 issuer가 맞는지 확인하세요.",
   "org_sso_key_required": "공급자를 저장하려면 서버 운영자가 비밀 값 암호화 키를 먼저 설정해야 합니다.",
   "org_sso_invalid": "HTTPS issuer 주소와 client ID를 확인하세요. 둘 중 하나를 바꿨다면 client secret을 다시 입력하세요.",
@@ -1056,5 +1056,7 @@
   "audit_oidc_configured": "{actor} 님이 조직의 로그인 공급자를 설정했습니다",
   "audit_oidc_removed": "{actor} 님이 조직의 로그인 공급자를 삭제했습니다",
   "audit_sso_required": "{actor} 님이 조직의 통합 로그인을 강제했습니다",
-  "audit_sso_released": "{actor} 님이 조직의 통합 로그인 강제를 해제했습니다"
+  "audit_sso_released": "{actor} 님이 조직의 통합 로그인 강제를 해제했습니다",
+  "account_linked_ends_session": "지금 이 로그인으로 들어와 있습니다. 연결을 끊으면 여기서 로그아웃되고, 비밀번호로 다시 로그인하게 됩니다.",
+  "org_sso_issuer_change": "다른 issuer로 저장하면 지금 issuer로 로그인한 사람이 모두 로그아웃됩니다. 내가 그렇게 로그인했다면 나도 포함됩니다."
 }

@@ -62,6 +62,8 @@ export interface LinkedIdentity {
   /** The email address the provider gave when it was connected; empty for none. */
   email: string;
   createAt: number;
+  /** This session was made through a provider of this issuer: disconnecting it signs this session out. */
+  madeThisSession: boolean;
 }
 
 /** An organization of the reader's that signs in through a provider, as the settings name it. */

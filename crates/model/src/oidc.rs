@@ -183,6 +183,9 @@ pub struct LinkedIdentity {
     pub email: String,
     /// When it was tied, in milliseconds since the Unix epoch.
     pub create_at: i64,
+    /// Whether the session that asks was made through a provider of this issuer:
+    /// removing the identity ends that session too.
+    pub made_this_session: bool,
 }
 
 /// A request to remove an identity from the account of the session.

@@ -1391,6 +1391,10 @@
             "description": "The issuer, as the provider names itself.",
             "type": "string"
           },
+          "madeThisSession": {
+            "description": "Whether the session that asks was made through a provider of this issuer:\nremoving the identity ends that session too.",
+            "type": "boolean"
+          },
           "subject": {
             "description": "Who the account's owner is at the issuer.",
             "type": "string"
@@ -1400,6 +1404,7 @@
           "createAt",
           "email",
           "issuer",
+          "madeThisSession",
           "subject"
         ],
         "type": "object"
@@ -5479,7 +5484,7 @@
     },
     "/api/v1/users/me/identities": {
       "delete": {
-        "description": "Removes the identity of `issuer` and `subject` from the account of the session: the\nproviders of that issuer no longer sign in to it. Asks for the account's password,\nas `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,\nnaming `/password`, and too many are 429. An identity that is not the account's is\n404. An account without a password keeps its last identity, which is all that lets\nits owner in: 409 with the reason `last_sign_in`; and has no password to confirm\nremoving another with: 409 with the reason `password_not_set`. The sessions made\nthrough a provider go on.",
+        "description": "Removes the identity of `issuer` and `subject` from the account of the session: the\nproviders of that issuer no longer sign in to it. Asks for the account's password,\nas `changePassword` does: a wrong one is 400 with the reason `invalid_credentials`,\nnaming `/password`, and too many are 429. An identity that is not the account's is\n404. An account without a password keeps its last identity, which is all that lets\nits owner in: 409 with the reason `last_sign_in`; and has no password to confirm\nremoving another with: 409 with the reason `password_not_set`. The account's\nsessions made through a provider of that issuer end, and their connections close:\nthis session too when it was one (`madeThisSession` of the identity).",
         "operationId": "unlinkIdentity",
         "requestBody": {
           "content": {
@@ -5532,7 +5537,7 @@
         ]
       },
       "get": {
-        "description": "Who the user of the session is at the providers they linked to the account, or\nfirst signed in through: an organization's provider with that issuer signs in to\nthis account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.",
+        "description": "Who the user of the session is at the providers they linked to the account, or\nfirst signed in through: an organization's provider with that issuer signs in to\nthis account. Linked by `startOidcLogin` with `linkPassword`. Oldest first, each\nsaying whether this session was made through a provider of its issuer.",
         "operationId": "getMyIdentities",
         "responses": {
           "200": {

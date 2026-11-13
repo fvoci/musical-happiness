@@ -187,7 +187,7 @@ impl App {
     ) -> Result<Vec<UserWorkspace>, AppError> {
         Ok(self
             .store()
-            .workspaces_of_user(&session.user_id, session.login_provider_id.as_deref())
+            .workspaces_of_user(&session.user_id, session.login_provider_id())
             .await?)
     }
 

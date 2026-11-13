@@ -21,6 +21,7 @@ const IDENTITY: LinkedIdentity = {
   subject: 'there',
   email: 'ada@example.com',
   createAt: 1,
+  madeThisSession: false,
 };
 
 function mount(
@@ -102,6 +103,30 @@ describe('the connected sign-ins', () => {
     await vi.waitFor(() => {
       expect(screen.getByTestId('linked-sign-ins')).toHaveFocus();
     });
+  });
+
+  it('says before disconnecting the sign-in of this session that it signs the reader out', async () => {
+    const { read, onUnlink } = mount([{ ...IDENTITY, madeThisSession: true }]);
+    const row = await screen.findByTestId('linked-sign-in');
+    await fireEvent.click(within(row).getByRole('button', { name: 'Disconnect' }));
+    expect(screen.getByTestId('linked-ends-session')).toHaveTextContent(
+      'disconnecting it signs you out',
+    );
+    await fireEvent.input(password(), { target: { value: 'the password' } });
+    // The session is over: what reads next is refused, as the server refuses it.
+    read.mockRejectedValue(new BackendError(401, {}));
+    await fireEvent.click(screen.getByRole('button', { name: 'Disconnect it' }));
+    expect(onUnlink).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('says nothing of signing out for a sign-in this session was not made through', async () => {
+    mount([IDENTITY]);
+    const row = await screen.findByTestId('linked-sign-in');
+    await fireEvent.click(within(row).getByRole('button', { name: 'Disconnect' }));
+    expect(screen.queryByTestId('linked-ends-session')).toBeNull();
   });
 
   it.each([

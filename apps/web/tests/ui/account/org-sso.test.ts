@@ -51,6 +51,16 @@ describe('the SSO settings', () => {
     expect(onSignIn).toHaveBeenCalledOnce();
   });
 
+  it('says that another issuer signs out who signed in through the current one', async () => {
+    mount();
+    const issuer = await screen.findByTestId('sso-issuer');
+    expect(screen.queryByTestId('sso-issuer-change')).not.toBeInTheDocument();
+    await fireEvent.input(issuer, { target: { value: 'https://other.example.test' } });
+    expect(screen.getByTestId('sso-issuer-change')).toHaveTextContent('signs out everyone');
+    await fireEvent.input(issuer, { target: { value: provider.issuer } });
+    expect(screen.queryByTestId('sso-issuer-change')).not.toBeInTheDocument();
+  });
+
   it('changing the client requires proving the replacement too', async () => {
     mount({ ...provider, canRequireSso: true });
     const client = await screen.findByTestId('sso-client');

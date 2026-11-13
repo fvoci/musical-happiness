@@ -830,7 +830,8 @@ export interface paths {
          * The identities linked to the account
          * @description Who the user of the session is at the providers they linked to the account, or
          *     first signed in through: an organization's provider with that issuer signs in to
-         *     this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first.
+         *     this account. Linked by `startOidcLogin` with `linkPassword`. Oldest first, each
+         *     saying whether this session was made through a provider of its issuer.
          */
         get: operations["getMyIdentities"];
         put?: never;
@@ -843,8 +844,9 @@ export interface paths {
          *     naming `/password`, and too many are 429. An identity that is not the account's is
          *     404. An account without a password keeps its last identity, which is all that lets
          *     its owner in: 409 with the reason `last_sign_in`; and has no password to confirm
-         *     removing another with: 409 with the reason `password_not_set`. The sessions made
-         *     through a provider go on.
+         *     removing another with: 409 with the reason `password_not_set`. The account's
+         *     sessions made through a provider of that issuer end, and their connections close:
+         *     this session too when it was one (`madeThisSession` of the identity).
          */
         delete: operations["unlinkIdentity"];
         options?: never;
@@ -3182,6 +3184,11 @@ export interface components {
             email: string;
             /** @description The issuer, as the provider names itself. */
             issuer: string;
+            /**
+             * @description Whether the session that asks was made through a provider of this issuer:
+             *     removing the identity ends that session too.
+             */
+            madeThisSession: boolean;
             /** @description Who the account's owner is at the issuer. */
             subject: string;
         };

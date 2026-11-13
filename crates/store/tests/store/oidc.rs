@@ -226,7 +226,9 @@ async fn a_removed_provider_is_not_brought_back_by_a_change_read_before() {
     let read = test.put_oidc_provider(&provider).await.expect("stored");
     assert_eq!(
         test.delete_oidc_provider(&new_id()).await.expect("removed"),
-        Removal::Removed
+        Removal::Removed {
+            issuer: provider.issuer.clone()
+        }
     );
     let change = test
         .put_oidc_provider_as_read(&provider, Some(&read), &new_id())
@@ -315,7 +317,12 @@ async fn an_enforced_provider_is_not_removed_until_it_is_released() {
         "nothing else of it changed"
     );
     assert_eq!(again, None, "nothing left to release");
-    assert_eq!(removed, Removal::Removed);
+    assert_eq!(
+        removed,
+        Removal::Removed {
+            issuer: enforced.issuer.clone()
+        }
+    );
 }
 
 /// What a session must be made through to open an organization is answered to who has
@@ -444,7 +451,7 @@ async fn enforcing_and_removing_at_once_leave_no_organization_without_its_provid
                     "round {round}: the provider is there, and holds"
                 );
             }
-            Removal::Removed => {
+            Removal::Removed { .. } => {
                 assert_eq!(enforced, None, "round {round}: nothing to switch it on for");
                 assert_eq!(left, None, "round {round}: removed");
             }

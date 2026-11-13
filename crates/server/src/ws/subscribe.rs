@@ -10,6 +10,8 @@
 //! a member is told only while its session opens the organization, which is asked with
 //! each change ([`Hub::session_opens_workspace`]).
 
+use fvoci_model::LoginOrigin;
+
 use super::{
     Command, Hub, Identity, Listener, ListenerId, Listeners, subscribe_to_blocks,
     subscribe_to_workspace, unsubscribe_from_blocks,
@@ -28,7 +30,7 @@ const ASKED_AT_MOST: usize = 3;
 pub(super) struct Who {
     pub(super) user_id: String,
     pub(super) session_id: String,
-    pub(super) login_provider: Option<String>,
+    pub(super) login: Option<LoginOrigin>,
     pub(super) token: Option<String>,
 }
 
@@ -37,7 +39,7 @@ impl Who {
     pub(super) fn asker(&self) -> Asker<'_> {
         Asker {
             user_id: &self.user_id,
-            made_through: self.login_provider.as_deref(),
+            made_through: self.login.as_ref().map(|login| login.provider_id.as_str()),
         }
     }
 
@@ -46,7 +48,7 @@ impl Who {
         identity.map_or_else(Self::default, |identity| Self {
             user_id: identity.session.user_id,
             session_id: identity.session.id,
-            login_provider: identity.session.login_provider_id,
+            login: identity.session.login,
             token: Some(identity.token),
         })
     }
@@ -56,7 +58,7 @@ impl Who {
 /// `provider_id` shuts the connection out: one that follows a workspace of the
 /// organization with a session made otherwise.
 pub(super) fn shuts_out(listener: &Listener, workspace_ids: &[String], provider_id: &str) -> bool {
-    listener.login_provider.as_deref() != Some(provider_id)
+    listener.login_provider() != Some(provider_id)
         && listener
             .workspaces
             .iter()
@@ -92,7 +94,7 @@ impl Hub {
             .listeners()
             .by_id
             .get(&id)
-            .map(|listener| listener.login_provider.clone())
+            .map(|listener| listener.login_provider().map(str::to_owned))
         else {
             return false;
         };
@@ -176,8 +178,7 @@ impl Hub {
     pub fn close_sessions_made_otherwise(&self, provider_id: &str) {
         self.listeners().walls_raised += 1;
         self.close_where(Disconnect::SsoRequired, |listener| {
-            !listener.workspaces.is_empty()
-                && listener.login_provider.as_deref() != Some(provider_id)
+            !listener.workspaces.is_empty() && listener.login_provider() != Some(provider_id)
         });
     }
 }

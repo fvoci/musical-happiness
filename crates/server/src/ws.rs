@@ -18,7 +18,7 @@ use std::time::Duration;
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::StreamExt as _;
 use fvoci_model::{
-    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig,
+    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, LoginOrigin,
     PersonProperties, Session,
 };
 use serde::{Deserialize, Serialize};
@@ -174,9 +174,9 @@ struct Listener {
     user_id: String,
     /// The session the handshake came with; empty for a connection without one.
     session_id: String,
-    /// The provider that session was made through; `None` for a password, and without
-    /// a session.
-    login_provider: Option<String>,
+    /// Where that session came from when it was made through a provider; `None` for a
+    /// password, and without a session.
+    login: Option<LoginOrigin>,
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
     closed: CancellationToken,
@@ -201,6 +201,11 @@ struct Listeners {
 }
 
 impl Listener {
+    /// The provider the connection's session was made through, if any.
+    fn login_provider(&self) -> Option<&str> {
+        self.login.as_ref().map(|login| login.provider_id.as_str())
+    }
+
     /// Gives the connection up, for `reason`; the first reason given is the one counted.
     fn close(&self, reason: Disconnect) {
         let _ = self.closed_because.set(reason);
@@ -312,7 +317,7 @@ impl Hub {
                 Listener {
                     user_id: who.user_id,
                     session_id: who.session_id,
-                    login_provider: who.login_provider,
+                    login: who.login,
                     outbox,
                     closed: closed.clone(),
                     closed_because: Arc::clone(&closed_because),

@@ -1046,7 +1046,7 @@
   "org_sso_removed": "The provider was removed.",
   "org_sso_delete": "Delete provider",
   "org_sso_delete_title": "Delete this sign-in provider?",
-  "org_sso_delete_info": "New sign-ins through this provider will stop. Account identities remain connected.",
+  "org_sso_delete_info": "New sign-ins through this provider will stop, and everyone signed in through it is signed out, you too if you are. Account identities remain connected.",
   "org_sso_issuer_unverified": "The issuer's discovery could not be verified. Check the HTTPS address, certificate, reachability and the issuer named by the provider.",
   "org_sso_key_required": "The server operator must configure a secret encryption key before a provider can be saved.",
   "org_sso_invalid": "Check the HTTPS issuer URL and client ID. When changing either, enter the client secret again.",
@@ -1056,5 +1056,7 @@
   "audit_oidc_configured": "{actor} saved the organization's sign-in provider",
   "audit_oidc_removed": "{actor} removed the organization's sign-in provider",
   "audit_sso_required": "{actor} required single sign-on for the organization",
-  "audit_sso_released": "{actor} released the organization's single sign-on requirement"
+  "audit_sso_released": "{actor} released the organization's single sign-on requirement",
+  "account_linked_ends_session": "You are signed in here through this one: disconnecting it signs you out, and you sign in again with your password.",
+  "org_sso_issuer_change": "Saving another issuer signs out everyone who signed in through the current one, you too if you did."
 }

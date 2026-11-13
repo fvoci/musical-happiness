@@ -25,6 +25,7 @@ mod order;
 mod org_admin;
 mod registration;
 mod restored_boards;
+mod session_origin;
 mod sessions;
 mod setup;
 mod sharing;
