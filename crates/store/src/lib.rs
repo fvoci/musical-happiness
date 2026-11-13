@@ -100,7 +100,7 @@ const READY_STATEMENT_TIMEOUT: Duration = Duration::from_millis(1500);
 /// lets a connection reach the rows of one organization only, the one the handle
 /// names; so an operation that forgot to ask whose rows it wants reaches none of
 /// another organization. SQLite has no such policy, and holds one organization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Tenant {
     /// No organization: the tables of the organizations, and the table of the
     /// organizations itself, read as empty and take no row. What belongs to no

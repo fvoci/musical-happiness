@@ -86,6 +86,7 @@ impl App {
     ) -> Result<ExportedArchive, AppError> {
         let mut boards = Vec::with_capacity(board_ids.len());
         for id in board_ids {
+            self.write_board_bodies(id).await?;
             boards.push(self.store().get_board(id).await.map_err(|error| {
                 AppError::from(error).context(format_args!("could not fetch board {id}"))
             })?);
