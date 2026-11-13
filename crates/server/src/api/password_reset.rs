@@ -59,7 +59,8 @@ async fn complete(
 struct RequestPasswordReset {
     /// The account's email address.
     email: String,
-    /// Preferred language, normally en or ko; English if absent or unsupported.
+    /// The requester's language tag (`ko`, `en-GB`), used when the account's own setting
+    /// names no language the mail is written in (English, Korean); English if neither does.
     #[serde(default)]
     language: String,
 }

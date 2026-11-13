@@ -275,3 +275,45 @@ async fn invitation_mail_preserves_distinct_case_sensitive_mailboxes() {
     th.teardown().await;
     smtp.stop().await;
 }
+
+#[tokio::test]
+async fn invitation_mail_without_the_recipients_language_is_written_in_the_senders() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    th.client
+        .patch("/users/me/settings", &json!({"language":"ko"}))
+        .await
+        .check_status(StatusCode::OK);
+    th.client2
+        .patch("/users/me/settings", &json!({"language":"ja"}))
+        .await
+        .check_status(StatusCode::OK);
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
+    let link: Invitation = th
+        .client
+        .post(&path, &json!({"role":"member"}))
+        .await
+        .created_json();
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token":link.token,"recipients":["user2@sample.com","outside@example.test"],"language":"en"}),
+        )
+        .await
+        .check_no_content();
+    let messages = smtp.received(2).await;
+    for message in &messages {
+        assert!(
+            message.decoded.contains("lang=\"ko\""),
+            "{}: the sender's setting before the screen's language",
+            message.recipient
+        );
+    }
+    th.teardown().await;
+    smtp.stop().await;
+}

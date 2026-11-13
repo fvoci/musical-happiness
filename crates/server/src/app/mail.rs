@@ -3,6 +3,7 @@
 mod content;
 mod quota;
 
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -179,20 +180,28 @@ impl Mailer {
     }
 }
 
-/// Whether `server_root` names this machine only, as the default does.
+/// Whether `server_root` names no address its recipients reach, as the default does:
+/// `localhost`, a loopback address (also one mapped into IPv6), or the unspecified one.
+/// A root that is no URL is left to the configuration's own checks.
 fn is_loopback_root(server_root: &str) -> bool {
-    let authority = server_root
-        .split_once("://")
-        .map_or(server_root, |(_, rest)| rest)
-        .split('/')
-        .next()
-        .unwrap_or_default();
-    let host = match authority.strip_prefix('[') {
-        Some(bracketed) => bracketed.split(']').next(),
-        None => authority.split(':').next(),
+    let Ok(url) = reqwest::Url::parse(server_root) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    // A URL writes an IPv6 address in brackets, and an IPv4 one in its usual form.
+    if let Ok(address) = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+    {
+        let address = address.to_canonical();
+        address.is_loopback() || address.is_unspecified()
+    } else {
+        let name = host.to_ascii_lowercase();
+        name == "localhost" || name.ends_with(".localhost")
     }
-    .unwrap_or_default();
-    host.eq_ignore_ascii_case("localhost") || host.starts_with("127.") || host == "::1"
 }
 
 /// One message's place in its queue, held until the message was delivered or given up.
@@ -292,8 +301,13 @@ mod tests {
         for root in [
             "http://localhost:8000",
             "http://127.0.0.1/boards",
+            "http://127.0.0.2",
             "https://[::1]:8443",
             "http://LOCALHOST",
+            "http://boards.localhost",
+            "http://0.0.0.0:8000",
+            "http://[::]:8000",
+            "http://[::ffff:127.0.0.1]:8000",
         ] {
             assert!(is_loopback_root(root), "{root}");
         }
@@ -301,6 +315,8 @@ mod tests {
             "https://boards.example.test",
             "http://10.0.0.5:8000",
             "https://[2001:db8::1]",
+            "http://127.0.0.1.example.test",
+            "not a url",
         ] {
             assert!(!is_loopback_root(root), "{root}");
         }

@@ -3231,7 +3231,10 @@ export interface components {
         };
         /** @description A request to email an existing invitation to one or more recipients. */
         InvitationMail: {
-            /** @description Sender's interface language when their account setting is auto. */
+            /**
+             * @description The sender's screen language, used for a recipient when neither the recipient's
+             *     nor the sender's setting names a language the mail is written in.
+             */
             language?: string;
             /** @description Email addresses, each delivered separately; duplicates are sent once. */
             recipients: string[];
@@ -3839,7 +3842,10 @@ export interface components {
         RequestPasswordReset: {
             /** @description The account's email address. */
             email: string;
-            /** @description Preferred language, normally en or ko; English if absent or unsupported. */
+            /**
+             * @description The requester's language tag (`ko`, `en-GB`), used when the account's own setting
+             *     names no language the mail is written in (English, Korean); English if neither does.
+             */
             language?: string;
         };
         /** @description What `ping` reports about the server. */

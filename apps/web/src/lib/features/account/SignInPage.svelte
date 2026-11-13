@@ -45,8 +45,9 @@
      * Starts a sign-in through the provider and sends the browser to it
      * (`Account.startOidc`); a refusal of the start rejects.
      */
-    forgotHref?: string;
     onOidcStart?: (orgId: string) => Promise<void>;
+    /** Where "Forgot your password?" leads; the link shows only while the server sends mail. */
+    forgotHref?: string;
   }
 
   let { onSignIn, onRegister, optionsOf, onOidcStart, forgotHref }: Props = $props();

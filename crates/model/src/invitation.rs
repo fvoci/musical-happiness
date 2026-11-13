@@ -155,7 +155,8 @@ pub struct InvitationMail {
     pub token: String,
     /// Email addresses, each delivered separately; duplicates are sent once.
     pub recipients: Vec<String>,
-    /// Sender's interface language when their account setting is auto.
+    /// The sender's screen language, used for a recipient when neither the recipient's
+    /// nor the sender's setting names a language the mail is written in.
     #[serde(default)]
     pub language: String,
 }

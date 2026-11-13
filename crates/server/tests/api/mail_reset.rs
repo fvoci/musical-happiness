@@ -385,3 +385,53 @@ async fn mail_reset_waits_until_the_http_response_is_released() {
     th.teardown().await;
     smtp.stop().await;
 }
+
+#[tokio::test]
+async fn mail_reset_is_written_in_the_recipients_language_else_the_requesters_else_english() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    th.client
+        .patch("/users/me/settings", &json!({"language":"ja"}))
+        .await
+        .check_status(StatusCode::OK);
+    for (requested, want) in [("ko-KR", "ko"), ("ja", "en")] {
+        th.anonymous()
+            .post(
+                "/password-reset/request",
+                &json!({"email":"user1@sample.com","language":requested}),
+            )
+            .await
+            .check_no_content();
+        assert!(th.app.finish_background(Duration::from_secs(10)).await);
+        let messages = smtp.messages().await;
+        let last = messages.last().expect("a message");
+        assert!(
+            last.decoded.contains(&format!("lang=\"{want}\"")),
+            "{requested}: {}",
+            last.decoded
+        );
+    }
+    th.client2
+        .patch("/users/me/settings", &json!({"language":"ko"}))
+        .await
+        .check_status(StatusCode::OK);
+    th.anonymous()
+        .post(
+            "/password-reset/request",
+            &json!({"email":"user2@sample.com","language":"en"}),
+        )
+        .await
+        .check_no_content();
+    let messages = smtp.received(3).await;
+    assert!(
+        messages[2].decoded.contains("lang=\"ko\""),
+        "the recipient's own language first"
+    );
+    th.teardown().await;
+    smtp.stop().await;
+}

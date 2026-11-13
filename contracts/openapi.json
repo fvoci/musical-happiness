@@ -1334,7 +1334,7 @@
         "description": "A request to email an existing invitation to one or more recipients.",
         "properties": {
           "language": {
-            "description": "Sender's interface language when their account setting is auto.",
+            "description": "The sender's screen language, used for a recipient when neither the recipient's\nnor the sender's setting names a language the mail is written in.",
             "type": "string"
           },
           "recipients": {
@@ -2825,7 +2825,7 @@
             "type": "string"
           },
           "language": {
-            "description": "Preferred language, normally en or ko; English if absent or unsupported.",
+            "description": "The requester's language tag (`ko`, `en-GB`), used when the account's own setting\nnames no language the mail is written in (English, Korean); English if neither does.",
             "type": "string"
           }
         },

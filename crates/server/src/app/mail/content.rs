@@ -8,24 +8,25 @@ pub(crate) enum Language {
 }
 
 impl Language {
-    pub(crate) fn of(tag: &str) -> Self {
-        if tag
-            .split('-')
-            .next()
-            .is_some_and(|language| language.eq_ignore_ascii_case("ko"))
-        {
-            Self::Korean
+    /// The language of the mail that `tag` names (`ko`, `ko-KR`, `en-GB`), or `None`
+    /// for one the mail is not written in (`ja`) and for `auto`.
+    fn written_in(tag: &str) -> Option<Self> {
+        let language = tag.split('-').next().unwrap_or_default();
+        if language.eq_ignore_ascii_case("ko") {
+            Some(Self::Korean)
+        } else if language.eq_ignore_ascii_case("en") {
+            Some(Self::English)
         } else {
-            Self::English
+            None
         }
     }
 
-    pub(crate) fn recipient(setting: &str, fallback: Self) -> Self {
-        if setting == "auto" {
-            fallback
-        } else {
-            Self::of(setting)
-        }
+    /// The first of `tags`, most wanted first, that the mail is written in, or English:
+    /// the recipient's setting, then the requester's or sender's language.
+    pub(crate) fn first_of(tags: &[&str]) -> Self {
+        tags.iter()
+            .find_map(|tag| Self::written_in(tag))
+            .unwrap_or(Self::English)
     }
 }
 
@@ -116,6 +117,21 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_language_the_mail_is_written_in_is_taken_or_else_english() {
+        for (tags, want) in [
+            (&["ko", "en"][..], Language::Korean),
+            (&["auto", "ko-KR"][..], Language::Korean),
+            (&["ja", "ko"][..], Language::Korean),
+            (&["ja", "auto", "EN-gb"][..], Language::English),
+            (&["ja", "zh-Hans", ""][..], Language::English),
+            (&["en", "ko"][..], Language::English),
+            (&[][..], Language::English),
+        ] {
+            assert_eq!(Language::first_of(tags), want, "{tags:?}");
+        }
+    }
 
     #[test]
     fn reset_messages_have_both_languages_and_escape_html() {
