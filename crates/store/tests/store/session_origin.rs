@@ -3,7 +3,7 @@
 //! of before migration 0028.
 
 use fvoci_model::{LoginOrigin, Session, User, new_id};
-use fvoci_store::{Identity, Removal, Store, StoredProvider, Unlinked};
+use fvoci_store::{Identity, OidcAccount, OidcRefusal, Removal, Store, StoredProvider, Unlinked};
 
 use crate::common;
 
@@ -269,4 +269,52 @@ async fn the_migration_fills_the_origin_or_ends_the_session() {
     );
     assert!(gone.is_err(), "its provider is gone: ended");
     assert_eq!(password.expect("kept").login, None);
+}
+
+/// A sign-in through the provider that ends after the identity was unlinked makes no
+/// session: the unlinking ended those there were, and the account no longer has the
+/// identity the provider vouched for.
+#[tokio::test]
+async fn a_sign_in_that_ends_after_the_unlinking_is_refused() {
+    let test = common::setup().await;
+    let user = person(&test, "linked").await;
+    let stored = test
+        .put_oidc_provider_as_read(&provider("https://one.example"), None, &user)
+        .await
+        .expect("stored")
+        .expect("new");
+    let identity = Identity {
+        issuer: "https://one.example",
+        subject: "subject",
+    };
+    test.add_identity(&user, identity, "").await.expect("tied");
+    assert_eq!(
+        test.unlink_identity(&user, HASH, identity)
+            .await
+            .expect("asked"),
+        Unlinked::Removed
+    );
+    let mut session = Session {
+        id: new_id(),
+        created_at: T0,
+        expires_at: T0 + 1000,
+        ..Session::default()
+    };
+    let finished = test
+        .finish_oidc_sign_in(
+            &stored.id,
+            OidcAccount::Known {
+                user_id: &user,
+                password_hash: HASH,
+                identity,
+            },
+            &mut session,
+            "digest",
+        )
+        .await
+        .expect("asked");
+    let made = alive(&test, "digest").await;
+    test.teardown().await;
+    assert_eq!(finished, Err(OidcRefusal::AccountChanged));
+    assert!(!made, "no session");
 }

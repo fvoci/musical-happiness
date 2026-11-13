@@ -12,6 +12,10 @@ use sqlx::Connection as _;
 
 use crate::common;
 
+/// The provider of the sign-ins of these tests, and who it vouches for.
+const ISSUER: &str = "https://idp.example.com";
+const SUBJECT: &str = "existing-identity";
+
 /// One sign-in through the provider ending in the account: what `App::let_in` stores.
 fn join_task(
     store: Store,
@@ -29,6 +33,10 @@ fn join_task(
         let account = OidcAccount::Known {
             user_id: &user_id,
             password_hash: &password_hash,
+            identity: Identity {
+                issuer: ISSUER,
+                subject: SUBJECT,
+            },
         };
         store
             .finish_oidc_sign_in(&provider_id, account, &mut session, &new_id())
@@ -36,24 +44,30 @@ fn join_task(
     })
 }
 
-/// The end of a sign-in (`Store::finish_oidc_sign_in`) when an identity names an
-/// existing account that is not yet in the organization. Two returns may both get that
-/// answer. A PostgreSQL SHARE table lock lets their membership reads finish while both
-/// inserts wait, making the order independent of sleeps or the speed of the machine.
-#[tokio::test]
-async fn concurrent_oidc_joins_of_one_account_both_succeed() {
-    let test = common::setup().await;
+/// An account the provider's identity names, its password hash, and the provider of
+/// the organization: the identifier of each.
+async fn known_account_and_provider(test: &Store) -> (String, String, String) {
     let account = common::user(&test.scoped(Tenant::Unset), "existing-identity").await;
     let password_hash = test
         .get_user_by_id(&account)
         .await
         .expect("the account")
         .password_hash;
+    test.add_identity(
+        &account,
+        Identity {
+            issuer: ISSUER,
+            subject: SUBJECT,
+        },
+        "",
+    )
+    .await
+    .expect("the account's identity");
     let provider = test
         .put_oidc_provider(&StoredProvider {
             id: String::new(),
             org_id: String::new(),
-            issuer: "https://idp.example.com".to_owned(),
+            issuer: ISSUER.to_owned(),
             client_id: "fvoci".to_owned(),
             sealed_client_secret: String::new(),
             auto_join: true,
@@ -65,6 +79,17 @@ async fn concurrent_oidc_joins_of_one_account_both_succeed() {
         .await
         .expect("a provider")
         .id;
+    (account, password_hash, provider)
+}
+
+/// The end of a sign-in (`Store::finish_oidc_sign_in`) when an identity names an
+/// existing account that is not yet in the organization. Two returns may both get that
+/// answer. A PostgreSQL SHARE table lock lets their membership reads finish while both
+/// inserts wait, making the order independent of sleeps or the speed of the machine.
+#[tokio::test]
+async fn concurrent_oidc_joins_of_one_account_both_succeed() {
+    let test = common::setup().await;
+    let (account, password_hash, provider) = known_account_and_provider(&test).await;
     let join = || {
         join_task(
             test.store.clone(),

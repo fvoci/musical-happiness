@@ -273,7 +273,7 @@
   /** The organization the address names; the screen's state is made anew only when it changes. */
   const orgId = $derived(router.route.orgId);
   const orgAdmin = $derived(
-    organizations && orgId ? new OrgAdmin(organizations, orgId) : undefined,
+    organizations && orgId ? new OrgAdmin(organizations, orgId, workspace) : undefined,
   );
   $effect(() => {
     // Once the reader is signed in: before that the organization is not there for them.

@@ -5,9 +5,9 @@
 use fvoci_model::LinkedIdentity;
 use serde_json::json;
 
-use crate::common::{Client, PASSWORD, ROOT_WORKSPACE_ID, TEST_WORKSPACE_ID, TestServer};
-use crate::fake_oidc::FakeProvider;
-use crate::oidc::{org_of, server_for, set_provider};
+use crate::common::{Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
+use crate::fake_oidc::{CLIENT_ID, CLIENT_SECRET, FakeProvider};
+use crate::oidc::{org_of, server_for, set_provider, with_key_and_private_addresses};
 use crate::rooms::{Incoming, Peer, paragraphs, table};
 use crate::sso::admin_through_provider;
 use crate::websocket::{Event, PATIENCE, QUIET, Socket, subscribe_to_workspace};
@@ -152,6 +152,73 @@ async fn removing_the_provider_ends_its_sessions_and_what_they_had_open() {
     assert!(of_provider.closed().await, "its connections closed");
     through.get("/users/me").await.check_unauthorized();
     assert!(of_password.open().await, "the password's stay");
+    ts.teardown().await;
+    fake.stop();
+}
+
+/// Saved under another issuer, the provider takes the sessions made through the one
+/// before along, with their connections; the password's go on.
+#[tokio::test]
+async fn another_issuer_ends_the_sessions_of_the_one_before_and_what_they_had_open() {
+    let before = FakeProvider::start().await;
+    let now = FakeProvider::start().await;
+    let ts = Setup::native()
+        .trusting_oidc_provider(&before.certificate_der)
+        .trusting_oidc_provider(&now.certificate_der)
+        .configure(with_key_and_private_addresses)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &before).await;
+    let through = admin_through_provider(&ts, &before, &org_id).await;
+    let card = table(&ts, &paragraphs(&["first"])).await.card_id;
+    let mut of_password = Open::of(&ts, &ts.client, &card, 101).await;
+    let mut of_provider = Open::of(&ts, &through, &card, 102).await;
+
+    set_provider(&ts, &org_id, &now).await;
+
+    assert!(of_provider.closed().await, "its connections closed");
+    through.get("/users/me").await.check_unauthorized();
+    assert!(of_password.open().await, "the password's stay");
+    ts.teardown().await;
+    before.stop();
+    now.stop();
+}
+
+/// Another client under the same issuer ends no session: the one made through the
+/// client before goes on, and proves nothing of the new one, so it cannot make the
+/// organization take only that.
+#[tokio::test]
+async fn another_client_of_the_same_issuer_ends_nothing_and_is_not_proved() {
+    let fake = FakeProvider::start().await;
+    let ts = server_for(&fake).await;
+    let org_id = org_of(&ts).await;
+    set_provider(&ts, &org_id, &fake).await;
+    let through = admin_through_provider(&ts, &fake, &org_id).await;
+    let path = format!("/org/{org_id}/oidc");
+    let another = |more: serde_json::Value| {
+        let mut settings = json!({
+            "issuer": fake.issuer, "clientId": "another-client", "clientSecret": CLIENT_SECRET,
+        });
+        for (name, value) in more.as_object().expect("an object") {
+            settings[name] = value.clone();
+        }
+        settings
+    };
+    ts.client.put(&path, &another(json!({}))).await.check_ok();
+    through.get("/users/me").await.check_ok();
+    let unproven = through
+        .put(&path, &another(json!({ "ssoRequired": true })))
+        .await;
+    unproven.check_status(reqwest::StatusCode::CONFLICT);
+    assert_eq!(unproven.error_reason(), "sso_unproven");
+    // Back to the client it was made through: still another provider, still unproved.
+    let back = json!({ "issuer": fake.issuer, "clientId": CLIENT_ID, "clientSecret": CLIENT_SECRET, "ssoRequired": true });
+    let unproven = through.put(&path, &back).await;
+    unproven.check_status(reqwest::StatusCode::CONFLICT);
+    assert_eq!(unproven.error_reason(), "sso_unproven");
     ts.teardown().await;
     fake.stop();
 }

@@ -26,7 +26,8 @@ WHEN NOT ((NEW.login_provider_id IS NULL AND NEW.login_org_id IS NULL
 BEGIN
     SELECT RAISE(ABORT, 'a session names its provider, organization and issuer together');
 END;
-CREATE TRIGGER sessions_login_origin_update BEFORE UPDATE ON sessions
+CREATE TRIGGER sessions_login_origin_update
+BEFORE UPDATE OF login_provider_id, login_org_id, login_issuer ON sessions
 WHEN NOT ((NEW.login_provider_id IS NULL AND NEW.login_org_id IS NULL
            AND NEW.login_issuer IS NULL)
        OR (NEW.login_provider_id IS NOT NULL AND NEW.login_org_id IS NOT NULL

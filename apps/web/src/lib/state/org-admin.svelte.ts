@@ -4,7 +4,7 @@
  * which the server answers for. A refusal is kept to be told (`refusal`); the
  * lists stay as they were.
  */
-import { isBackendError, ssoOrgOf } from './backend.ts';
+import { isBackendError, isSignedOut, ssoOrgOf } from './backend.ts';
 import type { OidcProvider, OidcSettings } from './oidc.ts';
 import type {
   AuditRecord,
@@ -20,6 +20,11 @@ import type {
  * way; it opens by signing in through its single sign-on, not by asking again.
  */
 export type OrgStatus = 'loading' | 'ready' | 'missing' | 'sso' | 'failed';
+
+/** What the page around the screen is told: the workspace's `report`. */
+interface Shell {
+  report(action: 'save', error: unknown): void;
+}
 
 /** Why a change was refused, as the screen tells it. */
 export type OrgRefusal =
@@ -53,9 +58,17 @@ export class OrgAdmin {
   /** A change is under way. */
   busy = $state(false);
 
-  constructor(api: Organizations, orgId: string) {
+  readonly #shell: Shell | undefined;
+
+  /**
+   * `shell` is told of a read refused because the session is over: one that
+   * ended with what was changed here (the provider it was made through,
+   * removed or given another issuer), for the page to go to signing in.
+   */
+  constructor(api: Organizations, orgId: string, shell?: Shell) {
     this.#api = api;
     this.orgId = orgId;
+    this.#shell = shell;
   }
 
   readonly inUse = $derived(this.workspaces.filter((workspace) => workspace.deletedAt === 0));
@@ -77,6 +90,7 @@ export class OrgAdmin {
     } catch (error) {
       if (ssoOrgOf(error) !== undefined) this.status = 'sso';
       else this.status = isBackendError(error) && error.status === 404 ? 'missing' : 'failed';
+      if (this.status === 'failed' && isSignedOut(error)) this.#shell?.report('save', error);
     }
   }
 

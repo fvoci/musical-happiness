@@ -664,7 +664,7 @@ impl App {
             .await
             .map_err(|error| logged(&error, "looking up an identity"))?;
         if let Some(user) = found {
-            return self.let_in(&user, stored, session, digest).await;
+            return self.let_in(&user, identity, stored, session, digest).await;
         }
         // The identity of an account that is deleted: not let in, and not made anew.
         if self
@@ -706,6 +706,7 @@ impl App {
     async fn let_in(
         &self,
         user: &User,
+        identity: Identity<'_>,
         stored: &StoredProvider,
         session: &mut Session,
         digest: &str,
@@ -713,6 +714,7 @@ impl App {
         let account = OidcAccount::Known {
             user_id: &user.id,
             password_hash: &user.password_hash,
+            identity,
         };
         let joined = self
             .store()
@@ -785,7 +787,7 @@ impl App {
                         .await
                         .map_err(|error| logged(&error, "looking up an identity"))?
                         .ok_or(Reason::OidcUnavailable)?;
-                    return self.let_in(&user, stored, session, digest).await;
+                    return self.let_in(&user, identity, stored, session, digest).await;
                 }
                 Err(error) => return Err(logged(&error, "storing a new account")),
             }
@@ -846,7 +848,7 @@ fn refused(refusal: OidcRefusal, stored: &StoredProvider) -> LoginFailure {
         }
         OidcRefusal::JoinClosed => Reason::OidcJoinClosed.into(),
         OidcRefusal::AccountChanged => {
-            tracing::info!(org_id = %stored.org_id, "an account was deleted or given a password while signing in through a provider");
+            tracing::info!(org_id = %stored.org_id, "an account was deleted, given a password or unlinked from the identity while signing in through a provider");
             Reason::OidcUnavailable.into()
         }
     }
