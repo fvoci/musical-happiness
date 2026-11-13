@@ -21,8 +21,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// before each delivery. A member link is sent as it is, its expiry and uses unchanged.
 /// A guest link lets one person in once, so it is not sent: each recipient gets a
 /// one-use guest link of their own, to the same board in the same role and ending
-/// with it, made by the sender as their message leaves; the named link is left as it
-/// is. Invalid recipients reject the whole request before sending.
+/// with it, made by the sender as their message leaves (and revoked if the mail server
+/// refuses that message for good); the named link is left as it is, and messages go
+/// out only while it is live and unused. Invalid recipients reject the whole request
+/// before sending.
 /// Each message is in the recipient's language when the mail is written in it, else the
 /// sender's setting, else `language`, else English. No SMTP means 404.
 /// A request names at most `invitation_mail_recipients` addresses, repeats counted

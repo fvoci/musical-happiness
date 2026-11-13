@@ -267,14 +267,15 @@ impl Queued {
         self,
         mailer: &Mailer,
         write: impl FnOnce() -> Writing,
-    ) -> Result<(), E>
+    ) -> Result<Delivered, E>
     where
         Writing: Future<Output = Result<Option<Letter>, E>>,
     {
         let Some(outbound) = mailer.outbound.as_ref() else {
             tracing::warn!("a message was queued while outgoing mail is disabled");
-            return Ok(());
+            return Ok(Delivered::Unwritten);
         };
+        let mut delivered = Delivered::Unwritten;
         let kind = self.kind;
         let mut write = Some(write);
         let mut message = None;
@@ -295,7 +296,7 @@ impl Queued {
             let sending = mailer.sending(kind, org_sending).await;
             if let Some(write) = write.take() {
                 let Some(letter) = write().await? else {
-                    return Ok(());
+                    return Ok(Delivered::Unwritten);
                 };
                 message = Some(mailer.outgoing(letter));
             }
@@ -312,8 +313,12 @@ impl Queued {
             mailer.pace.observe(outcome);
             let way = outbound.name();
             let wait = match outcome {
-                Outcome::Sent => break,
+                Outcome::Sent => {
+                    delivered = Delivered::Sent;
+                    break;
+                }
                 Outcome::Refused { code } => {
+                    delivered = Delivered::Refused;
                     tracing::warn!(
                         kind = kind.as_str(),
                         way,
@@ -330,6 +335,7 @@ impl Queued {
                     // not asked again before it said.
                     let wait = waits.next().map(|backoff| after.unwrap_or(backoff));
                     let Some(wait) = wait.filter(|wait| *wait <= LONGEST_RETRY_WAIT) else {
+                        delivered = Delivered::GivenUp;
                         tracing::warn!(kind = kind.as_str(), way, attempt, "mail given up");
                         mailer.metrics.mail_failed(kind, MailFailure::Temporary);
                         break;
@@ -340,8 +346,21 @@ impl Queued {
             tokio::time::sleep(wait).await;
         }
         drop((self.place, self.org));
-        Ok(())
+        Ok(delivered)
     }
+}
+
+/// What became of a queued message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Delivered {
+    /// The way took it.
+    Sent,
+    /// The way refused it for good.
+    Refused,
+    /// The way asked for later at every attempt, or for longer than it may wait.
+    GivenUp,
+    /// Nothing was sent: no message was written, or mail is off.
+    Unwritten,
 }
 
 /// The sendings one attempt holds while it is made; given back in the order of the

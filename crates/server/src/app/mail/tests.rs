@@ -99,7 +99,7 @@ fn send(mailer: &Mailer, queued: Queued, to: &str) -> tokio::task::JoinHandle<()
                 }))
             })
             .await;
-        assert_eq!(written, Ok(()));
+        assert!(written.is_ok());
     })
 }
 

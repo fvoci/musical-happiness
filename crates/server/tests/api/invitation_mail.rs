@@ -422,3 +422,66 @@ async fn guest_invitation_mail_gives_each_recipient_a_one_use_link_of_their_own(
     th.teardown().await;
     smtp.stop().await;
 }
+
+#[tokio::test]
+async fn a_guest_link_mailed_by_another_inviter_is_made_by_the_sender_and_gone_when_refused() {
+    let smtp = FakeSmtp::start_on(0).await;
+    let th = Setup::native()
+        .smtp(smtp.settings())
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user1 = th.client.me().await.id;
+    let board: fvoci_model::Board = th
+        .client2
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards"),
+            &json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Plans"}),
+        )
+        .await
+        .created_json();
+    th.client2
+        .post(
+            &format!("/w/{ROOT_WORKSPACE_ID}/boards/{}/members", board.id),
+            &json!({"userId": user1, "schemeAdmin": true}),
+        )
+        .await
+        .check_ok();
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/invitations");
+    let link: Invitation = th
+        .client2
+        .post(&path, &json!({"role":"guest","boardId":board.id}))
+        .await
+        .created_json();
+    assert_ne!(link.created_by, user1);
+    smtp.reject_next(1);
+    th.client
+        .post(
+            &format!("{path}/mail"),
+            &json!({"token":link.token,"recipients":["refused@example.test","taken@example.test"]}),
+        )
+        .await
+        .check_no_content();
+    assert!(th.app.finish_background(Duration::from_secs(10)).await);
+    let messages = smtp.messages().await;
+    assert_eq!(messages.len(), 1, "one refused for good: {messages:?}");
+    let links: Vec<Invitation> = th.client.get(&path).await.ok_json();
+    let made: Vec<&Invitation> = links
+        .iter()
+        .filter(|other| other.board_id.as_deref() == Some(board.id.as_str()) && other.id != link.id)
+        .collect();
+    assert_eq!(
+        made.len(),
+        1,
+        "the link of the refused message went with it: {links:?}"
+    );
+    assert_eq!(made[0].created_by, user1, "who sent it made it");
+    let token = invite_tokens(&messages[0]).pop().expect("a link");
+    th.anonymous()
+        .post("/invitations/preview", &json!({"token":token}))
+        .await
+        .check_status(StatusCode::OK);
+    th.teardown().await;
+    smtp.stop().await;
+}

@@ -118,12 +118,13 @@ impl App {
         queued
             .deliver(&self.inner.mail, || async {
                 let link = self.reset_link_for(&user.id).await?;
-                Ok(Some(Letter {
+                Ok::<_, AppError>(Some(Letter {
                     to: user.email.clone(),
                     content: Content::reset(&link, language),
                 }))
             })
-            .await
+            .await?;
+        Ok(())
     }
 
     /// Sets the password proved by a reset token and closes every session and live
