@@ -60,7 +60,7 @@
 | `REORDER_CATEGORIES` | `workspaceId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORY_BOARDS` | `workspaceId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
-| `UNSUBSCRIBED_WORKSPACE` | `workspaceId`, `reason`(`workspace access ended`, `sso required`) | 서버가 그 워크스페이스의 구독을 끝낸 연결(아래 "서버가 구독을 끝낼 때"). 연결과 다른 구독, 다른 워크스페이스의 방은 그대로다 |
+| `UNSUBSCRIBED_WORKSPACE` | `workspaceId`, `reason`(`workspace access ended`, `sso required`) | 서버가 그 워크스페이스의 구독을 끝낸 연결(아래 "서버가 구독을 끝낼 때"). 연결과 다른 구독은 그대로다(방은 아래 "서버가 구독을 끝낼 때") |
 | `UNSUBSCRIBED_BLOCKS` | `workspaceId`, `blockIds`(그 보드의 따라가던 블록 모두), `reason`(`public link access ended`) | 서버가 그 보드의 블록 구독을 끝낸 연결 |
 
 ### 받는 사람의 규칙
@@ -99,7 +99,7 @@
 
 ### 서버가 구독을 끝낼 때
 
-권한 회수는 연결을 닫지 않고 그 구독만 끝내며 알린다. 연결은 남고, 다른 워크스페이스의 구독과 블록 구독, 다른 워크스페이스의 방(6절)도 남는다. 구성원·역할·관리자 참여가 바뀌거나 워크스페이스가 휴지통에 가면 그 조작이 답하기 전에 그 워크스페이스의 방이 다시 물어, 권한이 없는 사람은 `DOC_LEFT`로 내보내고 역할만 바뀐 사람에게는 `DOC_MODE`를 보낸다(6절의 "방에 있는 동안"). 클라이언트는 다시 구독해 보고(권한이 있으면 새 역할로 받아들여진다) 보드를 다시 읽는다.
+권한 회수는 연결을 닫지 않고 그 구독만 끝내며 알린다. 연결은 남고, 다른 워크스페이스의 구독과 블록 구독도 남는다. 구성원·역할·관리자 참여가 바뀌거나 워크스페이스가 휴지통에 가면 그 조작이 답하기 전에 그 워크스페이스의 방이 다시 물어, 권한이 없는 사람은 `DOC_LEFT`로 내보내고 쓰기·읽기가 바뀐 사람에게는 `DOC_MODE`를 보낸다. 다른 워크스페이스의 방은 남는다. `ssoRequired`가 켜지면 그 공급자로 만들지 않은 세션은 그 조직의 모든 방에서 저장소에 묻지 않고 나간다(6절의 "방에 있는 동안"). 클라이언트는 다시 구독해 보고(권한이 있으면 새 역할로 받아들여진다) 보드를 다시 읽는다.
 
 | 언제 | 끝나는 구독, 알림 |
 |---|---|
