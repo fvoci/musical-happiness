@@ -1,6 +1,6 @@
 {
   "AdminBadge.SystemAdmin": "Administrator",
-  "AdminBadge.WorkspaceAdmin": "Arbeitsbereich-Administrator",
+  "AdminBadge.WorkspaceAdmin": "Arbeitsbereichsadministrator",
   "Attachment.Attachment-title": "Anhang",
   "AttachmentBlock.DeleteAction": "Löschen",
   "AttachmentBlock.addElement": "{type} hinzufügen",

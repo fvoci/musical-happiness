@@ -340,7 +340,7 @@
   "createImageBlock.failed": "Não foi possível enviar o arquivo, pois o tamanho ultrapassou o limite permitido.",
   "default-properties.badges": "Comentários e descrição",
   "default-properties.title": "Título",
-  "error.back-to-home": "Volta para o início",
+  "error.back-to-home": "Voltar para o início",
   "error.back-to-workspace": "Voltar para o espaço de trabalho",
   "error.board-not-found": "Quadro não encontrado.",
   "error.go-login": "Log in",
