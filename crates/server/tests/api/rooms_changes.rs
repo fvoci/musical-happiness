@@ -185,6 +185,38 @@ async fn a_batch_closing_a_template_puts_out_its_uninvited_readers() {
     th.teardown().await;
 }
 
+/// One batch of three boards closed at once, the first with no room: each room of
+/// the others is reached by the one check of the batch.
+#[tokio::test]
+async fn a_batch_closing_several_templates_puts_out_the_readers_of_each() {
+    let th = seldom().start().await.init_basic().await;
+    let roomless = th
+        .create_board(TEST_WORKSPACE_ID, fvoci_model::BoardType::Open)
+        .await
+        .id;
+    let (first, mut first_reader) = template_reader(&th).await;
+    let (second, mut second_reader) = template_reader(&th).await;
+    let changed_at = Instant::now();
+    th.client
+        .patch(
+            &format!("/w/{TEST_WORKSPACE_ID}/boards-and-blocks"),
+            &json!({
+                "boardIds": [roomless, first, second],
+                "boardPatches": [{"type": "P"}, {"type": "P"}, {"type": "P"}],
+                "blockIds": [], "blockPatches": [],
+            }),
+        )
+        .await
+        .check_ok();
+    for reader in [&mut first_reader, &mut second_reader] {
+        assert_eq!(
+            soon(reader, "DOC_LEFT", changed_at).await["reason"],
+            json!("not_found")
+        );
+    }
+    th.teardown().await;
+}
+
 #[tokio::test]
 async fn trashing_a_board_or_workspace_empties_its_rooms_immediately() {
     for trash_workspace in [false, true] {

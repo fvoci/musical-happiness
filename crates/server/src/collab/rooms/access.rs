@@ -311,13 +311,7 @@ impl Collab {
     /// Holds, for the check of `change`, the members `scope` concerns in the rooms of
     /// `tenant` it reaches.
     async fn hold(&self, tenant: Tenant, scope: &AccessScope, change: u64) -> Holds {
-        let reached = self
-            .inner
-            .rooms
-            .index
-            .lock()
-            .expect("the rooms are never held across a panic")
-            .reached(tenant, scope);
+        let reached = self.rooms_index().reached(tenant, scope);
         let mut holds = Holds {
             collab: self.clone(),
             change,

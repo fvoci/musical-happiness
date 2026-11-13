@@ -28,8 +28,10 @@ impl Index {
         self.by_tenant.get(&tenant)?.by_card.get(card_id)
     }
 
-    /// Counts `room` among the rooms of `tenant`, in place of any of its card.
+    /// Counts `room` among the rooms of `tenant`, in place of any of its card (on
+    /// whatever board that one was).
     pub(super) fn insert(&mut self, tenant: Tenant, room: Arc<Room>) {
+        self.remove(tenant, &room.card_id);
         let of_tenant = self.by_tenant.entry(tenant).or_default();
         of_tenant
             .by_board

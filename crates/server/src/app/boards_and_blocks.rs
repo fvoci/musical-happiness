@@ -73,10 +73,12 @@ impl App {
         };
 
         // One check for every board made: an import makes many.
-        let made = created.boards.iter().map(|board| &board.id);
-        self.collab()
-            .recheck_access(self, AccessScope::boards(made))
-            .await;
+        if !created.boards.is_empty() {
+            let made = created.boards.iter().map(|board| &board.id);
+            self.collab()
+                .recheck_access(self, AccessScope::boards(made))
+                .await;
+        }
         self.announce_created(&created, &members).await;
 
         for board in &created.boards {
