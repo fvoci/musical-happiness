@@ -1,10 +1,16 @@
 //! Revisions for cached authorization reads, spanning the whole writing transaction.
 //!
-//! Each organization has a revision of its own, which its writes move on; a write of
-//! no organization or of every organization (the directory, the system's work)
-//! moves on a shared one that every organization's revision includes. So what
-//! one organization writes does not empty another's cached reads. A reader that is of
-//! no organization takes a revision that every write moves on.
+//! Each organization has a revision of its own, which its writes move on, behind a
+//! lock of its own: what one organization writes neither empties another's cached
+//! reads nor waits for another's dispatch. A reader of no organization takes a
+//! revision that every write of an organization moves on, and so does a write of no
+//! organization, which reaches none of their rows.
+//!
+//! A write of the system's reach ([`Tenant::System`]: the housekeeping, the steps
+//! after a migration, finding out whose something is) moves no revision: none of it
+//! changes who may see what (it throws away what is in the trash or ended, or makes
+//! an organization nobody is in yet). What changes an organization's people's access
+//! is written through that organization's handle ([`Store::for_org`]).
 //!
 //! A write abandoned before its outcome was known (its future was dropped between its
 //! first authorization statement and its commit or rollback) may still land. For
@@ -13,8 +19,8 @@
 //! but none is refused for it.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use sqlx::types::Uuid;
@@ -50,84 +56,78 @@ impl Count {
         self.revision = self.revision.wrapping_add(1);
     }
 
-    fn end(&mut self) {
+    fn end(&mut self, unsettled_until: Option<Instant>) {
         self.writers -= 1;
         self.revision = self.revision.wrapping_add(1);
+        if unsettled_until.is_some() {
+            self.unsettled_until = unsettled_until;
+        }
     }
 
     fn settled_at(self, now: Instant) -> bool {
         self.unsettled_until.is_none_or(|until| now >= until)
     }
-}
 
-#[derive(Debug, Default)]
-struct State {
-    /// Writes of no organization or of every organization.
-    shared: Count,
-    /// Every write, for readers of no organization.
-    every: Count,
-    /// Writes of one organization, by its identifier. Only written ones are kept: a
-    /// reader of an organization nobody wrote takes the default.
-    orgs: HashMap<Uuid, Count>,
-}
-
-impl State {
-    fn counts(&self, reach: Reach) -> [Count; 2] {
-        match reach {
-            Reach::Org(org) => [
-                self.shared,
-                self.orgs.get(&org).copied().unwrap_or_default(),
-            ],
-            Reach::Every => [self.every, self.every],
-        }
-    }
-
-    fn writers_of(&self, reach: Reach) -> usize {
-        self.counts(reach).iter().map(|count| count.writers).sum()
-    }
-
-    fn version(&self, reach: Reach, now: Instant) -> VisibilityVersion {
-        let [shared, own] = self.counts(reach);
+    fn version(self, reach: Reach, now: Instant) -> VisibilityVersion {
         VisibilityVersion {
             reach,
-            shared: shared.revision,
-            own: own.revision,
-            cacheable: shared.settled_at(now) && own.settled_at(now),
-        }
-    }
-
-    /// Applies `change` to what a write of `reach` moves: its organization's count
-    /// (the shared one for a write of no or every organization), and the count of
-    /// every write.
-    fn change(&mut self, reach: Reach, change: impl Fn(&mut Count)) {
-        change(&mut self.every);
-        match reach {
-            Reach::Org(org) => change(self.orgs.entry(org).or_default()),
-            Reach::Every => change(&mut self.shared),
+            revision: self.revision,
+            cacheable: self.settled_at(now),
         }
     }
 }
 
-/// Whose rows a write may reach, or a reader depends on.
+/// One count behind a lock of its own: a dispatch holds it while it queues.
+type Guarded = Arc<Mutex<Count>>;
+
+/// Whose rows a reader depends on, or a write moves the revision of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Reach {
     Org(Uuid),
     Every,
 }
 
-impl From<Tenant> for Reach {
+impl Reach {
+    /// What a reader of `tenant` depends on: one organization's rows, or anyone's.
+    fn of_reader(tenant: Tenant) -> Self {
+        // No organization, or every one: what it reads may be of any.
+        if let Tenant::Org(org) = tenant {
+            Self::Org(org)
+        } else {
+            Self::Every
+        }
+    }
+}
+
+/// What a write moves on: its organization's revision and the one of every write,
+/// the latter alone for a write of no organization, nothing for the system's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Moves {
+    Org(Uuid),
+    Every,
+    Nothing,
+}
+
+impl From<Tenant> for Moves {
     fn from(tenant: Tenant) -> Self {
-        match tenant {
-            Tenant::Org(org) => Self::Org(org),
-            // No organization, or every one: what it writes may be of any.
-            _ => Self::Every,
+        if let Tenant::Org(org) = tenant {
+            Self::Org(org)
+        } else if tenant == Tenant::Unset {
+            Self::Every
+        } else {
+            // The system's reach (`Store::system`), which changes nobody's access.
+            Self::Nothing
         }
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct Visibility {
-    state: Mutex<State>,
+    /// Every write of an organization or of none: for readers of no organization.
+    every: Guarded,
+    /// Each organization's, by its identifier. The map is held only to find one.
+    orgs: Mutex<HashMap<Uuid, Guarded>>,
+    /// Moves on whenever a writer starts or ends, for whoever waits for one to end.
     changed: watch::Sender<u64>,
     settle: Duration,
 }
@@ -141,48 +141,73 @@ impl Default for Visibility {
 impl Visibility {
     pub(crate) fn settling_for(settle: Duration) -> Self {
         Self {
-            state: Mutex::default(),
+            every: Guarded::default(),
+            orgs: Mutex::default(),
             changed: watch::channel(0).0,
             settle,
         }
     }
 
-    fn state(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state.lock().expect("visibility revision lock")
+    /// The count of `reach`, made for an organization the first time it is asked.
+    fn count(&self, reach: Reach) -> Guarded {
+        match reach {
+            Reach::Every => Arc::clone(&self.every),
+            Reach::Org(org) => Arc::clone(
+                self.orgs
+                    .lock()
+                    .expect("visibility organizations lock")
+                    .entry(org)
+                    .or_default(),
+            ),
+        }
     }
 
     pub(crate) fn writing(&self, tenant: Tenant) -> Writing<'_> {
         Writing {
             visibility: self,
-            reach: tenant.into(),
+            moves: tenant.into(),
             touched: AtomicBool::new(false),
             finished: AtomicBool::new(false),
         }
     }
 
-    fn if_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
-        let state = self.state();
-        let now = state.version(version.reach, Instant::now());
-        if state.writers_of(version.reach) != 0
-            || (now.shared, now.own) != (version.shared, version.own)
-        {
+    /// Applies `change` to what a write moves, each count under its own lock, one
+    /// after the other: a reader reads one of them.
+    fn change(&self, moves: Moves, change: impl Fn(&mut Count)) {
+        let reaches: &[Reach] = match moves {
+            Moves::Org(org) => &[Reach::Org(org), Reach::Every],
+            Moves::Every => &[Reach::Every],
+            Moves::Nothing => &[],
+        };
+        for reach in reaches {
+            change(&mut lock(&self.count(*reach)));
+        }
+        self.changed
+            .send_modify(|step| *step = step.wrapping_add(1));
+    }
+
+    pub(crate) fn if_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
+        let count = self.count(version.reach);
+        let count = lock(&count);
+        if count.writers != 0 || count.revision != version.revision {
             return false;
         }
         send();
         true
     }
 
-    async fn version(&self, tenant: Tenant) -> VisibilityVersion {
-        let reach = Reach::from(tenant);
+    pub(crate) async fn version(&self, tenant: Tenant) -> VisibilityVersion {
+        let reach = Reach::of_reader(tenant);
+        let count = self.count(reach);
         let mut changes = self.changed.subscribe();
         loop {
             {
-                let state = self.state();
-                if state.writers_of(reach) == 0 {
-                    return state.version(reach, Instant::now());
+                let count = lock(&count);
+                if count.writers == 0 {
+                    return count.version(reach, Instant::now());
                 }
             }
-            // Subscribe before checking the state so a commit cannot be missed.
+            // Subscribed before the count was read, so a commit cannot be missed.
             changes
                 .changed()
                 .await
@@ -191,13 +216,16 @@ impl Visibility {
     }
 }
 
+fn lock(count: &Mutex<Count>) -> MutexGuard<'_, Count> {
+    count.lock().expect("visibility revision lock")
+}
+
 /// A committed authorization revision of what one organization reads (or of
 /// everything), and whether its reads may be cached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisibilityVersion {
     reach: Reach,
-    shared: u64,
-    own: u64,
+    revision: u64,
     cacheable: bool,
 }
 
@@ -220,16 +248,17 @@ pub struct VisibilityScope(Reach);
 
 impl Store {
     /// The revision of the authorization data this handle's organization reads, after
-    /// its pending writers finish (every organization's, for a handle of none). Cached
-    /// reads are reusable only at the same cacheable revision.
+    /// its pending writers finish (of every organization's writes, for a handle of
+    /// none). Cached reads are reusable only at the same cacheable revision.
     pub async fn visibility_version(&self) -> VisibilityVersion {
         self.inner.visibility.version(self.tenant).await
     }
 
     /// Runs a dispatch only while its checked revision is current and settled: no
-    /// write of its scope started or ended since. The callback must be synchronous and
-    /// must not call back into the store. Returns false if authorization must be
-    /// checked again.
+    /// write of its scope started or ended since. It holds the lock of that scope's
+    /// revision alone: writes of another organization go on meanwhile. The callback
+    /// must be synchronous and must not call back into the store. Returns false if
+    /// authorization must be checked again.
     pub fn if_visibility_current(&self, version: VisibilityVersion, send: impl FnOnce()) -> bool {
         self.inner.visibility.if_current(version, send)
     }
@@ -240,7 +269,7 @@ impl Store {
 #[derive(Debug)]
 pub(crate) struct Writing<'a> {
     visibility: &'a Visibility,
-    reach: Reach,
+    moves: Moves,
     touched: AtomicBool,
     finished: AtomicBool,
 }
@@ -253,12 +282,10 @@ impl Writing<'_> {
     }
 
     pub(crate) fn invalidate(&self) {
-        if self.touched.swap(true, Ordering::Relaxed) {
+        if self.moves == Moves::Nothing || self.touched.swap(true, Ordering::Relaxed) {
             return;
         }
-        let mut state = self.visibility.state();
-        state.change(self.reach, Count::start);
-        self.visibility.changed.send_replace(state.every.revision);
+        self.visibility.change(self.moves, Count::start);
     }
 
     pub(crate) fn settled(&self) {
@@ -271,16 +298,10 @@ impl Drop for Writing<'_> {
         if !self.touched.load(Ordering::Relaxed) {
             return;
         }
-        let mut state = self.visibility.state();
         let unsettled = (!self.finished.load(Ordering::Relaxed))
             .then(|| Instant::now() + self.visibility.settle);
-        state.change(self.reach, |count| {
-            count.end();
-            if unsettled.is_some() {
-                count.unsettled_until = unsettled;
-            }
-        });
-        self.visibility.changed.send_replace(state.every.revision);
+        self.visibility
+            .change(self.moves, |count| count.end(unsettled));
     }
 }
 
@@ -387,19 +408,40 @@ mod tests {
         assert_ne!(visibility.version(Tenant::Unset).await, of_everything);
         assert!(!visibility.if_current(of_everything, || panic!("everything moved on")));
 
-        let writing = visibility.writing(Tenant::Unset);
-        writing.statement("UPDATE organizations SET delete_at = 1");
-        assert!(
-            !visibility.if_current(of_second, || panic!("a shared writer is active")),
-            "a write of every organization holds up each one's dispatch"
-        );
-        writing.settled();
-        drop(writing);
-        assert_ne!(visibility.version(second).await, of_second);
         assert_ne!(
             visibility.version(second).await.scope(),
             visibility.version(first).await.scope()
         );
+    }
+
+    #[tokio::test]
+    async fn a_write_of_no_organization_moves_only_what_readers_of_none_read() {
+        let visibility = Visibility::default();
+        let of_first = visibility.version(org(1)).await;
+        let of_everything = visibility.version(Tenant::Unset).await;
+        let writing = visibility.writing(Tenant::Unset);
+        writing.statement("UPDATE organizations SET delete_at = 1");
+        assert!(visibility.if_current(of_first, || {}));
+        assert!(!visibility.if_current(of_everything, || panic!("a writer is active")));
+        writing.settled();
+        drop(writing);
+        assert_eq!(visibility.version(org(1)).await, of_first);
+        assert_ne!(visibility.version(Tenant::Unset).await, of_everything);
+    }
+
+    #[test]
+    fn a_dispatch_holds_only_its_own_organizations_writers() {
+        let visibility = Visibility::default();
+        let version = VisibilityVersion {
+            reach: Reach::Org(Uuid::from_u128(1)),
+            revision: 0,
+            cacheable: true,
+        };
+        assert!(visibility.if_current(version, || {
+            let writing = visibility.writing(org(2));
+            writing.statement("DELETE FROM board_members");
+            writing.settled();
+        }));
     }
 
     #[tokio::test]
@@ -413,13 +455,6 @@ mod tests {
         assert!(
             visibility.version(org(2)).await.cacheable(),
             "another organization keeps its cache"
-        );
-        let writing = visibility.writing(Tenant::Unset);
-        writing.statement("UPDATE organizations SET delete_at = 1");
-        drop(writing);
-        assert!(
-            !visibility.version(org(2)).await.cacheable(),
-            "an abandoned write of every organization unsettles each"
         );
     }
 
@@ -468,8 +503,7 @@ mod tests {
         let visibility = Visibility::default();
         let version = VisibilityVersion {
             reach: Reach::Every,
-            shared: 0,
-            own: 0,
+            revision: 0,
             cacheable: true,
         };
         std::thread::scope(|scope| {

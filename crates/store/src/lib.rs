@@ -688,4 +688,33 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn the_systems_writes_move_no_revision() {
+        // A write of the system's reach changes nobody's access (`visibility.rs`).
+        let visibility = visibility::Visibility::default();
+        let of_first = visibility
+            .version(Tenant::Org(sqlx::types::Uuid::from_u128(1)))
+            .await;
+        let of_everything = visibility.version(Tenant::Unset).await;
+        let writing = visibility.writing(Tenant::System);
+        writing.statement("DELETE FROM deleted_boards WHERE deleted_at < 1");
+        assert!(
+            visibility.if_current(of_first, || {}),
+            "a pending write of the system holds up no organization's dispatch"
+        );
+        assert!(visibility.if_current(of_everything, || {}));
+        drop(writing);
+        assert_eq!(
+            visibility
+                .version(Tenant::Org(sqlx::types::Uuid::from_u128(1)))
+                .await,
+            of_first
+        );
+        assert_eq!(
+            visibility.version(Tenant::Unset).await,
+            of_everything,
+            "not even abandoned"
+        );
+    }
 }
