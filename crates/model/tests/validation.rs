@@ -165,11 +165,59 @@ fn register(username: &str, email: &str, password: &str) -> Result<(), String> {
         username: username.to_owned(),
         email: email.to_owned(),
         password: password.to_owned(),
-        token: String::new(),
         display_name: String::new(),
+        organization_name: "The Firm".to_owned(),
     }
     .validate()
     .map_err(|error| error.to_string())
+}
+
+#[test]
+fn a_registration_names_its_organization() {
+    let named = |organization_name: &str| {
+        RegisterRequest {
+            username: "alice".to_owned(),
+            email: "alice@example.com".to_owned(),
+            password: "12345678".to_owned(),
+            display_name: String::new(),
+            organization_name: organization_name.to_owned(),
+        }
+        .validate()
+        .map_err(|error| error.to_string())
+    };
+    assert_eq!(named("  우리 팀  "), Ok(()));
+    assert_eq!(
+        fvoci_model::organization_name("  우리 팀  "),
+        Ok("우리 팀".to_owned())
+    );
+    assert_eq!(named(""), Err("organization name is required".to_owned()));
+    assert_eq!(
+        named("   "),
+        Err("organization name is required".to_owned())
+    );
+    assert_eq!(named(&"가".repeat(64)), Ok(()));
+    assert_eq!(
+        named(&"가".repeat(65)),
+        Err("an organization name has at most 64 characters".to_owned())
+    );
+    assert!(
+        named("a\u{202E}b").is_err(),
+        "nothing that turns the text around"
+    );
+    // Every member that is refused is named, the organization after the account.
+    let all = RegisterRequest::default()
+        .validate()
+        .expect_err("nothing is there");
+    let details: Vec<&str> = all.iter().map(|refusal| refusal.detail.as_str()).collect();
+    assert_eq!(
+        details,
+        [
+            "username is required",
+            "email is required",
+            "password is required",
+            "organization name is required"
+        ]
+    );
 }
 
 #[test]

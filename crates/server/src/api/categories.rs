@@ -2,18 +2,18 @@
 
 use axum::body::Bytes;
 use axum::extract::Path;
-use fvoci_model::{Category, CategoryBoards, CategoryType};
+use fvoci_model::{Category, CategoryBoards, CategoryType, WorkspaceRole};
 use fvoci_store::BoardVisibility;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::{CategoryUpdate, NewCategory};
-use super::contract::params::{BoardId, CategoryId, WorkspaceId};
+use super::contract::params::{BoardId, CategoryId, HomeMemberWorkspaceId, WorkspaceId};
 use super::contract::tag;
 
 use super::decode_object_members;
-use super::workspace::{WorksIn, Ws};
+use super::workspace::{AtHome, WorksIn, Ws};
 use super::{ApiResult, decode_json, json_response, no_content, require_board_visible};
 use crate::app::App;
 use crate::auth::now_millis;
@@ -216,7 +216,9 @@ async fn handle_delete_category(
 /// The user's sidebar
 ///
 /// The user's categories in the workspace, each with the boards filed under it. A user who
-/// has none yet gets the default category made.
+/// has none yet gets the default category made. A guest of the workspace has theirs
+/// too, with the boards they are on and no other, whatever they filed before; the
+/// routes that change the sidebar are for who works in the workspace.
 ///
 /// The categories come by `sortOrder`, lowest first, and among those with the same one
 /// the oldest first. The boards of a category come in the order the user gave them,
@@ -226,18 +228,24 @@ async fn handle_delete_category(
     path = "/w/{workspaceId}/categories",
     operation_id = "getCategories",
     tag = tag::SIDEBAR,
-    params(WorkspaceId),
+    params(HomeMemberWorkspaceId),
     responses((
         status = 200,
         description = "The categories with their boards.",
         body = Vec<CategoryBoards>,
     )),
 )]
-async fn handle_get_user_category_boards(WorksIn(ws): WorksIn) -> ApiResult {
-    let category_boards = ws
-        .app
-        .user_category_boards(&ws.session.user_id, &ws.workspace_id)
-        .await?;
+async fn handle_get_user_category_boards(AtHome(ws): AtHome) -> ApiResult {
+    // A guest too: their sidebar has the boards they are on, filed as they have filed
+    // them. The rest of the sidebar's routes are for who works there.
+    let (user_id, workspace_id) = (&ws.session.user_id, &ws.workspace_id);
+    let category_boards = if ws.role == WorkspaceRole::Guest {
+        ws.app
+            .category_boards_of_guest(user_id, workspace_id)
+            .await?
+    } else {
+        ws.app.user_category_boards(user_id, workspace_id).await?
+    };
     Ok(json_response(&category_boards))
 }
 

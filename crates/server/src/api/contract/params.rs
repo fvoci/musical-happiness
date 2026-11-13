@@ -41,6 +41,7 @@ parameter!(BlockId: Path "blockId", String, True, "The identifier of the block."
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
 parameter!(CategoryId: Path "categoryId", String, True, "The identifier of the category, one of the user's own.");
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
+parameter!(InvitationId: Path "invitationId", String, True, "The identifier of the invitation, as making it and the list answer it. It is not the link's token.");
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
 parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
 parameter!(UploadId: Path "uploadId", String, True, "The identifier of the upload, as opening it answered. Only the user who opened it may use it.");

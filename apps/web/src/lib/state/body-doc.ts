@@ -58,3 +58,15 @@ export interface BodyDoc {
   /** Leaves the room; the document is let go. */
   close(): void;
 }
+
+/** The rooms of a backend that has them (`Backend.openDoc`). */
+export interface DocRooms {
+  /**
+   * Opens a card's body in its room, to be read and written together with
+   * whoever else has it open. The document is the server's: the reader gets
+   * none until it arrives (`hears.state`). A backend without rooms (the one
+   * of a reader by a public link) has none of this: the body is read as it
+   * was stored.
+   */
+  openDoc?(workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc;
+}

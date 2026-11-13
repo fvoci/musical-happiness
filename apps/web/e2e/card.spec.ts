@@ -147,9 +147,18 @@ async function closePicker(page: Page): Promise<void> {
 
 /**
  * Lets the page lay itself out again after a test changed a style by hand.
- * A measurement taken right after such a change can still be the old one.
+ * A measurement taken right after such a change can still be the old one, and one
+ * taken while the card still opens is where the card is on its way.
  */
 async function laidOut(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const ending = document
+      .getAnimations()
+      .filter((animation) =>
+        Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)),
+      );
+    await Promise.all(ending.map((animation) => animation.finished.catch(() => undefined)));
+  });
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
@@ -365,6 +374,8 @@ test('values are edited with the shared editors: select, person, date, checkbox,
   await status.locator('[data-slot="property-select"]').click();
   await page.getByRole('option', { name: 'Later' }).click();
   await expect(status.locator('dd')).toContainText('Later');
+  // Closed, and gone: the person's options below are not taken from a list on its way out.
+  await expect(page.getByRole('option')).toHaveCount(0);
   const statusId = await idOf('Status');
   await expect.poll(async () => typeof (await values())[statusId]).toBe('string');
 

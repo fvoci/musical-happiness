@@ -298,7 +298,7 @@ DB(또는 백업)를 읽기만 한 공격자가 살아 있는 서버에 들어�
 - **최소 API.**
   - `GET /users/me`에 `isAdmin`.
   - `PUT /users/{id}/admin` `{"isAdmin": bool}`: 관리자만. 마지막 관리자는 해제할 수 없다(409 `last_admin`). 양도는 "상대를 지정하고 나를 해제"의 두 번이다.
-  - `POST /teams/{team}/regenerate_signup_token`: 관리자만(결정 전에는 누구나). 응답에 새 토큰. 지금의 경로는 `POST /w/{workspaceId}/signup-token`이다(`PORTING.md` L절).
+  - `POST /teams/{team}/regenerate_signup_token`: 관리자만(결정 전에는 누구나). 응답에 새 토큰. 가입 토큰은 초대 링크로 바뀌어 이 경로는 없다(`PORTING.md` L절).
   - `GET /w/{workspaceId}`(그때는 `GET /teams/{team}`)의 `signupToken`: 관리자에게만 넣는다(결정 전에는 로그인한 누구에게나 나갔다). 3.5의 결정에 따라 평문으로 저장하므로 다시 읽을 수 있다.
 - **잠겼을 때.** 관리자 소켓에 "이 사용자를 관리자로" 명령을 하나 더 둔다. 관리자가 아무도 로그인할 수 없게 됐을 때의 복구 수단이다.
 - 화면은 웹앱 쪽에서 다룬다.

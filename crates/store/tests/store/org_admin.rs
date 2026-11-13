@@ -40,7 +40,6 @@ async fn named_workspace(store: &Store, name: &str, actor_id: &str) -> String {
     let workspace = Workspace {
         id: new_id(),
         title: name.to_owned(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     store
@@ -58,6 +57,7 @@ async fn private_board(store: &Store, workspace_id: &str, user_id: &str) -> Stri
         board_type: BoardType::Private,
         ..Board::default()
     };
+    common::works_in(store, workspace_id, user_id).await;
     store
         .insert_board_with_admin(&mut board, user_id)
         .await
@@ -465,7 +465,6 @@ async fn a_name_is_one_workspaces_in_use_and_the_default_one_stays() {
     let again = Workspace {
         id: new_id(),
         title: "Design".to_owned(),
-        signup_token: "signup-token".to_owned(),
         ..Workspace::default()
     };
     let taken = test

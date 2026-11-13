@@ -121,8 +121,14 @@ const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
         "unhideBoard",
     ),
     ("PUT", "/category-order", "reorderCategories"),
+    ("GET", "/members", "getWorkspaceMembers"),
+    ("PUT", "/members/{user}", "setWorkspaceRole"),
+    ("DELETE", "/members/{user}", "removeWorkspaceMember"),
     ("POST", "/onboard", "onboard"),
-    ("POST", "/signup-token", "regenerateSignupToken"),
+    ("PUT", "/guest-invitations", "setGuestInvitations"),
+    ("GET", "/invitations", "getInvitations"),
+    ("POST", "/invitations", "createInvitation"),
+    ("DELETE", "/invitations/{invitation}", "revokeInvitation"),
     ("POST", "/subscriptions", "createSubscription"),
     (
         "DELETE",
@@ -335,6 +341,11 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
             hidden.status == StatusCode::OK
                 && answer(&hidden).1 == json!([])
                 && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "getCategories" && asker == Asker::Guest {
+            // The guest's own sidebar: the default category, with no board here.
+            hidden.status == StatusCode::OK
+                && answer(&hidden).1[0]["boardMetadata"] == json!([])
+                && absent.status == StatusCode::NOT_FOUND
         } else if *operation == "getWorkspaceUsers" && asker == Asker::Guest {
             // The people a guest sees: who is on its boards, none here, and itself.
             hidden.status == StatusCode::OK
@@ -417,8 +428,9 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
 
 /// Every route under `/w/{workspaceId}` answers for a workspace the asker is not in, a
 /// workspace of another organization, and a workspace the asker is a guest of as for one
-/// that does not exist; but `getWorkspaceBoards`, `exportWorkspaceArchive` and the users of
-/// the workspace, which let a guest see and export the boards it is on and their people.
+/// that does not exist; but `getWorkspaceBoards`, `getCategories`, `exportWorkspaceArchive`
+/// and the users of the workspace, which let a guest see, file and export the boards it is
+/// on and their people.
 #[tokio::test]
 async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -596,9 +608,22 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
         board_type: BoardType::Private,
         ..Board::default()
     };
+    // Stored past the rule that only who works in a workspace is made the admin of a
+    // board there: the state is what the route must not be led astray by.
     ts.app
         .store()
-        .insert_board_with_admin(&mut board, &user_id)
+        .insert_board(&mut board, &user_id)
+        .await
+        .expect("a board of a workspace the user is not in");
+    ts.app
+        .store()
+        .save_member(&BoardMember {
+            board_id: board.id.clone(),
+            user_id: user_id.clone(),
+            scheme_admin: true,
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
         .await
         .expect("the user is on a board of a workspace they are not in");
     let categories: Vec<CategoryBoards> = ts
@@ -693,6 +718,24 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
     );
 }
 
+/// A live link that lets members into the workspace, made by `maker`: its identifier.
+async fn a_link_into(ts: &crate::common::TestServer, workspace_id: &str, maker: &str) -> String {
+    ts.app
+        .store()
+        .create_invitation(&fvoci_store::NewLink {
+            workspace_id,
+            guest_of: None,
+            token_hash: &format!("a link into {workspace_id}"),
+            created_by: maker,
+            now: 0,
+            expires_at: i64::MAX,
+            max_uses: None,
+        })
+        .await
+        .expect("a link into the workspace")
+        .id
+}
+
 /// What the routes of [`compare_resource_routes`] are asked about: the things of one
 /// workspace that the paths name, and who is named in them.
 struct Items<'a> {
@@ -703,6 +746,8 @@ struct Items<'a> {
     category: &'a str,
     /// A user of the items' workspace.
     user: &'a str,
+    /// A live link that lets members into the items' workspace.
+    invitation: &'a str,
     /// The subscriber of the path, and the one of the same path for nothing: the asker
     /// themselves for both when they are subscribed to the card.
     subscriber: (&'a str, &'a str),
@@ -725,6 +770,7 @@ async fn compare_resource_routes(
         upload_id,
         category,
         user,
+        invitation,
         subscriber,
     } = items;
     let caller = client.me().await.id;
@@ -760,6 +806,7 @@ async fn compare_resource_routes(
                     .replace("{fileId}", &pick(absent, file, "missing-file"))
                     .replace("{uploadId}", &pick(absent, upload_id, "missing-upload"))
                     .replace("{userId}", &pick(absent, user, UNKNOWN_ID))
+                    .replace("{invitationId}", &pick(absent, invitation, UNKNOWN_ID))
                     .replace(
                         "{subscriberId}",
                         if absent { subscriber.1 } else { subscriber.0 },
@@ -942,6 +989,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         .await
         .expect("a guest who has no board invitation");
     let category = hidden_category(&ts, &owner).await;
+    let invitation = a_link_into(&ts, HIDDEN_WORKSPACE_ID, &owner).await;
     let items = Items {
         board: &board,
         card: &card,
@@ -949,6 +997,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
         upload_id: &upload.id,
         category: &category,
         user: &owner,
+        invitation: &invitation,
         subscriber: (&owner, UNKNOWN_ID),
     };
     let mut violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;
@@ -1043,7 +1092,7 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
 async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
     let ts = Setup::native().start().await.init_basic().await;
     let own = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
-    let owner = ts.stranger().await;
+    let owner = ts.stranger_in(HIDDEN_WORKSPACE_ID).await;
     let mut hidden = Board {
         id: new_id(),
         workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
@@ -1118,7 +1167,7 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
     };
     ts.app
         .store()
-        .insert_board_with_admin(&mut board, &ts.stranger().await)
+        .insert_board_with_admin(&mut board, &ts.stranger_in(HIDDEN_WORKSPACE_ID).await)
         .await
         .expect("a hidden board");
     ts.client2
@@ -1303,6 +1352,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         subscriptions.text().contains(&card.id),
         "followed in its workspace"
     );
+    let invitation = a_link_into(&ts, TEST_WORKSPACE_ID, &me).await;
     let items = Items {
         board: &board,
         card: &card,
@@ -1310,6 +1360,7 @@ async fn what_is_of_one_workspace_is_not_there_under_another() {
         upload_id: &upload.id,
         category: &category,
         user: &elsewhere,
+        invitation: &invitation,
         subscriber: (&me, &me),
     };
     let violations = compare_resource_routes(&ts.client, ROOT_WORKSPACE_ID, &items).await;

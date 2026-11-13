@@ -5,7 +5,7 @@
 
 use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
-use crate::db::{Id, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
 use crate::{Store, org_admin};
@@ -146,111 +146,13 @@ const fn org_role_of_instance(role: InstanceRole) -> OrgRole {
     }
 }
 
-/// The roles in an organization and in its default workspace of who registers, by what
-/// they are to the instance: its first user administers both.
-const fn roles_on_registering(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
-    match role {
-        InstanceRole::Administrator => (OrgRole::Admin, WorkspaceRole::Admin),
-        InstanceRole::User => (OrgRole::Member, WorkspaceRole::Member),
-    }
-}
-
-/// Makes a user a member of the organization and of its default workspace, as an
-/// administrator of both if the user is one of the instance: one who registered, or one
-/// a provider of the organization let in (`Store::finish_oidc_sign_in`).
-///
-/// TEMPORARY for registration, with [`Store::only_organization`]: until signing up makes
-/// an organization and an invitation leads into one, whoever registers joins the one
-/// there is. A provider's newcomers join its organization so for good.
-pub(crate) async fn join_organization(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-    instance_role: InstanceRole,
-) -> Result<(), StoreError> {
-    let (org_role, workspace_role) = roles_on_registering(instance_role);
-    add_organization_member(scope, user_id, org_role).await?;
-    let mut sql = scope.sql(
-        "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
-    );
-    sql.bind(Id(user_id))
-        .push_bind(", ", workspace_role.as_str())
-        .push_bind(", ", now_millis())
-        .push_bind(
-            " FROM organizations AS o JOIN workspaces AS t ON t.id = o.default_workspace_id \
-             WHERE o.id = ",
-            scope.org()?,
-        )
-        .push_bind(" AND t.delete_at = ", 0_i64);
-    // An organization has a default workspace in use; one without is broken, and
-    // nobody is to end up in it and in no workspace.
-    if scope.execute(sql).await? == 0 {
-        return Err(StoreError::Corrupt {
-            column: "default_workspace_id",
-            reason: "the organization has no default workspace in use".to_owned(),
-        });
-    }
-    Ok(())
-}
-
-/// Makes a user a member of the organization and of its default workspace, as a member,
-/// unless the user is a member of the organization already; says whether the user
-/// joined. Two at once for the same user both succeed, and one of them joins: the
-/// second insert finds the first's row and does nothing.
-pub(crate) async fn join_organization_unless_member(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-) -> Result<bool, StoreError> {
-    let (org_role, workspace_role) = roles_on_registering(InstanceRole::User);
-    let mut sql =
-        scope.sql("INSERT INTO organization_members (org_id, user_id, role, create_at) VALUES (");
-    sql.bind(scope.org()?)
-        .push_bind(", ", Id(user_id))
-        .push_bind(", ", org_role.as_str())
-        .push_bind(", ", now_millis())
-        .push(") ON CONFLICT DO NOTHING");
-    if scope.execute(sql).await? == 0 {
-        return Ok(false);
-    }
-    let mut sql = scope.sql(
-        "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
-    );
-    sql.bind(Id(user_id))
-        .push_bind(", ", workspace_role.as_str())
-        .push_bind(", ", now_millis())
-        .push_bind(
-            " FROM organizations AS o JOIN workspaces AS t ON t.id = o.default_workspace_id \
-             WHERE o.id = ",
-            scope.org()?,
-        )
-        .push_bind(" AND t.delete_at = ", 0_i64)
-        .push(" ON CONFLICT DO NOTHING");
-    if scope.execute(sql).await? == 0 {
-        // Somebody of the default workspace already, or an organization without one in
-        // use, which is broken: nobody is to end up in it and in no workspace.
-        let mut sql = scope.sql(
-            "SELECT 1 FROM organizations AS o JOIN workspaces AS t \
-             ON t.id = o.default_workspace_id WHERE o.id = ",
-        );
-        sql.bind(scope.org()?)
-            .push_bind(" AND t.delete_at = ", 0_i64);
-        if scope.fetch_optional(sql).await?.is_none() {
-            return Err(StoreError::Corrupt {
-                column: "default_workspace_id",
-                reason: "the organization has no default workspace in use".to_owned(),
-            });
-        }
-    }
-    Ok(true)
-}
-
 /// Gives a member of the organization the role in it that goes with being, or no
 /// longer being, an administrator of the instance, as the organization's route does
 /// (`org_admin::change_org_role`): recorded, and who stops being one is taken out of
 /// what they joined as its administrator, on behalf of `actor_id`. No role in a
 /// workspace changes. Somebody who is no member stays none.
 ///
-/// TEMPORARY, as [`join_organization`] is: while the instance's administrators are the
-/// organization's.
+/// TEMPORARY: while the instance's administrators are the organization's.
 pub(crate) async fn follow_instance_role(
     scope: &mut Scope<'_>,
     user_id: &str,
@@ -278,17 +180,83 @@ pub(crate) async fn is_only_admin(
     board_id: &str,
     user_id: &str,
 ) -> Result<bool, StoreError> {
-    // Another admin counts who can act as one: a member of the board's workspace who is
-    // no guest. A guest is no more than an editor, and who has left opens nothing.
+    Ok(!has_acting_admin(scope, board_id, Some(user_id)).await?)
+}
+
+/// Whether the board has no administrator who can act as one.
+pub(crate) async fn has_no_admin(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+) -> Result<bool, StoreError> {
+    Ok(!has_acting_admin(scope, board_id, None).await?)
+}
+
+/// Whether the user works in the workspace: a member of it who is no guest.
+pub(crate) async fn works_in(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id))
+        .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str());
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Holds the membership of a board's creator in its workspace before they are made its
+/// admin, from here to the end of the transaction, and refuses one who does not work
+/// there. The server let them make the board before its transaction: who takes them out
+/// of the workspace, or makes them a guest of it, at the same time waits for the board
+/// and hands it over, or is waited for, and the board is not stored. Asked after the
+/// boards are written, as who changes a membership holds the boards before it.
+///
+/// # Errors
+///
+/// Returns [`StoreError::NotFound`] for the workspace if the creator is no member of
+/// it, or a guest of it.
+pub(crate) async fn hold_creator(
+    scope: &mut Scope<'_>,
+    workspace_id: &str,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT role FROM workspace_members WHERE workspace_id = ");
+    sql.bind(Id(workspace_id))
+        .push_bind(" AND user_id = ", Id(user_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE");
+    }
+    match scope.fetch_optional(sql).await? {
+        Some(row) if row.text(0)? != WorkspaceRole::Guest.as_str() => Ok(()),
+        _ => Err(StoreError::not_found("workspace")),
+    }
+}
+
+/// Whether a member of the board, other than `except` if one is named, is an admin of
+/// it who can act as one.
+async fn has_acting_admin(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    except: Option<&str>,
+) -> Result<bool, StoreError> {
+    // An admin counts who can act as one: a member of the board's workspace who is no
+    // guest. A guest is no more than an editor, and who has left opens nothing.
     let mut sql = scope.sql(
         "SELECT 1 FROM board_members AS bm JOIN boards AS b ON b.id = bm.board_id \
          JOIN workspace_members AS wm \
          ON wm.workspace_id = b.workspace_id AND wm.user_id = bm.user_id WHERE bm.board_id = ",
     );
     sql.bind(Id(board_id))
-        .push_bind(" AND bm.user_id <> ", Id(user_id))
         .push_bind(" AND bm.scheme_admin = ", true)
-        .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
-        .push(" LIMIT 1");
-    Ok(scope.fetch_optional(sql).await?.is_none())
+        .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str());
+    if let Some(user_id) = except {
+        sql.push_bind(" AND bm.user_id <> ", Id(user_id));
+    }
+    sql.push(" LIMIT 1");
+    // An admin who is being taken out of the workspace, or made a guest of it, at this
+    // moment is waited for: counted, they would be gone when this is stored.
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR SHARE OF wm");
+    }
+    Ok(scope.fetch_optional(sql).await?.is_some())
 }

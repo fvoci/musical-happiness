@@ -15,7 +15,7 @@
 # function <lines> <path> <name>
 
 file 954 src/lib/api/backend.ts
-file 532 src/lib/features/shell/SidebarList.svelte
+file 525 src/lib/features/shell/SidebarList.svelte
 file 902 src/lib/logic/wire.ts
 file 818 src/lib/state/board.svelte.ts
 file 1150 src/lib/state/memory/backend.ts

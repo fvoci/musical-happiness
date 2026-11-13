@@ -19,7 +19,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardPlace } from '$lib/logic/urls.ts';
   import type { Board } from '$lib/logic/wire.ts';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { isGuest, type Workspace } from '$lib/state/index.ts';
 
   import BoardIcon from './BoardIcon.svelte';
 
@@ -100,9 +100,12 @@
     {/each}
   </ul>
   <div class="my-1 w-8 shrink-0 border-t"></div>
-  <IconButton label={m.shell_add_board()} data-testid="strip-add-board" onclick={onAddBoard}>
-    <PlusIcon />
-  </IconButton>
+  <!-- A guest is on the boards they were invited to, and makes none. -->
+  {#if !isGuest(workspace)}
+    <IconButton label={m.shell_add_board()} data-testid="strip-add-board" onclick={onAddBoard}>
+      <PlusIcon />
+    </IconButton>
+  {/if}
   <IconButton
     label={m.shell_account_of({ name: myName })}
     aria-haspopup="dialog"

@@ -67,7 +67,7 @@ async fn a_guest_opens_only_the_boards_it_was_invited_to() {
     };
     th.app
         .store()
-        .insert_board_with_admin(&mut elsewhere, &th.stranger().await)
+        .insert_board_with_admin(&mut elsewhere, &th.stranger_in(HIDDEN_WORKSPACE_ID).await)
         .await
         .expect("a board of another workspace");
     th.client

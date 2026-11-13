@@ -33,12 +33,21 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
-import type { BodyDoc, BodyDocHears } from './body-doc.ts';
+import type { DocRooms } from './body-doc.ts';
+import type { WorkspaceRole } from './people-types.ts';
 import type { TrashReads } from './trash-reads.ts';
 
-export type { Account, LoginOrganization, Registration } from './account-types.ts';
+export type {
+  AcceptedInvitation,
+  Account,
+  InvitationPreview,
+  LoginOptions,
+  LoginOrganization,
+  NewAccount,
+  Registration,
+} from './account-types.ts';
 export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
-export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus } from './body-doc.ts';
+export type { BodyDoc, BodyDocHears, BodyDocState, BodyDocStatus, DocRooms } from './body-doc.ts';
 
 /** What an import did beyond making the archive's boards. */
 export interface Imported {
@@ -76,6 +85,12 @@ export interface User extends UserNames {
 export interface WorkspaceInfo {
   id: string;
   title: string;
+  /**
+   * What the reader is in it; left out by a backend that has no roles, where
+   * the reader does everything. A guest is on the boards they were invited
+   * to, and makes none.
+   */
+  role?: WorkspaceRole;
 }
 
 /**
@@ -286,7 +301,7 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend extends TrashReads {
+export interface Backend extends DocRooms, TrashReads {
   // The reader and the people around them.
   me(): Promise<User>;
   /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
@@ -481,13 +496,4 @@ export interface Backend extends TrashReads {
    * backend that hears every workspace's (the one in memory) has none.
    */
   enter?(workspaceId: string): void;
-
-  /**
-   * Opens a card's body in its room, to be read and written together with
-   * whoever else has it open. The document is the server's: the reader gets
-   * none until it arrives (`hears.state`). A backend without rooms (the one
-   * of a reader by a public link) has none of this: the body is read as it
-   * was stored.
-   */
-  openDoc?(workspaceId: string, boardId: string, cardId: string, hears: BodyDocHears): BodyDoc;
 }

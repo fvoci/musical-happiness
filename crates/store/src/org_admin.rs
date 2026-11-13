@@ -764,7 +764,7 @@ async fn end_joining(
 }
 
 /// Reads the violation of the unique index of the names of the workspaces in use.
-fn name_taken(error: StoreError) -> StoreError {
+pub(crate) fn name_taken(error: StoreError) -> StoreError {
     match error {
         StoreError::Database(error)
             if error

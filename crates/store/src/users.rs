@@ -6,6 +6,8 @@
 //! workspace is in `workspace_members`, and these will ask that. The original's
 //! standalone store ignores the workspace, the guest and the visibility flags it is given
 //! (`server/services/store/sqlstore/user.go:105`, `:217` and `:226`).
+//!
+//! An account is made in `accounts.rs`.
 
 use fvoci_model::{
     CLIENT_STATE_MAX_ENTRIES, OrgRole, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
@@ -20,15 +22,6 @@ use crate::sessions;
 /// The columns of a user, in the order [`user_from_row`] reads them.
 const USER_COLUMNS: &str =
     "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, display_name";
-
-/// How a new user gets in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Admission {
-    /// Whoever calls has checked that the user may register.
-    Checked,
-    /// As the first user only: the instance must not have one yet.
-    FirstOnly,
-}
 
 /// What a user is to the instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,60 +152,6 @@ impl Store {
     pub async fn get_user_by_username(&self, username: &str) -> Result<User, StoreError> {
         self.with_conn(async |scope| find_user(scope, Lookup::Username(username)).await)
             .await
-    }
-
-    /// Stores a new user. The first user of the instance becomes an administrator, and
-    /// nobody after that does by registering.
-    ///
-    /// `user` is updated to what was stored: the current time as creation and
-    /// modification time, not deleted, and whether an administrator, whatever the
-    /// caller put there. Of its other members, only the identifier, the name, the
-    /// email address and the password hash are stored.
-    ///
-    /// Who is first is decided with the insertion, in one transaction: of two users who
-    /// register at once into an empty instance, one is the administrator.
-    ///
-    /// Through a handle that names an organization the user joins it and its default
-    /// workspace, in the same transaction, as an administrator of both if the user is
-    /// one of the instance. That stands in for signing up and being invited, until
-    /// there are those.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Conflict`] if another user, deleted or not, has the name or
-    /// the email address in any letter case, and [`StoreError::InvalidId`] if the
-    /// identifier is not one.
-    pub async fn create_user(&self, user: &mut User) -> Result<(), StoreError> {
-        self.transaction(async |scope| create_user(scope, user, Admission::Checked).await)
-            .await
-    }
-
-    /// Stores a new user as [`Store::create_user`] does, but only as the first user of
-    /// the instance: for a registration that presents no signup token.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFirstUser`] if the instance has had its first user, and
-    /// otherwise the errors of [`Store::create_user`]. Nothing is stored in either case.
-    pub async fn create_first_user(&self, user: &mut User) -> Result<(), StoreError> {
-        self.transaction(async |scope| create_user(scope, user, Admission::FirstOnly).await)
-            .await
-    }
-
-    /// Whether the instance has had its first user.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn is_bootstrapped(&self) -> Result<bool, StoreError> {
-        self.with_conn(async |scope| {
-            let sql = scope.sql("SELECT bootstrapped FROM instance WHERE id = 1");
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.bool(0),
-                None => Ok(false),
-            }
-        })
-        .await
     }
 
     /// Makes a user an administrator of the instance, or ends that, unless it would
@@ -698,40 +637,6 @@ pub(crate) async fn get_user_by_id(
     user_id: &str,
 ) -> Result<User, StoreError> {
     find_user(scope, Lookup::Id(user_id)).await
-}
-
-async fn create_user(
-    scope: &mut Scope<'_>,
-    user: &mut User,
-    admission: Admission,
-) -> Result<(), StoreError> {
-    // Whoever turns the flag on is the first user. A second transaction that tries at
-    // the same moment waits for this one and then finds the flag on.
-    let mut sql = scope.sql("UPDATE instance SET bootstrapped = ");
-    sql.bind(true)
-        .push_bind(" WHERE id = 1 AND bootstrapped = ", false);
-    let is_first = scope.execute(sql).await? > 0;
-    if !is_first && admission == Admission::FirstOnly {
-        return Err(StoreError::NotFirstUser);
-    }
-
-    let now = now_millis();
-    user.create_at = now;
-    user.update_at = now;
-    user.delete_at = 0;
-    user.is_admin = is_first;
-    insert_user_row(scope, user).await?;
-    // Whoever registers joins the organization there is (`members::join_organization`).
-    // A handle that names none stores the user alone.
-    if scope.has_org() {
-        let role = if user.is_admin {
-            InstanceRole::Administrator
-        } else {
-            InstanceRole::User
-        };
-        members::join_organization(scope, &user.id, role).await?;
-    }
-    Ok(())
 }
 
 /// Inserts the row of a user as it is; a name or an address that is taken is a

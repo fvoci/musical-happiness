@@ -292,7 +292,6 @@ async fn the_administrator_of_another_organization_reaches_none_of_its_routes() 
     let made = make_workspace(&ts, &ours, "Ours").await;
     let theirs_workspace = fvoci_model::Workspace {
         id: fvoci_model::new_id(),
-        signup_token: "their-signup-token".to_owned(),
         ..fvoci_model::Workspace::default()
     };
     let theirs = ts

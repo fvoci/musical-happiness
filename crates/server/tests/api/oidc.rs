@@ -1020,14 +1020,8 @@ async fn an_address_a_provider_gave_is_still_free_to_register() {
     let other = ts.client_with_token(other.token()).me().await;
     assert_ne!(squatter.id, other.id, "two accounts of one address");
 
-    let signup_token = ts
-        .app
-        .root_workspace()
-        .await
-        .expect("the root workspace")
-        .signup_token;
     let owner = ts
-        .register_and_login("the-owner", address, PASSWORD, &signup_token)
+        .register_and_login("the-owner", address, PASSWORD)
         .await
         .me()
         .await;

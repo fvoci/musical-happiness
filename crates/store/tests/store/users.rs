@@ -10,8 +10,8 @@ use fvoci_model::{
     WorkspaceRole, new_id,
 };
 use fvoci_store::{
-    AdminChange, BlockFilter, DbType, InstanceRole, Looking, Preference, Reach, Sight, Store,
-    StoreError, Taken,
+    AdminChange, BlockFilter, DbType, Founding, InstanceRole, Looking, Preference, Reach, Sight,
+    Store, StoreError, Taken,
 };
 use serde_json::{Value, json};
 
@@ -1514,14 +1514,16 @@ async fn a_user_who_was_not_stored_was_not_the_first() {
     );
 
     let mut first = new_user("first");
-    test.create_first_user(&mut first)
+    let workspace_id = test
+        .sign_up(&mut first, "the first organization", Founding::First)
         .await
-        .expect("the first user gets in without more");
+        .expect("the first user starts the organization");
     assert!(first.is_admin, "and is the administrator");
+    assert_eq!(workspace_id, test.workspace_id, "of the workspace there is");
 
     let mut late = new_user("late");
     let error = test
-        .create_first_user(&mut late)
+        .sign_up(&mut late, "a late organization", Founding::First)
         .await
         .expect_err("nobody else gets in as the first");
     assert!(matches!(error, StoreError::NotFirstUser), "{error:?}");
@@ -1551,7 +1553,10 @@ async fn of_users_stored_at_once_one_is_the_first() {
             racers.spawn(async move {
                 let mut user = new_user(&format!("racer{index}"));
                 let outcome = if as_first {
-                    store.create_first_user(&mut user).await
+                    store
+                        .sign_up(&mut user, "the organization", Founding::First)
+                        .await
+                        .map(drop)
                 } else {
                     store.create_user(&mut user).await
                 };

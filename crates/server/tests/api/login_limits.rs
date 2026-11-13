@@ -307,8 +307,8 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
         username: username.to_owned(),
         email: format!("{username}@sample.com"),
         password: PASSWORD.to_owned(),
-        token: String::new(),
         display_name: String::new(),
+        organization_name: "The Firm".to_owned(),
     };
 
     // A registration, a success, and two failures at accounts that do not exist.
@@ -324,24 +324,24 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
     assert!(wait <= 60, "room again within the minute: {wait}");
     // The right password and a registration are attempts like any other.
     retry_after(&login(&th, "first", PASSWORD).await);
-    let signup_token = th
-        .app
-        .root_workspace()
-        .await
-        .expect("the root workspace exists")
-        .signup_token;
-    let late = RegisterRequest {
-        token: signup_token,
-        display_name: String::new(),
-        ..register("late")
-    };
-    retry_after(&th.anonymous().post("/register", &late).await);
-    // A registration that is refused for what it says costs no hash and is no attempt:
+    // So is an acceptance of an invitation, whatever its token: trying tokens is
+    // counted as trying passwords is.
+    let late = serde_json::json!({
+        "token": th.member_link().await,
+        "account": {"username": "late", "email": "late@sample.com", "password": PASSWORD},
+    });
+    retry_after(&th.anonymous().post("/invitations/accept", &late).await);
+    let guess = serde_json::json!({"token": "a-guess", "account": late["account"]});
+    retry_after(&th.anonymous().post("/invitations/accept", &guess).await);
+    // A registration that is refused whatever it says costs no hash and is no attempt:
     // it is answered as what it is.
     th.anonymous()
-        .post("/register", &register("without-a-token"))
+        .post("/register", &register("without-an-invitation"))
         .await
-        .check_error(StatusCode::FORBIDDEN, "registration needs the signup token");
+        .check_error(
+            StatusCode::FORBIDDEN,
+            "this server has its organization; an invitation lets you in",
+        );
     // What needs no password is not an attempt.
     th.anonymous().get("/client-config").await.check_ok();
 

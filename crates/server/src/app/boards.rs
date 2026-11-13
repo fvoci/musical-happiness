@@ -770,7 +770,11 @@ impl App {
         Ok(Some(member.clone()))
     }
 
-    fn broadcast_member_change_in_background(&self, workspace_id: String, member: BoardMember) {
+    pub(super) fn broadcast_member_change_in_background(
+        &self,
+        workspace_id: String,
+        member: BoardMember,
+    ) {
         let app = self.clone();
         self.spawn_background(async move {
             app.ws()

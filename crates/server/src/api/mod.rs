@@ -16,6 +16,7 @@ mod categories;
 mod config;
 pub mod contract;
 mod files;
+mod invitations;
 mod limits;
 mod members;
 mod oidc;
@@ -33,6 +34,7 @@ mod trash;
 mod uploads;
 mod users;
 mod workspace;
+mod workspace_members;
 
 use axum::Json;
 use axum::Router;
@@ -56,7 +58,7 @@ pub(crate) use body::{
     take_patch_bodies,
 };
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
-pub(crate) use session::RequiredSession;
+pub(crate) use session::{OptionalSession, RequiredSession};
 
 use limits::{
     BodyLimit, SessionBodyLimit, UNAUTHENTICATED_BODY_LIMIT, limit_request_body,
@@ -110,7 +112,9 @@ fn routes() -> Routes {
         .merge(categories::routes())
         .merge(config::routes())
         .merge(files::routes())
+        .merge(invitations::routes())
         .merge(members::routes())
+        .merge(workspace_members::routes())
         .merge(onboarding::routes())
         .merge(org::routes())
         .merge(org_admin::routes())
@@ -127,6 +131,7 @@ fn routes() -> Routes {
     // What asks whether the server is there needs no session either.
     let unauthenticated = OpenApiRouter::new()
         .merge(auth::unauthenticated_routes())
+        .merge(invitations::unauthenticated_routes())
         .merge(oidc::unauthenticated_routes())
         .merge(system::routes());
     Routes {

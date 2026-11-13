@@ -95,6 +95,29 @@ pub struct UserWorkspace {
     pub role: WorkspaceRole,
 }
 
+/// A member of a workspace, as its administrators list them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceMember {
+    /// The identifier of the user.
+    pub user_id: String,
+    /// The user's login name.
+    pub username: String,
+    /// The name the user is shown by; empty if they have none.
+    pub display_name: String,
+    /// What the user is in the workspace.
+    pub role: WorkspaceRole,
+    /// When the user became a member, in milliseconds since the Unix epoch.
+    pub create_at: i64,
+}
+
+/// A request to change what a member is in a workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, utoipa::ToSchema)]
+pub struct WorkspaceRoleChange {
+    /// What the member is to be: `admin`, `member` or `guest`.
+    pub role: WorkspaceRole,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

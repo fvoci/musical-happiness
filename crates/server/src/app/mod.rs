@@ -18,6 +18,8 @@ mod export;
 mod files;
 mod housekeeping;
 mod import;
+mod invitations;
+mod limits;
 mod loose_objects;
 mod oidc;
 mod onboarding;
@@ -43,11 +45,11 @@ mod templates;
 mod trash;
 mod uploads;
 mod users;
+mod workspace_members;
 mod workspaces;
 
 pub use access::{BoardAccess, DeletedBoardAccess, as_managed};
 pub use audience::Audience;
-pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
@@ -55,6 +57,8 @@ pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use housekeeping::WorkspacesPurged;
 pub use import::Imported;
+pub use invitations::{Accepting, Inviting};
+pub use limits::OrgLimits;
 pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use oidc::{
     CALLBACK_PATH, Callback, FinishedLogin, LOGIN_FLOW_LIFETIME_MILLIS, LoginFailure, StartedLogin,
@@ -506,12 +510,13 @@ impl App {
     /// The part of the configuration the web app needs.
     pub fn client_config(&self) -> ClientConfig {
         let config = self.config();
+        let limits = self.limits();
         ClientConfig {
             enable_public_shared_boards: config.enable_public_shared_boards,
             teammate_name_display: config.teammate_name_display.clone(),
             feature_flags: config.feature_flags.clone(),
-            max_file_size: config.max_file_size,
-            max_import_size: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
+            max_file_size: limits.largest_file,
+            max_import_size: limits.largest_import,
         }
     }
 
