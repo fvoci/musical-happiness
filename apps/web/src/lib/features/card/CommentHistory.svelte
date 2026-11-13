@@ -24,8 +24,11 @@
   /** The texts as of the comment's last change: a newer one reads them again. */
   const versions = $derived(versionsAsOf(commentId, editedAt));
 
-  function versionsAsOf(comment: string, _changedAt: number): Promise<CommentVersion[]> {
-    return board.workspace.backend.commentVersions(board.boardId, comment);
+  async function versionsAsOf(comment: string, _changedAt: number): Promise<CommentVersion[]> {
+    const workspace = board.workspace;
+    const list = await workspace.backend.commentVersions(board.boardId, comment);
+    await workspace.learnUsers(list.map((version) => version.writtenBy).filter((id) => id !== ''));
+    return list;
   }
 </script>
 

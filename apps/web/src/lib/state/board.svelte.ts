@@ -43,6 +43,7 @@ import { CardStore } from './card.svelte.ts';
 import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
+import { readBoard } from './board-load.ts';
 import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
@@ -174,18 +175,12 @@ export class BoardStore {
       this.#stopWatching = this.#backend.watchBoard(this.boardId, (change) => {
         this.#apply(change);
       });
-      const [board, views, cards, members] = await Promise.all([
-        boardOfWorkspace(this.#backend, this.boardId, this.workspace.info?.id),
-        this.#backend.views(this.boardId),
-        this.#backend.cards(this.boardId),
-        this.#backend.members(this.boardId),
-      ]);
+      const [board, views, cards, members] = await readBoard(this.workspace, this.boardId);
       this.board = board;
       this.views = views;
       this.cards = cards;
       this.members = members;
       this.status = 'ready';
-      void this.workspace.learnUsers(members.map((member) => member.userId));
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;

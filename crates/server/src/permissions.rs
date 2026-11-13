@@ -406,8 +406,8 @@ pub enum Person {
     Member {
         /// The two hold roles on a board of the workspace.
         shares_a_board: bool,
-        /// The person created or last changed a card, block or comment of a board the
-        /// seer reads.
+        /// The person authored the board, a block, or a kept comment version that
+        /// the seer reads.
         wrote_where_seer_reads: bool,
     },
     /// No member of the workspace: who left it, with what they wrote and any role
