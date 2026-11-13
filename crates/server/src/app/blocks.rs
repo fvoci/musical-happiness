@@ -468,13 +468,15 @@ impl App {
         duplicate_as: DuplicateAs,
     ) -> Result<Vec<Block>, AppError> {
         let board = self.store().get_board(board_id).await?;
-        self.collab().write_body(self, block_id).await?;
-        for child in self
-            .blocks(board_id, Some(block_id), Some(&BlockType::Card))
-            .await?
-        {
-            self.collab().write_body(self, &child.id).await?;
-        }
+        // The card and the cards below it, which are copied with it.
+        let mut sources = vec![block_id.to_owned()];
+        sources.extend(
+            self.blocks(board_id, Some(block_id), Some(&BlockType::Card))
+                .await?
+                .into_iter()
+                .map(|child| child.id),
+        );
+        self.collab().write_bodies(self, &sources).await?;
         let mut blocks = self
             .store()
             .duplicate_block(board_id, block_id, user_id, duplicate_as)

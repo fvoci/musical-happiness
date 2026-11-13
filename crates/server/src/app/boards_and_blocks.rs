@@ -74,7 +74,7 @@ impl App {
 
         for board in &created.boards {
             self.collab()
-                .recheck_access(self, AccessScope::Board(board.id.clone()))
+                .recheck_access(self, AccessScope::board(&board.id))
                 .await;
         }
         self.announce_created(&created, &members).await;
@@ -162,9 +162,14 @@ impl App {
                 .await?
         };
 
-        for board in &result.boards {
+        let access_changed = patches
+            .board_ids
+            .iter()
+            .zip(&patches.board_patches)
+            .filter(|(_, patch)| super::boards::changes_access(patch));
+        for (board_id, _) in access_changed {
             self.collab()
-                .recheck_access(self, AccessScope::Board(board.id.clone()))
+                .recheck_access(self, AccessScope::board(board_id))
                 .await;
         }
         let app = self.clone();
@@ -231,7 +236,7 @@ impl App {
 
         for board_id in &request.boards {
             self.collab()
-                .recheck_access(self, AccessScope::Board(board_id.clone()))
+                .recheck_access(self, AccessScope::board(board_id))
                 .await;
         }
         for (block_id, board_id) in &deleted_blocks {

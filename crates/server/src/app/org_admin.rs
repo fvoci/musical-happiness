@@ -173,7 +173,7 @@ impl App {
         match self.store().set_org_role(user_id, role, actor_id).await {
             Ok(OrgRoleChange::Done) => {
                 self.collab()
-                    .recheck_access(self, AccessScope::Organization)
+                    .recheck_access(self, AccessScope::organization().of_user(user_id))
                     .await;
                 if role == OrgRole::Member {
                     // What they joined is theirs no more, and what happens there neither.
@@ -287,7 +287,7 @@ impl App {
         match self.store().trash_workspace(workspace_id, actor_id).await {
             Ok(WorkspaceTrashing::Done) => {
                 self.collab()
-                    .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+                    .recheck_access(self, AccessScope::workspace(workspace_id))
                     .await;
                 self.ws().stop_following_workspace(workspace_id);
                 self.close_shared_readers(Some(workspace_id)).await?;
@@ -346,7 +346,7 @@ impl App {
         {
             Joining::Joined | Joining::Already => {
                 self.collab()
-                    .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+                    .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
                     .await;
                 self.org_workspace(user_id, workspace_id).await
             }
@@ -374,7 +374,7 @@ impl App {
             .await?
         {
             self.collab()
-                .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+                .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
                 .await;
             self.ws().follow_only_own_workspaces(user_id).await;
         }

@@ -14,7 +14,7 @@ impl Collab {
         app: &App,
         card_ids: &[String],
     ) -> Vec<Arc<Room>> {
-        self.inner.rooms.walls_raised.fetch_add(1, Ordering::SeqCst);
+        self.inner.rooms.walls.raise(app.store().tenant());
         let mut rooms = self
             .inner
             .rooms

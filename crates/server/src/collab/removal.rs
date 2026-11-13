@@ -125,7 +125,7 @@ impl Collab {
         }
         let documents = self.writing(app.store().tenant()).await;
         let card_ids = deletion.cards(app).await?;
-        self.write_deleted(app, &card_ids).await?;
+        self.write_deleted(app, &card_ids).await;
         #[cfg(feature = "test-util")]
         self.paused_at(DeletionStage::BeforeRemoving).await;
         remove(app.clone()).await?;
@@ -146,22 +146,17 @@ impl Collab {
     }
 
     /// Writes to the cards about to be deleted what their documents hold and they do
-    /// not: of those with a document open or a log not written, found in one query.
-    /// What cannot be written stays in the log, and the card restored opens with it.
-    async fn write_deleted(&self, app: &App, card_ids: &[String]) -> Result<(), AppError> {
-        let unwritten = app.store().with_unwritten_bodies(card_ids).await?;
-        let tenant = app.store().tenant();
-        let mut pending: Vec<&String> = {
-            let slots = self.inner.slots.lock().expect("the slots are not poisoned");
-            card_ids
-                .iter()
-                .filter(|id| slots.contains_key(&place::key_of(tenant, id)))
-                .chain(&unwritten)
-                .collect()
+    /// not. What cannot be written stays in the log, and the card restored opens with
+    /// it; so does all of it if the store cannot say which logs are not written.
+    async fn write_deleted(&self, app: &App, card_ids: &[String]) {
+        let pending = match self.pending_among(app, card_ids).await {
+            Ok(pending) => pending,
+            Err(error) => {
+                tracing::error!(%error, "cannot find the deleted cards' unwritten logs; they keep them");
+                return;
+            }
         };
-        pending.sort();
-        pending.dedup();
-        for card_id in pending {
+        for card_id in &pending {
             let mut slot = self.slot(app, card_id).await;
             let mut opened_here = false;
             if let Err(error) = self
@@ -174,6 +169,41 @@ impl Collab {
                 self.forget(&mut slot).await;
             }
             self.retire(&mut slot);
+        }
+    }
+
+    /// Those of `card_ids` whose document may hold what the card does not: open here,
+    /// or with a log not written to the card, found in one query.
+    async fn pending_among(&self, app: &App, card_ids: &[String]) -> Result<Vec<String>, AppError> {
+        let unwritten = app.store().with_unwritten_bodies(card_ids).await?;
+        let tenant = app.store().tenant();
+        let mut pending: Vec<String> = {
+            let slots = self.inner.slots.lock().expect("the slots are not poisoned");
+            card_ids
+                .iter()
+                .filter(|id| slots.contains_key(&place::key_of(tenant, id)))
+                .cloned()
+                .chain(unwritten)
+                .collect()
+        };
+        pending.sort();
+        pending.dedup();
+        Ok(pending)
+    }
+
+    /// [`Self::write_body`] for many cards: of those that may hold something unwritten
+    /// only, found at once, so a board of cards nobody edits costs one query.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::write_body`], and the store's.
+    pub(crate) async fn write_bodies(
+        &self,
+        app: &App,
+        card_ids: &[String],
+    ) -> Result<(), AppError> {
+        for card_id in self.pending_among(app, card_ids).await? {
+            self.write_body(app, &card_id).await?;
         }
         Ok(())
     }

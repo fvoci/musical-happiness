@@ -81,7 +81,7 @@ impl App {
             }
             self.settle(workspace_id, by, change)?;
             self.collab()
-                .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+                .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
                 .await;
             tracing::info!(
                 workspace_id,
@@ -124,7 +124,7 @@ impl App {
             .await?;
         self.settle(workspace_id, by, change)?;
         self.collab()
-            .recheck_access(self, AccessScope::Workspace(workspace_id.to_owned()))
+            .recheck_access(self, AccessScope::workspace(workspace_id).of_user(user_id))
             .await;
         tracing::info!(
             workspace_id,

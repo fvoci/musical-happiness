@@ -409,7 +409,11 @@ impl App {
             match acceptance {
                 Acceptance::Accepted(accepted) => {
                     app.collab()
-                        .recheck_access(&app, AccessScope::Workspace(accepted.workspace_id.clone()))
+                        .recheck_access(
+                            &app,
+                            AccessScope::workspace(&accepted.workspace_id)
+                                .of_user(&accepted.user_id),
+                        )
                         .await;
                     settled = Some((app, accepted));
                     break;

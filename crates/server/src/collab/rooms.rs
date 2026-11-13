@@ -23,6 +23,7 @@
 
 mod access;
 mod removal;
+mod walls;
 
 pub(crate) use access::AccessScope;
 
@@ -85,11 +86,9 @@ pub(super) struct Rooms {
     queue_messages: usize,
     /// The number of the next connection.
     next_connection: AtomicU64,
-    /// The revision of access facts: admissions and periodic answers of an earlier
-    /// revision cannot survive an immediate check.
-    walls_raised: AtomicU64,
-    /// Immediate checks are serialized; their answers never overtake a later change.
-    access_turn: tokio::sync::Mutex<()>,
+    /// When access facts changed: admissions and periodic answers read before a
+    /// change of their organization cannot survive its immediate check.
+    walls: walls::Walls,
     #[cfg(feature = "test-util")]
     recheck_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(feature = "test-util")]
@@ -111,8 +110,7 @@ impl Rooms {
             frames_per_second: settings.collab_frames_per_second,
             queue_messages: as_count(settings.collab_queue_messages),
             next_connection: AtomicU64::new(0),
-            walls_raised: AtomicU64::new(0),
-            access_turn: tokio::sync::Mutex::new(()),
+            walls: walls::Walls::default(),
             #[cfg(feature = "test-util")]
             recheck_pause: Mutex::new(None),
             #[cfg(feature = "test-util")]
@@ -531,9 +529,9 @@ impl Collab {
     /// ([`Self::enter`]), so none is let in past it.
     pub(crate) async fn put_out_shut_out(&self, app: &App, provider_id: &str) {
         let rooms = &self.inner.rooms;
-        // Before the rooms are read: a connection that comes into one later sees it.
-        rooms.walls_raised.fetch_add(1, Ordering::SeqCst);
         let tenant = app.store().tenant();
+        // Before the rooms are read: a connection that comes into one later sees it.
+        rooms.walls.raise(tenant);
         let of_organization: Vec<Arc<Room>> = rooms
             .by_key
             .lock()
@@ -592,7 +590,7 @@ impl Collab {
         if connection.is_full_without(limits.per_connection, card_id) {
             return Err(refusals::too_many_joined(limits.per_connection));
         }
-        let mut raised = limits.walls_raised.load(Ordering::SeqCst);
+        let mut raised = limits.walls.now();
         let mut admitted =
             admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
         let mut admissions = 1;
@@ -604,14 +602,13 @@ impl Collab {
             }
             // Access changed since admission; its immediate check may have passed
             // this room already. Ask again before adding the connection.
-            let now = limits.walls_raised.load(Ordering::SeqCst);
-            if now != raised {
+            if limits.walls.raised_since(room.app.store().tenant(), raised) {
                 self.shut_if_empty(&room, &mut turn).await;
                 drop(turn);
                 if admissions == ADMITTED_AT_MOST {
                     return Err(refusals::unavailable());
                 }
-                raised = now;
+                raised = limits.walls.now();
                 admitted =
                     admission::let_in(home, connection.asker(), workspace_id, card_id).await?;
                 admissions += 1;

@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 use tokio::time::Instant;
 
@@ -13,24 +12,66 @@ use super::{ASKED_AT_ONCE, ASKED_ONCE_MORE_AFTER, Answer, Asked, Member, Room, W
 use crate::app::App;
 use crate::error::AppError;
 
-/// The facts changed in this part of the application's organization.
+/// The facts changed in this part of the application's organization, for everybody
+/// or for one user.
 #[derive(Debug, Clone)]
-pub(crate) enum AccessScope {
-    /// One board, including all its cards.
+pub(crate) struct AccessScope {
+    place: Place,
+    /// The one user whose facts changed; everybody's when `None`.
+    user_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum Place {
     Board(String),
-    /// Every board of a workspace.
     Workspace(String),
-    /// Every workspace of the organization.
     Organization,
 }
 
 impl AccessScope {
-    fn contains(&self, room: &Room) -> bool {
-        match self {
-            Self::Board(id) => room.board_id == *id,
-            Self::Workspace(id) => room.workspace_id == *id,
-            Self::Organization => true,
+    /// One board, including all its cards.
+    pub(crate) fn board(board_id: &str) -> Self {
+        Self::of(Place::Board(board_id.to_owned()))
+    }
+
+    /// Every board of a workspace.
+    pub(crate) fn workspace(workspace_id: &str) -> Self {
+        Self::of(Place::Workspace(workspace_id.to_owned()))
+    }
+
+    /// Every workspace of the organization.
+    pub(crate) fn organization() -> Self {
+        Self::of(Place::Organization)
+    }
+
+    /// The same place, where only `user_id`'s facts changed: the others in its rooms
+    /// are not asked about.
+    pub(crate) fn of_user(self, user_id: &str) -> Self {
+        Self {
+            user_id: Some(user_id.to_owned()),
+            ..self
         }
+    }
+
+    fn of(place: Place) -> Self {
+        Self {
+            place,
+            user_id: None,
+        }
+    }
+
+    fn contains(&self, room: &Room) -> bool {
+        match &self.place {
+            Place::Board(id) => room.board_id == *id,
+            Place::Workspace(id) => room.workspace_id == *id,
+            Place::Organization => true,
+        }
+    }
+
+    fn concerns(&self, user_id: &str) -> bool {
+        self.user_id
+            .as_deref()
+            .is_none_or(|changed| changed == user_id)
     }
 }
 
@@ -48,10 +89,11 @@ impl Collab {
 
     async fn access_changed(&self, app: &App, scope: AccessScope) {
         let rooms = &self.inner.rooms;
-        let _turn = rooms.access_turn.lock().await;
-        // Admissions that began before this change must read the new facts.
-        rooms.walls_raised.fetch_add(1, Ordering::SeqCst);
         let tenant = app.store().tenant();
+        let turn_of_tenant = rooms.walls.turn(tenant);
+        let _turn = turn_of_tenant.lock().await;
+        // Admissions that began before this change must read the new facts.
+        rooms.walls.raise(tenant);
         let affected: Vec<Arc<Room>> = rooms
             .by_key
             .lock()
@@ -69,6 +111,9 @@ impl Collab {
             }
             for index in (0..turn.members.len()).rev() {
                 let member = &turn.members[index];
+                if !scope.concerns(&member.connection.user_id) {
+                    continue;
+                }
                 let who = Who {
                     user_id: member.connection.user_id.clone(),
                     made_through: member.connection.made_through.clone(),
@@ -100,7 +145,7 @@ impl Collab {
             self.shut_if_empty(&room, &mut turn).await;
         }
         // A periodic read made during this pass must not undo its result later.
-        rooms.walls_raised.fetch_add(1, Ordering::SeqCst);
+        rooms.walls.raise(tenant);
     }
 
     /// One deadline for the entire pass, so a stalled store cannot keep rooms locked.
@@ -157,7 +202,7 @@ impl Collab {
     /// does not answer then either. The store is asked while the room is not held; what
     /// a member sent meanwhile was taken as they were.
     pub(super) async fn recheck(&self, room: &Arc<Room>) {
-        let revision = self.inner.rooms.walls_raised.load(Ordering::SeqCst);
+        let (tenant, revision) = (room.app.store().tenant(), self.inner.rooms.walls.now());
         let asked: Vec<Asked> = {
             let turn = room.turn.lock().await;
             turn.members
@@ -191,7 +236,7 @@ impl Collab {
         let mut turn = room.turn.lock().await;
         if turn.closed
             || self.rooms_ended()
-            || revision != self.inner.rooms.walls_raised.load(Ordering::SeqCst)
+            || self.inner.rooms.walls.raised_since(tenant, revision)
         {
             return;
         }

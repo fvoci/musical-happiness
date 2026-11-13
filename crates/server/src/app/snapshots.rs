@@ -17,9 +17,7 @@ impl App {
                 Previews::Without,
             )
             .await?;
-        for card in cards {
-            self.collab().write_body(self, &card.block.id).await?;
-        }
-        Ok(())
+        let card_ids: Vec<String> = cards.into_iter().map(|card| card.block.id).collect();
+        self.collab().write_bodies(self, &card_ids).await
     }
 }

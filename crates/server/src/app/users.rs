@@ -54,7 +54,7 @@ impl App {
                     // The workspaces they joined as the organization's administrator
                     // are theirs no more (`Store::set_user_admin`).
                     self.collab()
-                        .recheck_access(self, AccessScope::Organization)
+                        .recheck_access(self, AccessScope::organization().of_user(user_id))
                         .await;
                     self.ws().follow_only_own_workspaces(user_id).await;
                 }
