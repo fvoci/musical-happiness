@@ -1,9 +1,12 @@
 //! Workspace teams. Authorization is checked at the route and again by writes under
 //! the workspace lock; names are trimmed here before they reach storage.
 
+use std::collections::BTreeSet;
+
 use super::App;
+use crate::collab::AccessScope;
 use crate::error::{AppError, Reason};
-use fvoci_model::{Team, is_id, team_name};
+use fvoci_model::{BoardMember, Team, is_id, team_name};
 use fvoci_store::{StoreError, Taken};
 
 /// A store's refusal of a team name another team of the workspace has, as the problem
@@ -39,7 +42,7 @@ impl App {
     pub async fn effective_board_members(
         &self,
         board_id: &str,
-    ) -> Result<Vec<fvoci_model::BoardMember>, AppError> {
+    ) -> Result<Vec<BoardMember>, AppError> {
         Ok(self.store().effective_board_members(board_id).await?)
     }
 
@@ -185,9 +188,25 @@ impl App {
         Ok(())
     }
 
-    async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<fvoci_model::BoardMember>) {
+    /// Rechecks the card rooms of the boards whose team roles changed, for the people
+    /// those roles reach, before the change is answered, then asks their clients to
+    /// read the boards' members again. `changes` names each board and person once.
+    async fn tell_team_changes(&self, workspace_id: &str, changes: Vec<BoardMember>) {
+        if changes.is_empty() {
+            return;
+        }
+        let boards: BTreeSet<&String> = changes.iter().map(|change| &change.board_id).collect();
+        let people: BTreeSet<&str> = changes
+            .iter()
+            .map(|change| change.user_id.as_str())
+            .collect();
+        // Every change of a team is the team's people on the team's boards, so the
+        // boards and people together name no pair the change did not reach.
+        self.collab()
+            .recheck_access(self, AccessScope::boards(boards).of_users(people))
+            .await;
         for member in changes {
-            self.ws
+            self.ws()
                 .broadcast_member_delete(workspace_id, &member.board_id, &member.user_id)
                 .await;
         }

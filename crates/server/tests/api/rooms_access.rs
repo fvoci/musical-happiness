@@ -162,11 +162,17 @@ async fn a_store_that_fails_for_a_moment_empties_no_room_and_one_that_stays_fail
     th.teardown().await;
 }
 
-/// Removing the team role evicts a live collaborator just as removing a direct role does.
+/// Removing the direct role keeps a collaborator who reads through a team writing in
+/// the room, and their leaving the team puts them out before it is answered: the
+/// periodic check is too seldom to do either.
 #[tokio::test]
 async fn losing_the_team_role_puts_the_member_out_of_the_room() {
     use fvoci_model::{Team, WorkspaceRole};
-    let th = asking_often().start().await.init_basic().await;
+    let th = crate::rooms_changes::seldom()
+        .start()
+        .await
+        .init_basic()
+        .await;
     let (t, mut one, mut two) = two_in_a_room(&th, &paragraphs(&["first"])).await;
     let owner = th.client.me().await.id;
     let user = th.client2.me().await.id;
@@ -207,11 +213,14 @@ async fn losing_the_team_role_puts_the_member_out_of_the_room() {
         ))
         .await
         .check_no_content();
-    two.joined(TEST_WORKSPACE_ID, &t.card_id).await;
     two.write_acked("through a team").await;
+    let changed_at = tokio::time::Instant::now();
     th.client.delete(&link).await.check_no_content();
-    let left = two.text("DOC_LEFT").await;
-    assert_eq!(left["reason"], json!("not_found"), "{left}");
+    let left = crate::rooms_changes::soon(&mut two, "DOC_LEFT", changed_at).await;
+    assert_eq!(
+        left,
+        json!({"action": "DOC_LEFT", "doc": two.doc, "reason": "not_found"})
+    );
     let refused = two.join(TEST_WORKSPACE_ID, &t.card_id).await;
     assert_eq!(refused["reason"], json!("not_found"), "{refused}");
     one.write_acked("after the team member left").await;

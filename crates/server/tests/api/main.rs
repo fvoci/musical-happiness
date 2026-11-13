@@ -70,6 +70,7 @@ mod rooms_org;
 mod rooms_readers;
 mod rooms_review;
 mod rooms_snapshots;
+mod rooms_teams;
 mod search;
 mod server_lock;
 mod shared;

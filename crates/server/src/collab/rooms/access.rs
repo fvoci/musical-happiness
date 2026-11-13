@@ -30,8 +30,8 @@ const IMMEDIATE_PASS_INTERVALS: u32 = 2;
 #[derive(Debug, Clone)]
 pub(crate) struct AccessScope {
     place: Place,
-    /// The one user whose facts changed; everybody's when `None`.
-    user_id: Option<String>,
+    /// The users whose facts changed; everybody's when `None`.
+    users: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,17 +73,20 @@ impl AccessScope {
     /// The same place, where only `user_id`'s facts changed: the others in its rooms
     /// are not asked about.
     pub(crate) fn of_user(self, user_id: &str) -> Self {
+        self.of_users([user_id])
+    }
+
+    /// The same place, where only the facts of `users` changed (the people of a
+    /// team): the others in its rooms are not asked about.
+    pub(crate) fn of_users<'id>(self, users: impl IntoIterator<Item = &'id str>) -> Self {
         Self {
-            user_id: Some(user_id.to_owned()),
+            users: Some(users.into_iter().map(str::to_owned).collect()),
             ..self
         }
     }
 
     fn of(place: Place) -> Self {
-        Self {
-            place,
-            user_id: None,
-        }
+        Self { place, users: None }
     }
 
     /// Whether the change reached the room of `room`'s card.
@@ -120,9 +123,9 @@ impl AccessScope {
 
     /// Whether the change concerns `user_id`'s facts.
     pub(super) fn concerns(&self, user_id: &str) -> bool {
-        self.user_id
-            .as_deref()
-            .is_none_or(|changed| changed == user_id)
+        self.users
+            .as_ref()
+            .is_none_or(|changed| changed.iter().any(|changed| changed == user_id))
     }
 }
 
@@ -573,6 +576,10 @@ mod tests {
             assert!(of_user.concerns("user") && !of_user.concerns("another user"));
         }
         assert!(AccessScope::organization().concerns("anybody"));
+        let of_users = AccessScope::board("board").of_users(["one", "two"]);
+        assert!(of_users.concerns("one") && of_users.concerns("two"));
+        assert!(!of_users.concerns("three"));
+        assert!(!AccessScope::board("board").of_users([]).concerns("anybody"));
     }
 
     #[test]

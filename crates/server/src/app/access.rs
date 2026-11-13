@@ -76,7 +76,8 @@ impl App {
                 return Err(AppError::from(error).context("reading the membership of a board"));
             }
         };
-        let team_role = team_role?;
+        let team_role = team_role
+            .map_err(|error| AppError::from(error).context("reading the team roles on a board"))?;
         let workspace_id = board.as_ref().map_or("", |board| &board.workspace_id);
         let actor = self.actor(user_id, workspace_id).await?;
         let Some(board) = board else {

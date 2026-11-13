@@ -175,7 +175,6 @@ crates/server/src/permissions.rs | highest team role
 crates/server/src/permissions/table.rs | team_role
 crates/server/src/permissions/workspace_table.rs | team_role
 crates/server/src/app/access.rs | team_role
-crates/server/tests/api/rooms_access.rs | the team role
 crates/server/tests/api/rooms_access.rs | losing_the_team_role
 crates/server/tests/api/rooms_access.rs | use fvoci_model::{team, workspacerole}
 crates/server/tests/api/rooms_access.rs | let team: team
@@ -249,3 +248,12 @@ crates/server/src/error.rs | team_name_taken
 crates/server/src/error.rs | team name taken
 crates/server/src/problems.rs | teamnametaken
 crates/server/src/problems.rs | another team of the workspace
+
+# Changes of the teams of a workspace (people grouped in it, never the workspace) recheck
+# the card rooms of their boards at once, as the contract says.
+contracts/websocket.md | team
+crates/server/src/app/access.rs | the team roles on a board
+crates/server/src/app/boards.rs | its surviving teams
+crates/server/src/collab/rooms/access.rs | team): the others
+crates/server/tests/api/rooms_access.rs | leaving the team
+crates/server/tests/api/rooms_teams.rs
