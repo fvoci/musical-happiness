@@ -15,27 +15,39 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// is past this is not needed to sort the answer.
 const MOST_BODY: usize = 64 * 1024;
 
-/// The client of the providers: no redirect is followed (the API does not redirect, and
-/// a request carries its keys), and each request ends with the attempt.
+/// The client of the providers: no redirect is followed and no proxy of the
+/// environment is used (a request carries the provider's keys, and goes where
+/// `mail_api_endpoint` or the provider's own address says, nowhere else), and each
+/// request ends with the attempt.
 ///
 /// # Errors
 /// Returns an error if the TLS of the client cannot be set up.
 pub(super) fn client(timeout: Duration) -> anyhow::Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(timeout)
         .build()?)
 }
 
 /// What a provider answered, as much as is kept of it.
-#[derive(Debug)]
 pub(super) struct Answer {
     pub(super) status: u16,
     /// `Retry-After` in seconds, if the answer had one.
     pub(super) retry_after: Option<Duration>,
     /// The body, up to [`MOST_BODY`].
     pub(super) body: Vec<u8>,
+}
+
+impl std::fmt::Debug for Answer {
+    /// Leaves out the body, which may name the recipient or carry the provider's text.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Answer")
+            .field("status", &self.status)
+            .field("retry_after", &self.retry_after)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Sends `request` and reads the answer.
@@ -62,6 +74,7 @@ pub(super) async fn send(request: reqwest::RequestBuilder) -> Result<Answer, Out
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned)
     };
+    // Only a number of seconds is read; a date is left as if none was given.
     let retry_after = header("retry-after")
         .and_then(|text| text.trim().parse::<u64>().ok())
         .map(Duration::from_secs);

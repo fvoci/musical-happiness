@@ -5,7 +5,8 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use serde_json::{Value, json};
+use serde::Serialize;
+use serde_json::Value;
 
 use super::super::outbound::{Outbound, Outcome, Outgoing};
 use super::Answer;
@@ -20,25 +21,25 @@ pub(in crate::app::mail) struct Cloudflare {
 }
 
 impl Cloudflare {
-    pub(in crate::app::mail) fn new(keys: &CloudflareKeys, client: reqwest::Client) -> Self {
+    pub(in crate::app::mail) fn new(keys: CloudflareKeys, client: reqwest::Client) -> Self {
         Self {
             client,
             url: format!(
                 "{}/client/v4/accounts/{}/email/sending/send",
                 keys.endpoint, keys.account_id
             ),
-            token: keys.api_token.clone(),
+            token: keys.api_token,
         }
     }
 
     async fn deliver(&self, message: &Outgoing) -> Outcome {
-        let body = json!({
-            "from": message.from,
-            "to": message.to,
-            "subject": message.subject,
-            "text": message.plain,
-            "html": message.html,
-        });
+        let body = Sending {
+            from: &message.from,
+            to: &message.to,
+            subject: message.subject,
+            text: &message.plain,
+            html: &message.html,
+        };
         let request = self
             .client
             .post(&self.url)
@@ -49,6 +50,16 @@ impl Cloudflare {
             Err(outcome) => outcome,
         }
     }
+}
+
+/// The body of a sending request: one recipient, the message in plain text and HTML.
+#[derive(Serialize)]
+struct Sending<'a> {
+    from: &'a str,
+    to: &'a str,
+    subject: &'a str,
+    text: &'a str,
+    html: &'a str,
 }
 
 impl Outbound for Cloudflare {

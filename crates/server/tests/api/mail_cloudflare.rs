@@ -89,6 +89,8 @@ async fn cloudflares_answers_sort_the_attempts() {
     let fake = FakeProvider::start().await;
     let th = Setup::native()
         .mail(fake.settings(Provider::Cloudflare))
+        // Four messages to one account.
+        .configure(|config| config.smtp.mail_reset_per_account_hour = 4)
         .metrics_at("127.0.0.1:0")
         .start()
         .await
@@ -115,6 +117,18 @@ async fn cloudflares_answers_sort_the_attempts() {
     assert_eq!(failed(&body, "permanent"), Some(1.0), "{body}");
     assert_eq!(fake.recorded().await.len(), 4, "a 400 is not tried again");
 
+    // Throttled for longer than another attempt may wait: given up at once, which only
+    // the answer's Retry-After can have said.
+    fake.answer_next_after(429, 120).await;
+    request_reset(&th).await;
+    let body = scrape_until(&th, |body| failed(body, "temporary") == Some(1.0)).await;
+    assert_eq!(failed(&body, "temporary"), Some(1.0), "{body}");
+    assert_eq!(
+        fake.recorded().await.len(),
+        5,
+        "not asked again before it said"
+    );
+
     // A token it refuses: the whole way is closed, and no message is failed for it.
     fake.answer_next(&[401]).await;
     request_reset(&th).await;
@@ -128,8 +142,8 @@ async fn cloudflares_answers_sort_the_attempts() {
         "{body}"
     );
     assert_eq!(failed(&body, "permanent"), Some(1.0), "{body}");
-    assert_eq!(failed(&body, "temporary"), Some(0.0), "{body}");
-    assert_eq!(fake.recorded().await.len(), 5);
+    assert_eq!(failed(&body, "temporary"), Some(1.0), "{body}");
+    assert_eq!(fake.recorded().await.len(), 6);
     th.teardown().await;
     fake.stop();
 }

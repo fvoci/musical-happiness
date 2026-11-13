@@ -67,7 +67,10 @@ impl fmt::Debug for MailSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MailSettings")
             .field("mail_transport", &self.mail_transport)
-            .field("mail_api_endpoint", &self.mail_api_endpoint)
+            .field(
+                "mail_api_endpoint",
+                &shown_endpoint(&self.mail_api_endpoint),
+            )
             .field("cloudflare_account_id", &self.cloudflare_account_id)
             .finish_non_exhaustive()
     }
@@ -133,25 +136,26 @@ pub enum Way {
     Cloudflare(CloudflareKeys),
 }
 
-/// The keys of each provider, by the transport that reads them.
-const PROVIDER_KEYS: [(MailTransport, &[&str]); 1] = [(
-    MailTransport::Cloudflare,
-    &["cloudflare_account_id", "cloudflare_api_token"],
-)];
-
 impl MailSettings {
     /// Whether mail is sent at all: a transport is named, or `smtp_host` is set.
     pub fn enabled(&self, smtp: &SmtpSettings) -> bool {
         self.mail_transport.is_some() || smtp.enabled()
     }
 
-    fn value(&self, key: &str) -> &str {
-        match key {
-            "mail_api_endpoint" => &self.mail_api_endpoint,
-            "cloudflare_account_id" => &self.cloudflare_account_id,
-            "cloudflare_api_token" => &self.cloudflare_api_token,
-            _ => unreachable!("{key} is a key of the mail settings"),
-        }
+    /// Each provider's keys, with the transport that reads them and their values.
+    fn provider_keys(&self) -> [(MailTransport, &'static str, &str); 2] {
+        [
+            (
+                MailTransport::Cloudflare,
+                "cloudflare_account_id",
+                &self.cloudflare_account_id,
+            ),
+            (
+                MailTransport::Cloudflare,
+                "cloudflare_api_token",
+                &self.cloudflare_api_token,
+            ),
+        ]
     }
 
     /// The way mail leaves, or `None` for no mail, with the sender (`smtp_from`) checked
@@ -160,7 +164,7 @@ impl MailSettings {
     /// # Errors
     /// Returns an error naming the key that is missing, malformed, or set for a way that
     /// is not the chosen one; never a secret's value.
-    pub fn way(&self, smtp: &SmtpSettings) -> anyhow::Result<Option<Way>> {
+    pub fn way<'a>(&'a self, smtp: &SmtpSettings) -> anyhow::Result<Option<Way>> {
         let transport = match self.mail_transport {
             Some(transport) => transport,
             None if smtp.enabled() => MailTransport::Smtp,
@@ -178,20 +182,7 @@ impl MailSettings {
         if !fvoci_model::is_email_valid(&smtp.smtp_from) {
             bail!("smtp_from must be a single email address: the sender of all mail");
         }
-        if transport == MailTransport::Smtp {
-            if !smtp.enabled() {
-                bail!("mail_transport is \"smtp\", which needs smtp_host");
-            }
-            return Ok(Some(Way::Smtp));
-        }
-        if smtp.enabled() || !smtp.smtp_user.is_empty() {
-            bail!(
-                "smtp_host and smtp_user are for mail_transport \"smtp\", not \"{}\"",
-                transport.as_str()
-            );
-        }
-        let needed = |key: &str| -> anyhow::Result<&str> {
-            let value = self.value(key);
+        let needed = |key: &str, value: &'a str| -> anyhow::Result<&'a str> {
             if value.is_empty() {
                 bail!(
                     "mail_transport is \"{}\", which needs {key}",
@@ -201,10 +192,16 @@ impl MailSettings {
             Ok(value)
         };
         Ok(Some(match transport {
-            MailTransport::Smtp => unreachable!("returned above"),
+            MailTransport::Smtp => {
+                if !smtp.enabled() {
+                    bail!("mail_transport is \"smtp\", which needs smtp_host");
+                }
+                Way::Smtp
+            }
             MailTransport::Cloudflare => {
-                let account_id = needed("cloudflare_account_id")?;
-                let api_token = needed("cloudflare_api_token")?;
+                refuse_relay(smtp, transport)?;
+                let account_id = needed("cloudflare_account_id", &self.cloudflare_account_id)?;
+                let api_token = needed("cloudflare_api_token", &self.cloudflare_api_token)?;
                 shaped("cloudflare_account_id", account_id, |c| {
                     c.is_ascii_alphanumeric()
                 })?;
@@ -221,13 +218,12 @@ impl MailSettings {
     /// Refuses a provider's key, or the endpoint, set for a way that does not read it.
     fn refuse_unused(&self, transport: Option<MailTransport>) -> anyhow::Result<()> {
         let chosen = transport.map_or("not set", MailTransport::as_str);
-        for (provider, keys) in PROVIDER_KEYS {
-            if Some(provider) == transport {
-                continue;
-            }
-            if let Some(key) = keys.iter().find(|key| !self.value(key).is_empty()) {
-                bail!("{key} is set, but mail_transport is {chosen:?}");
-            }
+        if let Some((_, key, _)) = self
+            .provider_keys()
+            .into_iter()
+            .find(|(provider, _, value)| Some(*provider) != transport && !value.is_empty())
+        {
+            bail!("{key} is set, but mail_transport is {chosen:?}");
         }
         if !self.mail_api_endpoint.is_empty()
             && matches!(transport, None | Some(MailTransport::Smtp))
@@ -238,19 +234,21 @@ impl MailSettings {
     }
 
     /// `mail_api_endpoint` when it is set, checked, or the provider's own `default`.
-    /// Plain `http` goes to this machine only: the requests carry the provider's keys.
+    /// Plain `http` goes to a loopback address only, written as one: the requests carry
+    /// the provider's keys, and a name (`*.localhost`) is resolved by whatever the
+    /// system asks.
     fn endpoint(&self, default: String) -> anyhow::Result<String> {
         if self.mail_api_endpoint.is_empty() {
             return Ok(default);
         }
         let refused = || {
             anyhow!(
-                "mail_api_endpoint must be https://host[:port] (http only to this machine), \
-                 without a path, a query or credentials"
+                "mail_api_endpoint must be https://host[:port] (http only to a loopback \
+                 address such as 127.0.0.1), without a path, a query or credentials"
             )
         };
         let url = reqwest::Url::parse(&self.mail_api_endpoint).map_err(|_| refused())?;
-        let plain_to_here = url.scheme() == "http" && is_loopback_url(&url);
+        let plain_to_here = url.scheme() == "http" && loopback_address(&url).is_some();
         if !(url.scheme() == "https" || plain_to_here)
             || url.path() != "/"
             || url.query().is_some()
@@ -262,6 +260,27 @@ impl MailSettings {
             return Err(refused());
         }
         Ok(url.as_str().trim_end_matches('/').to_owned())
+    }
+}
+
+/// Refuses the relay's keys for a provider's `transport`: they would be passed over.
+fn refuse_relay(smtp: &SmtpSettings, transport: MailTransport) -> anyhow::Result<()> {
+    if smtp.enabled() || !smtp.smtp_user.is_empty() {
+        bail!(
+            "smtp_host and smtp_user are for mail_transport \"smtp\", not \"{}\"",
+            transport.as_str()
+        );
+    }
+    Ok(())
+}
+
+/// `mail_api_endpoint` as `Debug` shows it: not at all if it carries credentials,
+/// which [`MailSettings::way`] refuses only later.
+fn shown_endpoint(endpoint: &str) -> &str {
+    match reqwest::Url::parse(endpoint) {
+        Ok(url) if !url.username().is_empty() || url.password().is_some() => "<hidden>",
+        _ if endpoint.contains('@') => "<hidden>",
+        _ => endpoint,
     }
 }
 
@@ -281,20 +300,34 @@ fn secret_shaped(key: &str, value: &str) -> anyhow::Result<()> {
     shaped(key, value, |c| c.is_ascii_graphic())
 }
 
+/// The address `url` names, if it is written as an address of this machine's
+/// loopback (also one mapped into IPv6).
+fn loopback_address(url: &reqwest::Url) -> Option<IpAddr> {
+    // A URL writes an IPv6 address in brackets, and an IPv4 one in its usual form.
+    let address = url
+        .host_str()?
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+        .ok()?
+        .to_canonical();
+    address.is_loopback().then_some(address)
+}
+
 /// Whether `url` names this machine: `localhost`, or a loopback or the unspecified
 /// address (also one mapped into IPv6).
 pub fn is_loopback_url(url: &reqwest::Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
-    // A URL writes an IPv6 address in brackets, and an IPv4 one in its usual form.
-    if let Ok(address) = host
+    if loopback_address(url).is_some() {
+        true
+    } else if let Ok(address) = host
         .trim_start_matches('[')
         .trim_end_matches(']')
         .parse::<IpAddr>()
     {
-        let address = address.to_canonical();
-        address.is_loopback() || address.is_unspecified()
+        address.to_canonical().is_unspecified()
     } else {
         // The parser writes the name in lower case; a trailing dot names the same host.
         let name = host.trim_end_matches('.');
@@ -428,11 +461,14 @@ mod tests {
             Ok("http://127.0.0.1:8025".to_owned())
         );
         assert_eq!(
-            endpoint("http://localhost:8025"),
-            Ok("http://localhost:8025".to_owned())
+            endpoint("http://[::1]:8025"),
+            Ok("http://[::1]:8025".to_owned())
         );
         for refused in [
             "http://mail.example.test",
+            "http://localhost:8025",
+            "http://mail.localhost:8025",
+            "http://0.0.0.0:8025",
             "ftp://127.0.0.1",
             "https://mail.example.test/client/v4",
             "https://mail.example.test/?x=1",

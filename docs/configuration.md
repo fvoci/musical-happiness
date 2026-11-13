@@ -202,7 +202,7 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `mail_transport` | `FVOCI_MAIL_TRANSPORT` | 문자열 | `""` | `smtp` 또는 `cloudflare`. 비우면 `smtp_host`가 있을 때 `smtp`, 없으면 메일을 보내지 않는다. 다른 값은 시작하지 않는다 |
-| `mail_api_endpoint` | `FVOCI_MAIL_API_ENDPOINT` | 문자열 | `""` | 공급자의 요청이 공급자의 공식 주소 대신 가는 곳(`https://호스트[:포트]`, 경로·질의·자격 없이). 테스트의 가짜 공급자를 위한 것이고 `http`는 이 기기(루프백)로만 받는다. 비우면 공급자의 주소(Cloudflare `https://api.cloudflare.com`). SMTP에는 쓰지 않는다 |
+| `mail_api_endpoint` | `FVOCI_MAIL_API_ENDPOINT` | 문자열 | `""` | 공급자의 요청이 공급자의 공식 주소 대신 가는 곳(`https://호스트[:포트]`, 경로·질의·자격 없이). 테스트의 가짜 공급자를 위한 것이고 `http`는 루프백 IP로 쓴 주소(`127.0.0.1`, `[::1]`)만 받는다(이름은 받지 않는다). 공급자로의 요청은 프록시 환경 변수를 쓰지 않는다. 비우면 공급자의 주소(Cloudflare `https://api.cloudflare.com`). SMTP에는 쓰지 않는다 |
 | `cloudflare_account_id` | `FVOCI_CLOUDFLARE_ACCOUNT_ID` | 문자열 | `""` | `cloudflare`일 때 필수. Email Service로 보내는 Cloudflare 계정 ID(영문자·숫자) |
 | `cloudflare_api_token` | `FVOCI_CLOUDFLARE_API_TOKEN` | 문자열 | `""` | `cloudflare`일 때 필수. 메일 보내기 권한이 있는 API 토큰(`Authorization: Bearer`). 로그에 남기지 않고, 글자열이 아닌 값은 그 값을 되풀이하지 않는 오류로 시작하지 않는다 |
 | `smtp_host` | `FVOCI_SMTP_HOST` | 문자열 | `""` | SMTP 호스트 이름이나 IP. `mail_transport`가 비었을 때 이것이 있으면 SMTP로 보낸다. 스킴·포트·공백 없이 쓴다 |

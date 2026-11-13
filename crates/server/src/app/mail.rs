@@ -112,7 +112,7 @@ impl Mailer {
             None => None,
             Some(Way::Smtp) => Some(Arc::new(smtp::Smtp::new(settings, ATTEMPT_TIMEOUT)?)),
             Some(Way::Cloudflare(keys)) => Some(Arc::new(provider::cloudflare::Cloudflare::new(
-                &keys,
+                keys,
                 provider::client(ATTEMPT_TIMEOUT)?,
             ))),
         };

@@ -1,7 +1,7 @@
 //! The HTTP APIs of the mail providers, faked for the tests: the sending requests of
-//! Cloudflare, Amazon SES and OCI are recorded with what they were signed with, and
-//! answered as the provider answers, by default as taken, or with the statuses the test
-//! queues (`429`, `500`, `401`, …), each in its provider's own shape.
+//! Cloudflare are recorded with what they were authorized with, and answered as it
+//! answers, by default as taken, or with the statuses the test queues (`429`, `500`,
+//! `401`, …) in its own shape.
 #![allow(dead_code, reason = "each provider's tests use a part of it")]
 
 use std::collections::VecDeque;
@@ -24,8 +24,6 @@ use tokio::task::JoinHandle;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Provider {
     Cloudflare,
-    Ses,
-    Oci,
 }
 
 /// The account of the fake Cloudflare.
@@ -53,8 +51,9 @@ pub(crate) struct Recorded {
 #[derive(Default)]
 struct State {
     recorded: Mutex<Vec<Recorded>>,
-    /// The statuses of the next answers; an empty queue answers as taken.
-    script: Mutex<VecDeque<u16>>,
+    /// The statuses of the next answers, each with the `Retry-After` it gives in
+    /// seconds; an empty queue answers as taken.
+    script: Mutex<VecDeque<(u16, Option<u64>)>>,
     changed: Notify,
 }
 
@@ -107,14 +106,27 @@ impl FakeProvider {
                 cloudflare_account_id: CLOUDFLARE_ACCOUNT.to_owned(),
                 cloudflare_api_token: CLOUDFLARE_TOKEN.to_owned(),
             },
-            Provider::Ses | Provider::Oci => unreachable!("added with their tracer bullets"),
         };
         (smtp, mail)
     }
 
-    /// Answers the next requests with these statuses, in order, then as taken.
+    /// Answers the next requests with these statuses, in order, then as taken; a `429`
+    /// says `Retry-After: 0`.
     pub(crate) async fn answer_next(&self, statuses: &[u16]) {
-        self.state.script.lock().await.extend(statuses);
+        self.state.script.lock().await.extend(
+            statuses
+                .iter()
+                .map(|&status| (status, (status == 429).then_some(0))),
+        );
+    }
+
+    /// Answers the next request with `status` and `Retry-After: seconds`.
+    pub(crate) async fn answer_next_after(&self, status: u16, seconds: u64) {
+        self.state
+            .script
+            .lock()
+            .await
+            .push_back((status, Some(seconds)));
     }
 
     pub(crate) async fn recorded(&self) -> Vec<Recorded> {
@@ -168,10 +180,6 @@ async fn answer(state: &State, uri: &Uri, headers: HeaderMap, body: &[u8]) -> Re
     let provider = if path == format!("/client/v4/accounts/{CLOUDFLARE_ACCOUNT}/email/sending/send")
     {
         Provider::Cloudflare
-    } else if path == "/v2/email/outbound-emails" {
-        Provider::Ses
-    } else if path == "/20220926/actions/submitEmail" {
-        Provider::Oci
     } else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -182,10 +190,9 @@ async fn answer(state: &State, uri: &Uri, headers: HeaderMap, body: &[u8]) -> Re
             json["text"].as_str().unwrap_or_default().to_owned(),
             header(&headers, "authorization") == format!("Bearer {CLOUDFLARE_TOKEN}"),
         ),
-        Provider::Ses | Provider::Oci => unreachable!("added with their tracer bullets"),
     };
-    let status = state.script.lock().await.pop_front().unwrap_or(200);
-    let response = match (provider, status) {
+    let (status, retry_after) = state.script.lock().await.pop_front().unwrap_or((200, None));
+    let mut response = match (provider, status) {
         (Provider::Cloudflare, 200) => (
             StatusCode::OK,
             axum::Json(json!({
@@ -195,8 +202,13 @@ async fn answer(state: &State, uri: &Uri, headers: HeaderMap, body: &[u8]) -> Re
         )
             .into_response(),
         (Provider::Cloudflare, status) => cloudflare_error(status),
-        _ => unreachable!("added with their tracer bullets"),
     };
+    if let Some(seconds) = retry_after {
+        response.headers_mut().insert(
+            "retry-after",
+            seconds.to_string().parse().expect("a header value"),
+        );
+    }
     state.recorded.lock().await.push(Recorded {
         provider,
         headers,
@@ -227,18 +239,12 @@ fn cloudflare_error(status: u16) -> Response {
         429 => (10004, "email.sending.error.throttled"),
         _ => (10002, "email.sending.error.internal_server"),
     };
-    let mut response = (
+    (
         StatusCode::from_u16(status).expect("a status"),
         axum::Json(json!({
             "success": false, "errors": [{"code": code, "message": message}],
             "messages": [], "result": null,
         })),
     )
-        .into_response();
-    if status == 429 {
-        response
-            .headers_mut()
-            .insert("retry-after", "0".parse().expect("a header value"));
-    }
-    response
+        .into_response()
 }
