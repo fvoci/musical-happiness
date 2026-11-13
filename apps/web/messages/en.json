@@ -274,6 +274,7 @@
   "editor_image_gone": "The image was not put in: the line it was going into was removed or changed.",
   "editor_image_refused": "The image was not put in: the description cannot be changed now.",
   "editor_formula_refused": "What you wrote in the formula was not kept: the description cannot be changed now.",
+  "editor_formula_gone": "What you wrote in the formula was not kept: its line was removed or changed.",
   "gallery_cards": "Cards",
   "kanban_columns": "Columns",
   "kanban_no_grouping": "This board has no property that cards can be grouped by.",

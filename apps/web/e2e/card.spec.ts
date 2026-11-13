@@ -688,6 +688,36 @@ test('somebody else changes only a property while the reader writes: both are ke
  * document and the reader's typing is dropped with the old one. The reader's
  * backend is slowed down for the moment, so that the other write comes first.
  */
+test('the reader stays in the body when the room sends it anew, with the caret where it was', async ({
+  page,
+}) => {
+  const place = await openTaskCard(page);
+  const editor = await bodyEditor(page);
+  await editor.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('Mine ');
+  // In the card already: what follows loses nothing.
+  await expect.poll(async () => textOf((await stored(page, place)).body)).toContain('Mine ');
+  await page.evaluate(
+    async ({ place: at, body }) => {
+      const other = window.fvociDev.someoneElse();
+      const card = await other.card(at.boardId, at.cardId);
+      await other.writeCardBody(at.boardId, at.cardId, { body, readAt: card.updateAt });
+    },
+    { place, body: paragraph('Theirs, written whole') },
+  );
+  await expect(await bodyEditor(page)).toHaveText('Theirs, written whole');
+  await expect(page.getByTestId('body-lost')).toHaveCount(0);
+  // Not pressed again: the new editor has the focus, and the caret near where it was.
+  await page.keyboard.type('Z');
+  await expect(await bodyEditor(page)).toContainText('Z');
+  // Where it was in the line (after "Mine "), not at the start the new editor begins with.
+  expect((await (await bodyEditor(page)).textContent())?.startsWith('Z')).toBe(false);
+  expect(await page.evaluate(() => document.activeElement?.closest('.ProseMirror') !== null)).toBe(
+    true,
+  );
+});
+
 async function replacedWhileTyping(page: Page, place: Place, editor: Locator): Promise<void> {
   await page.evaluate(() => {
     window.fvociDev.backend.latency = 1500;

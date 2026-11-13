@@ -90,7 +90,7 @@ function editFormulaAt(editor: Editor, position: number): void {
       const now = at === undefined ? undefined : editor.state.doc.nodeAt(at);
       if (at === undefined || !now) return;
       if (!mayWrite(editor.view)) {
-        if (latex !== latexOf(now)) sayDropped(editor.view);
+        if (latex !== latexOf(now)) sayDropped(editor.view, 'refused');
         return;
       }
       const transaction = editor.state.tr;

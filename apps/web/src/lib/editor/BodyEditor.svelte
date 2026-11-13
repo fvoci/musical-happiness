@@ -67,14 +67,15 @@
   /** Whether the document that was last read could not be loaded. */
   let unreadable = $state(false);
   /** A formula's source the reader wrote was not kept: they may no longer write. */
-  let formulaDropped = $state(false);
+  let formulaDropped = $state<'refused' | 'gone'>();
   let uploads = $state(0);
   /** How the upload that ended last did, when that is to be said. */
   let uploadEnded = $state<'failed' | 'gone' | 'refused'>();
 
   const status = $derived.by(() => {
     if (unreadable) return m.editor_body_unreadable();
-    if (formulaDropped) return m.editor_formula_refused();
+    if (formulaDropped === 'gone') return m.editor_formula_gone();
+    if (formulaDropped === 'refused') return m.editor_formula_refused();
     if (uploads > 0) return m.editor_image_uploading();
     if (uploadEnded === 'gone') return m.editor_image_gone();
     if (uploadEnded === 'refused') return m.editor_image_refused();
@@ -195,8 +196,8 @@
     editor = created;
     setMayWrite(created.view, {
       may: () => shared !== undefined && canWrite,
-      dropped: fromEditor(() => {
-        formulaDropped = true;
+      dropped: fromEditor((why: 'refused' | 'gone') => {
+        formulaDropped = why;
       }),
     });
     // What it could not draw is gone again: the editor, which took nothing from the shared

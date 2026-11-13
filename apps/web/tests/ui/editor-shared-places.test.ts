@@ -414,7 +414,50 @@ describe('the place of a new formula in a body edited together', () => {
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
     );
     expect(placeOf(editor.state)).toBeNull();
-    expect(blocks(editor)).toEqual(['first', 'theirs', 'blockMath']);
+    expect(blocks(editor)).toEqual(['first', 'theirs', 'blockMath', '']);
+    expect(editor.state.doc.child(2).attrs.latex).toBe('x^2');
+    // In the shared document, for the room to send.
+    const sent = shared.reader.getXmlFragment(BODY_FIELD).get(2) as Y.XmlElement;
+    expect([sent.nodeName, sent.getAttribute('latex')]).toEqual(['blockMath', 'x^2']);
+  });
+
+  it('shows its field after a line somebody else wrote in, where the formula will go', () => {
+    const shared = room(doc(paragraph()));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    editor.commands.setTextSelection(1);
+    type(editor, '$$ ');
+    shared.others(() => {
+      const line = shared.server.getXmlFragment(BODY_FIELD).get(0) as Y.XmlElement;
+      line.insert(0, [new Y.XmlText('theirs')]);
+    });
+    const line = editor.view.dom.querySelector('p');
+    expect(line?.firstChild?.textContent).toBe('theirs');
+    // The field comes after the other's text in the line.
+    const field = line?.querySelector('.doc-place-new');
+    expect(field).not.toBeNull();
+    expect(field?.previousSibling?.textContent).toBe('theirs');
+  });
+
+  it('says so when somebody else deletes its line with a formula written in it', async () => {
+    const shared = room(doc(paragraph(text('first')), paragraph()));
+    const { container } = render(BodyEditor, { doc: null, collab: shared.reader });
+    const editor = editorIn(container);
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    type(editor, '$$ ');
+    const field = document.querySelector<HTMLTextAreaElement>('.doc-place textarea');
+    if (!field) throw new Error('no field');
+    field.value = 'x^2';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    shared.others(() => {
+      shared.server.getXmlFragment(BODY_FIELD).delete(1, 1);
+    });
+    expect(placeOf(editor.state)).toBeNull();
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-editor-status')?.textContent.trim()).toBe(
+        'What you wrote in the formula was not kept: its line was removed or changed.',
+      );
+    });
   });
 });
 

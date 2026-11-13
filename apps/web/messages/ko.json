@@ -274,6 +274,7 @@
   "editor_image_gone": "이미지가 들어갈 줄이 지워지거나 바뀌어 이미지를 넣지 않았습니다.",
   "editor_image_refused": "본문을 지금 고칠 수 없어 이미지를 넣지 않았습니다.",
   "editor_formula_refused": "본문을 지금 고칠 수 없어 수식에 쓴 것을 넣지 않았습니다.",
+  "editor_formula_gone": "수식이 들어갈 줄이 지워지거나 바뀌어 수식에 쓴 것을 넣지 않았습니다.",
   "gallery_cards": "카드",
   "kanban_columns": "열",
   "kanban_no_grouping": "이 보드에는 카드를 묶을 수 있는 속성이 없습니다.",

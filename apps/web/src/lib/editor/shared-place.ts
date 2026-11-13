@@ -184,11 +184,14 @@ export function onShared(view: EditorView, then: () => void): () => void {
   };
 }
 
+/** Why a formula's source was not kept: the reader may not write now, or its block is gone. */
+export type DroppedWhy = 'refused' | 'gone';
+
 interface Writer {
   /** The reader may still write while the editor is read-only for now. */
   may: () => boolean;
-  /** Something the reader wrote (a formula's source) was not kept: to be said. */
-  dropped: () => void;
+  /** Something the reader wrote (a formula's source) was not kept: to be said, with why. */
+  dropped: (why: DroppedWhy) => void;
 }
 
 const writers = new WeakMap<EditorView, Writer>();
@@ -209,6 +212,6 @@ export function mayWrite(view: EditorView): boolean {
 }
 
 /** Says that what the reader wrote in a formula was not kept. */
-export function sayDropped(view: EditorView): void {
-  writers.get(view)?.dropped();
+export function sayDropped(view: EditorView, why: DroppedWhy): void {
+  writers.get(view)?.dropped(why);
 }

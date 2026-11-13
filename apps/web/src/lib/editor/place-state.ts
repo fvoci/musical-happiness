@@ -108,7 +108,10 @@ export function nextPlace(
   state: EditorState,
 ): Place | null {
   const meta = tr.getMeta(placeKey) as Meta | undefined;
-  if (meta && 'close' in meta) return null;
+  if (meta && 'close' in meta) {
+    if (value) closings.add(value);
+    return null;
+  }
   let place = meta?.open ?? value;
   if (!place) return null;
   const held = place.anchor?.held;
@@ -163,8 +166,14 @@ function finishFormula(tr: Transaction, place: Place): number | undefined {
     // The line was written in by somebody else meanwhile: the formula goes after it.
     if (!place.lineTaken || node.type.name !== 'paragraph') return undefined;
     closeHistory(tr);
-    tr.insert(pos + node.nodeSize, formula);
-    return pos + node.nodeSize;
+    const at = pos + node.nodeSize;
+    tr.insert(at, formula);
+    // Somewhere to go on writing when the formula ends what holds it.
+    const paragraph = tr.doc.type.schema.nodes.paragraph?.create();
+    if (tr.doc.resolve(at + formula.nodeSize).nodeAfter === null && paragraph) {
+      tr.insert(at + formula.nodeSize, paragraph);
+    }
+    return at;
   }
   closeHistory(tr);
   tr.replaceWith(pos, pos + node.nodeSize, formula);
@@ -265,6 +274,20 @@ export function keepOutOfClosed(
   if (madeHere(transactions, before, pos) && node.content.size === 0)
     return state.tr.setMeta(placeKey, { open: { kind: 'diagram', pos } });
   return state.tr.setSelection(NodeSelection.create(state.doc, pos));
+}
+
+/** Whether the reader wrote something in a place's field. */
+export function heldWritten(place: Place): boolean {
+  if (place.kind === 'new-formula') return (place.panel?.value() ?? '') !== '';
+  return place.draft?.touched === true;
+}
+
+/** Places closed on purpose (`closePlace`): what they held was written, or given up knowingly. */
+const closings = new WeakSet<Place>();
+
+/** Whether a place that is gone was closed on purpose, not taken away with its block. */
+export function closedOnPurpose(place: Place): boolean {
+  return closings.has(place);
 }
 
 /** Holds the open place's block again, once the reader's change is in the shared document. */

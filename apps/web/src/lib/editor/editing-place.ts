@@ -34,8 +34,10 @@ import { diagramKind } from './diagram-kind.ts';
 import { mayWrite, onShared, sayDropped } from './shared-place.ts';
 import {
   closedDiagramAt,
+  closedOnPurpose,
   closePlace,
   closesPlace,
+  heldWritten,
   holdAgain,
   isDiagramNode,
   keepOutOfClosed,
@@ -212,6 +214,11 @@ function placeView(view: EditorView) {
   });
   return {
     update: (_: EditorView, before: EditorState) => {
+      // A written field gone with its block (deleted, or made anew by somebody else): said.
+      const was = placeOf(before);
+      if (was && !placeOf(view.state) && heldWritten(was) && !closedOnPurpose(was)) {
+        sayDropped(view, 'gone');
+      }
       // Nothing of the document changed: the shared document has it all already.
       if (view.state.doc === before.doc) holdAgain(view.state);
       const place = placeOf(view.state);
@@ -224,7 +231,7 @@ function placeView(view: EditorView) {
           if (view.isDestroyed) return;
           const dropping = !mayWrite(view);
           const written = place.kind === 'new-formula' || place.draft?.touched === true;
-          if (dropping && written) sayDropped(view);
+          if (dropping && written) sayDropped(view, 'refused');
           closePlace(view, false, dropping);
         });
         return;
@@ -279,9 +286,13 @@ export const EditingPlace = Extension.create({
             const place = placeOf(state);
             if (!place) return null;
             if (place.panel) {
+              // On a line somebody else wrote in meanwhile, after its text: where it will go.
+              const line = state.doc.nodeAt(place.pos);
+              const after = place.lineTaken === true && line !== null;
+              const at = after ? place.pos + line.nodeSize - 1 : place.pos + 1;
               return DecorationSet.create(state.doc, [
-                Decoration.widget(place.pos + 1, place.panel.dom, {
-                  side: -1,
+                Decoration.widget(at, place.panel.dom, {
+                  side: after ? 1 : -1,
                   key: 'new-formula',
                   ignoreSelection: true,
                   stopEvent: () => true,
