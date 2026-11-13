@@ -77,7 +77,7 @@ it('names the writer of a kept comment revision, including its readable trash hi
   expect(await backend.usersById(world.workspace.id, ids)).toEqual([]);
 });
 
-it('names nobody whose account was closed, though their card stays', async () => {
+it('names and lists nobody whose account was closed, though their card stays', async () => {
   const { backend, world, other } = setup();
   const board = [...world.boards.values()][0];
   assert(board);
@@ -90,4 +90,9 @@ it('names nobody whose account was closed, though their card stays', async () =>
   assert(closed);
   closed.deleteAt = 1;
   expect(await backend.usersById(world.workspace.id, ids)).toEqual([]);
+  // Nor among the people of the workspace, nor found: as the server leaves closed accounts out.
+  expect((await backend.users(world.workspace.id)).some((user) => user.id === other.userId)).toBe(
+    false,
+  );
+  expect(await backend.searchUsers(world.workspace.id, closed.username)).toEqual([]);
 });

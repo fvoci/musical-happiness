@@ -43,7 +43,7 @@ import { CardStore } from './card.svelte.ts';
 import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
-import { authorIds } from './user-names.ts';
+import { authorIds, memberId } from './user-names.ts';
 import { readBoard } from './board-load.ts';
 import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
@@ -318,7 +318,7 @@ export class BoardStore {
       case 'members':
         this.#membersTold += 1;
         this.members = change.members;
-        void this.workspace.learnUsers(change.members.map((member) => member.userId));
+        void this.workspace.learnUsers(change.members.map(memberId), { members: true });
         break;
       case 'blocks':
         for (const block of change.blocks) {
@@ -370,7 +370,7 @@ export class BoardStore {
       this.cards = reread(shown, read, cardsBefore, (card) => this.#cardWrites.receive(card));
       if (membersTold === this.#membersTold) {
         this.members = members;
-        void this.workspace.learnUsers(members.map((member) => member.userId));
+        void this.workspace.learnUsers(members.map(memberId), { members: true });
       }
       const open = this.openCard;
       if (open) {

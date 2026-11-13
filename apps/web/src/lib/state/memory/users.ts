@@ -20,7 +20,7 @@ function listed(user: User): User {
 
 export function usersAmong(world: World): User[] {
   return scramble([...world.users.values()])
-    .filter((user) => world.workspaceMembers.has(user.id))
+    .filter((user) => world.workspaceMembers.has(user.id) && user.deleteAt === 0)
     .map(listed);
 }
 

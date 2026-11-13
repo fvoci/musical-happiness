@@ -113,6 +113,7 @@
           clause={entry.clause}
           {templates}
           {people}
+          named={board.workspace.users}
           locale={board.workspace.locale}
           regional={board.workspace.regional}
           onProperty={(propertyId: string) => {

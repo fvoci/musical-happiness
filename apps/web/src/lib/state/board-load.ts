@@ -1,5 +1,5 @@
 /** Reads a board's content and learns the names it carries beyond current membership. */
-import { authorIds } from './user-names.ts';
+import { authorIds, memberId } from './user-names.ts';
 import { boardOfWorkspace } from './board-parts.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
@@ -12,11 +12,9 @@ export async function readBoard(workspace: Workspace, boardId: string) {
     backend.cards(boardId),
     backend.members(boardId),
   ]);
-  if (workspace.info === visit)
-    void workspace.learnUsers(
-      [board.createdBy, ...authorIds(cards), ...members.map((member) => member.userId)].filter(
-        (id) => id !== '',
-      ),
-    );
+  if (workspace.info === visit) {
+    void workspace.learnUsers([board.createdBy, ...authorIds(cards)]);
+    void workspace.learnUsers(members.map(memberId), { members: true });
+  }
   return [board, views, cards, members] as const;
 }

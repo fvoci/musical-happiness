@@ -130,3 +130,36 @@ it('does not bring a departed author response into a later workspace visit', asy
   await reading;
   expect(workspace.users).toEqual([]);
 });
+
+it('asks again for a name left out earlier in the visit once its person is made a member', async () => {
+  const { workspace, backend, world, other, board } = await openFirstBoard();
+  // They wrote nothing the reader reads: the server has no reason to name them.
+  for (const stored of world.boards.values()) {
+    if (stored.createdBy === other.userId) stored.createdBy = backend.userId;
+    for (const block of world.blocksOf(stored.id)) {
+      if (block.createdBy === other.userId) block.createdBy = backend.userId;
+      if (block.modifiedBy === other.userId) block.modifiedBy = backend.userId;
+    }
+  }
+  for (const versions of world.commentVersions.values())
+    for (const version of versions)
+      if (version.writtenBy === other.userId) version.writtenBy = backend.userId;
+  world.workspaceMembers.delete(other.userId);
+  world.members.set(
+    board.boardId,
+    (world.members.get(board.boardId) ?? []).filter((member) => member.userId !== other.userId),
+  );
+  workspace.users = workspace.users.filter((user) => user.id !== other.userId);
+  const byId = vi.spyOn(backend, 'usersById');
+  await workspace.learnUsers([other.userId]);
+  expect(byId).toHaveBeenCalledTimes(1);
+  expect(workspace.user(other.userId)).toBeUndefined();
+  // Let in again, and made a member of the board without the workspace being read again.
+  world.workspaceMembers.add(other.userId);
+  await board.addMember(other.userId, 'editor');
+  await vi.waitFor(() => {
+    expect(workspace.user(other.userId)).toBeDefined();
+  });
+  expect(byId).toHaveBeenCalledTimes(2);
+  expect(board.people.some((user) => user.id === other.userId)).toBe(true);
+});

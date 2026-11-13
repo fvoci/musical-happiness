@@ -256,6 +256,7 @@
           locale={reader.locale}
           regional={reader.regional}
           users={reader.people}
+          named={reader.users}
           presentation={reader.presentation}
           cards={host.cards}
           preventLoops={host.ordering(column.id)}

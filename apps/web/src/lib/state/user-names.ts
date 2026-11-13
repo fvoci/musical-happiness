@@ -6,10 +6,18 @@ export function authorIds(blocks: readonly { createdBy: string; modifiedBy: stri
   return blocks.flatMap((block) => [block.createdBy, block.modifiedBy]);
 }
 
+export const memberId = (member: { userId: string }): string => member.userId;
+
+export interface Learning {
+  /** The people are members now: one left out earlier in the visit is asked again. */
+  members?: boolean;
+}
+
 /**
  * Shares pending lookups and respects the server's limit of 200 identifiers per request. An
  * identifier is asked once a visit: one the server leaves out (an account that was closed, a
- * writer the reader may not see) is not asked again until the next visit; a failure is.
+ * writer the reader may not see) is not asked again until the next visit, or until it is
+ * learned as a member's (let in since); a failure is asked again.
  */
 export class UserNames {
   readonly #workspace: Workspace;
@@ -20,7 +28,7 @@ export class UserNames {
     this.#workspace = workspace;
   }
 
-  async learn(userIds: readonly string[]): Promise<void> {
+  async learn(userIds: readonly string[], learning: Learning = {}): Promise<void> {
     const workspace = this.#workspace;
     const visit = workspace.info;
     if (!visit) return;
@@ -28,6 +36,7 @@ export class UserNames {
     this.#pending.set(visit, pending);
     const answered = this.#answered.get(visit) ?? new Set<string>();
     this.#answered.set(visit, answered);
+    if (learning.members) for (const id of userIds) answered.delete(id);
     const missing = [...new Set(userIds)].filter(
       (id) => id !== '' && !answered.has(id) && !workspace.user(id),
     );
