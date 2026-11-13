@@ -35,6 +35,7 @@ import {
   deferred,
   detached,
   reaim,
+  ready,
   replaceCut,
   requested,
   settled,
@@ -130,12 +131,14 @@ export class UndoManager {
     description?: string,
     groupId?: string,
     isDiscardable = false,
+    ready?: () => Promise<void> | undefined,
   ): Promise<T> {
     const step: Step = {
       undo: undo as (value?: unknown) => Promise<void>,
       redo,
       description,
       value: undefined,
+      ready,
     };
     const entry = this.#place(step, groupId, isDiscardable);
     const making = call(redo);
@@ -376,6 +379,9 @@ export class UndoManager {
       while (current() && target !== ask.entry) {
         target = ask.entry;
         await Promise.race([settled(target), ask.dropped.promise]);
+        if (!current()) return;
+        // An undo waits, still dropped by a new change, for the writes its inverses take back to.
+        if (action === 'undo') await Promise.race([ready(target), ask.dropped.promise]);
         if (!current()) return;
         // A dropped queue can move on, but a write already being carried out still comes first.
         await this.#carried;

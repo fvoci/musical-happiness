@@ -39,14 +39,14 @@ export class BoardWrites {
     return this.#pending.receive(board);
   }
 
-  keep(reverse: BoardPatch): void {
+  /** Keeps the inverse of a change; returns what its undo is to wait for (`Inverses.ready`). */
+  keep(reverse: BoardPatch): () => Promise<void> | undefined {
     this.#inverses.keep(this.#host.boardId, reverse);
+    return () => this.#inverses.ready(reverse);
   }
 
   async write(patch: BoardPatch, reverse: BoardPatch): Promise<void> {
     const host = this.#host;
-    const under = this.#inverses.ready(patch);
-    if (under) await under;
     if (!host.board) return;
     // Inverses can be corrected while requests wait. A request already sent has fixed values.
     const written = structuredClone(patch);
@@ -89,8 +89,7 @@ export class BoardWrites {
 }
 
 /** How the store shows and sends the writes of its cards, or of its views. */
-interface BlockWays<T, P extends object> {
-  inverses: Inverses<P>;
+interface BlockWays<T, P> {
   /** The block as shown, if it is. */
   shown: (id: string) => T | undefined;
   apply: (block: T, patch: P) => T;
@@ -104,9 +103,12 @@ interface BlockWays<T, P extends object> {
 /** The writes of a board's cards, or of its views: by identifier, as `BoardWrites` for the board. */
 export class BlockWrites<T extends { id: string; updateAt: number }, P extends object> {
   readonly #pending = new PendingWrites<T>();
+  readonly #inverses: Inverses<P>;
   readonly #ways: BlockWays<T, P>;
 
-  constructor(ways: BlockWays<T, P>) {
+  /** `updated` and `deleted` name the map of values a patch sets and the list it clears. */
+  constructor(updated: string, deleted: string, ways: BlockWays<T, P>) {
+    this.#inverses = new Inverses(updated, deleted);
     this.#ways = ways;
   }
 
@@ -115,15 +117,15 @@ export class BlockWrites<T extends { id: string; updateAt: number }, P extends o
     return this.#pending.receive(block);
   }
 
-  keep(id: string, reverse: P): void {
-    this.#ways.inverses.keep(id, reverse);
+  /** Keeps the inverse of a change; returns what its undo is to wait for (`Inverses.ready`). */
+  keep(id: string, reverse: P): () => Promise<void> | undefined {
+    this.#inverses.keep(id, reverse);
+    return () => this.#inverses.ready(reverse);
   }
 
   /** Shows `patch` on the block and sends it; on refusal takes back what is still its own. */
   async write(id: string, patch: P, reverse: P): Promise<void> {
     const ways = this.#ways;
-    const under = ways.inverses.ready(patch);
-    if (under) await under;
     const current = ways.shown(id);
     if (!current) return;
     const written = structuredClone(patch);
@@ -131,7 +133,7 @@ export class BlockWrites<T extends { id: string; updateAt: number }, P extends o
     this.#pending.begin(id);
     let restore: P | undefined;
     try {
-      const answer = await ways.inverses.write(
+      const answer = await this.#inverses.write(
         id,
         written,
         reverse,

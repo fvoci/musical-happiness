@@ -119,3 +119,45 @@ describe.each(['patchBoard', 'patchCard', 'patchView'] as const)('%s', (method) 
     }
   });
 });
+
+describe('an undo waiting for the write its value came from (found by a review of 0a15e86a)', () => {
+  it('is dropped by a change made meanwhile, which stays', async () => {
+    const { backend, workspace, kinds } = await opened();
+    const kind = kinds.patchBoard;
+    const refuse = refuseLater(backend, 'patchBoard');
+    try {
+      const refused = kind.title('refused');
+      await kind.title('later');
+      const undoing = workspace.undoLast();
+      await settle();
+      await kind.title('meanwhile');
+      refuse();
+      await Promise.all([refused, undoing]);
+      expect([kind.shown(), await kind.stored()]).toEqual(['meanwhile', 'meanwhile']);
+    } finally {
+      refuse();
+      workspace.close();
+    }
+  });
+
+  it('does not keep undo busy for good when that write never answers', async () => {
+    const { board, backend, workspace, kinds } = await opened();
+    const kind = kinds.patchBoard;
+    const never = refuseLater(backend, 'patchBoard');
+    const card = board.realCards[0];
+    if (!card) throw new Error('no card');
+    try {
+      void kind.title('unanswered');
+      await kind.title('later');
+      void workspace.undoLast();
+      await settle();
+      await board.setCardTitle(card.id, 'changed');
+      expect(workspace.undo.busy).toBe(false);
+      await workspace.undoLast();
+      expect(board.card(card.id)?.title).toBe(card.title);
+    } finally {
+      never();
+      workspace.close();
+    }
+  });
+});

@@ -4,6 +4,8 @@ export interface Step {
   redo: () => Promise<unknown>;
   description: string | undefined;
   value: unknown;
+  /** What its undo waits for before it begins (writes its inverse takes back to); none when undefined. */
+  ready: (() => Promise<void> | undefined) | undefined;
 }
 
 export interface Entry {
@@ -162,6 +164,11 @@ export function replaceCut(holder: Entry, entry: Entry, by: Entry | undefined): 
     return true;
   }
   return holder.cut.some((other) => replaceCut(other, entry, by));
+}
+
+/** Waits for what the undos of the steps of `entry` wait for before they begin. */
+export async function ready(entry: Entry): Promise<void> {
+  await Promise.all(entry.steps.flatMap((step) => step.ready?.() ?? []));
 }
 
 /** Calls `run` now, turning a throw into a rejection. */

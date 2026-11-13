@@ -40,7 +40,6 @@ import { copyOfCard } from './card-copy.ts';
 import { BlockWrites, BoardWrites, patchCardOrStored, patchViewOrStored } from './board-writes.ts';
 import { dropCardsOn } from './card-drop.ts';
 import { CardStore } from './card.svelte.ts';
-import { Inverses } from './inverses.ts';
 import { lastCommentsOf } from './last-comments.ts';
 import { propertyMovesOf } from './property-moves.ts';
 import { addMemberTo, boardOfWorkspace, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
@@ -143,19 +142,18 @@ export class BoardStore {
   /** Keeps the cards' `lastCommentAt` current between readings. */
   readonly #lastComments = lastCommentsOf(this);
   readonly #boardWrites = new BoardWrites(this);
-  readonly #cardWrites = new BlockWrites<CardSummary, CardPatch>({
-    inverses: new Inverses('updatedProperties', 'deletedProperties'),
-    shown: (cardId) => this.card(cardId),
-    apply: applyCardPatch,
-    show: (card) => (this.cards = put(this.cards, card)),
-    answered: (card) => {
+  readonly #cardWrites = new BlockWrites('updatedProperties', 'deletedProperties', {
+    shown: (cardId: string) => this.card(cardId),
+    apply: applyCardPatch<CardSummary>,
+    show: (card: CardSummary) => (this.cards = put(this.cards, card)),
+    answered: (card: CardSummary) => {
       this.cards = take(this.cards, card);
       this.openCard?.cardChanged(card);
     },
-    send: (cardId, patch, own) => patchCardOrStored(this, cardId, patch, own),
+    send: (cardId: string, patch: CardPatch, own: (key: string) => boolean) =>
+      patchCardOrStored(this, cardId, patch, own),
   });
-  readonly #viewWrites = new BlockWrites<BoardView, BlockPatch>({
-    inverses: new Inverses('updatedFields', 'deletedFields'),
+  readonly #viewWrites = new BlockWrites<BoardView, BlockPatch>('updatedFields', 'deletedFields', {
     shown: (viewId) => this.view(viewId),
     apply: applyViewPatch,
     show: (view) => (this.views = put(this.views, view)),
@@ -438,9 +436,10 @@ export class BoardStore {
     undo: (value: T) => Promise<void>,
     description: string,
     groupId?: string,
+    ready?: () => Promise<void> | undefined,
   ): Promise<T | undefined> {
     try {
-      return await this.workspace.undo.perform(redo, undo, description, groupId);
+      return await this.workspace.undo.perform(redo, undo, description, groupId, false, ready);
     } catch (error) {
       this.workspace.report('save', error);
       return undefined;
@@ -468,12 +467,12 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = cardPatches(change(current), current);
     if (isEmptyCardPatch(forward)) return;
-    this.#cardWrites.keep(cardId, backward);
     await this.#perform(
       () => this.#cardWrites.write(cardId, forward, backward),
       () => this.#cardWrites.write(cardId, backward, forward),
       description,
       groupId,
+      this.#cardWrites.keep(cardId, backward),
     );
   }
 
@@ -588,12 +587,12 @@ export class BoardStore {
     if (!current) return;
     const [forward, backward] = viewPatches(change(current), current);
     if (isEmptyBlockPatch(forward)) return;
-    this.#viewWrites.keep(viewId, backward);
     await this.#perform(
       () => this.#viewWrites.write(viewId, forward, backward),
       () => this.#viewWrites.write(viewId, backward, forward),
       description,
       groupId,
+      this.#viewWrites.keep(viewId, backward),
     );
   }
 
@@ -670,12 +669,12 @@ export class BoardStore {
     if (!this.board) return;
     const [forward, backward] = boardPatches(change(this.board), this.board);
     if (isEmptyBoardPatch(forward)) return;
-    this.#boardWrites.keep(backward);
     await this.#perform(
       () => this.#boardWrites.write(forward, backward),
       () => this.#boardWrites.write(backward, forward),
       description,
       groupId,
+      this.#boardWrites.keep(backward),
     );
   }
 
