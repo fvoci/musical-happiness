@@ -15,6 +15,7 @@ import { boardLink, sidebar } from '../e2e/shell.support.ts';
 
 import {
   ADMIN,
+  boardPath,
   invitation,
   makeBoard,
   person,
@@ -120,49 +121,72 @@ test('the organization’s administrator makes a workspace, joins it, switches t
   expect(errors).toEqual([]);
 });
 
-test('a board one manages without reading opens from the sidebar and is joined from its page', async ({
-  page,
-  browser,
-  baseURL,
-}) => {
-  const base = baseURL ?? '';
-  await invitation(base);
-  const owner = person('owner');
-  const colleague = person('colleague');
-  await register(base, owner);
-  await register(base, colleague);
-  const board = await makeBoard(await signedIn(base, owner), {
-    title: 'Salaries',
-    type: 'P',
-    cards: [{ title: 'Raise for everyone', status: 'To do' }],
+for (const entry of ['sidebar', 'address'] as const) {
+  test(`a board one manages without reading opens from the ${entry} and is joined from its page`, async ({
+    page,
+    browser,
+    baseURL,
+  }) => {
+    const base = baseURL ?? '';
+    await invitation(base);
+    const owner = person('owner');
+    const colleague = person('colleague');
+    await register(base, owner);
+    await register(base, colleague);
+    const title = uniqueName(`Salaries from ${entry}`);
+    const board = await makeBoard(await signedIn(base, owner), {
+      title,
+      type: 'P',
+      cards: [{ title: 'Raise for everyone', status: 'To do' }],
+    });
+    // The sidebar links the board itself; an address a member shares names a view of it.
+    const address = boardPath(board, board.viewId);
+    const onBoard = new RegExp(`${boardPath(board)}(/[^/]+)?$`);
+
+    const errors = watchErrors(page);
+    await page.goto(entry === 'sidebar' ? `/w/${board.workspaceId}` : address);
+    await signInOnPage(page, ADMIN);
+    if (entry === 'sidebar') await boardLink(page, title).click();
+    const managed = page.getByTestId('board-managed');
+    await expect(managed).toBeVisible();
+    await expect(page).toHaveURL(entry === 'sidebar' ? onBoard : new RegExp(`${address}$`));
+    await expect(managed.getByRole('heading')).toHaveText(title);
+    await expect(managed).toContainText('every member of the workspace will see that you joined');
+    await expect(page.getByTestId('board-page')).toHaveCount(0);
+    await expect(page.getByText('Raise for everyone')).toHaveCount(0);
+    await picture(page, `managed-board-${entry}`);
+    const joinedFrom = Date.now();
+    await managed.getByRole('button', { name: 'Join', exact: true }).click();
+    await expect(page.getByTestId('board-page')).toBeVisible();
+    await expect(page.getByText('Raise for everyone')).toBeVisible();
+    await expect(page).toHaveURL(entry === 'sidebar' ? onBoard : new RegExp(`${address}$`));
+    expect(errors).toEqual([]);
+
+    const other = await browser.newContext({ locale: 'en-US' });
+    const theirs = await other.newPage();
+    await theirs.goto(`/w/${board.workspaceId}`);
+    await signInOnPage(theirs, colleague);
+    await sidebar(theirs).getByTestId('open-settings').click();
+    await theirs.getByTestId('open-records').click();
+    const records = theirs.getByTestId('workspace-records');
+    const joins = records.locator('[data-action="self_added_to_board"]');
+    await expect(joins.first()).toBeVisible();
+    // Other tests join boards of this workspace too: this join is the one made since the click
+    // (the server and the browser share a clock; a second spares a record kept in seconds).
+    const ours = await joins.evaluateAll(
+      (rows, since) =>
+        rows.findIndex(
+          (row) => Date.parse(row.querySelector('time')?.getAttribute('datetime') ?? '') >= since,
+        ),
+      joinedFrom - 1000,
+    );
+    expect(ours).toBeGreaterThanOrEqual(0);
+    const joined = joins.nth(ours);
+    await expect(joined).toContainText(`@${ADMIN.username}`);
+    // The colleague does not read the board: its title is not told.
+    await expect(joined).toContainText('a member of a board');
+    await expect(records).not.toContainText(title);
+    await picture(theirs, `records-${entry}`);
+    await other.close();
   });
-
-  const errors = watchErrors(page);
-  await page.goto(`/w/${board.workspaceId}`);
-  await signInOnPage(page, ADMIN);
-  await boardLink(page, 'Salaries').click();
-  const managed = page.getByTestId('board-managed');
-  await expect(managed).toBeVisible();
-  await expect(managed.getByRole('heading')).toHaveText('Salaries');
-  await expect(managed).toContainText('every member of the workspace will see that you joined');
-  await expect(page.getByTestId('board-page')).toHaveCount(0);
-  await picture(page, 'managed-board');
-  await managed.getByRole('button', { name: 'Join', exact: true }).click();
-  await expect(page.getByTestId('board-page')).toBeVisible();
-  await expect(page.getByText('Raise for everyone')).toBeVisible();
-  expect(errors).toEqual([]);
-
-  const other = await browser.newContext({ locale: 'en-US' });
-  const theirs = await other.newPage();
-  await theirs.goto(`/w/${board.workspaceId}`);
-  await signInOnPage(theirs, colleague);
-  await sidebar(theirs).getByTestId('open-settings').click();
-  await theirs.getByTestId('open-records').click();
-  const records = theirs.getByTestId('workspace-records');
-  const joined = records.locator('[data-action="self_added_to_board"]').first();
-  await expect(joined).toContainText(`@${ADMIN.username}`);
-  // The colleague does not read the board: its title is not told.
-  await expect(joined).toContainText('a member of a board');
-  await picture(theirs, 'records');
-  await other.close();
-});
+}
