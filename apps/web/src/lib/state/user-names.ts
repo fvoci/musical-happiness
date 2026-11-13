@@ -6,10 +6,15 @@ export function authorIds(blocks: readonly { createdBy: string; modifiedBy: stri
   return blocks.flatMap((block) => [block.createdBy, block.modifiedBy]);
 }
 
-/** Shares pending lookups and respects the server's limit of 200 identifiers per request. */
+/**
+ * Shares pending lookups and respects the server's limit of 200 identifiers per request. An
+ * identifier is asked once a visit: one the server leaves out (an account that was closed, a
+ * writer the reader may not see) is not asked again until the next visit; a failure is.
+ */
 export class UserNames {
   readonly #workspace: Workspace;
   readonly #pending = new WeakMap<WorkspaceInfo, Map<string, Promise<void>>>();
+  readonly #answered = new WeakMap<WorkspaceInfo, Set<string>>();
 
   constructor(workspace: Workspace) {
     this.#workspace = workspace;
@@ -21,11 +26,15 @@ export class UserNames {
     if (!visit) return;
     const pending = this.#pending.get(visit) ?? new Map<string, Promise<void>>();
     this.#pending.set(visit, pending);
-    const missing = [...new Set(userIds)].filter((id) => id !== '' && !workspace.user(id));
+    const answered = this.#answered.get(visit) ?? new Set<string>();
+    this.#answered.set(visit, answered);
+    const missing = [...new Set(userIds)].filter(
+      (id) => id !== '' && !answered.has(id) && !workspace.user(id),
+    );
     const fresh = missing.filter((id) => !pending.has(id));
     for (let start = 0; start < fresh.length; start += 200) {
       const ids = fresh.slice(start, start + 200);
-      const reading = this.#read(visit, ids).finally(() => {
+      const reading = this.#read(visit, ids, answered).finally(() => {
         for (const id of ids) pending.delete(id);
       });
       for (const id of ids) pending.set(id, reading);
@@ -33,17 +42,18 @@ export class UserNames {
     await Promise.all(missing.flatMap((id) => pending.get(id) ?? []));
   }
 
-  async #read(visit: WorkspaceInfo, ids: string[]): Promise<void> {
+  async #read(visit: WorkspaceInfo, ids: string[], answered: Set<string>): Promise<void> {
     const workspace = this.#workspace;
     try {
       const found = await workspace.backend.usersById(visit.id, ids);
+      for (const id of ids) answered.add(id);
       if (workspace.info !== visit) return;
       const added: User[] = found.filter(
         (user) => ids.includes(user.id) && !workspace.user(user.id),
       );
       workspace.users = [...workspace.users, ...added];
     } catch (error) {
-      if (workspace.info !== visit) return;
+      // A session that is over signs out, whichever workspace is shown by then.
       if (isBackendError(error) && error.status === 401) workspace.report('load', error);
       else if (!isBackendError(error)) console.error(error);
     }

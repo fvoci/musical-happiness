@@ -58,6 +58,8 @@ export interface PropertyValueProps extends OptionCallbacks, ReaderContext {
   startOpen?: boolean;
   /** The people a person property can be set to. */
   users?: readonly PropertyUser[];
+  /** People a value may name though they are not offered: an author who left, say. */
+  named?: readonly PropertyUser[];
   /** How pickers open. The caller decides; nothing here looks at the viewport. */
   presentation?: Presentation;
   /**

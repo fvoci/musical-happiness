@@ -3,8 +3,9 @@
   from the list the caller passes, shown as "Display name (@login)" or by the
   login name alone; typing narrows the list by either name.
 
-  An identifier that is not in the list is shown as an unknown user: the
-  value still says someone is there, and that someone can be taken out.
+  A person is named from `named` too, the people known beyond those offered
+  (an author who left). An identifier known to neither is shown as an unknown
+  user: the value still says someone is there, and that someone can be taken out.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -26,6 +27,8 @@
     ids: readonly string[];
     multiple: boolean;
     users: readonly PropertyUser[];
+    /** People who may be named though not offered (an author who left). */
+    named?: readonly PropertyUser[];
     editable: boolean;
     /** Shown where there is no value; empty for nothing. */
     placeholder: string;
@@ -40,6 +43,7 @@
     ids,
     multiple,
     users,
+    named,
     editable,
     placeholder,
     presentation = 'popover',
@@ -52,7 +56,8 @@
   let search = $state('');
 
   const nameOf = (id: string): string => {
-    const user = users.find((candidate) => candidate.id === id);
+    const known = (candidate: PropertyUser): boolean => candidate.id === id;
+    const user = users.find(known) ?? named?.find(known);
     return user ? userDisplayName(user) : m['centerPanel.unknown-user']();
   };
 

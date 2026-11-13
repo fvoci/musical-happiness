@@ -76,3 +76,18 @@ it('names the writer of a kept comment revision, including its readable trash hi
   world.commentVersions.delete(comment.id);
   expect(await backend.usersById(world.workspace.id, ids)).toEqual([]);
 });
+
+it('names nobody whose account was closed, though their card stays', async () => {
+  const { backend, world, other } = setup();
+  const board = [...world.boards.values()][0];
+  assert(board);
+  const card = world.blocksOf(board.id).find((block) => block.type === 'card');
+  assert(card);
+  card.createdBy = other.userId;
+  const ids = [other.userId];
+  expect((await backend.usersById(world.workspace.id, ids)).map((user) => user.id)).toEqual(ids);
+  const closed = world.users.get(other.userId);
+  assert(closed);
+  closed.deleteAt = 1;
+  expect(await backend.usersById(world.workspace.id, ids)).toEqual([]);
+});

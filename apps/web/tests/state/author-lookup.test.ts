@@ -64,9 +64,12 @@ it('splits 401 unique missing names into bounded requests and shares overlapping
   expect(byId).toHaveBeenCalledTimes(3);
 });
 
-it('retries failed lookups and does not cache omitted or unrequested names', async () => {
-  const { workspace, backend, other } = await openFirstBoard();
-  workspace.users = workspace.users.filter((user) => user.id !== other.userId);
+it('retries a failed lookup, keeps nothing it did not ask for, and asks once a visit for a name left out', async () => {
+  const { workspace, backend, other, world } = await openFirstBoard();
+  const without = (): void => {
+    workspace.users = workspace.users.filter((user) => user.id !== other.userId);
+  };
+  without();
   const byId = vi.spyOn(backend, 'usersById').mockRejectedValueOnce(new BackendError(503, {}));
   await workspace.learnUsers([other.userId]);
   expect(workspace.user(other.userId)).toBeUndefined();
@@ -76,9 +79,37 @@ it('retries failed lookups and does not cache omitted or unrequested names', asy
   byId.mockResolvedValueOnce([unrelated]);
   await workspace.learnUsers([other.userId]);
   expect(workspace.user('unrequested')).toBeUndefined();
-  byId.mockRestore();
+  expect(byId).toHaveBeenCalledTimes(2);
+  // Left out (an account that was closed, say): every screen that names them asks no more.
   await workspace.learnUsers([other.userId]);
+  await workspace.learnUsers([other.userId]);
+  expect(byId).toHaveBeenCalledTimes(2);
+  expect(workspace.user(other.userId)).toBeUndefined();
+  // The next visit asks again.
+  await workspace.enter('another-workspace');
+  await workspace.enter(world.workspace.id);
+  without();
+  await workspace.learnUsers([other.userId]);
+  expect(byId).toHaveBeenCalledTimes(3);
   expect(workspace.user(other.userId)).toBeDefined();
+});
+
+it('signs out on a session that ended while a lookup was pending, though another workspace is shown', async () => {
+  const { workspace, backend, other } = await openFirstBoard();
+  workspace.users = workspace.users.filter((user) => user.id !== other.userId);
+  let refuse!: (error: unknown) => void;
+  vi.spyOn(backend, 'usersById').mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        refuse = reject;
+      }),
+  );
+  const report = vi.spyOn(workspace, 'report');
+  const reading = workspace.learnUsers([other.userId]);
+  await workspace.enter('another-workspace');
+  refuse(new BackendError(401, {}));
+  await reading;
+  expect(report).toHaveBeenCalledWith('load', expect.objectContaining({ status: 401 }));
 });
 
 it('does not bring a departed author response into a later workspace visit', async () => {

@@ -49,7 +49,10 @@ export function usersNamed(world: World, readerId: string, userIds: readonly str
       }
     }
   }
-  return scramble([...world.users.values()])
-    .filter((user) => userIds.includes(user.id) && visible.has(user.id))
-    .map(listed);
+  return (
+    scramble([...world.users.values()])
+      // As the server: a closed account is named by nobody, though its work stays.
+      .filter((user) => userIds.includes(user.id) && visible.has(user.id) && user.deleteAt === 0)
+      .map(listed)
+  );
 }
